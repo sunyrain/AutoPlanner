@@ -1,0 +1,555 @@
+{
+  "target": "OC(C(=O)O)c1ccccc1",
+  "search_time_s": 43.37,
+  "n_routes_total": 22,
+  "routes": [
+    {
+      "rank": 1,
+      "depth": 0,
+      "in_stock_frac": 0.6666666666666666,
+      "n_steps": 1,
+      "steps": [
+        {
+          "product": "O=C(O)C(O)c1ccccc1",
+          "reactants": [
+            "O=CC(=O)O",
+            "c1ccccc1"
+          ],
+          "reactants_dot": "O=CC(=O)O.c1ccccc1",
+          "rxn_smi": "O=CC(=O)O.c1ccccc1>>O=C(O)C(O)c1ccccc1",
+          "policy_prior": 0.07020000368356705,
+          "policy_rank": 2,
+          "template_hash": "55870e3f687cc280b2e5d4c5a00ca47c539eda0897b1e6e2985900e15e27271a",
+          "policy_name": "uspto",
+          "conditions": {
+            "gate": [
+              "enz",
+              0.5997264801559427
+            ],
+            "ec1": [
+              "5",
+              0.6746237226692882
+            ],
+            "transformation": [
+              "racemization",
+              0.4438222214497549
+            ],
+            "catalyst": [
+              "metal_catalyst",
+              0.4364720996220824
+            ],
+            "solvent": [
+              "O",
+              0.3246023834524052
+            ],
+            "temperature_c": 45.30769230769231
+          }
+        }
+      ],
+      "tree": {
+        "type": "mol",
+        "hide": false,
+        "smiles": "O=C(O)C(O)c1ccccc1",
+        "is_chemical": true,
+        "in_stock": false,
+        "children": [
+          {
+            "type": "reaction",
+            "hide": false,
+            "smiles": "[O:1]=[C:2]([OH:3])[C:4]([O:5])[c:7]([cH2:6])[cH2:8]>>[O:1]=[C:2]([OH:3])[C:4]=[O:5].[cH2:6][c:7][cH2:8]",
+            "is_reaction": true,
+            "metadata": {
+              "template_hash": "55870e3f687cc280b2e5d4c5a00ca47c539eda0897b1e6e2985900e15e27271a",
+              "classification": "0.0 Unrecognized",
+              "library_occurence": 24,
+              "policy_probability": 0.07020000368356705,
+              "policy_probability_rank": 2,
+              "policy_name": "uspto",
+              "template_code": 14275,
+              "template": "[O;D1;H0:1]=[C:2](-[O;D1;H1:3])-[CH;D3;+0:4](-[OH;D1;+0:5])-[c;H0;D3;+0:7](:[c:6]):[c:8]>>[O;D1;H0:1]=[C:2](-[O;D1;H1:3])-[CH;D2;+0:4]=[O;H0;D1;+0:5].[c:6]:[cH;D2;+0:7]:[c:8]",
+              "mapped_reaction_smiles": "[O:1]=[C:2]([OH:3])[CH:4]([OH:5])[c:6]1[cH:7][cH:8][cH:9][cH:10][cH:11]1>>[O:1]=[C:2]([OH:3])[CH:4]=[O:5].[cH:6]1[cH:7][cH:8][cH:9][cH:10][cH:11]1"
+            },
+            "children": [
+              {
+                "type": "mol",
+                "hide": false,
+                "smiles": "O=CC(=O)O",
+                "is_chemical": true,
+                "in_stock": true
+              },
+              {
+                "type": "mol",
+                "hide": false,
+                "smiles": "c1ccccc1",
+                "is_chemical": true,
+                "in_stock": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "rank": 2,
+      "depth": 0,
+      "in_stock_frac": 0.6666666666666666,
+      "n_steps": 1,
+      "steps": [
+        {
+          "product": "O=C(O)C(O)c1ccccc1",
+          "reactants": [
+            "CCOC(C)=O",
+            "O=Cc1ccccc1"
+          ],
+          "reactants_dot": "CCOC(C)=O.O=Cc1ccccc1",
+          "rxn_smi": "CCOC(C)=O.O=Cc1ccccc1>>O=C(O)C(O)c1ccccc1",
+          "policy_prior": 0.05900000035762787,
+          "policy_rank": 3,
+          "template_hash": "aeebdd9a5fa91b1886fdeb73af9f13bb0e22b6ea94604cffa45d335fb984e0de",
+          "policy_name": "uspto",
+          "conditions": {
+            "gate": [
+              "enz",
+              0.9022784333295588
+            ],
+            "ec1": [
+              "3",
+              0.9985170334605032
+            ],
+            "transformation": [
+              "hydrolysis",
+              0.841987101562439
+            ],
+            "catalyst": [
+              "enzyme",
+              0.493639713891228
+            ],
+            "solvent": [
+              "other",
+              0.4019485549362607
+            ],
+            "temperature_c": 45.86896551724138
+          }
+        }
+      ],
+      "tree": {
+        "type": "mol",
+        "hide": false,
+        "smiles": "O=C(O)C(O)c1ccccc1",
+        "is_chemical": true,
+        "in_stock": false,
+        "children": [
+          {
+            "type": "reaction",
+            "hide": false,
+            "smiles": "[O:1][C:2](=[O:3])[C:5]([O:4])[cH3:6]>>CC[O:1][C:2](C)=[O:3].[O:4]=[C:5][cH3:6]",
+            "is_reaction": true,
+            "metadata": {
+              "template_hash": "aeebdd9a5fa91b1886fdeb73af9f13bb0e22b6ea94604cffa45d335fb984e0de",
+              "classification": "0.0 Unrecognized",
+              "library_occurence": 7,
+              "policy_probability": 0.05900000035762787,
+              "policy_probability_rank": 3,
+              "policy_name": "uspto",
+              "template_code": 29219,
+              "template": "[O;D1;H0:3]=[C;H0;D3;+0:2](-[OH;D1;+0:1])-[CH;D3;+0:5](-[OH;D1;+0:4])-[c:6]>>C-C-[O;H0;D2;+0:1]-[C;H0;D3;+0:2](-C)=[O;D1;H0:3].[O;H0;D1;+0:4]=[CH;D2;+0:5]-[c:6]",
+              "mapped_reaction_smiles": "[O:1]=[C:2]([OH:3])[CH:4]([OH:5])[c:6]1[cH:7][cH:8][cH:9][cH:10][cH:11]1>>[CH:4](=[O:5])[c:6]1[cH:7][cH:8][cH:9][cH:10][cH:11]1.[O:1]=[C:2]([O:3][CH2:12][CH3:13])[CH3:14]"
+            },
+            "children": [
+              {
+                "type": "mol",
+                "hide": false,
+                "smiles": "CCOC(C)=O",
+                "is_chemical": true,
+                "in_stock": true
+              },
+              {
+                "type": "mol",
+                "hide": false,
+                "smiles": "O=Cc1ccccc1",
+                "is_chemical": true,
+                "in_stock": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "rank": 3,
+      "depth": 0,
+      "in_stock_frac": 0.5,
+      "n_steps": 1,
+      "steps": [
+        {
+          "product": "O=C(O)C(O)c1ccccc1",
+          "reactants": [
+            "O=C(O)C(=O)c1ccccc1"
+          ],
+          "reactants_dot": "O=C(O)C(=O)c1ccccc1",
+          "rxn_smi": "O=C(O)C(=O)c1ccccc1>>O=C(O)C(O)c1ccccc1",
+          "policy_prior": 0.007799999788403511,
+          "policy_rank": 14,
+          "template_hash": "b5e0d751a308713ec9a5de3c7aed5add4059bbf3a7685d1bdeed35ccfa6f4eea",
+          "policy_name": "uspto",
+          "conditions": {
+            "gate": [
+              "enz",
+              0.9351531868898927
+            ],
+            "ec1": [
+              "1",
+              0.8989726750084297
+            ],
+            "transformation": [
+              "oxidation",
+              0.7480254685989074
+            ],
+            "catalyst": [
+              "whole_cell",
+              0.5825025498505827
+            ],
+            "solvent": [
+              "O",
+              0.7170765784328712
+            ],
+            "temperature_c": 31.791330645161292
+          }
+        }
+      ],
+      "tree": {
+        "type": "mol",
+        "hide": false,
+        "smiles": "O=C(O)C(O)c1ccccc1",
+        "is_chemical": true,
+        "in_stock": false,
+        "children": [
+          {
+            "type": "reaction",
+            "hide": false,
+            "smiles": "[CH3:1][C:2]([O:3])[cH3:4]>>[CH3:1][C:2](=[O:3])[cH3:4]",
+            "is_reaction": true,
+            "metadata": {
+              "template_hash": "b5e0d751a308713ec9a5de3c7aed5add4059bbf3a7685d1bdeed35ccfa6f4eea",
+              "classification": "0.0 Unrecognized",
+              "library_occurence": 3639,
+              "policy_probability": 0.007799999788403511,
+              "policy_probability_rank": 14,
+              "policy_name": "uspto",
+              "template_code": 30357,
+              "template": "[C:1]-[CH;D3;+0:2](-[OH;D1;+0:3])-[c:4]>>[C:1]-[C;H0;D3;+0:2](=[O;H0;D1;+0:3])-[c:4]",
+              "mapped_reaction_smiles": "[O:1]=[C:2]([OH:3])[CH:4]([OH:5])[c:6]1[cH:7][cH:8][cH:9][cH:10][cH:11]1>>[O:1]=[C:2]([OH:3])[C:4](=[O:5])[c:6]1[cH:7][cH:8][cH:9][cH:10][cH:11]1"
+            },
+            "children": [
+              {
+                "type": "mol",
+                "hide": false,
+                "smiles": "O=C(O)C(=O)c1ccccc1",
+                "is_chemical": true,
+                "in_stock": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "rank": 4,
+      "depth": 0,
+      "in_stock_frac": 0.5,
+      "n_steps": 2,
+      "steps": [
+        {
+          "product": "O=C(O)C(O)c1ccccc1",
+          "reactants": [
+            "CC(=O)O",
+            "OCC(O)c1ccccc1"
+          ],
+          "reactants_dot": "CC(=O)O.OCC(O)c1ccccc1",
+          "rxn_smi": "CC(=O)O.OCC(O)c1ccccc1>>O=C(O)C(O)c1ccccc1",
+          "policy_prior": 0.014800000004470348,
+          "policy_rank": 7,
+          "template_hash": "a7dae168ec8a036d1810b00d31a8fc5e94b109fd9dda4dfbca3b6d908660dc17",
+          "policy_name": "uspto",
+          "conditions": {
+            "gate": [
+              "enz",
+              0.9878148389496232
+            ],
+            "ec1": [
+              "3",
+              0.4115677504984568
+            ],
+            "transformation": [
+              "hydrolysis",
+              0.5028564905051041
+            ],
+            "catalyst": [
+              "enzyme",
+              0.7082010043804468
+            ],
+            "solvent": [
+              "O",
+              0.8489423759286107
+            ],
+            "temperature_c": 45.86896551724138
+          }
+        },
+        {
+          "product": "OCC(O)c1ccccc1",
+          "reactants": [
+            "O=C(CO)c1ccccc1"
+          ],
+          "reactants_dot": "O=C(CO)c1ccccc1",
+          "rxn_smi": "O=C(CO)c1ccccc1>>OCC(O)c1ccccc1",
+          "policy_prior": 0.1589999943971634,
+          "policy_rank": 0,
+          "template_hash": "b5e0d751a308713ec9a5de3c7aed5add4059bbf3a7685d1bdeed35ccfa6f4eea",
+          "policy_name": "uspto",
+          "conditions": {
+            "gate": [
+              "enz",
+              0.766461404719854
+            ],
+            "ec1": [
+              "1",
+              0.9603169925681869
+            ],
+            "transformation": [
+              "oxidation",
+              0.6155086888253576
+            ],
+            "catalyst": [
+              "photocatalyst",
+              0.4863291406606519
+            ],
+            "solvent": [
+              "O",
+              0.5947900908402002
+            ],
+            "temperature_c": 31.791330645161292
+          }
+        }
+      ],
+      "tree": {
+        "type": "mol",
+        "hide": false,
+        "smiles": "O=C(O)C(O)c1ccccc1",
+        "is_chemical": true,
+        "in_stock": false,
+        "children": [
+          {
+            "type": "reaction",
+            "hide": false,
+            "smiles": "[O:1][C:3]([CH3:2])=[O:4]>>CC(=O)[O:1].[CH3:2][C:3][O:4]",
+            "is_reaction": true,
+            "metadata": {
+              "template_hash": "a7dae168ec8a036d1810b00d31a8fc5e94b109fd9dda4dfbca3b6d908660dc17",
+              "classification": "0.0 Unrecognized",
+              "library_occurence": 19,
+              "policy_probability": 0.014800000004470348,
+              "policy_probability_rank": 7,
+              "policy_name": "uspto",
+              "template_code": 28000,
+              "template": "[C:2]-[C;H0;D3;+0:3](=[O;H0;D1;+0:4])-[OH;D1;+0:1]>>C-C(=O)-[OH;D1;+0:1].[C:2]-[CH2;D2;+0:3]-[OH;D1;+0:4]",
+              "mapped_reaction_smiles": "[O:1]=[C:2]([OH:3])[CH:4]([OH:5])[c:6]1[cH:7][cH:8][cH:9][cH:10][cH:11]1>>[OH:1][CH2:2][CH:4]([OH:5])[c:6]1[cH:7][cH:8][cH:9][cH:10][cH:11]1.[OH:3][C:12]([CH3:13])=[O:14]"
+            },
+            "children": [
+              {
+                "type": "mol",
+                "hide": false,
+                "smiles": "CC(=O)O",
+                "is_chemical": true,
+                "in_stock": true
+              },
+              {
+                "type": "mol",
+                "hide": false,
+                "smiles": "OCC(O)c1ccccc1",
+                "is_chemical": true,
+                "in_stock": false,
+                "children": [
+                  {
+                    "type": "reaction",
+                    "hide": false,
+                    "smiles": "[CH3:1][C:2]([O:3])[cH3:4]>>[CH3:1][C:2](=[O:3])[cH3:4]",
+                    "is_reaction": true,
+                    "metadata": {
+                      "template_hash": "b5e0d751a308713ec9a5de3c7aed5add4059bbf3a7685d1bdeed35ccfa6f4eea",
+                      "classification": "0.0 Unrecognized",
+                      "library_occurence": 3639,
+                      "policy_probability": 0.1589999943971634,
+                      "policy_probability_rank": 0,
+                      "policy_name": "uspto",
+                      "template_code": 30357,
+                      "template": "[C:1]-[CH;D3;+0:2](-[OH;D1;+0:3])-[c:4]>>[C:1]-[C;H0;D3;+0:2](=[O;H0;D1;+0:3])-[c:4]",
+                      "mapped_reaction_smiles": "[OH:1][CH2:2][CH:4]([OH:5])[c:6]1[cH:7][cH:8][cH:9][cH:10][cH:11]1>>[OH:1][CH2:2][C:4](=[O:5])[c:6]1[cH:7][cH:8][cH:9][cH:10][cH:11]1"
+                    },
+                    "children": [
+                      {
+                        "type": "mol",
+                        "hide": false,
+                        "smiles": "O=C(CO)c1ccccc1",
+                        "is_chemical": true,
+                        "in_stock": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "rank": 5,
+      "depth": 0,
+      "in_stock_frac": 0.5,
+      "n_steps": 2,
+      "steps": [
+        {
+          "product": "O=C(O)C(O)c1ccccc1",
+          "reactants": [
+            "O=C(O)C(O)c1cccc(F)c1"
+          ],
+          "reactants_dot": "O=C(O)C(O)c1cccc(F)c1",
+          "rxn_smi": "O=C(O)C(O)c1cccc(F)c1>>O=C(O)C(O)c1ccccc1",
+          "policy_prior": 0.014700000174343586,
+          "policy_rank": 8,
+          "template_hash": "2b745366e6b82bdccf450a119acad5bff0a9f4e97c7ca51f71160c8252020194",
+          "policy_name": "uspto",
+          "conditions": {
+            "gate": [
+              "enz",
+              0.6568568047625177
+            ],
+            "ec1": [
+              "5",
+              0.8440930125383901
+            ],
+            "transformation": [
+              "racemization",
+              0.4658863098215925
+            ],
+            "catalyst": [
+              "enzyme",
+              0.3845832727977336
+            ],
+            "solvent": [
+              "O",
+              0.18822573318713656
+            ],
+            "temperature_c": 45.30769230769231
+          }
+        },
+        {
+          "product": "O=C(O)C(O)c1cccc(F)c1",
+          "reactants": [
+            "CCOC(C)=O",
+            "O=Cc1cccc(F)c1"
+          ],
+          "reactants_dot": "CCOC(C)=O.O=Cc1cccc(F)c1",
+          "rxn_smi": "CCOC(C)=O.O=Cc1cccc(F)c1>>O=C(O)C(O)c1cccc(F)c1",
+          "policy_prior": 0.13760000467300415,
+          "policy_rank": 2,
+          "template_hash": "aeebdd9a5fa91b1886fdeb73af9f13bb0e22b6ea94604cffa45d335fb984e0de",
+          "policy_name": "uspto",
+          "conditions": {
+            "gate": [
+              "enz",
+              0.7811262365408549
+            ],
+            "ec1": [
+              "3",
+              0.9986220413387578
+            ],
+            "transformation": [
+              "hydrolysis",
+              0.6853605453783299
+            ],
+            "catalyst": [
+              "enzyme",
+              0.41492621647031974
+            ],
+            "solvent": [
+              "other",
+              0.5383042718970491
+            ],
+            "temperature_c": 45.86896551724138
+          }
+        }
+      ],
+      "tree": {
+        "type": "mol",
+        "hide": false,
+        "smiles": "O=C(O)C(O)c1ccccc1",
+        "is_chemical": true,
+        "in_stock": false,
+        "children": [
+          {
+            "type": "reaction",
+            "hide": false,
+            "smiles": "[c:1]([cH2:2])[cH2:3]>>F[c:1]([cH2:2])[cH2:3]",
+            "is_reaction": true,
+            "metadata": {
+              "template_hash": "2b745366e6b82bdccf450a119acad5bff0a9f4e97c7ca51f71160c8252020194",
+              "classification": "0.0 Unrecognized",
+              "library_occurence": 184,
+              "policy_probability": 0.014700000174343586,
+              "policy_probability_rank": 8,
+              "policy_name": "uspto",
+              "template_code": 7291,
+              "template": "[c:2]:[cH;D2;+0:1]:[c:3]>>F-[c;H0;D3;+0:1](:[c:2]):[c:3]",
+              "mapped_reaction_smiles": "[O:1]=[C:2]([OH:3])[CH:4]([OH:5])[c:6]1[cH:7][cH:8][cH:9][cH:10][cH:11]1>>[O:1]=[C:2]([OH:3])[CH:4]([OH:5])[c:6]1[cH:7][c:8]([F:12])[cH:9][cH:10][cH:11]1"
+            },
+            "children": [
+              {
+                "type": "mol",
+                "hide": false,
+                "smiles": "O=C(O)C(O)c1cccc(F)c1",
+                "is_chemical": true,
+                "in_stock": false,
+                "children": [
+                  {
+                    "type": "reaction",
+                    "hide": false,
+                    "smiles": "[O:1][C:2](=[O:3])[C:5]([O:4])[cH3:6]>>CC[O:1][C:2](C)=[O:3].[O:4]=[C:5][cH3:6]",
+                    "is_reaction": true,
+                    "metadata": {
+                      "template_hash": "aeebdd9a5fa91b1886fdeb73af9f13bb0e22b6ea94604cffa45d335fb984e0de",
+                      "classification": "0.0 Unrecognized",
+                      "library_occurence": 7,
+                      "policy_probability": 0.13760000467300415,
+                      "policy_probability_rank": 2,
+                      "policy_name": "uspto",
+                      "template_code": 29219,
+                      "template": "[O;D1;H0:3]=[C;H0;D3;+0:2](-[OH;D1;+0:1])-[CH;D3;+0:5](-[OH;D1;+0:4])-[c:6]>>C-C-[O;H0;D2;+0:1]-[C;H0;D3;+0:2](-C)=[O;D1;H0:3].[O;H0;D1;+0:4]=[CH;D2;+0:5]-[c:6]",
+                      "mapped_reaction_smiles": "[O:1]=[C:2]([OH:3])[CH:4]([OH:5])[c:6]1[cH:7][c:8]([F:12])[cH:9][cH:10][cH:11]1>>[CH:4](=[O:5])[c:6]1[cH:7][c:8]([F:12])[cH:9][cH:10][cH:11]1.[O:1]=[C:2]([O:3][CH2:13][CH3:14])[CH3:15]"
+                    },
+                    "children": [
+                      {
+                        "type": "mol",
+                        "hide": false,
+                        "smiles": "CCOC(C)=O",
+                        "is_chemical": true,
+                        "in_stock": true
+                      },
+                      {
+                        "type": "mol",
+                        "hide": false,
+                        "smiles": "O=Cc1cccc(F)c1",
+                        "is_chemical": true,
+                        "in_stock": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+transformation,n,aiz_top10,rootaligned_top10,megan_top10,best_chem_engine
+oxidation,718,0.205,0.24,0.252,megan
+reduction,468,0.427,0.502,0.485,rootaligned
+acylation,313,0.099,0.042,0.045,aiz
+racemization,303,0.003,0.033,0.076,megan
+amination,289,0.021,0.059,0.059,rootaligned
+C_C_coupling,257,0.113,0.097,0.101,aiz
+hydrolysis,223,0.126,0.121,0.188,megan
+functional_group_interconversion,87,0.034,0.034,0.023,aiz
+phosphorylation,75,0.0,0.0,0.013,megan
+other,74,0.054,0.014,0.014,aiz
+isomerization,72,0.014,0.014,0.069,megan
+glycosylation,62,0.0,0.048,0.0,rootaligned
+esterification,28,0.214,0.393,0.357,rootaligned
+dehalogenation,27,0.148,0.111,0.222,megan
+epoxide_hydrolysis,22,0.0,0.0,0.0,aiz

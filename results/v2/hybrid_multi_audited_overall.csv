@@ -1,0 +1,13 @@
+policy,n,top1,top5,top10,top50,note
+AiZ-USPTO (all),3028,0.0826,0.1291,0.1522,0.1668,
+RootAligned (all),3028,0.0779,0.144,0.1602,0.1991,
+MEGAN (all),3028,0.0997,0.1456,0.1704,0.2341,
+EnzExpand-A (mf2),994,0.2555,0.4064,0.4286,0.4608,templates_tried mean=28.6  median=50  rows with pool<50: 46%  GT∈pool (top50==1): 46%
+  └─ random-in-pool baseline (mf2),994,0.3224,0.4302,0.4445,0.4608,"E[hit] = (min(K,pool)/pool) × I(GT∈pool); honest random ceiling"
+  └─ EnzExpand lift over random (mf2),994,0.7924,0.9448,0.9642,1.0001,lift > 1 means model ranks better than uniform draw inside its pool
+EnzExpand-A (mf5),559,0.3918,0.5134,0.5259,0.5349,templates_tried mean=24.3  median=4  rows with pool<50: 53%  GT∈pool (top50==1): 53%
+  └─ random-in-pool baseline (mf5),559,0.4434,0.5253,0.5305,0.5349,"E[hit] = (min(K,pool)/pool) × I(GT∈pool); honest random ceiling"
+  └─ EnzExpand lift over random (mf5),559,0.8837,0.9773,0.9914,1.0,lift > 1 means model ranks better than uniform draw inside its pool
+UNION chem-engines (3) top-10 [budget≈30],3028,,,0.2193,0.3078,union budget = 10 × n_engines candidates
+Best single (megan) top-50 [budget=50],3028,0.106,0.1559,0.1836,0.2612,fair single-engine vs union (top-10 of 5 engines = budget 50)
+UNION + EnzExpand over 3028 (n_enz=1064),3028,0.182,0.248,0.2708,0.357,adds enz pred on 1064/3028 (35%) steps

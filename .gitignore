@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+.venv_*/
+env/
+venv/
+
+# Environment / secrets
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large artefacts (kept locally, never commit)
+aizdata/
+synth_weights/
+data_external/
+ChemEnzyRetroPlanner/
+backup_from_zip/
+
+# Legacy migration bundle
+archive/migration_*/autoplanner_full_*.zip
+archive/migration_*/autoplanner_full_*.zip.sha256
+
+# Large datasets at repo root (use archive/ for the v1 snapshots)
+cascade_dataset_v2.json
+cascade_dataset_v2.normalized.json
+cascade_dataset_v2.strict.json
+cascade_dataset_v2.quality.json
+cascade_dataset_v2.strict.report.json
+
+# Run logs at repo root
+*.log
+
+# Scratch utilities
+_smoke_*.py
+_repair_*.py
+_inspect*.py
+
+# Big local-only artefacts (added 2026-04-25)
+workspace/
+results/v2/k2_preds/
+results/v2/*.json
+*.zip
+*.zip.sha256
+archive/datasets/
+archive/results/
+archive/logs/
+archive/code/

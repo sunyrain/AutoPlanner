@@ -1,0 +1,3697 @@
+{
+"1.1.1.-||Candida tenuis": {
+"accession": "O74237",
+"entry_name": "XYL1_CANTE",
+"organism": "Candida tenuis (Yeast) (Yamadazyma tenuis)",
+"protein_name": "NAD(P)H-dependent D-xylose reductase (XR) (EC 1.1.1.307)",
+"matched_organism": true
+},
+"1.1.1.-||Corynebacterium glutamicum": {
+"accession": "Q9ZNN8",
+"entry_name": "BUDC_CORGT",
+"organism": "Corynebacterium glutamicum (Brevibacterium saccharolyticum)",
+"protein_name": "L-2,3-butanediol dehydrogenase (L-BDH) (EC 1.1.1.76) ((S,S)-butanediol dehydrogenase) (Diacetyl reductase [(S)-acetoin forming]) (EC 1.1.1.304)",
+"matched_organism": true
+},
+"1.1.1.1||": {
+"accession": "P07246",
+"entry_name": "ADH3_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Alcohol dehydrogenase 3, mitochondrial (EC 1.1.1.1) (Alcohol dehydrogenase III) (ADHIII) (YADH-3)",
+"matched_organism": false
+},
+"1.1.1.1||Bacillus stearothermophilus": {
+"accession": "P42327",
+"entry_name": "ADH2_GEOSE",
+"organism": "Geobacillus stearothermophilus (Bacillus stearothermophilus)",
+"protein_name": "Alcohol dehydrogenase (ADH) (EC 1.1.1.1)",
+"matched_organism": true
+},
+"1.1.1.1||Bacillus subtilis": {
+"accession": "P07246",
+"entry_name": "ADH3_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Alcohol dehydrogenase 3, mitochondrial (EC 1.1.1.1) (Alcohol dehydrogenase III) (ADHIII) (YADH-3)",
+"matched_organism": false
+},
+"1.1.1.1||E. coli": {
+"accession": "P07246",
+"entry_name": "ADH3_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Alcohol dehydrogenase 3, mitochondrial (EC 1.1.1.1) (Alcohol dehydrogenase III) (ADHIII) (YADH-3)",
+"matched_organism": false
+},
+"1.1.1.1||Escherichia coli": {
+"accession": "P25437",
+"entry_name": "FRMA_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "S-(hydroxymethyl)glutathione dehydrogenase (EC 1.1.1.284) (Alcohol dehydrogenase class-3) (EC 1.1.1.1) (Alcohol dehydrogenase class-III) (Glutathione-dependent formaldehyde dehydrogenase) (FALDH) (FDH) (GSH-FDH) (EC 1.1.1.-)",
+"matched_organism": true
+},
+"1.1.1.1||Escherichia coli BL21": {
+"accession": "P07246",
+"entry_name": "ADH3_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Alcohol dehydrogenase 3, mitochondrial (EC 1.1.1.1) (Alcohol dehydrogenase III) (ADHIII) (YADH-3)",
+"matched_organism": false
+},
+"1.1.1.1||Geobacillus stearothermophilus": {
+"accession": "P42327",
+"entry_name": "ADH2_GEOSE",
+"organism": "Geobacillus stearothermophilus (Bacillus stearothermophilus)",
+"protein_name": "Alcohol dehydrogenase (ADH) (EC 1.1.1.1)",
+"matched_organism": true
+},
+"1.1.1.1||Horse Liver": {
+"accession": "P07246",
+"entry_name": "ADH3_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Alcohol dehydrogenase 3, mitochondrial (EC 1.1.1.1) (Alcohol dehydrogenase III) (ADHIII) (YADH-3)",
+"matched_organism": false
+},
+"1.1.1.1||Horse liver": {
+"accession": "P07246",
+"entry_name": "ADH3_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Alcohol dehydrogenase 3, mitochondrial (EC 1.1.1.1) (Alcohol dehydrogenase III) (ADHIII) (YADH-3)",
+"matched_organism": false
+},
+"1.1.1.1||Saccharomyces cerevisiae": {
+"accession": "A6ZTT5",
+"entry_name": "ADH4_YEAS7",
+"organism": "Saccharomyces cerevisiae (strain YJM789) (Baker's yeast)",
+"protein_name": "Alcohol dehydrogenase 4 (EC 1.1.1.1) (Alcohol dehydrogenase IV) (ADHIV)",
+"matched_organism": true
+},
+"1.1.1.1||horse": {
+"accession": "P00327",
+"entry_name": "ADH1E_HORSE",
+"organism": "Equus caballus (Horse)",
+"protein_name": "Alcohol dehydrogenase E chain (EC 1.1.1.1)",
+"matched_organism": true
+},
+"1.1.1.1||horse liver": {
+"accession": "P07246",
+"entry_name": "ADH3_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Alcohol dehydrogenase 3, mitochondrial (EC 1.1.1.1) (Alcohol dehydrogenase III) (ADHIII) (YADH-3)",
+"matched_organism": false
+},
+"1.1.1.1||horse liver (recombinant in E. coli)": {
+"accession": "P07246",
+"entry_name": "ADH3_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Alcohol dehydrogenase 3, mitochondrial (EC 1.1.1.1) (Alcohol dehydrogenase III) (ADHIII) (YADH-3)",
+"matched_organism": false
+},
+"1.1.1.159||Bacteroides fragilis": {
+"accession": "Q5LA59",
+"entry_name": "HDHA_BACFN",
+"organism": "Bacteroides fragilis (strain ATCC 25285 / DSM 2151 / CCUG 4856 / JCM 11019 / LMG 10263 / NCTC 9343 / Onslow / VPI 2553 / EN-2)",
+"protein_name": "7alpha-hydroxysteroid dehydrogenase (7alpha-HSDH) (EC 1.1.1.159) (Aromatic aldehyde reductase) (EC 1.1.1.-) (NAD-dependent 7alpha-hydroxysteroid dehydrogenase)",
+"matched_organism": true
+},
+"1.1.1.175||Caulobacter crescentus": {
+"accession": "B8H1Z0",
+"entry_name": "XDH_CAUVN",
+"organism": "Caulobacter vibrioides (strain NA1000 / CB15N) (Caulobacter crescentus)",
+"protein_name": "D-xylose 1-dehydrogenase (XDH) (EC 1.1.1.175)",
+"matched_organism": true
+},
+"1.1.1.2||Candida parapsilosis": {
+"accession": "O95154",
+"entry_name": "ARK73_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Aldo-keto reductase family 7 member A3 (EC 1.1.1.2) (AFB1 aldehyde reductase 2) (AFB1-AR 2) (Aflatoxin B1 aldehyde reductase member 3)",
+"matched_organism": false
+},
+"1.1.1.2||Escherichia coli": {
+"accession": "P27250",
+"entry_name": "AHR_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Aldehyde reductase Ahr (EC 1.1.1.2) (Zinc-dependent alcohol dehydrogenase Ahr)",
+"matched_organism": true
+},
+"1.1.1.2||Lactobacillus brevis": {
+"accession": "O95154",
+"entry_name": "ARK73_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Aldo-keto reductase family 7 member A3 (EC 1.1.1.2) (AFB1 aldehyde reductase 2) (AFB1-AR 2) (Aflatoxin B1 aldehyde reductase member 3)",
+"matched_organism": false
+},
+"1.1.1.2||Saccharomyces cerevisiae": {
+"accession": "P25377",
+"entry_name": "ADH7_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "NADP-dependent alcohol dehydrogenase 7 (EC 1.1.1.2) (NADP-dependent alcohol dehydrogenase VII) (ADHVII)",
+"matched_organism": true
+},
+"1.1.1.2||Thermoanaerobacter brockii": {
+"accession": "O95154",
+"entry_name": "ARK73_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Aldo-keto reductase family 7 member A3 (EC 1.1.1.2) (AFB1 aldehyde reductase 2) (AFB1-AR 2) (Aflatoxin B1 aldehyde reductase member 3)",
+"matched_organism": false
+},
+"1.1.1.2||Thermoanaerobacter ethanolicus": {
+"accession": "Q9F282",
+"entry_name": "ADHA_THEET",
+"organism": "Thermoanaerobacter ethanolicus (Clostridium thermohydrosulfuricum)",
+"protein_name": "Long-chain primary alcohol dehydrogenase AdhA (EC 1.1.1.2)",
+"matched_organism": true
+},
+"1.1.1.2||Thermoanaerobacter pseudoethanolicus": {
+"accession": "O95154",
+"entry_name": "ARK73_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Aldo-keto reductase family 7 member A3 (EC 1.1.1.2) (AFB1 aldehyde reductase 2) (AFB1-AR 2) (Aflatoxin B1 aldehyde reductase member 3)",
+"matched_organism": false
+},
+"1.1.1.2||Thermoanaerobacter species recombinant in Escherichia coli": {
+"accession": "O95154",
+"entry_name": "ARK73_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Aldo-keto reductase family 7 member A3 (EC 1.1.1.2) (AFB1 aldehyde reductase 2) (AFB1-AR 2) (Aflatoxin B1 aldehyde reductase member 3)",
+"matched_organism": false
+},
+"1.1.1.27||": {
+"accession": "P00341",
+"entry_name": "LDHA_SQUAC",
+"organism": "Squalus acanthias (Spiny dogfish)",
+"protein_name": "L-lactate dehydrogenase A chain (LDH-A) (EC 1.1.1.27) (LDH-M)",
+"matched_organism": false
+},
+"1.1.1.27||Bacillus subtilis": {
+"accession": "P13714",
+"entry_name": "LDH_BACSU",
+"organism": "Bacillus subtilis (strain 168)",
+"protein_name": "L-lactate dehydrogenase (L-LDH) (EC 1.1.1.27)",
+"matched_organism": true
+},
+"1.1.1.27||E. coli": {
+"accession": "P00341",
+"entry_name": "LDHA_SQUAC",
+"organism": "Squalus acanthias (Spiny dogfish)",
+"protein_name": "L-lactate dehydrogenase A chain (LDH-A) (EC 1.1.1.27) (LDH-M)",
+"matched_organism": false
+},
+"1.1.1.27||Lactobacillus delbrueckii": {
+"accession": "Q04CN9",
+"entry_name": "LDH_LACDB",
+"organism": "Lactobacillus delbrueckii subsp. bulgaricus (strain ATCC BAA-365 / Lb-18)",
+"protein_name": "L-lactate dehydrogenase (L-LDH) (EC 1.1.1.27)",
+"matched_organism": true
+},
+"1.1.1.27||Oryctolagus cuniculus": {
+"accession": "P13490",
+"entry_name": "LDHB_RABIT",
+"organism": "Oryctolagus cuniculus (Rabbit)",
+"protein_name": "L-lactate dehydrogenase B chain (LDH-B) (EC 1.1.1.27) (LDH heart subunit) (LDH-H)",
+"matched_organism": true
+},
+"1.1.1.27||Plasmodium falciparum": {
+"accession": "Q27743",
+"entry_name": "LDH_PLAFD",
+"organism": "Plasmodium falciparum (isolate CDC / Honduras)",
+"protein_name": "L-lactate dehydrogenase (EC 1.1.1.27) (LDH-P)",
+"matched_organism": true
+},
+"1.1.1.27 or 1.4.1.1||bovine heart or Bacillus subtilis": {
+"accession": "Q4R5B6",
+"entry_name": "LDHB_MACFA",
+"organism": "Macaca fascicularis (Crab-eating macaque) (Cynomolgus monkey)",
+"protein_name": "L-lactate dehydrogenase B chain (LDH-B) (EC 1.1.1.27)",
+"matched_organism": false
+},
+"1.1.1.27/1.1.1.47||": null,
+"1.1.1.28||Staphylococcus epidermidis": {
+"accession": "Q8CN22",
+"entry_name": "LDHD_STAES",
+"organism": "Staphylococcus epidermidis (strain ATCC 12228 / FDA PCI 1200)",
+"protein_name": "D-lactate dehydrogenase (D-LDH) (EC 1.1.1.28) (D-specific 2-hydroxyacid dehydrogenase)",
+"matched_organism": true
+},
+"1.1.1.307||Hypocrea jecorina": {
+"accession": "O94735",
+"entry_name": "XYL1_PICGU",
+"organism": "Meyerozyma guilliermondii (strain ATCC 6260 / CBS 566 / DSM 6381 / JCM 1539 / NBRC 10279 / NRRL Y-324) (Yeast) (Candida guilliermondii)",
+"protein_name": "NADPH-dependent D-xylose reductase (XR) (EC 1.1.1.307)",
+"matched_organism": false
+},
+"1.1.1.307||Neurospora crassa": {
+"accession": "O94735",
+"entry_name": "XYL1_PICGU",
+"organism": "Meyerozyma guilliermondii (strain ATCC 6260 / CBS 566 / DSM 6381 / JCM 1539 / NBRC 10279 / NRRL Y-324) (Yeast) (Candida guilliermondii)",
+"protein_name": "NADPH-dependent D-xylose reductase (XR) (EC 1.1.1.307)",
+"matched_organism": false
+},
+"1.1.1.47||": {
+"accession": "O93715",
+"entry_name": "GLCDH_SACSO",
+"organism": "Saccharolobus solfataricus (Sulfolobus solfataricus)",
+"protein_name": "Glucose 1-dehydrogenase (GDH) (GlcDH) (EC 1.1.1.47) (Aldose 1-dehydrogenase [NAD(P)(+)]) (EC 1.1.1.359) (Galactose 1-dehydrogenase) (EC 1.1.1.120, EC 1.1.1.48)",
+"matched_organism": false
+},
+"1.1.1.47||Bacillus megaterium": {
+"accession": "P39484",
+"entry_name": "DHG3_PRIMG",
+"organism": "Priestia megaterium (Bacillus megaterium)",
+"protein_name": "Glucose 1-dehydrogenase 3 (EC 1.1.1.47) (GLCDH-III)",
+"matched_organism": true
+},
+"1.1.1.47||Bacillus subtilis": {
+"accession": "P12310",
+"entry_name": "DHG_BACSU",
+"organism": "Bacillus subtilis (strain 168)",
+"protein_name": "Glucose 1-dehydrogenase (EC 1.1.1.47)",
+"matched_organism": true
+},
+"1.1.1.47||Corynebacterium glutamicum": {
+"accession": "O93715",
+"entry_name": "GLCDH_SACSO",
+"organism": "Saccharolobus solfataricus (Sulfolobus solfataricus)",
+"protein_name": "Glucose 1-dehydrogenase (GDH) (GlcDH) (EC 1.1.1.47) (Aldose 1-dehydrogenase [NAD(P)(+)]) (EC 1.1.1.359) (Galactose 1-dehydrogenase) (EC 1.1.1.120, EC 1.1.1.48)",
+"matched_organism": false
+},
+"1.1.1.47||E. coli": {
+"accession": "O93715",
+"entry_name": "GLCDH_SACSO",
+"organism": "Saccharolobus solfataricus (Sulfolobus solfataricus)",
+"protein_name": "Glucose 1-dehydrogenase (GDH) (GlcDH) (EC 1.1.1.47) (Aldose 1-dehydrogenase [NAD(P)(+)]) (EC 1.1.1.359) (Galactose 1-dehydrogenase) (EC 1.1.1.120, EC 1.1.1.48)",
+"matched_organism": false
+},
+"1.1.1.47||Exiguobacterium sibiricum": {
+"accession": "O93715",
+"entry_name": "GLCDH_SACSO",
+"organism": "Saccharolobus solfataricus (Sulfolobus solfataricus)",
+"protein_name": "Glucose 1-dehydrogenase (GDH) (GlcDH) (EC 1.1.1.47) (Aldose 1-dehydrogenase [NAD(P)(+)]) (EC 1.1.1.359) (Galactose 1-dehydrogenase) (EC 1.1.1.120, EC 1.1.1.48)",
+"matched_organism": false
+},
+"1.1.1.47||Pseudomonas sp. RIT288": {
+"accession": "O93715",
+"entry_name": "GLCDH_SACSO",
+"organism": "Saccharolobus solfataricus (Sulfolobus solfataricus)",
+"protein_name": "Glucose 1-dehydrogenase (GDH) (GlcDH) (EC 1.1.1.47) (Aldose 1-dehydrogenase [NAD(P)(+)]) (EC 1.1.1.359) (Galactose 1-dehydrogenase) (EC 1.1.1.120, EC 1.1.1.48)",
+"matched_organism": false
+},
+"1.1.1.49||Leuconostoc mesenteroides": {
+"accession": "P97324",
+"entry_name": "G6PD2_MOUSE",
+"organism": "Mus musculus (Mouse)",
+"protein_name": "Glucose-6-phosphate 1-dehydrogenase 2 (G6PD) (EC 1.-.-.-) (EC 1.1.1.49)",
+"matched_organism": false
+},
+"1.1.1.6||": {
+"accession": "Q9WYQ4",
+"entry_name": "GLDA_THEMA",
+"organism": "Thermotoga maritima (strain ATCC 43589 / DSM 3109 / JCM 10099 / NBRC 100826 / MSB8)",
+"protein_name": "Glycerol dehydrogenase (GDH) (GLDH) (EC 1.1.1.6)",
+"matched_organism": false
+},
+"1.1.1.6||Escherichia coli": {
+"accession": "P0A9S5",
+"entry_name": "GLDA_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Glycerol dehydrogenase (GDH) (GLDH) (EC 1.1.1.6) ((R)-aminopropanol dehydrogenase) (EC 1.1.1.75) (1,2-propanediol dehydrogenase) (D-1-amino-2-propanol oxidoreductase)",
+"matched_organism": true
+},
+"1.1.1.6||Geobacillus stearothermophilus": {
+"accession": "P32816",
+"entry_name": "GLDA_GEOSE",
+"organism": "Geobacillus stearothermophilus (Bacillus stearothermophilus)",
+"protein_name": "Glycerol dehydrogenase (GDH) (GLDH) (GlyDH) (EC 1.1.1.6)",
+"matched_organism": true
+},
+"1.1.1.67||E. coli": {
+"accession": "A4QQN1",
+"entry_name": "M2DH_PYRO7",
+"organism": "Pyricularia oryzae (strain 70-15 / ATCC MYA-4617 / FGSC 8958) (Rice blast fungus) (Magnaporthe oryzae)",
+"protein_name": "Mannitol 2-dehydrogenase (M2DH) (MDH) (EC 1.1.1.67)",
+"matched_organism": false
+},
+"1.1.1.76||Escherichia coli": {
+"accession": "Q9ZNN8",
+"entry_name": "BUDC_CORGT",
+"organism": "Corynebacterium glutamicum (Brevibacterium saccharolyticum)",
+"protein_name": "L-2,3-butanediol dehydrogenase (L-BDH) (EC 1.1.1.76) ((S,S)-butanediol dehydrogenase) (Diacetyl reductase [(S)-acetoin forming]) (EC 1.1.1.304)",
+"matched_organism": false
+},
+"1.1.1.x||": null,
+"1.1.1.x||Acinetobacter sp.": null,
+"1.1.1.x||Alicyclobacillus acidocaldarius": null,
+"1.1.1.x||Bacillus coagulans": null,
+"1.1.1.x||Amycolatopsis methanolica": null,
+"1.1.1.x||Bacillus subtilis": null,
+"1.1.1.x||Bacillus subtilis or Gluconobacter oxydans": null,
+"1.1.1.x||Bacillus stearothermophilus": null,
+"1.1.1.x||Bacillus toyonensis": null,
+"1.1.1.x||Candida albicans": null,
+"1.1.1.x||Aeropyrum pernix": null,
+"1.1.1.x||Candida magnoliae": null,
+"1.1.1.x||Aspergillus niger": null,
+"1.1.1.x||Candida tenuis": null,
+"1.1.1.x||Bacillus sp.": null,
+"1.1.1.x||Chryseobacterium sp. CA49": null,
+"1.1.1.x||Alcaligenes faecalis": null,
+"1.1.1.x||Bacillus": null,
+"1.1.1.x||Bacillus megaterium IAM1030": null,
+"1.1.1.x||Brucella melitensis": null,
+"1.1.1.x||Candida albicans CCT 0776": null,
+"1.1.1.x||Cupriavidus necator N-1": null,
+"1.1.1.x||Comamonas testosteroni": null,
+"1.1.1.x||Collinsella aerofaciens": null,
+"1.1.1.x||E. coli": null,
+"1.1.1.x||Debaryomyces nepalensis": null,
+"1.1.1.x||Bacillus megaterium": null,
+"1.1.1.x||Debaryomyces nepalensis NCYC 3413": null,
+"1.1.1.x||Empedobacter brevis or Candida glabrata": null,
+"1.1.1.x||Candida maris": null,
+"1.1.1.x||Daucus carota": null,
+"1.1.1.x||Corynebacterium glutamicum": null,
+"1.1.1.x||Candida parapsilosis": null,
+"1.1.1.x||E. coli ArcticExpress (DE3)": null,
+"1.1.1.x||E. coli BL21(DE3)": null,
+"1.1.1.x||Enterobacter aerogenes": null,
+"1.1.1.x||Escherichia coli": null,
+"1.1.1.x||Kuraishia capsulate CBS1993": null,
+"1.1.1.x||Equus caballus": null,
+"1.1.1.x||Hyphomicrobium sp.": null,
+"1.1.1.x||Exiguobacterium sibiricum": null,
+"1.1.1.x||E. coli (heterologously expressed for Ras ADH)": null,
+"1.1.1.x||Escherichia coli BL21": null,
+"1.1.1.x||Kluyveromyces thermotolerans": null,
+"1.1.1.x||Hyphopichia burtoni": null,
+"1.1.1.x||Gardenia jasminoides": null,
+"1.1.1.x||Lactobacillus": null,
+"1.1.1.x||Lactobacillus brevis": null,
+"1.1.1.x||Lactobacillus casei": null,
+"1.1.1.x||Lactobacillus confusus and Lactobacillus casei": null,
+"1.1.1.x||Lactobacillus brevis / Bacillus subtilis": null,
+"1.1.1.x||Lactobacillus kefir": null,
+"1.1.1.x||Lactobacillus delbrueckii": null,
+"1.1.1.x||Lactobacillus kefir or Rhodobacter sphaeroides": null,
+"1.1.1.x||Lactobacillus fermentum": null,
+"1.1.1.x||Lactobacillus kefiri": null,
+"1.1.1.x||Lactobacillus reuteri": null,
+"1.1.1.x||Lactobacillus kefir or Rhodococcus ruber": null,
+"1.1.1.x||Lentilactobacillus kefiri": null,
+"1.1.1.x||Leifsonia sp.": null,
+"1.1.1.x||Leuconostoc lactis": null,
+"1.1.1.x||Medicago sativa": null,
+"1.1.1.x||Mycobacterium vanbaalenii": null,
+"1.1.1.x||Micrococcus luteus WIUJH20": null,
+"1.1.1.x||Novosphingobium aromaticivorans DSM 12444": null,
+"1.1.1.x||Micrococcus luteus": null,
+"1.1.1.x||Nostoc sp.": null,
+"1.1.1.x||Parvibaculum lavamentivorans": null,
+"1.1.1.x||Pseudomonas aeruginosa": null,
+"1.1.1.x||Pseudomonas putida S12": null,
+"1.1.1.x||Pseudomonas taiwanensis VLB120": null,
+"1.1.1.x||Pseudomonas putida": null,
+"1.1.1.x||Pseudomonas aeruginosa CCTCC M 2011394": null,
+"1.1.1.x||Ralstonia species": null,
+"1.1.1.x||Rhodococcus": null,
+"1.1.1.x||Ralstonia sp. DSM 6428": null,
+"1.1.1.x||Ralstonia sp.": null,
+"1.1.1.x||Rhodococcus ruber": null,
+"1.1.1.x||Rhodococcus erythropolis": null,
+"1.1.1.x||Rhodococcus ruber (heterologously expressed in E. coli)": null,
+"1.1.1.x||Rhodococcus ruber 44541": null,
+"1.1.1.x||Rhodococcus ruber DSM 44541 or Lactobacillus brevis": null,
+"1.1.1.x||Rhodococcus ruber or Lactobacillus kefir": null,
+"1.1.1.x||Rhodococcus sp.": null,
+"1.1.1.x||Ruminococcus gnavus": null,
+"1.1.1.x||Rhodotorula rubra": null,
+"1.1.1.x||Saccharomyces cerevisiae": null,
+"1.1.1.x||Saccharomyces cerevisiae ZJB5074": null,
+"1.1.1.x||Sphingomonas formosensis": null,
+"1.1.1.x||Serratia marcescens": null,
+"1.1.1.x||Sphingomonas wittichii": null,
+"1.1.1.x||Sphingomonas": null,
+"1.1.1.x||Streptomyces coelicolor (ScCR) or horse liver (HLADH)": null,
+"1.1.1.x||Sulfolobus solfataricus": null,
+"1.1.1.x||Sphingomonas yanoikuyae": null,
+"1.1.1.x||Streptomyces coelicolor": null,
+"1.1.1.x||Thermanaerobacter ethanolicus": null,
+"1.1.1.x||Thermoanaerobacter ethanolicus": null,
+"1.1.1.x||Thermoanaerobacter brockii": null,
+"1.1.1.x||Thermococcus kodakarensis": null,
+"1.1.1.x||Thermotoga maritima": null,
+"1.1.1.x||Thermoanaerobium brockii": null,
+"1.1.1.x||Thermoanaerobacter pseudoethanolicus": null,
+"1.1.1.x||Thermus sp. ATN1": null,
+"1.1.1.x||Trichoderma reesei": null,
+"1.1.1.x||Thermus thermophilus": null,
+"1.1.1.x||Yokenella sp. WZY002": null,
+"1.1.1.x||yeast": null,
+"1.1.1.x||various": null,
+"1.1.1.x||Zygosaccharomyces rouxii": null,
+"1.1.1.x||Zygosaccharomyces parabailii": null,
+"1.1.3.13||Komagataella pastoris": {
+"accession": "P04841",
+"entry_name": "ALOX_PICAN",
+"organism": "Pichia angusta (Yeast) (Hansenula polymorpha)",
+"protein_name": "Alcohol oxidase (AO) (AOX) (EC 1.1.3.13) (Methanol oxidase) (MOX)",
+"matched_organism": false
+},
+"1.1.3.17||Arthrobacter nicotinate": {
+"accession": "Q7X2H8",
+"entry_name": "CHOX_ARTGO",
+"organism": "Arthrobacter globiformis",
+"protein_name": "Choline oxidase (EC 1.1.3.17)",
+"matched_organism": false
+},
+"1.1.3.38||Penicillium simplicissimum": {
+"accession": "P56216",
+"entry_name": "VAOX_PENSI",
+"organism": "Penicillium simplicissimum",
+"protein_name": "Vanillyl-alcohol oxidase (EC 1.1.3.38) (4-allylphenol oxidase) (Aryl-alcohol oxidase)",
+"matched_organism": true
+},
+"1.1.3.4||": {
+"accession": "P81156",
+"entry_name": "GOX_PENAG",
+"organism": "Penicillium amagasakiense",
+"protein_name": "Glucose oxidase (GOD) (GOx) (EC 1.1.3.4) (Beta-D-glucose:oxygen 1-oxido-reductase)",
+"matched_organism": false
+},
+"1.1.3.10||Trametes hirsute": {
+"accession": "Q5G234",
+"entry_name": "P2OX_TRAPU",
+"organism": "Trametes pubescens (White-rot fungus)",
+"protein_name": "Pyranose 2-oxidase (P2Ox) (POD) (POx) (PROD) (Pyranose oxidase) (EC 1.1.3.10) (FAD-oxidoreductase) (Glucose 2-oxidase) (Pyranose:oxygen 2-oxidoreductase)",
+"matched_organism": false
+},
+"1.1.3.4||Aspergillus niger": {
+"accession": "P13006",
+"entry_name": "GOX_ASPNG",
+"organism": "Aspergillus niger",
+"protein_name": "Glucose oxidase (GOD) (GOx) (EC 1.1.3.4) (Beta-D-glucose:oxygen 1-oxido-reductase)",
+"matched_organism": true
+},
+"1.1.3.9||": {
+"accession": "I1S2N3",
+"entry_name": "GAOA_GIBZE",
+"organism": "Gibberella zeae (strain ATCC MYA-4620 / CBS 123657 / FGSC 9075 / NRRL 31084 / PH-1) (Wheat head blight fungus) (Fusarium graminearum)",
+"protein_name": "Galactose oxidase (GAO) (GO) (GOase) (EC 1.1.3.9)",
+"matched_organism": false
+},
+"1.1.3.x||": null,
+"1.1.3.9||Fusarium sp. NRRL 2903": {
+"accession": "I1S2N3",
+"entry_name": "GAOA_GIBZE",
+"organism": "Gibberella zeae (strain ATCC MYA-4620 / CBS 123657 / FGSC 9075 / NRRL 31084 / PH-1) (Wheat head blight fungus) (Fusarium graminearum)",
+"protein_name": "Galactose oxidase (GAO) (GO) (GOase) (EC 1.1.3.9)",
+"matched_organism": false
+},
+"1.1.3.17||Arthrobacter chlorophenolicus": {
+"accession": "Q7X2H8",
+"entry_name": "CHOX_ARTGO",
+"organism": "Arthrobacter globiformis",
+"protein_name": "Choline oxidase (EC 1.1.3.17)",
+"matched_organism": false
+},
+"1.1.3.4||Aspergillus sp.": {
+"accession": "P81156",
+"entry_name": "GOX_PENAG",
+"organism": "Penicillium amagasakiense",
+"protein_name": "Glucose oxidase (GOD) (GOx) (EC 1.1.3.4) (Beta-D-glucose:oxygen 1-oxido-reductase)",
+"matched_organism": false
+},
+"1.1.3.x||Arthrobacter chlorophenolicus": null,
+"1.1.3.x||Alcaligenes faecalis": null,
+"1.1.3.x||Aspergillus niger": null,
+"1.1.3.x||Aspergillus fumigatus": null,
+"1.1.3.x||Aureobasidium melanogenum": null,
+"1.1.3.x||Burkholderia sp. RF7-non_BP1": null,
+"1.1.3.x||Arthrobacter nicotinate": null,
+"1.1.3.x||Candida antarctica": null,
+"1.1.3.x||Colletotrichum gloeosporioides": null,
+"1.1.3.x||Escherichia coli": null,
+"1.1.3.x||F. graminearum": null,
+"1.1.3.x||Fusarium sp. NRRL 2903": null,
+"1.1.3.x||E. coli": null,
+"1.1.3.x||Gardenia jasminoides": null,
+"1.1.3.x||Fusarium graminearum": null,
+"1.1.3.x||Methylovorus sp. MP688": null,
+"1.1.3.x||Pichia pastoris": null,
+"1.1.3.x||Pseudomonas fluorescens": null,
+"1.1.3.x||Pleurotus eryngii": null,
+"1.1.3.x||Moniliophthora roreri": null,
+"1.1.3.x||Rhodococcus erythropolis": null,
+"1.1.3.x||Rhodococcus jostii": null,
+"1.1.3.x||Streptococcus pneumoniae": null,
+"1.1.99.x||Escherichia coli": null,
+"1.1.99.x||Pseudomonas putida": null,
+"1.1.5.x||Escherichia coli": null,
+"1.1.99.x||Pseudomonas aeruginosa": null,
+"1.1.99.x||Devosia mutans": null,
+"1.10.3.2||": {
+"accession": "D0VWU3",
+"entry_name": "LAC1_TRAMX",
+"organism": "Trametes maxima (White-rot fungus) (Cerrena maxima)",
+"protein_name": "Laccase (EC 1.10.3.2) (Benzenediol:oxygen oxidoreductase) (Diphenol oxidase) (Urishiol oxidase)",
+"matched_organism": false
+},
+"1.10.3.2||Streptomyces sviceus": {
+"accession": "D0VWU3",
+"entry_name": "LAC1_TRAMX",
+"organism": "Trametes maxima (White-rot fungus) (Cerrena maxima)",
+"protein_name": "Laccase (EC 1.10.3.2) (Benzenediol:oxygen oxidoreductase) (Diphenol oxidase) (Urishiol oxidase)",
+"matched_organism": false
+},
+"1.10.3.2||Aspergillus sp.": {
+"accession": "D0VWU3",
+"entry_name": "LAC1_TRAMX",
+"organism": "Trametes maxima (White-rot fungus) (Cerrena maxima)",
+"protein_name": "Laccase (EC 1.10.3.2) (Benzenediol:oxygen oxidoreductase) (Diphenol oxidase) (Urishiol oxidase)",
+"matched_organism": false
+},
+"1.10.3.2||Corynebacterium glutamicum": {
+"accession": "D0VWU3",
+"entry_name": "LAC1_TRAMX",
+"organism": "Trametes maxima (White-rot fungus) (Cerrena maxima)",
+"protein_name": "Laccase (EC 1.10.3.2) (Benzenediol:oxygen oxidoreductase) (Diphenol oxidase) (Urishiol oxidase)",
+"matched_organism": false
+},
+"1.10.3.2||Trametes pubescens": {
+"accession": "D0VWU3",
+"entry_name": "LAC1_TRAMX",
+"organism": "Trametes maxima (White-rot fungus) (Cerrena maxima)",
+"protein_name": "Laccase (EC 1.10.3.2) (Benzenediol:oxygen oxidoreductase) (Diphenol oxidase) (Urishiol oxidase)",
+"matched_organism": false
+},
+"1.10.3.2||Trametes versicolor": {
+"accession": "Q12717",
+"entry_name": "LAC5_TRAVE",
+"organism": "Trametes versicolor (White-rot fungus) (Coriolus versicolor)",
+"protein_name": "Laccase-5 (EC 1.10.3.2) (Benzenediol:oxygen oxidoreductase 5) (Diphenol oxidase 5) (Laccase IV) (Urishiol oxidase 5)",
+"matched_organism": true
+},
+"1.10.3.x||": null,
+"1.10.3.2||T. versicolor": {
+"accession": "D0VWU3",
+"entry_name": "LAC1_TRAMX",
+"organism": "Trametes maxima (White-rot fungus) (Cerrena maxima)",
+"protein_name": "Laccase (EC 1.10.3.2) (Benzenediol:oxygen oxidoreductase) (Diphenol oxidase) (Urishiol oxidase)",
+"matched_organism": false
+},
+"1.10.3.x||Vitreoscilla": null,
+"1.11.1.10||Caldariomyces fumago": {
+"accession": "P04963",
+"entry_name": "PRXC_LEPFU",
+"organism": "Leptoxyphium fumago (Caldariomyces fumago)",
+"protein_name": "Chloroperoxidase (EC 1.11.1.10) (Chloride peroxidase) (CPO)",
+"matched_organism": true
+},
+"1.10.3.2||Trametes sp.": {
+"accession": "D0VWU3",
+"entry_name": "LAC1_TRAMX",
+"organism": "Trametes maxima (White-rot fungus) (Cerrena maxima)",
+"protein_name": "Laccase (EC 1.10.3.2) (Benzenediol:oxygen oxidoreductase) (Diphenol oxidase) (Urishiol oxidase)",
+"matched_organism": false
+},
+"1.11.1.10||": {
+"accession": "P04963",
+"entry_name": "PRXC_LEPFU",
+"organism": "Leptoxyphium fumago (Caldariomyces fumago)",
+"protein_name": "Chloroperoxidase (EC 1.11.1.10) (Chloride peroxidase) (CPO)",
+"matched_organism": false
+},
+"1.11.1.6||Bos taurus": {
+"accession": "P00432",
+"entry_name": "CATA_BOVIN",
+"organism": "Bos taurus (Bovine)",
+"protein_name": "Catalase (EC 1.11.1.6)",
+"matched_organism": true
+},
+"1.11.1.6||": {
+"accession": "P00432",
+"entry_name": "CATA_BOVIN",
+"organism": "Bos taurus (Bovine)",
+"protein_name": "Catalase (EC 1.11.1.6)",
+"matched_organism": false
+},
+"1.11.1.6||Micrococcus lysodeikticus": {
+"accession": "P29422",
+"entry_name": "CATA_MICLU",
+"organism": "Micrococcus luteus (Micrococcus lysodeikticus)",
+"protein_name": "Catalase (EC 1.11.1.6)",
+"matched_organism": true
+},
+"1.11.1.6||bovine liver": {
+"accession": "P00432",
+"entry_name": "CATA_BOVIN",
+"organism": "Bos taurus (Bovine)",
+"protein_name": "Catalase (EC 1.11.1.6)",
+"matched_organism": false
+},
+"1.11.1.6||Bovine liver": {
+"accession": "P00432",
+"entry_name": "CATA_BOVIN",
+"organism": "Bos taurus (Bovine)",
+"protein_name": "Catalase (EC 1.11.1.6)",
+"matched_organism": false
+},
+"1.11.1.6||Geobacillus sp. CHB1": {
+"accession": "P00432",
+"entry_name": "CATA_BOVIN",
+"organism": "Bos taurus (Bovine)",
+"protein_name": "Catalase (EC 1.11.1.6)",
+"matched_organism": false
+},
+"1.11.1.7||Armoracia rusticana": {
+"accession": "P80679",
+"entry_name": "PERA2_ARMRU",
+"organism": "Armoracia rusticana (Horseradish) (Armoracia laphatifolia)",
+"protein_name": "Peroxidase A2 (EC 1.11.1.7)",
+"matched_organism": true
+},
+"1.11.1.7||": {
+"accession": "I2DBY1",
+"entry_name": "DYP_AURAJ",
+"organism": "Auricularia auricula-judae (Judas ear fungus) (Tremella auricula-judae)",
+"protein_name": "Dye-decolorizing peroxidase AauDyP1 (EC 1.11.1.19) (EC 1.11.1.7) (AjP I) (Manganese-independent peroxidase I) [Cleaved into: Dye-decolorizing peroxidase AauDyP2 (EC 1.11.1.19) (EC 1.11.1.7) (AjP II) (Manganese-independent peroxidase II)]",
+"matched_organism": false
+},
+"1.11.1.6||horse liver": {
+"accession": "P00432",
+"entry_name": "CATA_BOVIN",
+"organism": "Bos taurus (Bovine)",
+"protein_name": "Catalase (EC 1.11.1.6)",
+"matched_organism": false
+},
+"1.11.1.x||": null,
+"1.11.1.7||horseradish": {
+"accession": "P80679",
+"entry_name": "PERA2_ARMRU",
+"organism": "Armoracia rusticana (Horseradish) (Armoracia laphatifolia)",
+"protein_name": "Peroxidase A2 (EC 1.11.1.7)",
+"matched_organism": true
+},
+"1.11.1.x||Caldariomyces fumago": null,
+"1.11.1.x||Pseudomonas fluorescens": null,
+"1.11.1.x||Homo sapiens": null,
+"1.11.1.x||Staphylococcus aureus": null,
+"1.11.1.x||Curvularia inaeqaelis": null,
+"1.11.1.x||E. coli": null,
+"1.11.2.x||": null,
+"1.11.2.x||Agrocybe aegerita": null,
+"1.11.2.1||Marasmius rotula": {
+"accession": "B9W4V6",
+"entry_name": "APO1_CYCAE",
+"organism": "Cyclocybe aegerita (Black poplar mushroom) (Agrocybe aegerita)",
+"protein_name": "Aromatic peroxygenase (AaP) (EC 1.11.2.1)",
+"matched_organism": false
+},
+"1.12.1.x||": null,
+"1.11.2.x||Marasmius rotula": null,
+"1.11.2.x||Staphylococcus aureus": null,
+"1.13.11.12||Glycine max": {
+"accession": "P08170",
+"entry_name": "LOX1_SOYBN",
+"organism": "Glycine max (Soybean) (Glycine hispida)",
+"protein_name": "Seed linoleate 13S-lipoxygenase-1 (EC 1.13.11.12) (Lipoxygenase-1) (L-1)",
+"matched_organism": true
+},
+"1.13.11.88||Pseudomonas nitroreducens": {
+"accession": "C3VA26",
+"entry_name": "IEMOX_PSENT",
+"organism": "Pseudomonas nitroreducens",
+"protein_name": "Isoeugenol monooxygenase (EC 1.13.11.88)",
+"matched_organism": true
+},
+"1.12.1.x||Ralstonia eutropha H16": null,
+"1.13.11.x||": null,
+"1.13.11.12||Glycine max (soybean)": {
+"accession": "O24371",
+"entry_name": "LOX31_SOLTU",
+"organism": "Solanum tuberosum (Potato)",
+"protein_name": "Linoleate 13S-lipoxygenase 3-1, chloroplastic (EC 1.13.11.12)",
+"matched_organism": false
+},
+"1.13.12.3||": {
+"accession": "P25017",
+"entry_name": "TR2M2_AGRVI",
+"organism": "Agrobacterium vitis (Rhizobium vitis)",
+"protein_name": "Tryptophan 2-monooxygenase (EC 1.13.12.3)",
+"matched_organism": false
+},
+"1.13.11.x||E. coli": null,
+"1.13.12.x||": null,
+"1.13.11.x||Solanum tuberosum": null,
+"1.13.12.x||Chlorella variabilis NC64 A": null,
+"1.13.12.x||Pseudomonas mendocina ymp": null,
+"1.13.12.x||Trichosporon laibacchii CBS5791": null,
+"1.14.11.x||": null,
+"1.13.12.x||Pseudomonas syringae pv. phaseolicola PK2": null,
+"1.14.11.x||Aethusa cynapium": null,
+"1.14.11.x||Aspergillus oryzae": null,
+"1.14.11.x||Bacillus thuringiensis": null,
+"1.14.11.x||Kineococcus radiotolerans": null,
+"1.14.13.x||": null,
+"1.14.13.x||Acinetobacter calaceticus": null,
+"1.14.13.x||Acinetobacter calcoaceticus": null,
+"1.14.13.x||Acinetobacter sp. NCIMB 9871": null,
+"1.14.13.x||Arthrobacter sp. PAMC25564": null,
+"1.14.13.x||E. coli BL21": null,
+"1.14.13.x||E. coli": null,
+"1.14.13.x||Escherichia coli BL21(DE3)": null,
+"1.14.13.x||Escherichia coli": null,
+"1.14.13.x||Methylophaga spp.": null,
+"1.14.13.x||Pseudomonas aeruginosa": null,
+"1.14.13.x||Pseudomonas aeruginosa or Pseudomonas fluorescens": null,
+"1.14.13.x||Pseudomonas fluorescens ACB": null,
+"1.14.14.1||Bacillus megaterium": {
+"accession": "P14779",
+"entry_name": "CPXB_PRIM2",
+"organism": "Priestia megaterium (strain ATCC 14581 / DSM 32 / CCUG 1817 / JCM 2506 / NBRC 15308 / NCIMB 9376 / NCTC 10342 / NRRL B-14308 / VKM B-512 / Ford 19) (Bacillus megaterium)",
+"protein_name": "Bifunctional cytochrome P450/NADPH--P450 reductase (Cytochrome P450(BM-3)) (Cytochrome P450BM-3) (Fatty acid monooxygenase) (Flavocytochrome P450 BM3) [Includes: Cytochrome P450 102A1 (EC 1.14.14.1); NADPH--cytochrome P450 reductase (EC 1.6.2.4)]",
+"matched_organism": true
+},
+"1.14.13.x||Pseudomonas putida": null,
+"1.14.13.x||Pseudomonas taiwanensis VLB120": null,
+"1.14.13.x||Rhodococcus sp. Phi1": null,
+"1.14.14.1||E. coli": {
+"accession": "B2RXA7",
+"entry_name": "CP26C_MOUSE",
+"organism": "Mus musculus (Mouse)",
+"protein_name": "Cytochrome P450 26C1 (Cyp26c1) (EC 1.14.14.1) (Cytochrome P450, family 26, subfamily c, polypeptide 1)",
+"matched_organism": false
+},
+"1.14.14.1||Escherichia coli": {
+"accession": "B2RXA7",
+"entry_name": "CP26C_MOUSE",
+"organism": "Mus musculus (Mouse)",
+"protein_name": "Cytochrome P450 26C1 (Cyp26c1) (EC 1.14.14.1) (Cytochrome P450, family 26, subfamily c, polypeptide 1)",
+"matched_organism": false
+},
+"1.14.14.11||E. coli": {
+"accession": "O06834",
+"entry_name": "STYA_PSEFL",
+"organism": "Pseudomonas fluorescens",
+"protein_name": "Styrene monooxygenase StyA (EC 1.14.14.11) (Styrene monooxygenase large component)",
+"matched_organism": false
+},
+"1.14.14.1||Pseudomonas putida": {
+"accession": "B2RXA7",
+"entry_name": "CP26C_MOUSE",
+"organism": "Mus musculus (Mouse)",
+"protein_name": "Cytochrome P450 26C1 (Cyp26c1) (EC 1.14.14.1) (Cytochrome P450, family 26, subfamily c, polypeptide 1)",
+"matched_organism": false
+},
+"1.14.14.11||Escherichia coli": {
+"accession": "O06834",
+"entry_name": "STYA_PSEFL",
+"organism": "Pseudomonas fluorescens",
+"protein_name": "Styrene monooxygenase StyA (EC 1.14.14.11) (Styrene monooxygenase large component)",
+"matched_organism": false
+},
+"1.14.14.x||": null,
+"1.14.14.11||Pseudomonas sp. LQ26": {
+"accession": "O06834",
+"entry_name": "STYA_PSEFL",
+"organism": "Pseudomonas fluorescens",
+"protein_name": "Styrene monooxygenase StyA (EC 1.14.14.11) (Styrene monooxygenase large component)",
+"matched_organism": false
+},
+"1.14.14.x||Bacillus megaterium": null,
+"1.14.14.x||Bipolaris oryzae / Curvularia lunata": null,
+"1.14.14.x||Clostridium acetobutylicum": null,
+"1.14.14.x||E. coli": null,
+"1.14.14.x||Escherichia coli": null,
+"1.14.14.x||Escherichia coli C43(DE3)": null,
+"1.14.14.x||Marinobacterium litorale": null,
+"1.14.14.x||Mycobacterium marinum": null,
+"1.14.14.x||Pseudomonas putida GPo1": null,
+"1.14.14.x||Pseudomonas sp LQ26": null,
+"1.14.14.x||Pseudomonas sp. LQ26": null,
+"1.14.14.x||Pseudomonas sp. strain VLB120": null,
+"1.14.14.x||Pseudomonas taiwanensis VLB120": null,
+"1.14.14.x||Rhizopus oryzae": null,
+"1.14.14.x||Staphylococcus aureus": null,
+"1.14.14.x||Streptomyces afghaniensis": null,
+"1.14.14.x||Vitreoscilla": null,
+"1.14.14.x||genetically engineered bacteria": null,
+"1.14.14.x||Streptomyces avermitilis": null,
+"1.14.16.2||mushroom": {
+"accession": "P04177",
+"entry_name": "TY3H_RAT",
+"organism": "Rattus norvegicus (Rat)",
+"protein_name": "Tyrosine 3-monooxygenase (EC 1.14.16.2) (Tyrosine 3-hydroxylase) (TH)",
+"matched_organism": false
+},
+"1.14.18.1||Agaricus bisporus": {
+"accession": "C7FF04",
+"entry_name": "PPO3_AGABI",
+"organism": "Agaricus bisporus (White button mushroom)",
+"protein_name": "Polyphenol oxidase 3 (PPO3) (Phenolase 3) (EC 1.14.18.1) (Cresolase) (Tyrosinase 3)",
+"matched_organism": true
+},
+"1.14.18.1||mushroom": {
+"accession": "C7FF04",
+"entry_name": "PPO3_AGABI",
+"organism": "Agaricus bisporus (White button mushroom)",
+"protein_name": "Polyphenol oxidase 3 (PPO3) (Phenolase 3) (EC 1.14.18.1) (Cresolase) (Tyrosinase 3)",
+"matched_organism": true
+},
+"1.14.18.1||Bacillus megaterium": {
+"accession": "Q0MVP0",
+"entry_name": "TYRO_PELLE",
+"organism": "Pelophylax lessonae (Pool frog) (Rana lessonae)",
+"protein_name": "Tyrosinase (Epidermis tyrosinase) (Monophenol monooxygenase) (Skin tyrosinase) (EC 1.14.18.1)",
+"matched_organism": false
+},
+"1.14.18.x||Pseudomonas nitroreducens": null,
+"1.14.99.x||": null,
+"1.14.18.x||Rhodococcus jostii": null,
+"1.14.19.x||E. coli": null,
+"1.17.1.10||": {
+"accession": "P77907",
+"entry_name": "FDHB_NEOTH",
+"organism": "Neomoorella thermoacetica (Clostridium thermoaceticum)",
+"protein_name": "NADP(+)-dependent formate dehydrogenase subunit beta (EC 1.17.1.10)",
+"matched_organism": false
+},
+"1.17.1.9||Candida boidinii": {
+"accession": "O13437",
+"entry_name": "FDH_CANBO",
+"organism": "Candida boidinii (Yeast)",
+"protein_name": "Formate dehydrogenase (FDH) (EC 1.17.1.9) (NAD-dependent formate dehydrogenase)",
+"matched_organism": true
+},
+"1.17.1.x||": null,
+"1.14.x.x||E. coli": null,
+"1.17.3.x||": null,
+"1.17.4.1||": {
+"accession": "O15909",
+"entry_name": "RIR1_TRYBB",
+"organism": "Trypanosoma brucei brucei",
+"protein_name": "Ribonucleoside-diphosphate reductase large subunit (EC 1.17.4.1) (Ribonucleotide reductase R1 subunit)",
+"matched_organism": false
+},
+"1.18.1.2||": {
+"accession": "P00455",
+"entry_name": "FENR_SPIOL",
+"organism": "Spinacia oleracea (Spinach)",
+"protein_name": "Ferredoxin--NADP reductase, chloroplastic (FNR) (EC 1.18.1.2)",
+"matched_organism": false
+},
+"1.17.3.x||bovine milk": null,
+"1.18.1.2||Escherichia coli": {
+"accession": "P28861",
+"entry_name": "FENR_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Flavodoxin/ferredoxin--NADP reductase (EC 1.18.1.2) (EC 1.19.1.1) (Ferredoxin (flavodoxin):NADP(+) oxidoreductase) (Ferredoxin--NADP reductase) (FNR) (Flavodoxin--NADP reductase) (FLDR) (Methyl viologen resistance protein A) (dA1)",
+"matched_organism": true
+},
+"1.18.1.x||Pseudomonas putida": null,
+"1.18.1.x||Pseudoalteromonas luteoviolacea": null,
+"1.2.1.2||": null,
+"1.18.1.x||Streptomyces afghaniensis": null,
+"1.18.1.x||Streptomyces avermitilis": null,
+"1.2.1.2||Bacillus stearothermophilus": null,
+"1.2.1.2||Burkholderia stabilis": null,
+"1.2.1.2||Candida boidinii": null,
+"1.2.1.2||Escherichia coli": null,
+"1.2.1.2||Pichia pastoris": null,
+"1.2.1.2||Pseudomonas sp. 101": null,
+"1.2.1.2||Rhodococcus jostii": null,
+"1.2.1.2||Saccharomyces cerevisiae": null,
+"1.2.1.3||": {
+"accession": "Q8HYE4",
+"entry_name": "AL1A1_MACFA",
+"organism": "Macaca fascicularis (Crab-eating macaque) (Cynomolgus monkey)",
+"protein_name": "Aldehyde dehydrogenase 1A1 (EC 1.2.1.19) (EC 1.2.1.28) (EC 1.2.1.3) (EC 1.2.1.36) (3-deoxyglucosone dehydrogenase) (ALDH-E1) (ALHDII) (Aldehyde dehydrogenase family 1 member A1) (Aldehyde dehydrogenase, cytosolic) (Retinal dehydrogenase 1) (RALDH 1) (RalDH1)",
+"matched_organism": false
+},
+"1.2.1.2||Thiobacillus sp.": null,
+"1.2.1.28||Arthrobacter sp. PAMC25564": {
+"accession": "C7A2A0",
+"entry_name": "BALDH_ANTMA",
+"organism": "Antirrhinum majus (Garden snapdragon)",
+"protein_name": "Benzaldehyde dehydrogenase, mitochondrial (EC 1.2.1.28) (2-phenylacetaldehyde dehydrogenase) (EC 1.2.1.39) (Acetaldehyde dehydrogenase) (EC 1.2.1.3)",
+"matched_organism": false
+},
+"1.2.1.30||E. coli (expressing)": {
+"accession": "Q6RKB1",
+"entry_name": "CAR_NOCIO",
+"organism": "Nocardia iowensis",
+"protein_name": "Carboxylic acid reductase (CAR) (EC 1.2.1.-) (ATP/NADPH-dependent carboxylic acid reductase) (Aryl aldehyde oxidoreductase) (EC 1.2.1.30)",
+"matched_organism": false
+},
+"1.2.1.46||": {
+"accession": "P49189",
+"entry_name": "AL9A1_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "4-trimethylaminobutyraldehyde dehydrogenase (TMABA-DH) (TMABALDH) (EC 1.2.1.47) (Aldehyde dehydrogenase E3 isozyme) (Aldehyde dehydrogenase family 9 member A1) (EC 1.2.1.3) (Formaldehyde dehydrogenase) (EC 1.2.1.46) (Gamma-aminobutyraldehyde dehydrogenase) (EC 1.2.1.19) (R-aminobutyraldehyde dehydrogenase) [Cleaved into: 4-trimethylaminobutyraldehyde dehydrogenase, N-terminally processed]",
+"matched_organism": false
+},
+"1.2.1.30||E. coli (recombinant expression)": {
+"accession": "Q6RKB1",
+"entry_name": "CAR_NOCIO",
+"organism": "Nocardia iowensis",
+"protein_name": "Carboxylic acid reductase (CAR) (EC 1.2.1.-) (ATP/NADPH-dependent carboxylic acid reductase) (Aryl aldehyde oxidoreductase) (EC 1.2.1.30)",
+"matched_organism": false
+},
+"1.2.1.38||Denitrovibrio acetiphilus": {
+"accession": "A0JV20",
+"entry_name": "ARGC_ARTS2",
+"organism": "Arthrobacter sp. (strain FB24)",
+"protein_name": "N-acetyl-gamma-glutamyl-phosphate reductase (AGPR) (EC 1.2.1.38) (N-acetyl-glutamate semialdehyde dehydrogenase) (NAGSA dehydrogenase)",
+"matched_organism": false
+},
+"1.2.1.46||Pseudomonas putida": {
+"accession": "P46154",
+"entry_name": "FALDH_PSEPU",
+"organism": "Pseudomonas putida (Arthrobacter siderocapsulatus)",
+"protein_name": "Glutathione-independent formaldehyde dehydrogenase (FALDH) (FDH) (EC 1.2.1.46) (Formaldehyde dismutase) (EC 1.2.98.1)",
+"matched_organism": true
+},
+"1.2.1.x||": null,
+"1.2.1.46||Pseudomonas sp.": {
+"accession": "P49189",
+"entry_name": "AL9A1_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "4-trimethylaminobutyraldehyde dehydrogenase (TMABA-DH) (TMABALDH) (EC 1.2.1.47) (Aldehyde dehydrogenase E3 isozyme) (Aldehyde dehydrogenase family 9 member A1) (EC 1.2.1.3) (Formaldehyde dehydrogenase) (EC 1.2.1.46) (Gamma-aminobutyraldehyde dehydrogenase) (EC 1.2.1.19) (R-aminobutyraldehyde dehydrogenase) [Cleaved into: 4-trimethylaminobutyraldehyde dehydrogenase, N-terminally processed]",
+"matched_organism": false
+},
+"1.2.1.x||Arthrobacter crystallopoietes": null,
+"1.2.1.x||Brevibacterium lutescens": null,
+"1.2.1.x||Comamonas testosteroni": null,
+"1.2.1.x||E. coli": null,
+"1.2.1.x||E. coli (expressing)": null,
+"1.2.1.x||E. coli (recombinant expression)": null,
+"1.2.1.x||Escherichia coli": null,
+"1.2.1.x||Geobacillus thermodenitrificans": null,
+"1.2.1.x||Herbaspirillum seropedicae or Trinickia sp.": null,
+"1.2.1.x||Kibdelosporangium sp. MJ126-NF4": null,
+"1.2.1.x||Klebsiella variicola": null,
+"1.2.1.x||Mycobacterium chlorophenolicum": null,
+"1.2.1.x||Neurospora crassa": null,
+"1.2.1.x||Mycobacterium phlei": null,
+"1.2.1.x||Pseudomonas putida": null,
+"1.2.1.x||Pseudomonas cepacia": null,
+"1.2.1.x||Pseudomonas sp. 101": null,
+"1.2.3.x||": null,
+"1.2.1.x||Tsukamurella paurometabola": null,
+"1.2.3.x||Brevibacterium lutescens": null,
+"1.2.3.x||Pseudomonas rhodesiae": null,
+"1.2.x.x||Cupriavidus testosterone SC1588": null,
+"1.20.1.1||": {
+"accession": "O69054",
+"entry_name": "PTXD_STUST",
+"organism": "Stutzerimonas stutzeri (Pseudomonas stutzeri)",
+"protein_name": "Phosphite dehydrogenase (EC 1.20.1.1) (NAD-dependent phosphite dehydrogenase)",
+"matched_organism": false
+},
+"1.2.x.x||Pseudomonas putida KT2440": null,
+"1.20.1.1||Pseudomonas stutzeri": {
+"accession": "O69054",
+"entry_name": "PTXD_STUST",
+"organism": "Stutzerimonas stutzeri (Pseudomonas stutzeri)",
+"protein_name": "Phosphite dehydrogenase (EC 1.20.1.1) (NAD-dependent phosphite dehydrogenase)",
+"matched_organism": true
+},
+"1.21.3.3||": {
+"accession": "P93479",
+"entry_name": "RETO_PAPSO",
+"organism": "Papaver somniferum (Opium poppy)",
+"protein_name": "Reticuline oxidase (EC 1.21.3.3) (Berberine bridge-forming enzyme) (BBE) (Tetrahydroprotoberberine synthase)",
+"matched_organism": false
+},
+"1.21.3.x||": null,
+"1.3.1.x||": null,
+"1.3.1.x||Artemisia annua": null,
+"1.3.1.x||Clostridium acetobutylicum": null,
+"1.3.1.x||Eubacterium ramulus": null,
+"1.3.1.x||Escherichia coli": null,
+"1.4.1.1||": {
+"accession": "P17556",
+"entry_name": "DHA_LYSSH",
+"organism": "Lysinibacillus sphaericus (Bacillus sphaericus)",
+"protein_name": "Alanine dehydrogenase (EC 1.4.1.1)",
+"matched_organism": false
+},
+"1.3.1.x||Gluconobacter oxydans": null,
+"1.3.1.x||Saccharomyces cerevisiae": null,
+"1.4.1.1||Bacillus subtilis": {
+"accession": "Q08352",
+"entry_name": "DHA_BACSU",
+"organism": "Bacillus subtilis (strain 168)",
+"protein_name": "Alanine dehydrogenase (EC 1.4.1.1) (Stage V sporulation protein N)",
+"matched_organism": true
+},
+"1.4.1.1||Halomonas elongata": {
+"accession": "E1V931",
+"entry_name": "DHA_HALED",
+"organism": "Halomonas elongata (strain ATCC 33173 / DSM 2581 / NBRC 15536 / NCIMB 2198 / 1H9)",
+"protein_name": "Alanine dehydrogenase (EC 1.4.1.1)",
+"matched_organism": true
+},
+"1.4.1.20||Thermoactinomyces intermedius": {
+"accession": "P22823",
+"entry_name": "DHPH_THEIN",
+"organism": "Thermoactinomyces intermedius",
+"protein_name": "Phenylalanine dehydrogenase (PheDH) (EC 1.4.1.20)",
+"matched_organism": true
+},
+"1.3.1.x||Swingsia samuiensi": null,
+"1.4.1.3||": {
+"accession": "P42174",
+"entry_name": "DHE3_PIG",
+"organism": "Sus scrofa (Pig)",
+"protein_name": "Glutamate dehydrogenase 1, mitochondrial (GDH 1) (EC 1.4.1.3) (Membrane protein 50) (MP50)",
+"matched_organism": false
+},
+"1.4.1.5||": null,
+"1.4.1.9||Bacillus subtilis": {
+"accession": "P54531",
+"entry_name": "DHLE_BACSU",
+"organism": "Bacillus subtilis (strain 168)",
+"protein_name": "Leucine dehydrogenase (LeuDH) (EC 1.4.1.9)",
+"matched_organism": true
+},
+"1.4.1.3||Escherichia coli": {
+"accession": "P42174",
+"entry_name": "DHE3_PIG",
+"organism": "Sus scrofa (Pig)",
+"protein_name": "Glutamate dehydrogenase 1, mitochondrial (GDH 1) (EC 1.4.1.3) (Membrane protein 50) (MP50)",
+"matched_organism": false
+},
+"1.4.1.3||bovine liver": {
+"accession": "P42174",
+"entry_name": "DHE3_PIG",
+"organism": "Sus scrofa (Pig)",
+"protein_name": "Glutamate dehydrogenase 1, mitochondrial (GDH 1) (EC 1.4.1.3) (Membrane protein 50) (MP50)",
+"matched_organism": false
+},
+"1.4.1.x||": null,
+"1.4.1.9||Exiguobacterium sibiricum": {
+"accession": "Q60030",
+"entry_name": "DHLE_THEIN",
+"organism": "Thermoactinomyces intermedius",
+"protein_name": "Leucine dehydrogenase (LeuDH) (EC 1.4.1.9)",
+"matched_organism": false
+},
+"1.4.1.9||Bacillus thuringiensis": {
+"accession": "Q60030",
+"entry_name": "DHLE_THEIN",
+"organism": "Thermoactinomyces intermedius",
+"protein_name": "Leucine dehydrogenase (LeuDH) (EC 1.4.1.9)",
+"matched_organism": false
+},
+"1.4.1.x||Ajellomyces dermatitidis": null,
+"1.4.1.x||Aspergillus oryzae": null,
+"1.4.1.x||Bacillus cereus": null,
+"1.4.1.x||Bacillus badius": null,
+"1.4.1.x||Bacillus subtilis": null,
+"1.4.1.x||Bacillus megaterium": null,
+"1.4.1.x||Bacillus stearothermophilus": null,
+"1.4.1.x||E. coli BL21(DE3)": null,
+"1.4.1.x||Escherichia coli BL21(DE3)": null,
+"1.4.1.x||Escherichia coli": null,
+"1.4.1.x||Caldalkalibacillus thermarum": null,
+"1.4.1.x||Corynebacterium glutamicum": null,
+"1.4.1.x||Exiguobacterium sibiricum": null,
+"1.4.1.x||Lysinibacillus sphaericus": null,
+"1.4.1.x||Rhodococcus sp.": null,
+"1.4.1.x||various": null,
+"1.4.1.x||Symbiobacterium thermophilum": null,
+"1.4.3.2||Hebeloma cylindrosporum": {
+"accession": "S4S6Z0",
+"entry_name": "LAAO4_HEBCY",
+"organism": "Hebeloma cylindrosporum",
+"protein_name": "L-amino-acid oxidase 4 (LAAO4) (EC 1.4.3.-) (EC 1.4.3.11) (EC 1.4.3.14) (EC 1.4.3.2) (EC 1.4.3.25)",
+"matched_organism": true
+},
+"1.4.3.2||": {
+"accession": "P0C2D1",
+"entry_name": "OXLA_BOTPI",
+"organism": "Bothrops pirajai (Piraja's lancehead)",
+"protein_name": "L-amino-acid oxidase (BpirLAAO-I) (LAO) (EC 1.4.3.2)",
+"matched_organism": false
+},
+"1.4.3.2||Proteus mirabilis": {
+"accession": "P0C2D1",
+"entry_name": "OXLA_BOTPI",
+"organism": "Bothrops pirajai (Piraja's lancehead)",
+"protein_name": "L-amino-acid oxidase (BpirLAAO-I) (LAO) (EC 1.4.3.2)",
+"matched_organism": false
+},
+"1.4.1.x||Mycobacterium smegmatis": null,
+"1.4.3.3||": {
+"accession": "A0A0E3JXD9",
+"entry_name": "DAO_UNKP",
+"organism": "Unknown prokaryotic organism",
+"protein_name": "D-amino-acid oxidase (DAAO) (DAMOX) (DAO) (EC 1.4.3.3)",
+"matched_organism": false
+},
+"1.4.3.2||fungal": {
+"accession": "P0C2D1",
+"entry_name": "OXLA_BOTPI",
+"organism": "Bothrops pirajai (Piraja's lancehead)",
+"protein_name": "L-amino-acid oxidase (BpirLAAO-I) (LAO) (EC 1.4.3.2)",
+"matched_organism": false
+},
+"1.4.3.1||Thermomyces dupontii": {
+"accession": "Q99489",
+"entry_name": "OXDD_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "D-aspartate oxidase (DASOX) (DASPO) (DDO) (EC 1.4.3.1)",
+"matched_organism": false
+},
+"1.4.3.3||Fusarium solani M-0718": {
+"accession": "A0A0E3JXD9",
+"entry_name": "DAO_UNKP",
+"organism": "Unknown prokaryotic organism",
+"protein_name": "D-amino-acid oxidase (DAAO) (DAMOX) (DAO) (EC 1.4.3.3)",
+"matched_organism": false
+},
+"1.4.3.3||Rhodotorula gracilis": {
+"accession": "A0A0E3JXD9",
+"entry_name": "DAO_UNKP",
+"organism": "Unknown prokaryotic organism",
+"protein_name": "D-amino-acid oxidase (DAAO) (DAMOX) (DAO) (EC 1.4.3.3)",
+"matched_organism": false
+},
+"1.4.3.3||Escherichia coli BL21(DE3)": {
+"accession": "A0A0E3JXD9",
+"entry_name": "DAO_UNKP",
+"organism": "Unknown prokaryotic organism",
+"protein_name": "D-amino-acid oxidase (DAAO) (DAMOX) (DAO) (EC 1.4.3.3)",
+"matched_organism": false
+},
+"1.4.3.3||Escherichia coli": {
+"accession": "A0A0E3JXD9",
+"entry_name": "DAO_UNKP",
+"organism": "Unknown prokaryotic organism",
+"protein_name": "D-amino-acid oxidase (DAAO) (DAMOX) (DAO) (EC 1.4.3.3)",
+"matched_organism": false
+},
+"1.4.3.4||": {
+"accession": "P19643",
+"entry_name": "AOFB_RAT",
+"organism": "Rattus norvegicus (Rat)",
+"protein_name": "Amine oxidase [flavin-containing] B (EC 1.4.3.21) (EC 1.4.3.4) (Monoamine oxidase type B) (MAO-B)",
+"matched_organism": false
+},
+"1.4.3.3||Trigonopsis variabilis": {
+"accession": "Q99042",
+"entry_name": "OXDA_TRIVR",
+"organism": "Trigonopsis variabilis (Yeast)",
+"protein_name": "D-amino-acid oxidase (DAAO) (DAMOX) (DAO) (EC 1.4.3.3) (TvDAO1)",
+"matched_organism": true
+},
+"1.4.3.4||Aspergillus niger": {
+"accession": "P46882",
+"entry_name": "AOFN_ASPNG",
+"organism": "Aspergillus niger",
+"protein_name": "Monoamine oxidase N (MAO-N) (EC 1.4.3.4)",
+"matched_organism": true
+},
+"1.4.3.x||": null,
+"1.4.3.4||E. coli": {
+"accession": "P19643",
+"entry_name": "AOFB_RAT",
+"organism": "Rattus norvegicus (Rat)",
+"protein_name": "Amine oxidase [flavin-containing] B (EC 1.4.3.21) (EC 1.4.3.4) (Monoamine oxidase type B) (MAO-B)",
+"matched_organism": false
+},
+"1.4.3.4||Escherichia coli OverExpress C43(DE3)": {
+"accession": "P19643",
+"entry_name": "AOFB_RAT",
+"organism": "Rattus norvegicus (Rat)",
+"protein_name": "Amine oxidase [flavin-containing] B (EC 1.4.3.21) (EC 1.4.3.4) (Monoamine oxidase type B) (MAO-B)",
+"matched_organism": false
+},
+"1.4.3.x||Arthrobacter pascens": null,
+"1.4.3.x||Cosenzaea myxofaciens": null,
+"1.4.3.x||E. coli": null,
+"1.4.3.x||E. coli BL21(DE3)": null,
+"1.4.3.x||E. coli C43(DE3)": null,
+"1.4.3.x||Hebeloma cylindrosporum": null,
+"1.4.3.x||Escherichia coli": null,
+"1.4.3.x||Proteus mirabilis": null,
+"1.4.3.x||Thermomyces dupontii": null,
+"1.4.3.x||Rhodococcus erythropolis": null,
+"1.4.3.x||porcine kidney": null,
+"1.4.3.x||Streptomyces viridosporus": null,
+"1.4.99.x||Escherichia coli": null,
+"1.5.1.21||Pseudomonas putida KT2440": {
+"accession": "Q4U331",
+"entry_name": "PY2CR_PSEUB",
+"organism": "Pseudomonas syringae pv. tomato",
+"protein_name": "Delta(1)-pyrroline-2-carboxylate/Delta(1)-piperideine-2-carboxylate reductase (Pyr2C/Pip2C reductase) (EC 1.5.1.21) (N-methyl-L-amino acid dehydrogenase) (EC 1.4.1.17)",
+"matched_organism": false
+},
+"1.5.1.x||": null,
+"1.4.99.B3||Cosenzaea myxofaciens": null,
+"1.5.1.x||Ajellomyces dermatitidis": null,
+"1.5.1.3||Lactobacillus bulgaricus": {
+"accession": "P00381",
+"entry_name": "DYR_LACCA",
+"organism": "Lacticaseibacillus casei (Lactobacillus casei)",
+"protein_name": "Dihydrofolate reductase (EC 1.5.1.3)",
+"matched_organism": false
+},
+"1.5.1.x||Chelatococcus sp. CO-6": null,
+"1.5.1.x||E. coli": null,
+"1.6.1.x||": null,
+"1.5.1.x||Streptosporangium roseum": null,
+"1.5.1.x||Streptomyces sp. GF3587": null,
+"1.6.3.1||": {
+"accession": "A2AQ92",
+"entry_name": "DUOX1_MOUSE",
+"organism": "Mus musculus (Mouse)",
+"protein_name": "Dual oxidase 1 (EC 1.-.-.-) (EC 1.11.1.-) (EC 1.6.3.1)",
+"matched_organism": false
+},
+"1.6.3.x||": null,
+"1.6.3.2||Lactobacillus plantarum": {
+"accession": "Q5JGP4",
+"entry_name": "NSR_THEKO",
+"organism": "Thermococcus kodakarensis (strain ATCC BAA-918 / JCM 12380 / KOD1) (Pyrococcus kodakaraensis (strain KOD1))",
+"protein_name": "NAD(P)H sulfur oxidoreductase (CoA-dependent) (NSR) (EC 1.8.1.18) (NAD(P)H oxidase (H2O-forming)) (NOX) (EC 1.6.3.2)",
+"matched_organism": false
+},
+"1.6.3.4||Streptococcus pyogenes": {
+"accession": "Q5XC60",
+"entry_name": "NAOX_STRP6",
+"organism": "Streptococcus pyogenes serotype M6 (strain ATCC BAA-946 / MGAS10394)",
+"protein_name": "NADH oxidase (NOXase) (EC 1.6.3.4)",
+"matched_organism": true
+},
+"1.6.3.x||Lactobacillus pentosus": null,
+"1.6.3.x||E. coli": null,
+"1.6.3.x||Streptococcus mutans": null,
+"1.6.3.x||Thermus thermophilus": null,
+"1.6.3.x||Streptococcus pyogenes": null,
+"1.6.3.x||Lactococcus lactis": null,
+"1.6.3.x||Thermus thermophilus HB27": null,
+"1.6.5.x||": null,
+"1.6.5.x||E. coli": null,
+"1.6.5.2||Saccharomyces pastorianus": {
+"accession": "P0A754",
+"entry_name": "KEFF_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Glutathione-regulated potassium-efflux system ancillary protein KefF (Quinone oxidoreductase KefF) (EC 1.6.5.2)",
+"matched_organism": false
+},
+"1.6.5.x||Escherichia coli": null,
+"1.6.5.x||Yersinia bercovieri": null,
+"1.6.5.x||Saccharomyces pastorianus": null,
+"1.6.5.x||Providencia stuartii": null,
+"1.6.5.x||Zymomonas mobilis": null,
+"1.6.99.1||Providencia stuartii": {
+"accession": "Q02899",
+"entry_name": "OYE1_SACPS",
+"organism": "Saccharomyces pastorianus (Lager yeast) (Saccharomyces cerevisiae x Saccharomyces eubayanus)",
+"protein_name": "NADPH dehydrogenase 1 (EC 1.6.99.1) (Old yellow enzyme 1)",
+"matched_organism": false
+},
+"1.6.5.x||Saccharomyces carlsbergensis": null,
+"1.6.99.1||Saccharomyces carlsbergensis": {
+"accession": "Q02899",
+"entry_name": "OYE1_SACPS",
+"organism": "Saccharomyces pastorianus (Lager yeast) (Saccharomyces cerevisiae x Saccharomyces eubayanus)",
+"protein_name": "NADPH dehydrogenase 1 (EC 1.6.99.1) (Old yellow enzyme 1)",
+"matched_organism": false
+},
+"1.6.99.x||": null,
+"1.6.99.1||Saccharomyces pastorianus": {
+"accession": "Q02899",
+"entry_name": "OYE1_SACPS",
+"organism": "Saccharomyces pastorianus (Lager yeast) (Saccharomyces cerevisiae x Saccharomyces eubayanus)",
+"protein_name": "NADPH dehydrogenase 1 (EC 1.6.99.1) (Old yellow enzyme 1)",
+"matched_organism": true
+},
+"1.6.99.x||Bacillus subtilis": null,
+"1.6.99.x||Enterococcus faecium": null,
+"1.6.99.x||Enterobacter cloacae": null,
+"1.6.99.x||Escherichia coli": null,
+"1.6.99.x||Saccharomyces cerevisiae": null,
+"1.6.99.x||Lactobacillus brevis": null,
+"1.6.99.x||Thermoanaerobacter pseudethanolicus E39": null,
+"1.6.99.x||Thermoanaerobacter pseudethanolicus": null,
+"1.6.99.x||Saccharomyces pastorianus": null,
+"1.6.99.x||Thermus scotoductus": null,
+"1.8.1.x||": null,
+"1.6.99.x||Zymomonas mobilis": null,
+"1.8.4.x||Escherichia coli": null,
+"1.8.4.x||": null,
+"2.1.1.x||": null,
+"1.8.4.x||Pseudomonas alcaliphila": null,
+"1.8.1.x||Escherichia coli": null,
+"1.x.x.x||E. coli": null,
+"2.1.1.x||Amycolatopsis orientalis": null,
+"2.1.1.x||E. coli": null,
+"2.1.1.x||Danio rerio": null,
+"2.1.1.x||Aspergillus clavatus": null,
+"2.1.1.x||E. coli BL21": null,
+"2.1.1.x||Papaver somniferum": null,
+"2.1.1.x||Ruegeria conchae": null,
+"2.1.1.x||Piper methysticum": null,
+"2.1.1.x||Streptomyces spheroides": null,
+"2.1.2.1||Streptococcus thermophilus": {
+"accession": "Q5M0B4",
+"entry_name": "GLYA_STRT1",
+"organism": "Streptococcus thermophilus (strain CNRZ 1066)",
+"protein_name": "Serine hydroxymethyltransferase (SHMT) (Serine methylase) (EC 2.1.2.1)",
+"matched_organism": true
+},
+"2.2.1.1||Escherichia coli": {
+"accession": "P33570",
+"entry_name": "TKT2_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Transketolase 2 (TK 2) (EC 2.2.1.1)",
+"matched_organism": true
+},
+"2.2.1.1||Geobacillus stearothermophilus": {
+"accession": "A0A0I9QGZ2",
+"entry_name": "TKT_GEOSE",
+"organism": "Geobacillus stearothermophilus (Bacillus stearothermophilus)",
+"protein_name": "Transketolase (TK) (EC 2.2.1.1)",
+"matched_organism": true
+},
+"2.2.1.1||Escherichia coli or Geobacillus stearothermophilus": {
+"accession": "F4IW47",
+"entry_name": "TKTC2_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "Transketolase-2, chloroplastic (TK) (EC 2.2.1.1)",
+"matched_organism": false
+},
+"2.1.2.x||Escherichia coli": null,
+"2.2.1.2||engineered from transaldolase B": {
+"accession": "A0A075DVI9",
+"entry_name": "TAL1_GIBIN",
+"organism": "Gibberella intermedia (Bulb rot disease fungus) (Fusarium proliferatum)",
+"protein_name": "Transaldolase (EC 2.2.1.2) (allergen Fus p 4.0101)",
+"matched_organism": false
+},
+"2.2.1.6||": {
+"accession": "A0A2I2F2I5",
+"entry_name": "CFOL_ASPCN",
+"organism": "Aspergillus candidus",
+"protein_name": "Acetolactate synthase catalytic subunit, mitochondrial (EC 2.2.1.6) (Acetohydroxy-acid synthase catalytic subunit) (AHAS) (ALS) (Chlorflavonin biosynthesis cluster protein L)",
+"matched_organism": false
+},
+"2.2.1.x||Bacillus licheniformis": null,
+"2.2.1.x||Deinococcus radiodurans": null,
+"2.2.1.6||Caldicellulosiruptor owensensis OL": {
+"accession": "A0A2I2F2I5",
+"entry_name": "CFOL_ASPCN",
+"organism": "Aspergillus candidus",
+"protein_name": "Acetolactate synthase catalytic subunit, mitochondrial (EC 2.2.1.6) (Acetohydroxy-acid synthase catalytic subunit) (AHAS) (ALS) (Chlorflavonin biosynthesis cluster protein L)",
+"matched_organism": false
+},
+"2.2.1.x||Escherichia coli": null,
+"2.3.1.x||": null,
+"2.3.1.x||Glycine max": null,
+"2.3.1.x||Mus musculus": null,
+"2.3.1.x||Ralstonia eutropha": null,
+"2.3.1.x||Escherichia coli": null,
+"2.3.1.x||Nicotiana benthamiana": null,
+"2.3.1.x||Mycobacterium smegmatis": null,
+"2.4.1.10||Gluconacetobacter diazotrophicus": {
+"accession": "Q43998",
+"entry_name": "LSC_GLUDI",
+"organism": "Gluconacetobacter diazotrophicus (Acetobacter diazotrophicus)",
+"protein_name": "Levansucrase (EC 2.4.1.10) (Beta-D-fructofuranosyl transferase) (Sucrose 6-fructosyl transferase)",
+"matched_organism": true
+},
+"2.4.1.10||Bacillus subtilis": {
+"accession": "P05655",
+"entry_name": "LSC_BACSU",
+"organism": "Bacillus subtilis (strain 168)",
+"protein_name": "Levansucrase (EC 2.4.1.10) (Beta-D-fructofuranosyl transferase) (Fructosyltransferase) (FTF) (Sucrose 6-fructosyl transferase)",
+"matched_organism": true
+},
+"2.4.1.1||Thermotoga maritima MSB8": {
+"accession": "P06737",
+"entry_name": "PYGL_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Glycogen phosphorylase, liver form (EC 2.4.1.1)",
+"matched_organism": false
+},
+"2.4.1.10||Zymomonas mobilis": {
+"accession": "P0DJA3",
+"entry_name": "LSC_ZYMMO",
+"organism": "Zymomonas mobilis subsp. mobilis (strain ATCC 31821 / ZM4 / CP4)",
+"protein_name": "Levansucrase (EC 2.4.1.10) (Beta-D-fructofuranosyl transferase) (Sucrose 6-fructosyl transferase)",
+"matched_organism": true
+},
+"2.4.1.13||": {
+"accession": "Q8DK23",
+"entry_name": "SUS_THEVB",
+"organism": "Thermosynechococcus vestitus (strain NIES-2133 / IAM M-273 / BP-1)",
+"protein_name": "Sucrose synthase (SuSyTe) (EC 2.4.1.13)",
+"matched_organism": false
+},
+"2.4.1.1||Thermotoga maritima": {
+"accession": "P06737",
+"entry_name": "PYGL_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Glycogen phosphorylase, liver form (EC 2.4.1.1)",
+"matched_organism": false
+},
+"2.4.1.13||Arabidopsis thaliana": {
+"accession": "Q9LXL5",
+"entry_name": "SUS4_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "Sucrose synthase 4 (AtSUS4) (EC 2.4.1.13) (Sucrose-UDP glucosyltransferase 4)",
+"matched_organism": true
+},
+"2.4.1.10||Leuconostoc mesenteroides": {
+"accession": "P0DJA3",
+"entry_name": "LSC_ZYMMO",
+"organism": "Zymomonas mobilis subsp. mobilis (strain ATCC 31821 / ZM4 / CP4)",
+"protein_name": "Levansucrase (EC 2.4.1.10) (Beta-D-fructofuranosyl transferase) (Sucrose 6-fructosyl transferase)",
+"matched_organism": false
+},
+"2.4.1.13||Glycine max": {
+"accession": "P13708",
+"entry_name": "SUS_SOYBN",
+"organism": "Glycine max (Soybean) (Glycine hispida)",
+"protein_name": "Sucrose synthase (EC 2.4.1.13) (Nodulin-100) (N-100) (Sucrose-UDP glucosyltransferase)",
+"matched_organism": true
+},
+"2.4.1.13||Escherichia coli": {
+"accession": "Q8DK23",
+"entry_name": "SUS_THEVB",
+"organism": "Thermosynechococcus vestitus (strain NIES-2133 / IAM M-273 / BP-1)",
+"protein_name": "Sucrose synthase (SuSyTe) (EC 2.4.1.13)",
+"matched_organism": false
+},
+"2.4.1.20||Caldicellulosiruptor bescii DSM 6725": {
+"accession": "B9K7M6",
+"entry_name": "CBPA_THENN",
+"organism": "Thermotoga neapolitana (strain ATCC 49049 / DSM 4359 / NBRC 107923 / NS-E)",
+"protein_name": "Cellobiose phosphorylase (EC 2.4.1.20)",
+"matched_organism": false
+},
+"2.4.1.211||Bifidobacterium infantis": {
+"accession": "E8MF13",
+"entry_name": "LNPA_BIFL2",
+"organism": "Bifidobacterium longum subsp. longum (strain ATCC 15707 / DSM 20219 / JCM 1217 / NCTC 11818 / E194b)",
+"protein_name": "1,3-beta-galactosyl-N-acetylhexosamine phosphorylase (EC 2.4.1.211) (Galacto-N-biose/lacto-N-biose I phosphorylase) (GLNBP)",
+"matched_organism": false
+},
+"2.4.1.38||Homo sapiens": {
+"accession": "O60909",
+"entry_name": "B4GT2_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Beta-1,4-galactosyltransferase 2 (Beta-1,4-GalTase 2) (Beta4Gal-T2) (b4Gal-T2) (EC 2.4.1.-) (Beta-N-acetylglucosaminyl-glycolipid beta-1,4-galactosyltransferase) (Beta-N-acetylglucosaminylglycopeptide beta-1,4-galactosyltransferase) (EC 2.4.1.38) (Lactose synthase A protein) (EC 2.4.1.22) (N-acetyllactosamine synthase) (EC 2.4.1.90) (Nal synthase) (UDP-Gal:beta-GlcNAc beta-1,4-galactosyltransferase 2) (UDP-galactose:beta-N-acetylglucosamine beta-1,4-galactosyltransferase 2)",
+"matched_organism": true
+},
+"2.4.1.4||": {
+"accession": "Q84HD6",
+"entry_name": "AMYS_NEIME",
+"organism": "Neisseria meningitidis",
+"protein_name": "Amylosucrase (EC 2.4.1.4)",
+"matched_organism": false
+},
+"2.4.1.20||Clostridium thermocellum": {
+"accession": "B9K7M6",
+"entry_name": "CBPA_THENN",
+"organism": "Thermotoga neapolitana (strain ATCC 49049 / DSM 4359 / NBRC 107923 / NS-E)",
+"protein_name": "Cellobiose phosphorylase (EC 2.4.1.20)",
+"matched_organism": false
+},
+"2.4.1.7||Bifidobacterium adolescentis": {
+"accession": "A0ZZH6",
+"entry_name": "SUCP_BIFAA",
+"organism": "Bifidobacterium adolescentis (strain ATCC 15703 / DSM 20083 / NCTC 11814 / E194a)",
+"protein_name": "Sucrose phosphorylase (SP) (SPase) (EC 2.4.1.7)",
+"matched_organism": true
+},
+"2.4.1.7||Thermoanaerobacterium thermosaccharolyticum": {
+"accession": "P33910",
+"entry_name": "SUCP_AGRVI",
+"organism": "Agrobacterium vitis (Rhizobium vitis)",
+"protein_name": "Sucrose phosphorylase (EC 2.4.1.7) (Sucrose glucosyltransferase)",
+"matched_organism": false
+},
+"2.4.1.x||Bacillus subtilis": null,
+"2.4.1.x||Bifidobacterium infantis": null,
+"2.4.1.7||Leuconostoc mesenteroides": {
+"accession": "Q59495",
+"entry_name": "SUCP_LEUME",
+"organism": "Leuconostoc mesenteroides",
+"protein_name": "Sucrose phosphorylase (EC 2.4.1.7) (Sucrose glucosyltransferase)",
+"matched_organism": true
+},
+"2.4.1.x||": null,
+"2.4.1.x||Campylobacter jejuni": null,
+"2.4.1.x||Escherichia coli": null,
+"2.4.1.x||E. coli": null,
+"2.4.1.x||E. coli BL21(DE3)": null,
+"2.4.1.x||Helicobacter pylori": null,
+"2.4.1.x||Homo sapiens": null,
+"2.4.1.x||Marinobacter adhaerens": null,
+"2.4.1.x||Malus domestica": null,
+"2.4.1.x||Neisseria meningitides": null,
+"2.4.1.x||Hordeum vulgare": null,
+"2.4.2.1||": {
+"accession": "Q8ZJV7",
+"entry_name": "DEOD_SALTY",
+"organism": "Salmonella typhimurium (strain LT2 / SGSC1412 / ATCC 700720)",
+"protein_name": "Purine nucleoside phosphorylase DeoD-type (PNP) (EC 2.4.2.1)",
+"matched_organism": false
+},
+"2.4.1.x||Neisseria meningitidis": null,
+"2.4.1.x||Panax ginseng": null,
+"2.4.1.x||Trollius chinensis": null,
+"2.4.2.1||Escherichia coli": {
+"accession": "P0ABP8",
+"entry_name": "DEOD_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Purine nucleoside phosphorylase DeoD-type (PNP) (EC 2.4.2.1)",
+"matched_organism": true
+},
+"2.4.2.1||Aeromonas hydrophila": {
+"accession": "A0KK62",
+"entry_name": "PPNP_AERHH",
+"organism": "Aeromonas hydrophila subsp. hydrophila (strain ATCC 7966 / DSM 30187 / BCRC 13018 / CCUG 14551 / JCM 1027 / KCTC 2358 / NCIMB 9240 / NCTC 8049)",
+"protein_name": "Pyrimidine/purine nucleoside phosphorylase (EC 2.4.2.1) (EC 2.4.2.2) (Adenosine phosphorylase) (Cytidine phosphorylase) (Guanosine phosphorylase) (Inosine phosphorylase) (Thymidine phosphorylase) (Uridine phosphorylase) (Xanthosine phosphorylase)",
+"matched_organism": true
+},
+"2.4.2.1||Brevibacterium acetylicum": {
+"accession": "Q8ZJV7",
+"entry_name": "DEOD_SALTY",
+"organism": "Salmonella typhimurium (strain LT2 / SGSC1412 / ATCC 700720)",
+"protein_name": "Purine nucleoside phosphorylase DeoD-type (PNP) (EC 2.4.2.1)",
+"matched_organism": false
+},
+"2.4.2.4||Escherichia coli": {
+"accession": "P07650",
+"entry_name": "TYPH_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Thymidine phosphorylase (EC 2.4.2.4) (TdRPase)",
+"matched_organism": true
+},
+"2.4.2.3||E. coli": {
+"accession": "P12758",
+"entry_name": "UDP_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Uridine phosphorylase (UPase) (UrdPase) (EC 2.4.2.3)",
+"matched_organism": false
+},
+"2.4.2.1||thermophilic microorganism": {
+"accession": "Q8ZJV7",
+"entry_name": "DEOD_SALTY",
+"organism": "Salmonella typhimurium (strain LT2 / SGSC1412 / ATCC 700720)",
+"protein_name": "Purine nucleoside phosphorylase DeoD-type (PNP) (EC 2.4.2.1)",
+"matched_organism": false
+},
+"2.4.2.6||Lactobacillus leichmannii": {
+"accession": "Q9R5V5",
+"entry_name": "NTD_LACLE",
+"organism": "Lactobacillus leichmannii",
+"protein_name": "Nucleoside deoxyribosyltransferase (N-deoxyribosyltransferase) (EC 2.4.2.6)",
+"matched_organism": true
+},
+"2.4.2.6||Lactobacillus delbrueckii": {
+"accession": "Q6YNI5",
+"entry_name": "NTD_LIMFE",
+"organism": "Limosilactobacillus fermentum (Lactobacillus fermentum)",
+"protein_name": "Nucleoside deoxyribosyltransferase (N-deoxyribosyltransferase) (EC 2.4.2.6)",
+"matched_organism": false
+},
+"2.4.2.7||": {
+"accession": "P07741",
+"entry_name": "APT_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Adenine phosphoribosyltransferase (APRT) (EC 2.4.2.7)",
+"matched_organism": false
+},
+"2.4.2.6||Leishmania mexicana": {
+"accession": "Q6YNI5",
+"entry_name": "NTD_LIMFE",
+"organism": "Limosilactobacillus fermentum (Lactobacillus fermentum)",
+"protein_name": "Nucleoside deoxyribosyltransferase (N-deoxyribosyltransferase) (EC 2.4.2.6)",
+"matched_organism": false
+},
+"2.4.2.3||Clostridium perfringens": {
+"accession": "P12758",
+"entry_name": "UDP_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Uridine phosphorylase (UPase) (UrdPase) (EC 2.4.2.3)",
+"matched_organism": false
+},
+"2.4.2.8||Escherichia coli": {
+"accession": "P0A9M2",
+"entry_name": "HPRT_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Hypoxanthine phosphoribosyltransferase (HPRT) (EC 2.4.2.8) (6-oxopurine phosphoribosyltransferase) (6-oxopurine PRTase)",
+"matched_organism": true
+},
+"2.4.2.8||Thermus thermophilus": {
+"accession": "O13917",
+"entry_name": "HPRT_SCHPO",
+"organism": "Schizosaccharomyces pombe (strain 972 / ATCC 24843) (Fission yeast)",
+"protein_name": "Hypoxanthine-guanine phosphoribosyltransferase (HGPRT) (HGPRTase) (EC 2.4.2.8)",
+"matched_organism": false
+},
+"2.4.2.x||": null,
+"2.4.2.x||E. coli": null,
+"2.4.2.8||Thermus thermophilus HB8": {
+"accession": "O13917",
+"entry_name": "HPRT_SCHPO",
+"organism": "Schizosaccharomyces pombe (strain 972 / ATCC 24843) (Fission yeast)",
+"protein_name": "Hypoxanthine-guanine phosphoribosyltransferase (HGPRT) (HGPRTase) (EC 2.4.2.8)",
+"matched_organism": false
+},
+"2.4.2.x||Lactobacillus delbrueckii": null,
+"2.4.2.x||Leishmania major": null,
+"2.4.99.x||E. coli BL21(DE3)": null,
+"2.4.2.x||Para geobacillus thermoglucosidasius": null,
+"2.5.1.16||Helicobacter pylori": {
+"accession": "B2USZ6",
+"entry_name": "SPEE_HELPS",
+"organism": "Helicobacter pylori (strain Shi470)",
+"protein_name": "Polyamine aminopropyltransferase (Putrescine aminopropyltransferase) (PAPT) (Spermidine synthase) (SPDS) (SPDSY) (EC 2.5.1.16)",
+"matched_organism": true
+},
+"2.4.99.x||Photobacterium phosphoreum JT-ISH-467": null,
+"2.4.99.x||Pasteurella multocida": null,
+"2.5.1.6||Lactobacillus fermentum": {
+"accession": "B2GDG2",
+"entry_name": "METK_LIMF3",
+"organism": "Limosilactobacillus fermentum (strain NBRC 3956 / LMG 18251) (Lactobacillus fermentum)",
+"protein_name": "S-adenosylmethionine synthase (AdoMet synthase) (EC 2.5.1.6) (MAT) (Methionine adenosyltransferase)",
+"matched_organism": true
+},
+"2.5.1.x||Escherichia coli": null,
+"2.5.1.6||Salinospora tropica": {
+"accession": "P17562",
+"entry_name": "METK2_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "S-adenosylmethionine synthase 2 (AdoMet synthase 2) (EC 2.5.1.6) (Methionine adenosyltransferase 2) (MAT 2)",
+"matched_organism": false
+},
+"2.5.1.6||E. coli": {
+"accession": "P17562",
+"entry_name": "METK2_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "S-adenosylmethionine synthase 2 (AdoMet synthase 2) (EC 2.5.1.6) (Methionine adenosyltransferase 2) (MAT 2)",
+"matched_organism": false
+},
+"2.6.1.1||Escherichia coli": {
+"accession": "P00509",
+"entry_name": "AAT_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Aspartate aminotransferase (AspAT) (EC 2.6.1.1) (Transaminase A)",
+"matched_organism": true
+},
+"2.6.1.19||Escherichia coli": {
+"accession": "P22256",
+"entry_name": "GABT_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "4-aminobutyrate aminotransferase GabT (EC 2.6.1.19) (5-aminovalerate transaminase) (EC 2.6.1.48) (GABA aminotransferase) (GABA-AT) (Gamma-amino-N-butyrate transaminase) (GABA transaminase) (Glutamate:succinic semialdehyde transaminase) (L-AIBAT)",
+"matched_organism": true
+},
+"2.5.1.x||Aspergillus fumigatus": null,
+"2.6.1.28||Aspergillus nidulans": {
+"accession": "A7XRY8",
+"entry_name": "TDID_EMENI",
+"organism": "Emericella nidulans (strain FGSC A4 / ATCC 38163 / CBS 112.46 / NRRL 194 / M139) (Aspergillus nidulans)",
+"protein_name": "Aminotransferase tdiD (EC 2.6.1.28) (Terrequinone biosynthesis protein D)",
+"matched_organism": true
+},
+"2.5.1.x||Salinispora tropica": null,
+"2.6.1.2||": {
+"accession": "P77434",
+"entry_name": "ALAC_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Glutamate-pyruvate aminotransferase AlaC (EC 2.6.1.2)",
+"matched_organism": false
+},
+"2.6.1.21||Bacillus sp. YM-1": {
+"accession": "P19938",
+"entry_name": "DAAA_BACYM",
+"organism": "Bacillus sp. (strain YM-1)",
+"protein_name": "D-alanine aminotransferase (EC 2.6.1.21) (D-amino acid aminotransferase) (D-amino acid transaminase) (DAAT) (D-aspartate aminotransferase)",
+"matched_organism": false
+},
+"2.6.1.x||": null,
+"2.6.1.x||Arthrobacter citreus": null,
+"2.6.1.42||Sinorhizobium meliloti": {
+"accession": "O35855",
+"entry_name": "BCAT2_MOUSE",
+"organism": "Mus musculus (Mouse)",
+"protein_name": "Branched-chain-amino-acid aminotransferase, mitochondrial (BCAT(m)) (EC 2.6.1.42)",
+"matched_organism": false
+},
+"2.6.1.x||Aspergillus fumigatus": null,
+"2.6.1.x||Arthrobacter sp.": null,
+"2.6.1.x||Arthrobacter sp. KNK168": null,
+"2.6.1.x||Aspergillus terreus": null,
+"2.6.1.x||Bacillus megaterium": null,
+"2.6.1.x||Aspergillus terreus or Bacillus megaterium": null,
+"2.6.1.x||Bacillus sp. YM-1": null,
+"2.6.1.x||Bacillus sphaericus": null,
+"2.6.1.x||Caulobacter sp. (CC1012) or Sphingopyxis sp. (RTA)": null,
+"2.6.1.x||Chromobacterium violaceum": null,
+"2.6.1.x||Chromobacter": null,
+"2.6.1.x||Burkholderia vietnamiensis": null,
+"2.6.1.x||Deinococcus geothermalis": null,
+"2.6.1.x||E. coli": null,
+"2.6.1.x||Chromobacterium violaceum or commercial": null,
+"2.6.1.x||Codexis": null,
+"2.6.1.x||Enterococcus italicus": null,
+"2.6.1.x||Escherichia coli": null,
+"2.6.1.x||Halomonas elongata": null,
+"2.6.1.x||E. coli BL21": null,
+"2.6.1.x||Halomonas elongata or Chromobacterium violaceum": null,
+"2.6.1.x||Methanothermobacter thermautotrophicus": null,
+"2.6.1.x||Mycobacterium vanbaalenii": null,
+"2.6.1.x||Mycobacterium chlorophenicum": null,
+"2.6.1.x||Lysinibacillus sphaericus": null,
+"2.6.1.x||Mycobacterium chlorophenicum or Bacillus megaterium": null,
+"2.6.1.x||Neosartorya fischeri": null,
+"2.6.1.x||Mycobacterium vanbaalenii or Chromobacterium violaceum": null,
+"2.6.1.x||Paenibacillus chitinolyticus": null,
+"2.6.1.x||Paracoccus denitrificans": null,
+"2.6.1.x||Ochrobactrum anthropi": null,
+"2.6.1.x||Paracoccus pantotrophus (expressed in E. coli)": null,
+"2.6.1.x||Pseudomonas putida": null,
+"2.6.1.x||Rhizobium sp. AC27/96": null,
+"2.6.1.x||Shimia marina": null,
+"2.6.1.x||Pseudomonas sp.": null,
+"2.6.1.x||Streptomyces avermitilis": null,
+"2.6.1.x||Streptomyces sp. Bv333": null,
+"2.6.1.x||Silicibacter pomeroyi": null,
+"2.6.1.x||Streptomyces sp. BV333": null,
+"2.6.1.x||Thermomyces stellatus": null,
+"2.6.1.x||Vibrio fluvialis": null,
+"2.6.1.x or 1.1.1.x||": null,
+"2.6.1.x||Vibrio fluvialis JS17": null,
+"2.7.1.1||Saccharomyces cerevisiae": {
+"accession": "P04806",
+"entry_name": "HXKA_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Hexokinase-1 (EC 2.7.1.1) (Hexokinase PI) (Hexokinase-A)",
+"matched_organism": true
+},
+"2.7.1.23||": {
+"accession": "O58801",
+"entry_name": "NADK_PYRHO",
+"organism": "Pyrococcus horikoshii (strain ATCC 700860 / DSM 12428 / JCM 9974 / NBRC 100139 / OT-3)",
+"protein_name": "NAD kinase (EC 2.7.1.23) (ATP-dependent NAD kinase) (Poly(P)-dependent NAD kinase) (PPNK)",
+"matched_organism": false
+},
+"2.6.1.x, 1.1.1.x, 1.1.1.x||Escherichia coli": null,
+"2.7.1.30||Escherichia coli": {
+"accession": "P0A6F3",
+"entry_name": "GLPK_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Glycerol kinase (EC 2.7.1.30) (ATP:glycerol 3-phosphotransferase) (Glycerokinase) (GK)",
+"matched_organism": true
+},
+"2.7.1.35||Escherichia coli": {
+"accession": "Q8XBL0",
+"entry_name": "PDXK_ECO57",
+"organism": "Escherichia coli O157:H7",
+"protein_name": "Pyridoxine/pyridoxal/pyridoxamine kinase (PN/PL/PM kinase) (EC 2.7.1.35) (B6-vitamer kinase)",
+"matched_organism": true
+},
+"2.7.1.76||Dictyostelium discoideum": {
+"accession": "Q54YL2",
+"entry_name": "DAK_DICDI",
+"organism": "Dictyostelium discoideum (Social amoeba)",
+"protein_name": "Deoxyadenosine kinase (EC 2.7.1.76) (DddDAK) (DAK)",
+"matched_organism": true
+},
+"2.7.1.17||Thermotoga maritima": {
+"accession": "O75191",
+"entry_name": "XYLB_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Xylulose kinase (Xylulokinase) (EC 2.7.1.17)",
+"matched_organism": false
+},
+"2.7.1.6||E. coli K-12": {
+"accession": "P04385",
+"entry_name": "GAL1_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Galactokinase (EC 2.7.1.6) (Galactose kinase)",
+"matched_organism": false
+},
+"2.7.1.90||Thermotoga maritima": {
+"accession": "Q9WYC5",
+"entry_name": "PFP_THEMA",
+"organism": "Thermotoga maritima (strain ATCC 43589 / DSM 3109 / JCM 10099 / NBRC 100826 / MSB8)",
+"protein_name": "Pyrophosphate--fructose 6-phosphate 1-phosphotransferase (EC 2.7.1.90) (6-phosphofructokinase, pyrophosphate dependent) (PPi-dependent phosphofructokinase) (PPi-PFK) (Pyrophosphate-dependent 6-phosphofructose-1-kinase)",
+"matched_organism": true
+},
+"2.7.1.x||": null,
+"2.7.1.6||Escherichia coli K-12": {
+"accession": "P04385",
+"entry_name": "GAL1_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Galactokinase (EC 2.7.1.6) (Galactose kinase)",
+"matched_organism": false
+},
+"2.7.1.82||Saccharomyces cerevisiae": {
+"accession": "Q03764",
+"entry_name": "EKI1_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Ethanolamine kinase (EK) (EC 2.7.1.82)",
+"matched_organism": true
+},
+"2.7.1.x||Bacillus licheniformis": null,
+"2.7.1.x||Bacillus subtilis": null,
+"2.7.1.x||Arabidopsis thaliana": null,
+"2.7.1.x||Bifidobacterium longum ATCC55813": null,
+"2.7.1.x||Cellumonas sp.": null,
+"2.7.1.x||Bifidobacterium longum": null,
+"2.7.1.x||Meiothermus taiwanensis": null,
+"2.7.1.x||Streptococcus pneumoniae": null,
+"2.7.1.x||Shigella flexneri": null,
+"2.7.1.x||Citrobacter freundii": null,
+"2.7.2.1||Escherichia coli": {
+"accession": "P0A6A3",
+"entry_name": "ACKA_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Acetate kinase (EC 2.7.2.1) (Acetokinase)",
+"matched_organism": true
+},
+"2.7.1.x||Streptococcus pneumoniae TIGR4": null,
+"2.7.1.x||Thermobifida fusca YX": null,
+"2.7.4.1||": {
+"accession": "Q8NM65",
+"entry_name": "PK21B_CORGL",
+"organism": "Corynebacterium glutamicum (strain ATCC 13032 / DSM 20300 / JCM 1318 / BCRC 11384 / CCUG 27702 / LMG 3730 / NBRC 12168 / NCIMB 10025 / NRRL B-2784 / 534)",
+"protein_name": "Polyphosphate kinase PPK2B (EC 2.7.4.1)",
+"matched_organism": false
+},
+"2.7.3.2||": {
+"accession": "P00565",
+"entry_name": "KCRM_CHICK",
+"organism": "Gallus gallus (Chicken)",
+"protein_name": "Creatine kinase M-type (EC 2.7.3.2) (Creatine kinase M chain) (Creatine phosphokinase M-type) (CPK-M) (M-CK)",
+"matched_organism": false
+},
+"2.7.4.1||Escherichia coli": {
+"accession": "P0A7B2",
+"entry_name": "PPK1_ECO57",
+"organism": "Escherichia coli O157:H7",
+"protein_name": "Polyphosphate kinase (EC 2.7.4.1) (ATP-polyphosphate phosphotransferase) (Polyphosphoric acid kinase)",
+"matched_organism": true
+},
+"2.7.4.1||Corynebacterium glutamicum": {
+"accession": "Q8NM65",
+"entry_name": "PK21B_CORGL",
+"organism": "Corynebacterium glutamicum (strain ATCC 13032 / DSM 20300 / JCM 1318 / BCRC 11384 / CCUG 27702 / LMG 3730 / NBRC 12168 / NCIMB 10025 / NRRL B-2784 / 534)",
+"protein_name": "Polyphosphate kinase PPK2B (EC 2.7.4.1)",
+"matched_organism": true
+},
+"2.7.4.1||Erysipelotrichaceae bacterium": {
+"accession": "Q8NM65",
+"entry_name": "PK21B_CORGL",
+"organism": "Corynebacterium glutamicum (strain ATCC 13032 / DSM 20300 / JCM 1318 / BCRC 11384 / CCUG 27702 / LMG 3730 / NBRC 12168 / NCIMB 10025 / NRRL B-2784 / 534)",
+"protein_name": "Polyphosphate kinase PPK2B (EC 2.7.4.1)",
+"matched_organism": false
+},
+"2.7.4.1||Hydrogenophilaceae bacterium": {
+"accession": "Q8NM65",
+"entry_name": "PK21B_CORGL",
+"organism": "Corynebacterium glutamicum (strain ATCC 13032 / DSM 20300 / JCM 1318 / BCRC 11384 / CCUG 27702 / LMG 3730 / NBRC 12168 / NCIMB 10025 / NRRL B-2784 / 534)",
+"protein_name": "Polyphosphate kinase PPK2B (EC 2.7.4.1)",
+"matched_organism": false
+},
+"2.7.4.14||Escherichia coli": {
+"accession": "P20425",
+"entry_name": "KCY_DICDI",
+"organism": "Dictyostelium discoideum (Social amoeba)",
+"protein_name": "UMP-CMP kinase (EC 2.7.4.14) (Deoxycytidylate kinase) (CK) (dCMP kinase) (Uridine monophosphate/cytidine monophosphate kinase) (UMP/CMP kinase) (UMP/CMPK)",
+"matched_organism": false
+},
+"2.7.4.6||Escherichia coli": {
+"accession": "P0A764",
+"entry_name": "NDK_ECO57",
+"organism": "Escherichia coli O157:H7",
+"protein_name": "Nucleoside diphosphate kinase (NDK) (NDP kinase) (EC 2.7.4.6) (Nucleoside-2-P kinase)",
+"matched_organism": true
+},
+"2.7.4.3||Thermotoga neapolitana": {
+"accession": "Q8GGL2",
+"entry_name": "KAD_THENE",
+"organism": "Thermotoga neapolitana",
+"protein_name": "Adenylate kinase (AK) (EC 2.7.4.3) (ATP-AMP transphosphorylase) (ATP:AMP phosphotransferase) (Adenylate monophosphate kinase)",
+"matched_organism": true
+},
+"2.7.4.8||Escherichia coli": {
+"accession": "P60546",
+"entry_name": "KGUA_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Guanylate kinase (EC 2.7.4.8) (GMP kinase)",
+"matched_organism": true
+},
+"2.7.4.x||": null,
+"2.7.4.1||Thermosynechococcus elongatus BP-1": {
+"accession": "Q8NM65",
+"entry_name": "PK21B_CORGL",
+"organism": "Corynebacterium glutamicum (strain ATCC 13032 / DSM 20300 / JCM 1318 / BCRC 11384 / CCUG 27702 / LMG 3730 / NBRC 12168 / NCIMB 10025 / NRRL B-2784 / 534)",
+"protein_name": "Polyphosphate kinase PPK2B (EC 2.7.4.1)",
+"matched_organism": false
+},
+"2.7.4.x||Bacillus subtilis": null,
+"2.7.4.x||Deinococcus geothermalis": null,
+"2.7.4.x||Escherichia coli": null,
+"2.7.4.x||Methanolobus tindarius": null,
+"2.7.4.x||Thermodesulfobium narugense": null,
+"2.7.4.x||Rhodopseudomonas palustris": null,
+"2.7.7.14||Saccharomyces cerevisiae": {
+"accession": "P33412",
+"entry_name": "ECT1_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Ethanolamine-phosphate cytidylyltransferase (EC 2.7.7.14) (CTP:phosphoethanolamine cytidylyltransferase) (Phosphorylethanolamine transferase)",
+"matched_organism": true
+},
+"2.7.4.x||Propionibacterium modestum": null,
+"2.7.7.43||Neisseria meningitidis": {
+"accession": "P0A0Z8",
+"entry_name": "NEUA_NEIME",
+"organism": "Neisseria meningitidis",
+"protein_name": "N-acylneuraminate cytidylyltransferase (EC 2.7.7.43) (CMP-N-acetylneuraminic acid synthase) (CMP-NeuNAc synthase) (CMP-sialic acid synthase)",
+"matched_organism": true
+},
+"2.7.7.23||Escherichia coli": {
+"accession": "P0ACC7",
+"entry_name": "GLMU_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Bifunctional protein GlmU [Includes: UDP-N-acetylglucosamine pyrophosphorylase (EC 2.7.7.23) (N-acetylglucosamine-1-phosphate uridyltransferase); Glucosamine-1-phosphate N-acetyltransferase (EC 2.3.1.157)]",
+"matched_organism": true
+},
+"2.7.7.65||Caulobacter crescentus": {
+"accession": "B8GZM2",
+"entry_name": "PLED_CAUVN",
+"organism": "Caulobacter vibrioides (strain NA1000 / CB15N) (Caulobacter crescentus)",
+"protein_name": "Response regulator PleD (Stalked cell differentiation-controlling protein) [Includes: Diguanylate cyclase (DGC) (EC 2.7.7.65) (Diguanylate kinase)]",
+"matched_organism": true
+},
+"2.7.7.x||": null,
+"2.7.7.x||Arabidopsis thaliana": null,
+"2.7.7.x||A. thermoaerophilus": null,
+"2.7.7.x||Bifidobacterium longum": null,
+"2.7.7.x||Neisseria meningitidis": null,
+"2.7.7.x||Homo sapiens": null,
+"2.7.7.x||Aneurinibacillus thermoaerophilus": null,
+"2.7.7.x||Streptococcus zooepidemicus": null,
+"2.7.7.x||human": null,
+"2.7.7.x||Pasteurella multocida P-1059": null,
+"2.7.7.x||Streptococcus pneumoniae TIGR4": null,
+"2.7.7.x||Pasteurella multocida": null,
+"2.7.x.x||": null,
+"3.1.1.1||": {
+"accession": "L0TC47",
+"entry_name": "LIPV_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Lipase LipV (EC 3.1.1.1)",
+"matched_organism": false
+},
+"3.1.1.1||Sus scrofa": {
+"accession": "Q29550",
+"entry_name": "EST1_PIG",
+"organism": "Sus scrofa (Pig)",
+"protein_name": "Liver carboxylesterase (EC 3.1.1.1) (Proline-beta-naphthylamidase) (Retinyl ester hydrolase) (REH)",
+"matched_organism": true
+},
+"2.8.1.x||Chlorobium limicola": null,
+"3.1.1.1||pig": {
+"accession": "Q29550",
+"entry_name": "EST1_PIG",
+"organism": "Sus scrofa (Pig)",
+"protein_name": "Liver carboxylesterase (EC 3.1.1.1) (Proline-beta-naphthylamidase) (Retinyl ester hydrolase) (REH)",
+"matched_organism": true
+},
+"3.1.1.1||Streptomyces rochei": {
+"accession": "L0TC47",
+"entry_name": "LIPV_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Lipase LipV (EC 3.1.1.1)",
+"matched_organism": false
+},
+"3.1.1.3||": {
+"accession": "I6Y2J4",
+"entry_name": "LIPY_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Esterase/lipase) (Triolein hydrolase) [Cleaved into: Cytosolic triacylglycerol lipase; Extracellular triacylglycerol lipase]",
+"matched_organism": false
+},
+"3.1.1.3||Aspergillus niger": {
+"accession": "A2QGD9",
+"entry_name": "ATG15_ASPNC",
+"organism": "Aspergillus niger (strain ATCC MYA-4892 / CBS 513.88 / FGSC A1513)",
+"protein_name": "Putative lipase atg15 (EC 3.1.1.3) (Autophagy-related protein 15)",
+"matched_organism": true
+},
+"3.1.1.3||Burkholderia cepacia": {
+"accession": "P29605",
+"entry_name": "LIPT_BURCE",
+"organism": "Burkholderia cepacia (Pseudomonas cepacia)",
+"protein_name": "Lipase, thermostable (EC 3.1.1.3) (Triacylglycerol lipase)",
+"matched_organism": true
+},
+"3.1.1.13||": {
+"accession": "Q5VXI9",
+"entry_name": "LIPN_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Lipase member N (EC 3.1.1.13) (EC 3.1.1.3) (Lipase-like abhydrolase domain-containing protein 4)",
+"matched_organism": false
+},
+"3.1.1.3||Candida antarctica": {
+"accession": "P41365",
+"entry_name": "LIPB_PSEA2",
+"organism": "Pseudozyma antarctica (Yeast) (Candida antarctica)",
+"protein_name": "Lipase B (EC 3.1.1.3) (CALB)",
+"matched_organism": true
+},
+"3.1.1.3||Candida rugosa": {
+"accession": "P32946",
+"entry_name": "LIP2_DIURU",
+"organism": "Diutina rugosa (Yeast) (Candida rugosa)",
+"protein_name": "Lipase 2 (EC 3.1.1.3)",
+"matched_organism": true
+},
+"3.1.1.3||Burkholderia cepacia (for PS, PS-C, PS-IM, IL1-PS) or Candida antarctica (for CALB)": {
+"accession": "I6Y2J4",
+"entry_name": "LIPY_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Esterase/lipase) (Triolein hydrolase) [Cleaved into: Cytosolic triacylglycerol lipase; Extracellular triacylglycerol lipase]",
+"matched_organism": false
+},
+"3.1.1.3||Burkholderia sp. RF7-non_BP1": {
+"accession": "I6Y2J4",
+"entry_name": "LIPY_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Esterase/lipase) (Triolein hydrolase) [Cleaved into: Cytosolic triacylglycerol lipase; Extracellular triacylglycerol lipase]",
+"matched_organism": false
+},
+"3.1.1.3||Candida rugosa, Aspergillus niger, or unspecified for LECI": {
+"accession": "I6Y2J4",
+"entry_name": "LIPY_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Esterase/lipase) (Triolein hydrolase) [Cleaved into: Cytosolic triacylglycerol lipase; Extracellular triacylglycerol lipase]",
+"matched_organism": false
+},
+"3.1.1.3||Mucor javanicus": {
+"accession": "I6Y2J4",
+"entry_name": "LIPY_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Esterase/lipase) (Triolein hydrolase) [Cleaved into: Cytosolic triacylglycerol lipase; Extracellular triacylglycerol lipase]",
+"matched_organism": false
+},
+"3.1.1.3||Pseudomonas cepacia": {
+"accession": "P29605",
+"entry_name": "LIPT_BURCE",
+"organism": "Burkholderia cepacia (Pseudomonas cepacia)",
+"protein_name": "Lipase, thermostable (EC 3.1.1.3) (Triacylglycerol lipase)",
+"matched_organism": true
+},
+"3.1.1.3||Pseudomonas fluorescens": {
+"accession": "P26504",
+"entry_name": "LIPA_PSEFL",
+"organism": "Pseudomonas fluorescens",
+"protein_name": "Lipase (EC 3.1.1.3) (Triacylglycerol lipase)",
+"matched_organism": true
+},
+"3.1.1.3||Porcine pancreas": {
+"accession": "I6Y2J4",
+"entry_name": "LIPY_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Esterase/lipase) (Triolein hydrolase) [Cleaved into: Cytosolic triacylglycerol lipase; Extracellular triacylglycerol lipase]",
+"matched_organism": false
+},
+"3.1.1.3||Pseudomonas sp.": {
+"accession": "P26877",
+"entry_name": "LIP_PSEU0",
+"organism": "Pseudomonas sp. (strain 109)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Extracellular lipase) (Lactonizing lipase) (Lipase P) (Triacylglycerol ester hydrolase)",
+"matched_organism": true
+},
+"3.1.1.3||Pseudozyma antarctica": {
+"accession": "P41365",
+"entry_name": "LIPB_PSEA2",
+"organism": "Pseudozyma antarctica (Yeast) (Candida antarctica)",
+"protein_name": "Lipase B (EC 3.1.1.3) (CALB)",
+"matched_organism": true
+},
+"3.1.1.3||Rhizomucor miehei": {
+"accession": "P19515",
+"entry_name": "LIP_RHIMI",
+"organism": "Rhizomucor miehei",
+"protein_name": "Lipase (EC 3.1.1.3) (Triacylglycerol lipase)",
+"matched_organism": true
+},
+"3.1.1.3||Pseudomonas stutzeri": {
+"accession": "I6Y2J4",
+"entry_name": "LIPY_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Esterase/lipase) (Triolein hydrolase) [Cleaved into: Cytosolic triacylglycerol lipase; Extracellular triacylglycerol lipase]",
+"matched_organism": false
+},
+"3.1.1.3||Rhizopus oryzae": {
+"accession": "P61872",
+"entry_name": "LIP_RHIOR",
+"organism": "Rhizopus oryzae (Mucormycosis agent) (Rhizopus arrhizus var. delemar)",
+"protein_name": "Lipase (EC 3.1.1.3) (RDL) (Triacylglycerol lipase) (ROL)",
+"matched_organism": true
+},
+"3.1.1.3||Sus scrofa": {
+"accession": "P00591",
+"entry_name": "LIPP_PIG",
+"organism": "Sus scrofa (Pig)",
+"protein_name": "Pancreatic triacylglycerol lipase (PL) (PTL) (Pancreatic lipase) (EC 3.1.1.3)",
+"matched_organism": true
+},
+"3.1.1.3||Thermomyces lanuginosus": {
+"accession": "O59952",
+"entry_name": "LIP_THELA",
+"organism": "Thermomyces lanuginosus (Thermophilic fungus) (Humicola lanuginosa)",
+"protein_name": "Lipase (EC 3.1.1.3) (Triacylglycerol lipase)",
+"matched_organism": true
+},
+"3.1.1.3||Trichosporon laibacchii": {
+"accession": "I6Y2J4",
+"entry_name": "LIPY_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Esterase/lipase) (Triolein hydrolase) [Cleaved into: Cytosolic triacylglycerol lipase; Extracellular triacylglycerol lipase]",
+"matched_organism": false
+},
+"3.1.1.3||Trichosporon laibacchii CBS5791": {
+"accession": "I6Y2J4",
+"entry_name": "LIPY_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Esterase/lipase) (Triolein hydrolase) [Cleaved into: Cytosolic triacylglycerol lipase; Extracellular triacylglycerol lipase]",
+"matched_organism": false
+},
+"3.1.1.3||porcine": {
+"accession": "I6Y2J4",
+"entry_name": "LIPY_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Esterase/lipase) (Triolein hydrolase) [Cleaved into: Cytosolic triacylglycerol lipase; Extracellular triacylglycerol lipase]",
+"matched_organism": false
+},
+"3.1.1.3||porcine pancreas": {
+"accession": "I6Y2J4",
+"entry_name": "LIPY_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "Triacylglycerol lipase (EC 3.1.1.3) (Esterase/lipase) (Triolein hydrolase) [Cleaved into: Cytosolic triacylglycerol lipase; Extracellular triacylglycerol lipase]",
+"matched_organism": false
+},
+"3.1.1.x||": null,
+"3.1.1.x||Archaeoglobus fulgidus": null,
+"3.1.1.x||Bacillus subtilis": null,
+"3.1.1.x||Candida antarctica": null,
+"3.1.1.x||Pseudomonas taiwanensis VLB120": null,
+"3.1.1.x||Pyrobaculum calidifontis VA1": null,
+"3.1.1.x||Rhodococcus": null,
+"3.1.1.x||Rhodopseudomonas palustris": null,
+"3.1.1.x||bovine": null,
+"3.1.3.10||Escherichia coli": {
+"accession": "P19926",
+"entry_name": "AGP_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Glucose-1-phosphatase (G1Pase) (EC 3.1.3.10)",
+"matched_organism": true
+},
+"3.1.2.x||Escherichia coli": null,
+"3.1.2.x||Umbellularia californica": null,
+"3.1.3.1||calf": {
+"accession": "A1YYW7",
+"entry_name": "ALPH_SPHSX",
+"organism": "Sphingomonas sp",
+"protein_name": "Alkaline phosphatase PhoK (EC 3.1.3.1) (SPAP protein)",
+"matched_organism": false
+},
+"3.1.3.25||Thermotoga maritima": {
+"accession": "O33832",
+"entry_name": "BSUHB_THEMA",
+"organism": "Thermotoga maritima (strain ATCC 43589 / DSM 3109 / JCM 10099 / NBRC 100826 / MSB8)",
+"protein_name": "Fructose-1,6-bisphosphatase/inositol-1-monophosphatase (FBPase/IMPase) (EC 3.1.3.11) (EC 3.1.3.25) (Inositol-1-phosphatase) (I-1-Pase)",
+"matched_organism": true
+},
+"3.1.3.2||wheat germ": {
+"accession": "P24666",
+"entry_name": "PPAC_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Low molecular weight phosphotyrosine protein phosphatase (LMW-PTP) (LMW-PTPase) (EC 3.1.3.48) (Adipocyte acid phosphatase) (Low molecular weight cytosolic acid phosphatase) (EC 3.1.3.2) (Red cell acid phosphatase 1)",
+"matched_organism": false
+},
+"3.1.3.25||Archaeoglobus fulgidus": {
+"accession": "O30298",
+"entry_name": "BSUHB_ARCFU",
+"organism": "Archaeoglobus fulgidus (strain ATCC 49558 / DSM 4304 / JCM 9628 / NBRC 100126 / VC-16)",
+"protein_name": "Fructose-1,6-bisphosphatase/inositol-1-monophosphatase (FBPase/IMPase) (EC 3.1.3.11) (EC 3.1.3.25) (Inositol-1-phosphatase) (I-1-Pase)",
+"matched_organism": true
+},
+"3.1.3.x||": null,
+"3.1.3.3||Thermosipho atlanticus": {
+"accession": "P94512",
+"entry_name": "PSP_BACSU",
+"organism": "Bacillus subtilis (strain 168)",
+"protein_name": "Phosphoserine phosphatase (PSP) (EC 3.1.3.3)",
+"matched_organism": false
+},
+"3.1.3.x||Acetivibrio thermocellus": null,
+"3.1.3.x||E. coli": null,
+"3.1.3.x||Escherichia coli": null,
+"3.1.3.x||Shigella flexneri": null,
+"3.2.1.14||": {
+"accession": "A0A384K116",
+"entry_name": "CRH3_BOTFB",
+"organism": "Botryotinia fuckeliana (strain B05.10) (Noble rot fungus) (Botrytis cinerea)",
+"protein_name": "Crh-like protein 3 [Includes: Chitinase crh3 (EC 3.2.1.14); Chitin transglycosylase crh3 (EC 2.4.-.-)]",
+"matched_organism": false
+},
+"3.2.1.17||": {
+"accession": "P00701",
+"entry_name": "LYSC_COTJA",
+"organism": "Coturnix japonica (Japanese quail) (Coturnix coturnix japonica)",
+"protein_name": "Lysozyme C (EC 3.2.1.17) (1,4-beta-N-acetylmuramidase C)",
+"matched_organism": false
+},
+"3.1.6.x||Pseudomonas aeruginosa": null,
+"3.1.6.x||Helix pomatia": null,
+"3.2.1.21||": {
+"accession": "P37702",
+"entry_name": "BGL38_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "Myrosinase 1 (EC 3.2.1.147) (Beta-glucosidase 38) (AtBGLU38) (EC 3.2.1.21) (Sinigrinase 1) (Thioglucosidase 1)",
+"matched_organism": false
+},
+"3.2.1.17||Hen egg-white": {
+"accession": "P00701",
+"entry_name": "LYSC_COTJA",
+"organism": "Coturnix japonica (Japanese quail) (Coturnix coturnix japonica)",
+"protein_name": "Lysozyme C (EC 3.2.1.17) (1,4-beta-N-acetylmuramidase C)",
+"matched_organism": false
+},
+"3.2.1.18||Ruminococcus gnavus": {
+"accession": "P03472",
+"entry_name": "NRAM_I75A5",
+"organism": "Influenza A virus (strain A/Tern/Australia/G70C/1975 H11N9)",
+"protein_name": "Neuraminidase (EC 3.2.1.18)",
+"matched_organism": false
+},
+"3.2.1.21||Alicyclobacillus acidophilus": {
+"accession": "P37702",
+"entry_name": "BGL38_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "Myrosinase 1 (EC 3.2.1.147) (Beta-glucosidase 38) (AtBGLU38) (EC 3.2.1.21) (Sinigrinase 1) (Thioglucosidase 1)",
+"matched_organism": false
+},
+"3.2.1.21||Aspergillus niger": {
+"accession": "A5ABF5",
+"entry_name": "BGLM_ASPNC",
+"organism": "Aspergillus niger (strain ATCC MYA-4892 / CBS 513.88 / FGSC A1513)",
+"protein_name": "Probable beta-glucosidase M (EC 3.2.1.21) (Beta-D-glucoside glucohydrolase M) (Cellobiase M) (Gentiobiase M)",
+"matched_organism": true
+},
+"3.2.1.21||Caldicellulosiruptor saccharolyticus": {
+"accession": "P10482",
+"entry_name": "BGLS_CALSA",
+"organism": "Caldicellulosiruptor saccharolyticus (Caldocellum saccharolyticum)",
+"protein_name": "Beta-glucosidase A (EC 3.2.1.21) (Amygdalase) (Beta-D-glucoside glucohydrolase) (Cellobiase) (Gentiobiase)",
+"matched_organism": true
+},
+"3.2.1.23||": {
+"accession": "E4Q361",
+"entry_name": "GH1A_CALOW",
+"organism": "Caldicellulosiruptor owensensis (strain ATCC 700167 / DSM 13100 / OL)",
+"protein_name": "Multifunctional glycoside hydrolase (Multifunctional GH) (EC 3.2.1.21) (EC 3.2.1.23) (EC 3.2.1.37) (EC 3.2.1.74) (EC 3.2.1.91) (CoGH1A)",
+"matched_organism": false
+},
+"3.2.1.23||Bifidobacterium bifidum": {
+"accession": "D4QFE7",
+"entry_name": "BGAL_BIFB1",
+"organism": "Bifidobacterium bifidum (strain DSM 20082 / JCM 1254 / BCRC 11844 / KCTC 3440 / E319f (Variant a))",
+"protein_name": "Beta-galactosidase BbgII (Beta-gal) (EC 3.2.1.23)",
+"matched_organism": true
+},
+"3.2.1.26||": {
+"accession": "H2DF87",
+"entry_name": "RHVI1_ROSHC",
+"organism": "Rosa hybrid cultivar",
+"protein_name": "Acid beta-fructofuranosidase 1, vacuolar (EC 3.2.1.26) (Vacuolar invertase 1) (RvVI1)",
+"matched_organism": false
+},
+"3.2.1.21||Prunus dulcis": {
+"accession": "P37702",
+"entry_name": "BGL38_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "Myrosinase 1 (EC 3.2.1.147) (Beta-glucosidase 38) (AtBGLU38) (EC 3.2.1.21) (Sinigrinase 1) (Thioglucosidase 1)",
+"matched_organism": false
+},
+"3.2.1.3||": {
+"accession": "P69327",
+"entry_name": "AMYG_ASPAW",
+"organism": "Aspergillus awamori (Black koji mold)",
+"protein_name": "Glucoamylase (EC 3.2.1.3) (1,4-alpha-D-glucan glucohydrolase) (Glucan 1,4-alpha-glucosidase)",
+"matched_organism": false
+},
+"3.2.1.3||Aspergillus niger": {
+"accession": "P69328",
+"entry_name": "AMYG_ASPNG",
+"organism": "Aspergillus niger",
+"protein_name": "Glucoamylase (EC 3.2.1.3) (1,4-alpha-D-glucan glucohydrolase) (Glucan 1,4-alpha-glucosidase)",
+"matched_organism": true
+},
+"3.2.1.4||": {
+"accession": "P26222",
+"entry_name": "GUN2_THEFU",
+"organism": "Thermobifida fusca (Thermomonospora fusca)",
+"protein_name": "Endoglucanase E-2 (EC 3.2.1.4) (Cellulase E-2) (Cellulase E2) (Endo-1,4-beta-glucanase E-2)",
+"matched_organism": false
+},
+"3.2.1.4||Aspergillus niger": {
+"accession": "O74706",
+"entry_name": "EGLB_ASPNG",
+"organism": "Aspergillus niger",
+"protein_name": "Endo-beta-1,4-glucanase B (Endoglucanase B) (EC 3.2.1.4) (Carboxymethylcellulase B) (Cellulase B)",
+"matched_organism": true
+},
+"3.2.1.4||Trichoderma reesei": {
+"accession": "P07982",
+"entry_name": "GUN2_HYPJE",
+"organism": "Hypocrea jecorina (Trichoderma reesei)",
+"protein_name": "Endoglucanase EG-II (EGII) (EC 3.2.1.4) (Cellulase) (Endo-1,4-beta-glucanase)",
+"matched_organism": true
+},
+"3.2.1.4||Trichoderma viride": {
+"accession": "P85218",
+"entry_name": "GUN1_HYPRU",
+"organism": "Hypocrea rufa (Trichoderma viride)",
+"protein_name": "Endoglucanase 1 (EC 3.2.1.4) (Endo-1,4-beta-D-glucanase 1)",
+"matched_organism": true
+},
+"3.2.1.4||Acidothermus cellulolyticus 11B": {
+"accession": "P26222",
+"entry_name": "GUN2_THEFU",
+"organism": "Thermobifida fusca (Thermomonospora fusca)",
+"protein_name": "Endoglucanase E-2 (EC 3.2.1.4) (Cellulase E-2) (Cellulase E2) (Endo-1,4-beta-glucanase E-2)",
+"matched_organism": false
+},
+"3.2.1.40||": {
+"accession": "T2KM26",
+"entry_name": "PLH36_FORAG",
+"organism": "Formosa agariphila (strain DSM 15362 / KCTC 12365 / LMG 23005 / KMM 3901 / M-2Alg 35-1)",
+"protein_name": "Bifunctional sulfatase/alpha-L-rhamnosidase (P36_GH78/S1_25) [Includes: Ulvan-active sulfatase (EC 3.1.6.-) (Sulfatase family S1 subfamily 25 protein P36) (P36_S1_25); Alpha-L-rhamnosidase (EC 3.2.1.40) (Glycosyl hydrolase 78 family protein P36) (P36_GH78) (Polysaccharide utilization locus H protein P36) (PUL H protein P36)]",
+"matched_organism": false
+},
+"3.2.1.52||": {
+"accession": "A7WM73",
+"entry_name": "HEXO1_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "Beta-hexosaminidase 1 (EC 3.2.1.52) (Beta-GlcNAcase 1) (Beta-N-acetylhexosaminidase 1) (Beta-hexosaminidase 2) (AtHEX2) (N-acetyl-beta-glucosaminidase 1)",
+"matched_organism": false
+},
+"3.2.1.40||Escherichia coli BL21(DE3)": {
+"accession": "T2KM26",
+"entry_name": "PLH36_FORAG",
+"organism": "Formosa agariphila (strain DSM 15362 / KCTC 12365 / LMG 23005 / KMM 3901 / M-2Alg 35-1)",
+"protein_name": "Bifunctional sulfatase/alpha-L-rhamnosidase (P36_GH78/S1_25) [Includes: Ulvan-active sulfatase (EC 3.1.6.-) (Sulfatase family S1 subfamily 25 protein P36) (P36_S1_25); Alpha-L-rhamnosidase (EC 3.2.1.40) (Glycosyl hydrolase 78 family protein P36) (P36_GH78) (Polysaccharide utilization locus H protein P36) (PUL H protein P36)]",
+"matched_organism": false
+},
+"3.2.1.40||Aspergillus mulundensis": {
+"accession": "T2KM26",
+"entry_name": "PLH36_FORAG",
+"organism": "Formosa agariphila (strain DSM 15362 / KCTC 12365 / LMG 23005 / KMM 3901 / M-2Alg 35-1)",
+"protein_name": "Bifunctional sulfatase/alpha-L-rhamnosidase (P36_GH78/S1_25) [Includes: Ulvan-active sulfatase (EC 3.1.6.-) (Sulfatase family S1 subfamily 25 protein P36) (P36_S1_25); Alpha-L-rhamnosidase (EC 3.2.1.40) (Glycosyl hydrolase 78 family protein P36) (P36_GH78) (Polysaccharide utilization locus H protein P36) (PUL H protein P36)]",
+"matched_organism": false
+},
+"3.2.1.52||Haloferula sp.": {
+"accession": "A7WM73",
+"entry_name": "HEXO1_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "Beta-hexosaminidase 1 (EC 3.2.1.52) (Beta-GlcNAcase 1) (Beta-N-acetylhexosaminidase 1) (Beta-hexosaminidase 2) (AtHEX2) (N-acetyl-beta-glucosaminidase 1)",
+"matched_organism": false
+},
+"3.2.1.8||": {
+"accession": "A0A0B5JC15",
+"entry_name": "XY11B_HUMIN",
+"organism": "Humicola insolens (Soft-rot fungus)",
+"protein_name": "Endo-1,4-beta-xylanase 11B (Xylanase 11B) (EC 3.2.1.8) (1,4-beta-D-xylan xylanohydrolase 11B)",
+"matched_organism": false
+},
+"3.2.1.91||": {
+"accession": "A0A024RXP8",
+"entry_name": "GUX1_HYPJR",
+"organism": "Hypocrea jecorina (strain ATCC 56765 / BCRC 32924 / NRRL 11460 / Rut C-30) (Trichoderma reesei)",
+"protein_name": "Exoglucanase 1 (EC 3.2.1.91) (1,4-beta-cellobiohydrolase) (Cellobiohydrolase 7A) (Cel7A) (Exocellobiohydrolase I) (CBHI) (Exoglucanase I)",
+"matched_organism": false
+},
+"3.2.1.52||Zobellia galactanivorans": {
+"accession": "A7WM73",
+"entry_name": "HEXO1_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "Beta-hexosaminidase 1 (EC 3.2.1.52) (Beta-GlcNAcase 1) (Beta-N-acetylhexosaminidase 1) (Beta-hexosaminidase 2) (AtHEX2) (N-acetyl-beta-glucosaminidase 1)",
+"matched_organism": false
+},
+"3.2.1.x||": null,
+"3.2.2.10||Escherichia coli": {
+"accession": "P0ADR8",
+"entry_name": "PPNN_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Pyrimidine/purine nucleotide 5'-monophosphate nucleosidase (EC 3.2.2.-) (EC 3.2.2.10) (AMP nucleosidase) (EC 3.2.2.4) (CMP nucleosidase) (GMP nucleosidase) (IMP nucleosidase) (UMP nucleosidase) (dTMP nucleosidase)",
+"matched_organism": true
+},
+"3.2.1.x||fungi": null,
+"3.2.1.x||Escherichia coli BL21(DE3)": null,
+"3.2.2.9||E. coli": {
+"accession": "O24915",
+"entry_name": "MQMTN_HELPY",
+"organism": "Helicobacter pylori (strain ATCC 700392 / 26695) (Campylobacter pylori)",
+"protein_name": "Aminodeoxyfutalosine nucleosidase (AFL nucleosidase) (Aminofutalosine nucleosidase) (EC 3.2.2.30) (5'-methylthioadenosine/S-adenosylhomocysteine nucleosidase) (MTA/SAH nucleosidase) (MTAN) (EC 3.2.2.9) (6-amino-6-deoxyfutalosine N-ribosylhydrolase)",
+"matched_organism": false
+},
+"3.3.2.1||": {
+"accession": "G2X4M1",
+"entry_name": "ISC1_VERDV",
+"organism": "Verticillium dahliae (strain VdLs.17 / ATCC MYA-4575 / FGSC 10137) (Verticillium wilt)",
+"protein_name": "Secreted isochorismatase effector Isc1 (EC 3.3.2.1)",
+"matched_organism": false
+},
+"3.3.2.8||Rhodococcus erythropolis": {
+"accession": "Q9ZAG3",
+"entry_name": "LIMA_RHOER",
+"organism": "Rhodococcus erythropolis (Arthrobacter picolinophilus)",
+"protein_name": "Limonene-1,2-epoxide hydrolase (EC 3.3.2.8)",
+"matched_organism": true
+},
+"3.2.2.x||Escherichia coli": null,
+"3.3.2.x||": null,
+"3.3.2.x||E. coli": null,
+"3.3.2.x||Aspergillus niger M200": null,
+"3.3.2.x||Escherichia coli": null,
+"3.3.2.x||Methylobacterium sp.": null,
+"3.3.2.x||Rhodotorula paludigena": null,
+"3.3.2.x||Sphingomonas sp. HXN-200": null,
+"3.4.11.x||Ochrobactrum anthropi C1-38": null,
+"3.3.2.x||Vigna radiate": null,
+"3.4.21.62||Bacillus licheniformis": {
+"accession": "P00780",
+"entry_name": "SUBC_BACLI",
+"organism": "Bacillus licheniformis",
+"protein_name": "Subtilisin Carlsberg (EC 3.4.21.62)",
+"matched_organism": true
+},
+"3.4.21.62||": {
+"accession": "O61142",
+"entry_name": "SUB1_PLAFA",
+"organism": "Plasmodium falciparum",
+"protein_name": "Subtilisin-like protease 1 (EC 3.4.21.62) (PfSUB-1)",
+"matched_organism": false
+},
+"3.4.21.x||": null,
+"3.4.21.62||Bacillus subtilis": {
+"accession": "P35835",
+"entry_name": "SUBN_BACNA",
+"organism": "Bacillus subtilis subsp. natto",
+"protein_name": "Subtilisin NAT (EC 3.4.21.62) (Nattokinase) (NK)",
+"matched_organism": true
+},
+"3.4.x.x||": null,
+"3.5.1.14||": {
+"accession": "K9NBS6",
+"entry_name": "AAM_RHOER",
+"organism": "Rhodococcus erythropolis (Arthrobacter picolinophilus)",
+"protein_name": "Acylamidase (EC 3.5.1.13) (EC 3.5.1.14) (EC 3.5.1.4)",
+"matched_organism": false
+},
+"3.4.21.x||Bacillus licheniformis": null,
+"3.5.1.5||": {
+"accession": "P17086",
+"entry_name": "URE1_PROMH",
+"organism": "Proteus mirabilis (strain HI4320)",
+"protein_name": "Urease subunit alpha (EC 3.5.1.5) (Urea amidohydrolase subunit alpha)",
+"matched_organism": false
+},
+"3.4.x.x||Bacillus licheniformis": null,
+"3.5.1.4||Rhodococcus erythopolis MP50": {
+"accession": "P08158",
+"entry_name": "AMDS_EMENI",
+"organism": "Emericella nidulans (strain FGSC A4 / ATCC 38163 / CBS 112.46 / NRRL 194 / M139) (Aspergillus nidulans)",
+"protein_name": "Acetamidase (EC 3.5.1.4)",
+"matched_organism": false
+},
+"3.5.1.x||": null,
+"3.5.1.5||Vitreoscilla": {
+"accession": "P17086",
+"entry_name": "URE1_PROMH",
+"organism": "Proteus mirabilis (strain HI4320)",
+"protein_name": "Urease subunit alpha (EC 3.5.1.5) (Urea amidohydrolase subunit alpha)",
+"matched_organism": false
+},
+"3.5.1.x||Arthrobacter crystallopoietes": null,
+"3.5.1.x||Cupriavidus sp. P4-10-C": null,
+"3.5.1.x||Cyclobacterium marinum": null,
+"3.5.1.x||Escherichia coli BL21 (DE3)": null,
+"3.5.1.x||Geobacillus kaustophilus CECT4264": null,
+"3.5.2.x||": null,
+"3.5.1.x||Geobacillus stearothermophilus CECT43": null,
+"3.5.1.x||Microbacterium imperiale CBS 498-74": null,
+"3.5.2.x||Agrobacterium tumefaciens": null,
+"3.5.2.x||Escherichia coli": null,
+"3.5.2.x||Agrobacterium tumefaciens BQL9": null,
+"3.5.4.3||Deinococcus geothermalis": {
+"accession": "Q9R111",
+"entry_name": "GUAD_MOUSE",
+"organism": "Mus musculus (Mouse)",
+"protein_name": "Guanine deaminase (Guanase) (Guanine aminase) (EC 3.5.4.3) (Guanine aminohydrolase) (GAH)",
+"matched_organism": false
+},
+"3.5.5.1||": {
+"accession": "Q500U1",
+"entry_name": "NITR_PSEU2",
+"organism": "Pseudomonas syringae pv. syringae (strain B728a)",
+"protein_name": "Nitrilase (EC 3.5.5.1) (Arylacetonitrilase) (Indole-3-acetonitrile hydrolase) (IAN hydrolase) (Indole-3-acetonitrilase)",
+"matched_organism": false
+},
+"3.5.x.x||": null,
+"3.5.5.1||Bradyrhizobium japonicum": {
+"accession": "Q500U1",
+"entry_name": "NITR_PSEU2",
+"organism": "Pseudomonas syringae pv. syringae (strain B728a)",
+"protein_name": "Nitrilase (EC 3.5.5.1) (Arylacetonitrilase) (Indole-3-acetonitrile hydrolase) (IAN hydrolase) (Indole-3-acetonitrilase)",
+"matched_organism": false
+},
+"3.5.5.1||Pseudomonas fluorescens EBC191": {
+"accession": "Q500U1",
+"entry_name": "NITR_PSEU2",
+"organism": "Pseudomonas syringae pv. syringae (strain B728a)",
+"protein_name": "Nitrilase (EC 3.5.5.1) (Arylacetonitrilase) (Indole-3-acetonitrile hydrolase) (IAN hydrolase) (Indole-3-acetonitrilase)",
+"matched_organism": false
+},
+"3.5.5.x||E. coli": null,
+"3.6.1.1||Escherichia coli": {
+"accession": "P0A7A9",
+"entry_name": "IPYR_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Inorganic pyrophosphatase (EC 3.6.1.1) (Pyrophosphate phospho-hydrolase) (PPase)",
+"matched_organism": true
+},
+"3.6.1.1||Saccharomyces cerevisiae": {
+"accession": "P00817",
+"entry_name": "IPYR_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Inorganic pyrophosphatase (EC 3.6.1.1) (Pyrophosphate phospho-hydrolase) (PPase)",
+"matched_organism": true
+},
+"3.5.x.x||Sphingomonas paucimobilis": null,
+"3.6.1.1||Pasteurella multocida P-1059": {
+"accession": "O77460",
+"entry_name": "IPYR_DROME",
+"organism": "Drosophila melanogaster (Fruit fly)",
+"protein_name": "Inorganic pyrophosphatase (EC 3.6.1.1) (Nucleosome-remodeling factor 38 kDa subunit) (Pyrophosphate phospho-hydrolase) (PPase)",
+"matched_organism": false
+},
+"3.6.1.1||Pyrococcus horikoshii OT3": {
+"accession": "O77460",
+"entry_name": "IPYR_DROME",
+"organism": "Drosophila melanogaster (Fruit fly)",
+"protein_name": "Inorganic pyrophosphatase (EC 3.6.1.1) (Nucleosome-remodeling factor 38 kDa subunit) (Pyrophosphate phospho-hydrolase) (PPase)",
+"matched_organism": false
+},
+"3.6.1.1||Thermus thermophilus": {
+"accession": "P38576",
+"entry_name": "IPYR_THET8",
+"organism": "Thermus thermophilus (strain ATCC 27634 / DSM 579 / HB8)",
+"protein_name": "Inorganic pyrophosphatase (EC 3.6.1.1) (Pyrophosphate phospho-hydrolase) (PPase)",
+"matched_organism": true
+},
+"3.6.1.x||": null,
+"3.6.1.1||yeast": {
+"accession": "O13505",
+"entry_name": "IPYR_PICPA",
+"organism": "Komagataella pastoris (Yeast) (Pichia pastoris)",
+"protein_name": "Inorganic pyrophosphatase (EC 3.6.1.1) (Pyrophosphate phospho-hydrolase) (PPase)",
+"matched_organism": true
+},
+"3.8.1.x||": null,
+"3.6.1.x||Pasteurella multocida": null,
+"3.8.1.x||Agrobacterium radiobacter AD1": null,
+"3.8.1.x||Agrobacterium radiobacter AD1 or Mycobacterium sp. GP1": null,
+"3.8.1.x||E. coli": null,
+"3.8.1.x||E. coli BL21": null,
+"3.8.1.x||Tsukamurella sp. 1534": null,
+"3.8.1.x||Escherichia coli": null,
+"3.x.x.x||": null,
+"3.8.x.x||Tsukamurella sp. 1534": null,
+"4.1.1.1||": {
+"accession": "Q6FJA3",
+"entry_name": "PDC1_CANGA",
+"organism": "Candida glabrata (strain ATCC 2001 / BCRC 20586 / JCM 3761 / NBRC 0622 / NRRL Y-65 / CBS 138) (Yeast) (Nakaseomyces glabratus)",
+"protein_name": "Pyruvate decarboxylase (EC 4.1.1.1)",
+"matched_organism": false
+},
+"3.x.x.x||Burkholderia cepacia": null,
+"4.1.1.1||Candida tropicalis": {
+"accession": "Q6FJA3",
+"entry_name": "PDC1_CANGA",
+"organism": "Candida glabrata (strain ATCC 2001 / BCRC 20586 / JCM 3761 / NBRC 0622 / NRRL Y-65 / CBS 138) (Yeast) (Nakaseomyces glabratus)",
+"protein_name": "Pyruvate decarboxylase (EC 4.1.1.1)",
+"matched_organism": false
+},
+"4.1.1.1||Escherichia coli": {
+"accession": "Q6FJA3",
+"entry_name": "PDC1_CANGA",
+"organism": "Candida glabrata (strain ATCC 2001 / BCRC 20586 / JCM 3761 / NBRC 0622 / NRRL Y-65 / CBS 138) (Yeast) (Nakaseomyces glabratus)",
+"protein_name": "Pyruvate decarboxylase (EC 4.1.1.1)",
+"matched_organism": false
+},
+"4.1.1.1||Streptococcus pneumoniae": {
+"accession": "Q6FJA3",
+"entry_name": "PDC1_CANGA",
+"organism": "Candida glabrata (strain ATCC 2001 / BCRC 20586 / JCM 3761 / NBRC 0622 / NRRL Y-65 / CBS 138) (Yeast) (Nakaseomyces glabratus)",
+"protein_name": "Pyruvate decarboxylase (EC 4.1.1.1)",
+"matched_organism": false
+},
+"4.1.1.1||Zymomonas mobilis": {
+"accession": "P06672",
+"entry_name": "PDC_ZYMMO",
+"organism": "Zymomonas mobilis subsp. mobilis (strain ATCC 31821 / ZM4 / CP4)",
+"protein_name": "Pyruvate decarboxylase (PDC) (EC 4.1.1.1)",
+"matched_organism": true
+},
+"4.1.1.1||Z. mobilis": {
+"accession": "Q6FJA3",
+"entry_name": "PDC1_CANGA",
+"organism": "Candida glabrata (strain ATCC 2001 / BCRC 20586 / JCM 3761 / NBRC 0622 / NRRL Y-65 / CBS 138) (Yeast) (Nakaseomyces glabratus)",
+"protein_name": "Pyruvate decarboxylase (EC 4.1.1.1)",
+"matched_organism": false
+},
+"4.1.1.1||Zymobacter palmae": {
+"accession": "Q6FJA3",
+"entry_name": "PDC1_CANGA",
+"organism": "Candida glabrata (strain ATCC 2001 / BCRC 20586 / JCM 3761 / NBRC 0622 / NRRL Y-65 / CBS 138) (Yeast) (Nakaseomyces glabratus)",
+"protein_name": "Pyruvate decarboxylase (EC 4.1.1.1)",
+"matched_organism": false
+},
+"4.1.1.11||Bacillus subtilis": {
+"accession": "P52999",
+"entry_name": "PAND_BACSU",
+"organism": "Bacillus subtilis (strain 168)",
+"protein_name": "Aspartate 1-decarboxylase (EC 4.1.1.11) (Aspartate alpha-decarboxylase) [Cleaved into: Aspartate 1-decarboxylase beta chain; Aspartate 1-decarboxylase alpha chain]",
+"matched_organism": true
+},
+"4.1.1.102||Enterobacter spec.": {
+"accession": "Q03034",
+"entry_name": "FDC1_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Ferulic acid decarboxylase 1 (EC 4.1.1.102) (Phenacrylate decarboxylase)",
+"matched_organism": false
+},
+"4.1.1.11||Corynebacterium glutamicum": {
+"accession": "A4QAD0",
+"entry_name": "PAND_CORGB",
+"organism": "Corynebacterium glutamicum (strain R)",
+"protein_name": "Aspartate 1-decarboxylase (EC 4.1.1.11) (Aspartate alpha-decarboxylase) [Cleaved into: Aspartate 1-decarboxylase beta chain; Aspartate 1-decarboxylase alpha chain]",
+"matched_organism": true
+},
+"4.1.1.11||Escherichia coli": {
+"accession": "P0A790",
+"entry_name": "PAND_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Aspartate 1-decarboxylase (EC 4.1.1.11) (Aspartate alpha-decarboxylase) [Cleaved into: Aspartate 1-decarboxylase beta chain; Aspartate 1-decarboxylase alpha chain]",
+"matched_organism": true
+},
+"4.1.1.15||": {
+"accession": "P20228",
+"entry_name": "DCE_DROME",
+"organism": "Drosophila melanogaster (Fruit fly)",
+"protein_name": "Glutamate decarboxylase (GAD) (EC 4.1.1.15)",
+"matched_organism": false
+},
+"4.1.1.18||": {
+"accession": "P0A1Z0",
+"entry_name": "LDCI_SALTY",
+"organism": "Salmonella typhimurium (strain LT2 / SGSC1412 / ATCC 700720)",
+"protein_name": "Inducible lysine decarboxylase (LDC) (EC 4.1.1.18)",
+"matched_organism": false
+},
+"4.1.1.11||E. coli": {
+"accession": "A5U8S6",
+"entry_name": "PAND_MYCTA",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25177 / H37Ra)",
+"protein_name": "Aspartate 1-decarboxylase (EC 4.1.1.11) (Aspartate alpha-decarboxylase) [Cleaved into: Aspartate 1-decarboxylase beta chain; Aspartate 1-decarboxylase alpha chain]",
+"matched_organism": false
+},
+"4.1.1.28||": {
+"accession": "I0DFJ0",
+"entry_name": "AADC_BACAT",
+"organism": "Bacillus atrophaeus",
+"protein_name": "Aromatic-L-amino-acid decarboxylase (AADC) (EC 4.1.1.28) (AADC-BA)",
+"matched_organism": false
+},
+"4.1.1.5||": {
+"accession": "P77880",
+"entry_name": "ALDC_LACLM",
+"organism": "Lactococcus lactis subsp. cremoris (strain MG1363)",
+"protein_name": "Alpha-acetolactate decarboxylase (EC 4.1.1.5)",
+"matched_organism": false
+},
+"4.1.1.50||Escherichia coli": {
+"accession": "P0A7F7",
+"entry_name": "SPED_ECO57",
+"organism": "Escherichia coli O157:H7",
+"protein_name": "S-adenosylmethionine decarboxylase proenzyme (AdoMetDC) (SAMDC) (EC 4.1.1.50) [Cleaved into: S-adenosylmethionine decarboxylase beta chain; S-adenosylmethionine decarboxylase alpha chain]",
+"matched_organism": true
+},
+"4.1.1.7||Pseudomonas putida": {
+"accession": "P20906",
+"entry_name": "MDLC_PSEPU",
+"organism": "Pseudomonas putida (Arthrobacter siderocapsulatus)",
+"protein_name": "Benzoylformate decarboxylase (BFD) (BFDC) (EC 4.1.1.7)",
+"matched_organism": true
+},
+"4.1.1.x||": null,
+"4.1.1.5||Bacillus subtilis IPE5-4": {
+"accession": "P77880",
+"entry_name": "ALDC_LACLM",
+"organism": "Lactococcus lactis subsp. cremoris (strain MG1363)",
+"protein_name": "Alpha-acetolactate decarboxylase (EC 4.1.1.5)",
+"matched_organism": false
+},
+"4.1.1.x||Bacillus subtilis": null,
+"4.1.1.x||Bordetella bronchiseptica": null,
+"4.1.1.x||Escherichia coli": null,
+"4.1.1.x||E. coli": null,
+"4.1.1.x||Lactococcus lactis": null,
+"4.1.1.x||Pelotomaculum thermopropionicum": null,
+"4.1.1.x||Proteus mirabilis": null,
+"4.1.1.x||Saccharomyces cerevisiae": null,
+"4.1.2.13||Escherichia coli": {
+"accession": "P0AB71",
+"entry_name": "ALF_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Fructose-bisphosphate aldolase class 2 (FBP aldolase) (FBPA) (EC 4.1.2.13) (Fructose-1,6-bisphosphate aldolase) (Fructose-bisphosphate aldolase class II) (Sedoheptulose bisphosphate aldolase)",
+"matched_organism": true
+},
+"4.1.2.17||": {
+"accession": "A6UTG8",
+"entry_name": "FUCA_META3",
+"organism": "Methanococcus aeolicus (strain ATCC BAA-1280 / DSM 17508 / OCM 812 / Nankai-3)",
+"protein_name": "L-fuculose phosphate aldolase (EC 4.1.2.17) (L-fuculose-1-phosphate aldolase)",
+"matched_organism": false
+},
+"4.1.1.x||Sphingobacterium willianus": null,
+"4.1.2.10||Manihot esculenta": {
+"accession": "O24243",
+"entry_name": "MDL1_PRUDU",
+"organism": "Prunus dulcis (Almond) (Amygdalus dulcis)",
+"protein_name": "(R)-mandelonitrile lyase 1 (EC 4.1.2.10) (Hydroxynitrile lyase 1) ((R)-oxynitrilase 1)",
+"matched_organism": false
+},
+"4.1.2.19||Escherichia coli": {
+"accession": "P32169",
+"entry_name": "RHAD_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Rhamnulose-1-phosphate aldolase (EC 4.1.2.19)",
+"matched_organism": true
+},
+"4.1.2.4||Escherichia coli": {
+"accession": "B6I6M8",
+"entry_name": "DEOC_ECOSE",
+"organism": "Escherichia coli (strain SE11)",
+"protein_name": "Deoxyribose-phosphate aldolase (DERA) (EC 4.1.2.4) (2-deoxy-D-ribose 5-phosphate aldolase) (Phosphodeoxyriboaldolase) (Deoxyriboaldolase)",
+"matched_organism": true
+},
+"4.1.2.4||Thermotoga maritima": {
+"accession": "Q9X1P5",
+"entry_name": "DEOC_THEMA",
+"organism": "Thermotoga maritima (strain ATCC 43589 / DSM 3109 / JCM 10099 / NBRC 100826 / MSB8)",
+"protein_name": "Deoxyribose-phosphate aldolase (DERA) (EC 4.1.2.4) (2-deoxy-D-ribose 5-phosphate aldolase) (Phosphodeoxyriboaldolase) (Deoxyriboaldolase)",
+"matched_organism": true
+},
+"4.1.2.4||E. coli": {
+"accession": "Q9Y948",
+"entry_name": "DEOC_AERPE",
+"organism": "Aeropyrum pernix (strain ATCC 700893 / DSM 11879 / JCM 9820 / NBRC 100138 / K1)",
+"protein_name": "Deoxyribose-phosphate aldolase (DERA) (EC 4.1.2.4) (2-deoxy-D-ribose 5-phosphate aldolase) (Phosphodeoxyriboaldolase) (Deoxyriboaldolase)",
+"matched_organism": false
+},
+"4.1.2.53||": {
+"accession": "A6TBU6",
+"entry_name": "RHMA_KLEP7",
+"organism": "Klebsiella pneumoniae subsp. pneumoniae (strain ATCC 700721 / MGH 78578)",
+"protein_name": "2-keto-3-deoxy-L-rhamnonate aldolase (KDR aldolase) (EC 4.1.2.53) (2-dehydro-3-deoxyrhamnonate aldolase)",
+"matched_organism": false
+},
+"4.1.2.4||Lactobacillus brevis": {
+"accession": "Q9Y948",
+"entry_name": "DEOC_AERPE",
+"organism": "Aeropyrum pernix (strain ATCC 700893 / DSM 11879 / JCM 9820 / NBRC 100138 / K1)",
+"protein_name": "Deoxyribose-phosphate aldolase (DERA) (EC 4.1.2.4) (2-deoxy-D-ribose 5-phosphate aldolase) (Phosphodeoxyriboaldolase) (Deoxyriboaldolase)",
+"matched_organism": false
+},
+"4.1.2.x||": null,
+"4.1.2.x||Arabidopsis thaliana": null,
+"4.1.2.x||Baliospermum montanum": null,
+"4.1.2.x||E. coli": null,
+"4.1.2.x||Escherichia coli": null,
+"4.1.2.x||Gilliamella apicola": null,
+"4.1.2.x||Pectobacterium atrosepticum": null,
+"4.1.2.x||Manihot esculenta": null,
+"4.1.2.x||Prunus dulcis": null,
+"4.1.2.x||Pseudomonas Putida": null,
+"4.1.2.x||Pseudomonas putida": null,
+"4.1.2.x||Pseudomonas fluorescens": null,
+"4.1.3.3||Escherichia coli": {
+"accession": "P0A6L5",
+"entry_name": "NANA_ECO57",
+"organism": "Escherichia coli O157:H7",
+"protein_name": "N-acetylneuraminate lyase (NAL) (Neu5Ac lyase) (EC 4.1.3.3) (N-acetylneuraminate pyruvate-lyase) (N-acetylneuraminic acid aldolase) (Sialate lyase) (Sialic acid aldolase) (Sialic acid lyase)",
+"matched_organism": true
+},
+"4.1.2.x||Rhodopseudomonas palustris": null,
+"4.1.3.x||": null,
+"4.1.x.x||": null,
+"4.1.3.x||Escherichia coli K12": null,
+"4.1.3.x||Pasteurella multocida": null,
+"4.1.99.1||E. coli": {
+"accession": "A1JJH3",
+"entry_name": "TNAA_YERE8",
+"organism": "Yersinia enterocolitica serotype O:8 / biotype 1B (strain NCTC 13174 / 8081)",
+"protein_name": "Tryptophanase (EC 4.1.99.1) (L-tryptophan indole-lyase) (TNase)",
+"matched_organism": false
+},
+"4.2.1.1||": {
+"accession": "A7MAQ2",
+"entry_name": "DIOA3_DIOJA",
+"organism": "Dioscorea japonica (Japanese yam)",
+"protein_name": "Dioscorin dioA3 (EC 1.6.5.4) (EC 4.2.1.1) (Dj-dio5) (Dj-dioA3) (Tuber storage protein dioA3)",
+"matched_organism": false
+},
+"4.2.1.113||Geobacillus stearothermophilus": {
+"accession": "A0A0P0ZBS7",
+"entry_name": "MENC_GEOSE",
+"organism": "Geobacillus stearothermophilus (Bacillus stearothermophilus)",
+"protein_name": "o-succinylbenzoate synthase (OSB synthase) (OSBS) (EC 4.2.1.113) (4-(2'-carboxyphenyl)-4-oxybutyric acid synthase) (N-acylamino acid racemase) (NAAAR) (N-succinylamino acid racemase) (NSAAR) (NSAR) (EC 5.1.1.-) (o-succinylbenzoic acid synthase)",
+"matched_organism": true
+},
+"4.1.x.x||engineered from native GALS": null,
+"4.2.1.1||bovine red blood cell": {
+"accession": "A7MAQ2",
+"entry_name": "DIOA3_DIOJA",
+"organism": "Dioscorea japonica (Japanese yam)",
+"protein_name": "Dioscorin dioA3 (EC 1.6.5.4) (EC 4.2.1.1) (Dj-dio5) (Dj-dioA3) (Tuber storage protein dioA3)",
+"matched_organism": false
+},
+"4.2.1.82||Caulobacter crescentus": {
+"accession": "Q9A9Z2",
+"entry_name": "XYLD_CAUVC",
+"organism": "Caulobacter vibrioides (strain ATCC 19089 / CIP 103742 / CB 15) (Caulobacter crescentus)",
+"protein_name": "D-xylonate dehydratase (XyDHT) (EC 4.2.1.82) (Gluconate dehydratase) (EC 4.2.1.39)",
+"matched_organism": true
+},
+"4.2.1.113||Geobacillus stearothermophilus NCA1503": {
+"accession": "A0A0P0ZBS7",
+"entry_name": "MENC_GEOSE",
+"organism": "Geobacillus stearothermophilus (Bacillus stearothermophilus)",
+"protein_name": "o-succinylbenzoate synthase (OSB synthase) (OSBS) (EC 4.2.1.113) (4-(2'-carboxyphenyl)-4-oxybutyric acid synthase) (N-acylamino acid racemase) (NAAAR) (N-succinylamino acid racemase) (NSAAR) (NSAR) (EC 5.1.1.-) (o-succinylbenzoic acid synthase)",
+"matched_organism": false
+},
+"4.2.1.x||": null,
+"4.2.1.84||Rhodococcus opacus 71D": {
+"accession": "P29378",
+"entry_name": "NHA2_RHORH",
+"organism": "Rhodococcus rhodochrous",
+"protein_name": "Low-molecular weight cobalt-containing nitrile hydratase subunit alpha (L-NHase) (L-nitrilase) (EC 4.2.1.84)",
+"matched_organism": false
+},
+"4.2.1.x||Bradyrhizobium sp. LTSPM299": null,
+"4.2.1.x||Carica papaya": null,
+"4.2.1.x||E. coli": null,
+"4.2.1.x||E. coli (recombinant expression)": null,
+"4.2.1.x||L. fusiformis": null,
+"4.2.1.x||Lactobacillus acidophilus": null,
+"4.2.1.x||Microbacterium imperiale CBS 498-74": null,
+"4.2.1.x||N. paraffinae": null,
+"4.2.1.x||P. aminophilus": null,
+"4.2.1.x||Paracoccus aminophilus": null,
+"4.2.1.x||Paracoccus aminophilus DSM 8538": null,
+"4.2.1.x||Rhodococcus boritolerans FW815": null,
+"4.2.1.x||Rhodococcus opacus 71D": null,
+"4.2.1.x||S. maltophilia": null,
+"4.2.1.x||S. nitritireducens": null,
+"4.2.3.x||E. coli": null,
+"4.2.99.x||Cucumis melo": null,
+"4.2.99.x||E. coli": null,
+"4.3.1.1||Escherichia coli": {
+"accession": "P0AC38",
+"entry_name": "ASPA_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Aspartate ammonia-lyase (Aspartase) (EC 4.3.1.1)",
+"matched_organism": true
+},
+"4.3.1.1||Bacillus megaterium": {
+"accession": "Q9LCC6",
+"entry_name": "ASPA_BACSP",
+"organism": "Bacillus sp",
+"protein_name": "Aspartate ammonia-lyase (Aspartase) (EC 4.3.1.1)",
+"matched_organism": false
+},
+"4.3.1.1||E. coli": {
+"accession": "Q9LCC6",
+"entry_name": "ASPA_BACSP",
+"organism": "Bacillus sp",
+"protein_name": "Aspartate ammonia-lyase (Aspartase) (EC 4.3.1.1)",
+"matched_organism": false
+},
+"4.3.1.19||Corynebacterium glutamicum": {
+"accession": "Q04513",
+"entry_name": "ILVA_CORGL",
+"organism": "Corynebacterium glutamicum (strain ATCC 13032 / DSM 20300 / JCM 1318 / BCRC 11384 / CCUG 27702 / LMG 3730 / NBRC 12168 / NCIMB 10025 / NRRL B-2784 / 534)",
+"protein_name": "L-threonine dehydratase biosynthetic IlvA (EC 4.3.1.19) (Threonine deaminase)",
+"matched_organism": true
+},
+"4.3.1.19||Escherichia coli": {
+"accession": "P0AGF8",
+"entry_name": "TDCB_ECO57",
+"organism": "Escherichia coli O157:H7",
+"protein_name": "L-threonine dehydratase catabolic TdcB (EC 4.3.1.19) (L-serine dehydratase) (EC 4.3.1.17) (Threonine deaminase)",
+"matched_organism": true
+},
+"4.3.1.24||Anabaena variabilis": {
+"accession": "Q3M5Z3",
+"entry_name": "PAL_TRIV2",
+"organism": "Trichormus variabilis (strain ATCC 29413 / PCC 7937) (Anabaena variabilis)",
+"protein_name": "Phenylalanine ammonia-lyase (EC 4.3.1.24)",
+"matched_organism": true
+},
+"4.3.1.19||E. coli (recombinant)": {
+"accession": "Q8VBT2",
+"entry_name": "SDHL_MOUSE",
+"organism": "Mus musculus (Mouse)",
+"protein_name": "L-serine dehydratase/L-threonine deaminase (SDH) (EC 4.3.1.17) (L-serine deaminase) (L-threonine dehydratase) (TDH) (EC 4.3.1.19)",
+"matched_organism": false
+},
+"4.3.1.24||Petroselinum crispum": {
+"accession": "P24481",
+"entry_name": "PAL1_PETCR",
+"organism": "Petroselinum crispum (Parsley) (Petroselinum hortense)",
+"protein_name": "Phenylalanine ammonia-lyase 1 (EC 4.3.1.24)",
+"matched_organism": true
+},
+"4.3.1.x||": null,
+"4.3.1.2||Escherichia coli O157:H7": {
+"accession": "Q05514",
+"entry_name": "MAAL_CLOTT",
+"organism": "Clostridium tetanomorphum",
+"protein_name": "Methylaspartate ammonia-lyase (MAL) (EC 4.3.1.2) (3-methylaspartase ammonia-lyase) (Beta-methylaspartase)",
+"matched_organism": false
+},
+"4.3.1.x||Arabidopsis thaliana": null,
+"4.3.1.x||Anabaena variabilis": null,
+"4.3.1.x||E. coli": null,
+"4.3.1.x||Escherichia coli": null,
+"4.3.1.x||Rhodotorula glutinis": null,
+"4.3.1.x||Escherichia coli BL21": null,
+"4.3.1.x||Zea mays": null,
+"4.3.3.x||Thalictrum flavum": null,
+"4.5.1.x||": null,
+"5.1.1.x||": null,
+"4.5.1.x||Escherichia coli": null,
+"4.99.1.x||E. coli (recombinant expression)": null,
+"4.99.1.5||E. coli (expressing)": null,
+"5.1.2.2||": {
+"accession": "P11444",
+"entry_name": "MANR_PSEPU",
+"organism": "Pseudomonas putida (Arthrobacter siderocapsulatus)",
+"protein_name": "Mandelate racemase (MR) (EC 5.1.2.2)",
+"matched_organism": false
+},
+"5.1.1.x||Achromobacter obae": null,
+"5.1.1.x||Geobacillus kaustophilus CECT4264": null,
+"5.1.1.x||Geobacillus stearothermophilus CECT43": null,
+"5.1.2.2||Pseudomonas putida": {
+"accession": "P11444",
+"entry_name": "MANR_PSEPU",
+"organism": "Pseudomonas putida (Arthrobacter siderocapsulatus)",
+"protein_name": "Mandelate racemase (MR) (EC 5.1.2.2)",
+"matched_organism": true
+},
+"5.1.2.2||Pseudomonas sp. ATCC 12633": {
+"accession": "P11444",
+"entry_name": "MANR_PSEPU",
+"organism": "Pseudomonas putida (Arthrobacter siderocapsulatus)",
+"protein_name": "Mandelate racemase (MR) (EC 5.1.2.2)",
+"matched_organism": false
+},
+"5.1.2.2||Pseudomonas putida (cloned and expressed in E. coli)": {
+"accession": "P11444",
+"entry_name": "MANR_PSEPU",
+"organism": "Pseudomonas putida (Arthrobacter siderocapsulatus)",
+"protein_name": "Mandelate racemase (MR) (EC 5.1.2.2)",
+"matched_organism": false
+},
+"5.1.2.x||E. coli BL21(DE3)": null,
+"5.1.2.x||Pseudomonas putida": null,
+"5.1.2.x||Pseudomonas sp. ATCC 12633": null,
+"5.1.3.8||Escherichia coli": {
+"accession": "P17560",
+"entry_name": "RENBP_PIG",
+"organism": "Sus scrofa (Pig)",
+"protein_name": "N-acylglucosamine 2-epimerase (AGE) (EC 5.1.3.8) (GlcNAc 2-epimerase) (N-acetyl-D-glucosamine 2-epimerase) (Renin-binding protein) (RnBP)",
+"matched_organism": false
+},
+"5.1.3.x||Anabaena variabilis ATCC 29413": null,
+"5.1.3.x||Bifidobacterium longum": null,
+"5.1.99.x||": null,
+"5.1.3.x||Clostridium thermosaccharolyticum": null,
+"5.1.3.x||Homo sapiens": null,
+"5.1.3.x||Pseudomonas cichorii": null,
+"5.1.x.x||": null,
+"5.1.99.x||Arthrobacter aurescens": null,
+"5.1.99.x||Agrobacterium tumefaciens C58": null,
+"5.2.1.x||": null,
+"5.2.1.1||Serratia marcescens": {
+"accession": "Q88FY4",
+"entry_name": "MAIA_PSEPK",
+"organism": "Pseudomonas putida (strain ATCC 47054 / DSM 6125 / CFBP 8728 / NCIMB 11950 / KT2440)",
+"protein_name": "Maleate isomerase (EC 5.2.1.1) (Maleate cis-trans isomerase) (Nicotinate degradation protein E)",
+"matched_organism": false
+},
+"5.3.1.5||Streptomyces murinus": {
+"accession": "P37031",
+"entry_name": "XYLA_STRMR",
+"organism": "Streptomyces murinus",
+"protein_name": "Xylose isomerase (EC 5.3.1.5)",
+"matched_organism": true
+},
+"5.2.1.x||E. coli": null,
+"5.3.1.9||Thermus thermophilus": {
+"accession": "Q5SLL6",
+"entry_name": "G6PI_THET8",
+"organism": "Thermus thermophilus (strain ATCC 27634 / DSM 579 / HB8)",
+"protein_name": "Glucose-6-phosphate isomerase (GPI) (EC 5.3.1.9) (Phosphoglucose isomerase) (PGI) (Phosphohexose isomerase) (PHI)",
+"matched_organism": true
+},
+"5.2.1.x||Escherichia coli": null,
+"5.3.1.6||Ochrobactrum sp.": {
+"accession": "O50083",
+"entry_name": "RPIA_PYRHO",
+"organism": "Pyrococcus horikoshii (strain ATCC 700860 / DSM 12428 / JCM 9974 / NBRC 100139 / OT-3)",
+"protein_name": "Ribose-5-phosphate isomerase A (EC 5.3.1.6) (Phosphoriboisomerase A) (PRI)",
+"matched_organism": false
+},
+"5.3.1.x||": null,
+"5.3.1.9||Thermus thermophilus HB8": {
+"accession": "P12709",
+"entry_name": "G6PI_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Glucose-6-phosphate isomerase (GPI) (EC 5.3.1.9) (D-hexose-6-phosphate anomerase) (Glucose-6-phosphate C2-epimerase) (EC 5.1.3.-) (Phosphoglucose isomerase) (PGI) (Phosphohexose isomerase) (PHI)",
+"matched_organism": false
+},
+"5.3.2.x||": null,
+"5.3.1.x||Streptomyces murinus": null,
+"5.3.1.x||Streptomyces rubiginosus": null,
+"5.4.2.2||Thermococcus kodakarensis": {
+"accession": "Q68BJ6",
+"entry_name": "PGMMM_THEKO",
+"organism": "Thermococcus kodakarensis (strain ATCC BAA-918 / JCM 12380 / KOD1) (Pyrococcus kodakaraensis (strain KOD1))",
+"protein_name": "Phosphoglucomutase/phosphomannomutase (PGM/PMM) (EC 5.4.2.2) (EC 5.4.2.8)",
+"matched_organism": true
+},
+"5.3.99.x||Rhodococcus opacus": null,
+"5.4.2.2||Thermococcus kodakarensis KOD1": {
+"accession": "P38652",
+"entry_name": "PGM1_RAT",
+"organism": "Rattus norvegicus (Rat)",
+"protein_name": "Phosphoglucomutase-1 (PGM 1) (EC 5.4.2.2) (Glucose phosphomutase 1)",
+"matched_organism": false
+},
+"5.4.2.2||Thermotoga maritima": {
+"accession": "P38652",
+"entry_name": "PGM1_RAT",
+"organism": "Rattus norvegicus (Rat)",
+"protein_name": "Phosphoglucomutase-1 (PGM 1) (EC 5.4.2.2) (Glucose phosphomutase 1)",
+"matched_organism": false
+},
+"5.4.4.2||Escherichia coli": {
+"accession": "P38051",
+"entry_name": "MENF_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Isochorismate synthase MenF (EC 5.4.4.2) (Isochorismate hydroxymutase) (Isochorismate mutase)",
+"matched_organism": true
+},
+"5.4.2.7||E. coli": {
+"accession": "Q8DQD0",
+"entry_name": "DEOB_STRR6",
+"organism": "Streptococcus pneumoniae (strain ATCC BAA-255 / R6)",
+"protein_name": "Phosphopentomutase (EC 5.4.2.7) (Phosphodeoxyribomutase)",
+"matched_organism": false
+},
+"5.5.1.4||Archaeoglobus fulgidus": {
+"accession": "Q6AYK3",
+"entry_name": "INO1_RAT",
+"organism": "Rattus norvegicus (Rat)",
+"protein_name": "Inositol-3-phosphate synthase 1 (IPS 1) (EC 5.5.1.4) (Myo-inositol 1-phosphate synthase) (MI-1-P synthase) (MIP synthase)",
+"matched_organism": false
+},
+"5.5.1.4||Thermococcus kodakarensis": {
+"accession": "Q6AYK3",
+"entry_name": "INO1_RAT",
+"organism": "Rattus norvegicus (Rat)",
+"protein_name": "Inositol-3-phosphate synthase 1 (IPS 1) (EC 5.5.1.4) (Myo-inositol 1-phosphate synthase) (MI-1-P synthase) (MIP synthase)",
+"matched_organism": false
+},
+"5.5.1.x||Eubacterium ramulus": null,
+"5.5.1.x||Zea mays": null,
+"6.2.1.x||": null,
+"6.2.1.x||Arabidopsis thaliana": null,
+"6.2.1.x||Metallosphaera sedula or Geobacillus thermodenitrificans": null,
+"5.99.x.x||Escherichia coli": null,
+"6.3.1.x||Streptomyces afghaniensis": null,
+"6.3.2.2||Streptococcus agalactiae": {
+"accession": "Q8E399",
+"entry_name": "GSHAB_STRA3",
+"organism": "Streptococcus agalactiae serotype III (strain NEM316)",
+"protein_name": "Glutathione biosynthesis bifunctional protein GshAB (Gamma-GCS-GS) (GCS-GS) [Includes: Glutamate--cysteine ligase (EC 6.3.2.2) (Gamma-ECS) (GCS) (Gamma-glutamylcysteine synthetase); Glutathione synthetase (EC 6.3.2.3) (GSH synthetase) (GS) (GSH-S) (GSHase) (Glutathione synthase)]",
+"matched_organism": true
+},
+"6.3.4.2||Lactococcus lactis": {
+"accession": "O87761",
+"entry_name": "PYRG_LACLM",
+"organism": "Lactococcus lactis subsp. cremoris (strain MG1363)",
+"protein_name": "CTP synthase (EC 6.3.4.2) (Cytidine 5'-triphosphate synthase) (Cytidine triphosphate synthetase) (CTP synthetase) (CTPS) (UTP--ammonia ligase)",
+"matched_organism": true
+},
+"6.3.2.2||Streptococcus sanguinis": {
+"accession": "P19468",
+"entry_name": "GSH1_RAT",
+"organism": "Rattus norvegicus (Rat)",
+"protein_name": "Glutamate--cysteine ligase catalytic subunit (EC 6.3.2.2) (GCS heavy chain) (Gamma-ECS) (Gamma-glutamylcysteine synthetase)",
+"matched_organism": false
+},
+"6.3.2.x||Streptococcus sanguinis": null,
+"6.3.x.x||Aspergillus oryzae": null,
+"6.x.x.x||Aspergillus nidulans": null,
+"x.x.x.x||yeast": null,
+"1.1.1.49||": {
+"accession": "P97324",
+"entry_name": "G6PD2_MOUSE",
+"organism": "Mus musculus (Mouse)",
+"protein_name": "Glucose-6-phosphate 1-dehydrogenase 2 (G6PD) (EC 1.-.-.-) (EC 1.1.1.49)",
+"matched_organism": false
+},
+"1.1.1.37||": {
+"accession": "P40926",
+"entry_name": "MDHM_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Malate dehydrogenase, mitochondrial (EC 1.1.1.37)",
+"matched_organism": false
+},
+"1.1.1.x||Arthrobacter sp.": null,
+"1.1.1.x||Bacillus pseudomegaterium": null,
+"1.1.1.x||Candida crusei": null,
+"1.1.1.x||Aspergillus terreus": null,
+"1.1.1.41||bacterial": {
+"accession": "P28241",
+"entry_name": "IDH2_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Isocitrate dehydrogenase [NAD] subunit 2, mitochondrial (EC 1.1.1.41) (Isocitric dehydrogenase) (NAD(+)-specific ICDH)",
+"matched_organism": false
+},
+"1.1.1.x||Arthrobacter sp., Pseudomonas sp., Actinomyces sp., Saccharomyces cerevisiae": null,
+"1.1.1.x||Candida parapsilosis ATCC 7330": null,
+"1.1.1.x||Corynebacterium sp. ATCC 21245": null,
+"1.1.1.x||Cyanidioschyzon merolae": null,
+"1.1.1.x||Escherichia coli BL21(DE3)": null,
+"1.1.1.x||Hansenula anomola": null,
+"1.1.1.x||Klebsiella pneumoniae": null,
+"1.1.1.x||Parthenocissus tricuspidata": null,
+"1.1.1.x||Microbacterium oxydans": null,
+"1.1.1.x||Pichia anomala": null,
+"1.1.1.x||Pichia farinosa": null,
+"1.1.1.x||Pichia glucozyma": null,
+"1.1.1.x||Pichia stipitis": null,
+"1.1.1.x||Pichia glucozyma CBS 5766": null,
+"1.1.1.x||Rhizopus arrhizus": null,
+"1.1.1.x||Rhodotorula kratochvilovae": null,
+"1.1.1.x||Rhodococcus ruber, Thermoanaerobium sp., Thermoanaerobacter ethanolicus, Lactobacillus brevis, Lactobacillus kefir": null,
+"1.1.1.x||Rhodotorula sp.": null,
+"1.1.1.x||Rhodotorula sp. LSL": null,
+"1.1.1.x||Rhodotorula sp. UBA 236": null,
+"1.1.1.x||Various": null,
+"1.1.1.x||Trichosporon cutaneum": null,
+"1.1.3.21||": {
+"accession": "P0DB20",
+"entry_name": "GLPO_STRP3",
+"organism": "Streptococcus pyogenes serotype M3 (strain ATCC BAA-595 / MGAS315)",
+"protein_name": "Alpha-glycerophosphate oxidase (EC 1.1.3.21) (Glycerol-3-phosphate oxidase)",
+"matched_organism": false
+},
+"1.1.1.x||Williopsis californica": null,
+"1.1.1.x||metagenomic origin": null,
+"1.1.1.x||Yarrowia lipolytica": null,
+"1.1.1.x||recombinant": null,
+"1.1.3.x||Acetobacter sp.": null,
+"1.1.3.x||Arthrobacter sp.": null,
+"1.1.3.x||Aspergillus terreus": null,
+"1.1.3.x||Geotrichum candidum": null,
+"1.1.3.x||Dactylium dendroides": null,
+"1.1.3.x||Candida albicans": null,
+"1.1.3.x||Gluconobacter oxydans": null,
+"1.1.3.x||Pichia glucozyma": null,
+"1.1.x.x||": null,
+"1.1.99.x||": null,
+"1.1.3.x||Rhodotorula buffoni": null,
+"1.1.3.x||Pseudomonas putida": null,
+"1.1.99.18||Sclerotium rolfsii": {
+"accession": "Q01738",
+"entry_name": "CDH_PHACH",
+"organism": "Phanerodontia chrysosporium (White-rot fungus) (Sporotrichum pruinosum)",
+"protein_name": "Cellobiose dehydrogenase (CDH) (EC 1.1.99.18) (Cellobiose-quinone oxidoreductase)",
+"matched_organism": false
+},
+"1.1.99.x||Gluconobacter oxydans": null,
+"1.1.x.x||Rhodococcus equi": null,
+"1.10.3.2||E. coli": {
+"accession": "D0VWU3",
+"entry_name": "LAC1_TRAMX",
+"organism": "Trametes maxima (White-rot fungus) (Cerrena maxima)",
+"protein_name": "Laccase (EC 1.10.3.2) (Benzenediol:oxygen oxidoreductase) (Diphenol oxidase) (Urishiol oxidase)",
+"matched_organism": false
+},
+"1.13.12.7||": {
+"accession": "P08659",
+"entry_name": "LUCI_PHOPY",
+"organism": "Photinus pyralis (Common eastern firefly) (Lampyris pyralis)",
+"protein_name": "Luciferin 4-monooxygenase (Luciferase) (EC 1.13.12.7)",
+"matched_organism": false
+},
+"1.10.3.2||fungal": {
+"accession": "D0VWU3",
+"entry_name": "LAC1_TRAMX",
+"organism": "Trametes maxima (White-rot fungus) (Cerrena maxima)",
+"protein_name": "Laccase (EC 1.10.3.2) (Benzenediol:oxygen oxidoreductase) (Diphenol oxidase) (Urishiol oxidase)",
+"matched_organism": false
+},
+"1.10.3.2||Myceliophthora thermophila": {
+"accession": "D0VWU3",
+"entry_name": "LAC1_TRAMX",
+"organism": "Trametes maxima (White-rot fungus) (Cerrena maxima)",
+"protein_name": "Laccase (EC 1.10.3.2) (Benzenediol:oxygen oxidoreductase) (Diphenol oxidase) (Urishiol oxidase)",
+"matched_organism": false
+},
+"1.12.99.x||Pyrococcus furiosus": null,
+"1.14.14.1||": {
+"accession": "B2RXA7",
+"entry_name": "CP26C_MOUSE",
+"organism": "Mus musculus (Mouse)",
+"protein_name": "Cytochrome P450 26C1 (Cyp26c1) (EC 1.14.14.1) (Cytochrome P450, family 26, subfamily c, polypeptide 1)",
+"matched_organism": false
+},
+"1.11.2.x||porcine liver": null,
+"1.14.12.x||Pseudomonas putida": null,
+"1.14.12.x||Escherichia coli": null,
+"1.14.14.x||bacterial": null,
+"1.17.3.2||": {
+"accession": "P47990",
+"entry_name": "XDH_CHICK",
+"organism": "Gallus gallus (Chicken)",
+"protein_name": "Xanthine dehydrogenase/oxidase [Includes: Xanthine dehydrogenase (XD) (EC 1.17.1.4); Xanthine oxidase (XO) (EC 1.17.3.2) (Xanthine oxidoreductase) (XOR)]",
+"matched_organism": false
+},
+"1.2.3.4||": {
+"accession": "P45851",
+"entry_name": "OXO2_HORVU",
+"organism": "Hordeum vulgare (Barley)",
+"protein_name": "Oxalate oxidase 2 (EC 1.2.3.4) (Germin)",
+"matched_organism": false
+},
+"1.4.1.9||": {
+"accession": "Q60030",
+"entry_name": "DHLE_THEIN",
+"organism": "Thermoactinomyces intermedius",
+"protein_name": "Leucine dehydrogenase (LeuDH) (EC 1.4.1.9)",
+"matched_organism": false
+},
+"1.14.x.x||Escherichia coli": null,
+"1.14.99.x||Phaffia rhodozyma": null,
+"1.14.x.x||Rhodococcus equi": null,
+"1.3.1.x||Pichia anomala": null,
+"1.4.3.11||": {
+"accession": "D6A5I3",
+"entry_name": "LGOX_STRV1",
+"organism": "Streptomyces viridosporus (strain ATCC 14672 / DSM 40746 / JCM 4963 / KCTC 9882 / NRRL B-12104 / FH 1290) (Streptomyces ghanaensis)",
+"protein_name": "L-glutamate oxidase precursor (GLOD) (LGOX) (EC 1.4.3.11) [Cleaved into: L-glutamate oxidase alpha chain; L-glutamate oxidase gamma chain; L-glutamate oxidase beta chain]",
+"matched_organism": false
+},
+"1.4.1.x||Brevibacterium epidermidis": null,
+"1.4.1.x||Nocardia diaphanozonaria": null,
+"1.4.1.9||E. coli": {
+"accession": "Q60030",
+"entry_name": "DHLE_THEIN",
+"organism": "Thermoactinomyces intermedius",
+"protein_name": "Leucine dehydrogenase (LeuDH) (EC 1.4.1.9)",
+"matched_organism": false
+},
+"1.4.3.x||Escherichia coli BL21(DE3)": null,
+"1.4.3.x||Escherichia coli BL21(DE3) expressing MAO5 from Pseudomonas monteilii ZMU-T01": null,
+"1.4.3.x||Nocardia diaphanozonaria": null,
+"1.6.5.2||": {
+"accession": "P0A754",
+"entry_name": "KEFF_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Glutathione-regulated potassium-efflux system ancillary protein KefF (Quinone oxidoreductase KefF) (EC 1.6.5.2)",
+"matched_organism": false
+},
+"1.5.3.x||": null,
+"1.6.99.1||": {
+"accession": "Q02899",
+"entry_name": "OYE1_SACPS",
+"organism": "Saccharomyces pastorianus (Lager yeast) (Saccharomyces cerevisiae x Saccharomyces eubayanus)",
+"protein_name": "NADPH dehydrogenase 1 (EC 1.6.99.1) (Old yellow enzyme 1)",
+"matched_organism": false
+},
+"1.7.1.x||": null,
+"1.4.99.B3||Proteus myxofaciens": null,
+"1.5.1.x||ancestral": null,
+"1.x.x.x||": null,
+"2.3.2.x||": null,
+"1.6.99.1||Zymomonas mobilis": {
+"accession": "Q02899",
+"entry_name": "OYE1_SACPS",
+"organism": "Saccharomyces pastorianus (Lager yeast) (Saccharomyces cerevisiae x Saccharomyces eubayanus)",
+"protein_name": "NADPH dehydrogenase 1 (EC 1.6.99.1) (Old yellow enzyme 1)",
+"matched_organism": false
+},
+"1.x.x.x||Pseudomonas monteilii": null,
+"1.x.x.x||Pichia anomala": null,
+"1.8.5.x||Escherichia coli": null,
+"1.x.x.x||Saccharomyces cerevisiae": null,
+"2.4.1.20||": {
+"accession": "B9K7M6",
+"entry_name": "CBPA_THENN",
+"organism": "Thermotoga neapolitana (strain ATCC 49049 / DSM 4359 / NBRC 107923 / NS-E)",
+"protein_name": "Cellobiose phosphorylase (EC 2.4.1.20)",
+"matched_organism": false
+},
+"2.4.1.18||": {
+"accession": "P9WN45",
+"entry_name": "GLGB_MYCTU",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25618 / H37Rv)",
+"protein_name": "1,4-alpha-glucan branching enzyme GlgB (EC 2.4.1.18) (1,4-alpha-D-glucan:1,4-alpha-D-glucan 6-glucosyl-transferase) (Alpha-(1->4)-glucan branching enzyme) (Glycogen-branching enzyme) (BE)",
+"matched_organism": false
+},
+"2.1.1.6||Rn": {
+"accession": "A7MBI7",
+"entry_name": "COMT_BOVIN",
+"organism": "Bos taurus (Bovine)",
+"protein_name": "Catechol O-methyltransferase (EC 2.1.1.6)",
+"matched_organism": false
+},
+"2.4.1.149||Helicobacter pylori": {
+"accession": "Q9C0J1",
+"entry_name": "B3GN4_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "N-acetyllactosaminide beta-1,3-N-acetylglucosaminyltransferase 4 (EC 2.4.1.149) (UDP-GlcNAc:betaGal beta-1,3-N-acetylglucosaminyltransferase 4) (BGnT-4) (Beta-1,3-Gn-T4) (Beta-1,3-N-acetylglucosaminyltransferase 4) (Beta3Gn-T4)",
+"matched_organism": false
+},
+"2.4.1.25||": {
+"accession": "A2QYT9",
+"entry_name": "AGLTB_ASPNC",
+"organism": "Aspergillus niger (strain ATCC MYA-4892 / CBS 513.88 / FGSC A1513)",
+"protein_name": "4-alpha-glucanotransferase agtB (EC 2.4.1.25)",
+"matched_organism": false
+},
+"2.4.99.x||": null,
+"2.4.2.n||Aeromonas hydrophila": null,
+"2.4.x.x||": null,
+"2.4.1.49||Clostridium cellulosi": null,
+"2.4.3.10||human": null,
+"2.4.99.1||Photobacterium sp. JT-ISH-224": null,
+"2.4.2.n||Clostridium perfringens": null,
+"2.5.1.6||": {
+"accession": "P17562",
+"entry_name": "METK2_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "S-adenosylmethionine synthase 2 (AdoMet synthase 2) (EC 2.5.1.6) (Methionine adenosyltransferase 2) (MAT 2)",
+"matched_organism": false
+},
+"2.4.x.x||Dactylium dendroides": null,
+"2.5.1.x||": null,
+"2.7.1.40||": {
+"accession": "P11974",
+"entry_name": "KPYM_RABIT",
+"organism": "Oryctolagus cuniculus (Rabbit)",
+"protein_name": "Pyruvate kinase PKM (EC 2.7.1.40) (Pyruvate kinase muscle isozyme) (Threonine-protein kinase PKM2) (EC 2.7.11.1) (Tyrosine-protein kinase PKM2) (EC 2.7.10.2)",
+"matched_organism": false
+},
+"2.7.1.36||": {
+"accession": "P46086",
+"entry_name": "KIME_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "Mevalonate kinase (MK) (EC 2.7.1.36)",
+"matched_organism": false
+},
+"2.7.1.1||": {
+"accession": "P19367",
+"entry_name": "HXK1_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Hexokinase-1 (EC 2.7.1.1) (Brain form hexokinase) (Hexokinase type I) (HK I) (Hexokinase-A)",
+"matched_organism": false
+},
+"2.6.1.x||Komagataella phaffii": null,
+"2.6.1.x||Hansenula anomola": null,
+"2.7.7.9||": {
+"accession": "F4IY62",
+"entry_name": "UGPA3_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "UTP--glucose-1-phosphate uridylyltransferase 3, chloroplastic (EC 2.7.7.9) (UDP-glucose pyrophosphorylase 3)",
+"matched_organism": false
+},
+"2.7.2.1||": {
+"accession": "A0QQK1",
+"entry_name": "ACKA_MYCS2",
+"organism": "Mycolicibacterium smegmatis (strain ATCC 700084 / mc(2)155) (Mycobacterium smegmatis)",
+"protein_name": "Acetate kinase (EC 2.7.2.1) (Acetokinase)",
+"matched_organism": false
+},
+"2.7.8.x||": null,
+"2.8.2.x||": null,
+"2.7.1.1||E. coli": {
+"accession": "P19367",
+"entry_name": "HXK1_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Hexokinase-1 (EC 2.7.1.1) (Brain form hexokinase) (Hexokinase type I) (HK I) (Hexokinase-A)",
+"matched_organism": false
+},
+"3.1.1.34||": {
+"accession": "O46647",
+"entry_name": "LIPL_NEOVI",
+"organism": "Neovison vison (American mink) (Mustela vison)",
+"protein_name": "Lipoprotein lipase (LPL) (EC 3.1.1.34)",
+"matched_organism": false
+},
+"3.1.1.3||Saccharomyces cerevisiae": {
+"accession": "A6ZTP2",
+"entry_name": "ATG15_YEAS7",
+"organism": "Saccharomyces cerevisiae (strain YJM789) (Baker's yeast)",
+"protein_name": "Putative lipase ATG15 (EC 3.1.1.3) (Autophagy-related protein 15) (Cytoplasm to vacuole targeting protein 17)",
+"matched_organism": true
+},
+"2.7.7.x||Myxococcales": null,
+"3.1.3.1||": {
+"accession": "A1YYW7",
+"entry_name": "ALPH_SPHSX",
+"organism": "Sphingomonas sp",
+"protein_name": "Alkaline phosphatase PhoK (EC 3.1.3.1) (SPAP protein)",
+"matched_organism": false
+},
+"3.1.1.x||Aspergillus flavus": null,
+"3.1.2.x||": null,
+"3.1.6.x||": null,
+"3.1.1.x||Pseudomonas putida": null,
+"3.1.1.x||Waltomyces lipofer KCTC 17657": null,
+"3.1.1.x||Pichia anomala": null,
+"3.1.1.x||Candida boidinii KCTC 17776": null,
+"3.2.1.15||": {
+"accession": "O23147",
+"entry_name": "ADPG1_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "Polygalacturonase ADPG1 (AtADPG1) (PG ADPG1) (EC 3.2.1.15) (Pectinase ADPG1) (Protein ARABIDOPSIS DEHISCENCE ZONE POLYGALACTURONASE 1)",
+"matched_organism": false
+},
+"3.2.1.54||": {
+"accession": "A0A7U9P668",
+"entry_name": "CDAS_GEOTM",
+"organism": "Geobacillus thermopakistaniensis (strain MAS1)",
+"protein_name": "Cyclomaltodextrinase (CDase) (EC 3.2.1.54) (Cyclomaltodextrin hydrolase, decycling)",
+"matched_organism": false
+},
+"3.2.1.1||": {
+"accession": "P0DTE8",
+"entry_name": "AMY1C_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Alpha-amylase 1C (EC 3.2.1.1)",
+"matched_organism": false
+},
+"3.2.2.x||": null,
+"3.3.1.x||": null,
+"3.1.6.x||Sulfolobus acidocaldarius": null,
+"3.2.1.54||recombinant (likely E. coli)": {
+"accession": "A0A7U9P668",
+"entry_name": "CDAS_GEOTM",
+"organism": "Geobacillus thermopakistaniensis (strain MAS1)",
+"protein_name": "Cyclomaltodextrinase (CDase) (EC 3.2.1.54) (Cyclomaltodextrin hydrolase, decycling)",
+"matched_organism": false
+},
+"3.2.1.x||HEK293 expressed": null,
+"3.2.2.16||Ec": {
+"accession": "Q9T0I8",
+"entry_name": "MTN1_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "5'-methylthioadenosine nucleosidase (MTA nucleosidase) (EC 3.2.2.16) (5'-methylthioadenosine nucleosidase 1) (AtMTAN1) (MTA nucleosidase 1)",
+"matched_organism": false
+},
+"3.3.2.x||Aspergillus niger": null,
+"3.3.2.x||Bacillus alcalophilus": null,
+"3.4.21.4||": {
+"accession": "P07478",
+"entry_name": "TRY2_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Trypsin-2 (EC 3.4.21.4) (Anionic trypsinogen) (Serine protease 2) (Trypsin II)",
+"matched_organism": false
+},
+"3.3.2.x||Bacillus pumilus": null,
+"3.3.2.x||Rhodococcus sp.": null,
+"3.4.22.x||": null,
+"3.3.2.x||Candida albicans": null,
+"3.4.22.2||": {
+"accession": "P00784",
+"entry_name": "PAPA1_CARPA",
+"organism": "Carica papaya (Papaya)",
+"protein_name": "Papain (EC 3.4.22.2) (Papaya proteinase I) (PPI) (allergen Car p 1)",
+"matched_organism": false
+},
+"3.3.2.x||Rhodococcus sp. CBS 717.73": null,
+"3.4.21.4||Porcine": {
+"accession": "P07478",
+"entry_name": "TRY2_HUMAN",
+"organism": "Homo sapiens (Human)",
+"protein_name": "Trypsin-2 (EC 3.4.21.4) (Anionic trypsinogen) (Serine protease 2) (Trypsin II)",
+"matched_organism": false
+},
+"3.5.1.11||": {
+"accession": "P06875",
+"entry_name": "PAC_ECOLX",
+"organism": "Escherichia coli",
+"protein_name": "Penicillin G acylase (EC 3.5.1.11) (Penicillin G amidase) (Penicillin G amidohydrolase) [Cleaved into: Penicillin G acylase subunit alpha; Penicillin G acylase subunit beta]",
+"matched_organism": false
+},
+"3.6.1.1||": {
+"accession": "O77460",
+"entry_name": "IPYR_DROME",
+"organism": "Drosophila melanogaster (Fruit fly)",
+"protein_name": "Inorganic pyrophosphatase (EC 3.6.1.1) (Nucleosome-remodeling factor 38 kDa subunit) (Pyrophosphate phospho-hydrolase) (PPase)",
+"matched_organism": false
+},
+"3.5.5.x||": null,
+"4.1.1.11||": {
+"accession": "A5U8S6",
+"entry_name": "PAND_MYCTA",
+"organism": "Mycobacterium tuberculosis (strain ATCC 25177 / H37Ra)",
+"protein_name": "Aspartate 1-decarboxylase (EC 4.1.1.11) (Aspartate alpha-decarboxylase) [Cleaved into: Aspartate 1-decarboxylase beta chain; Aspartate 1-decarboxylase alpha chain]",
+"matched_organism": false
+},
+"4.1.2.4||": {
+"accession": "Q9Y948",
+"entry_name": "DEOC_AERPE",
+"organism": "Aeropyrum pernix (strain ATCC 700893 / DSM 11879 / JCM 9820 / NBRC 100138 / K1)",
+"protein_name": "Deoxyribose-phosphate aldolase (DERA) (EC 4.1.2.4) (2-deoxy-D-ribose 5-phosphate aldolase) (Phosphodeoxyriboaldolase) (Deoxyriboaldolase)",
+"matched_organism": false
+},
+"3.4.22.x||bacterial": null,
+"4.1.99.1||": {
+"accession": "A1JJH3",
+"entry_name": "TNAA_YERE8",
+"organism": "Yersinia enterocolitica serotype O:8 / biotype 1B (strain NCTC 13174 / 8081)",
+"protein_name": "Tryptophanase (EC 4.1.99.1) (L-tryptophan indole-lyase) (TNase)",
+"matched_organism": false
+},
+"3.x.x.x||Saccharomyces cerevisiae": null,
+"4.2.1.20||": {
+"accession": "P14671",
+"entry_name": "TRPB1_ARATH",
+"organism": "Arabidopsis thaliana (Mouse-ear cress)",
+"protein_name": "Tryptophan synthase beta chain 1, chloroplastic (EC 4.2.1.20)",
+"matched_organism": false
+},
+"4.3.1.2||": {
+"accession": "Q05514",
+"entry_name": "MAAL_CLOTT",
+"organism": "Clostridium tetanomorphum",
+"protein_name": "Methylaspartate ammonia-lyase (MAL) (EC 4.3.1.2) (3-methylaspartase ammonia-lyase) (Beta-methylaspartase)",
+"matched_organism": false
+},
+"4.1.2.x||Candida parapsilosis": null,
+"4.2.1.x||Lactobacillus reuteri": null,
+"4.2.2.x||Crassostrea gigas": null,
+"4.3.1.x||Proteus mirabilis": null,
+"5.1.1.1||": {
+"accession": "P0A6B4",
+"entry_name": "ALR1_ECOLI",
+"organism": "Escherichia coli (strain K12)",
+"protein_name": "Alanine racemase, biosynthetic (EC 5.1.1.1)",
+"matched_organism": false
+},
+"4.3.3.x||Cj": null,
+"5.1.3.2||": {
+"accession": "P04397",
+"entry_name": "GAL10_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Bifunctional protein GAL10 [Includes: UDP-glucose 4-epimerase (EC 5.1.3.2) (Galactowaldenase); Aldose 1-epimerase (EC 5.1.3.3) (Galactose mutarotase)]",
+"matched_organism": false
+},
+"4.x.x.x||bacterial": null,
+"4.x.x.x||Saccharomyces cerevisiae": null,
+"5.1.3.x||": null,
+"5.3.1.9||": {
+"accession": "P12709",
+"entry_name": "G6PI_YEAST",
+"organism": "Saccharomyces cerevisiae (strain ATCC 204508 / S288c) (Baker's yeast)",
+"protein_name": "Glucose-6-phosphate isomerase (GPI) (EC 5.3.1.9) (D-hexose-6-phosphate anomerase) (Glucose-6-phosphate C2-epimerase) (EC 5.1.3.-) (Phosphoglucose isomerase) (PGI) (Phosphohexose isomerase) (PHI)",
+"matched_organism": false
+},
+"5.3.99.x||": null,
+"5.3.x.x||": null,
+"5.4.2.2||": {
+"accession": "P38652",
+"entry_name": "PGM1_RAT",
+"organism": "Rattus norvegicus (Rat)",
+"protein_name": "Phosphoglucomutase-1 (PGM 1) (EC 5.4.2.2) (Glucose phosphomutase 1)",
+"matched_organism": false
+},
+"5.1.3.x||Camphylobacter jejuni": null,
+"5.4.99.x||": null,
+"5.4.99.15||": {
+"accession": "Q44315",
+"entry_name": "TREY_ARTSQ",
+"organism": "Arthrobacter sp. (strain Q36)",
+"protein_name": "Maltooligosyl trehalose synthase (EC 5.4.99.15) ((1,4)-alpha-D-glucan 1-alpha-D-glucosylmutase)",
+"matched_organism": false
+},
+"6.3.2.x||": null,
+"5.3.1.x||Mucoraceae fungi": null,
+"6.3.4.2||": {
+"accession": "P13242",
+"entry_name": "PYRG_BACSU",
+"organism": "Bacillus subtilis (strain 168)",
+"protein_name": "CTP synthase (EC 6.3.4.2) (Cytidine 5'-triphosphate synthase) (Cytidine triphosphate synthetase) (CTP synthetase) (CTPS) (UTP--ammonia ligase)",
+"matched_organism": false
+},
+"unknown||": null,
+"x.x.x.x||": null,
+"5.4.99.x||recombinant (likely E. coli)": null,
+"7.1.2.x||Spinacia oleracea": null,
+"6.x.x.x||Aspergillus oryzae": null,
+"multiple||Corynebacterium glutamicum": null,
+"unknown||E. coli": null,
+"x.x.x.x||Escherichia coli": null
+}
