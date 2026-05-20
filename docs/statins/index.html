@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>他汀类精选逆合成路线 | AutoPlanner Cascade</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --panel: #fff; --text: #17202f; --muted: #647084;
+      --line: #d9dee7; --brand: #0f766e; --ink: #0f172a; --soft: #eef7f5;
+      --warn: #9a5b00; --shadow: 0 18px 48px rgba(15, 23, 42, .08);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; overflow-x: hidden; background: var(--bg); color: var(--text); font: 14px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .wrap { width: min(1480px, calc(100vw - 42px)); margin: 0 auto; }
+    header { background: #fff; border-bottom: 1px solid var(--line); }
+    .hero { padding: 28px 0 22px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: end; }
+    h1 { margin: 0 0 10px; font-size: 32px; line-height: 1.12; letter-spacing: 0; color: var(--ink); }
+    .lead { color: var(--muted); max-width: 980px; }
+    .metrics { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .metric { min-width: 112px; border: 1px solid var(--line); padding: 10px 12px; background: #fbfcff; }
+    .metric b { display: block; font-size: 24px; color: var(--brand); line-height: 1.05; }
+    .metric span { color: var(--muted); font-size: 12px; }
+    nav { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 0 18px; }
+    nav a { color: var(--text); text-decoration: none; background: #fff; border: 1px solid var(--line); padding: 8px 11px; font-weight: 700; }
+    nav span { color: var(--brand); margin-left: 5px; }
+    main { padding: 22px 0 54px; }
+    .target { margin-bottom: 28px; max-width: 100%; min-width: 0; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .targetHead { display: grid; grid-template-columns: 310px minmax(0, 1fr); gap: 22px; padding: 18px; border-bottom: 1px solid var(--line); }
+    .mol { height: 210px; display: grid; place-items: center; border: 1px solid var(--line); background: #fff; overflow: hidden; }
+    .mol img { width: 100%; height: 100%; object-fit: contain; }
+    h2 { margin: 0 0 8px; font-size: 24px; letter-spacing: 0; }
+    .policy { color: var(--muted); max-width: 920px; }
+    .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .badge { border: 1px solid var(--line); background: #f8fafc; padding: 4px 8px; font-size: 12px; font-weight: 750; color: #344054; }
+    .badge.ok { color: #047857; background: #ecfdf5; border-color: #bbf7d0; }
+    .badge.warn { color: var(--warn); background: #fff7ed; border-color: #fed7aa; }
+    .routes { display: grid; gap: 18px; min-width: 0; padding: 18px; }
+    .route { min-width: 0; max-width: 100%; border: 1px solid var(--line); background: #fcfdff; }
+    .routeHead { padding: 12px 14px; display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; border-bottom: 1px solid var(--line); }
+    .routeTitle { font-size: 17px; font-weight: 850; color: var(--ink); }
+    .routeMeta { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 7px; }
+    .routeLinks a { color: var(--brand); font-weight: 800; text-decoration: none; margin-left: 12px; white-space: nowrap; }
+    .svgBox { min-width: 0; max-width: 100%; padding: 12px; background: #fff; overflow: hidden; }
+    .svgBox img { display: block; width: 100%; max-width: 100%; height: auto; }
+    .note { margin: 14px 0 0; padding: 10px 12px; background: var(--soft); border-left: 3px solid var(--brand); color: #31534f; }
+    footer { color: var(--muted); padding: 22px 0 40px; }
+    @media (max-width: 900px) {
+      .wrap { width: min(100vw - 24px, 1480px); }
+      .hero, .targetHead { display: block; }
+      .metrics { justify-content: flex-start; margin-top: 14px; }
+      .routeHead { display: block; }
+      .routeLinks { margin-top: 8px; }
+      .routeLinks a { margin-left: 0; margin-right: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <div>
+        <h1>他汀类精选逆合成路线</h1>
+        <div class="lead">静态汇报版。每个目标最多展示 3 条精选路线；已排除 reject 和 needs_chemist_review，优先选择长路线和可解释的 late-stage / semisynthesis / fragment 路线。箭头条件为 RCR 模型预测，仅作为路线审阅辅助。</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><b>9</b><span>目标分子</span></div>
+        <div class="metric"><b>26</b><span>精选路线</span></div>
+        <div class="metric"><b>13</b><span>≥8 步路线</span></div>
+        <div class="metric"><b>13</b><span>最长步数</span></div>
+      </div>
+    </div>
+    <div class="wrap"><a href="#atorvastatin">atorvastatin <span>3</span></a>
+<a href="#cerivastatin">cerivastatin <span>3</span></a>
+<a href="#fluvastatin">fluvastatin <span>3</span></a>
+<a href="#lovastatin">lovastatin <span>2</span></a>
+<a href="#mevastatin">mevastatin <span>3</span></a>
+<a href="#pitavastatin">pitavastatin <span>3</span></a>
+<a href="#pravastatin">pravastatin <span>3</span></a>
+<a href="#rosuvastatin">rosuvastatin <span>3</span></a>
+<a href="#simvastatin">simvastatin <span>3</span></a></div>
+  </header>
+  <main class="wrap">
+    
+    <section class="target" id="atorvastatin">
+      <div class="targetHead">
+        <div class="mol"><img src="assets/atorvastatin/target.svg" alt="atorvastatin"></div>
+        <div>
+          <h2>atorvastatin</h2>
+          <div class="policy">精选来源：web product-audit 后的路线池；隐藏 needs_chemist_review；不使用 terminal 原子数硬阈值，避免误伤用于引入基团的大型片段。</div>
+          <div class="badges">
+            <span class="badge ok">3 条展示路线</span>
+            <span class="badge">原始路线 3020</span>
+            <span class="badge">web 保留 730</span>
+            <span class="badge">展示池 722</span>
+          </div>
+          
+        </div>
+      </div>
+      <div class="routes">
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 1 · 12 steps · fragment assembly</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 2875</span>
+              <span class="badge">terminal max heavy 14</span>
+              <span class="badge">aryl_coupling_hint</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/atorvastatin/scheme_route_01.svg">SVG</a><a href="assets/atorvastatin/scheme_route_01.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/atorvastatin/scheme_route_01.svg" alt="atorvastatin route 1"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 2 · 9 steps · late-stage</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 166</span>
+              <span class="badge">terminal max heavy 29</span>
+              <span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/atorvastatin/scheme_route_02.svg">SVG</a><a href="assets/atorvastatin/scheme_route_02.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/atorvastatin/scheme_route_02.svg" alt="atorvastatin route 2"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 3 · 12 steps · fragment assembly</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 2907</span>
+              <span class="badge">terminal max heavy 14</span>
+              <span class="badge">aryl_coupling_hint</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/atorvastatin/scheme_route_03.svg">SVG</a><a href="assets/atorvastatin/scheme_route_03.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/atorvastatin/scheme_route_03.svg" alt="atorvastatin route 3"></div>
+      </article>
+    </div>
+    </section>
+    
+
+    <section class="target" id="cerivastatin">
+      <div class="targetHead">
+        <div class="mol"><img src="assets/cerivastatin/target.svg" alt="cerivastatin"></div>
+        <div>
+          <h2>cerivastatin</h2>
+          <div class="policy">精选来源：web product-audit 后的路线池；隐藏 needs_chemist_review；不使用 terminal 原子数硬阈值，避免误伤用于引入基团的大型片段。</div>
+          <div class="badges">
+            <span class="badge ok">3 条展示路线</span>
+            <span class="badge">原始路线 1578</span>
+            <span class="badge">web 保留 650</span>
+            <span class="badge">展示池 648</span>
+          </div>
+          
+        </div>
+      </div>
+      <div class="routes">
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 1 · 12 steps · fragment assembly</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 1522</span>
+              <span class="badge">terminal max heavy 10</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">aryl_coupling_hint</span><span class="badge">carrier_reagent_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/cerivastatin/scheme_route_01.svg">SVG</a><a href="assets/cerivastatin/scheme_route_01.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/cerivastatin/scheme_route_01.svg" alt="cerivastatin route 1"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 2 · 10 steps · late-stage</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 389</span>
+              <span class="badge">terminal max heavy 24</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/cerivastatin/scheme_route_02.svg">SVG</a><a href="assets/cerivastatin/scheme_route_02.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/cerivastatin/scheme_route_02.svg" alt="cerivastatin route 2"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 3 · 13 steps · fragment assembly</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 1537</span>
+              <span class="badge">terminal max heavy 10</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">aryl_coupling_hint</span><span class="badge">carrier_reagent_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/cerivastatin/scheme_route_03.svg">SVG</a><a href="assets/cerivastatin/scheme_route_03.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/cerivastatin/scheme_route_03.svg" alt="cerivastatin route 3"></div>
+      </article>
+    </div>
+    </section>
+    
+
+    <section class="target" id="fluvastatin">
+      <div class="targetHead">
+        <div class="mol"><img src="assets/fluvastatin/target.svg" alt="fluvastatin"></div>
+        <div>
+          <h2>fluvastatin</h2>
+          <div class="policy">精选来源：web product-audit 后的路线池；隐藏 needs_chemist_review；不使用 terminal 原子数硬阈值，避免误伤用于引入基团的大型片段。</div>
+          <div class="badges">
+            <span class="badge ok">3 条展示路线</span>
+            <span class="badge">原始路线 9338</span>
+            <span class="badge">web 保留 2497</span>
+            <span class="badge">展示池 2476</span>
+          </div>
+          
+        </div>
+      </div>
+      <div class="routes">
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 1 · 12 steps · fragment assembly</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 9275</span>
+              <span class="badge">terminal max heavy 10</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">aryl_coupling_hint</span><span class="badge">carrier_reagent_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/fluvastatin/scheme_route_01.svg">SVG</a><a href="assets/fluvastatin/scheme_route_01.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/fluvastatin/scheme_route_01.svg" alt="fluvastatin route 1"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 2 · 10 steps · fragment assembly</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 7559</span>
+              <span class="badge">terminal max heavy 13</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">aryl_coupling_hint</span><span class="badge">carrier_reagent_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/fluvastatin/scheme_route_02.svg">SVG</a><a href="assets/fluvastatin/scheme_route_02.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/fluvastatin/scheme_route_02.svg" alt="fluvastatin route 2"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 3 · 8 steps · late-stage</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 2958</span>
+              <span class="badge">terminal max heavy 21</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/fluvastatin/scheme_route_03.svg">SVG</a><a href="assets/fluvastatin/scheme_route_03.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/fluvastatin/scheme_route_03.svg" alt="fluvastatin route 3"></div>
+      </article>
+    </div>
+    </section>
+    
+
+    <section class="target" id="lovastatin">
+      <div class="targetHead">
+        <div class="mol"><img src="assets/lovastatin/target.svg" alt="lovastatin"></div>
+        <div>
+          <h2>lovastatin</h2>
+          <div class="policy">精选来源：web product-audit 后的路线池；隐藏 needs_chemist_review；不使用 terminal 原子数硬阈值，避免误伤用于引入基团的大型片段。</div>
+          <div class="badges">
+            <span class="badge ok">2 条展示路线</span>
+            <span class="badge">原始路线 3357</span>
+            <span class="badge">web 保留 24</span>
+            <span class="badge">展示池 2</span>
+          </div>
+          <div class="note">严格筛选后该目标只剩短半合成候选；页面不使用 needs_chemist_review 路线补足数量。</div><div class="note">该目标严格筛选后只有 2 条可展示路线。</div>
+        </div>
+      </div>
+      <div class="routes">
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 1 · 3 steps · semisynthesis</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 44</span>
+              <span class="badge">terminal max heavy 23</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge">natural_core_terminal</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/lovastatin/scheme_route_01.svg">SVG</a><a href="assets/lovastatin/scheme_route_01.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/lovastatin/scheme_route_01.svg" alt="lovastatin route 1"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 2 · 3 steps · semisynthesis</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 45</span>
+              <span class="badge">terminal max heavy 23</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge">natural_core_terminal</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/lovastatin/scheme_route_02.svg">SVG</a><a href="assets/lovastatin/scheme_route_02.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/lovastatin/scheme_route_02.svg" alt="lovastatin route 2"></div>
+      </article>
+    </div>
+    </section>
+    
+
+    <section class="target" id="mevastatin">
+      <div class="targetHead">
+        <div class="mol"><img src="assets/mevastatin/target.svg" alt="mevastatin"></div>
+        <div>
+          <h2>mevastatin</h2>
+          <div class="policy">精选来源：web product-audit 后的路线池；隐藏 needs_chemist_review；不使用 terminal 原子数硬阈值，避免误伤用于引入基团的大型片段。</div>
+          <div class="badges">
+            <span class="badge ok">3 条展示路线</span>
+            <span class="badge">原始路线 1551</span>
+            <span class="badge">web 保留 22</span>
+            <span class="badge">展示池 18</span>
+          </div>
+          <div class="note">严格筛选后该目标只剩短半合成候选；页面不使用 needs_chemist_review 路线补足数量。</div>
+        </div>
+      </div>
+      <div class="routes">
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 1 · 4 steps · semisynthesis</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 155</span>
+              <span class="badge">terminal max heavy 29</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge">natural_core_terminal</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/mevastatin/scheme_route_01.svg">SVG</a><a href="assets/mevastatin/scheme_route_01.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/mevastatin/scheme_route_01.svg" alt="mevastatin route 1"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 2 · 3 steps · semisynthesis</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 37</span>
+              <span class="badge">terminal max heavy 21</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge">natural_core_terminal</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/mevastatin/scheme_route_02.svg">SVG</a><a href="assets/mevastatin/scheme_route_02.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/mevastatin/scheme_route_02.svg" alt="mevastatin route 2"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 3 · 3 steps · semisynthesis</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 39</span>
+              <span class="badge">terminal max heavy 21</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge">natural_core_terminal</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/mevastatin/scheme_route_03.svg">SVG</a><a href="assets/mevastatin/scheme_route_03.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/mevastatin/scheme_route_03.svg" alt="mevastatin route 3"></div>
+      </article>
+    </div>
+    </section>
+    
+
+    <section class="target" id="pitavastatin">
+      <div class="targetHead">
+        <div class="mol"><img src="assets/pitavastatin/target.svg" alt="pitavastatin"></div>
+        <div>
+          <h2>pitavastatin</h2>
+          <div class="policy">精选来源：web product-audit 后的路线池；隐藏 needs_chemist_review；不使用 terminal 原子数硬阈值，避免误伤用于引入基团的大型片段。</div>
+          <div class="badges">
+            <span class="badge ok">3 条展示路线</span>
+            <span class="badge">原始路线 1356</span>
+            <span class="badge">web 保留 40</span>
+            <span class="badge">展示池 27</span>
+          </div>
+          <div class="note">严格筛选后该目标只剩短半合成候选；页面不使用 needs_chemist_review 路线补足数量。</div>
+        </div>
+      </div>
+      <div class="routes">
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 1 · 4 steps · fragment assembly</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 305</span>
+              <span class="badge">terminal max heavy 11</span>
+              <span class="badge">aryl_coupling_hint</span><span class="badge">carrier_reagent_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/pitavastatin/scheme_route_01.svg">SVG</a><a href="assets/pitavastatin/scheme_route_01.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/pitavastatin/scheme_route_01.svg" alt="pitavastatin route 1"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 2 · 4 steps · late-stage</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 303</span>
+              <span class="badge">terminal max heavy 22</span>
+              <span class="badge">advanced_or_product_like_terminal</span><span class="badge">carrier_reagent_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/pitavastatin/scheme_route_02.svg">SVG</a><a href="assets/pitavastatin/scheme_route_02.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/pitavastatin/scheme_route_02.svg" alt="pitavastatin route 2"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 3 · 4 steps · late-stage</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 311</span>
+              <span class="badge">terminal max heavy 22</span>
+              <span class="badge">advanced_or_product_like_terminal</span><span class="badge">carrier_reagent_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/pitavastatin/scheme_route_03.svg">SVG</a><a href="assets/pitavastatin/scheme_route_03.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/pitavastatin/scheme_route_03.svg" alt="pitavastatin route 3"></div>
+      </article>
+    </div>
+    </section>
+    
+
+    <section class="target" id="pravastatin">
+      <div class="targetHead">
+        <div class="mol"><img src="assets/pravastatin/target.svg" alt="pravastatin"></div>
+        <div>
+          <h2>pravastatin</h2>
+          <div class="policy">精选来源：web product-audit 后的路线池；隐藏 needs_chemist_review；不使用 terminal 原子数硬阈值，避免误伤用于引入基团的大型片段。</div>
+          <div class="badges">
+            <span class="badge ok">3 条展示路线</span>
+            <span class="badge">原始路线 1862</span>
+            <span class="badge">web 保留 16</span>
+            <span class="badge">展示池 3</span>
+          </div>
+          <div class="note">严格筛选后该目标只剩短半合成候选；页面不使用 needs_chemist_review 路线补足数量。</div>
+        </div>
+      </div>
+      <div class="routes">
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 1 · 3 steps · semisynthesis</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 76</span>
+              <span class="badge">terminal max heavy 29</span>
+              <span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge">natural_core_terminal</span><span class="badge">natural_product_family</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/pravastatin/scheme_route_01.svg">SVG</a><a href="assets/pravastatin/scheme_route_01.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/pravastatin/scheme_route_01.svg" alt="pravastatin route 1"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 2 · 3 steps · semisynthesis</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 77</span>
+              <span class="badge">terminal max heavy 29</span>
+              <span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge">natural_core_terminal</span><span class="badge">natural_product_family</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/pravastatin/scheme_route_02.svg">SVG</a><a href="assets/pravastatin/scheme_route_02.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/pravastatin/scheme_route_02.svg" alt="pravastatin route 2"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 3 · 3 steps · semisynthesis</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 78</span>
+              <span class="badge">terminal max heavy 29</span>
+              <span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge">natural_core_terminal</span><span class="badge">natural_product_family</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/pravastatin/scheme_route_03.svg">SVG</a><a href="assets/pravastatin/scheme_route_03.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/pravastatin/scheme_route_03.svg" alt="pravastatin route 3"></div>
+      </article>
+    </div>
+    </section>
+    
+
+    <section class="target" id="rosuvastatin">
+      <div class="targetHead">
+        <div class="mol"><img src="assets/rosuvastatin/target.svg" alt="rosuvastatin"></div>
+        <div>
+          <h2>rosuvastatin</h2>
+          <div class="policy">精选来源：web product-audit 后的路线池；隐藏 needs_chemist_review；不使用 terminal 原子数硬阈值，避免误伤用于引入基团的大型片段。</div>
+          <div class="badges">
+            <span class="badge ok">3 条展示路线</span>
+            <span class="badge">原始路线 1022</span>
+            <span class="badge">web 保留 746</span>
+            <span class="badge">展示池 739</span>
+          </div>
+          
+        </div>
+      </div>
+      <div class="routes">
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 1 · 9 steps · late-stage</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 883</span>
+              <span class="badge">terminal max heavy 24</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/rosuvastatin/scheme_route_01.svg">SVG</a><a href="assets/rosuvastatin/scheme_route_01.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/rosuvastatin/scheme_route_01.svg" alt="rosuvastatin route 1"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 2 · 8 steps · late-stage</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 680</span>
+              <span class="badge">terminal max heavy 24</span>
+              <span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/rosuvastatin/scheme_route_02.svg">SVG</a><a href="assets/rosuvastatin/scheme_route_02.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/rosuvastatin/scheme_route_02.svg" alt="rosuvastatin route 2"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 3 · 6 steps · late-stage</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 321</span>
+              <span class="badge">terminal max heavy 24</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">advanced_or_product_like_terminal</span><span class="badge">carrier_reagent_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/rosuvastatin/scheme_route_03.svg">SVG</a><a href="assets/rosuvastatin/scheme_route_03.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/rosuvastatin/scheme_route_03.svg" alt="rosuvastatin route 3"></div>
+      </article>
+    </div>
+    </section>
+    
+
+    <section class="target" id="simvastatin">
+      <div class="targetHead">
+        <div class="mol"><img src="assets/simvastatin/target.svg" alt="simvastatin"></div>
+        <div>
+          <h2>simvastatin</h2>
+          <div class="policy">精选来源：web product-audit 后的路线池；隐藏 needs_chemist_review；不使用 terminal 原子数硬阈值，避免误伤用于引入基团的大型片段。</div>
+          <div class="badges">
+            <span class="badge ok">3 条展示路线</span>
+            <span class="badge">原始路线 1488</span>
+            <span class="badge">web 保留 332</span>
+            <span class="badge">展示池 301</span>
+          </div>
+          
+        </div>
+      </div>
+      <div class="routes">
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 1 · 9 steps · semisynthesis</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 1206</span>
+              <span class="badge">terminal max heavy 23</span>
+              <span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge">natural_core_terminal</span><span class="badge">natural_product_family</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/simvastatin/scheme_route_01.svg">SVG</a><a href="assets/simvastatin/scheme_route_01.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/simvastatin/scheme_route_01.svg" alt="simvastatin route 1"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 2 · 8 steps · semisynthesis</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 30</span>
+              <span class="badge">original rank 1153</span>
+              <span class="badge">terminal max heavy 23</span>
+              <span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge">natural_core_terminal</span><span class="badge">natural_product_family</span><span class="badge warn">condition_warning</span><span class="badge warn">generic_reaction_sequence</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/simvastatin/scheme_route_02.svg">SVG</a><a href="assets/simvastatin/scheme_route_02.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/simvastatin/scheme_route_02.svg" alt="simvastatin route 2"></div>
+      </article>
+    
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 3 · 6 steps · semisynthesis</div>
+            <div class="routeMeta">
+              <span class="badge ok">condition coverage 100%</span>
+              <span class="badge">risk 10</span>
+              <span class="badge">original rank 821</span>
+              <span class="badge">terminal max heavy 23</span>
+              <span class="badge">acylating_piece_present</span><span class="badge">advanced_or_product_like_terminal</span><span class="badge">condition_stepwise_required</span><span class="badge">late_stage_derivatization</span><span class="badge">natural_core_terminal</span><span class="badge warn">condition_warning</span>
+            </div>
+          </div>
+          <div class="routeLinks"><a href="assets/simvastatin/scheme_route_03.svg">SVG</a><a href="assets/simvastatin/scheme_route_03.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/simvastatin/scheme_route_03.svg" alt="simvastatin route 3"></div>
+      </article>
+    </div>
+    </section>
+    
+  </main>
+  <footer class="wrap">Generated from AutoPlanner Cascade statin panel, depth 20 / iterations 200 / top-k 100. Presentation filter excludes needs_chemist_review by default.</footer>
+</body>
+</html>

@@ -1,0 +1,772 @@
+{
+  "summary": {
+    "target_count": 9,
+    "route_count": 26,
+    "long_route_count": 13,
+    "condition_coverage_routes": 26,
+    "max_steps": 13,
+    "min_steps": 3
+  },
+  "targets": [
+    {
+      "name": "atorvastatin",
+      "safe": "atorvastatin",
+      "smiles": "CC(C)C1=C(C(=C(N1CC[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)C3=CC=CC=C3)C(=O)NC4=CC=CC=C4",
+      "target_svg": "assets/atorvastatin/target.svg",
+      "source_route_count": 3020,
+      "web_kept_route_count": 730,
+      "showcase_route_count": 722,
+      "candidate_count": 3,
+      "routes": [
+        {
+          "rank": 1,
+          "steps": 12,
+          "class": "triage_fragment",
+          "risk": 30,
+          "score": 1.708031628922426e-10,
+          "original_rank": 2875,
+          "coverage": 1.0,
+          "terminal_max": 14,
+          "tags": [
+            "aryl_coupling_hint",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/atorvastatin/scheme_route_01.svg",
+          "pdf": "assets/atorvastatin/scheme_route_01.pdf"
+        },
+        {
+          "rank": 2,
+          "steps": 9,
+          "class": "triage_late_stage",
+          "risk": 30,
+          "score": 2.6960742274102863e-09,
+          "original_rank": 166,
+          "coverage": 1.0,
+          "terminal_max": 29,
+          "tags": [
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/atorvastatin/scheme_route_02.svg",
+          "pdf": "assets/atorvastatin/scheme_route_02.pdf"
+        },
+        {
+          "rank": 3,
+          "steps": 12,
+          "class": "triage_fragment",
+          "risk": 30,
+          "score": 1.708031628922426e-10,
+          "original_rank": 2907,
+          "coverage": 1.0,
+          "terminal_max": 14,
+          "tags": [
+            "aryl_coupling_hint",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/atorvastatin/scheme_route_03.svg",
+          "pdf": "assets/atorvastatin/scheme_route_03.pdf"
+        }
+      ],
+      "selection_policy": {
+        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "product_audit_mode": "hide_rejects",
+        "min_steps_in_showcase": 3,
+        "preferred_min_steps_for_report": 5,
+        "terminal_heavy_atom_cap": null,
+        "large_terminal_fragments_not_hard_filtered": true,
+        "include_needs_chemist_review": false
+      }
+    },
+    {
+      "name": "cerivastatin",
+      "safe": "cerivastatin",
+      "smiles": "CC(C)C1=C(C(=C(C(=N1)C(C)C)COC)C2=CC=C(C=C2)F)/C=C/[C@H](C[C@H](CC(=O)O)O)O",
+      "target_svg": "assets/cerivastatin/target.svg",
+      "source_route_count": 1578,
+      "web_kept_route_count": 650,
+      "showcase_route_count": 648,
+      "candidate_count": 3,
+      "routes": [
+        {
+          "rank": 1,
+          "steps": 12,
+          "class": "triage_fragment",
+          "risk": 30,
+          "score": 1.1579741960659206e-08,
+          "original_rank": 1522,
+          "coverage": 1.0,
+          "terminal_max": 10,
+          "tags": [
+            "acylating_piece_present",
+            "aryl_coupling_hint",
+            "carrier_reagent_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/cerivastatin/scheme_route_01.svg",
+          "pdf": "assets/cerivastatin/scheme_route_01.pdf"
+        },
+        {
+          "rank": 2,
+          "steps": 10,
+          "class": "triage_late_stage",
+          "risk": 10,
+          "score": 3.531502410705492e-07,
+          "original_rank": 389,
+          "coverage": 1.0,
+          "terminal_max": 24,
+          "tags": [
+            "acylating_piece_present",
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/cerivastatin/scheme_route_02.svg",
+          "pdf": "assets/cerivastatin/scheme_route_02.pdf"
+        },
+        {
+          "rank": 3,
+          "steps": 13,
+          "class": "triage_fragment",
+          "risk": 30,
+          "score": 8.631962693650749e-08,
+          "original_rank": 1537,
+          "coverage": 1.0,
+          "terminal_max": 10,
+          "tags": [
+            "acylating_piece_present",
+            "aryl_coupling_hint",
+            "carrier_reagent_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/cerivastatin/scheme_route_03.svg",
+          "pdf": "assets/cerivastatin/scheme_route_03.pdf"
+        }
+      ],
+      "selection_policy": {
+        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "product_audit_mode": "hide_rejects",
+        "min_steps_in_showcase": 3,
+        "preferred_min_steps_for_report": 5,
+        "terminal_heavy_atom_cap": null,
+        "large_terminal_fragments_not_hard_filtered": true,
+        "include_needs_chemist_review": false
+      }
+    },
+    {
+      "name": "fluvastatin",
+      "safe": "fluvastatin",
+      "smiles": "CC(C)N1C2=CC=CC=C2C(=C1/C=C/[C@@H](C[C@@H](CC(=O)O)O)O)C3=CC=C(C=C3)F",
+      "target_svg": "assets/fluvastatin/target.svg",
+      "source_route_count": 9338,
+      "web_kept_route_count": 2497,
+      "showcase_route_count": 2476,
+      "candidate_count": 3,
+      "routes": [
+        {
+          "rank": 1,
+          "steps": 12,
+          "class": "triage_fragment",
+          "risk": 30,
+          "score": 4.6965711991760645e-08,
+          "original_rank": 9275,
+          "coverage": 1.0,
+          "terminal_max": 10,
+          "tags": [
+            "acylating_piece_present",
+            "aryl_coupling_hint",
+            "carrier_reagent_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/fluvastatin/scheme_route_01.svg",
+          "pdf": "assets/fluvastatin/scheme_route_01.pdf"
+        },
+        {
+          "rank": 2,
+          "steps": 10,
+          "class": "triage_fragment",
+          "risk": 10,
+          "score": 2.2786322484080037e-08,
+          "original_rank": 7559,
+          "coverage": 1.0,
+          "terminal_max": 13,
+          "tags": [
+            "acylating_piece_present",
+            "aryl_coupling_hint",
+            "carrier_reagent_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/fluvastatin/scheme_route_02.svg",
+          "pdf": "assets/fluvastatin/scheme_route_02.pdf"
+        },
+        {
+          "rank": 3,
+          "steps": 8,
+          "class": "triage_late_stage",
+          "risk": 30,
+          "score": 4.209987583128118e-08,
+          "original_rank": 2958,
+          "coverage": 1.0,
+          "terminal_max": 21,
+          "tags": [
+            "acylating_piece_present",
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/fluvastatin/scheme_route_03.svg",
+          "pdf": "assets/fluvastatin/scheme_route_03.pdf"
+        }
+      ],
+      "selection_policy": {
+        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "product_audit_mode": "hide_rejects",
+        "min_steps_in_showcase": 3,
+        "preferred_min_steps_for_report": 5,
+        "terminal_heavy_atom_cap": null,
+        "large_terminal_fragments_not_hard_filtered": true,
+        "include_needs_chemist_review": false
+      }
+    },
+    {
+      "name": "lovastatin",
+      "safe": "lovastatin",
+      "smiles": "CC[C@H](C)C(=O)O[C@H]1C[C@H](C=C2[C@H]1[C@H]([C@H](C=C2)C)CC[C@@H]3C[C@H](CC(=O)O3)O)C",
+      "target_svg": "assets/lovastatin/target.svg",
+      "source_route_count": 3357,
+      "web_kept_route_count": 24,
+      "showcase_route_count": 2,
+      "candidate_count": 2,
+      "routes": [
+        {
+          "rank": 1,
+          "steps": 3,
+          "class": "triage_semisynthesis",
+          "risk": 10,
+          "score": 4.056323024626945e-06,
+          "original_rank": 44,
+          "coverage": 1.0,
+          "terminal_max": 23,
+          "tags": [
+            "acylating_piece_present",
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/lovastatin/scheme_route_01.svg",
+          "pdf": "assets/lovastatin/scheme_route_01.pdf"
+        },
+        {
+          "rank": 2,
+          "steps": 3,
+          "class": "triage_semisynthesis",
+          "risk": 10,
+          "score": 2.7027096192403615e-06,
+          "original_rank": 45,
+          "coverage": 1.0,
+          "terminal_max": 23,
+          "tags": [
+            "acylating_piece_present",
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/lovastatin/scheme_route_02.svg",
+          "pdf": "assets/lovastatin/scheme_route_02.pdf"
+        }
+      ],
+      "selection_policy": {
+        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "product_audit_mode": "hide_rejects",
+        "min_steps_in_showcase": 3,
+        "preferred_min_steps_for_report": 5,
+        "terminal_heavy_atom_cap": null,
+        "large_terminal_fragments_not_hard_filtered": true,
+        "include_needs_chemist_review": false
+      }
+    },
+    {
+      "name": "mevastatin",
+      "safe": "mevastatin",
+      "smiles": "CC[C@H](C)C(=O)O[C@H]1CCC=C2[C@H]1[C@H]([C@H](C=C2)C)CC[C@@H]3C[C@H](CC(=O)O3)O",
+      "target_svg": "assets/mevastatin/target.svg",
+      "source_route_count": 1551,
+      "web_kept_route_count": 22,
+      "showcase_route_count": 18,
+      "candidate_count": 3,
+      "routes": [
+        {
+          "rank": 1,
+          "steps": 4,
+          "class": "triage_semisynthesis",
+          "risk": 10,
+          "score": 0.013144059371315128,
+          "original_rank": 155,
+          "coverage": 1.0,
+          "terminal_max": 29,
+          "tags": [
+            "acylating_piece_present",
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/mevastatin/scheme_route_01.svg",
+          "pdf": "assets/mevastatin/scheme_route_01.pdf"
+        },
+        {
+          "rank": 2,
+          "steps": 3,
+          "class": "triage_semisynthesis",
+          "risk": 10,
+          "score": 0.000281559544340165,
+          "original_rank": 37,
+          "coverage": 1.0,
+          "terminal_max": 21,
+          "tags": [
+            "acylating_piece_present",
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/mevastatin/scheme_route_02.svg",
+          "pdf": "assets/mevastatin/scheme_route_02.pdf"
+        },
+        {
+          "rank": 3,
+          "steps": 3,
+          "class": "triage_semisynthesis",
+          "risk": 10,
+          "score": 0.032068811938400096,
+          "original_rank": 39,
+          "coverage": 1.0,
+          "terminal_max": 21,
+          "tags": [
+            "acylating_piece_present",
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/mevastatin/scheme_route_03.svg",
+          "pdf": "assets/mevastatin/scheme_route_03.pdf"
+        }
+      ],
+      "selection_policy": {
+        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "product_audit_mode": "hide_rejects",
+        "min_steps_in_showcase": 3,
+        "preferred_min_steps_for_report": 5,
+        "terminal_heavy_atom_cap": null,
+        "large_terminal_fragments_not_hard_filtered": true,
+        "include_needs_chemist_review": false
+      }
+    },
+    {
+      "name": "pitavastatin",
+      "safe": "pitavastatin",
+      "smiles": "C1CC1C2=NC3=CC=CC=C3C(=C2/C=C/[C@H](C[C@H](CC(=O)O)O)O)C4=CC=C(C=C4)F",
+      "target_svg": "assets/pitavastatin/target.svg",
+      "source_route_count": 1356,
+      "web_kept_route_count": 40,
+      "showcase_route_count": 27,
+      "candidate_count": 3,
+      "routes": [
+        {
+          "rank": 1,
+          "steps": 4,
+          "class": "triage_fragment",
+          "risk": 10,
+          "score": 2.628947887222965e-07,
+          "original_rank": 305,
+          "coverage": 1.0,
+          "terminal_max": 11,
+          "tags": [
+            "aryl_coupling_hint",
+            "carrier_reagent_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/pitavastatin/scheme_route_01.svg",
+          "pdf": "assets/pitavastatin/scheme_route_01.pdf"
+        },
+        {
+          "rank": 2,
+          "steps": 4,
+          "class": "triage_late_stage",
+          "risk": 30,
+          "score": 1.8971030059665103e-05,
+          "original_rank": 303,
+          "coverage": 1.0,
+          "terminal_max": 22,
+          "tags": [
+            "advanced_or_product_like_terminal",
+            "carrier_reagent_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/pitavastatin/scheme_route_02.svg",
+          "pdf": "assets/pitavastatin/scheme_route_02.pdf"
+        },
+        {
+          "rank": 3,
+          "steps": 4,
+          "class": "triage_late_stage",
+          "risk": 30,
+          "score": 0.06165380754321548,
+          "original_rank": 311,
+          "coverage": 1.0,
+          "terminal_max": 22,
+          "tags": [
+            "advanced_or_product_like_terminal",
+            "carrier_reagent_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/pitavastatin/scheme_route_03.svg",
+          "pdf": "assets/pitavastatin/scheme_route_03.pdf"
+        }
+      ],
+      "selection_policy": {
+        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "product_audit_mode": "hide_rejects",
+        "min_steps_in_showcase": 3,
+        "preferred_min_steps_for_report": 5,
+        "terminal_heavy_atom_cap": null,
+        "large_terminal_fragments_not_hard_filtered": true,
+        "include_needs_chemist_review": false
+      }
+    },
+    {
+      "name": "pravastatin",
+      "safe": "pravastatin",
+      "smiles": "CC[C@H](C)C(=O)O[C@H]1C[C@@H](C=C2[C@H]1[C@H]([C@H](C=C2)C)CC[C@H](C[C@H](CC(=O)O)O)O)O",
+      "target_svg": "assets/pravastatin/target.svg",
+      "source_route_count": 1862,
+      "web_kept_route_count": 16,
+      "showcase_route_count": 3,
+      "candidate_count": 3,
+      "routes": [
+        {
+          "rank": 1,
+          "steps": 3,
+          "class": "triage_semisynthesis",
+          "risk": 10,
+          "score": 5.0039064258614475e-05,
+          "original_rank": 76,
+          "coverage": 1.0,
+          "terminal_max": 29,
+          "tags": [
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal",
+            "natural_product_family"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/pravastatin/scheme_route_01.svg",
+          "pdf": "assets/pravastatin/scheme_route_01.pdf"
+        },
+        {
+          "rank": 2,
+          "steps": 3,
+          "class": "triage_semisynthesis",
+          "risk": 10,
+          "score": 5.0039064258614475e-05,
+          "original_rank": 77,
+          "coverage": 1.0,
+          "terminal_max": 29,
+          "tags": [
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal",
+            "natural_product_family"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/pravastatin/scheme_route_02.svg",
+          "pdf": "assets/pravastatin/scheme_route_02.pdf"
+        },
+        {
+          "rank": 3,
+          "steps": 3,
+          "class": "triage_semisynthesis",
+          "risk": 10,
+          "score": 0.02274083811648125,
+          "original_rank": 78,
+          "coverage": 1.0,
+          "terminal_max": 29,
+          "tags": [
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal",
+            "natural_product_family"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/pravastatin/scheme_route_03.svg",
+          "pdf": "assets/pravastatin/scheme_route_03.pdf"
+        }
+      ],
+      "selection_policy": {
+        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "product_audit_mode": "hide_rejects",
+        "min_steps_in_showcase": 3,
+        "preferred_min_steps_for_report": 5,
+        "terminal_heavy_atom_cap": null,
+        "large_terminal_fragments_not_hard_filtered": true,
+        "include_needs_chemist_review": false
+      }
+    },
+    {
+      "name": "rosuvastatin",
+      "safe": "rosuvastatin",
+      "smiles": "CC(C)C1=NC(=NC(=C1/C=C/[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)N(C)S(=O)(=O)C",
+      "target_svg": "assets/rosuvastatin/target.svg",
+      "source_route_count": 1022,
+      "web_kept_route_count": 746,
+      "showcase_route_count": 739,
+      "candidate_count": 3,
+      "routes": [
+        {
+          "rank": 1,
+          "steps": 9,
+          "class": "triage_late_stage",
+          "risk": 30,
+          "score": 0.0004935098154235428,
+          "original_rank": 883,
+          "coverage": 1.0,
+          "terminal_max": 24,
+          "tags": [
+            "acylating_piece_present",
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/rosuvastatin/scheme_route_01.svg",
+          "pdf": "assets/rosuvastatin/scheme_route_01.pdf"
+        },
+        {
+          "rank": 2,
+          "steps": 8,
+          "class": "triage_late_stage",
+          "risk": 30,
+          "score": 6.775710628065e-06,
+          "original_rank": 680,
+          "coverage": 1.0,
+          "terminal_max": 24,
+          "tags": [
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/rosuvastatin/scheme_route_02.svg",
+          "pdf": "assets/rosuvastatin/scheme_route_02.pdf"
+        },
+        {
+          "rank": 3,
+          "steps": 6,
+          "class": "triage_late_stage",
+          "risk": 10,
+          "score": 6.124827024769218e-05,
+          "original_rank": 321,
+          "coverage": 1.0,
+          "terminal_max": 24,
+          "tags": [
+            "acylating_piece_present",
+            "advanced_or_product_like_terminal",
+            "carrier_reagent_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/rosuvastatin/scheme_route_03.svg",
+          "pdf": "assets/rosuvastatin/scheme_route_03.pdf"
+        }
+      ],
+      "selection_policy": {
+        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "product_audit_mode": "hide_rejects",
+        "min_steps_in_showcase": 3,
+        "preferred_min_steps_for_report": 5,
+        "terminal_heavy_atom_cap": null,
+        "large_terminal_fragments_not_hard_filtered": true,
+        "include_needs_chemist_review": false
+      }
+    },
+    {
+      "name": "simvastatin",
+      "safe": "simvastatin",
+      "smiles": "CCC(C)(C)C(=O)O[C@H]1C[C@H](C=C2[C@H]1[C@H]([C@H](C=C2)C)CC[C@@H]3C[C@H](CC(=O)O3)O)C",
+      "target_svg": "assets/simvastatin/target.svg",
+      "source_route_count": 1488,
+      "web_kept_route_count": 332,
+      "showcase_route_count": 301,
+      "candidate_count": 3,
+      "routes": [
+        {
+          "rank": 1,
+          "steps": 9,
+          "class": "triage_semisynthesis",
+          "risk": 30,
+          "score": 8.743607464598414e-07,
+          "original_rank": 1206,
+          "coverage": 1.0,
+          "terminal_max": 23,
+          "tags": [
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal",
+            "natural_product_family"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/simvastatin/scheme_route_01.svg",
+          "pdf": "assets/simvastatin/scheme_route_01.pdf"
+        },
+        {
+          "rank": 2,
+          "steps": 8,
+          "class": "triage_semisynthesis",
+          "risk": 30,
+          "score": 0.001437978070451596,
+          "original_rank": 1153,
+          "coverage": 1.0,
+          "terminal_max": 23,
+          "tags": [
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal",
+            "natural_product_family"
+          ],
+          "issues": [
+            "condition_warning",
+            "generic_reaction_sequence"
+          ],
+          "svg": "assets/simvastatin/scheme_route_02.svg",
+          "pdf": "assets/simvastatin/scheme_route_02.pdf"
+        },
+        {
+          "rank": 3,
+          "steps": 6,
+          "class": "triage_semisynthesis",
+          "risk": 10,
+          "score": 6.690276117106883e-05,
+          "original_rank": 821,
+          "coverage": 1.0,
+          "terminal_max": 23,
+          "tags": [
+            "acylating_piece_present",
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/simvastatin/scheme_route_03.svg",
+          "pdf": "assets/simvastatin/scheme_route_03.pdf"
+        }
+      ],
+      "selection_policy": {
+        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "product_audit_mode": "hide_rejects",
+        "min_steps_in_showcase": 3,
+        "preferred_min_steps_for_report": 5,
+        "terminal_heavy_atom_cap": null,
+        "large_terminal_fragments_not_hard_filtered": true,
+        "include_needs_chemist_review": false
+      }
+    }
+  ]
+}
