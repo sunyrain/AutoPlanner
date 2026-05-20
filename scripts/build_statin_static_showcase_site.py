@@ -24,6 +24,25 @@ def main() -> None:
     parser.add_argument("--package-dir", default=str(DEFAULT_PACKAGE))
     parser.add_argument("--site-dir", default=str(DEFAULT_SITE))
     parser.add_argument("--overview", default=str(DEFAULT_OVERVIEW))
+    parser.add_argument("--page-title", default="他汀类逆合成路线")
+    parser.add_argument(
+        "--page-lead",
+        default=(
+            "静态汇报版。每个目标最多展示 3 条路线；已排除 reject 和 needs_chemist_review，"
+            "优先选择长路线和可解释的 late-stage / semisynthesis / fragment 路线。"
+            "箭头条件为 RCR 模型预测，仅作为路线审阅辅助。"
+        ),
+    )
+    parser.add_argument(
+        "--run-label",
+        default="depth 20 / iterations 200 / top-k 100",
+        help="Short run label shown in the footer.",
+    )
+    parser.add_argument("--overview-title", default="他汀类逆合成路线")
+    parser.add_argument(
+        "--overview-description",
+        default="九个他汀目标，每个最多三条路线，连续 SVG 路线图，箭头标注预测条件。",
+    )
     args = parser.parse_args()
 
     package_dir = Path(args.package_dir)
@@ -100,10 +119,26 @@ def main() -> None:
         )
 
     summary = _summary(targets)
-    (site_dir / "index.html").write_text(_render_statin_page(targets, summary), encoding="utf-8")
+    (site_dir / "index.html").write_text(
+        _render_statin_page(
+            targets,
+            summary,
+            page_title=args.page_title,
+            page_lead=args.page_lead,
+            run_label=args.run_label,
+        ),
+        encoding="utf-8",
+    )
     (site_dir / "summary.json").write_text(json.dumps({"summary": summary, "targets": targets}, indent=2, ensure_ascii=False), encoding="utf-8")
     overview_path.parent.mkdir(parents=True, exist_ok=True)
-    overview_path.write_text(_render_overview(summary), encoding="utf-8")
+    overview_path.write_text(
+        _render_overview(
+            summary,
+            overview_title=args.overview_title,
+            overview_description=args.overview_description,
+        ),
+        encoding="utf-8",
+    )
     (overview_path.parent / ".nojekyll").write_text("", encoding="utf-8")
     print(json.dumps({"site": str(site_dir / "index.html"), "overview": str(overview_path), "summary": summary}, indent=2, ensure_ascii=False))
 
@@ -132,7 +167,14 @@ def _mol_svg(smiles: str) -> str:
     return drawer.GetDrawingText()
 
 
-def _render_statin_page(targets: list[dict[str, Any]], summary: dict[str, Any]) -> str:
+def _render_statin_page(
+    targets: list[dict[str, Any]],
+    summary: dict[str, Any],
+    *,
+    page_title: str,
+    page_lead: str,
+    run_label: str,
+) -> str:
     nav = "\n".join(
         f'<a href="#{_e(target["safe"])}">{_e(target["name"])} <span>{len(target["routes"])}</span></a>'
         for target in targets
@@ -143,7 +185,7 @@ def _render_statin_page(targets: list[dict[str, Any]], summary: dict[str, Any]) 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>他汀类逆合成路线 | AutoPlanner Cascade</title>
+  <title>{_e(page_title)} | AutoPlanner Cascade</title>
   <style>
     :root {{
       --bg: #f6f7f9; --panel: #fff; --text: #17202f; --muted: #647084;
@@ -199,8 +241,8 @@ def _render_statin_page(targets: list[dict[str, Any]], summary: dict[str, Any]) 
   <header>
     <div class="wrap hero">
       <div>
-        <h1>他汀类逆合成路线</h1>
-        <div class="lead">静态汇报版。每个目标最多展示 3 条路线；已排除 reject 和 needs_chemist_review，优先选择长路线和可解释的 late-stage / semisynthesis / fragment 路线。箭头条件为 RCR 模型预测，仅作为路线审阅辅助。</div>
+        <h1>{_e(page_title)}</h1>
+        <div class="lead">{_e(page_lead)}</div>
       </div>
       <div class="metrics">
         <div class="metric"><b>{summary["target_count"]}</b><span>目标分子</span></div>
@@ -214,7 +256,7 @@ def _render_statin_page(targets: list[dict[str, Any]], summary: dict[str, Any]) 
   <main class="wrap">
     {sections}
   </main>
-  <footer class="wrap">Generated from AutoPlanner Cascade statin panel, depth 20 / iterations 200 / top-k 100. Presentation filter excludes needs_chemist_review by default.</footer>
+  <footer class="wrap">Generated from AutoPlanner Cascade statin panel, {_e(run_label)}. Presentation filter excludes needs_chemist_review by default.</footer>
 </body>
 </html>
 """
@@ -275,7 +317,12 @@ def _route_card(target: dict[str, Any], route: dict[str, Any]) -> str:
     """
 
 
-def _render_overview(summary: dict[str, Any]) -> str:
+def _render_overview(
+    summary: dict[str, Any],
+    *,
+    overview_title: str,
+    overview_description: str,
+) -> str:
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -300,8 +347,8 @@ def _render_overview(summary: dict[str, Any]) -> str:
     <div class="lead">静态汇报入口。当前重点展示他汀类分子的逆合成路线图，适合直接给专家浏览。</div>
     <div class="grid">
       <a class="card" href="statins/">
-        <h2>他汀类逆合成路线</h2>
-        <p>九个他汀目标，每个最多三条路线，连续 SVG 路线图，箭头标注预测条件。</p>
+        <h2>{_e(overview_title)}</h2>
+        <p>{_e(overview_description)}</p>
         <div class="metric">{summary["target_count"]} targets · {summary["route_count"]} routes · longest {summary["max_steps"]} steps</div>
       </a>
     </div>

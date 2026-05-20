@@ -1,9 +1,9 @@
 {
   "summary": {
     "target_count": 9,
-    "route_count": 26,
-    "long_route_count": 13,
-    "condition_coverage_routes": 26,
+    "route_count": 27,
+    "long_route_count": 14,
+    "condition_coverage_routes": 27,
     "max_steps": 13,
     "min_steps": 3
   },
@@ -273,18 +273,18 @@
       "safe": "lovastatin",
       "smiles": "CC[C@H](C)C(=O)O[C@H]1C[C@H](C=C2[C@H]1[C@H]([C@H](C=C2)C)CC[C@@H]3C[C@H](CC(=O)O3)O)C",
       "target_svg": "assets/lovastatin/target.svg",
-      "source_route_count": 3357,
-      "web_kept_route_count": 24,
-      "showcase_route_count": 2,
-      "candidate_count": 2,
+      "source_route_count": 12234,
+      "web_kept_route_count": 41,
+      "showcase_route_count": 19,
+      "candidate_count": 3,
       "routes": [
         {
           "rank": 1,
-          "steps": 3,
+          "steps": 5,
           "class": "triage_semisynthesis",
           "risk": 10,
-          "score": 4.056323024626945e-06,
-          "original_rank": 44,
+          "score": 2.3617409647418052e-07,
+          "original_rank": 850,
           "coverage": 1.0,
           "terminal_max": 23,
           "tags": [
@@ -302,11 +302,11 @@
         },
         {
           "rank": 2,
-          "steps": 3,
+          "steps": 5,
           "class": "triage_semisynthesis",
           "risk": 10,
-          "score": 2.7027096192403615e-06,
-          "original_rank": 45,
+          "score": 2.1575041903788053e-05,
+          "original_rank": 859,
           "coverage": 1.0,
           "terminal_max": 23,
           "tags": [
@@ -321,10 +321,32 @@
           ],
           "svg": "assets/lovastatin/scheme_route_02.svg",
           "pdf": "assets/lovastatin/scheme_route_02.pdf"
+        },
+        {
+          "rank": 3,
+          "steps": 5,
+          "class": "triage_semisynthesis",
+          "risk": 10,
+          "score": 2.0177046180296366e-05,
+          "original_rank": 860,
+          "coverage": 1.0,
+          "terminal_max": 23,
+          "tags": [
+            "acylating_piece_present",
+            "advanced_or_product_like_terminal",
+            "condition_stepwise_required",
+            "late_stage_derivatization",
+            "natural_core_terminal"
+          ],
+          "issues": [
+            "condition_warning"
+          ],
+          "svg": "assets/lovastatin/scheme_route_03.svg",
+          "pdf": "assets/lovastatin/scheme_route_03.pdf"
         }
       ],
       "selection_policy": {
-        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "source": "results/shared/statin_panel_20260520/semisynthesis_budget500_top200/web_showcase_semisynthesis4.json",
         "product_audit_mode": "hide_rejects",
         "min_steps_in_showcase": 3,
         "preferred_min_steps_for_report": 5,
@@ -338,80 +360,83 @@
       "safe": "mevastatin",
       "smiles": "CC[C@H](C)C(=O)O[C@H]1CCC=C2[C@H]1[C@H]([C@H](C=C2)C)CC[C@@H]3C[C@H](CC(=O)O3)O",
       "target_svg": "assets/mevastatin/target.svg",
-      "source_route_count": 1551,
-      "web_kept_route_count": 22,
-      "showcase_route_count": 18,
+      "source_route_count": 3812,
+      "web_kept_route_count": 41,
+      "showcase_route_count": 35,
       "candidate_count": 3,
       "routes": [
         {
           "rank": 1,
-          "steps": 4,
-          "class": "triage_semisynthesis",
-          "risk": 10,
-          "score": 0.013144059371315128,
-          "original_rank": 155,
+          "steps": 5,
+          "class": "triage_fragment",
+          "risk": 30,
+          "score": 0.0028080435833568555,
+          "original_rank": 372,
           "coverage": 1.0,
-          "terminal_max": 29,
+          "terminal_max": 41,
           "tags": [
-            "acylating_piece_present",
             "advanced_or_product_like_terminal",
+            "aryl_coupling_hint",
             "condition_stepwise_required",
-            "late_stage_derivatization",
-            "natural_core_terminal"
+            "natural_core_terminal",
+            "natural_product_family"
           ],
           "issues": [
-            "condition_warning"
+            "condition_warning",
+            "generic_reaction_sequence"
           ],
           "svg": "assets/mevastatin/scheme_route_01.svg",
           "pdf": "assets/mevastatin/scheme_route_01.pdf"
         },
         {
           "rank": 2,
-          "steps": 3,
-          "class": "triage_semisynthesis",
-          "risk": 10,
-          "score": 0.000281559544340165,
-          "original_rank": 37,
+          "steps": 5,
+          "class": "triage_fragment",
+          "risk": 30,
+          "score": 0.00012814749189475608,
+          "original_rank": 395,
           "coverage": 1.0,
-          "terminal_max": 21,
+          "terminal_max": 41,
           "tags": [
-            "acylating_piece_present",
             "advanced_or_product_like_terminal",
+            "aryl_coupling_hint",
             "condition_stepwise_required",
-            "late_stage_derivatization",
-            "natural_core_terminal"
+            "natural_core_terminal",
+            "natural_product_family"
           ],
           "issues": [
-            "condition_warning"
+            "condition_warning",
+            "generic_reaction_sequence"
           ],
           "svg": "assets/mevastatin/scheme_route_02.svg",
           "pdf": "assets/mevastatin/scheme_route_02.pdf"
         },
         {
           "rank": 3,
-          "steps": 3,
-          "class": "triage_semisynthesis",
-          "risk": 10,
-          "score": 0.032068811938400096,
-          "original_rank": 39,
+          "steps": 5,
+          "class": "triage_fragment",
+          "risk": 30,
+          "score": 1.1821407635050139e-05,
+          "original_rank": 475,
           "coverage": 1.0,
-          "terminal_max": 21,
+          "terminal_max": 41,
           "tags": [
-            "acylating_piece_present",
             "advanced_or_product_like_terminal",
+            "aryl_coupling_hint",
             "condition_stepwise_required",
-            "late_stage_derivatization",
-            "natural_core_terminal"
+            "natural_core_terminal",
+            "natural_product_family"
           ],
           "issues": [
-            "condition_warning"
+            "condition_warning",
+            "generic_reaction_sequence"
           ],
           "svg": "assets/mevastatin/scheme_route_03.svg",
           "pdf": "assets/mevastatin/scheme_route_03.pdf"
         }
       ],
       "selection_policy": {
-        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "source": "results/shared/statin_panel_20260520/semisynthesis_budget500_top200/web_showcase_semisynthesis4.json",
         "product_audit_mode": "hide_rejects",
         "min_steps_in_showcase": 3,
         "preferred_min_steps_for_report": 5,
@@ -511,9 +536,9 @@
       "safe": "pravastatin",
       "smiles": "CC[C@H](C)C(=O)O[C@H]1C[C@@H](C=C2[C@H]1[C@H]([C@H](C=C2)C)CC[C@H](C[C@H](CC(=O)O)O)O)O",
       "target_svg": "assets/pravastatin/target.svg",
-      "source_route_count": 1862,
-      "web_kept_route_count": 16,
-      "showcase_route_count": 3,
+      "source_route_count": 4687,
+      "web_kept_route_count": 26,
+      "showcase_route_count": 10,
       "candidate_count": 3,
       "routes": [
         {
@@ -521,10 +546,10 @@
           "steps": 3,
           "class": "triage_semisynthesis",
           "risk": 10,
-          "score": 5.0039064258614475e-05,
-          "original_rank": 76,
+          "score": 0.008823388491533555,
+          "original_rank": 101,
           "coverage": 1.0,
-          "terminal_max": 29,
+          "terminal_max": 30,
           "tags": [
             "advanced_or_product_like_terminal",
             "condition_stepwise_required",
@@ -543,8 +568,8 @@
           "steps": 3,
           "class": "triage_semisynthesis",
           "risk": 10,
-          "score": 5.0039064258614475e-05,
-          "original_rank": 77,
+          "score": 1.3719834340646478e-05,
+          "original_rank": 102,
           "coverage": 1.0,
           "terminal_max": 29,
           "tags": [
@@ -565,8 +590,8 @@
           "steps": 3,
           "class": "triage_semisynthesis",
           "risk": 10,
-          "score": 0.02274083811648125,
-          "original_rank": 78,
+          "score": 1.3719834340646478e-05,
+          "original_rank": 103,
           "coverage": 1.0,
           "terminal_max": 29,
           "tags": [
@@ -584,7 +609,7 @@
         }
       ],
       "selection_policy": {
-        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "source": "results/shared/statin_panel_20260520/semisynthesis_budget500_top200/web_showcase_semisynthesis4.json",
         "product_audit_mode": "hide_rejects",
         "min_steps_in_showcase": 3,
         "preferred_min_steps_for_report": 5,
@@ -684,26 +709,26 @@
       "safe": "simvastatin",
       "smiles": "CCC(C)(C)C(=O)O[C@H]1C[C@H](C=C2[C@H]1[C@H]([C@H](C=C2)C)CC[C@@H]3C[C@H](CC(=O)O3)O)C",
       "target_svg": "assets/simvastatin/target.svg",
-      "source_route_count": 1488,
-      "web_kept_route_count": 332,
-      "showcase_route_count": 301,
+      "source_route_count": 8486,
+      "web_kept_route_count": 958,
+      "showcase_route_count": 923,
       "candidate_count": 3,
       "routes": [
         {
           "rank": 1,
-          "steps": 9,
+          "steps": 12,
           "class": "triage_semisynthesis",
           "risk": 30,
-          "score": 8.743607464598414e-07,
-          "original_rank": 1206,
+          "score": 0.00037549855821095444,
+          "original_rank": 8193,
           "coverage": 1.0,
           "terminal_max": 23,
           "tags": [
+            "acylating_piece_present",
             "advanced_or_product_like_terminal",
             "condition_stepwise_required",
             "late_stage_derivatization",
-            "natural_core_terminal",
-            "natural_product_family"
+            "natural_core_terminal"
           ],
           "issues": [
             "condition_warning",
@@ -714,11 +739,11 @@
         },
         {
           "rank": 2,
-          "steps": 8,
+          "steps": 10,
           "class": "triage_semisynthesis",
           "risk": 30,
-          "score": 0.001437978070451596,
-          "original_rank": 1153,
+          "score": 1.0789828480497223e-06,
+          "original_rank": 7457,
           "coverage": 1.0,
           "terminal_max": 23,
           "tags": [
@@ -737,29 +762,30 @@
         },
         {
           "rank": 3,
-          "steps": 6,
+          "steps": 8,
           "class": "triage_semisynthesis",
-          "risk": 10,
-          "score": 6.690276117106883e-05,
-          "original_rank": 821,
+          "risk": 30,
+          "score": 1.7533061820849627e-05,
+          "original_rank": 4186,
           "coverage": 1.0,
           "terminal_max": 23,
           "tags": [
-            "acylating_piece_present",
             "advanced_or_product_like_terminal",
             "condition_stepwise_required",
             "late_stage_derivatization",
-            "natural_core_terminal"
+            "natural_core_terminal",
+            "natural_product_family"
           ],
           "issues": [
-            "condition_warning"
+            "condition_warning",
+            "generic_reaction_sequence"
           ],
           "svg": "assets/simvastatin/scheme_route_03.svg",
           "pdf": "assets/simvastatin/scheme_route_03.pdf"
         }
       ],
       "selection_policy": {
-        "source": "results/shared/statin_panel_20260520/web_showcase/statin_showcase_routes.json",
+        "source": "results/shared/statin_panel_20260520/semisynthesis_budget500_top200/web_showcase_semisynthesis4.json",
         "product_audit_mode": "hide_rejects",
         "min_steps_in_showcase": 3,
         "preferred_min_steps_for_report": 5,
