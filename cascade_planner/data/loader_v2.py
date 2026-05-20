@@ -196,7 +196,13 @@ def load_v2(
     pair_rows: list[StepPairRowV2] = []
     cascade_rows: list[CascadeRowV2] = []
 
-    for art in data.get("records_kept", []):
+    # Support both v2 (dict with records_kept) and v3 (flat list) formats
+    if isinstance(data, list):
+        records = data
+    else:
+        records = data.get("records_kept", [])
+
+    for art in records:
         doi = art.get("doi") or art.get("title", "unknown")
         for c in art.get("cascades", []):
             pa = c.get("purpose_assessment") or {}

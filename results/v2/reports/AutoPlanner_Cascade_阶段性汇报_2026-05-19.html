@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>AutoPlanner-Cascade 阶段性汇报材料</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">AutoPlanner-Cascade 阶段性汇报材料</h1>
+</header>
+<h1 id="autoplanner-cascade-阶段性汇报材料">AutoPlanner-Cascade 阶段性汇报材料</h1>
+<p>日期：2026-05-19</p>
+<p>用途：面向化学信息学、合成化学、酶催化和自动规划方向专家的 PPT 汇报底稿。</p>
+<hr />
+<h2 id="一页摘要">一页摘要</h2>
+<p>我们这轮工作的核心不是简单证明“模型能不能生成路线”，而是把问题推进到更实际的一层：</p>
+<blockquote>
+<p>对复杂 statin-like 目标分子，系统能生成大量长路线；真正的问题是如何判断这些长路线是否具有化学意义、哪些只是搜索伪影、哪些值得专家继续看。</p>
+</blockquote>
+<p>本轮关键结论：</p>
+<table>
+<thead>
+<tr class="header">
+<th>项目</th>
+<th style="text-align: right;">结果</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>原始路线数</td>
+<td style="text-align: right;">906</td>
+</tr>
+<tr class="even">
+<td>原始唯一路线签名</td>
+<td style="text-align: right;">393</td>
+</tr>
+<tr class="odd">
+<td>原始 post-filter 保留路线</td>
+<td style="text-align: right;">640</td>
+</tr>
+<tr class="even">
+<td>当前规则重新审计后 <code>triage_fragment</code></td>
+<td style="text-align: right;">360</td>
+</tr>
+<tr class="odd">
+<td>当前规则重新审计后 <code>needs_chemist_review</code></td>
+<td style="text-align: right;">232</td>
+</tr>
+<tr class="even">
+<td>当前规则重新审计后 <code>reject_artifact</code></td>
+<td style="text-align: right;">48</td>
+</tr>
+<tr class="odd">
+<td>条件审计 <code>high</code></td>
+<td style="text-align: right;">193</td>
+</tr>
+<tr class="even">
+<td>条件审计 <code>warn</code></td>
+<td style="text-align: right;">447</td>
+</tr>
+</tbody>
+</table>
+<p>本轮最重要的认知修正：</p>
+<ol type="1">
+<li><p><strong>大 terminal 不一定是高级产物片段。</strong><br />
+例如 Wittig / HWE 试剂本身很大，但其中大量原子只是载体或离去部分，真正引入产物的可能只是一个小片段。</p></li>
+<li><p><strong>反应物 SMILES 中没有出现的元素，不一定是凭空出现。</strong><br />
+很多路线记录把 <code>POCl3</code>、卤化剂、氧化剂、还原剂、酸碱、盐等放在 condition/reagent 字段里，而不是放进 reaction SMILES 的 reactants 侧。</p></li>
+<li><p><strong>因此路线审计不能只看 heavy atom count。</strong><br />
+更合理的框架应该是：显式反应物 + 条件试剂 + 反应角色 + 原子贡献。</p></li>
+<li><p><strong>条件预测不能等同于已验证工艺条件。</strong><br />
+目前图中的温度、溶剂、试剂来自逐步条件预测模型。它们可用于提示“可能需要低温、强碱、加热偶联或分步操作”，但不能直接作为级联一锅条件或实验方案。</p></li>
+</ol>
+<p>本轮新增产物：</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>产物</th>
+<th>路径</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>当前规则重新审计 JSON</td>
+<td><code>results/v2/ui_chem_enzy_plan_20260519_032819_3764f7_reaudited_current.json</code></td>
+<td>640 条路线的最新审计字段</td>
+</tr>
+<tr class="even">
+<td>论文式顺合成路径图索引</td>
+<td><code>results/v2/route_schemes_3764f7_top10_current/index.html</code></td>
+<td>top10 paper-style synthesis scheme</td>
+</tr>
+<tr class="odd">
+<td>论文式顺合成路径图 PDF</td>
+<td><code>results/v2/route_schemes_3764f7_top10_current/scheme_route_01.pdf</code> 至 <code>scheme_route_10.pdf</code></td>
+<td>推荐用于 PPT/专家汇报</td>
+</tr>
+<tr class="even">
+<td>论文式顺合成路径图 SVG</td>
+<td><code>results/v2/route_schemes_3764f7_top10_current/scheme_route_01.svg</code> 至 <code>scheme_route_10.svg</code></td>
+<td>矢量图，可继续精修</td>
+</tr>
+<tr class="odd">
+<td>连续路线树索引</td>
+<td><code>results/v2/route_trees_3764f7_top10_current/index.html</code></td>
+<td>route topology 检查</td>
+</tr>
+<tr class="even">
+<td>路线树渲染脚本</td>
+<td><code>scripts/render_route_trees.py</code></td>
+<td>Graphviz + RDKit 路线图</td>
+</tr>
+<tr class="odd">
+<td>顺合成 scheme 渲染脚本</td>
+<td><code>scripts/render_linear_route_schemes.py</code></td>
+<td>RDKit + 自定义路线级排版</td>
+</tr>
+<tr class="even">
+<td>路线池重新审计脚本</td>
+<td><code>scripts/reaudit_route_pool.py</code></td>
+<td>规则更新后刷新 product/condition audit</td>
+</tr>
+<tr class="odd">
+<td>单步面板渲染脚本</td>
+<td><code>scripts/render_route_figures.py</code></td>
+<td>附录式 step panel</td>
+</tr>
+</tbody>
+</table>
+<p>验证：</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true"></a><span class="ex">python</span> -m pytest tests/test_reaudit_route_pool.py tests/test_render_linear_route_schemes.py tests/test_web_product_audit_filter.py tests/test_render_route_trees.py tests/test_render_route_figures.py tests/test_route_plausibility.py tests/test_product_route_feasibility_audit.py</span></code></pre></div>
+<p>结果：</p>
+<pre class="text"><code>21 passed</code></pre>
+<hr />
+<h2 id="我们目前经历了哪些阶段">1. 我们目前经历了哪些阶段</h2>
+<h3 id="阶段-1从no-route问题定位到路线池问题">阶段 1：从“no route”问题定位到路线池问题</h3>
+<p>最开始的问题是：目标分子在界面或汇报中被理解为 <code>no route</code>。但实际检查结果文件后发现，这不是路线不存在，而是路线生成、过滤、展示和评价之间的语义没有对齐。</p>
+<p>目标分子：</p>
+<pre class="text"><code>CC(C)C1=NC(=NC(=C1/C=C/[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)N(C)S(=O)(=O)C</code></pre>
+<p>对应结果文件中实际存在：</p>
+<table>
+<thead>
+<tr class="header">
+<th>统计项</th>
+<th style="text-align: right;">数值</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>raw routes</td>
+<td style="text-align: right;">906</td>
+</tr>
+<tr class="even">
+<td>raw unique signatures</td>
+<td style="text-align: right;">393</td>
+</tr>
+<tr class="odd">
+<td>kept routes</td>
+<td style="text-align: right;">640</td>
+</tr>
+<tr class="even">
+<td>kept unique signatures</td>
+<td style="text-align: right;">243</td>
+</tr>
+<tr class="odd">
+<td>rejected routes</td>
+<td style="text-align: right;">266</td>
+</tr>
+<tr class="even">
+<td>rejected unique signatures</td>
+<td style="text-align: right;">150</td>
+</tr>
+</tbody>
+</table>
+<p>这说明问题不是“完全搜不到路线”，而是：</p>
+<ul>
+<li>哪些路线是真正有意义的？</li>
+<li>哪些路线只是 stock closure 或模型伪影？</li>
+<li>哪些路线应当作为专家审查候选？</li>
+<li>哪些路线可以进入后续训练和 reranking？</li>
+</ul>
+<h3 id="阶段-2建立路线可用性分层">阶段 2：建立路线可用性分层</h3>
+<p>我们没有把所有 stock-closed route 都算作成功，而是分成几类：</p>
+<table>
+<thead>
+<tr class="header">
+<th>类别</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>triage_fragment</code></td>
+<td>有可讨论的片段连接、芳基偶联、侧链构建等路线思路</td>
+</tr>
+<tr class="even">
+<td><code>needs_chemist_review</code></td>
+<td>可能有参考价值，但证据不足或风险较高</td>
+</tr>
+<tr class="odd">
+<td><code>reject_artifact</code></td>
+<td>有明显原子来源、结构闭合或模型伪影问题</td>
+</tr>
+<tr class="even">
+<td>autonomous candidate</td>
+<td>更严格的可执行候选，目前没有路线达到这个级别</td>
+</tr>
+</tbody>
+</table>
+<p>第一版审计帮助我们识别了很多明显 artifact，但也暴露出一个严重问题：它把“分子很大”过度等同于“高级中间体”。</p>
+<h3 id="阶段-3用户指出-route5-案例推动审计逻辑修正">阶段 3：用户指出 route5 案例，推动审计逻辑修正</h3>
+<p>640 条保留路线中的第 5 条是关键案例。它包含一个 25-heavy-atom 的大 terminal：</p>
+<pre class="text"><code>CCOC(=O)C=P(c1ccccc1)(c1ccccc1)c1ccccc1</code></pre>
+<p>第一版审计把它标成：</p>
+<pre class="text"><code>advanced_or_product_like_terminal
+large_polycyclic_terminal
+product_like_terminal</code></pre>
+<p>但化学上这个判断不严谨。该分子是 ethyl 2-(triphenylphosphoranylidene)acetate，一类稳定 Wittig 试剂。它的三个 phenyl 不是最终产物骨架的一部分，而是反应载体/离去结构。它大，但不等于高级产品片段。</p>
+<p>同一条路线还出现了 <code>Cl</code> 在产物中出现但不在显式 reactants 中出现的问题。进一步检查条件预测发现：</p>
+<pre class="text"><code>Reagent: O=P(Cl)(Cl)Cl</code></pre>
+<p>也就是 <code>POCl3</code>。因此这个 <code>Cl</code> 不是一定凭空出现，而是可以由 condition reagent 解释。</p>
+<h3 id="阶段-4修正-product-audit-与-route-plausibility">阶段 4：修正 product audit 与 route plausibility</h3>
+<p>我们做了两类修正。</p>
+<p>第一类：terminal profile 不再只看原始 heavy atom count。</p>
+<p>现在同时记录：</p>
+<pre class="text"><code>max_terminal_heavy_atoms
+effective_max_terminal_heavy_atoms
+carrier_reagents
+product_like_terminal
+large_polycyclic_terminal</code></pre>
+<p>其中 carrier reagent 会从 product-like 判定中剥离出来。</p>
+<p>第二类：route plausibility 不再只看 reaction SMILES 的 reactants。</p>
+<p>现在区分：</p>
+<pre class="text"><code>raw_element_gains
+condition_supported_element_gains
+unexplained_element_gains
+unexplained_new_elements</code></pre>
+<p>只有在显式 reactants 和 condition reagent 都无法解释时，才标记为 unsupported element source。</p>
+<h3 id="阶段-5重新审计-640-条路线">阶段 5：重新审计 640 条路线</h3>
+<p>用当前规则重新审计后：</p>
+<table>
+<thead>
+<tr class="header">
+<th>当前审计类别</th>
+<th style="text-align: right;">数量</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>triage_fragment</code></td>
+<td style="text-align: right;">360</td>
+</tr>
+<tr class="even">
+<td><code>needs_chemist_review</code></td>
+<td style="text-align: right;">232</td>
+</tr>
+<tr class="odd">
+<td><code>reject_artifact</code></td>
+<td style="text-align: right;">48</td>
+</tr>
+</tbody>
+</table>
+<p>新增 condition audit 后：</p>
+<table>
+<thead>
+<tr class="header">
+<th>条件审计类别</th>
+<th style="text-align: right;">数量</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>high</code></td>
+<td style="text-align: right;">193</td>
+</tr>
+<tr class="even">
+<td><code>warn</code></td>
+<td style="text-align: right;">447</td>
+</tr>
+<tr class="odd">
+<td><code>ok</code></td>
+<td style="text-align: right;">0</td>
+</tr>
+</tbody>
+</table>
+<p>解释：</p>
+<ul>
+<li>这不是说 640 条路线都不可用；</li>
+<li>它说明当前 <code>condition_predictions</code> 还只是逐步预测，不能当作级联工艺条件；</li>
+<li><code>warn</code> 通常表示低温有机金属/还原剂、加热偶联、低条件分数、弱酶证据和有机溶剂等；</li>
+<li><code>high</code> 表示存在更强的条件风险，例如极端高温、强酶证据与温度窗口冲突，或路线温度跨度过大。</li>
+</ul>
+<p>这比第一版更合理：</p>
+<ul>
+<li>不再因为 Wittig/HWE carrier reagent 大而误伤大量路线。</li>
+<li>仍然能识别真正没有元素来源支持的路线。</li>
+<li>route5 被恢复为合理的 <code>triage_fragment</code> 候选。</li>
+<li>同时不再把预测条件静默展示为“已验证条件”，而是单独打 <code>condition_audit</code> 标记。</li>
+</ul>
+<p>route5 当前审计摘要：</p>
+<pre class="text"><code>route_class: triage_fragment
+issues: condition_high_risk
+tags: acylating_piece_present, aryl_coupling_hint, carrier_reagent_terminal
+product_like_terminal: false
+large_polycyclic_terminal: false
+effective_max_terminal_heavy_atoms: 10
+route_plausibility_passed: true
+condition_audit.route_risk: high
+condition_audit.high_risk_step_count: 1
+condition_audit.warning_step_count: 9
+condition_audit.temperature_span_c: 199.434</code></pre>
+<p>这里的 <code>condition_high_risk</code> 不是 material artifact，而是条件层风险：Route 5 中存在 LDA、DIBAL-H、硼氢化物/硼试剂还原、加热 Suzuki 偶联等单步条件，且温度跨度从约 -70 °C 到 130 °C。它更像分步合成路线候选，不应汇报为一锅级联条件。</p>
+<h3 id="阶段-6生成连续顺合成路线图">阶段 6：生成连续顺合成路线图</h3>
+<p>此前的路线图是单步面板式，不适合论文或专家 PPT。现在新增了两类渲染：</p>
+<pre class="text"><code>scripts/render_route_trees.py
+scripts/render_linear_route_schemes.py</code></pre>
+<p>其中 <code>render_linear_route_schemes.py</code> 是当前推荐给专家汇报使用的版本，更接近论文中的 synthesis scheme 风格：</p>
+<ul>
+<li>按最终合成方向展示，而不是逆合成方向；</li>
+<li>主链分子连续横向展开，长路线按行自然延续；</li>
+<li>对由关键组件分别制备再汇合的情况，辅助组件会以小型 branch scheme 显示在对应箭头上方；</li>
+<li>分子结构不加外框；</li>
+<li>反应条件写在箭头线上方/下方；</li>
+<li>辅助反应物尽量以缩小结构显示，而不是 SMILES；</li>
+<li>分子结构下方不再写 SMILES；</li>
+<li>图中不写 <code>template</code>、<code>planner</code> 等内部模型来源；</li>
+<li>条件中的常见模型 SMILES 会转成 NaOH、POCl3、DIBAL-H、LDA、THF、toluene、Pd catalyst 等合成方案常用写法；</li>
+<li>简单无机酸碱、盐、催化剂优先写入条件，不作为大号辅助结构干扰主线。</li>
+<li>条件审计风险用 <code>?</code> / <code>!</code> 标记：<code>?</code> 表示需要专家关注的逐步条件风险，<code>!</code> 表示更高风险；</li>
+<li>图下方说明条件是模型逐步预测假设，不是已验证工艺条件。</li>
+</ul>
+<p>当前推荐用于 PPT 的输出：</p>
+<pre class="text"><code>results/v2/route_schemes_3764f7_top10_current/index.html
+results/v2/route_schemes_3764f7_top10_current/scheme_route_01.pdf
+results/v2/route_schemes_3764f7_top10_current/scheme_route_05.pdf</code></pre>
+<p>连续树输出保留用于查看 route topology，不作为主 PPT 图首选：</p>
+<pre class="text"><code>results/v2/route_trees_3764f7_top10_current/index.html
+results/v2/route_trees_3764f7_top10_current/route_tree_01.svg
+results/v2/route_trees_3764f7_top10_current/route_tree_01.pdf
+...
+results/v2/route_trees_3764f7_top10_current/route_tree_10.svg
+results/v2/route_trees_3764f7_top10_current/route_tree_10.pdf</code></pre>
+<p>这些图是连续 retrosynthesis tree：</p>
+<ul>
+<li>目标产物在左侧；</li>
+<li>前体向右展开；</li>
+<li>每个节点是 RDKit 分子结构；</li>
+<li>边表示对应反应步骤；</li>
+<li>边标签包含 step、reaction type、EC、温度等信息；</li>
+<li>terminal materials 单独以 terminal 节点展示。</li>
+</ul>
+<p>关于标准作图工具：目前没有一个开源工具可以直接把任意 AI 生成的 18 步 route JSON 自动排成论文级 synthesis scheme。常用工具分工通常是：</p>
+<table>
+<thead>
+<tr class="header">
+<th>工具</th>
+<th>适合做什么</th>
+<th>局限</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>ChemDraw / BioRender / Adobe Illustrator</td>
+<td>人工精修论文 scheme</td>
+<td>不适合批量自动生成 top10</td>
+</tr>
+<tr class="even">
+<td>RDKit MolDraw2D</td>
+<td>自动画分子结构</td>
+<td>不负责整条路线排版</td>
+</tr>
+<tr class="odd">
+<td>CDK DepictionGenerator</td>
+<td>自动画分子/反应</td>
+<td>Python 项目集成成本较高</td>
+</tr>
+<tr class="even">
+<td>Indigo Toolkit</td>
+<td>分子和反应描绘</td>
+<td>路线级排版仍需额外逻辑</td>
+</tr>
+<tr class="odd">
+<td>Open Babel depict</td>
+<td>分子格式转换和描绘</td>
+<td>论文 scheme 排版能力有限</td>
+</tr>
+<tr class="even">
+<td>Graphviz</td>
+<td>自动图布局</td>
+<td>化学分子结构仍需 RDKit/CDK 等提供</td>
+</tr>
+</tbody>
+</table>
+<p>因此我们采用的方案是：用 RDKit 负责标准分子结构描绘，用自定义 layout 负责 route scheme 排版。这不是从零画化学结构，而是在标准分子绘图基础上做路线级自动排版。当前版本已能批量生成 top10 的 SVG/PDF，后续可在 ChemDraw 或 Illustrator 中做最后的人工美化。</p>
+<hr />
+<h2 id="我们选择了哪些方法">2. 我们选择了哪些方法</h2>
+<h3 id="路线池而不是只看-top-1">2.1 路线池，而不是只看 top-1</h3>
+<p>复杂 cascade 路线不能只看 top-1。长路线中单步小错误会累积，top-1 的分数也不等于整条路线可执行。</p>
+<p>因此我们采用：</p>
+<pre class="text"><code>生成路线池 -&gt; 去重 -&gt; 审计 -&gt; 分层 -&gt; rerank -&gt; shortlist -&gt; 专家可视化</code></pre>
+<p>路线池的价值在于：</p>
+<ul>
+<li>可以比较不同 disconnection；</li>
+<li>可以找出重复模式；</li>
+<li>可以建立 hard negatives；</li>
+<li>可以用无专家标签的规则信号训练 ranker。</li>
+</ul>
+<h3 id="product-audit而不是-stock-closure">2.2 Product audit，而不是 stock closure</h3>
+<p>stock-closed 不等于路线可用。</p>
+<p>一条路线可能因为以下原因 stock-closed：</p>
+<ul>
+<li>把高级中间体当成 stock；</li>
+<li>把 carrier reagent 误当成产品片段；</li>
+<li>reaction SMILES 省略了关键 reagent；</li>
+<li>单步模型凭空引入元素或官能团；</li>
+<li>route search 用低可信步骤强行闭合。</li>
+</ul>
+<p>所以我们引入：</p>
+<pre class="text"><code>terminal_profile
+reaction_profile
+route_plausibility
+condition-supported atom source
+route_class
+risk_order</code></pre>
+<h3 id="无专家标签训练">2.3 无专家标签训练</h3>
+<p>用户已经明确：现在没有专家标签，未来也不会有专家标签。因此训练不能依赖 expert-labeled good/bad route。</p>
+<p>我们应使用弱监督和自监督信号：</p>
+<table>
+<thead>
+<tr class="header">
+<th>信号</th>
+<th>来源</th>
+<th>是否需要专家标签</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>原子来源一致性</td>
+<td>RDKit / atom count / condition reagent</td>
+<td>否</td>
+</tr>
+<tr class="even">
+<td>route consistency</td>
+<td>上一步产物是否对应下一步前体</td>
+<td>否</td>
+</tr>
+<tr class="odd">
+<td>stock realism</td>
+<td>stock map / terminal complexity</td>
+<td>否</td>
+</tr>
+<tr class="even">
+<td>条件支持</td>
+<td>condition_predictions</td>
+<td>否</td>
+</tr>
+<tr class="odd">
+<td>酶证据</td>
+<td>EC confidence / enzyme annotation</td>
+<td>否</td>
+</tr>
+<tr class="even">
+<td>hard negative</td>
+<td>人工扰动、删除 reagent、引入 unsupported element</td>
+<td>否</td>
+</tr>
+<tr class="odd">
+<td>pairwise preference</td>
+<td>低风险路线优于高风险路线</td>
+<td>否</td>
+</tr>
+<tr class="even">
+<td>route diversity</td>
+<td>reaction signature clustering</td>
+<td>否</td>
+</tr>
+</tbody>
+</table>
+<p>这更接近：</p>
+<pre class="text"><code>rule-derived weak supervision + hard-negative training + route-pool reranking</code></pre>
+<p>而不是传统专家标注分类。</p>
+<h3 id="通用方向atom-contribution-profile">2.4 通用方向：atom contribution profile</h3>
+<p>当前对 carrier reagent 的识别只是第一层修正，不能停留在白名单。</p>
+<p>更通用的下一步是对每个 terminal/reagent 计算：</p>
+<pre class="text"><code>terminal_smiles
+raw_heavy_atoms
+atoms_retained_in_product
+retained_fraction
+target_coverage
+role_guess
+role_confidence
+evidence</code></pre>
+<p>这里比例可以作为特征，但不应作为唯一判据。</p>
+<p>合理判定应结合：</p>
+<ul>
+<li>哪些原子进入最终产物；</li>
+<li>哪些原子只是 carrier / leaving group / protecting group；</li>
+<li>该分子是 reactant、reagent、catalyst、solvent 还是 salt；</li>
+<li>条件预测是否支持该元素或基团转移；</li>
+<li>反应类型是否与该转移相符。</li>
+</ul>
+<hr />
+<h2 id="国际前沿怎么做">3. 国际前沿怎么做</h2>
+<h3 id="neural-symbolic-retrosynthesis-mcts">3.1 Neural-symbolic retrosynthesis / MCTS</h3>
+<p>Segler、Preuss、Waller 在 Nature 2018 提出将神经网络策略与符号模板、Monte Carlo Tree Search 结合，用于 retrosynthesis planning。</p>
+<p>代表特点：</p>
+<ul>
+<li>单步反应模板预测；</li>
+<li>MCTS 或启发式搜索；</li>
+<li>目标是递归断键到 purchasable building blocks；</li>
+<li>主要优化 search success 和 stock closure。</li>
+</ul>
+<p>局限：</p>
+<ul>
+<li>更关注“能不能断到 stock”；</li>
+<li>route-level condition compatibility 较弱；</li>
+<li>对酶催化、级联兼容性、cofactor、pH 等支持不足。</li>
+</ul>
+<h3 id="aizynthfinder">3.2 AiZynthFinder</h3>
+<p>AiZynthFinder 是目前非常常用的开源 retrosynthesis planner，基于神经网络模板策略与 MCTS。</p>
+<p>优点：</p>
+<ul>
+<li>开源、稳定；</li>
+<li>route search 工程实现成熟；</li>
+<li>可接入 stock；</li>
+<li>可作为 CASP baseline。</li>
+</ul>
+<p>局限：</p>
+<ul>
+<li>标准任务仍是 small-molecule retrosynthesis；</li>
+<li>对 chemoenzymatic cascade 的条件状态建模有限；</li>
+<li>stock closure 不等于级联路线可执行。</li>
+</ul>
+<h3 id="askcos">3.3 ASKCOS</h3>
+<p>ASKCOS 体系将 retrosynthesis、条件推荐、反应可行性和自动实验平台连接起来。Science 2019 的 AI planning + flow synthesis 是代表性工作。</p>
+<p>优点：</p>
+<ul>
+<li>更接近实验执行；</li>
+<li>同时考虑 retrosynthesis 和 forward validation；</li>
+<li>有条件推荐和反应可行性模块。</li>
+</ul>
+<p>局限：</p>
+<ul>
+<li>主要面向有机小分子合成；</li>
+<li>cascade 中跨步骤兼容、酶催化和多步状态传递仍不是核心。</li>
+</ul>
+<h3 id="rdchiral-template-stereochemistry">3.4 RDChiral / template stereochemistry</h3>
+<p>RDChiral 解决 template extraction/application 中 stereochemistry 的一致性问题，是 template-based retrosynthesis 的重要基础工具。</p>
+<p>它能解决：</p>
+<ul>
+<li>反应模板提取；</li>
+<li>立体化学处理；</li>
+<li>SMARTS 应用一致性。</li>
+</ul>
+<p>但它不解决：</p>
+<ul>
+<li>route-level 级联条件；</li>
+<li>enzyme evidence；</li>
+<li>condition reagent atom provenance；</li>
+<li>长路线全局可执行性。</li>
+</ul>
+<h3 id="retrobiocat">3.5 RetroBioCat</h3>
+<p>RetroBioCat 是更接近我们问题的系统，因为它面向 biocatalytic reactions and cascades。</p>
+<p>它的优势：</p>
+<ul>
+<li>明确考虑 biocatalysis；</li>
+<li>支持 enzyme reaction rules；</li>
+<li>更接近 cascade planning。</li>
+</ul>
+<p>但仍有挑战：</p>
+<ul>
+<li>与常规有机 CASP 的统一仍困难；</li>
+<li>enzyme substrate scope 和 condition compatibility 需要高质量知识库；</li>
+<li>长 chemoenzymatic route 的全局评分仍很难。</li>
+</ul>
+<h3 id="rascore-scscore-等快速可合成性评分">3.6 RAscore / SCScore 等快速可合成性评分</h3>
+<p>这类模型用于快速估计 synthetic accessibility 或 retrosynthetic accessibility。</p>
+<p>优点：</p>
+<ul>
+<li>快；</li>
+<li>适合大规模筛选；</li>
+<li>可作为 route reranking 特征。</li>
+</ul>
+<p>局限：</p>
+<ul>
+<li>通常不是逐步路线验证；</li>
+<li>不能解释 condition reagent；</li>
+<li>不能保证 cascade 可执行；</li>
+<li>不能替代 route audit。</li>
+</ul>
+<hr />
+<h2 id="为什么国际前沿仍难处理-cascade">4. 为什么国际前沿仍难处理 cascade</h2>
+<h3 id="传统-casp-多数是-step-wise而-cascade-是-stateful">4.1 传统 CASP 多数是 step-wise，而 cascade 是 stateful</h3>
+<p>传统 retrosynthesis 通常把路线看成一系列单步断键。</p>
+<p>但 cascade synthesis 需要维护状态：</p>
+<pre class="text"><code>solvent
+pH
+temperature
+redox state
+cofactor
+enzyme compatibility
+intermediate stability
+isolation/no-isolation
+workup compatibility</code></pre>
+<p>这些状态会跨步骤传递，不是每步独立打分能解决的。</p>
+<h3 id="reaction-smiles-通常不完整">4.2 Reaction SMILES 通常不完整</h3>
+<p>公开数据和模型输出里，reaction SMILES 往往只记录主反应物和产物。</p>
+<p>常被省略：</p>
+<ul>
+<li>酸碱；</li>
+<li>氧化剂/还原剂；</li>
+<li>卤化剂；</li>
+<li>保护/脱保护试剂；</li>
+<li>盐；</li>
+<li>水；</li>
+<li>cofactor；</li>
+<li>catalyst；</li>
+<li>solvent。</li>
+</ul>
+<p>这会导致两个相反问题：</p>
+<ol type="1">
+<li>真正合理的步骤被误判为原子来源错误；</li>
+<li>真正不合理的步骤因为没有做 role-aware 检查而被放过。</li>
+</ol>
+<h3 id="酶标签不是酶证据">4.3 酶标签不是酶证据</h3>
+<p>EC number 只是酶反应类别，不是具体酶、序列、活性、底物范围或实验条件。</p>
+<p>当前很多路线的 enzyme confidence 在：</p>
+<pre class="text"><code>0.07 - 0.20</code></pre>
+<p>这只能作为 hypothesis，不能作为强证据。</p>
+<h3 id="长路线误差会累积">4.4 长路线误差会累积</h3>
+<p>17-20 步路线里，每一步即使只有小概率错误，整条路线也容易变得不可执行。</p>
+<p>因此必须做：</p>
+<ul>
+<li>route-level audit；</li>
+<li>step consistency check；</li>
+<li>condition compatibility check；</li>
+<li>terminal role assignment；</li>
+<li>route tree visualization；</li>
+<li>expert triage。</li>
+</ul>
+<h3 id="化学-casp-与生物催化规划割裂">4.5 化学 CASP 与生物催化规划割裂</h3>
+<p>有机小分子 CASP 强在模板、stock 和反应数据； 生物催化规划强在 enzyme rule 和 pathway/cascade 思维。</p>
+<p>我们的目标是 chemoenzymatic cascade，必须同时处理：</p>
+<pre class="text"><code>chemical transformation
+enzymatic transformation
+condition prediction
+enzyme annotation
+stock closure
+route-level compatibility</code></pre>
+<p>这也是为什么单纯套用现有 CASP 框架不足。</p>
+<hr />
+<h2 id="我们目前如何处理-cascade">5. 我们目前如何处理 cascade</h2>
+<p>当前系统的处理流程：</p>
+<pre class="text"><code>ChemEnzy route generation
+  -&gt; route pool
+  -&gt; product audit
+  -&gt; plausibility audit
+  -&gt; condition-supported atom source
+  -&gt; carrier/terminal role correction
+  -&gt; route-class reranking
+  -&gt; top route visualization</code></pre>
+<p>已具备能力：</p>
+<table>
+<thead>
+<tr class="header">
+<th>能力</th>
+<th>当前状态</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>生成长路线池</td>
+<td>已有，当前 target raw 906 routes</td>
+</tr>
+<tr class="even">
+<td>route 去重</td>
+<td>已有 reaction signature 方式</td>
+</tr>
+<tr class="odd">
+<td>product-aware audit</td>
+<td>已有</td>
+</tr>
+<tr class="even">
+<td>condition reagent 支持原子来源</td>
+<td>第一版已有</td>
+</tr>
+<tr class="odd">
+<td>condition audit</td>
+<td>已有，区分条件预测风险与物料闭合 artifact</td>
+</tr>
+<tr class="even">
+<td>carrier reagent terminal 修正</td>
+<td>第一版已有</td>
+</tr>
+<tr class="odd">
+<td>reject artifact</td>
+<td>已有</td>
+</tr>
+<tr class="even">
+<td>top10 连续路径图</td>
+<td>已有</td>
+</tr>
+<tr class="odd">
+<td>无专家标签训练方向</td>
+<td>已确定</td>
+</tr>
+</tbody>
+</table>
+<p>还不能声称：</p>
+<ul>
+<li>不能声称路线已经实验可执行；</li>
+<li>不能声称酶步骤已经验证；</li>
+<li>不能声称 360 条 <code>triage_fragment</code> 都是高质量路线；</li>
+<li>不能声称当前 carrier 逻辑已经完全通用。</li>
+<li>不能声称图中的预测条件已经经过实验或级联兼容性验证。</li>
+</ul>
+<hr />
+<h2 id="代表性高有效性长路线">6. 代表性高有效性长路线</h2>
+<h3 id="route-1高分长路线代表">6.1 Route 1：高分长路线代表</h3>
+<p>推荐展示图：</p>
+<pre class="text"><code>results/v2/route_schemes_3764f7_top10_current/scheme_route_01.pdf
+results/v2/route_schemes_3764f7_top10_current/scheme_route_01.svg</code></pre>
+<p>摘要：</p>
+<pre class="text"><code>n_steps: 17
+score: 0.0112
+route_class: triage_fragment
+tags: acylating_piece_present, aryl_coupling_hint, carrier_reagent_terminal</code></pre>
+<p>适合 PPT 展示点：</p>
+<ul>
+<li>展示系统确实能生成长路线；</li>
+<li>展示 aryl coupling 和侧链构建；</li>
+<li>展示长路线必须经 audit/rerank；</li>
+<li>展示该路线仍是 triage route，不是 autonomous route。</li>
+</ul>
+<h3 id="route-5审计逻辑修正的关键案例">6.2 Route 5：审计逻辑修正的关键案例</h3>
+<p>推荐展示图：</p>
+<pre class="text"><code>results/v2/route_schemes_3764f7_top10_current/scheme_route_05.pdf
+results/v2/route_schemes_3764f7_top10_current/scheme_route_05.svg</code></pre>
+<p>摘要：</p>
+<pre class="text"><code>n_steps: 18
+score: 0.00131
+route_class: triage_fragment
+issues: condition_high_risk
+effective_max_terminal_heavy_atoms: 10
+condition route risk: high
+condition warnings: 9
+condition high-risk steps: 1
+temperature span: about 199 °C</code></pre>
+<p>为什么重要：</p>
+<ul>
+<li>旧规则误把 Wittig phosphorane 当成高级 product-like terminal；</li>
+<li>新规则识别其为 <code>carrier_reagent_terminal</code>；</li>
+<li>step 中出现的 <code>Cl</code> 可由 condition reagent <code>POCl3</code> 支持；</li>
+<li>路线图现在将 LDA、DIBAL-H、NaBH4/EtOBEt2、Pd coupling 等条件标记为 <code>?</code>；</li>
+<li>这说明路线审计必须 role-aware、condition-aware，并且要把“原子来源合理”和“条件可执行/可级联”分开。</li>
+</ul>
+<p>PPT 讲法建议：</p>
+<blockquote>
+<p>这条路线不是严格意义的可执行工艺，但它是一个非常好的系统能力案例：它暴露了 naive audit 的误伤，也说明我们需要从 heavy atom count 转向 atom provenance、reagent role 和 condition audit。Route 5 的 disconnection 有讨论价值，但当前条件更像分步合成条件集合，不是可直接执行的一锅级联。</p>
+</blockquote>
+<hr />
+<h2 id="还需要加强的部分">7. 还需要加强的部分</h2>
+<h3 id="从-carrier-白名单升级为通用-atom-contribution">7.1 从 carrier 白名单升级为通用 atom contribution</h3>
+<p>当前 carrier reagent 修正仍然偏规则化。</p>
+<p>下一步应该做：</p>
+<pre class="text"><code>atom_contribution_profile</code></pre>
+<p>对每个 terminal/reagent 计算：</p>
+<table>
+<thead>
+<tr class="header">
+<th>字段</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>raw_heavy_atoms</code></td>
+<td>原始分子 heavy atom 数</td>
+</tr>
+<tr class="even">
+<td><code>atoms_retained_in_product</code></td>
+<td>进入产物的原子数</td>
+</tr>
+<tr class="odd">
+<td><code>retained_fraction</code></td>
+<td>该分子有多少比例进入产物</td>
+</tr>
+<tr class="even">
+<td><code>target_coverage</code></td>
+<td>该分子贡献了目标产物多少比例</td>
+</tr>
+<tr class="odd">
+<td><code>role_guess</code></td>
+<td>building block / carrier / reagent / catalyst / solvent 等</td>
+</tr>
+<tr class="even">
+<td><code>evidence</code></td>
+<td>atom mapping、MCS、condition、reaction class</td>
+</tr>
+</tbody>
+</table>
+<p>判断逻辑不应是单阈值，而应是：</p>
+<pre class="text"><code>原子贡献 + 化学角色 + 条件证据 + 反应类型</code></pre>
+<h3 id="引入-atom-mapping-mcs">7.2 引入 atom mapping / MCS</h3>
+<p>推荐技术路径：</p>
+<ol type="1">
+<li>优先使用 atom-mapped reaction；</li>
+<li>没有 mapping 时使用 RXNMapper 或同类工具；</li>
+<li>mapping 失败时用 RDKit MCS 近似；</li>
+<li>对明显 carrier / protecting / oxidant / reductant / halogenation reagent 用 role prior。</li>
+</ol>
+<h3 id="condition-reagent-role-assignment">7.3 condition reagent role assignment</h3>
+<p>现在只是读取 <code>condition_predictions[].Reagent</code>。</p>
+<p>下一步要区分：</p>
+<table>
+<thead>
+<tr class="header">
+<th>来源</th>
+<th>可信度</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>explicit reactants</td>
+<td>最高</td>
+</tr>
+<tr class="even">
+<td>small stoichiometric reagent</td>
+<td>高</td>
+</tr>
+<tr class="odd">
+<td>catalyst</td>
+<td>低，不能默认提供原子</td>
+</tr>
+<tr class="even">
+<td>solvent</td>
+<td>很低，通常不能默认提供骨架原子</td>
+</tr>
+<tr class="odd">
+<td>unknown condition text</td>
+<td>需要 warning</td>
+</tr>
+</tbody>
+</table>
+<h3 id="enzyme-evidence-calibration">7.4 enzyme evidence calibration</h3>
+<p>需要建立酶证据分层：</p>
+<table>
+<thead>
+<tr class="header">
+<th>证据</th>
+<th>解释</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>EC top-1 confidence</td>
+<td>当前已有，但偏弱</td>
+</tr>
+<tr class="even">
+<td>substrate scope similarity</td>
+<td>需要补</td>
+</tr>
+<tr class="odd">
+<td>enzyme sequence / UniProt evidence</td>
+<td>需要补</td>
+</tr>
+<tr class="even">
+<td>cofactor compatibility</td>
+<td>需要补</td>
+</tr>
+<tr class="odd">
+<td>pH/temperature compatibility</td>
+<td>需要补</td>
+</tr>
+<tr class="even">
+<td>cascade compatibility</td>
+<td>需要补</td>
+</tr>
+</tbody>
+</table>
+<h3 id="cascade-state-model">7.5 cascade state model</h3>
+<p>需要为路线引入状态变量：</p>
+<pre class="text"><code>route_state = {
+  solvent,
+  pH,
+  temperature,
+  redox_state,
+  cofactor,
+  isolation_required,
+  intermediate_stability,
+  enzyme_compatibility
+}</code></pre>
+<p>每一步不只是生成产物，还要更新 route state。</p>
+<h3 id="条件模型校准与显示策略">7.6 条件模型校准与显示策略</h3>
+<p>当前条件模型的温度、溶剂、试剂是逐步预测结果，不能直接作为工艺条件。产品层需要继续强化：</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>模块</th>
+<th>当前处理</th>
+<th>下一步</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>reagent as atom source</td>
+<td>可解释 POCl3 等元素来源</td>
+<td>继续区分 stoichiometric/catalytic/solvent</td>
+</tr>
+<tr class="even">
+<td>temperature</td>
+<td>仅做风险标记</td>
+<td>用反应类别和文献先验校准</td>
+</tr>
+<tr class="odd">
+<td>enzyme condition</td>
+<td>低置信度 EC 不硬判工艺冲突</td>
+<td>引入 BRENDA/UniProt/序列证据</td>
+</tr>
+<tr class="even">
+<td>route compatibility</td>
+<td>识别温度跨度和分步需求</td>
+<td>建立 route-state transition model</td>
+</tr>
+<tr class="odd">
+<td>visualization</td>
+<td>用 <code>?</code> / <code>!</code> 标记预测条件风险</td>
+<td>支持隐藏/展开条件风险层</td>
+</tr>
+</tbody>
+</table>
+<h3 id="更适合-ppt-的路线压缩">7.7 更适合 PPT 的路线压缩</h3>
+<p>当前 paper-style scheme 已可用于主文 PPT，但 17-18 步路线仍然很长。后续还可以继续做压缩版：</p>
+<ul>
+<li>隐藏小分子 salts/acid/base；</li>
+<li>合并 reagent preparation subtree；</li>
+<li>只保留关键 C-C / C-N / side-chain forming steps；</li>
+<li>terminal materials 单独放在右侧；</li>
+<li>反应条件保留在箭头附近，但对重复条件做合并。</li>
+</ul>
+<hr />
+<h2 id="建议-ppt-结构">8. 建议 PPT 结构</h2>
+<h3 id="slide-1问题定义">Slide 1：问题定义</h3>
+<p>标题：从路线生成到级联路线可信度评估</p>
+<p>要点：</p>
+<ul>
+<li>目标不是“有没有路线”，而是“长路线是否可信”。</li>
+<li>chemoenzymatic cascade 比普通 retrosynthesis 更难。</li>
+</ul>
+<h3 id="slide-2目标分子与初始误解">Slide 2：目标分子与初始误解</h3>
+<p>展示：</p>
+<ul>
+<li>target structure；</li>
+<li>原始 <code>no route</code> 误解；</li>
+<li>实际 raw 906 routes。</li>
+</ul>
+<h3 id="slide-3路线池结果">Slide 3：路线池结果</h3>
+<p>表格：</p>
+<pre class="text"><code>raw: 906
+unique raw: 393
+kept: 640
+current triage_fragment: 360
+needs_chemist_review: 232
+reject_artifact: 48</code></pre>
+<h3 id="slide-4为什么-stock-closure-不够">Slide 4：为什么 stock closure 不够</h3>
+<p>列出四类误差：</p>
+<ul>
+<li>advanced terminal；</li>
+<li>carrier reagent；</li>
+<li>condition reagent omitted；</li>
+<li>unsupported element source。</li>
+</ul>
+<h3 id="slide-5国际前沿">Slide 5：国际前沿</h3>
+<p>展示：</p>
+<ul>
+<li>Segler/Waller neural-symbolic retrosynthesis；</li>
+<li>AiZynthFinder；</li>
+<li>ASKCOS；</li>
+<li>RDChiral；</li>
+<li>RetroBioCat。</li>
+</ul>
+<h3 id="slide-6为什么它们处理-cascade-仍困难">Slide 6：为什么它们处理 cascade 仍困难</h3>
+<p>重点：</p>
+<ul>
+<li>step-wise vs stateful；</li>
+<li>condition/pH/cofactor；</li>
+<li>enzyme evidence；</li>
+<li>long-route error compounding。</li>
+</ul>
+<h3 id="slide-7我们的-cascadeplanner-流程">Slide 7：我们的 CascadePlanner 流程</h3>
+<p>画流程图：</p>
+<pre class="text"><code>route generation -&gt; route pool -&gt; audit -&gt; rerank -&gt; visualization -&gt; weak supervision</code></pre>
+<h3 id="slide-8route5-案例">Slide 8：route5 案例</h3>
+<p>放：</p>
+<pre class="text"><code>scheme_route_05.pdf</code></pre>
+<p>讲：</p>
+<ul>
+<li>old audit 为什么误伤；</li>
+<li>Wittig carrier 为什么不应按高级 terminal 处理；</li>
+<li><code>POCl3</code> 如何解释 <code>Cl</code> 来源；</li>
+<li>新审计如何修正。</li>
+</ul>
+<h3 id="slide-9代表路线">Slide 9：代表路线</h3>
+<p>放：</p>
+<pre class="text"><code>scheme_route_01.pdf</code></pre>
+<p>讲：</p>
+<ul>
+<li>系统能生成 17 步长路线；</li>
+<li>路线有 fragment/coupling 价值；</li>
+<li>仍需专家审查和酶证据加强。</li>
+</ul>
+<h3 id="slide-10无专家标签训练路线">Slide 10：无专家标签训练路线</h3>
+<p>展示：</p>
+<pre class="text"><code>rule-derived weak supervision
+hard negatives
+pairwise preferences
+route-pool reranking
+self-consistency</code></pre>
+<h3 id="slide-11下一步">Slide 11：下一步</h3>
+<p>重点：</p>
+<ul>
+<li>atom contribution profile；</li>
+<li>condition role assignment；</li>
+<li>enzyme calibration；</li>
+<li>cascade state model；</li>
+<li>PPT-friendly compressed route diagrams。</li>
+</ul>
+<hr />
+<h2 id="对专家汇报时可以说与不能说">9. 对专家汇报时可以说与不能说</h2>
+<p>可以说：</p>
+<ul>
+<li>系统已经能为复杂 target 生成大量长路线候选；</li>
+<li>仅以 stock closure 作为成功标准是不够的；</li>
+<li>我们已经建立了 product-aware audit 和 route-level triage；</li>
+<li>我们发现并修正了 naive terminal-heavy-atom 规则的误伤；</li>
+<li>我们开始处理 condition reagent 对原子来源的解释；</li>
+<li>已生成 top10 顺合成 synthesis scheme 和连续路线树用于专家审查。</li>
+</ul>
+<p>不能说：</p>
+<ul>
+<li>不能说已经得到可直接实验执行的合成工艺；</li>
+<li>不能说酶步骤已经验证；</li>
+<li>不能说所有 <code>triage_fragment</code> 都可用；</li>
+<li>不能说当前 carrier/condition 逻辑已经完全通用；</li>
+<li>不能说无需专家后续审查。</li>
+</ul>
+<hr />
+<h2 id="参考文献与来源">10. 参考文献与来源</h2>
+<ol type="1">
+<li>Segler, M. H. S.; Preuss, M.; Waller, M. P. Planning chemical syntheses with deep neural networks and symbolic AI. Nature 555, 604-610 (2018). https://www.nature.com/articles/nature25978</li>
+<li>Genheden, S. et al. AiZynthFinder: a fast, robust and flexible open-source software for retrosynthetic planning. Journal of Cheminformatics 12, 70 (2020). https://jcheminf.biomedcentral.com/articles/10.1186/s13321-020-00472-1</li>
+<li>Coley, C. W. et al. A robotic platform for flow synthesis of organic compounds informed by AI planning. Science 365, eaax1566 (2019). https://doi.org/10.1126/science.aax1566</li>
+<li>Coley, C. W.; Green, W. H.; Jensen, K. F. RDChiral: An RDKit Wrapper for Handling Stereochemistry in Retrosynthetic Template Extraction and Application. Journal of Chemical Information and Modeling 59, 2529-2537 (2019). https://pubs.acs.org/doi/10.1021/acs.jcim.9b00286</li>
+<li>Finnigan, W.; Hepworth, L. J.; Flitsch, S. L.; Turner, N. J. RetroBioCat as a computer-aided synthesis planning tool for biocatalytic reactions and cascades. Nature Catalysis 4, 98-104 (2021). https://www.nature.com/articles/s41929-020-00556-z</li>
+<li>Thakkar, A. et al. Retrosynthetic accessibility score: rapid machine learned synthesizability classification from AI driven retrosynthetic planning. Chemical Science 12, 3339-3349 (2021). https://pubs.rsc.org/en/content/articlehtml/2021/sc/d0sc05401a</li>
+<li>ACS Green Chemistry Institute, Process Mass Intensity materials. https://www.acs.org/green-chemistry-sustainability/green-chemistry-nexus/articles/process-mass-intensity-calculation-tool.html</li>
+<li>ACS GCI Pharmaceutical Roundtable, Process Mass Intensity Metric. https://learning.acsgcipr.org/guides-and-metrics/metrics/process-mass-intensity-metric/</li>
+<li>Sheldon, R. A. The E factor at 30: a passion for pollution prevention. Green Chemistry 25, 1704 (2023). https://pubs.rsc.org/fa/content/articlelanding/2023/gc/d2gc04747k</li>
+</ol>
+</body>
+</html>

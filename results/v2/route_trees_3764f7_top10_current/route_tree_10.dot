@@ -1,0 +1,187 @@
+digraph RouteTree {
+  graph [rankdir=LR, bgcolor="white", pad="0.35", nodesep="0.62", ranksep="0.95", splines=spline, outputorder=edgesfirst];
+  node [shape=plain, fontname="Arial"];
+  edge [fontname="Arial", fontsize=9, color="#333333", arrowsize=0.7, penwidth=1.2];
+  labelloc="t";
+  label=<Route 10 | 18 steps | score 0.000301 | triage_fragment | acylating_piece_present, aryl_coupling_hint, carrier_reagent_terminal>;
+  n0 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#111111">
+<TR><TD BGCOLOR="#f0f0f0"><FONT POINT-SIZE="10"><B>TARGET</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/0b6996454ae09fe2.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(C)C1=NC(=NC(=C1/C=C/[C@H](C[C@H](CC(=O...</FONT></TD></TR>
+</TABLE>>];
+  n1 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/6a59dcc7d161d513.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(C)c1nc(N(C)S(C)(=O)=O)nc(-c2ccc(F)cc2)...</FONT></TD></TR>
+</TABLE>>];
+  n2 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/5c7f96ee7e82d868.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">[OH-]</FONT></TD></TR>
+</TABLE>>];
+  n3 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/e29273f4eef25340.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">COC(=O)C[C@H](O)C[C@H](O)/C=C/c1c(-c2ccc(...</FONT></TD></TR>
+</TABLE>>];
+  n4 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/e540e1696959b9d5.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">COC(=O)CC(=O)C[C@H](O)/C=C/c1c(-c2ccc(F)c...</FONT></TD></TR>
+</TABLE>>];
+  n5 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/0205dc34e441121a.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(C)c1nc(N(C)S(C)(=O)=O)nc(-c2ccc(F)cc2)...</FONT></TD></TR>
+</TABLE>>];
+  n6 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/6597368e79aef144.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">COC(=O)CC(=O)[O-]</FONT></TD></TR>
+</TABLE>>];
+  n7 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/29c4845e89e4713c.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(C)c1nc(N(C)S(C)(=O)=O)nc(-c2ccc(F)cc2)...</FONT></TD></TR>
+</TABLE>>];
+  n8 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/ca79ac7f201cbb6a.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(C)c1nc(N(C)S(C)(=O)=O)nc(-c2ccc(F)cc2)...</FONT></TD></TR>
+</TABLE>>];
+  n9 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/b2eed2c3d5baf19d.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(C)c1nc(N(C)S(C)(=O)=O)nc(-c2ccc(F)cc2)...</FONT></TD></TR>
+</TABLE>>];
+  n10 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/d150779d88df411e.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(=O)OC(C)(C)C</FONT></TD></TR>
+</TABLE>>];
+  n11 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/c22deec9ea926523.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(C)c1nc(N(C)S(C)(=O)=O)nc(-c2ccc(F)cc2)...</FONT></TD></TR>
+</TABLE>>];
+  n12 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/1c1c7505a32127bf.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CCOC(=O)/C=C/c1c(-c2ccc(F)cc2)nc(N(C)S(C)...</FONT></TD></TR>
+</TABLE>>];
+  n13 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/e214417a3034d458.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">OB(O)c1ccc(F)cc1</FONT></TD></TR>
+</TABLE>>];
+  n14 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/af0fa5ab6b68df64.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CCOC(=O)/C=C/c1c(Cl)nc(N(C)S(C)(=O)=O)nc1...</FONT></TD></TR>
+</TABLE>>];
+  n15 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/02fd5b9f346a5db9.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CCOC(=O)C=P(c1ccccc1)(c1ccccc1)c1ccccc1</FONT></TD></TR>
+</TABLE>>];
+  n16 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/4fff0bd9b8e6031a.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(C)c1nc(N(C)S(C)(=O)=O)nc(Cl)c1C=O</FONT></TD></TR>
+</TABLE>>];
+  n17 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/0d9d73b39100b629.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CN(C)C=O</FONT></TD></TR>
+</TABLE>>];
+  n18 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/d058e4ac1731a1d1.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(=O)c1c(C)nc(N(C)S(C)(=O)=O)nc1C(C)C</FONT></TD></TR>
+</TABLE>>];
+  n19 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/0d546e1fb7a6805d.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">O=C([O-])[O-]</FONT></TD></TR>
+</TABLE>>];
+  n20 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/cb9e36001db0774f.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(=O)c1c(C)nc(NS(C)(=O)=O)nc1C(C)C</FONT></TD></TR>
+</TABLE>>];
+  n21 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/434b8bc20bb18d9a.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(=O)c1c(C)nc(N)nc1C(C)C</FONT></TD></TR>
+</TABLE>>];
+  n22 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/e382f87867ea8d4c.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CS(=O)(=O)Cl</FONT></TD></TR>
+</TABLE>>];
+  n23 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/86fdcb62ab6c6044.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(=O)Cl</FONT></TD></TR>
+</TABLE>>];
+  n24 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/3ab16e862b70644f.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">Cc1cc(C(C)C)nc(N)n1</FONT></TD></TR>
+</TABLE>>];
+  n25 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/719befc7e9f897e9.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">N=C(N)N</FONT></TD></TR>
+</TABLE>>];
+  n26 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#bdbdbd">
+<TR><TD BGCOLOR="#ffffff"><FONT POINT-SIZE="10"><B>INTERMEDIATE</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/f77d2d5f20015346.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(=O)CC(=O)C(C)C</FONT></TD></TR>
+</TABLE>>];
+  n27 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/9c82a341e1dcedda.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CCOC(C)=O</FONT></TD></TR>
+</TABLE>>];
+  n28 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/e8df49dad1f0d6e4.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">CC(=O)C(C)C</FONT></TD></TR>
+</TABLE>>];
+  n29 [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#5f8f3d">
+<TR><TD BGCOLOR="#edf6e7"><FONT POINT-SIZE="10"><B>TERMINAL</B></FONT></TD></TR>
+<TR><TD FIXEDSIZE="TRUE" WIDTH="260" HEIGHT="170"><IMG SRC="results/v2/route_trees_3764f7_top10_current/molecules/1514bef6b5d440fc.png"/></TD></TR>
+<TR><TD><FONT POINT-SIZE="8">COC(=O)CC(=O)OC</FONT></TD></TR>
+</TABLE>>];
+  n0 -> n1 [label="S1.1 | enzymatic | EC 1.1.1.100 | 33 C"];
+  n0 -> n2 [label="S1.2 | enzymatic | EC 1.1.1.100 | 33 C"];
+  n1 -> n3 [label="S2.1 | enzymatic | EC 1.14.14.155 | 77 C"];
+  n3 -> n4 [label="S3.1 | enzymatic | EC 5.3.3.1 | -60 C"];
+  n4 -> n5 [label="S4.1 | enzymatic | EC 1.13.11.5 | 21 C"];
+  n4 -> n6 [label="S4.2 | enzymatic | EC 1.13.11.5 | 21 C"];
+  n5 -> n7 [label="S5.1 | enzymatic | EC 5.3.3.- | 46 C"];
+  n7 -> n8 [label="S6.1 | ChemEnzyRetroPlanner | 35 C"];
+  n8 -> n9 [label="S7.1 | enzymatic | EC 4.1.2.47 | -70 C"];
+  n8 -> n10 [label="S7.2 | enzymatic | EC 4.1.2.47 | -70 C"];
+  n9 -> n11 [label="S8.1 | ChemEnzyRetroPlanner | 22 C"];
+  n11 -> n12 [label="S9.1 | ChemEnzyRetroPlanner | -58 C"];
+  n12 -> n13 [label="S10.1 | ChemEnzyRetroPlanner | 105 C"];
+  n12 -> n14 [label="S10.2 | ChemEnzyRetroPlanner | 105 C"];
+  n14 -> n15 [label="S11.1 | template | 57 C"];
+  n14 -> n16 [label="S11.2 | template | 57 C"];
+  n16 -> n17 [label="S12.1 | ChemEnzyRetroPlanner | 38 C"];
+  n16 -> n18 [label="S12.2 | ChemEnzyRetroPlanner | 38 C"];
+  n18 -> n19 [label="S13.1 | enzymatic | EC 1.5.3.12 | 39 C"];
+  n18 -> n20 [label="S13.2 | enzymatic | EC 1.5.3.12 | 39 C"];
+  n20 -> n21 [label="S14.1 | template | 32 C"];
+  n20 -> n22 [label="S14.2 | template | 32 C"];
+  n21 -> n23 [label="S15.1 | template | 61 C"];
+  n21 -> n24 [label="S15.2 | template | 61 C"];
+  n24 -> n25 [label="S16.1 | template | 118 C"];
+  n24 -> n26 [label="S16.2 | template | 118 C"];
+  n26 -> n27 [label="S17.1 | ChemEnzyRetroPlanner | 84 C"];
+  n26 -> n28 [label="S17.2 | ChemEnzyRetroPlanner | 84 C"];
+  n6 -> n29 [label="S18.1 | enzymatic | EC 3.1.1.- | 130 C"];
+  { rank=same; n2; n10; n13; n15; n17; n19; n22; n23; n25; n27; n28; n29; }
+}

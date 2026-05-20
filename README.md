@@ -1,100 +1,96 @@
-# AutoPlanner
+# AutoPlanner-Cascade
 
-Chemo-enzymatic retrosynthesis planner — single-step models, multi-step search, condition prediction.
+AutoPlanner-Cascade is the active AutoPlanner research codebase for
+process-aware chemoenzymatic retrosynthesis. The current implementation keeps
+ChemEnzyRetroPlanner as the mature multi-step planning core, then adds
+coverage-aware controller logic, route-tree traces, typed candidate-miss audits,
+open-leaf policy training, cascade search contracts, and a web demo layer.
 
-## Layout
+The repository is intentionally organized around the current development path:
+improve candidate coverage and search access first, then train source scheduling
+and state/action value models, then add process repair actions.
 
-```
-AutoPlanner/
-├── cascade_planner/              active package (39 modules)
-│   ├── data/                     v2 loader, normalizer, strict filter, uniprot enrichment
-│   ├── expand/                   EnzExpand template model + rxnmapper pipeline
-│   ├── conditions/               T/pH/solvent/catalyst predictors + enzyme recommender
-│   ├── multistep/                AiZynthFinder MCTS bridge
-│   ├── eval/                     honest, K-budget-aware evaluators
-│   ├── demo/                     end-to-end demo pipeline
-│   ├── training/                 featurizer + baselines for v2
-│   └── paths.py                  results-dir helper (v1/v2/shared)
-├── cascade_dataset_v2.json               canonical raw (schema 2.0.0, 2491 records)
-├── cascade_dataset_v2.normalized.json    loader_v2 input (8748 steps, 3028 trainable)
-├── cascade_dataset_v2.strict.json        audit-clean subset (2300 steps, 26% retention)
-├── data/
-│   ├── benchmark_v2_100.{json,csv}       frozen 100-target multi-step benchmark
-│   └── uniprot_cache.json                REST cache
-├── results/
-│   ├── v1/ v2/ shared/           version-separated eval artefacts
-│   └── README.md                 results layout
-├── archive/
-│   ├── code/                     superseded code (v1 evaluators, v1 schema normalizer)
-│   ├── datasets/                 retired v1 snapshots
-│   ├── docs/                     early planning docs
-│   ├── logs/                     dated run-log dumps
-│   ├── migration_2026-04-23/     GPU-cluster migration bundle (zip + manifest)
-│   └── results/                  retired v1 result CSVs
-├── scripts/
-│   ├── archive_2026-04-23/       retired scratch scripts
-│   └── build_*.ps1               release packagers
-├── PROPOSAL.md                   KPI targets (K1-K7)
-└── STATUS_REPORT.md              honest progress vs KPIs (with baselines + lift)
-```
+## Current Result Anchor
 
-## Quickstart
+Current project summary:
 
-```powershell
-# 1. Data (one-time)
-python -m cascade_planner.data.normalize_v2 --in cascade_dataset_v2.json --out cascade_dataset_v2.normalized.json --report cascade_dataset_v2.quality.json
-python -m cascade_planner.data.strict_filter_v2   # produces cascade_dataset_v2.strict.json
+- [Current state, cleanup, and next step](docs/CURRENT_STATE_2026-05-19.md)
+- [Codebase status and cleanup guard](docs/CODEBASE_STATUS_2026-05-19.md)
+- [Model strengthening plan](docs/MODEL_STRENGTHENING_PLAN_2026-05-19.md)
+- [Phase I closeout report](docs/PHASE1_RESEARCH_CLOSURE_2026-05-15.md)
+- [Phase I cleanup manifest](docs/PHASE1_CLEANUP_MANIFEST_2026-05-15.md)
+- [Phase II completion audit](docs/PHASE2_COMPLETION_AUDIT_2026-05-15.md)
 
-# 2. Open dataset integration (EnzymeMap 33K + ReactZyme + USPTO-50K)
-python -m cascade_planner.data.open_datasets --verify
+Latest audited artifacts:
 
-# 3. Honest single-step audit (K-budget + random-in-pool baseline + lift)
-python -m cascade_planner.eval.hybrid_multi_audited
+- `results/shared/phase2_20260515/full100_abcd_gate30/reports/comparison.md`
+- `results/shared/phase2_20260515/quality_filter_ablation_gate30/reports_quality/comparison.md`
 
-# 4. Condition predictor honest diagnosis
-python -m cascade_planner.eval.condition_diagnosis
+Current conclusion:
 
-# 5. BRENDA-informed condition prediction (K5/K6)
-python -m cascade_planner.conditions.brenda_predictor --data workspace/cascade_dataset_v2.normalized.json --eval
+AutoPlanner is currently best read as a ChemEnzy-backed route generation and
+quality-control system. Student-only control remains below baseline; the usable
+path is to preserve strong ChemEnzy proposal/search capability, then add
+AutoPlanner-side queueing, stock policy, material-sanity audit, rejected-route
+traceability, and cascade-aware ranking/search hooks.
 
-# 6. Freeze 100-target multi-step benchmark
-python -m cascade_planner.eval.freeze_benchmark
+## Repository Layout
 
-# 7. EnzExpand reranker (LightGBM LambdaRank)
-#    boosts top-1 42.6% -> 49.5% on v2 full.
-python -m cascade_planner.expand.reranker --data workspace/cascade_dataset_v2.normalized.json --tag v2_mf2
-python -m cascade_planner.expand.reranker_freeze --candidates results/v2/reranker/candidates_v2_mf2.csv
+| Path | Purpose |
+| --- | --- |
+| `cascade_planner/route_tree/` | Active route-tree controller, proposal adapters, features, traces |
+| `cascade_planner/cascade_search/` | Cascade-native state/search contracts and controller layer |
+| `cascade_planner/vnext/` | Feature schemas and model-facing route/action representations |
+| `cascade_planner/eval/` | Benchmark, trace, audit, and training scripts |
+| `cascade_planner/web/` | Local demo web interface |
+| `dataset_v4_release/` | Current v4 cascade dataset release |
+| `data/` | Frozen benchmark inputs and small curated datasets |
+| `results/shared/` | Local benchmark outputs, traces, checkpoints, caches; ignored by git |
+| `docs/` | Current architecture notes, cleanup report, and postmortems |
+| `paper/nature_autoplanner_cascade/` | Nature-style manuscript draft, main figure, and PDF export |
+| `archive/` | Retired docs, old snapshots, and reference inputs |
+| `vendor/` | Local ChemEnzyRetroPlanner/vendor runtime; ignored by git |
+| `AI_OS_AutoResearch/` | Optional external integration checkout; ignored by this repo |
 
-# 8. ESM-2 enzyme embeddings (requires GPU)
-python -m cascade_planner.expand.esm_embedder --input data_external/enzyme_sequences/autoplanner_enzymes.tsv --output results/shared/esm_cache/embeddings.npz
+## Paper Draft
 
-# 9. Dual-tower contrastive model (K1/K7)
-python -m cascade_planner.expand.dual_tower --data workspace/cascade_dataset_v2.normalized.json --esm-cache results/shared/esm_cache/ --tag v1
+A draft manuscript and generated Figure 1 are available under:
 
-# 10. ESM-2 condition heads (K5/K6, requires ESM embeddings)
-python -m cascade_planner.conditions.esm_condition_heads --data workspace/cascade_dataset_v2.normalized.json --esm-cache results/shared/esm_cache/ --eval
-
-# 11. Route scoring (cascade compatibility)
-python -m cascade_planner.scoring.route_scorer --data workspace/cascade_dataset_v2.normalized.json --eval
-
-# 12. Multi-step solve-rate + GT@K on frozen 100-target benchmark
-python -m cascade_planner.eval.run_benchmark_v2_100 --max-iter 100 --max-depth 6
-
-# 13. DESP bidirectional search (requires DESP models, see desp_bridge.py)
-python -m cascade_planner.multistep.desp_bridge --targets-file data/benchmark_v2_100.json --output results/v2/desp_benchmark.json
+```text
+paper/nature_autoplanner_cascade/
 ```
 
-Outputs land under `results/v2/` by default (set `CASCADE_VERSION=v1` to target `results/v1/`).
+Build manually when a TeX toolchain is available:
 
-## Reporting discipline (mandatory)
+```bash
+cd paper/nature_autoplanner_cascade
+python scripts/make_main_figure.py
+pdflatex -interaction=nonstopmode -halt-on-error -output-directory build main.tex
+cp build/main.pdf build/autoplanner_cascade_nature_draft.pdf
+```
 
-Every single-step metric must carry `(model, baseline, lift = model / baseline)`. The reference evaluator is [cascade_planner/eval/hybrid_multi_audited.py](cascade_planner/eval/hybrid_multi_audited.py) — copy its pattern. Details: [STATUS_REPORT.md](STATUS_REPORT.md).
+## Quick Checks
 
-## Environments
+Focused checks for the latest policy/training path:
 
-Large weights/envs live outside this repo and are git-ignored:
-- `aizdata/` (~767 MB) — AiZynthFinder models + stock
-- `synth_weights/` (~1.1 GB) — syntheseus checkpoints
-- `.venv_aizynth/`, `ChemEnzyRetroPlanner/` — local envs
+```bash
+PYTHONPATH=. python tests/test_vnext_pack_and_training.py -v
+```
 
-For a clean GPU-cluster re-deploy see `archive/migration_2026-04-23/MIGRATION_MANIFEST.md` and `README_CLUSTER.md`.
+Full test discovery is useful before commits, but some historical tests may
+track older source-order expectations. Review failures before assuming a
+runtime regression.
+
+## Cleanup Notes
+
+The root-level `cascade_dataset_v2*.json`, `cascade_dataset_v3.json`,
+`templates*.csv.gz`, and `ecreact-1.0.csv` files remain in place because older
+scripts use them as default paths. Root-level reference image/PDF files were
+moved to `archive/reference_inputs_2026-05-12/`.
+
+Superseded 2026-05-14 phase-I drafts were removed after the closeout and
+their content was folded into the 2026-05-15 report and cleanup manifest.
+
+Generated AI_OS integration bundles from the Web demo work were archived under
+`archive/code/generated_patches_2026-05-19/`. Keep `AI_OS_AutoResearch/` as its
+own git checkout rather than adding it to this repository.

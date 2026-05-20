@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoPlanner-Cascade Demo</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body data-tool="plan" data-view="setup">
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div>
+          <h1>AutoPlanner-Cascade</h1>
+          <p>Process-aware cascade planner</p>
+        </div>
+        <span id="status-pill" class="pill muted">checking</span>
+      </div>
+
+      <nav class="mode-nav" aria-label="Workspace modes">
+        <button id="nav-plan" class="mode-btn active" type="button">
+          <span>路线搜索</span>
+          <small>核心工作台</small>
+        </button>
+        <button id="nav-artifacts" class="mode-btn" type="button">
+          <span>结果文件</span>
+          <small>报告与 JSON</small>
+        </button>
+        <button id="nav-demo" class="mode-btn" type="button">
+          <span>展示总览</span>
+          <small>当前结果与案例</small>
+        </button>
+        <button id="nav-benchmark" class="mode-btn" type="button">
+          <span>Benchmark</span>
+          <small>批量验收入口</small>
+        </button>
+      </nav>
+
+      <section class="panel compact-panel" id="demo-control-panel">
+        <div class="panel-head">
+          <h2>展示控制台</h2>
+          <span class="pill good">local</span>
+        </div>
+        <div class="sidebar-note">
+          <b>当前演示面板</b>
+          <span>展示 full100、hard-gap、模型状态和可讲解成功案例。</span>
+        </div>
+        <button id="open-cascade-demo" class="primary-btn" type="button">打开展示面板</button>
+      </section>
+
+      <section class="panel" id="route-control-panel">
+        <div class="panel-head">
+          <h2>路线搜索</h2>
+          <div class="route-actions">
+            <button id="sample-statin" class="small-btn" type="button">Statin</button>
+          </div>
+        </div>
+        <label>目标 SMILES</label>
+        <textarea id="target-smiles" spellcheck="false">CC(C)C1=NC(=NC(=C1/C=C/[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)N(C)S(=O)(=O)C</textarea>
+
+        <div class="grid two">
+          <div>
+            <label>预设</label>
+            <select id="search-preset">
+              <option value="quick">快速交互</option>
+              <option value="balanced">均衡搜索</option>
+              <option value="thorough">完整验证</option>
+            </select>
+          </div>
+          <div>
+            <label>设备</label>
+            <select id="device">
+              <option value="cuda">cuda</option>
+              <option value="cpu">cpu</option>
+            </select>
+          </div>
+        </div>
+
+        <label>终止库存</label>
+        <select id="stock-mode">
+          <option value="building-block" selected>Building block strict · PaRoutes n1</option>
+          <option value="benchmark-n5">Benchmark n5 · PaRoutes n5</option>
+          <option value="commercial">Commercial stock · ZINC</option>
+        </select>
+
+        <div class="grid two">
+          <div>
+            <label>最大深度</label>
+            <input id="max-steps" type="number" min="1" max="20" value="6">
+          </div>
+          <div>
+            <label>迭代</label>
+            <input id="chem-enzy-iterations" type="number" min="1" max="500" value="10">
+          </div>
+        </div>
+
+        <details class="advanced-controls">
+          <summary>高级参数</summary>
+          <div>
+            <label>扩展 top-k</label>
+            <input id="chem-enzy-expansion-topk" type="number" min="1" max="500" value="50">
+          </div>
+          <div class="grid two">
+            <label class="check-row">
+              <input id="enable-condition-prediction" type="checkbox" checked>
+              <span>预测反应条件</span>
+            </label>
+            <label class="check-row">
+              <input id="enable-enzyme-assignment" type="checkbox" checked>
+              <span>预测酶/EC 注释</span>
+            </label>
+          </div>
+          <label>约束 JSON</label>
+          <textarea id="constraints-json" class="constraints" spellcheck="false">{
+  "forbidden_intermediates": [],
+  "required_intermediates": []
+}</textarea>
+        </details>
+
+        <div class="plan-submit-row">
+          <button id="run-plan" class="primary-btn" type="button">加入路线队列</button>
+          <button id="cancel-plan" class="danger-btn" type="button" disabled>终止路线</button>
+        </div>
+      </section>
+
+      <section class="panel compact-panel" id="plan-job-panel">
+        <div class="panel-head">
+          <h2>路线任务</h2>
+          <button id="refresh-jobs" class="small-btn" type="button">Refresh</button>
+        </div>
+        <div id="plan-job-list" class="job-list">
+          <div class="job-empty">当前没有路线任务</div>
+        </div>
+      </section>
+
+      <section class="panel" id="benchmark-control-panel">
+        <div class="panel-head">
+          <h2>批量验收</h2>
+        </div>
+        <label>Benchmark</label>
+        <select id="bench-select">
+          <option value="data/benchmark_v2_100.json">benchmark_v2_100</option>
+          <option value="data/statin_smoke_2026-05-05.json">statin smoke</option>
+        </select>
+        <div class="grid two">
+          <div>
+            <label>深度</label>
+            <input id="eval-depths" value="3 4">
+          </div>
+          <div>
+            <label>每深度数量</label>
+            <input id="eval-n" type="number" min="1" max="50" value="3">
+          </div>
+        </div>
+        <div class="grid three">
+          <div>
+            <label>额外深度</label>
+            <input id="ultra-depth" type="number" min="1" max="12" value="6">
+          </div>
+          <div>
+            <label>额外目标数</label>
+            <input id="ultra-targets" type="number" min="0" max="50" value="2">
+          </div>
+          <div>
+            <label>运行标签</label>
+            <input id="eval-label" value="ui_depth">
+          </div>
+        </div>
+        <button id="run-eval" class="secondary-btn" type="button">开始批量验收</button>
+        <div id="job-box" class="job-box muted">当前没有运行任务</div>
+      </section>
+
+      <section class="panel compact-panel" id="artifact-control-panel">
+        <div class="panel-head">
+          <h2>结果文件</h2>
+          <button id="refresh-artifacts" class="small-btn" type="button">Refresh</button>
+        </div>
+        <div class="sidebar-note">
+          <b>本地 artifacts</b>
+          <span>打开右侧文件栏查看 benchmark 报告、trace JSON 和模型报告。</span>
+        </div>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div class="topbar-main">
+          <div class="topbar-copy">
+            <h2 id="view-title">工作台</h2>
+            <p id="view-subtitle">提交分子路线搜索，或打开已有结果。</p>
+          </div>
+          <button id="toggle-artifacts" class="small-btn topbar-toggle" type="button">结果文件</button>
+        </div>
+        <div class="topbar-metrics">
+          <div id="summary-cards" class="summary-cards"></div>
+        </div>
+      </header>
+
+      <section class="content-grid">
+        <div class="main-column">
+          <section class="panel route-panel" id="primary-panel">
+            <div class="panel-head">
+              <div class="panel-title-line">
+                <h2 id="primary-panel-title">路线结果</h2>
+                <span id="route-meta" class="pill muted">idle</span>
+              </div>
+              <div class="route-actions">
+                <button id="expand-details" class="small-btn" type="button">展开</button>
+                <button id="collapse-details" class="small-btn" type="button">收起</button>
+              </div>
+            </div>
+            <div id="route-view" class="empty-state">尚未加载路线。</div>
+          </section>
+
+          <section class="panel" id="steps-panel">
+            <div class="panel-head">
+              <h2 id="steps-title">反应步骤</h2>
+              <span id="step-count" class="pill muted">0</span>
+            </div>
+            <div id="step-table" class="step-table"></div>
+          </section>
+        </div>
+
+        <aside class="right-column" id="side-inspector">
+          <section class="panel" id="skeleton-panel">
+            <div class="panel-head">
+              <h2>骨架先验</h2>
+              <span id="skeleton-count" class="pill muted">0</span>
+            </div>
+            <div id="skeleton-view" class="stack"></div>
+          </section>
+
+          <section class="panel" id="metrics-panel">
+            <div class="panel-head">
+              <h2>路线诊断</h2>
+              <span id="metric-state" class="pill muted">empty</span>
+            </div>
+            <div id="metrics-view" class="metrics"></div>
+          </section>
+
+          <section class="panel artifacts-panel" id="artifacts-panel">
+            <div class="panel-head">
+              <h2>结果文件</h2>
+              <span id="artifact-count" class="pill muted">0</span>
+            </div>
+            <div id="artifact-list" class="artifact-list"></div>
+          </section>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

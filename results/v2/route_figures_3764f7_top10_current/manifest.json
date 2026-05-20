@@ -1,0 +1,47 @@
+{
+  "source": "results/v2/ui_chem_enzy_plan_20260519_032819_3764f7_reaudited_current.json",
+  "output_dir": "results/v2/route_figures_3764f7_top10_current",
+  "n_routes": 10,
+  "figures": [
+    {
+      "rank": 1,
+      "svg": "route_01.svg"
+    },
+    {
+      "rank": 2,
+      "svg": "route_02.svg"
+    },
+    {
+      "rank": 3,
+      "svg": "route_03.svg"
+    },
+    {
+      "rank": 4,
+      "svg": "route_04.svg"
+    },
+    {
+      "rank": 5,
+      "svg": "route_05.svg"
+    },
+    {
+      "rank": 6,
+      "svg": "route_06.svg"
+    },
+    {
+      "rank": 7,
+      "svg": "route_07.svg"
+    },
+    {
+      "rank": 8,
+      "svg": "route_08.svg"
+    },
+    {
+      "rank": 9,
+      "svg": "route_09.svg"
+    },
+    {
+      "rank": 10,
+      "svg": "route_10.svg"
+    }
+  ]
+}

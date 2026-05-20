@@ -31,3 +31,10 @@ def shared_dir() -> Path:
     p = RESULTS_BASE / "shared"
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def aizdata_dir() -> Path:
+    p = ROOT / "workspace" / "aizdata"
+    if p.exists():
+        return p
+    return ROOT / "aizdata"

@@ -1,0 +1,65 @@
+{
+  "source": "results/v2/ui_chem_enzy_plan_20260519_032819_3764f7_reaudited_current.json",
+  "figures": [
+    {
+      "rank": 1,
+      "dot": "route_tree_01.dot",
+      "svg": "route_tree_01.svg",
+      "pdf": "route_tree_01.pdf"
+    },
+    {
+      "rank": 2,
+      "dot": "route_tree_02.dot",
+      "svg": "route_tree_02.svg",
+      "pdf": "route_tree_02.pdf"
+    },
+    {
+      "rank": 3,
+      "dot": "route_tree_03.dot",
+      "svg": "route_tree_03.svg",
+      "pdf": "route_tree_03.pdf"
+    },
+    {
+      "rank": 4,
+      "dot": "route_tree_04.dot",
+      "svg": "route_tree_04.svg",
+      "pdf": "route_tree_04.pdf"
+    },
+    {
+      "rank": 5,
+      "dot": "route_tree_05.dot",
+      "svg": "route_tree_05.svg",
+      "pdf": "route_tree_05.pdf"
+    },
+    {
+      "rank": 6,
+      "dot": "route_tree_06.dot",
+      "svg": "route_tree_06.svg",
+      "pdf": "route_tree_06.pdf"
+    },
+    {
+      "rank": 7,
+      "dot": "route_tree_07.dot",
+      "svg": "route_tree_07.svg",
+      "pdf": "route_tree_07.pdf"
+    },
+    {
+      "rank": 8,
+      "dot": "route_tree_08.dot",
+      "svg": "route_tree_08.svg",
+      "pdf": "route_tree_08.pdf"
+    },
+    {
+      "rank": 9,
+      "dot": "route_tree_09.dot",
+      "svg": "route_tree_09.svg",
+      "pdf": "route_tree_09.pdf"
+    },
+    {
+      "rank": 10,
+      "dot": "route_tree_10.dot",
+      "svg": "route_tree_10.svg",
+      "pdf": "route_tree_10.pdf"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+\begin{table}[t]
+\caption{\textbf{Full100 benchmark changes after coverage and search-access fixes.}
+The comparison uses the local 2026-05-09 route-tree baseline and the 2026-05-11 coverage-fix run with stock checking enabled. Higher is better except runtime.}
+\label{tab:full100}
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Metric & Baseline & Current & Change \\
+\midrule
+Plan rate & 0.76 & 0.97 & +0.21 \\
+Skeleton type GT@1 & 0.58 & 0.70 & +0.12 \\
+Skeleton type GT@5 & 0.61 & 0.73 & +0.12 \\
+Candidate exact reaction in pool & 0.24 & 0.40 & +0.16 \\
+Candidate GT reactant in pool & 0.40 & 0.58 & +0.18 \\
+Exact reaction in route pool & 0.22 & 0.26 & +0.04 \\
+GT reactant in route pool & 0.38 & 0.44 & +0.06 \\
+Condition-window success & 0.68 & 0.76 & +0.08 \\
+Cascade-compatibility success & 0.68 & 0.76 & +0.08 \\
+Strict stock solve & 0.50 & 0.31 & -0.19 \\
+Average time per target (s) & 17.68 & 14.76 & -2.92 \\
+\bottomrule
+\end{tabular}
+\end{table}

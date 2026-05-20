@@ -1,0 +1,8 @@
+Scientific publication main figure, Nature Portfolio graphical abstract style, no text at all.
+Subject: AutoPlanner-Cascade, a process-aware chemoenzymatic retrosynthesis planner.
+Wide landscape 16:9 on a clean white background.
+Visual flow from left to right: a target molecule icon and retrosynthetic molecule graph, then a search frontier with branching candidate reactions, then process-aware cascade program layers including stage graph, condition envelopes, enzyme modules, cofactor ledger, evidence links, and stock closure.
+Use crisp vector-like shapes, fine lines, muted teal, forest green, slate, and soft gold accents.
+Four clean panel regions separated by subtle lines, with large empty space for later LaTeX labels.
+No readable letters, no numbers, no logos, no watermark, no real chemical identifier text, no UI screenshot style.
+High-resolution, polished, suitable as a paper Figure 1 background.

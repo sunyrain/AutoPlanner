@@ -171,6 +171,25 @@ class DualTowerDataset(Dataset):
 # ------------------------------------------------------------------ enzyme bank
 
 
+def _resolve_cache_entry_path(cache_dir: Path, entry: dict) -> Path:
+    """Resolve old and new ESM cache-index path formats.
+
+    Older cache_index.json files stored paths as ``results/shared/esm_cache/x.npy``
+    while newer code expects paths relative to ``cache_dir``.  Try both forms so
+    trained dual-tower checkpoints remain usable after repo cleanup.
+    """
+    raw = Path(str(entry.get("path", "")))
+    candidates = []
+    if raw.is_absolute():
+        candidates.append(raw)
+    else:
+        candidates.extend([raw, cache_dir / raw, cache_dir / raw.name])
+    for path in candidates:
+        if path.exists():
+            return path
+    return cache_dir / raw.name
+
+
 def build_enzyme_bank(
     esm_cache_path: str | Path,
     metadata_path: str | Path | None = None,
@@ -193,7 +212,7 @@ def build_enzyme_bank(
     embeddings = []
     metadata = []
     for seq_hash, entry in index.items():
-        npy_path = cache_dir / entry["path"]
+        npy_path = _resolve_cache_entry_path(cache_dir, entry)
         if not npy_path.exists():
             continue
         emb = np.load(npy_path).astype(np.float32)
@@ -201,6 +220,7 @@ def build_enzyme_bank(
         metadata.append({
             "seq_hash": seq_hash,
             "uniprot_id": entry.get("uniprot_id"),
+            "ec_number": entry.get("ec_number"),
             "dim": int(emb.shape[0]),
         })
 
@@ -208,6 +228,93 @@ def build_enzyme_bank(
         raise ValueError(f"No embeddings found in {cache_dir}")
 
     return np.stack(embeddings), metadata
+
+
+def _normalise_state_dict_keys(state: dict) -> dict:
+    state = dict(state)
+    if "log_temp" in state and "log_temperature" not in state:
+        state["log_temperature"] = state.pop("log_temp")
+    return state
+
+
+def load_dual_tower_checkpoint(
+    checkpoint_path: str | Path,
+    *,
+    device: str = DEVICE,
+    hidden: int | None = None,
+    embed_dim: int | None = None,
+    temperature: float = 0.07,
+) -> DualTowerModel:
+    """Load a dual-tower checkpoint, including old ``log_temp`` checkpoints."""
+    state = torch.load(checkpoint_path, map_location=device)
+    if isinstance(state, dict) and "model_state_dict" in state:
+        state = state["model_state_dict"]
+    state = _normalise_state_dict_keys(state)
+
+    rxn_w = state.get("rxn_tower.net.0.weight")
+    enz_w = state.get("enz_tower.net.0.weight")
+    proj_w = state.get("rxn_tower.net.3.weight")
+    rxn_dim = int(rxn_w.shape[1]) if rxn_w is not None else 2048
+    enz_dim = int(enz_w.shape[1]) if enz_w is not None else 1280
+    hidden = int(rxn_w.shape[0]) if hidden is None and rxn_w is not None else (hidden or 512)
+    embed_dim = int(proj_w.shape[0]) if embed_dim is None and proj_w is not None else (embed_dim or 256)
+
+    model = DualTowerModel(
+        rxn_dim=rxn_dim,
+        enz_dim=enz_dim,
+        hidden=hidden,
+        embed_dim=embed_dim,
+        temperature=temperature,
+    ).to(device)
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    unexpected = [k for k in unexpected if k != "log_temp"]
+    if unexpected:
+        raise RuntimeError(f"Unexpected checkpoint keys in {checkpoint_path}: {unexpected[:10]}")
+    if missing:
+        logger.warning("Missing checkpoint keys in %s: %s", checkpoint_path, missing[:10])
+    model.eval()
+    return model
+
+
+class DualTowerRetriever:
+    """Batch enzyme retriever for candidate annotation."""
+
+    def __init__(
+        self,
+        checkpoint_path: str | Path,
+        esm_cache_path: str | Path,
+        *,
+        device: str = DEVICE,
+    ) -> None:
+        self.device = device
+        self.model = load_dual_tower_checkpoint(checkpoint_path, device=device)
+        enzyme_bank, enzyme_meta = build_enzyme_bank(esm_cache_path)
+        self.enzyme_meta = enzyme_meta
+        bank_t = torch.tensor(enzyme_bank, dtype=torch.float32, device=device)
+        with torch.no_grad():
+            self.bank_embed = self.model.enz_tower(bank_t)
+
+    def rank(self, reaction_smiles: str, *, topk: int = 5) -> list[dict]:
+        if not reaction_smiles or ">>" not in reaction_smiles:
+            return []
+        fp = drfp_one(reaction_smiles, n_bits=2048)
+        fp_t = torch.tensor(fp, dtype=torch.float32, device=self.device).view(1, -1)
+        with torch.no_grad():
+            rxn_embed = self.model.rxn_tower(fp_t)
+            sims = (rxn_embed @ self.bank_embed.T).squeeze(0)
+            k = min(topk, sims.numel())
+            vals, idxs = torch.topk(sims, k=k)
+        out = []
+        for rank, (val, idx) in enumerate(zip(vals.tolist(), idxs.tolist()), start=1):
+            meta = self.enzyme_meta[int(idx)]
+            out.append({
+                "rank": rank,
+                "score": float(val),
+                "uniprot_id": meta.get("uniprot_id"),
+                "ec_number": meta.get("ec_number"),
+                "seq_hash": meta.get("seq_hash"),
+            })
+        return out
 
 
 # ------------------------------------------------------------------ evaluation
@@ -491,7 +598,7 @@ def _load_esm_cache(cache_dir: str | Path) -> dict[str, np.ndarray]:
         uid = entry.get("uniprot_id")
         if not uid:
             continue
-        npy_path = cache_dir / entry["path"]
+        npy_path = _resolve_cache_entry_path(cache_dir, entry)
         if npy_path.exists():
             mapping[uid] = np.load(npy_path).astype(np.float32)
     return mapping

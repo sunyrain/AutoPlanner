@@ -1,13 +1,13 @@
 """End-to-end per-step demo for the presentation.
 
-For each of the 6 hand-picked demo cases (in results/demo_picks.json), runs:
+For each of the 6 hand-picked demo cases (in results/shared/demo_picks.json), runs:
   Step 1  Condition predictor  (EC1-mean for T/pH, mode for solvent)   vs GT
   Step 2  Enzyme recommender   (Tanimoto + frequency, by_product)     vs GT
   Step 3  EnzExpand template   (ONNX top-K + rdchiral)                vs GT precursors
 
 All training-side computation excludes the demo's own DOI to avoid leakage.
 
-Output: results/demo_pipeline_report.json + a printed table.
+Output: results/shared/demo_pipeline_report.json + a printed table.
 """
 from __future__ import annotations
 
@@ -23,14 +23,16 @@ from rdkit import Chem, DataStructs, RDLogger
 from rdkit.Chem import AllChem
 
 from cascade_planner.conditions.enzyme_recommend import collect_records, by_product
+from cascade_planner.paths import aizdata_dir, shared_dir
 
 RDLogger.DisableLog("rdApp.*")
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-RESULTS = ROOT / "results"
+RESULTS = shared_dir()
 DATA_PATH = ROOT / "cascade_dataset_v2.normalized.json"
-ONNX_PATH = ROOT / "aizdata" / "enzexpand_model.onnx"
-TPL_PATH = ROOT / "aizdata" / "enzexpand_templates.csv.gz"
+AIZDATA = aizdata_dir()
+ONNX_PATH = AIZDATA / "enzexpand_model.onnx"
+TPL_PATH = AIZDATA / "enzexpand_templates.csv.gz"
 
 TOPK_TPL = 25  # how many templates we try with rdchiral
 TOPK_REC = 3

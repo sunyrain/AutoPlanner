@@ -1,20 +1,18 @@
 """One-time atom-mapping of all enzymatic reactions in our snapshot.
 
 Outputs a JSON dict {raw_rxn_smiles: mapped_rxn_smiles_or_null}
-to results/enzexpand_atommap_cache.json.
+to results/shared/enzexpand_atommap_cache.json.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
-from pathlib import Path
 
 from cascade_planner.data.loader_v2 import load_v2
+from cascade_planner.paths import shared_dir
 
-RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "results"
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+RESULTS_DIR = shared_dir()
 
 
 def main():

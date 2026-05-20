@@ -1,0 +1,37 @@
+{
+  "description": "Objective-specific route preference pairs for learned Bradley-Terry training.",
+  "required_fields": [
+    "annotator_type",
+    "label",
+    "objective",
+    "pair_id",
+    "route_a",
+    "route_b"
+  ],
+  "valid_objectives": [
+    "balanced",
+    "green",
+    "industrial",
+    "novelty"
+  ],
+  "valid_labels": [
+    "a_preferred",
+    "b_preferred",
+    "incomparable",
+    "tie"
+  ],
+  "route_fields_minimum": [
+    "route_id",
+    "target_smiles",
+    "steps",
+    "quality_vector",
+    "risk_vector",
+    "candidate_sources"
+  ],
+  "notes": [
+    "Use label=incomparable for Pareto-incomparable routes; these pairs are excluded from BT loss.",
+    "Do not convert synthetic clean-vs-corrupted labels into objective-specific human preference labels.",
+    "Keep annotator_type separate: expert, chemist, process_engineer, computed_rule, or user_feedback.",
+    "Include rationale/free-text when available, but model training should not require it."
+  ]
+}

@@ -1,6 +1,7 @@
 """Find a few representative cascade steps for the presentation."""
 import json
-import sys
+
+from cascade_planner.paths import shared_dir
 
 d = json.load(open('cascade_dataset_v2.normalized.json', encoding='utf-8'))
 recs = d['records_kept']
@@ -61,5 +62,6 @@ for i, c in enumerate(picks):
     print(f'  enz      : {c["enz_name"]} (Uniprot={c["uniprot"]}, org={c["org"]})')
     print(f'  T={c["T"]}°C  pH={c["pH"]}  solvent={c["solvent"]}')
 
-json.dump(picks, open('results/demo_picks.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
-print('\nSaved -> results/demo_picks.json')
+out_path = shared_dir() / 'demo_picks.json'
+json.dump(picks, open(out_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+print(f'\nSaved -> {out_path}')

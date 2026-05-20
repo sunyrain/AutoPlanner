@@ -38,6 +38,7 @@ from sklearn.linear_model import LogisticRegression
 from cascade_planner.conditions.predict_conditions import _topk_label
 from cascade_planner.data.loader_v2 import load_v2
 from cascade_planner.training.featurize_v2 import drfp_batch
+from cascade_planner.paths import aizdata_dir
 
 RDLogger.DisableLog("rdApp.*")
 warnings.filterwarnings("ignore")
@@ -45,7 +46,7 @@ warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent.parent.parent
 RESULTS = ROOT / "results"
 AIZ_PY = ROOT / ".venv_aizynth" / "Scripts" / "python.exe"
-AIZ_CONFIG = ROOT / "aizdata" / "config.yml"
+AIZ_CONFIG = aizdata_dir() / "config.yml"
 BRIDGE = ROOT / "cascade_planner" / "multistep" / "aiz_mcts_bridge.py"
 
 

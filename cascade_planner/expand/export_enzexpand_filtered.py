@@ -12,10 +12,11 @@ from cascade_planner.expand.enz_template import train as train_mlp
 from cascade_planner.expand.enzymemap_loader import (
     extract_templates_from_enzymemap, load_filtered)
 from cascade_planner.expand.export_enzexpand_onnx import SoftmaxWrapper, template_hash
+from cascade_planner.paths import aizdata_dir
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent.parent.parent
-AIZDATA = ROOT / "aizdata"
+AIZDATA = aizdata_dir()
 
 def lhs_frag_count(t: str) -> int:
     return t.split(">>")[0].count(".") + 1

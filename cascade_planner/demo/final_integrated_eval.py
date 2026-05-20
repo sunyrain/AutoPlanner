@@ -44,6 +44,7 @@ from cascade_planner.expand.enz_template import (apply_template_to_product,
                                                   predict_topk, train as train_mlp)
 from cascade_planner.expand.enzymemap_loader import (extract_templates_from_enzymemap,
                                                       load_filtered)
+from cascade_planner.paths import aizdata_dir
 from cascade_planner.training.featurize_v2 import drfp_batch
 
 RDLogger.DisableLog("rdApp.*")
@@ -52,7 +53,7 @@ warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent.parent.parent
 RESULTS = ROOT / "results"
 AIZ_PY = ROOT / ".venv_aizynth" / "Scripts" / "python.exe"
-AIZ_CONFIG = ROOT / "aizdata" / "config.yml"
+AIZ_CONFIG = aizdata_dir() / "config.yml"
 
 
 def fit_clf(X, y):

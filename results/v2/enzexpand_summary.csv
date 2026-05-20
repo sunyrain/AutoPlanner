@@ -1,2 +1,0 @@
-model,n_steps_eval,top1,top5,top10,top50,n_templates_kept,min_freq,topk_pred
-EnzExpand-A (rdchiral+MLP),356,0.25280898876404495,0.3792134831460674,0.45786516853932585,0.49719101123595505,93,2,50

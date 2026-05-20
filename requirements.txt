@@ -1,13 +1,14 @@
 # Main env requirements (training + condition + recommender)
-# Python 3.11
-torch==2.5.1
+# Validated on Python 3.12.4 in this workspace. Python 3.11 should also work,
+# but keep numpy/rdkit aligned with AiZynthFinder 4.4.x constraints.
+torch==2.3.0
 transformers>=4.43,<4.50
-rdkit>=2024.3.5
+rdkit>=2023.9.1,<2024.0
 rxnmapper==0.4.3
-drfp>=0.3.10
-scikit-learn>=1.5
+drfp==0.2.6
+scikit-learn>=1.2
 pandas>=2.2
-numpy<2.1
+numpy>=1.26,<2.0
 onnxruntime-gpu>=1.20
 onnx>=1.16
 huggingface-hub>=0.24
@@ -15,3 +16,4 @@ tqdm
 matplotlib
 pyyaml
 requests
+flask>=3.0,<4

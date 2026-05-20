@@ -35,11 +35,12 @@ from cascade_planner.demo.final_integrated_eval import build_template_pool
 from cascade_planner.expand.enz_template import TemplateMLP, train as train_mlp
 from cascade_planner.expand.enzymemap_loader import (extract_templates_from_enzymemap,
                                                       load_filtered)
+from cascade_planner.paths import aizdata_dir
 
 warnings.filterwarnings("ignore")
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-AIZDATA = ROOT / "aizdata"
+AIZDATA = aizdata_dir()
 
 
 class SoftmaxWrapper(nn.Module):

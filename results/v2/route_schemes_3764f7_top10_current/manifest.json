@@ -1,0 +1,55 @@
+{
+  "source": "results/v2/ui_chem_enzy_plan_20260519_032819_3764f7_reaudited_current.json",
+  "figures": [
+    {
+      "rank": 1,
+      "svg": "scheme_route_01.svg",
+      "pdf": "scheme_route_01.pdf"
+    },
+    {
+      "rank": 2,
+      "svg": "scheme_route_02.svg",
+      "pdf": "scheme_route_02.pdf"
+    },
+    {
+      "rank": 3,
+      "svg": "scheme_route_03.svg",
+      "pdf": "scheme_route_03.pdf"
+    },
+    {
+      "rank": 4,
+      "svg": "scheme_route_04.svg",
+      "pdf": "scheme_route_04.pdf"
+    },
+    {
+      "rank": 5,
+      "svg": "scheme_route_05.svg",
+      "pdf": "scheme_route_05.pdf"
+    },
+    {
+      "rank": 6,
+      "svg": "scheme_route_06.svg",
+      "pdf": "scheme_route_06.pdf"
+    },
+    {
+      "rank": 7,
+      "svg": "scheme_route_07.svg",
+      "pdf": "scheme_route_07.pdf"
+    },
+    {
+      "rank": 8,
+      "svg": "scheme_route_08.svg",
+      "pdf": "scheme_route_08.pdf"
+    },
+    {
+      "rank": 9,
+      "svg": "scheme_route_09.svg",
+      "pdf": "scheme_route_09.pdf"
+    },
+    {
+      "rank": 10,
+      "svg": "scheme_route_10.svg",
+      "pdf": "scheme_route_10.pdf"
+    }
+  ]
+}

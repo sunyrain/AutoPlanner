@@ -15,6 +15,10 @@ venv/
 # Environment / secrets
 .env
 .env.*
+!.env.example
+!.env.local.example
+.claude/
+config/
 
 # IDE
 .vscode/
@@ -30,6 +34,7 @@ aizdata/
 synth_weights/
 data_external/
 ChemEnzyRetroPlanner/
+vendor/ChemEnzyRetroPlanner/
 backup_from_zip/
 
 # Legacy migration bundle
@@ -42,6 +47,8 @@ cascade_dataset_v2.normalized.json
 cascade_dataset_v2.strict.json
 cascade_dataset_v2.quality.json
 cascade_dataset_v2.strict.report.json
+cascade_dataset_v3.json
+dataset_v4_release/
 
 # Run logs at repo root
 *.log
@@ -51,13 +58,77 @@ _smoke_*.py
 _repair_*.py
 _inspect*.py
 
+# External integration workspace checked out beside AutoPlanner sources.
+# Keep it as its own git repository instead of committing it into this repo.
+AI_OS_AutoResearch/
+AI_OS_AutoResearch_*.bundle
+AI_OS_AutoResearch_*.patch
+
 # Big local-only artefacts (added 2026-04-25)
 workspace/
+releases/
 results/v2/k2_preds/
 results/v2/*.json
+results/v2/*.csv
+results/v2/*.md
+results/v2/*.pid
+results/v2/live_benchmark_*.stdout
+results/v2/live_benchmark_*.stderr
+results/v2/kpi_*.stdout
+results/v2/kpi_*.stderr
+results/v2/prior_benchmark_*.stdout
+results/v2/prior_benchmark_*.stderr
 *.zip
 *.zip.sha256
+*.tar
+*.tar.gz
+*.tar.bz2
+*.csv.gz
+*.ckpt
+last*.ckpt
+ecreact-1.0.csv
+templates*.csv.gz
+image.png
 archive/datasets/
 archive/results/
 archive/logs/
 archive/code/
+
+# Generated model and benchmark artefacts. Keep only curated summaries in git.
+ref_routes_n*.json
+targets_n*.txt
+results/enzexpand_*.csv
+results/enzexpand_*.json
+results/shared/**
+results/shared/
+results/shared/**/*.pt
+results/shared/**/*.ckpt
+results/shared/**/*.pth
+results/shared/**/*.npz
+results/shared/**/*.npy
+results/shared/**/*.json
+results/shared/**/*.jsonl
+results/shared/**/*.pkl
+results/shared/**/best.pt
+results/shared/**/final.pt
+results/shared/**/history.json
+results/shared/enzymemap_training_data/
+results/shared/*_cache.json
+results/shared/pseudo_cascades_enzymemap.json
+results/shared/training_summary*.json
+results/shared/zinc_inchikeys.txt
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+archive/docs_*/
+archive/cleanup_*/docs/
+
+# Generated manuscript build products
+paper/**/build/*.aux
+paper/**/build/*.log
+paper/**/build/*.out
+paper/**/build/*.toc
+paper/**/build/*.fls
+paper/**/build/*.fdb_latexmk
