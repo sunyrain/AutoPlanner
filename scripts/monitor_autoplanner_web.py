@@ -76,4 +76,3 @@ def _fetch_json(url: str) -> dict[str, Any]:
 
 if __name__ == "__main__":
     main()
-

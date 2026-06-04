@@ -219,6 +219,9 @@ def _read_pickle(path: Path) -> dict[str, Any]:
 
 
 def main() -> None:
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("replay_route_block_value_model")
     ap = argparse.ArgumentParser(description="Replay route/block value model as fixed-pool final reranker")
     ap.add_argument("--pack", required=True)
     ap.add_argument("--model-pickle", required=True)

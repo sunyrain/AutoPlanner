@@ -1,0 +1,1933 @@
+{
+  "schema_version": "strategic_disconnections.v2_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Expanded public-literature strategic disconnection sources for recurring medicinal-chemistry, natural-product, and semisynthesis route families. These records are high-level route priors, not executable reaction procedures.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template promotion",
+      "separate stock or anchor policy",
+      "risk tags for regioselectivity, stereoselectivity, safety, legality, and protecting-group burden"
+    ],
+    "safety_scope": [
+      "records intentionally avoid operational conditions and quantities",
+      "regulated or toxic target families require project-level permission and compliance review before proposal generation"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "spiroketal_polyether",
+      "name": "Spiroketals, polyether ladders, and spiroacetal natural products",
+      "pattern_keywords": [
+        "spiroketal",
+        "spiroacetal",
+        "polyether",
+        "nonanomeric spiroketal",
+        "dihydroxy ketone",
+        "hemiketal",
+        "spongistatin",
+        "altohyrtin",
+        "rubromycin"
+      ],
+      "strategic_principle": "Disconnect spiroketals to masked dihydroxy-ketone, hydroxy-enol-ether, or ketalization cascade precursors. Treat spirocenter stereochemistry and thermodynamic versus kinetic control as route-defining metadata.",
+      "negative_signals": [
+        "spiroketal ring left intact through only protecting-group changes",
+        "no plan for anomeric or nonanomeric spirocenter selectivity",
+        "polyether ladder fragmented without stereochemical or cascade rationale"
+      ]
+    },
+    {
+      "family_id": "flavonoid_chalcone_chromone",
+      "name": "Flavonoids, chalcones, flavanones, and chromones",
+      "pattern_keywords": [
+        "flavonoid",
+        "chalcone",
+        "flavanone",
+        "flavone",
+        "chromone",
+        "Baker-Venkataraman",
+        "Kostanecki",
+        "Claisen-Schmidt"
+      ],
+      "strategic_principle": "Expose the C6-C3-C6 flavonoid logic: split to substituted acetophenone/benzaldehyde chalcone precursors or to beta-diketone intermediates for chromone/flavone closure."
+    },
+    {
+      "family_id": "coumarin_chromenone",
+      "name": "Coumarins and 2H-chromenone scaffolds",
+      "pattern_keywords": [
+        "coumarin",
+        "chromenone",
+        "benzopyrone",
+        "Pechmann",
+        "Knoevenagel",
+        "Perkin",
+        "o-hydroxybenzaldehyde",
+        "resorcinol"
+      ],
+      "strategic_principle": "Disconnect the benzopyrone to salicylaldehyde/phenol plus activated carbonyl partners. Track whether the target substitution pattern points to Pechmann, Knoevenagel, Perkin, or Kostanecki-type annulation."
+    },
+    {
+      "family_id": "lignan_neolignan",
+      "name": "Lignans, neolignans, and phenylpropanoid dimers",
+      "pattern_keywords": [
+        "lignan",
+        "neolignan",
+        "phenylpropanoid",
+        "dibenzylbutane",
+        "aryltetralin",
+        "dibenzocyclooctadiene",
+        "oxidative coupling",
+        "coniferyl alcohol"
+      ],
+      "strategic_principle": "Map lignans to two C6-C3 phenylpropanoid units and choose oxidative coupling, conjugate addition, or lactonization logic before late O-methylation/O-demethylation edits."
+    },
+    {
+      "family_id": "steroid_semisynthesis",
+      "name": "Steroid drugs and non-bufadienolide semisynthesis",
+      "pattern_keywords": [
+        "steroid",
+        "estrane",
+        "androstane",
+        "pregnane",
+        "corticosteroid",
+        "chiral pool",
+        "semisynthesis",
+        "C17 side chain",
+        "C11 hydroxylation"
+      ],
+      "strategic_principle": "Treat the steroid tetracycle as a chiral-pool or convergent core unless total synthesis is explicitly requested. Prioritize side-chain, oxidation-state, halogenation, and lactone/ester edits with clear stereochemical lineage."
+    },
+    {
+      "family_id": "porphyrin_tetrapyrrole",
+      "name": "Porphyrins, chlorins, and tetrapyrrole macrocycles",
+      "pattern_keywords": [
+        "porphyrin",
+        "chlorin",
+        "tetrapyrrole",
+        "pyrrole",
+        "aryl aldehyde",
+        "Rothemund",
+        "Adler-Longo",
+        "Lindsey",
+        "biladiene"
+      ],
+      "strategic_principle": "Disconnect tetrapyrrole macrocycles to pyrrole/aldehyde condensation partners or open-chain biladiene precursors. Preserve meso substitution symmetry and oxidation-state control."
+    },
+    {
+      "family_id": "quinolone_fluoroquinolone",
+      "name": "Quinolones, fluoroquinolones, and 4-quinolone medicinal scaffolds",
+      "pattern_keywords": [
+        "quinolone",
+        "fluoroquinolone",
+        "4-quinolone",
+        "Gould-Jacobs",
+        "Conrad-Limpach",
+        "Grohe-Heitzer",
+        "naphthyridone",
+        "C7 piperazine"
+      ],
+      "strategic_principle": "Build the 3-carboxy-4-quinolone core by named annulation logic, then handle N1, C6 fluorine, C7 amine, and C3 carboxyl modifications as scaffold decoration with explicit SAR and regioselectivity tags."
+    },
+    {
+      "family_id": "sulfonamide_sulfone_medicinal",
+      "name": "Sulfonamides, sulfones, sulfonyl ureas, and sulfur medicinal motifs",
+      "pattern_keywords": [
+        "sulfonamide",
+        "sulfone",
+        "sulfonyl chloride",
+        "sulfinate",
+        "sulfonyl urea",
+        "sultam",
+        "SO2",
+        "sulfur drug"
+      ],
+      "strategic_principle": "Disconnect S-N and S-C sulfur(VI) linkages to sulfonyl chloride/sulfinate/sulfur dioxide equivalents plus amine or carbon partners. Flag sulfonyl chloride availability as a major route constraint."
+    },
+    {
+      "family_id": "nucleotide_protide_prodrug",
+      "name": "Nucleotide analogues and phosphoramidate ProTide prodrugs",
+      "pattern_keywords": [
+        "nucleotide",
+        "nucleoside phosphate",
+        "phosphoramidate",
+        "ProTide",
+        "pronucleotide",
+        "aryl phosphoramidate",
+        "amino acid ester",
+        "antiviral"
+      ],
+      "strategic_principle": "Separate nucleoside construction from phosphate or phosphoramidate prodrug masking. Track P-stereochemistry, aryl/amino-acid ester identity, and enzymatic activation liabilities."
+    },
+    {
+      "family_id": "organofluorine_late_stage",
+      "name": "Organofluorine and late-stage fluorination motifs",
+      "pattern_keywords": [
+        "organofluorine",
+        "fluorination",
+        "late-stage fluorination",
+        "deoxyfluorination",
+        "trifluoromethyl",
+        "aryl fluoride",
+        "18F",
+        "PET"
+      ],
+      "strategic_principle": "Treat C-F and CF3 installation as strategic functional-group installation choices, not as generic halogen decoration. Choose between early fluorinated building blocks and late-stage fluorination based on regioselectivity and functional-group tolerance."
+    },
+    {
+      "family_id": "c_glycoside_sglt2",
+      "name": "C-glycosides and SGLT2-inhibitor-like aryl C-glucosides",
+      "pattern_keywords": [
+        "C-glycoside",
+        "C-glucoside",
+        "aryl C-glycoside",
+        "SGLT2",
+        "gliflozin",
+        "dapagliflozin",
+        "canagliflozin",
+        "C-glycosylation"
+      ],
+      "strategic_principle": "Disconnect the sugar-aglycone C-C bond to a protected or native sugar partner plus aryl/heteroaryl aglycone. Track beta selectivity, protecting-group economy, and whether a chemical or enzymatic C-glycosylation route is intended."
+    },
+    {
+      "family_id": "cannabinoid_meroterpenoid",
+      "name": "Cannabinoid and prenylated resorcinol meroterpenoid scaffolds",
+      "pattern_keywords": [
+        "cannabinoid",
+        "prenylated resorcinol",
+        "olivetolic acid",
+        "geranyl diphosphate",
+        "CBGA",
+        "meroterpenoid",
+        "polyketide resorcinol",
+        "terpene phenol"
+      ],
+      "strategic_principle": "For compliance-reviewed projects only, map cannabinoid-like meroterpenoids to a polyketide resorcinol acid and a prenyl/monoterpene fragment. Keep enzymatic prenylation/cyclization and controlled-substance constraints explicit."
+    },
+    {
+      "family_id": "tropane_alkaloid",
+      "name": "Tropane and granatane alkaloid cores",
+      "pattern_keywords": [
+        "tropane",
+        "tropinone",
+        "granatane",
+        "atropine",
+        "scopolamine",
+        "Robinson",
+        "Mannich",
+        "N-methylpyrrolinium"
+      ],
+      "strategic_principle": "Expose the bicyclic tropane core as a Mannich/cascade or tropinone-anchor problem before ester or N-substituent diversification. Regulated/toxic targets require compliance review."
+    },
+    {
+      "family_id": "xanthone_anthraquinone_polyketide",
+      "name": "Xanthones, anthraquinones, and aromatic polyketide oxygenated scaffolds",
+      "pattern_keywords": [
+        "xanthone",
+        "anthraquinone",
+        "benzophenone",
+        "aromatic polyketide",
+        "Friedel-Crafts",
+        "oxidative ring cleavage",
+        "emodin",
+        "chrysophanol"
+      ],
+      "strategic_principle": "Map xanthone/anthraquinone frameworks to benzophenone, diaryl ether, or polyketide-folding precursors. Treat oxidation-state and phenol protection order as central route constraints."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "spiroketal_dihydroxy_ketone_precursor",
+      "family_id": "spiroketal_polyether",
+      "name": "Dihydroxy-ketone / hydroxy-hemiketal spiroketal precursor",
+      "role": "spiroketalization_anchor",
+      "aliases": [
+        "dihydroxy ketone",
+        "hydroxy enol ether",
+        "masked keto diol",
+        "spiroacetal precursor"
+      ],
+      "acceptance_policy": "requires_spirocenter_stereochemistry_and_equilibration_metadata"
+    },
+    {
+      "anchor_id": "flavonoid_chalcone_beta_diketone_anchor",
+      "family_id": "flavonoid_chalcone_chromone",
+      "name": "Chalcone / beta-diketone flavonoid precursor",
+      "role": "flavonoid_C6_C3_C6_anchor",
+      "aliases": [
+        "2-hydroxychalcone",
+        "substituted acetophenone",
+        "substituted benzaldehyde",
+        "beta-diketone chromone precursor"
+      ],
+      "acceptance_policy": "requires_phenol_substitution_and_ring_closure_mapping"
+    },
+    {
+      "anchor_id": "coumarin_o_hydroxy_carbonyl_anchor",
+      "family_id": "coumarin_chromenone",
+      "name": "o-Hydroxy aryl carbonyl plus activated methylene/carbonyl partner",
+      "role": "benzopyrone_annulation_anchor",
+      "aliases": [
+        "salicylaldehyde",
+        "o-hydroxybenzaldehyde",
+        "resorcinol",
+        "beta-ketoester",
+        "malonate"
+      ],
+      "acceptance_policy": "requires_substitution_pattern_to_match_annulation_mode"
+    },
+    {
+      "anchor_id": "lignan_phenylpropanoid_dimer_anchor",
+      "family_id": "lignan_neolignan",
+      "name": "Phenylpropanoid monomer pair",
+      "role": "lignan_dimerization_anchor",
+      "aliases": [
+        "coniferyl alcohol",
+        "cinnamyl alcohol",
+        "cinnamate",
+        "allyl phenol",
+        "phenolic monomer"
+      ],
+      "acceptance_policy": "requires_coupling_regiochemistry_and_oxidation_state"
+    },
+    {
+      "anchor_id": "steroid_core_semisynthesis_anchor",
+      "family_id": "steroid_semisynthesis",
+      "name": "Reviewed steroid chiral-pool core",
+      "role": "steroid_semisynthesis_anchor",
+      "aliases": [
+        "androstenedione",
+        "DHEA",
+        "pregnenolone",
+        "progesterone",
+        "cholane core",
+        "estrone"
+      ],
+      "acceptance_policy": "reviewed_anchor_not_arbitrary_product_like_terminal"
+    },
+    {
+      "anchor_id": "porphyrin_pyrrole_aldehyde_anchor",
+      "family_id": "porphyrin_tetrapyrrole",
+      "name": "Pyrrole plus aldehyde / open-chain tetrapyrrole precursor",
+      "role": "tetrapyrrole_macrocycle_anchor",
+      "aliases": [
+        "pyrrole",
+        "aryl aldehyde",
+        "dipyrromethane",
+        "porphyrinogen",
+        "biladiene"
+      ],
+      "acceptance_policy": "requires_meso_substitution_symmetry_and_oxidation_state"
+    },
+    {
+      "anchor_id": "quinolone_anilinomethylene_malonate_anchor",
+      "family_id": "quinolone_fluoroquinolone",
+      "name": "Aniline-derived aminoacrylate / malonate quinolone precursor",
+      "role": "quinolone_annulation_anchor",
+      "aliases": [
+        "anilinomethylene malonate",
+        "aminoacrylate",
+        "beta-ketoester anilide",
+        "benzoylacetate precursor"
+      ],
+      "acceptance_policy": "requires_annulation_mode_and_substitution_order"
+    },
+    {
+      "anchor_id": "sulfonamide_sulfonyl_partner_anchor",
+      "family_id": "sulfonamide_sulfone_medicinal",
+      "name": "Sulfonyl chloride / sulfinate plus amine or carbon partner",
+      "role": "sulfur_VI_coupling_anchor",
+      "aliases": [
+        "sulfonyl chloride",
+        "sulfinate salt",
+        "sulfonyl fluoride",
+        "amine",
+        "sulfur dioxide surrogate"
+      ],
+      "acceptance_policy": "requires_sulfonyl_partner_availability_and_amine_compatibility"
+    },
+    {
+      "anchor_id": "protide_nucleoside_phosphoramidate_anchor",
+      "family_id": "nucleotide_protide_prodrug",
+      "name": "Nucleoside plus aryl amino-acid phosphoramidate mask",
+      "role": "pronucleotide_anchor",
+      "aliases": [
+        "nucleoside",
+        "aryl phosphorochloridate",
+        "amino acid ester",
+        "phosphoramidate",
+        "ProTide"
+      ],
+      "acceptance_policy": "requires_P_stereochemistry_and_activation_pathway"
+    },
+    {
+      "anchor_id": "organofluorine_precursor_anchor",
+      "family_id": "organofluorine_late_stage",
+      "name": "Fluorination precursor selected by mechanism",
+      "role": "fluorination_or_trifluoromethylation_anchor",
+      "aliases": [
+        "aryl halide",
+        "aryl triflate",
+        "alcohol",
+        "carbonyl",
+        "boronate",
+        "C-H precursor"
+      ],
+      "acceptance_policy": "requires_regioselectivity_and_functional_group_tolerance"
+    },
+    {
+      "anchor_id": "aryl_c_glycoside_sugar_aglycone_anchor",
+      "family_id": "c_glycoside_sglt2",
+      "name": "Sugar plus aryl/heteroaryl aglycone C-glycoside precursor",
+      "role": "C_glycosylation_anchor",
+      "aliases": [
+        "glucose donor",
+        "glycal",
+        "aryl halide",
+        "aryl organometallic",
+        "C-glycosyltransferase substrate"
+      ],
+      "acceptance_policy": "requires_beta_selectivity_and_sugar_protection_metadata"
+    },
+    {
+      "anchor_id": "cannabinoid_olivetolic_prenyl_anchor",
+      "family_id": "cannabinoid_meroterpenoid",
+      "name": "Olivetolic-acid-like resorcinol plus geranyl/prenyl fragment",
+      "role": "regulated_meroterpenoid_anchor",
+      "aliases": [
+        "olivetolic acid",
+        "olivetol-derived resorcinol",
+        "geranyl diphosphate",
+        "CBGA-like intermediate",
+        "prenylated resorcinol"
+      ],
+      "acceptance_policy": "compliance_review_required_before_proposal_generation"
+    },
+    {
+      "anchor_id": "tropane_tropinone_mannich_anchor",
+      "family_id": "tropane_alkaloid",
+      "name": "Tropinone / Mannich-cascade tropane precursor",
+      "role": "tropane_core_anchor",
+      "aliases": [
+        "tropinone",
+        "N-methylpyrrolinium",
+        "acetonedicarboxylate equivalent",
+        "succinaldehyde equivalent",
+        "intramolecular Mannich precursor"
+      ],
+      "acceptance_policy": "regulated_or_toxic_targets_require_project_review"
+    },
+    {
+      "anchor_id": "xanthone_benzophenone_anthraquinone_anchor",
+      "family_id": "xanthone_anthraquinone_polyketide",
+      "name": "Benzophenone / diaryl ether / anthraquinone aromatic polyketide precursor",
+      "role": "oxygenated_aromatic_polyketide_anchor",
+      "aliases": [
+        "benzophenone",
+        "2-hydroxybenzophenone",
+        "diaryl ether",
+        "anthraquinone",
+        "polyketide chain folding precursor"
+      ],
+      "acceptance_policy": "requires_phenol_protection_and_oxidation_state_plan"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "spiroketal_acid_catalyzed_ketalization_disconnection",
+      "family_id": "spiroketal_polyether",
+      "name": "Spiroketal to dihydroxy-ketone ketalization precursor",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "spiroketal natural products",
+          "spiroacetal pheromones",
+          "polyether fragments"
+        ],
+        "target_features": [
+          "two oxygen heterocycles sharing a spiro carbon",
+          "ketal or acetal spirocenter",
+          "thermodynamic anomeric-effect control possible"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "one or both C-O bonds at spiroketal center"
+        ],
+        "forward_logic": [
+          "prepare a dihydroxy ketone or masked hydroxy hemiketal precursor",
+          "close the spiroketal under acid, oxidative, or cascade conditions",
+          "evaluate whether the desired stereoisomer is thermodynamic or kinetic"
+        ],
+        "suggested_precursor_roles": [
+          "dihydroxy ketone",
+          "masked keto diol",
+          "hydroxy enol ether",
+          "hemiketal precursor"
+        ],
+        "planner_hint": "Reward routes that expose the ketalization precursor and spirocenter selectivity; flag intact-spiroketal protecting-group loops."
+      },
+      "risks": [
+        "spirocenter epimerization",
+        "nonanomeric stereoisomer may need kinetic control",
+        "acid-sensitive polyol fragments",
+        "protecting-group burden"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Recent Synthetic Approaches Toward Non-anomeric Spiroketals in Natural Products.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6245442/"
+        },
+        {
+          "type": "literature",
+          "citation": "Spiroketal natural product synthesis often uses acid-catalysed cyclisation of dihydroxyketone precursors.",
+          "url": "https://pubs.rsc.org/en/content/articlehtml/2010/ob/b916041h"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "spiroketalization_prior",
+        "rerank_bonus": "high when precursor simplification and spirocenter control are explicit"
+      }
+    },
+    {
+      "id": "spiroketal_polyether_cascade_or_epoxide_opening_logic",
+      "family_id": "spiroketal_polyether",
+      "name": "Polyether/spiroketal cascade disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "ladder polyethers",
+          "spiroketal polyol fragments",
+          "polyoxygenated natural products"
+        ],
+        "target_features": [
+          "multiple cyclic ethers",
+          "oxygenated stereochemical relay",
+          "epoxide or hemiketal cascade retron"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-O bonds formed by epoxide opening or oxocarbenium cyclization cascade"
+        ],
+        "forward_logic": [
+          "assemble linear polyol or polyepoxide precursor",
+          "use sequential cyclization or epoxide-opening logic to build ether rings",
+          "close spiroketal last if it controls conformation"
+        ],
+        "suggested_precursor_roles": [
+          "linear polyepoxide",
+          "polyol sulfonate/epoxide",
+          "oxocarbenium precursor",
+          "spiroketalization substrate"
+        ],
+        "planner_hint": "Generate as strategic prior only when stereochemical relay and leaving-group positions can be mapped."
+      },
+      "risks": [
+        "cascade regioselectivity",
+        "mismatched stereochemical relay",
+        "over-cyclization",
+        "substrate instability"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Asymmetric synthesis review summarizes diverse strategies for naturally occurring spiroketals.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6245485/"
+        },
+        {
+          "type": "literature",
+          "citation": "Chroman spiroketal strategies include cascade cyclization approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4280069/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "polyether_cascade_prior",
+        "rerank_bonus": "moderate when cascade simplification is chemically mapped"
+      }
+    },
+    {
+      "id": "flavonoid_chalcone_claisen_schmidt_split",
+      "family_id": "flavonoid_chalcone_chromone",
+      "name": "Flavonoid/chalcone C6-C3-C6 split",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "chalcones",
+          "flavanones",
+          "flavones",
+          "simple flavonoids"
+        ],
+        "target_features": [
+          "aryl enone or saturated flavanone core",
+          "C6-C3-C6 skeleton",
+          "phenolic substitution pattern"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "chalcone alpha,beta-unsaturated carbonyl C-C bond"
+        ],
+        "forward_logic": [
+          "condense substituted acetophenone with substituted benzaldehyde",
+          "cyclize 2-hydroxychalcone to flavanone or oxidize/cyclize to flavone",
+          "preserve phenol protection plan"
+        ],
+        "suggested_precursor_roles": [
+          "substituted acetophenone",
+          "substituted benzaldehyde",
+          "2-hydroxychalcone",
+          "phenol protecting group set"
+        ],
+        "planner_hint": "Reward routes that expose acetophenone/benzaldehyde fragments and account for phenol substitution."
+      },
+      "risks": [
+        "E/Z enone geometry",
+        "phenol deprotonation and side reactions",
+        "regioisomeric substitution mapping",
+        "overoxidation during flavone formation"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Chalcone chemistry review describes chalcones as flavonoid bioprecursors and synthetic scaffolds.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8392591/"
+        },
+        {
+          "type": "literature",
+          "citation": "Stereoselective flavonoid synthesis overview discusses 2-hydroxychalcones as building blocks for flavanones and flavones.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9823814/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "flavonoid_fragment_prior",
+        "rerank_bonus": "high for correct C6-C3-C6 fragment exposure"
+      }
+    },
+    {
+      "id": "flavone_baker_venkataraman_chromone_annulation",
+      "family_id": "flavonoid_chalcone_chromone",
+      "name": "Flavone/chromone Baker-Venkataraman annulation",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "flavones",
+          "chromones",
+          "hydroxyflavones"
+        ],
+        "target_features": [
+          "benzopyran-4-one core",
+          "2-aryl chromone",
+          "beta-diketone retron"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-O bond of chromone ring",
+          "aryl ester to beta-diketone rearrangement precursor"
+        ],
+        "forward_logic": [
+          "prepare o-hydroxyacetophenone ester",
+          "rearrange to beta-diketone",
+          "cyclodehydrate to chromone/flavone"
+        ],
+        "suggested_precursor_roles": [
+          "o-hydroxyacetophenone",
+          "aryl acid chloride or ester partner",
+          "beta-diketone"
+        ],
+        "planner_hint": "Use when a chromone/flavone substitution pattern matches beta-diketone annulation better than chalcone cyclization."
+      },
+      "risks": [
+        "base-sensitive phenols",
+        "O-acyl versus C-acyl selectivity",
+        "cyclodehydration regioselectivity",
+        "protecting-group compatibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Flavone synthesis overview describes Baker-Venkataraman beta-diketone formation followed by cyclisation.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9823814/"
+        },
+        {
+          "type": "literature",
+          "citation": "Flavones and related compounds review covers Kostanecki and related flavone syntheses.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10535985/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "chromone_annulation_prior",
+        "rerank_bonus": "moderate for beta-diketone annulation with substitution tracking"
+      }
+    },
+    {
+      "id": "coumarin_pechmann_knoevenagel_perkin_annulation",
+      "family_id": "coumarin_chromenone",
+      "name": "Coumarin benzopyrone annulation disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "coumarins",
+          "2H-chromenones",
+          "benzopyrone medicinal scaffolds"
+        ],
+        "target_features": [
+          "lactone-fused phenyl ring",
+          "o-hydroxy aryl carbonyl retron",
+          "3- or 4-substituted coumarin"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "lactone C-O bond",
+          "C-C bond formed during benzopyrone annulation"
+        ],
+        "forward_logic": [
+          "map target to phenol/salicylaldehyde/o-hydroxyaryl ketone and beta-ketoester/malonate/acid anhydride partner",
+          "choose Pechmann, Knoevenagel, Perkin, or Kostanecki-like annulation based on substitution pattern",
+          "delay sensitive substituent installation if annulation conditions are harsh"
+        ],
+        "suggested_precursor_roles": [
+          "salicylaldehyde",
+          "resorcinol or phenol",
+          "beta-ketoester",
+          "malonate",
+          "acid anhydride"
+        ],
+        "planner_hint": "Reward routes that choose the annulation mode from substitution pattern instead of generic lactone cleavage."
+      },
+      "risks": [
+        "regioselectivity on activated phenols",
+        "harsh acid/base conditions",
+        "lactone hydrolysis",
+        "phenol protection order"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Coumarin review notes Pechmann and Knoevenagel among classical methods to access coumarin derivatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6017103/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "coumarin_annulation_prior",
+        "rerank_bonus": "high when annulation mode and precursor substitution pattern match"
+      }
+    },
+    {
+      "id": "lignan_oxidative_phenylpropanoid_coupling",
+      "family_id": "lignan_neolignan",
+      "name": "Lignan oxidative phenylpropanoid dimerization",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "lignans",
+          "neolignans",
+          "dibenzylbutanes",
+          "dibenzocyclooctadienes"
+        ],
+        "target_features": [
+          "two phenylpropanoid units",
+          "aryl-aryl or aryl-benzylic coupling",
+          "phenolic O-methylation pattern"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aryl-aryl bond",
+          "aryl-benzylic bond",
+          "central C-C bond between phenylpropanoid units"
+        ],
+        "forward_logic": [
+          "prepare phenylpropanoid monomer pair",
+          "perform oxidative coupling chemically, enzymatically, or biomimetically",
+          "adjust O-methylation and oxidation state after dimer skeleton is set"
+        ],
+        "suggested_precursor_roles": [
+          "cinnamyl alcohol derivative",
+          "coniferyl alcohol-like monomer",
+          "phenolic monomer",
+          "oxidase or chemical oxidant substrate"
+        ],
+        "planner_hint": "Reward phenylpropanoid dimer exposure with regioselectivity tags; penalize unrelated aryl cleavage."
+      },
+      "risks": [
+        "homocoupling versus cross-coupling",
+        "atropisomerism or axial chirality",
+        "overoxidation",
+        "phenol protection/methylation order"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Lignan synthesis review discusses oxidative dimerization and oxidative coupling approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9181380/"
+        },
+        {
+          "type": "literature",
+          "citation": "Oxidative transformations of lignans include aryl-aryl and aryl-benzyl oxidative coupling examples.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6359405/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "lignan_dimerization_prior",
+        "rerank_bonus": "high for correct phenylpropanoid monomer mapping"
+      }
+    },
+    {
+      "id": "lignan_butyrolactone_or_aryltetralin_core_disconnection",
+      "family_id": "lignan_neolignan",
+      "name": "Lignan butyrolactone/aryltetralin core disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "lignan lactones",
+          "aryltetralin lignans",
+          "podophyllotoxin-like scaffolds"
+        ],
+        "target_features": [
+          "butyrolactone or tetralin core",
+          "two aryl substituents",
+          "oxygenated aromatic substitution"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "lactone C-O bond",
+          "C-C bond linking arylpropanoid fragments",
+          "tetralin ring-forming bond"
+        ],
+        "forward_logic": [
+          "assemble dibenzylbutane or aryl-tetralin precursor",
+          "form lactone or ring closure after stereochemistry is set",
+          "use oxidative coupling or conjugate addition only when substitution pattern supports it"
+        ],
+        "suggested_precursor_roles": [
+          "dibenzylbutane acid/alcohol",
+          "aryltetralin precursor",
+          "phenylpropanoid electrophile",
+          "phenylpropanoid nucleophile"
+        ],
+        "planner_hint": "Do not accept late O-methyl edits as strategic progress unless the central lignan skeleton is simplified."
+      },
+      "risks": [
+        "stereochemistry at central carbon skeleton",
+        "lactonization selectivity",
+        "aryl coupling regioselectivity",
+        "phenol demethylation compatibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Lignan pharmacology and synthesis review summarizes main approaches to lignan synthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9181380/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "lignan_core_prior",
+        "rerank_bonus": "moderate for skeleton simplification with stereochemical plan"
+      }
+    },
+    {
+      "id": "steroid_chiral_pool_semisynthesis_core_policy",
+      "family_id": "steroid_semisynthesis",
+      "name": "Steroid tetracycle chiral-pool semisynthesis anchor",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "steroid drugs",
+          "corticosteroids",
+          "sex-hormone analogues",
+          "bile-acid derivatives"
+        ],
+        "target_features": [
+          "steroid ABCD ring system",
+          "dense stereochemistry",
+          "side-chain or oxidation-state divergence"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "none at the steroid tetracycle for first-pass semisynthetic planning"
+        ],
+        "forward_logic": [
+          "select reviewed steroid core with matching stereochemical series",
+          "install side-chain and oxidation-state differences by known steroid transformations or biocatalysis",
+          "only consider de novo tetracycle synthesis when explicitly required"
+        ],
+        "suggested_precursor_roles": [
+          "androstenedione",
+          "DHEA",
+          "pregnenolone",
+          "progesterone",
+          "estrone",
+          "bile-acid core"
+        ],
+        "planner_hint": "Use as an anchor/rerank feature; reject arbitrary product-like steroid analogues as solved stock."
+      },
+      "risks": [
+        "wrong steroid series",
+        "late C-H oxidation selectivity",
+        "side-chain stereochemistry",
+        "overaccepting advanced product-like terminals"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Synthetic steroids article notes semisynthesis remains primary for pharmaceutically relevant steroids while de novo routes exist.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5821131/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "steroid_semisynthesis_anchor_prior",
+        "stock_policy": "reviewed anchor only; not arbitrary vendor analogue",
+        "rerank_bonus": "high when route explains transformations from core to target"
+      }
+    },
+    {
+      "id": "steroid_late_stage_sidechain_oxidation_halogenation",
+      "family_id": "steroid_semisynthesis",
+      "name": "Steroid side-chain and late-stage oxidation/halogenation edits",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "corticosteroids",
+          "hormone analogues",
+          "bile-acid analogues",
+          "steroid esters"
+        ],
+        "target_features": [
+          "C11/C16/C17/C21 oxidation differences",
+          "fluoro/chloro steroid substituents",
+          "side-chain ester or lactone edits"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "late ester/lactone side-chain bonds when present",
+          "no skeleton cleavage"
+        ],
+        "forward_logic": [
+          "match target to nearest reviewed steroid core",
+          "plan oxidation, reduction, halogenation, or esterification sequence",
+          "require evidence for site-selective C-H or biocatalytic oxidation"
+        ],
+        "suggested_precursor_roles": [
+          "less-oxidized steroid core",
+          "C11-hydroxylated intermediate",
+          "C17 side-chain precursor",
+          "steroid ester precursor"
+        ],
+        "planner_hint": "Classify these as late functionalization edits, not as a skeleton-solving route."
+      },
+      "risks": [
+        "site-selective oxidation",
+        "halogenation stereochemistry",
+        "acid/base-sensitive steroid rearrangements",
+        "regulatory impurity control"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Synthetic steroids discussion contrasts semisynthetic and de novo strategies for steroid skeletons.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5821131/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "steroid_late_functionalization_prior",
+        "rerank_bonus": "moderate only when paired with a valid steroid core anchor"
+      }
+    },
+    {
+      "id": "porphyrin_rothemund_lindsey_condensation",
+      "family_id": "porphyrin_tetrapyrrole",
+      "name": "Porphyrin macrocycle to pyrrole plus aldehyde condensation",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "meso-aryl porphyrins",
+          "tetraarylporphyrins",
+          "symmetric porphyrins"
+        ],
+        "target_features": [
+          "tetrapyrrole macrocycle",
+          "meso aryl substituents",
+          "porphyrin oxidation state"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "meso carbon-pyrrole bonds formed by aldehyde/pyrrole condensation"
+        ],
+        "forward_logic": [
+          "condense pyrrole with aldehyde or dipyrromethane partners",
+          "oxidize porphyrinogen/chlorin-like intermediate to porphyrin as needed",
+          "use symmetry to reduce precursor count when valid"
+        ],
+        "suggested_precursor_roles": [
+          "pyrrole",
+          "aryl aldehyde",
+          "dipyrromethane",
+          "porphyrinogen"
+        ],
+        "planner_hint": "Reward aldehyde/pyrrole exposure and symmetry reasoning; flag impossible unsymmetrical substitution without stepwise plan."
+      },
+      "risks": [
+        "scrambling of mixed aldehydes",
+        "oxidation-state impurities",
+        "low yield for hindered aldehydes",
+        "metallation/demetallation sequence"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Meso-arylporphyrin synthesis review describes Rothemund, Adler-Longo, and Lindsey strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9156840/"
+        },
+        {
+          "type": "literature",
+          "citation": "Porphyrin synthesis review describes Lindsey two-step pyrrole/aldehyde condensation and oxidation.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4251786/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "porphyrin_macrocycle_prior",
+        "rerank_bonus": "high for correct pyrrole/aldehyde condensation mapping"
+      }
+    },
+    {
+      "id": "porphyrin_biladiene_open_chain_macrocyclization",
+      "family_id": "porphyrin_tetrapyrrole",
+      "name": "Porphyrin/chlorin open-chain biladiene macrocyclization",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "unsymmetrical porphyrins",
+          "chlorins",
+          "tetrapyrrole analogues"
+        ],
+        "target_features": [
+          "unsymmetrical tetrapyrrole macrocycle",
+          "open-chain tetrapyrrole retron",
+          "controlled substitution sequence"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "terminal bond closing open-chain tetrapyrrole"
+        ],
+        "forward_logic": [
+          "assemble dipyrromethane or biladiene fragments stepwise",
+          "macrocyclize and oxidize/reduce to target tetrapyrrole oxidation state",
+          "introduce metals after macrocycle formation if needed"
+        ],
+        "suggested_precursor_roles": [
+          "a,c-biladiene",
+          "dipyrromethane",
+          "pyrrole aldehyde fragment",
+          "metal insertion substrate"
+        ],
+        "planner_hint": "Use for unsymmetrical tetrapyrroles where one-pot aldehyde/pyrrole condensation would scramble substituents."
+      },
+      "risks": [
+        "macrocyclization yield",
+        "oxidation-state control",
+        "acid-sensitive substituents",
+        "metal chelation compatibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Porphyrin synthesis review covers cyclization of open-chain tetrapyrroles such as a,c-biladienes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4251786/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "tetrapyrrole_stepwise_prior",
+        "rerank_bonus": "moderate for unsymmetrical substitution control"
+      }
+    },
+    {
+      "id": "quinolone_gould_jacobs_core_annulation",
+      "family_id": "quinolone_fluoroquinolone",
+      "name": "4-Quinolone Gould-Jacobs/Grohe-Heitzer core annulation",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "4-quinolones",
+          "fluoroquinolone cores",
+          "3-carboxy quinolones"
+        ],
+        "target_features": [
+          "4-oxo quinoline or naphthyridone core",
+          "C3 carboxylate",
+          "N1 substituent",
+          "C6 fluorine in many fluoroquinolones"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "quinolone ring C-C/C-N bonds formed by annulation"
+        ],
+        "forward_logic": [
+          "prepare anilinomethylene malonate, aminoacrylate, or beta-ketoester anilide precursor",
+          "cyclize to 4-quinolone core by Gould-Jacobs, Conrad-Limpach, Grohe-Heitzer, or related route",
+          "install N1/C6/C7 substitutions in an order compatible with electronics"
+        ],
+        "suggested_precursor_roles": [
+          "substituted aniline",
+          "ethoxymethylene malonate equivalent",
+          "beta-ketoester anilide",
+          "cyclization precursor"
+        ],
+        "planner_hint": "Reward named quinolone annulation and substitution-order rationale; flag generic aryl-amide edits that do not build the core."
+      },
+      "risks": [
+        "high-temperature annulation",
+        "regioisomeric cyclization",
+        "poor functional-group tolerance",
+        "quinolone tautomer handling"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Quinolone synthesis article notes Gould-Jacobs and Grohe-Heitzer as effective routes to 3-substituted 4-quinolones.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4509642/"
+        },
+        {
+          "type": "literature",
+          "citation": "Green Chemistry report describes Gould-Jacobs access to quinolone scaffolds and process drawbacks.",
+          "url": "https://pubs.rsc.org/en/content/articlehtml/2022/gc/d2gc01689c"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "quinolone_core_prior",
+        "rerank_bonus": "high for core annulation with substituent mapping"
+      }
+    },
+    {
+      "id": "fluoroquinolone_c7_amine_and_c3_carboxyl_modification",
+      "family_id": "quinolone_fluoroquinolone",
+      "name": "Fluoroquinolone C7 amine and C3 carboxyl diversification",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "fluoroquinolones",
+          "quinolone conjugates",
+          "modified piperazinyl quinolones"
+        ],
+        "target_features": [
+          "C7 piperazine or pyrrolidine substituent",
+          "C3 carboxylic acid or ester/amide",
+          "N1 alkyl/cyclopropyl group"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C7 aryl-N bond",
+          "C3 ester/amide conjugate bond"
+        ],
+        "forward_logic": [
+          "prepare activated quinolone core with suitable leaving group at C7",
+          "install cyclic amine or other C7 substituent",
+          "modify C3 carboxylate only when pharmacophore and solubility consequences are tracked"
+        ],
+        "suggested_precursor_roles": [
+          "C7 halo quinolone",
+          "piperazine/pyrrolidine amine",
+          "quinolone carboxylate",
+          "conjugation partner"
+        ],
+        "planner_hint": "Treat C7/C3 edits as late scaffold diversification after a credible quinolone core route exists."
+      },
+      "risks": [
+        "C7 substitution regioselectivity",
+        "overalkylation of piperazine",
+        "metal chelation and pharmacophore loss at C3",
+        "antibacterial stewardship/compliance review for antibiotic analogues"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Quinolone antibiotics review highlights C7 piperazine and C6 fluorine as major modifications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6836748/"
+        },
+        {
+          "type": "literature",
+          "citation": "Fluoroquinolone derivative review notes modification sites including C7 piperazinyl and C3 positions.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11314068/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "quinolone_diversification_prior",
+        "rerank_bonus": "moderate only after core annulation is solved"
+      }
+    },
+    {
+      "id": "sulfonamide_sulfonyl_chloride_amine_disconnection",
+      "family_id": "sulfonamide_sulfone_medicinal",
+      "name": "Sulfonamide S-N disconnection to sulfonyl partner plus amine",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "sulfonamides",
+          "sulfonyl ureas",
+          "sulfamides",
+          "sulfur-containing medicinal scaffolds"
+        ],
+        "target_features": [
+          "S(=O)2-N bond",
+          "aryl or alkyl sulfonyl group",
+          "amine-derived substituent"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "sulfonamide S-N bond"
+        ],
+        "forward_logic": [
+          "prepare or generate sulfonyl chloride, sulfonyl fluoride, sulfinate, or sulfur dioxide equivalent",
+          "couple with amine under compatibility-aware conditions",
+          "handle sulfonyl ureas by staging isocyanate/carbamate or urea linkage formation"
+        ],
+        "suggested_precursor_roles": [
+          "sulfonyl chloride",
+          "sulfinate salt",
+          "sulfonyl fluoride",
+          "amine",
+          "sulfur dioxide surrogate"
+        ],
+        "planner_hint": "Reward explicit sulfonyl partner availability; do not treat S-N formation as a generic amide coupling."
+      },
+      "risks": [
+        "sulfonyl chloride preparation can dominate route feasibility",
+        "amine chemoselectivity",
+        "hydrolysis of sulfonyl chlorides",
+        "over-sulfonylation"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Sulfur-containing scaffolds review discusses sulfonamides and the common use and limitations of sulfonyl chlorides.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4877035/"
+        },
+        {
+          "type": "literature",
+          "citation": "Sulfonamide drug review states common preparation from sulfonyl chloride and ammonia/amine.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8046889/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "sulfonamide_coupling_prior",
+        "rerank_bonus": "high for feasible sulfonyl partner plus amine split"
+      }
+    },
+    {
+      "id": "sulfone_sulfinate_or_thioether_oxidation_disconnection",
+      "family_id": "sulfonamide_sulfone_medicinal",
+      "name": "Sulfone C-S disconnection and oxidation-state strategy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "aryl sulfones",
+          "heteroaryl sulfones",
+          "sulfonyl heterocycles",
+          "sultams"
+        ],
+        "target_features": [
+          "S(=O)2-C bond",
+          "aryl or heteroaryl sulfone",
+          "thioether/sulfinate precursor possible"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-S bond adjacent to sulfone",
+          "intramolecular S-N or S-C bond for sultams"
+        ],
+        "forward_logic": [
+          "choose sulfinate substitution/coupling or thioether formation followed by oxidation",
+          "avoid late oxidation when other oxidizable groups are unprotected",
+          "stage ring closure for sultams after sulfonamide installation"
+        ],
+        "suggested_precursor_roles": [
+          "sulfinate salt",
+          "aryl halide",
+          "thioether",
+          "sulfonyl chloride",
+          "linear sulfonamide"
+        ],
+        "planner_hint": "Track sulfur oxidation state explicitly; sulfide-to-sulfone oxidation is not a skeleton simplification by itself."
+      },
+      "risks": [
+        "overoxidation or oxidation-sensitive groups",
+        "SNAr electronics",
+        "metal-catalyzed coupling compatibility",
+        "sultam ring-size constraints"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Sulfur-containing pharmaceutical scaffolds review covers sulfones and sulfonamide synthesis approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4877035/"
+        },
+        {
+          "type": "literature",
+          "citation": "Review of sulfenamide/sulfinamide/sulfonamide formation discusses oxidative routes from thiols and amines.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9042206/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "sulfone_oxidation_state_prior",
+        "rerank_bonus": "moderate for feasible sulfinate/thioether logic with oxidation risk tags"
+      }
+    },
+    {
+      "id": "protide_phosphoramidate_mask_disconnection",
+      "family_id": "nucleotide_protide_prodrug",
+      "name": "ProTide phosphoramidate mask disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "phosphoramidate ProTides",
+          "nucleotide prodrugs",
+          "antiviral pronucleotides"
+        ],
+        "target_features": [
+          "aryl phosphate ester",
+          "amino acid ester phosphoramidate",
+          "nucleoside 5-prime phosphate masking"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "P-O nucleoside bond",
+          "P-N amino-acid bond",
+          "P-O aryl ester bond"
+        ],
+        "forward_logic": [
+          "prepare nucleoside core separately",
+          "install phosphoramidate masking group with P-stereochemistry tracked",
+          "verify that proposed aryl and amino-acid ester match activation requirements"
+        ],
+        "suggested_precursor_roles": [
+          "nucleoside",
+          "aryl phosphorochloridate",
+          "amino acid ester",
+          "phosphoramidate prodrug mask"
+        ],
+        "planner_hint": "Require P-stereochemistry, leaving-group identity, and activation-pathway metadata before promotion."
+      },
+      "risks": [
+        "P-diastereomer mixture",
+        "nucleoside regioselective phosphorylation",
+        "labile protecting groups",
+        "enzymatic activation mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "ProTide miniperspective discusses phosphoramidate prodrug technology from concept to clinic.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7075648/"
+        },
+        {
+          "type": "literature",
+          "citation": "Review of antiviral nucleotide prodrugs describes phosphoramidate ProTide approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5117106/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "protide_prodrug_prior",
+        "rerank_bonus": "high when nucleoside core and phosphoramidate mask are separated with stereochemical metadata"
+      }
+    },
+    {
+      "id": "nucleotide_prodrug_nucleoside_then_phosphate_ordering",
+      "family_id": "nucleotide_protide_prodrug",
+      "name": "Nucleoside core before nucleotide/prodrug masking",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "nucleotide analogues",
+          "phosphate prodrugs",
+          "phosphonate analogues"
+        ],
+        "target_features": [
+          "nucleobase-sugar core",
+          "phosphate/phosphonate mask",
+          "polar nucleotide functionality"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "phosphate ester or phosphonate prodrug bonds"
+        ],
+        "forward_logic": [
+          "solve nucleoside or carbocyclic nucleoside core first",
+          "add phosphate/phosphonate/prodrug group after compatible protecting-group setup",
+          "avoid treating a masked nucleotide as ordinary stock without activation rationale"
+        ],
+        "suggested_precursor_roles": [
+          "nucleoside core",
+          "phosphonate precursor",
+          "phosphate masking reagent",
+          "protected sugar/base intermediate"
+        ],
+        "planner_hint": "Route scoring should separate nucleoside skeleton construction from prodrug masking edits."
+      },
+      "risks": [
+        "global polarity and isolation",
+        "regioselective phosphorylation",
+        "diastereomeric phosphorus center",
+        "biological activation not implied by synthesis"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Phosphoramidate/phosphonamidate ProTide review summarizes antiviral pronucleotide strategies and activation studies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5971382/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "nucleotide_prodrug_ordering_prior",
+        "rerank_bonus": "moderate for clean separation of core synthesis and phosphate masking"
+      }
+    },
+    {
+      "id": "organofluorine_aryl_fluoride_late_stage_disconnection",
+      "family_id": "organofluorine_late_stage",
+      "name": "Aryl fluoride late-stage C-F installation",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "fluoroarenes",
+          "PET radiotracers",
+          "fluorinated drug candidates"
+        ],
+        "target_features": [
+          "aryl C-F bond",
+          "fluorine as metabolic or imaging substituent",
+          "late-stage labeling or analogue diversification"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aryl C-F bond to aryl leaving-group or C-H precursor"
+        ],
+        "forward_logic": [
+          "choose early fluorinated building block or late-stage fluorination precursor",
+          "map aryl halide/triflate/boronate/C-H precursor to appropriate fluorination logic",
+          "for radiochemistry, enforce short-time and isotope-specific constraints as metadata"
+        ],
+        "suggested_precursor_roles": [
+          "aryl halide",
+          "aryl triflate",
+          "aryl boronate",
+          "C-H arene precursor",
+          "fluorinated building block"
+        ],
+        "planner_hint": "Late fluorination is a strategic option only when regioselectivity and functional-group tolerance are credible."
+      },
+      "risks": [
+        "regioselectivity",
+        "functional-group intolerance",
+        "radiofluorination time constraint",
+        "metal residue or harsh reagent risk"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Late-stage fluorination review describes C-F formation in complex molecules and PET tracer constraints.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4372057/"
+        },
+        {
+          "type": "literature",
+          "citation": "Catalysis review discusses fluorination and trifluoromethylation method development.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3119199/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "late_stage_fluorination_prior",
+        "rerank_bonus": "moderate when fluorination precursor and selectivity are explicit"
+      }
+    },
+    {
+      "id": "organofluorine_deoxyfluorination_or_cf3_installation",
+      "family_id": "organofluorine_late_stage",
+      "name": "Deoxyfluorination and trifluoromethyl installation disconnection",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "alkyl fluorides",
+          "trifluoromethylated arenes",
+          "fluorinated alcohol analogues",
+          "medicinal fluorine scans"
+        ],
+        "target_features": [
+          "C-F replacing C-O",
+          "CF3 substituent",
+          "fluorinated stereocenter"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-F or C-CF3 bond to alcohol/carbonyl/halide/boronate precursor"
+        ],
+        "forward_logic": [
+          "use deoxyfluorination when an alcohol precursor preserves carbon skeleton",
+          "use trifluoromethylation precursor logic for aryl/heteroaryl CF3 targets",
+          "track stereochemical inversion/retention and competing elimination"
+        ],
+        "suggested_precursor_roles": [
+          "alcohol",
+          "carbonyl",
+          "aryl halide or boronate",
+          "trifluoromethyl donor",
+          "fluorinated synthon"
+        ],
+        "planner_hint": "Prefer fluorinated building blocks when late-stage fluorination selectivity is not defensible."
+      },
+      "risks": [
+        "elimination during deoxyfluorination",
+        "stereochemical erosion",
+        "CF3 reagent compatibility",
+        "scale and safety of fluorinating reagents"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Late-stage fluorination review surveys fluorination approaches for pharmaceutical and agrochemical molecules.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4372057/"
+        },
+        {
+          "type": "literature",
+          "citation": "Catalysis for fluorination and trifluoromethylation review discusses unmet needs and method classes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3119199/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "organofluorine_functionalization_prior",
+        "rerank_bonus": "low_to_moderate unless selectivity evidence is strong"
+      }
+    },
+    {
+      "id": "c_glycoside_aryl_sugar_cc_bond_disconnection",
+      "family_id": "c_glycoside_sglt2",
+      "name": "Aryl C-glycoside C-C bond disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "aryl C-glycosides",
+          "C-glucoside SGLT2 inhibitors",
+          "C-glycosylated natural products"
+        ],
+        "target_features": [
+          "sugar anomeric carbon attached by C-C bond",
+          "beta C-glucoside motif",
+          "aryl/heteroaryl aglycone"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "anomeric carbon to aryl/heteroaryl carbon bond"
+        ],
+        "forward_logic": [
+          "prepare sugar-derived electrophile/nucleophile or native sugar-compatible precursor",
+          "couple to aryl/heteroaryl aglycone with beta selectivity",
+          "deprotect or edit sugar after C-C bond formation"
+        ],
+        "suggested_precursor_roles": [
+          "protected glucose donor",
+          "glycal or glycosyl halide",
+          "aryl organometallic or aryl halide",
+          "C-glycosylation catalyst system"
+        ],
+        "planner_hint": "Do not confuse C-glycosides with O-glycosides; require C-C bond strategy and beta-selectivity metadata."
+      },
+      "risks": [
+        "anomeric beta selectivity",
+        "protecting-group economy",
+        "organometallic compatibility with sugar",
+        "aglycone regioselectivity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Native-saccharide aryl beta-C-glycoside synthesis article notes SGLT2 and natural C-glycoside interest.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12223352/"
+        },
+        {
+          "type": "literature",
+          "citation": "Glycoside-based antidiabetic review discusses C-glycosides and SGLT2 inhibitor examples.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6548768/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "C_glycosylation_prior",
+        "rerank_bonus": "high for explicit sugar-aglycone C-C strategy"
+      }
+    },
+    {
+      "id": "c_glycoside_chemoenzymatic_glycosyltransferase_route",
+      "family_id": "c_glycoside_sglt2",
+      "name": "Chemoenzymatic C-glycosyltransferase disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "bioactive C-glycosides",
+          "C-glycosylated natural products",
+          "enzyme-compatible aryl C-glycosides"
+        ],
+        "target_features": [
+          "C-glycosylated aromatic aglycone",
+          "UDP-sugar or enzyme-compatible sugar donor",
+          "phenolic or heteroaryl aglycone"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "anomeric C-C bond formed by C-glycosyltransferase"
+        ],
+        "forward_logic": [
+          "synthesize aglycone chemically",
+          "use C-glycosyltransferase or chemoenzymatic route for sugar installation",
+          "screen enzyme substrate scope before treating as reliable proposal"
+        ],
+        "suggested_precursor_roles": [
+          "aglycone acceptor",
+          "UDP-glucose or sugar donor",
+          "C-glycosyltransferase",
+          "post-glycosylation derivatization precursor"
+        ],
+        "planner_hint": "Use only when enzyme precedent or substrate-scope evidence supports the aglycone class."
+      },
+      "risks": [
+        "enzyme substrate scope",
+        "regioselectivity on polyphenols",
+        "sugar donor supply",
+        "scale-up and isolation of polar products"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "C-glycosyltransferase substrate-promiscuity study demonstrates chemoenzymatic synthesis of bioactive C-glycosides.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7558026/"
+        },
+        {
+          "type": "literature",
+          "citation": "C-H glycosylation article discusses scalable late-stage C-glycosylation and SGLT2 inhibitor discovery.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10311666/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "chemoenzymatic_C_glycosylation_prior",
+        "rerank_bonus": "moderate when enzyme evidence is attached"
+      }
+    },
+    {
+      "id": "cannabinoid_resorcinol_prenyl_meroterpenoid_split",
+      "family_id": "cannabinoid_meroterpenoid",
+      "name": "Cannabinoid-like resorcinol/prenyl meroterpenoid split",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "cannabinoid-like meroterpenoids",
+          "prenylated resorcinols",
+          "CBGA-like biosynthetic intermediates"
+        ],
+        "target_features": [
+          "resorcinol or olivetolic-acid-like aromatic portion",
+          "monoterpene/prenyl portion",
+          "phenolic terpene framework"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aryl-prenyl C-C bond"
+        ],
+        "forward_logic": [
+          "map aromatic portion to polyketide resorcinol acid logic",
+          "map terpenoid portion to geranyl/prenyl donor logic",
+          "treat downstream cyclization/oxidation as separate compliance-reviewed transformations"
+        ],
+        "suggested_precursor_roles": [
+          "olivetolic-acid-like resorcinol",
+          "geranyl/prenyl donor",
+          "prenyltransferase substrate",
+          "CBGA-like intermediate"
+        ],
+        "planner_hint": "High-level advisory only; regulated or psychoactive targets require project approval before proposal expansion."
+      },
+      "risks": [
+        "controlled-substance or regional legal constraints",
+        "prenylation regioselectivity",
+        "phenol oxidation",
+        "enzyme/source availability"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Plant terpenoid review describes cannabinoid structure as GDP-derived monoterpene backbone plus polyketide resorcinol ring.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6864776/"
+        },
+        {
+          "type": "literature",
+          "citation": "Cannabinoid biosynthesis review discusses olivetolic acid pathway and cannabinoid biosynthetic logic.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7962319/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "compliance_gated_meroterpenoid_prior",
+        "rerank_bonus": "low unless project is compliance-approved and evidence-rich",
+        "compliance_gate": "required"
+      }
+    },
+    {
+      "id": "tropane_robinson_mannich_core_disconnection",
+      "family_id": "tropane_alkaloid",
+      "name": "Tropane core Robinson/Mannich disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "tropane alkaloids",
+          "granatane alkaloids",
+          "tropinone-derived medicinal scaffolds"
+        ],
+        "target_features": [
+          "8-azabicyclo[3.2.1]octane core",
+          "tropinone or tropine skeleton",
+          "esterified tropane alcohol"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-C bonds formed by Mannich/cascade construction of bicyclic core"
+        ],
+        "forward_logic": [
+          "expose tropinone or intramolecular Mannich precursor as core anchor",
+          "install ester or side-chain substituent after stereochemical core is set",
+          "separate regulated/toxic target handling from generic scaffold recognition"
+        ],
+        "suggested_precursor_roles": [
+          "tropinone",
+          "N-methylpyrrolinium-like precursor",
+          "dialdehyde or dicarbonyl equivalent",
+          "ester side-chain acid"
+        ],
+        "planner_hint": "Reward tropane core simplification; do not generate regulated-substance procedures."
+      },
+      "risks": [
+        "controlled or toxic target compliance",
+        "Mannich stereochemistry",
+        "bridgehead substitution",
+        "ester hydrolysis or epimerization"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Tropane alkaloid review describes bicyclic skeleton formation by intramolecular Mannich reaction in biosynthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6412926/"
+        },
+        {
+          "type": "literature",
+          "citation": "Cocaine historical review describes Robinson's one-pot tropinone synthesis as a classic tropane core construction.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6197930/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "compliance_gated_tropane_core_prior",
+        "rerank_bonus": "moderate for core simplification in approved medicinal contexts",
+        "compliance_gate": "required_for_regulated_targets"
+      }
+    },
+    {
+      "id": "tropane_late_ester_sidechain_diversification",
+      "family_id": "tropane_alkaloid",
+      "name": "Tropane ester and N-substituent late diversification",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "tropane ester alkaloids",
+          "anticholinergic tropanes",
+          "tropane analogues"
+        ],
+        "target_features": [
+          "tropine or pseudotropine alcohol",
+          "ester side chain",
+          "tertiary amine or N-substituent"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "tropane alcohol ester bond",
+          "N-substituent bond when relevant"
+        ],
+        "forward_logic": [
+          "reach reviewed tropane alcohol or ketone core",
+          "set alcohol stereochemistry before acylation",
+          "install ester or N-substituent as late diversification only after core route is credible"
+        ],
+        "suggested_precursor_roles": [
+          "tropine/pseudotropine",
+          "tropinone",
+          "acid chloride or activated acid",
+          "N-alkyl precursor"
+        ],
+        "planner_hint": "Late ester edits are not sufficient strategic progress without a tropane core anchor."
+      },
+      "risks": [
+        "alcohol stereochemistry",
+        "amine salt handling",
+        "regulated/toxic target constraints",
+        "ester lability"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Tropane chemistry review covers biosynthesis, pharmacology, and production of tropane alkaloids.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6412926/"
+        },
+        {
+          "type": "literature",
+          "citation": "Asymmetric tropinone synthesis article uses intramolecular Mannich cyclization logic for substituted tropanes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2753232/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "tropane_late_diversification_prior",
+        "rerank_bonus": "low_to_moderate and only after core anchor"
+      }
+    },
+    {
+      "id": "xanthone_benzophenone_cyclodehydration_disconnection",
+      "family_id": "xanthone_anthraquinone_polyketide",
+      "name": "Xanthone to benzophenone/diaryl ether cyclodehydration precursor",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "xanthones",
+          "benzoxanthones",
+          "oxygenated aromatic polyketides"
+        ],
+        "target_features": [
+          "xanthone tricyclic core",
+          "2-hydroxybenzophenone retron",
+          "phenolic oxygenated aromatic rings"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "xanthone C-O ring bond",
+          "aryl carbonyl bond to benzophenone precursor"
+        ],
+        "forward_logic": [
+          "prepare 2-hydroxybenzophenone or diaryl ether precursor",
+          "cyclodehydrate or Friedel-Crafts acylate to xanthone core",
+          "plan phenol protection and oxidation state before ring closure"
+        ],
+        "suggested_precursor_roles": [
+          "2-hydroxybenzophenone",
+          "diaryl ether",
+          "salicylic acid derivative",
+          "activated aryl acid chloride"
+        ],
+        "planner_hint": "Reward xanthone ring opening to benzophenone/diaryl ether only when phenol substitution and oxidation states are mapped."
+      },
+      "risks": [
+        "Friedel-Crafts regioselectivity",
+        "phenol overreaction",
+        "quinone/hydroquinone redox mismatch",
+        "polyoxygenated substrate instability"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Xanthone anticancer review discusses cyclization and Friedel-Crafts approaches to xanthone derivatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8625896/"
+        },
+        {
+          "type": "literature",
+          "citation": "Polycyclic xanthone review summarizes structures, biosynthesis, and synthetic approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3615431/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "xanthone_annulation_prior",
+        "rerank_bonus": "moderate for correct benzophenone or diaryl ether precursor mapping"
+      }
+    },
+    {
+      "id": "anthraquinone_polyketide_folding_or_xanthone_rearrangement",
+      "family_id": "xanthone_anthraquinone_polyketide",
+      "name": "Anthraquinone/polyketide folding and xanthone rearrangement logic",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "anthraquinones",
+          "xanthone polyketides",
+          "emodin/chrysophanol-derived scaffolds",
+          "polycyclic xanthones"
+        ],
+        "target_features": [
+          "highly oxygenated anthracene or xanthone core",
+          "polyketide substitution pattern",
+          "quinone/hydroquinone redox pair"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "biosynthetic polyketide folding bonds",
+          "anthraquinone ring-cleavage/rearrangement bonds when xanthone-derived"
+        ],
+        "forward_logic": [
+          "recognize aromatic polyketide origin from oxygenation pattern",
+          "use anthraquinone or benzophenone-like precursor as strategic anchor",
+          "treat oxidative cleavage/rearrangement as review-only unless enzyme or literature precedent exists"
+        ],
+        "suggested_precursor_roles": [
+          "anthraquinone",
+          "hydroquinone",
+          "benzophenone",
+          "polyketide chain-folding precursor"
+        ],
+        "planner_hint": "Use as route critique and anchor guidance; do not invent complex oxidative rearrangements without precedent."
+      },
+      "risks": [
+        "quinone redox instability",
+        "overoxidation",
+        "biosynthetic precedent may not translate chemically",
+        "regioselective ring cleavage"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Xanthone biosynthesis review describes polyacetate/polymalonate pathways and benzophenone/anthraquinone-related origins.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9967055/"
+        },
+        {
+          "type": "literature",
+          "citation": "Regioselectivity study reports anthraquinone precursor fissions in xanthone biosynthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11575538/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "aromatic_polyketide_anchor_prior",
+        "rerank_bonus": "low_to_moderate unless explicit precedent is attached"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "This v2 expansion adds source-backed strategic families that are common in route critique but underrepresented in generic reaction-template systems: heterocycle annulations, semisynthetic cores, sulfur(VI) medicinal motifs, phosphoramidate prodrugs, organofluorine installation, C-glycosides, and biosynthesis-aware natural-product anchors."
+    },
+    {
+      "type": "compliance_note",
+      "summary": "Cannabinoid and tropane records are compliance-gated, high-level structural priors. They should not be converted into operational proposal generators without project authorization, legal review, and safety review."
+    }
+  ]
+}

@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT="${ROOT:-/root/autodl-tmp/AutoPlanner}"
 cd "$ROOT"
 
+if [[ "${AUTOPLANNER_ALLOW_LEGACY_RESEARCH:-}" != "1" ]]; then
+  echo "strict expert CSV ingestion is archived/fallback research; set AUTOPLANNER_ALLOW_LEGACY_RESEARCH=1 to run it." >&2
+  exit 4
+fi
+
 PACKET_SIZE="${PACKET_SIZE:-120}"
 VALUE_PACK="${VALUE_PACK:-results/shared/model_strengthening_20260519_route_block_value_runtime_train_provenance/route_block_value_pack.jsonl}"
 READINESS_JSON="${READINESS_JSON:-results/shared/model_strengthening_20260519_strict_review_readiness.json}"

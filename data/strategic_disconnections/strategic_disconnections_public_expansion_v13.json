@@ -1,0 +1,1185 @@
+{
+  "schema_version": "strategic_disconnections.v13_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Twelfth expanded public source layer focused on hypervalent iodine and iodonium route handles, asymmetric organocatalytic stereocontrol, photoenzymatic and photobiocatalytic cascades, artificial metalloenzyme design, PFAS persistence/degradation critique, RNA/riboswitch ligand route policy, protein-protein interaction mimetics, and solid-supported or encoded-library linker boundaries.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template or proposal promotion",
+      "separate organoiodine, organocatalytic, photobiocatalytic, artificial-enzyme, PFAS, RNA-targeting, PPI-mimetic, or solid-supported library policy",
+      "route-specific reagent class, aryl-transfer handle, catalyst-controlled stereochemistry, excitation/enzyme mode, metalloenzyme scaffold, environmental persistence, RNA binding pocket, PPI epitope, resin linker, tag, and support-cleavage review",
+      "oxidant, catalyst, photochemical, biocatalysis, environmental, RNA biological-mode, PPI biological-mode, library provenance, or process-safety review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, and synthesis conditions",
+      "organoiodine, radical/photoenzymatic, PFAS, RNA-probe, PPI, and encoded-library entries are high-level route priors only"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "organoiodine_hypervalent_iodine_route_handles",
+      "name": "Hypervalent iodine, iodonium, and organoiodine route handles",
+      "pattern_keywords": [
+        "hypervalent iodine",
+        "iodine(III)",
+        "iodine(V)",
+        "diaryliodonium",
+        "benziodoxole",
+        "aryl-transfer handle"
+      ],
+      "strategic_principle": "Separate iodine reagent class, aryl-transfer partner, oxidative role, and leaving-group identity from ordinary arylation or oxidation templates."
+    },
+    {
+      "family_id": "organocatalytic_asymmetric_iminium_enamine_phase_transfer",
+      "name": "Asymmetric organocatalysis, iminium/enamine activation, and phase-transfer stereocontrol",
+      "pattern_keywords": [
+        "organocatalysis",
+        "iminium",
+        "enamine",
+        "phase-transfer catalysis",
+        "hydrogen-bond organocatalysis",
+        "asymmetric catalysis"
+      ],
+      "strategic_principle": "Expose catalyst activation mode and stereocontrol element as route metadata. Catalyst identity can define the disconnection when product stereochemistry depends on it."
+    },
+    {
+      "family_id": "photocatalytic_biocatalytic_hybrid_cascade",
+      "name": "Photoenzymatic, radical-enzyme, and light-driven biocatalytic cascades",
+      "pattern_keywords": [
+        "photoenzymatic catalysis",
+        "photobiocatalysis",
+        "radical biocatalysis",
+        "excited-state enzyme",
+        "flavin enzyme",
+        "light-driven cascade"
+      ],
+      "strategic_principle": "Separate photochemical excitation, enzyme selectivity, radical activation mode, and cascade order. Light and enzyme logic must be tracked together."
+    },
+    {
+      "family_id": "metalloenzyme_artificial_enzyme_biocatalyst_design",
+      "name": "Artificial metalloenzymes, engineered enzymes, and biocatalyst-design route anchors",
+      "pattern_keywords": [
+        "artificial metalloenzyme",
+        "engineered enzyme",
+        "directed evolution",
+        "new-to-nature reaction",
+        "protein scaffold",
+        "metallocofactor"
+      ],
+      "strategic_principle": "Separate target transformation from metal cofactor, protein scaffold, substrate scope, and engineering lineage. Catalyst identity is a proposal gate."
+    },
+    {
+      "family_id": "perfluoroalkyl_pfas_degradation_and_replacement_critique",
+      "name": "PFAS-like motifs, perfluoroalkyl persistence, degradation, and replacement critique",
+      "pattern_keywords": [
+        "PFAS",
+        "perfluoroalkyl",
+        "defluorination",
+        "fluorinated alternative",
+        "environmental fate",
+        "persistence"
+      ],
+      "strategic_principle": "Separate fluorinated performance motif from persistence, degradation products, and replacement policy. Environmental fate can dominate route critique."
+    },
+    {
+      "family_id": "covalent_rna_targeting_and_riboswitch_ligand_motif",
+      "name": "RNA-targeted ligands, riboswitch binders, and validation-gated RNA probe motifs",
+      "pattern_keywords": [
+        "RNA targeting",
+        "riboswitch ligand",
+        "RNA tertiary structure",
+        "RNA small molecule",
+        "RNA-selective probe",
+        "target validation"
+      ],
+      "strategic_principle": "Separate parent ligand, RNA structural pocket, validation tag or probe handle, and biological target class. RNA-targeted entries require assay validation before promotion."
+    },
+    {
+      "family_id": "protein_protein_interaction_hotspot_mimetic",
+      "name": "Protein-protein interaction hotspot mimetics, helix mimetics, and constrained epitope ligands",
+      "pattern_keywords": [
+        "protein-protein interaction",
+        "PPI inhibitor",
+        "hotspot mimetic",
+        "alpha-helix mimetic",
+        "constrained peptide",
+        "epitope mimic"
+      ],
+      "strategic_principle": "Separate binding epitope, hotspot topology, conformational constraint, and ligand growth vector. PPI topology defines route critique."
+    },
+    {
+      "family_id": "solid_supported_resin_linker_parallel_synthesis_boundary",
+      "name": "Solid-supported synthesis, resin linkers, encoded-library tags, and parallel-synthesis boundaries",
+      "pattern_keywords": [
+        "solid phase synthesis",
+        "resin linker",
+        "parallel synthesis",
+        "DNA-encoded library",
+        "support cleavage",
+        "library tag"
+      ],
+      "strategic_principle": "Separate solution target synthesis from resin linker, support cleavage, tag identity, and library provenance. Support and tag metadata are route-defining."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "hypervalent_iodine_aryl_oxidant_anchor",
+      "family_id": "organoiodine_hypervalent_iodine_route_handles",
+      "name": "Organoiodine route handle with reviewed iodine valence, aryl-transfer partner, and oxidative role",
+      "role": "organoiodine_route_handle_anchor",
+      "aliases": [
+        "hypervalent iodine reagent",
+        "diaryliodonium salt",
+        "benziodoxole reagent"
+      ],
+      "acceptance_policy": "requires_iodine_valence_reagent_class_transfer_partner_and_safety_review"
+    },
+    {
+      "anchor_id": "organocatalytic_stereocontrol_anchor",
+      "family_id": "organocatalytic_asymmetric_iminium_enamine_phase_transfer",
+      "name": "Organocatalytic route with reviewed activation mode, catalyst class, and stereochemical outcome",
+      "role": "organocatalytic_stereocontrol_anchor",
+      "aliases": [
+        "iminium catalysis",
+        "enamine catalysis",
+        "phase-transfer catalysis",
+        "hydrogen-bond organocatalysis"
+      ],
+      "acceptance_policy": "requires_activation_mode_catalyst_class_stereochemical_model_and_scope_review"
+    },
+    {
+      "anchor_id": "photoenzymatic_radical_cascade_anchor",
+      "family_id": "photocatalytic_biocatalytic_hybrid_cascade",
+      "name": "Photoenzymatic cascade with reviewed excitation mode, enzyme selectivity, and radical pathway",
+      "role": "photoenzymatic_cascade_anchor",
+      "aliases": [
+        "photoenzymatic catalysis",
+        "photobiocatalytic reaction",
+        "radical biocatalysis"
+      ],
+      "acceptance_policy": "requires_excitation_mode_enzyme_selectivity_radical_pathway_and_photobiocatalysis_review"
+    },
+    {
+      "anchor_id": "artificial_metalloenzyme_design_anchor",
+      "family_id": "metalloenzyme_artificial_enzyme_biocatalyst_design",
+      "name": "Artificial or engineered enzyme with reviewed metal cofactor, scaffold, and substrate scope",
+      "role": "artificial_enzyme_design_anchor",
+      "aliases": [
+        "artificial metalloenzyme",
+        "engineered enzyme",
+        "directed evolution catalyst"
+      ],
+      "acceptance_policy": "requires_cofactor_scaffold_engineering_lineage_substrate_scope_and_biocatalyst_review"
+    },
+    {
+      "anchor_id": "pfas_persistence_replacement_anchor",
+      "family_id": "perfluoroalkyl_pfas_degradation_and_replacement_critique",
+      "name": "PFAS-like fluorinated motif with reviewed persistence, degradation, and replacement policy",
+      "role": "pfas_environmental_critique_anchor",
+      "aliases": [
+        "PFAS motif",
+        "perfluoroalkyl substituent",
+        "fluorinated alternative",
+        "defluorination product"
+      ],
+      "acceptance_policy": "requires_persistence_degradation_product_replacement_and_environmental_regulatory_review"
+    },
+    {
+      "anchor_id": "rna_riboswitch_ligand_validation_anchor",
+      "family_id": "covalent_rna_targeting_and_riboswitch_ligand_motif",
+      "name": "RNA-targeted ligand or riboswitch binder with reviewed RNA pocket and validation mode",
+      "role": "rna_targeting_validation_anchor",
+      "aliases": [
+        "RNA-selective ligand",
+        "riboswitch binder",
+        "RNA-targeted probe"
+      ],
+      "acceptance_policy": "requires_rna_target_class_binding_pocket_validation_handle_and_biological_mode_review"
+    },
+    {
+      "anchor_id": "ppi_hotspot_mimetic_topology_anchor",
+      "family_id": "protein_protein_interaction_hotspot_mimetic",
+      "name": "PPI hotspot mimetic with reviewed epitope topology, constraint, and binding vector",
+      "role": "ppi_hotspot_topology_anchor",
+      "aliases": [
+        "PPI inhibitor",
+        "alpha-helix mimetic",
+        "constrained peptide",
+        "hotspot mimic"
+      ],
+      "acceptance_policy": "requires_epitope_hotspot_constraint_binding_vector_and_biological_mode_review"
+    },
+    {
+      "anchor_id": "solid_supported_library_linker_anchor",
+      "family_id": "solid_supported_resin_linker_parallel_synthesis_boundary",
+      "name": "Solid-supported or encoded-library route with reviewed linker, support, cleavage, and tag provenance",
+      "role": "solid_supported_library_anchor",
+      "aliases": [
+        "resin linker",
+        "parallel synthesis tag",
+        "DNA-encoded library",
+        "solid phase synthesis"
+      ],
+      "acceptance_policy": "requires_support_linker_cleavage_tag_identity_library_provenance_and_assay_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "hypervalent_iodine_oxidative_handle_policy",
+      "family_id": "organoiodine_hypervalent_iodine_route_handles",
+      "name": "Hypervalent iodine-mediated transformation to substrate plus iodine oxidant or transfer-handle policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "iodine-mediated oxidative products",
+          "heteroannulation products",
+          "late oxidative edits"
+        ],
+        "target_features": [
+          "hypervalent iodine reagent",
+          "oxidative or atom-transfer role",
+          "iodine valence-sensitive route choice"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "oxidative iodine-mediated bond-forming boundary",
+          "iodine reagent class boundary"
+        ],
+        "forward_logic": [
+          "separate substrate synthesis from iodine-mediated oxidative or atom-transfer event",
+          "track iodine valence and reagent class as route metadata",
+          "flag iodine oxidant entries for safety and scope review"
+        ],
+        "suggested_precursor_roles": [
+          "substrate scaffold",
+          "hypervalent iodine reagent class",
+          "oxidative product",
+          "iodine-valence metadata"
+        ],
+        "planner_hint": "Reward routes that make the iodine reagent role explicit instead of treating it as a generic oxidation condition."
+      },
+      "risks": [
+        "oxidant scope overgeneralization",
+        "iodine reagent incompatibility",
+        "hazard review required",
+        "late-stage selectivity mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Hypervalent iodine(III) oxidative methodology review provides public context for iodine-mediated route handles.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/27123538/"
+        },
+        {
+          "type": "literature",
+          "citation": "Iodine(V)-based oxidant review discusses oxidation reactions mediated by high-valent iodine reagents.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37446912/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "hypervalent_iodine_route_handle_prior",
+        "rerank_bonus": "moderate for explicit iodine valence, reagent class, and oxidative role",
+        "compliance_gate": "hypervalent_iodine_oxidant_safety_review_required"
+      }
+    },
+    {
+      "id": "diaryliodonium_benziodoxole_transfer_disconnection",
+      "family_id": "organoiodine_hypervalent_iodine_route_handles",
+      "name": "Iodonium or benziodoxole product logic to aryl/atom-transfer partner plus leaving-group policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "aryl-transfer products",
+          "benziodoxole-mediated atom-transfer products",
+          "iodonium-derived arylated scaffolds"
+        ],
+        "target_features": [
+          "diaryliodonium aryl donor",
+          "benziodoxole atom-transfer reagent",
+          "leaving-group or dummy aryl partner"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aryl-transfer bond boundary",
+          "iodonium leaving-group partner boundary"
+        ],
+        "forward_logic": [
+          "separate aryl donor identity from substrate arylation site",
+          "track dummy aryl, atom-transfer, or benziodoxole logic before route scoring",
+          "avoid generic arylation disconnections when iodonium selectivity defines feasibility"
+        ],
+        "suggested_precursor_roles": [
+          "acceptor substrate",
+          "diaryliodonium or benziodoxole donor",
+          "aryl-transfer product",
+          "leaving-group metadata"
+        ],
+        "planner_hint": "Use organoiodine transfer entries when donor identity and transfer selectivity are route-defining."
+      },
+      "risks": [
+        "aryl-transfer selectivity mismatch",
+        "dummy ligand waste",
+        "reagent stability risk",
+        "iodonium safety review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Diaryliodonium salt review covers arylating-agent context for carbonyl alpha-arylation.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40733286/"
+        },
+        {
+          "type": "literature",
+          "citation": "Benziodoxole reagent review discusses atom-transfer reactions using cyclic hypervalent iodine reagents.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/20820531/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "iodonium_transfer_handle_prior",
+        "rerank_bonus": "moderate for explicit donor, acceptor, transfer partner, and leaving-group policy",
+        "compliance_gate": "iodonium_transfer_reagent_review_required"
+      }
+    },
+    {
+      "id": "iminium_enamine_organocatalytic_stereocontrol_split",
+      "family_id": "organocatalytic_asymmetric_iminium_enamine_phase_transfer",
+      "name": "Asymmetric organocatalytic product to substrate plus iminium/enamine activation and catalyst stereomodel",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "asymmetric organocatalytic products",
+          "chiral carbonyl derivatives",
+          "API stereocenters"
+        ],
+        "target_features": [
+          "iminium or enamine activation",
+          "organocatalyst-controlled stereochemistry",
+          "catalyst activation mode"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "stereocenter-forming organocatalytic bond",
+          "activation-mode boundary"
+        ],
+        "forward_logic": [
+          "separate substrate assembly from catalyst-controlled stereocenter formation",
+          "track iminium or enamine mode and catalyst class",
+          "carry stereochemical model into route ranking"
+        ],
+        "suggested_precursor_roles": [
+          "prochiral substrate",
+          "organocatalyst class",
+          "chiral product",
+          "activation-mode metadata"
+        ],
+        "planner_hint": "Reward routes that expose organocatalytic activation mode and stereochemical rationale."
+      },
+      "risks": [
+        "enantioselectivity overclaim",
+        "substrate scope mismatch",
+        "catalyst lineage ambiguity",
+        "stereochemical review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Enamine/iminium dual organocatalysis review covers asymmetric catalysis and synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37910066/"
+        },
+        {
+          "type": "literature",
+          "citation": "API-oriented review discusses asymmetric organocatalysis in drug discovery and development.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36527181/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "organocatalytic_stereocontrol_prior",
+        "rerank_bonus": "high for explicit activation mode, catalyst class, and stereochemical outcome",
+        "compliance_gate": "asymmetric_organocatalysis_stereochemical_review_required"
+      }
+    },
+    {
+      "id": "phase_transfer_hbond_organocatalyst_policy",
+      "family_id": "organocatalytic_asymmetric_iminium_enamine_phase_transfer",
+      "name": "Organocatalytic route to phase-transfer or hydrogen-bond catalyst plus stereochemical policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "phase-transfer catalysis products",
+          "hydrogen-bond organocatalysis products",
+          "noncanonical amino-acid derivatives"
+        ],
+        "target_features": [
+          "phase-transfer catalyst",
+          "hydrogen-bond catalyst",
+          "enantioselective organocatalytic route"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "catalyst-controlled stereochemical boundary",
+          "ion-pair or hydrogen-bond activation boundary"
+        ],
+        "forward_logic": [
+          "separate substrate and electrophile/nucleophile pairing from catalyst-controlled ion-pair or H-bond activation",
+          "track catalyst type and chiral environment",
+          "flag organocatalytic entries for stereochemical and scope review"
+        ],
+        "suggested_precursor_roles": [
+          "reactant pair",
+          "phase-transfer or H-bond catalyst class",
+          "enantioenriched product",
+          "ion-pair or H-bond metadata"
+        ],
+        "planner_hint": "Use organocatalytic entries when the catalyst mode is required to explain the route."
+      },
+      "risks": [
+        "phase-transfer scope mismatch",
+        "hydrogen-bond model overfit",
+        "enantioselectivity transfer risk",
+        "catalyst compatibility review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Asymmetric phase-transfer catalysis review covers advances in phase-transfer stereocontrol.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/17525926/"
+        },
+        {
+          "type": "literature",
+          "citation": "Squaramide-catalysis review provides public context for hydrogen-bond organocatalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/28266131/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "phase_transfer_hbond_organocatalysis_prior",
+        "rerank_bonus": "moderate for explicit catalyst mode and stereochemical model",
+        "compliance_gate": "organocatalytic_scope_and_stereochemistry_review_required"
+      }
+    },
+    {
+      "id": "photoenzymatic_excited_state_enzyme_split",
+      "family_id": "photocatalytic_biocatalytic_hybrid_cascade",
+      "name": "Photoenzymatic product to substrate plus excited-state enzyme activation and selectivity policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "photoenzymatic products",
+          "new-to-nature biocatalytic products",
+          "enantioselective radical products"
+        ],
+        "target_features": [
+          "light-driven activation",
+          "enzyme active-site selectivity",
+          "radical or excited-state pathway"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "photoenzymatic bond-forming boundary",
+          "excited-state activation boundary"
+        ],
+        "forward_logic": [
+          "separate substrate design from enzyme/excitation mode",
+          "track whether stereocontrol comes from enzyme pocket, light activation, or both",
+          "flag photoenzymatic routes for photochemical and biocatalysis review"
+        ],
+        "suggested_precursor_roles": [
+          "enzyme substrate",
+          "photoexcited enzyme or cofactor",
+          "enantioenriched product",
+          "excitation-mode metadata"
+        ],
+        "planner_hint": "Reward routes that explicitly connect light-driven activation to enzyme-controlled selectivity."
+      },
+      "risks": [
+        "photoactivation overclaim",
+        "enzyme scope mismatch",
+        "radical side reactions",
+        "photobiocatalysis review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Photoenzymatic catalysis review discusses light-driven new-to-nature enantioselective catalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40351234/"
+        },
+        {
+          "type": "literature",
+          "citation": "Visible-light excited enzyme review covers single-electron oxidation for asymmetric biocatalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39605283/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "photoenzymatic_activation_prior",
+        "rerank_bonus": "high for explicit excitation mode, enzyme selectivity, and radical pathway",
+        "compliance_gate": "photoenzymatic_biocatalysis_review_required"
+      }
+    },
+    {
+      "id": "radical_biocatalytic_cascade_activation_policy",
+      "family_id": "photocatalytic_biocatalytic_hybrid_cascade",
+      "name": "Radical biocatalytic cascade to enzyme module plus radical activation and cascade order policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "radical biocatalysis products",
+          "flavin-enzyme radical products",
+          "photobiocatalytic cascades"
+        ],
+        "target_features": [
+          "radical activation mode",
+          "enzyme cascade",
+          "flavin or photoactive cofactor"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "radical-forming cascade boundary",
+          "enzyme/cofactor activation boundary"
+        ],
+        "forward_logic": [
+          "separate radical generation from enzyme-cascade sequencing",
+          "track cofactor, substrate, and radical fate metadata",
+          "avoid generic radical disconnections when enzyme pocket controls selectivity"
+        ],
+        "suggested_precursor_roles": [
+          "radical precursor",
+          "enzyme or cofactor module",
+          "cascade product",
+          "radical-fate metadata"
+        ],
+        "planner_hint": "Use radical-biocatalysis entries to keep photochemical and enzyme modules coupled in route scoring."
+      },
+      "risks": [
+        "radical pathway ambiguity",
+        "cofactor incompatibility",
+        "enzyme sequence overfit",
+        "light-driven process review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Biocatalytic radical cyclization review discusses activation modes in radical biocatalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33674826/"
+        },
+        {
+          "type": "literature",
+          "citation": "Photobiocatalytic reaction review covers single-component to triple-component systems.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40009445/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "radical_photobiocatalytic_cascade_prior",
+        "rerank_bonus": "moderate for explicit radical activation, enzyme module, and cascade order",
+        "compliance_gate": "radical_biocatalysis_photochemistry_review_required"
+      }
+    },
+    {
+      "id": "artificial_metalloenzyme_cofactor_scaffold_split",
+      "family_id": "metalloenzyme_artificial_enzyme_biocatalyst_design",
+      "name": "Artificial metalloenzyme route to substrate plus metal cofactor and protein-scaffold policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "artificial metalloenzyme products",
+          "new-to-nature enzymatic products",
+          "engineered metallocofactor transformations"
+        ],
+        "target_features": [
+          "metal cofactor",
+          "protein scaffold",
+          "engineered catalytic site"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "metalloenzyme-catalyzed bond-forming boundary",
+          "cofactor/scaffold design boundary"
+        ],
+        "forward_logic": [
+          "separate product retrosynthesis from catalyst design",
+          "track metal cofactor, scaffold, and substrate scope",
+          "flag artificial-enzyme routes as advisory until catalyst lineage is explicit"
+        ],
+        "suggested_precursor_roles": [
+          "substrate",
+          "metal cofactor",
+          "protein scaffold",
+          "engineered catalyst metadata"
+        ],
+        "planner_hint": "Reward routes that treat artificial-enzyme identity as a route-defining anchor."
+      },
+      "risks": [
+        "substrate scope overclaim",
+        "cofactor/protein mismatch",
+        "engineering lineage ambiguity",
+        "biocatalyst review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Artificial metalloenzyme review summarizes catalyst components for efficient catalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34653321/"
+        },
+        {
+          "type": "literature",
+          "citation": "Artificial-enzyme design review discusses protein scaffolds for artificial enzyme design.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36418221/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "artificial_metalloenzyme_design_prior",
+        "rerank_bonus": "moderate for explicit cofactor, scaffold, substrate scope, and engineering lineage",
+        "compliance_gate": "artificial_metalloenzyme_biocatalyst_review_required"
+      }
+    },
+    {
+      "id": "engineered_enzyme_scope_directed_evolution_policy",
+      "family_id": "metalloenzyme_artificial_enzyme_biocatalyst_design",
+      "name": "Engineered enzyme route to transformation plus directed-evolution lineage and substrate-scope policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "engineered enzyme products",
+          "therapeutic or detoxifying enzyme products",
+          "new-to-nature biocatalytic products"
+        ],
+        "target_features": [
+          "engineered catalyst",
+          "substrate scope",
+          "directed-evolution or design lineage"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "engineered-enzyme transformation boundary",
+          "catalyst lineage boundary"
+        ],
+        "forward_logic": [
+          "separate target transformation from enzyme engineering path",
+          "track engineered scope and whether catalyst precedent exists",
+          "avoid promoting enzyme routes without reviewed catalyst identity"
+        ],
+        "suggested_precursor_roles": [
+          "substrate",
+          "engineered enzyme",
+          "designed product",
+          "evolution or design metadata"
+        ],
+        "planner_hint": "Use engineered-enzyme records as proposal gates when substrate scope and catalyst lineage are explicit."
+      },
+      "risks": [
+        "directed-evolution gap",
+        "scope transfer mismatch",
+        "biological expression boundary",
+        "enzyme engineering review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Therapeutic and detoxifying enzyme review discusses engineering of enzymes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37433049/"
+        },
+        {
+          "type": "literature",
+          "citation": "Artificial metalloenzyme review discusses new-to-nature metabolism scope.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/29061328/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "engineered_enzyme_scope_prior",
+        "rerank_bonus": "moderate for explicit enzyme identity, substrate scope, and engineering lineage",
+        "compliance_gate": "engineered_enzyme_scope_review_required"
+      }
+    },
+    {
+      "id": "pfas_fluoroalkyl_persistence_replacement_policy",
+      "family_id": "perfluoroalkyl_pfas_degradation_and_replacement_critique",
+      "name": "PFAS-like motif to functional fluorinated group plus persistence and replacement policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "PFAS-like compounds",
+          "perfluoroalkylated motifs",
+          "fluorinated alternatives"
+        ],
+        "target_features": [
+          "persistent fluoroalkyl motif",
+          "environmental fate concern",
+          "replacement or redesign route"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "persistent fluoroalkyl motif boundary",
+          "replacement substituent boundary"
+        ],
+        "forward_logic": [
+          "separate performance motif from persistence and environmental fate critique",
+          "track whether fluorinated replacement changes degradation or mobility",
+          "flag PFAS-like entries for environmental and regulatory review"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "PFAS-like fluoroalkyl motif",
+          "replacement motif",
+          "environmental-fate metadata"
+        ],
+        "planner_hint": "Use PFAS entries to penalize routes that ignore persistence, degradation, or replacement rationale."
+      },
+      "risks": [
+        "environmental persistence",
+        "regulatory mismatch",
+        "replacement overclaim",
+        "PFAS toxicology review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "PFAS aquatic-environment review discusses fate and effects of poly- and perfluoroalkyl substances.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/24924660/"
+        },
+        {
+          "type": "literature",
+          "citation": "Emerging PFAS review covers sources, occurrence, and toxic effects of emerging PFAS.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36907230/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "pfas_persistence_replacement_prior",
+        "rerank_bonus": "moderate for explicit persistence, replacement, and environmental-fate metadata",
+        "compliance_gate": "pfas_environmental_regulatory_review_required"
+      }
+    },
+    {
+      "id": "pfas_degradation_defluorination_reference_policy",
+      "family_id": "perfluoroalkyl_pfas_degradation_and_replacement_critique",
+      "name": "PFAS degradation route to parent motif plus defluorination or transformation-product policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "PFAS degradation products",
+          "defluorination references",
+          "environmental transformation standards"
+        ],
+        "target_features": [
+          "degradation product",
+          "defluorination pathway",
+          "environmental reference role"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-F degradation boundary",
+          "transformation-product reference boundary"
+        ],
+        "forward_logic": [
+          "separate synthetic target route from degradation-product interpretation",
+          "track defluorination or transformation context as evidence metadata",
+          "avoid using degradation references as general-purpose synthesis proposals"
+        ],
+        "suggested_precursor_roles": [
+          "PFAS parent motif",
+          "degradation product",
+          "defluorination reference",
+          "environmental method metadata"
+        ],
+        "planner_hint": "Use PFAS degradation entries for critique and reference planning, not generic route closure."
+      },
+      "risks": [
+        "degradation pathway ambiguity",
+        "environmental analytical mismatch",
+        "regulated material context",
+        "defluorination review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "PFAS degradation review discusses toxicity, sequestration, and degradation of PFAS.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35643010/"
+        },
+        {
+          "type": "literature",
+          "citation": "Bacterial degradation review covers perfluoroalkyl acid degradation context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39013276/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "pfas_degradation_reference_prior",
+        "rerank_bonus": "moderate for explicit degradation product, defluorination context, and analytical role",
+        "compliance_gate": "pfas_degradation_environmental_review_required"
+      }
+    },
+    {
+      "id": "rna_ligand_binding_pocket_validation_split",
+      "family_id": "covalent_rna_targeting_and_riboswitch_ligand_motif",
+      "name": "RNA-targeted ligand to parent scaffold plus RNA pocket and validation policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "RNA-targeted small molecules",
+          "RNA-selective probes",
+          "RNA tertiary-structure ligands"
+        ],
+        "target_features": [
+          "RNA binding pocket",
+          "direct target validation",
+          "probe or ligand scaffold"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "RNA-validation tag or handle boundary",
+          "parent ligand to pocket-recognition motif boundary"
+        ],
+        "forward_logic": [
+          "separate parent ligand synthesis from RNA-binding pocket and validation-handle design",
+          "track RNA target class and direct engagement evidence",
+          "flag RNA-targeting entries for biological validation before promotion"
+        ],
+        "suggested_precursor_roles": [
+          "parent ligand",
+          "RNA pocket-recognition motif",
+          "validation tag or probe handle",
+          "RNA-target metadata"
+        ],
+        "planner_hint": "Reward RNA-targeting routes that carry target class and validation metadata rather than generic heterocycle SAR."
+      },
+      "risks": [
+        "RNA target overclaim",
+        "probe-handle perturbation",
+        "selectivity uncertainty",
+        "biological validation review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "RNA-selective ligand review covers live-cell imaging and drug-discovery context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37649155/"
+        },
+        {
+          "type": "literature",
+          "citation": "RNA druggability review discusses drugging the RNA world.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/30385607/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "rna_target_ligand_validation_prior",
+        "rerank_bonus": "moderate for explicit RNA pocket, parent ligand, and validation mode",
+        "compliance_gate": "rna_target_validation_review_required"
+      }
+    },
+    {
+      "id": "riboswitch_ligand_biological_mode_policy",
+      "family_id": "covalent_rna_targeting_and_riboswitch_ligand_motif",
+      "name": "Riboswitch binder to ligand scaffold plus RNA regulatory-mode policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "riboswitch ligands",
+          "bacterial RNA regulatory binders",
+          "RNA-targeted anti-infective leads"
+        ],
+        "target_features": [
+          "riboswitch target",
+          "RNA regulatory mechanism",
+          "small-molecule ligand"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "ligand recognition motif boundary",
+          "RNA regulatory-mode boundary"
+        ],
+        "forward_logic": [
+          "separate ligand synthesis from riboswitch target-class validation",
+          "track RNA regulatory mode and selectivity context",
+          "keep riboswitch entries advisory until biological mode is reviewed"
+        ],
+        "suggested_precursor_roles": [
+          "riboswitch ligand",
+          "recognition motif",
+          "validation analogue",
+          "RNA regulatory metadata"
+        ],
+        "planner_hint": "Use riboswitch records as biological-mode route policy, not ordinary small-molecule similarity hints."
+      },
+      "risks": [
+        "antimicrobial stewardship context",
+        "RNA selectivity gap",
+        "biological mode overclaim",
+        "target-validation review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Riboswitch drug-target review discusses riboswitches as antibiotic targets.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33466288/"
+        },
+        {
+          "type": "literature",
+          "citation": "RNA tertiary/quaternary structure review discusses small-molecule targeting of biologically relevant RNA structures.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33823146/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "riboswitch_ligand_policy_prior",
+        "rerank_bonus": "moderate for explicit riboswitch target, ligand recognition motif, and biological mode",
+        "compliance_gate": "rna_riboswitch_biological_mode_review_required"
+      }
+    },
+    {
+      "id": "ppi_hotspot_mimetic_epitope_disconnection",
+      "family_id": "protein_protein_interaction_hotspot_mimetic",
+      "name": "PPI inhibitor to hotspot epitope mimic plus constrained topology policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "PPI inhibitors",
+          "hotspot mimetics",
+          "constrained epitope ligands"
+        ],
+        "target_features": [
+          "hotspot mimic",
+          "epitope topology",
+          "conformational constraint"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "epitope mimic boundary",
+          "conformational constraint boundary"
+        ],
+        "forward_logic": [
+          "separate pharmacophore mimicry from constraint installation",
+          "track hotspot residues, epitope topology, and binding vector",
+          "avoid ranking PPI mimetics as generic flat heterocycles or peptides"
+        ],
+        "suggested_precursor_roles": [
+          "hotspot pharmacophore",
+          "constraining scaffold",
+          "PPI mimetic",
+          "epitope topology metadata"
+        ],
+        "planner_hint": "Reward routes that preserve PPI hotspot topology and constraint logic."
+      },
+      "risks": [
+        "binding epitope overfit",
+        "cell permeability gap",
+        "biological-mode ambiguity",
+        "PPI validation review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "PPI inhibitor review covers advances in anticancer drug design.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/27554357/"
+        },
+        {
+          "type": "literature",
+          "citation": "Covalent PPI inhibitor review provides broader target-class context for PPI targeting.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31696799/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "ppi_hotspot_mimetic_prior",
+        "rerank_bonus": "moderate for explicit hotspot, epitope topology, and constraint metadata",
+        "compliance_gate": "ppi_biological_mode_validation_review_required"
+      }
+    },
+    {
+      "id": "alpha_helix_peptidomimetic_constraint_policy",
+      "family_id": "protein_protein_interaction_hotspot_mimetic",
+      "name": "Helix or peptide PPI mimetic to parent epitope plus nonpeptidic/constrained scaffold policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "alpha-helix mimetics",
+          "peptidomimetic PPI ligands",
+          "constrained peptide analogues"
+        ],
+        "target_features": [
+          "helix mimic",
+          "nonpeptidic scaffold",
+          "PPI binding epitope"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "helix-mimetic scaffold boundary",
+          "peptide-to-mimetic replacement boundary"
+        ],
+        "forward_logic": [
+          "separate epitope recognition from mimetic scaffold construction",
+          "track whether constraint or nonpeptidic replacement preserves key side-chain display",
+          "flag PPI mimetic records for assay and target-engagement review"
+        ],
+        "suggested_precursor_roles": [
+          "parent epitope",
+          "helix mimetic scaffold",
+          "constrained analogue",
+          "side-chain display metadata"
+        ],
+        "planner_hint": "Use helix-mimetic entries when side-chain display and constraint geometry define route value."
+      },
+      "risks": [
+        "epitope geometry mismatch",
+        "delivery/permeability gap",
+        "assay transfer risk",
+        "peptidomimetic review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Non-peptidic alpha-helical mimetic review covers PPI inhibitor context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/21568916/"
+        },
+        {
+          "type": "literature",
+          "citation": "Peptide drug review provides public context for peptide-to-drug development boundaries.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/22429133/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "helix_peptidomimetic_constraint_prior",
+        "rerank_bonus": "moderate for explicit epitope, mimic scaffold, and constraint geometry",
+        "compliance_gate": "ppi_peptidomimetic_validation_review_required"
+      }
+    },
+    {
+      "id": "resin_linker_support_cleavage_boundary_policy",
+      "family_id": "solid_supported_resin_linker_parallel_synthesis_boundary",
+      "name": "Solid-supported route to target plus resin linker, support attachment, and cleavage policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "solid-phase synthesis products",
+          "parallel-synthesis libraries",
+          "resin-linked intermediates"
+        ],
+        "target_features": [
+          "solid support",
+          "cleavable linker",
+          "library or parallel synthesis provenance"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "support linker to product boundary",
+          "cleavage endpoint boundary"
+        ],
+        "forward_logic": [
+          "separate solution target synthesis from solid-supported route boundary",
+          "track resin linker, cleavage mode, and support provenance",
+          "avoid treating support-bound intermediates as stock"
+        ],
+        "suggested_precursor_roles": [
+          "solution target",
+          "resin linker",
+          "support-bound intermediate",
+          "cleavage and provenance metadata"
+        ],
+        "planner_hint": "Reward routes that make support attachment and cleavage policy explicit for library-derived targets."
+      },
+      "risks": [
+        "cleavage incompatibility",
+        "support-bound impurity",
+        "parallel synthesis provenance gap",
+        "library route review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Combinatorial chemistry review provides public context for parallel and solid-supported synthesis pathways.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/9249757/"
+        },
+        {
+          "type": "literature",
+          "citation": "Linker design review discusses linker design and applications relevant to support-bound synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/12826122/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "resin_linker_support_boundary_prior",
+        "rerank_bonus": "moderate for explicit support, linker, cleavage, and provenance metadata",
+        "compliance_gate": "solid_supported_library_provenance_review_required"
+      }
+    },
+    {
+      "id": "encoded_library_tag_synthesis_boundary_policy",
+      "family_id": "solid_supported_resin_linker_parallel_synthesis_boundary",
+      "name": "Encoded-library hit to ligand scaffold plus DNA/tag/linker and synthesis provenance policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "DNA-encoded library hits",
+          "tagged library compounds",
+          "encoded peptide or small-molecule libraries"
+        ],
+        "target_features": [
+          "DNA or encoded tag",
+          "library linker",
+          "hit resynthesis boundary"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "encoded tag to ligand boundary",
+          "library linker to hit scaffold boundary"
+        ],
+        "forward_logic": [
+          "separate on-DNA or encoded-library synthesis from off-DNA target resynthesis",
+          "track tag identity, linker, assay provenance, and hit-validation boundary",
+          "flag encoded-library routes for provenance and assay review"
+        ],
+        "suggested_precursor_roles": [
+          "off-DNA ligand",
+          "encoded tag",
+          "library linker",
+          "hit-validation metadata"
+        ],
+        "planner_hint": "Use encoded-library entries when tag/linker provenance changes route interpretation or hit validation."
+      },
+      "risks": [
+        "on-DNA/off-DNA transfer mismatch",
+        "tag-driven artifact",
+        "assay provenance gap",
+        "library validation review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Solid-phase DNA-encoded library synthesis review discusses DEL synthesis instructions.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40404924/"
+        },
+        {
+          "type": "literature",
+          "citation": "Encoded modified peptide library review provides context for encoded library compound provenance.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25768886/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "encoded_library_tag_boundary_prior",
+        "rerank_bonus": "moderate for explicit tag, linker, off-DNA resynthesis, and validation metadata",
+        "compliance_gate": "encoded_library_hit_validation_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v13 expansion promotes backlog families for organoiodine route handles, asymmetric organocatalysis, photoenzymatic cascades, artificial metalloenzymes, PFAS persistence/degradation critique, RNA/riboswitch ligand strategy, PPI hotspot mimetics, and solid-supported or encoded-library linker boundaries."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Organoiodine, organocatalytic, photobiocatalytic, artificial-enzyme, PFAS, RNA-targeting, PPI-mimetic, and encoded-library records are advisory. Promotion to proposal generation requires explicit chemical, biological, environmental, validation, or library-provenance review as applicable."
+    }
+  ]
+}

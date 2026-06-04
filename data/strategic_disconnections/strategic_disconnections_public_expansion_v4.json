@@ -1,0 +1,1593 @@
+{
+  "schema_version": "strategic_disconnections.v4_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Third expanded public source layer focused on under-covered medicinal heteroaromatics, saturated N-heterocycles, antibiotic semisynthesis cores, redox scaffolds, chelator/linker modalities, and compliance-gated bioconjugate payload systems.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template or proposal promotion",
+      "separate stock, fermentation-core, or reviewed-anchor decision",
+      "route-specific regioselectivity, stereoselectivity, and protecting-group review",
+      "antimicrobial stewardship, cytotoxic payload, radiochemical, and biosecurity review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, and synthesis conditions",
+      "ADC payload/linker, radiopharmaceutical, antibiotic, siderophore, and PROTAC entries are high-level route priors only"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "azaindole_indazole_imidazopyridine",
+      "name": "Azaindoles, indazoles, imidazopyridines, and fused aza-heteroaromatics",
+      "pattern_keywords": [
+        "azaindole",
+        "indazole",
+        "imidazopyridine",
+        "aminopyridine",
+        "2-aminopyridine",
+        "o-haloaniline",
+        "N-N fused ring",
+        "kinase hinge binder"
+      ],
+      "strategic_principle": "Build the fused aza-heteroaromatic core from aminopyridine, ortho-halo/ortho-functionalized aryl, hydrazine/nitroso, or alpha-carbonyl partners before treating late C-H/SNAr/cross-coupling decoration as SAR exploration."
+    },
+    {
+      "family_id": "purine_pyrimidine_heterocycle",
+      "name": "Purines, pyrimidines, pyrrolopyrimidines, and nucleobase-like heterocycles",
+      "pattern_keywords": [
+        "purine",
+        "pyrimidine",
+        "pyrrolopyrimidine",
+        "7-deazapurine",
+        "nucleobase",
+        "2,4-dichloropyrimidine",
+        "C2 substitution",
+        "C4 substitution",
+        "C6 substitution"
+      ],
+      "strategic_principle": "Separate nucleobase-like heterocycle core formation from site-selective C2/C4/C5/C6 substitution and from sugar/prodrug installation. Substitution order and tautomer/regioisomer control are strategic, not cosmetic."
+    },
+    {
+      "family_id": "saturated_n_heterocycle_scaffold",
+      "name": "Piperazines, morpholines, azetidines, and saturated N-heterocycle medicinal motifs",
+      "pattern_keywords": [
+        "piperazine",
+        "morpholine",
+        "azetidine",
+        "piperidine",
+        "saturated cyclic amine",
+        "ring opening",
+        "N-alkylation",
+        "sp3-rich scaffold"
+      ],
+      "strategic_principle": "Distinguish late medicinal amine/linker installation from true saturated-ring construction. For substituted or chiral saturated N-heterocycles, expose ring-building, ring-opening, or chiral-pool anchors rather than generic amine alkylation."
+    },
+    {
+      "family_id": "lactone_lactam_beta_lactone",
+      "name": "Beta-lactones, strained lactones, benzolactams, and non-antibiotic lactam/lactone scaffolds",
+      "pattern_keywords": [
+        "beta-lactone",
+        "lactone",
+        "lactam",
+        "hydroxy acid",
+        "amino acid",
+        "acylation",
+        "ring opening",
+        "thioesterase"
+      ],
+      "strategic_principle": "Disconnect lactones/lactams to hydroxy-acid, amino-acid, beta-hydroxy acid, or acyl-activation precursors. For beta-lactones, ring strain and irreversible acylation biology require separate risk tags from ordinary ester retrosynthesis."
+    },
+    {
+      "family_id": "quinone_hydroquinone_redox_scaffold",
+      "name": "Quinones, hydroquinones, naphthoquinones, and redox-active natural-product scaffolds",
+      "pattern_keywords": [
+        "quinone",
+        "hydroquinone",
+        "naphthoquinone",
+        "benzoquinone",
+        "anthraquinone",
+        "lawsone",
+        "menadione",
+        "redox cycling"
+      ],
+      "strategic_principle": "Treat quinone/hydroquinone interchange as an oxidation-state strategy and disconnect substituted naphthoquinones through oxidation, annulation, or nucleophilic substitution only when regioselectivity and redox stability are explicit."
+    },
+    {
+      "family_id": "aminoglycoside_semisynthesis",
+      "name": "Aminoglycoside antibiotics and amine-rich sugar semisynthesis",
+      "pattern_keywords": [
+        "aminoglycoside",
+        "kanamycin",
+        "gentamicin",
+        "neomycin",
+        "amikacin",
+        "apramycin",
+        "semisynthesis",
+        "glycosylated amine"
+      ],
+      "strategic_principle": "Use fermentation-derived aminoglycoside cores as reviewed semisynthesis anchors. Strategic work is regioselective amine/hydroxyl protection, acylation/alkylation, and resistance-avoidance modification, not rebuilding the full aminosugar architecture."
+    },
+    {
+      "family_id": "tetracycline_polyketide_antibiotic",
+      "name": "Tetracycline polyketide antibiotics and semisynthetic tetracycline cores",
+      "pattern_keywords": [
+        "tetracycline",
+        "doxycycline",
+        "minocycline",
+        "tigecycline",
+        "eravacycline",
+        "polyketide",
+        "semisynthesis",
+        "C7 substitution",
+        "C9 substitution"
+      ],
+      "strategic_principle": "Treat tetracycline cores as fermentation/semisynthesis or reviewed total-synthesis platform anchors. Prioritize oxidation-state, C7/C9 substitution, and dimethylamino/amide edits with explicit antibiotic-stewardship policy."
+    },
+    {
+      "family_id": "siderophore_hydroxamate_catechol",
+      "name": "Siderophores, hydroxamates, catecholates, and iron-chelating antibiotic vectors",
+      "pattern_keywords": [
+        "siderophore",
+        "hydroxamate",
+        "catechol",
+        "carboxylate",
+        "ferrichrome",
+        "enterobactin",
+        "cefiderocol",
+        "iron chelator"
+      ],
+      "strategic_principle": "Disconnect siderophore motifs to hydroxamate/catechol/carboxylate chelation units and peptide/linker backbones. Chelation geometry, iron-binding state, and antimicrobial-vector compliance are required route metadata."
+    },
+    {
+      "family_id": "protac_degrader_linker",
+      "name": "PROTACs and heterobifunctional targeted-protein-degrader linkers",
+      "pattern_keywords": [
+        "PROTAC",
+        "targeted protein degradation",
+        "E3 ligand",
+        "warhead",
+        "linker",
+        "CRBN",
+        "VHL",
+        "ternary complex"
+      ],
+      "strategic_principle": "Disconnect degraders to POI warhead, linker, and E3 ligase ligand modules. Linker length, attachment vectors, exit-vector chemistry, and ternary-complex behavior determine strategic value; ordinary linker coupling is insufficient."
+    },
+    {
+      "family_id": "adc_payload_linker",
+      "name": "Antibody-drug-conjugate payload/linker and bioconjugation motifs",
+      "pattern_keywords": [
+        "ADC",
+        "antibody-drug conjugate",
+        "payload",
+        "linker",
+        "valine-citrulline",
+        "PABC",
+        "maleimide",
+        "cleavable linker",
+        "noncleavable linker"
+      ],
+      "strategic_principle": "Compliance-gated route critique only: separate cytotoxic payload, cleavable/noncleavable linker, self-immolative spacer, and antibody conjugation handle. Stability and release mechanism are strategic metadata."
+    },
+    {
+      "family_id": "radiopharmaceutical_chelator",
+      "name": "Radiopharmaceutical chelators, bifunctional chelators, and isotope-bearing linkers",
+      "pattern_keywords": [
+        "radiopharmaceutical",
+        "DOTA",
+        "NOTA",
+        "bifunctional chelator",
+        "radiometal",
+        "PSMA",
+        "theranostic",
+        "chelator linker"
+      ],
+      "strategic_principle": "Compliance-gated route critique only: separate targeting vector, pharmacokinetic linker, bifunctional chelator, and isotope/metal choice. Radiolabeling compatibility and chelator-metal stability must remain explicit."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "aminopyridine_fused_azaheteroaromatic_anchor",
+      "family_id": "azaindole_indazole_imidazopyridine",
+      "name": "Aminopyridine / hydrazine / alpha-carbonyl fused aza-heteroaromatic precursor",
+      "role": "fused_azaheteroaromatic_anchor",
+      "aliases": [
+        "aminopyridine",
+        "2-aminopyridine",
+        "o-halo pyridine/aniline",
+        "hydrazine/nitroso precursor",
+        "alpha-haloketone"
+      ],
+      "acceptance_policy": "requires_annulation_mode_and_regioisomer_mapping"
+    },
+    {
+      "anchor_id": "purine_pyrimidine_core_substitution_anchor",
+      "family_id": "purine_pyrimidine_heterocycle",
+      "name": "Halogenated or activated nucleobase-like core",
+      "role": "nucleobase_core_anchor",
+      "aliases": [
+        "2,4-dichloropyrimidine",
+        "6-chloropurine",
+        "pyrrolopyrimidine",
+        "7-deazapurine",
+        "silylated nucleobase"
+      ],
+      "acceptance_policy": "requires_site_selective_substitution_and_tautomer_metadata"
+    },
+    {
+      "anchor_id": "saturated_n_heterocycle_building_block_anchor",
+      "family_id": "saturated_n_heterocycle_scaffold",
+      "name": "Saturated N-heterocycle building block or ring-construction precursor",
+      "role": "saturated_amine_scaffold_anchor",
+      "aliases": [
+        "piperazine",
+        "morpholine",
+        "azetidine",
+        "chiral cyclic amine",
+        "ring-opening precursor"
+      ],
+      "acceptance_policy": "requires_ring_substitution_and_N_functionalization_policy"
+    },
+    {
+      "anchor_id": "hydroxy_acid_amino_acid_lactone_lactam_anchor",
+      "family_id": "lactone_lactam_beta_lactone",
+      "name": "Hydroxy-acid / amino-acid / beta-hydroxy-acid lactone-lactam precursor",
+      "role": "lactone_lactam_ring_closure_anchor",
+      "aliases": [
+        "hydroxy acid",
+        "amino acid",
+        "beta-hydroxy acid",
+        "activated acid",
+        "strained beta-lactone precursor"
+      ],
+      "acceptance_policy": "requires_ring_strain_and_acylation_risk_tags"
+    },
+    {
+      "anchor_id": "quinone_hydroquinone_redox_anchor",
+      "family_id": "quinone_hydroquinone_redox_scaffold",
+      "name": "Quinone / hydroquinone redox pair or substituted naphthoquinone core",
+      "role": "redox_scaffold_anchor",
+      "aliases": [
+        "hydroquinone",
+        "benzoquinone",
+        "naphthoquinone",
+        "lawsone",
+        "menadione"
+      ],
+      "acceptance_policy": "requires_redox_state_and_regioselective_substitution_plan"
+    },
+    {
+      "anchor_id": "aminoglycoside_fermentation_core_anchor",
+      "family_id": "aminoglycoside_semisynthesis",
+      "name": "Fermentation-derived aminoglycoside core",
+      "role": "aminoglycoside_semisynthesis_anchor",
+      "aliases": [
+        "kanamycin",
+        "neomycin",
+        "gentamicin",
+        "apramycin",
+        "amikacin precursor"
+      ],
+      "acceptance_policy": "source_supported_semisynthesis_endpoint_with_regioselective_modification_plan"
+    },
+    {
+      "anchor_id": "tetracycline_core_semisynthesis_anchor",
+      "family_id": "tetracycline_polyketide_antibiotic",
+      "name": "Reviewed tetracycline fermentation core or total-synthesis platform",
+      "role": "tetracycline_semisynthesis_anchor",
+      "aliases": [
+        "tetracycline",
+        "doxycycline",
+        "minocycline",
+        "6-deoxytetracycline platform",
+        "tigecycline precursor"
+      ],
+      "acceptance_policy": "antibiotic_stewardship_and_core_source_review_required"
+    },
+    {
+      "anchor_id": "siderophore_chelation_unit_anchor",
+      "family_id": "siderophore_hydroxamate_catechol",
+      "name": "Hydroxamate/catechol/carboxylate chelation unit plus linker backbone",
+      "role": "iron_chelator_anchor",
+      "aliases": [
+        "hydroxamate",
+        "catechol",
+        "carboxylate",
+        "ornithine hydroxamate",
+        "siderophore peptide backbone"
+      ],
+      "acceptance_policy": "requires_chelation_geometry_and_antimicrobial_vector_review"
+    },
+    {
+      "anchor_id": "protac_warhead_linker_e3_anchor",
+      "family_id": "protac_degrader_linker",
+      "name": "POI warhead, linker, and E3 ligase ligand modules",
+      "role": "heterobifunctional_degrader_anchor",
+      "aliases": [
+        "POI ligand",
+        "warhead",
+        "E3 ligand",
+        "CRBN ligand",
+        "VHL ligand",
+        "PEG/alkyl linker"
+      ],
+      "acceptance_policy": "requires_attachment_vector_and_degradation_context_metadata"
+    },
+    {
+      "anchor_id": "adc_payload_linker_conjugation_anchor",
+      "family_id": "adc_payload_linker",
+      "name": "Payload, cleavable/noncleavable linker, spacer, and antibody conjugation handle",
+      "role": "compliance_gated_adc_anchor",
+      "aliases": [
+        "cytotoxic payload",
+        "valine-citrulline linker",
+        "PABC spacer",
+        "maleimide",
+        "noncleavable linker"
+      ],
+      "acceptance_policy": "compliance_review_required_before_proposal_generation"
+    },
+    {
+      "anchor_id": "radiopharmaceutical_chelator_linker_anchor",
+      "family_id": "radiopharmaceutical_chelator",
+      "name": "Targeting vector, bifunctional chelator, linker, and isotope/metal choice",
+      "role": "compliance_gated_radiopharmaceutical_anchor",
+      "aliases": [
+        "DOTA",
+        "NOTA",
+        "bifunctional chelator",
+        "radiometal",
+        "PSMA ligand",
+        "theranostic linker"
+      ],
+      "acceptance_policy": "radiochemical_compliance_review_required_before_proposal_generation"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "azaindole_aminopyridine_pyrrole_annulation",
+      "family_id": "azaindole_indazole_imidazopyridine",
+      "name": "Azaindole to aminopyridine/pyrrole-annulation precursor",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "azaindoles",
+          "azaindole kinase hinge binders",
+          "azainodole-like fused aza-heteroaromatics"
+        ],
+        "target_features": [
+          "pyridine fused to pyrrole",
+          "aminopyridine-derived retron",
+          "C2/C3 substitution pattern"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "pyrrole ring bonds formed onto an aminopyridine precursor"
+        ],
+        "forward_logic": [
+          "choose aminopyridine or halopyridine precursor matching the azaindole isomer",
+          "build the pyrrole ring by cross-coupling, cyclization, or indole-analogous annulation",
+          "defer late kinase SAR decoration until core regioisomer is controlled"
+        ],
+        "suggested_precursor_roles": [
+          "aminopyridine",
+          "halopyridine",
+          "alkyne or carbonyl annulation partner",
+          "azaindole core"
+        ],
+        "planner_hint": "Reward azaindole isomer mapping and core annulation; penalize product-like azaindole terminals with only C-H decoration."
+      },
+      "risks": [
+        "azaindole positional isomer mismatch",
+        "electron-poor pyridine reduces classic indole route reliability",
+        "metal-catalyst compatibility",
+        "N-protection and tautomer issues"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Azaindole synthesis and functionalization review describes aminopyridine-based and metal-catalyzed approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6222529/"
+        },
+        {
+          "type": "literature",
+          "citation": "Azaindole kinase-inhibitor review discusses synthetic routes and scaffold use.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6271083/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "azaindole_core_prior",
+        "rerank_bonus": "moderate for isomer-correct aminopyridine annulation"
+      }
+    },
+    {
+      "id": "indazole_hydrazine_or_nitroso_annulation",
+      "family_id": "azaindole_indazole_imidazopyridine",
+      "name": "Indazole to hydrazine/nitroso or ortho-functionalized aryl precursor",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "indazoles",
+          "indazole medicinal scaffolds",
+          "N-substituted indazole analogues"
+        ],
+        "target_features": [
+          "benzene-fused pyrazole",
+          "N-N heteroaromatic core",
+          "1H/2H indazole tautomer concern"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "indazole N-N/C-N bonds formed by cyclization"
+        ],
+        "forward_logic": [
+          "map to ortho-functionalized aryl hydrazone, nitroso, diazo, or hydrazine-derived precursor",
+          "choose annulation route based on N-substitution and aryl substitution pattern",
+          "track 1H/2H tautomer and N-alkyl regioselectivity"
+        ],
+        "suggested_precursor_roles": [
+          "ortho-functionalized aryl precursor",
+          "hydrazine or hydrazone precursor",
+          "nitroso/diazo precursor",
+          "indazole core"
+        ],
+        "planner_hint": "Require N-regioisomer and tautomer metadata; late N-alkyl edits are not core-building progress."
+      },
+      "risks": [
+        "hydrazine safety",
+        "N1/N2 regioisomerism",
+        "tautomer assignment",
+        "diazo/nitroso hazard review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Indazole synthesis and biological review summarizes recent methods for indazole derivatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6278422/"
+        },
+        {
+          "type": "literature",
+          "citation": "Recent indazole scaffold review covers transition-metal, acid/base, and green approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12213994/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "indazole_core_prior",
+        "rerank_bonus": "moderate for annulation route with N-regioisomer control"
+      }
+    },
+    {
+      "id": "imidazopyridine_aminopyridine_alpha_carbonyl_annulation",
+      "family_id": "azaindole_indazole_imidazopyridine",
+      "name": "Imidazopyridine to 2-aminopyridine plus alpha-carbonyl/halocarbonyl precursor",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "imidazo[1,2-a]pyridines",
+          "imidazo[4,5-b]pyridines",
+          "imidazopyridine antibacterial or CNS scaffolds"
+        ],
+        "target_features": [
+          "fused imidazole-pyridine ring",
+          "2-aminopyridine retron",
+          "alpha-haloketone or carbonyl partner"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "imidazole ring bonds formed by aminopyridine annulation"
+        ],
+        "forward_logic": [
+          "prepare 2-aminopyridine or isomeric diamino/aminopyridine precursor",
+          "annulate with alpha-haloketone, aldehyde, alkyne, or MCR partner",
+          "choose condensation, oxidative coupling, GBB, or metal-catalyzed route based on substitution pattern"
+        ],
+        "suggested_precursor_roles": [
+          "2-aminopyridine",
+          "alpha-haloketone",
+          "aldehyde",
+          "isocyanide/MCR component",
+          "imidazopyridine core"
+        ],
+        "planner_hint": "Use imidazopyridine annulation as core-building; classify late arylation/SNAr as decoration unless core is opened."
+      },
+      "risks": [
+        "regioisomeric fused ring formation",
+        "oxidative coupling selectivity",
+        "GBB component mapping",
+        "basic heteroaromatic salt handling"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Imidazopyridine synthesis review covers condensation, MCR, oxidative coupling, and tandem routes.",
+          "url": "https://pubs.rsc.org/en/content/articlehtml/2015/cc/c4cc08495k"
+        },
+        {
+          "type": "literature",
+          "citation": "Open-access imidazopyridine review summarizes synthetic methodologies and antibacterial activities.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9774741/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "imidazopyridine_core_prior",
+        "rerank_bonus": "moderate for aminopyridine annulation with component mapping"
+      }
+    },
+    {
+      "id": "pyrimidine_component_condensation_and_halogen_substitution_order",
+      "family_id": "purine_pyrimidine_heterocycle",
+      "name": "Pyrimidine core formation and halogenated-core substitution ordering",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "pyrimidine drugs",
+          "aminopyrimidines",
+          "pyridopyrimidines",
+          "pyrimidine natural-product analogues"
+        ],
+        "target_features": [
+          "six-membered diazine core",
+          "C2/C4/C5/C6 substitution pattern",
+          "activated halo-pyrimidine retron"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "pyrimidine ring bonds from amidine/urea/dicarbonyl-type condensation",
+          "C-N/C-C bonds from site-selective SNAr or coupling on activated pyrimidine"
+        ],
+        "forward_logic": [
+          "choose de novo pyrimidine condensation or halogenated-core functionalization",
+          "map C2/C4/C5/C6 substituents to substitution order and leaving-group electronics",
+          "separate nucleobase construction from sugar/prodrug installation"
+        ],
+        "suggested_precursor_roles": [
+          "amidine or urea component",
+          "dicarbonyl or beta-ketoester component",
+          "2,4-dichloropyrimidine",
+          "aminopyrimidine core"
+        ],
+        "planner_hint": "Reward explicit substitution-order logic; penalize arbitrary pyrimidine C-H decoration with no site-selectivity rationale."
+      },
+      "risks": [
+        "C2/C4 SNAr selectivity",
+        "tautomer/protonation state",
+        "regioisomeric condensation",
+        "base-sensitive substituents"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Pyrimidine medicinal review summarizes synthetic strategies and biological applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10279829/"
+        },
+        {
+          "type": "literature",
+          "citation": "Recent pyrimidine-based drugs review outlines synthetic strategies and clinical relevance.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10820437/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "pyrimidine_core_and_substitution_prior",
+        "rerank_bonus": "moderate for explicit core/substitution-order strategy"
+      }
+    },
+    {
+      "id": "purine_pyrrolopyrimidine_base_substitution_and_glycosylation_boundary",
+      "family_id": "purine_pyrimidine_heterocycle",
+      "name": "Purine/pyrrolopyrimidine core substitution boundary before glycosylation or prodrug steps",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "purine analogues",
+          "pyrrolopyrimidines",
+          "7-deazapurines",
+          "nucleobase-like kinase or antiviral scaffolds"
+        ],
+        "target_features": [
+          "fused imidazole-pyrimidine or pyrrolopyrimidine core",
+          "C2/C6/N9 substitution pattern",
+          "base-sugar boundary possible"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "base-sugar or base-linker bond when present",
+          "site-selective C-N/C-C bonds on activated purine/pyrrolopyrimidine core"
+        ],
+        "forward_logic": [
+          "solve purine or 7-deazapurine core separately from nucleoside/prodrug chemistry",
+          "choose halogenated core substitution order for C2/C6/N9 or C4/C5 analogues",
+          "track N-regioselectivity before sugar, linker, or phosphate masking"
+        ],
+        "suggested_precursor_roles": [
+          "6-chloropurine",
+          "halogenated pyrrolopyrimidine",
+          "nucleobase core",
+          "protected sugar or linker partner"
+        ],
+        "planner_hint": "Do not merge nucleobase construction with glycosylation/prodrug masking; each requires different selectivity metadata."
+      },
+      "risks": [
+        "N7/N9 or N-regioselectivity",
+        "tautomeric ambiguity",
+        "multiple activated halides",
+        "polar product isolation"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Nucleobase and nucleoside analogue review covers resistance, pharmacology, and modification boundaries.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6071274/"
+        },
+        {
+          "type": "literature",
+          "citation": "Pyrrolopyrimidine biosynthesis review describes 7-deazapurine core context and tailoring.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4022189/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "purine_pyrrolopyrimidine_boundary_prior",
+        "rerank_bonus": "moderate for core construction separated from glycosylation/prodrug steps"
+      }
+    },
+    {
+      "id": "saturated_n_heterocycle_ring_construction_vs_late_linker",
+      "family_id": "saturated_n_heterocycle_scaffold",
+      "name": "Saturated N-heterocycle ring construction versus late linker installation",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "piperazines",
+          "morpholines",
+          "piperidines",
+          "medicinal saturated cyclic amines"
+        ],
+        "target_features": [
+          "saturated cyclic amine",
+          "N-alkyl/N-acyl linker",
+          "substituted or chiral ring"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "late N-linker bond when ring is a common building block",
+          "C-N/C-C bonds formed during de novo saturated-ring construction for substituted cores"
+        ],
+        "forward_logic": [
+          "classify whether the ring is a commodity linker motif or a substituted chiral scaffold",
+          "for simple rings, disconnect late N-functionalization and preserve stock policy",
+          "for substituted rings, expose ring-construction or chiral building-block route"
+        ],
+        "suggested_precursor_roles": [
+          "piperazine or morpholine building block",
+          "chiral cyclic amine",
+          "diamino/dioxygenated precursor",
+          "late linker electrophile"
+        ],
+        "planner_hint": "Do not over-reward generic N-alkylation; reward ring-construction only when substitution/chirality makes it strategic."
+      },
+      "risks": [
+        "overalkylation",
+        "basic amine salt forms",
+        "regioselective N-functionalization",
+        "ring conformation and pKa effects"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Morpholine/piperazine de novo synthesis article discusses their role in medicinal chemistry and scaffold synthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5348101/"
+        },
+        {
+          "type": "literature",
+          "citation": "Saturated cyclic amine review covers green routes to aziridines, azetidines, pyrrolidines, piperidines, and larger rings.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6151670/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "saturated_n_heterocycle_scaffold_prior",
+        "rerank_bonus": "low_to_moderate unless substituted/chiral ring construction is exposed"
+      }
+    },
+    {
+      "id": "azetidine_strained_ring_building_or_opening_disconnection",
+      "family_id": "saturated_n_heterocycle_scaffold",
+      "name": "Azetidine strained-ring construction or ring-opening disconnection",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "azetidines",
+          "sp3-rich medicinal scaffolds",
+          "azetidine-containing CNS-focused libraries"
+        ],
+        "target_features": [
+          "four-membered saturated N-heterocycle",
+          "ring strain",
+          "substituted azetidine stereocenter"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-N bond formed by intramolecular substitution or cycloaddition",
+          "strained C-N/C-C bond opened to linear amino precursor when appropriate"
+        ],
+        "forward_logic": [
+          "choose ring closure, cycloaddition, or chiral-pool azetidine building block",
+          "track ring strain and stereochemistry",
+          "distinguish azetidine core synthesis from late N-linker decoration"
+        ],
+        "suggested_precursor_roles": [
+          "linear amino electrophile",
+          "azetidine building block",
+          "cycloaddition precursor",
+          "N-protected azetidine"
+        ],
+        "planner_hint": "Use azetidine-specific ring-strain logic; generic cyclic amine scoring is too weak."
+      },
+      "risks": [
+        "ring strain and ring opening",
+        "N-protection order",
+        "stereochemical erosion",
+        "limited commercial availability of substituted azetidines"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Azetidine scaffold collection article covers synthesis and profiling of CNS-focused azetidine scaffolds.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3454511/"
+        },
+        {
+          "type": "literature",
+          "citation": "Saturated cyclic amine review includes azetidine synthesis strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6151670/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "azetidine_ring_strain_prior",
+        "rerank_bonus": "moderate for explicit azetidine ring construction or reviewed building block"
+      }
+    },
+    {
+      "id": "beta_lactone_hydroxy_acid_lactonization_disconnection",
+      "family_id": "lactone_lactam_beta_lactone",
+      "name": "Beta-lactone to beta-hydroxy-acid or acyl-activation precursor",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "beta-lactone natural products",
+          "strained beta-lactone inhibitors",
+          "beta-lactone synthetic intermediates"
+        ],
+        "target_features": [
+          "four-membered lactone",
+          "beta-hydroxy acid retron",
+          "acylating pharmacophore"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "strained lactone C-O bond"
+        ],
+        "forward_logic": [
+          "map beta-lactone to beta-hydroxy acid, activated acid, or biosynthetic thioester-like precursor",
+          "choose chemical lactonization or biosynthesis-aware ring closure only with precedent",
+          "track irreversible acylation and ring-opening sensitivity"
+        ],
+        "suggested_precursor_roles": [
+          "beta-hydroxy acid",
+          "activated beta-hydroxy acid",
+          "thioesterase or ATP-dependent closure precursor",
+          "strained beta-lactone"
+        ],
+        "planner_hint": "Treat beta-lactones as strained acylating motifs, not ordinary esters."
+      },
+      "risks": [
+        "ring opening",
+        "epimerization at beta center",
+        "acylating toxicity",
+        "biosynthetic precedent may not translate chemically"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Beta-lactone natural-product review covers biosynthesis and chemical diversity of beta-lactone scaffolds.",
+          "url": "https://pubs.rsc.org/en/content/articlelanding/2019/np/c8np00052b/1000"
+        },
+        {
+          "type": "literature",
+          "citation": "Author-version beta-lactone review describes beta-lactones as strained rings and pharmaceutical synthons.",
+          "url": "https://pubs.rsc.org/en/content/getauthorversionpdf/c8np00052b"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "beta_lactone_lactonization_prior",
+        "rerank_bonus": "moderate for beta-hydroxy-acid precursor with ring-strain risk tags"
+      }
+    },
+    {
+      "id": "lactam_lactone_acyclic_precursor_ring_closure",
+      "family_id": "lactone_lactam_beta_lactone",
+      "name": "Lactam/lactone to acyclic hydroxy-acid or amino-acid precursor",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "non-peptide lactams",
+          "gamma/delta lactones",
+          "benzolactams and benzolactones",
+          "natural-product lactone fragments"
+        ],
+        "target_features": [
+          "cyclic ester or amide",
+          "hydroxy-acid or amino-acid retron",
+          "ring-size-dependent closure"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "lactone C-O bond",
+          "lactam C-N bond"
+        ],
+        "forward_logic": [
+          "open the ring to hydroxy-acid, amino-acid, or activated acid precursor",
+          "choose ring closure order based on ring size and competing intermolecular coupling",
+          "separate ordinary amide/ester closure from macrocyclization or beta-lactam antibiotic logic"
+        ],
+        "suggested_precursor_roles": [
+          "hydroxy acid",
+          "amino acid",
+          "activated acid",
+          "linear cyclization precursor"
+        ],
+        "planner_hint": "Use for non-antibiotic lactam/lactone motifs; beta-lactam antibiotics and macrocycles have separate policies."
+      },
+      "risks": [
+        "oligomerization",
+        "epimerization",
+        "lactone hydrolysis",
+        "amide/lactam cyclization selectivity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Macrocycle synthesis review summarizes lactonization/lactamization logic for cyclic ester and amide formation.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4374646/"
+        },
+        {
+          "type": "literature",
+          "citation": "Beta-lactone natural-product review highlights ring closure and ring strain issues relevant to small lactones.",
+          "url": "https://pubs.rsc.org/en/content/articlelanding/2019/np/c8np00052b/1000"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "lactone_lactam_ring_closure_prior",
+        "rerank_bonus": "moderate for acyclic precursor mapping with ring-size risk tags"
+      }
+    },
+    {
+      "id": "quinone_hydroquinone_oxidation_state_disconnection",
+      "family_id": "quinone_hydroquinone_redox_scaffold",
+      "name": "Quinone/hydroquinone redox-state disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "quinones",
+          "hydroquinones",
+          "redox-active natural products",
+          "vitamin-K-like scaffolds"
+        ],
+        "target_features": [
+          "quinone carbonyl pair",
+          "hydroquinone/quinol precursor possible",
+          "redox cycling liability"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [],
+        "forward_logic": [
+          "classify quinone versus hydroquinone as oxidation-state problem",
+          "install sensitive substituents before or after oxidation depending on redox compatibility",
+          "track redox cycling, biological reactivity, and overoxidation risk"
+        ],
+        "suggested_precursor_roles": [
+          "hydroquinone",
+          "quinone",
+          "protected hydroquinone",
+          "oxidation-state adjusted aromatic precursor"
+        ],
+        "planner_hint": "Do not count quinone reduction/oxidation alone as skeleton simplification; require substituent or annulation strategy."
+      },
+      "risks": [
+        "redox cycling",
+        "overoxidation",
+        "Michael acceptor reactivity",
+        "air/light sensitivity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Naphthoquinone redox review discusses quinone/hydroquinone interchange and biological redox activity.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6270801/"
+        },
+        {
+          "type": "literature",
+          "citation": "Quinone overview discusses chemical redox properties and structural variability.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12630305/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "quinone_redox_state_prior",
+        "rerank_bonus": "low_to_moderate unless paired with substituent/annulation strategy"
+      }
+    },
+    {
+      "id": "naphthoquinone_annulation_or_substitution_disconnection",
+      "family_id": "quinone_hydroquinone_redox_scaffold",
+      "name": "Naphthoquinone annulation/substitution disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "naphthoquinones",
+          "lawsone derivatives",
+          "menadione analogues",
+          "pyran naphthoquinones"
+        ],
+        "target_features": [
+          "1,4-naphthoquinone core",
+          "C2/C3 substitution pattern",
+          "annulated pyran/furan ring possible"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-C/C-O bonds forming annulated naphthoquinone substituent",
+          "C-heteroatom bonds installed by quinone substitution"
+        ],
+        "forward_logic": [
+          "choose naphthoquinone core functionalization, hydroquinone oxidation, or annulation route",
+          "map C2/C3 substitution order under Michael/SNAr-like quinone reactivity",
+          "track redox compatibility of nucleophiles and protecting groups"
+        ],
+        "suggested_precursor_roles": [
+          "lawsone or naphthoquinone core",
+          "hydroquinone precursor",
+          "nucleophile for C2/C3 substitution",
+          "annulation partner"
+        ],
+        "planner_hint": "Reward regioselective naphthoquinone substitution or annulation with redox-state rationale."
+      },
+      "risks": [
+        "C2/C3 regioselectivity",
+        "overaddition",
+        "redox-sensitive nucleophiles",
+        "cytotoxic/reactive quinone liabilities"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Naphthoquinone systematic review discusses synthesis and biological evaluation of 1,4-naphthoquinone derivatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10144089/"
+        },
+        {
+          "type": "literature",
+          "citation": "Pyran naphthoquinone synthesis review covers strategies for bioactive annulated naphthoquinones.",
+          "url": "https://pubs.rsc.org/en/content/articlehtml/2010/ob/c0ob00277a"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "naphthoquinone_substitution_prior",
+        "rerank_bonus": "moderate for regioselective substitution or annulation with redox tags"
+      }
+    },
+    {
+      "id": "aminoglycoside_fermentation_core_semisynthesis",
+      "family_id": "aminoglycoside_semisynthesis",
+      "name": "Aminoglycoside fermentation core plus semisynthetic modification",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "aminoglycoside antibiotics",
+          "semisynthetic aminoglycosides",
+          "amine-rich glycosylated antibiotics"
+        ],
+        "target_features": [
+          "multiple amino sugars",
+          "2-deoxystreptamine or related core",
+          "dense amine/hydroxyl functionality"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "late acyl/aminoalkyl substituent bonds when semisynthetic",
+          "do not cleave every glycosidic bond unless total synthesis is explicitly required"
+        ],
+        "forward_logic": [
+          "select source-supported aminoglycoside core from fermentation or reviewed source",
+          "use regioselective protection, acylation, alkylation, or chemoenzymatic tailoring",
+          "track resistance-enzyme avoidance and antimicrobial stewardship separately"
+        ],
+        "suggested_precursor_roles": [
+          "kanamycin/neomycin/gentamicin core",
+          "protected aminoglycoside intermediate",
+          "side-chain acyl donor",
+          "chemoenzymatic tailoring substrate"
+        ],
+        "planner_hint": "Treat aminoglycoside cores as semisynthesis anchors; full sugar-by-sugar reconstruction is usually not first-pass strategy."
+      },
+      "risks": [
+        "regioselective protection burden",
+        "many protonation states",
+        "polar product purification",
+        "antibiotic stewardship and resistance context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Aminoglycoside chemical-strategy review covers synthetic and chemoenzymatic preparation of new aminoglycosides.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5818290/"
+        },
+        {
+          "type": "literature",
+          "citation": "Aminoglycoside overview describes natural and semisynthetic antibiotics and resistance context.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4888811/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "aminoglycoside_semisynthesis_prior",
+        "rerank_bonus": "high when fermentation core and regioselective modification are explicit",
+        "compliance_gate": "antimicrobial_stewardship_review_required"
+      }
+    },
+    {
+      "id": "aminoglycoside_regioselective_protection_modification",
+      "family_id": "aminoglycoside_semisynthesis",
+      "name": "Aminoglycoside regioselective protection/modification disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "modified aminoglycosides",
+          "amphiphilic aminoglycosides",
+          "resistance-evading aminoglycoside analogues"
+        ],
+        "target_features": [
+          "site-specific acylation/alkylation",
+          "multiple amine/hydroxyl groups",
+          "lipid or side-chain appendage"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "site-specific amide/amine/ether side-chain bond"
+        ],
+        "forward_logic": [
+          "identify the modified amine/hydroxyl site on aminoglycoside core",
+          "plan protection or chemoenzymatic selectivity before side-chain installation",
+          "avoid scoring nonspecific polyfunctional modification as credible route progress"
+        ],
+        "suggested_precursor_roles": [
+          "selectively protected aminoglycoside",
+          "acyl donor or alkyl electrophile",
+          "chemoenzymatic modification substrate",
+          "amphiphilic side-chain partner"
+        ],
+        "planner_hint": "Require site annotation and selectivity evidence for aminoglycoside derivatization."
+      },
+      "risks": [
+        "site-selectivity",
+        "polyamine salt handling",
+        "loss of ribosomal binding",
+        "toxicity and resistance profile"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Amphiphilic aminoglycoside review discusses modifications of neomycin, kanamycin, and neamine feedstocks.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9537547/"
+        },
+        {
+          "type": "literature",
+          "citation": "Aminoglycoside biosynthesis review discusses parallel pathways and semisynthetic resistance-avoidance examples.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5461906/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "aminoglycoside_site_selective_modification_prior",
+        "rerank_bonus": "moderate when modification site and selectivity are explicit",
+        "compliance_gate": "antimicrobial_stewardship_review_required"
+      }
+    },
+    {
+      "id": "tetracycline_semisynthetic_core_edit_disconnection",
+      "family_id": "tetracycline_polyketide_antibiotic",
+      "name": "Tetracycline core semisynthesis and late C7/C9 edits",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "tetracycline antibiotics",
+          "semisynthetic tetracyclines",
+          "glycylcyclines",
+          "fluorocyclines"
+        ],
+        "target_features": [
+          "tetracyclic polyketide antibiotic core",
+          "C7/C9 substituent changes",
+          "C4 dimethylamino and amide motifs"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "late side-chain C-N/C-C bonds on tetracycline core",
+          "do not cleave tetracycline ring system in first-pass semisynthesis"
+        ],
+        "forward_logic": [
+          "choose fermentation-derived tetracycline core or reviewed semisynthetic precursor",
+          "perform oxidation-state, C7/C9 substitution, or dimethylamino/amide adjustment with site policy",
+          "reserve total-synthesis platform routes for explicitly de novo objectives"
+        ],
+        "suggested_precursor_roles": [
+          "tetracycline/minocycline/doxycycline core",
+          "protected tetracycline intermediate",
+          "C7/C9 substitution partner",
+          "glycylamido side-chain precursor"
+        ],
+        "planner_hint": "Treat tetracycline as a semisynthesis core unless a reviewed total-synthesis platform is explicitly selected."
+      },
+      "risks": [
+        "antibiotic stewardship",
+        "acid/base sensitivity",
+        "epimerization at C4",
+        "site-selective aromatic functionalization"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Tetracycline biosynthesis review notes semisynthetic second- and third-generation tetracycline derivatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3010235/"
+        },
+        {
+          "type": "literature",
+          "citation": "Antibacterial drug discovery review discusses tetracycline antibiotic semisynthesis as chemical evolution.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4536949/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "tetracycline_semisynthesis_prior",
+        "rerank_bonus": "high when reviewed core and site-specific edit are explicit",
+        "compliance_gate": "antimicrobial_stewardship_review_required"
+      }
+    },
+    {
+      "id": "tetracycline_total_synthesis_platform_anchor",
+      "family_id": "tetracycline_polyketide_antibiotic",
+      "name": "Tetracycline reviewed total-synthesis platform anchor",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "new tetracycline analogues outside fermentation-accessible space",
+          "6-deoxytetracycline derivatives",
+          "fully synthetic tetracycline candidates"
+        ],
+        "target_features": [
+          "tetracycline core with nonnatural substitution pattern",
+          "platform precursor possible",
+          "controlled polycyclic assembly required"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "strategic polycyclic assembly bonds only under reviewed platform route"
+        ],
+        "forward_logic": [
+          "select a reviewed tetracycline synthetic platform when semisynthetic core cannot access target",
+          "map target to platform intermediate rather than arbitrary ring cleavage",
+          "keep stereochemistry, oxidation state, and antibiotic stewardship explicit"
+        ],
+        "suggested_precursor_roles": [
+          "6-deoxytetracycline platform intermediate",
+          "cyclohexenone building block",
+          "reviewed tetracycline core precursor"
+        ],
+        "planner_hint": "Use as an expert-reviewed anchor for de novo tetracycline analogues, not a generic aromatic polyketide cleavage."
+      },
+      "risks": [
+        "dense stereochemistry",
+        "oxidation-state choreography",
+        "antibiotic stewardship",
+        "scale and route length"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Robust tetracycline synthesis platform article describes synthesis of diverse tetracycline analogues.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2681267/"
+        },
+        {
+          "type": "literature",
+          "citation": "Tetracycline antibiotics review summarizes natural and semisynthetic tetracycline examples.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC99026/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "tetracycline_platform_prior",
+        "rerank_bonus": "moderate for explicit platform-intermediate mapping",
+        "compliance_gate": "antimicrobial_stewardship_review_required"
+      }
+    },
+    {
+      "id": "siderophore_hydroxamate_catechol_chelation_unit_disconnection",
+      "family_id": "siderophore_hydroxamate_catechol",
+      "name": "Siderophore chelation-unit and linker disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "siderophores",
+          "siderophore antibiotic conjugates",
+          "hydroxamate/catechol iron chelators"
+        ],
+        "target_features": [
+          "hydroxamate or catechol chelation motif",
+          "peptide or linker backbone",
+          "iron-binding vector"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "hydroxamate N-O/acyl bonds",
+          "catechol-linker bonds",
+          "peptide/linker bonds connecting chelation units"
+        ],
+        "forward_logic": [
+          "separate chelation units from linker or peptide scaffold",
+          "choose hydroxamate, catechol, or mixed ligand strategy based on target class",
+          "track iron-binding geometry and antimicrobial-vector compliance"
+        ],
+        "suggested_precursor_roles": [
+          "hydroxamate precursor",
+          "catechol precursor",
+          "peptide/linker backbone",
+          "antibiotic cargo or targeting vector"
+        ],
+        "planner_hint": "Chelation state is strategic metadata; ordinary amide/ether disconnections are insufficient."
+      },
+      "risks": [
+        "iron-binding geometry",
+        "catechol oxidation",
+        "hydroxamate stability",
+        "antimicrobial and biosecurity review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Siderophore classification review describes hydroxamate, catecholate, and carboxylate chelation classes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9694258/"
+        },
+        {
+          "type": "literature",
+          "citation": "Antibacterial drug discovery review covers siderophore-antibiotic and semisynthetic antibacterial context.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4536949/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "siderophore_chelation_prior",
+        "rerank_bonus": "moderate when chelation units and linker geometry are explicit",
+        "compliance_gate": "antimicrobial_vector_review_required"
+      }
+    },
+    {
+      "id": "protac_warhead_linker_e3_ligand_split",
+      "family_id": "protac_degrader_linker",
+      "name": "PROTAC warhead-linker-E3 ligand strategic split",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "PROTACs",
+          "heterobifunctional degraders",
+          "targeted protein degraders"
+        ],
+        "target_features": [
+          "POI ligand",
+          "E3 ligase ligand",
+          "chemical linker connecting two binding modules"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "warhead-linker bond",
+          "linker-E3 ligand bond"
+        ],
+        "forward_logic": [
+          "decompose into POI warhead, linker, and E3 ligand modules",
+          "track exit vectors, linker length, polarity, rigidity, and ternary-complex design",
+          "treat final coupling as medicinal-chemistry assembly, not proof of degradation activity"
+        ],
+        "suggested_precursor_roles": [
+          "POI ligand with exit vector",
+          "E3 ligand with exit vector",
+          "PEG/alkyl/rigid linker",
+          "activated linker intermediate"
+        ],
+        "planner_hint": "Reward modular split only when attachment vectors and degradation context are explicit."
+      },
+      "risks": [
+        "linker length and geometry",
+        "poor permeability/high molecular weight",
+        "ternary-complex uncertainty",
+        "E3 ligand IP/compliance constraints"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "PROTAC linker design review describes anchor ligand, POI warhead, and variable linker design.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9400730/"
+        },
+        {
+          "type": "literature",
+          "citation": "PROTAC primer describes E3 ligase ligand fused through a linker to a target-protein ligand.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7319047/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "protac_modular_split_prior",
+        "rerank_bonus": "moderate for component split with exit-vector metadata",
+        "compliance_gate": "bioactive_degrader_review_required"
+      }
+    },
+    {
+      "id": "protac_linker_optimization_and_attachment_vector_policy",
+      "family_id": "protac_degrader_linker",
+      "name": "PROTAC linker optimization and attachment-vector policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "PROTAC SAR series",
+          "degrader linker scans",
+          "TPD medicinal chemistry series"
+        ],
+        "target_features": [
+          "series differs mainly by linker",
+          "same warhead/E3 ligand modules",
+          "attachment-vector changes"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "linker-module bonds at variable attachment vectors"
+        ],
+        "forward_logic": [
+          "separate invariant warhead/E3 modules from variable linker",
+          "track linker length, composition, rigidity, polarity, and attachment vector",
+          "do not over-score routes that only swap PEG units without biological context"
+        ],
+        "suggested_precursor_roles": [
+          "warhead handle",
+          "E3 ligand handle",
+          "linker library precursor",
+          "late-stage conjugation handle"
+        ],
+        "planner_hint": "Use as route critique and SAR organization; synthesis alone does not validate degrader function."
+      },
+      "risks": [
+        "linker-only changes may not improve degradation",
+        "solubility/permeability tradeoff",
+        "attachment vector can destroy binding",
+        "bioassay context required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "PROTAC linker roadmap review discusses linker characteristics and rational design.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11544172/"
+        },
+        {
+          "type": "literature",
+          "citation": "Targeted protein degradation design review covers PROTAC linker and attachment considerations.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9729011/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "protac_linker_sar_prior",
+        "rerank_bonus": "low_to_moderate unless biological/ternary-complex metadata is attached",
+        "compliance_gate": "bioactive_degrader_review_required"
+      }
+    },
+    {
+      "id": "adc_payload_linker_antibody_conjugation_split",
+      "family_id": "adc_payload_linker",
+      "name": "ADC payload-linker-antibody conjugation strategic split",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "antibody-drug conjugates",
+          "linker-payload intermediates",
+          "site-specific bioconjugates"
+        ],
+        "target_features": [
+          "cytotoxic payload",
+          "cleavable or noncleavable linker",
+          "antibody conjugation handle",
+          "self-immolative spacer"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "payload-linker bond",
+          "linker-antibody conjugation bond",
+          "self-immolative spacer bond when present"
+        ],
+        "forward_logic": [
+          "separate payload, linker/spacer, and antibody conjugation handle",
+          "classify linker release mechanism: protease-cleavable, acid-labile, disulfide, beta-glucuronide, or noncleavable",
+          "keep bioconjugation chemistry and DAR/site policy separate from small-molecule route"
+        ],
+        "suggested_precursor_roles": [
+          "cytotoxic payload",
+          "linker-spacer intermediate",
+          "maleimide or site-specific handle",
+          "antibody conjugation substrate"
+        ],
+        "planner_hint": "Compliance-gated route critique only; do not generate operational ADC payload/linker routes."
+      },
+      "risks": [
+        "potent cytotoxic payload",
+        "linker instability",
+        "DAR heterogeneity",
+        "bioconjugation and protein handling constraints"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "ADC design review covers linker, payload, and conjugation chemistry selection.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4365093/"
+        },
+        {
+          "type": "literature",
+          "citation": "ADC linker chemistry review describes cleavable and noncleavable linker strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8727783/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "compliance_gated_adc_linker_prior",
+        "rerank_bonus": "low and compliance-gated",
+        "compliance_gate": "required_for_cytotoxic_bioconjugate_targets"
+      }
+    },
+    {
+      "id": "adc_cleavable_noncleavable_linker_release_policy",
+      "family_id": "adc_payload_linker",
+      "name": "ADC cleavable/noncleavable linker release-mechanism policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "ADC linker-payloads",
+          "cleavable linker ADCs",
+          "noncleavable linker ADCs"
+        ],
+        "target_features": [
+          "peptide linker",
+          "PABC/self-immolative spacer",
+          "hydrazone/disulfide/glucuronide linker",
+          "noncleavable thioether linker"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "trigger-spacer-payload bonds",
+          "stable linker-payload bonds for noncleavable systems"
+        ],
+        "forward_logic": [
+          "classify release trigger and spacer before selecting linker-payload disconnection",
+          "keep payload functional group compatibility explicit",
+          "for noncleavable systems, route to stable linker-payload and antibody-degradation release product"
+        ],
+        "suggested_precursor_roles": [
+          "trigger unit",
+          "self-immolative spacer",
+          "payload functional handle",
+          "stable noncleavable linker"
+        ],
+        "planner_hint": "Release mechanism controls strategic value; a linker bond split without release metadata is weak."
+      },
+      "risks": [
+        "premature payload release",
+        "payload derivatization can reduce potency",
+        "plasma stability",
+        "lysosomal cleavage assumptions"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "ADC linker review discusses controlled delivery and cleavable-linker strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8874516/"
+        },
+        {
+          "type": "literature",
+          "citation": "ADC conjugation/linker review discusses noncleavable and cleavable linker chemistries.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5777969/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "compliance_gated_adc_release_prior",
+        "rerank_bonus": "low and compliance-gated",
+        "compliance_gate": "required_for_cytotoxic_bioconjugate_targets"
+      }
+    },
+    {
+      "id": "radiopharmaceutical_chelator_linker_targeting_vector_split",
+      "family_id": "radiopharmaceutical_chelator",
+      "name": "Radiopharmaceutical targeting-vector/linker/chelator split",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "radiometal theranostics",
+          "DOTA/NOTA conjugates",
+          "PSMA-like radiopharmaceuticals",
+          "bifunctional chelator conjugates"
+        ],
+        "target_features": [
+          "targeting vector",
+          "pharmacokinetic linker",
+          "bifunctional chelator",
+          "radiometal coordination site"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "targeting-vector linker bond",
+          "linker-chelator bond",
+          "chelator functional-handle bond"
+        ],
+        "forward_logic": [
+          "separate organic targeting vector, linker, and bifunctional chelator modules",
+          "select chelator family based on isotope/metal compatibility",
+          "treat radiolabeling as separate regulated operation, not ordinary stock closure"
+        ],
+        "suggested_precursor_roles": [
+          "targeting vector",
+          "pharmacokinetic linker",
+          "DOTA/NOTA-like chelator",
+          "bifunctional chelator handle"
+        ],
+        "planner_hint": "Compliance-gated route critique only; preserve isotope, chelator, and linker metadata."
+      },
+      "risks": [
+        "radiochemical compliance",
+        "chelator-metal mismatch",
+        "linker changes pharmacokinetics",
+        "radiolabeling conditions may be incompatible with biomolecule"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Radiopharmaceutical scaffold review covers radionuclide, bifunctional chelator, and pharmacokinetic linker roles.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9143622/"
+        },
+        {
+          "type": "literature",
+          "citation": "Metal-based drug classification review includes radiometal chelators such as DOTA and NOTA.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7451962/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "compliance_gated_radiopharmaceutical_prior",
+        "rerank_bonus": "low and compliance-gated",
+        "compliance_gate": "required_for_radiochemical_targets"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v4 expansion fills source gaps listed in NEXT_SOURCE_BACKLOG.md: fused aza-heteroaromatics, nucleobase-like cores, saturated N-heterocycles, lactone/lactam motifs, quinone redox scaffolds, antibiotic semisynthesis anchors, siderophore chelators, PROTAC linkers, ADC linker-payloads, and radiopharmaceutical chelator-linkers."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Antibiotic, siderophore, PROTAC, ADC, radiopharmaceutical, quinone, beta-lactone, hydrazine, and azide-adjacent entries are advisory records. Promotion to proposal generation requires project-level safety, legal, antimicrobial-stewardship, radiochemical, or biosecurity review as applicable."
+    }
+  ]
+}

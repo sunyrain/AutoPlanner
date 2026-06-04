@@ -157,8 +157,50 @@ class ProductRouteFeasibilityAuditTest(unittest.TestCase):
         route = audit["targets"][0]["best_route"]
         self.assertEqual(route["route_class"], "reject_artifact")
         self.assertFalse(route["route_plausibility"]["passed"])
+        self.assertTrue(route["route_plausibility"]["first_step_material_gate"]["hard_reject"])
         self.assertIn("large_unexplained_carbon_gain", route["issues"])
         self.assertIn("large_unexplained_heavy_atom_gain", route["issues"])
+
+    def test_product_audit_does_not_reject_explained_first_step_transfer_reagent(self):
+        precursor = "NCCO"
+        target = "CC(C)(C)OC(=O)NCCO"
+        run = {
+            "targets": [
+                {
+                    "target_smiles": target,
+                    "solved": True,
+                    "routes": [
+                        {
+                            "target_smiles": target,
+                            "solved": True,
+                            "score": 0.74,
+                            "steps": [
+                                {
+                                    "product_smiles": target,
+                                    "reactant_smiles": [precursor],
+                                    "rxn_smiles": f"{precursor}>>{target}",
+                                    "source_model": "ChemEnzyRetroPlanner",
+                                    "score": 0.74,
+                                    "stock_status": {precursor: True},
+                                    "condition_predictions": [{"Reagent": "Boc2O", "Score": "0.9"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+        audit = build_product_route_feasibility_audit(run)
+
+        route = audit["targets"][0]["best_route"]
+        gate = route["route_plausibility"]["first_step_material_gate"]
+        self.assertFalse(route["route_plausibility"]["passed"])
+        self.assertEqual(gate["decision"], "warn")
+        self.assertEqual(route["route_class"], "needs_chemist_review")
+        self.assertIn("first_step_material_warning", route["tags"])
+        self.assertNotIn("large_unexplained_carbon_gain", route["issues"])
+        self.assertNotIn("large_unexplained_heavy_atom_gain", route["issues"])
 
     def test_benzyl_halide_is_not_misclassified_as_aryl_coupling(self):
         target = "CCCC(=O)OCc1ccccc1"

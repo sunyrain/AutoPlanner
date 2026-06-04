@@ -63,6 +63,7 @@ class RetroRulesApplicator:
         self._templates: list[RetroRuleTemplate] = []
         self._by_ec1: dict[str, list[RetroRuleTemplate]] = defaultdict(list)
         self._product_queries: dict[tuple[str, str], Chem.Mol] = {}
+        self._template_reactions: dict[str, Any] = {}
 
     @classmethod
     def from_env(cls) -> "RetroRulesApplicator":
@@ -106,7 +107,7 @@ class RetroRulesApplicator:
             applied_templates += 1
             if applied_templates > self.max_templates_per_query:
                 break
-            outcomes = apply_template_to_product(
+            outcomes = self._apply_template_to_product(
                 item.template,
                 product_smiles,
                 max_outcomes=max(1, min(top_k, self.max_outcomes_per_template)),
@@ -143,6 +144,22 @@ class RetroRulesApplicator:
                 if len(out) >= top_k:
                     return out
         return out
+
+    def _apply_template_to_product(
+        self,
+        template: str,
+        product_smi: str,
+        *,
+        max_outcomes: int = 5,
+        generalize: int = 0,
+    ) -> list[frozenset[str]]:
+        return apply_template_to_product(
+            template,
+            product_smi,
+            max_outcomes=max_outcomes,
+            generalize=generalize,
+            reaction_cache=self._template_reactions,
+        )
 
     def _load(self) -> None:
         if self._loaded:
@@ -323,15 +340,23 @@ def apply_template_to_product(
     product_smi: str,
     max_outcomes: int = 5,
     generalize: int = 0,
+    reaction_cache: dict[str, Any] | None = None,
 ) -> list[frozenset[str]]:
     """Apply an rdchiral retrosynthetic template without importing training code."""
-    from rdchiral.main import rdchiralRunText
+    from rdchiral.initialization import rdchiralReactants, rdchiralReaction
+    from rdchiral.main import rdchiralRun
 
     out: list[frozenset[str]] = []
     if generalize:
         template = _generalize_template(template, generalize)
     try:
-        outcomes = rdchiralRunText(template, product_smi)
+        if reaction_cache is not None and template in reaction_cache:
+            rxn = reaction_cache[template]
+        else:
+            rxn = rdchiralReaction(template)
+            if reaction_cache is not None:
+                reaction_cache[template] = rxn
+        outcomes = rdchiralRun(rxn, rdchiralReactants(product_smi))
     except Exception:
         return out
     seen: set[frozenset[str]] = set()

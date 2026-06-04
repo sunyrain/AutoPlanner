@@ -8,10 +8,20 @@ from cascade_planner.baselines.chem_enzy_adapter import (
     BACKEND_NAME,
     ChemEnzyBackendAdapter,
     _vendor_pythonpath,
+    chem_enzy_step_strengthened_config,
     route_candidates_from_chem_enzy_result,
 )
 from cascade_planner.baselines.route_contract import RouteSearchConfig
-from cascade_planner.baselines.route_contract import BaselineRunResult, RouteCandidate, RouteStepCandidate
+from cascade_planner.baselines.route_contract import BackendFailure, BaselineRunResult, RouteCandidate, RouteStepCandidate
+from cascade_planner.agent.case_trace import ArtifactRecord, CaseBundle, FailureEvent, RouteStatus
+from cascade_planner.agent.chem_enzy_policy import (
+    apply_chem_enzy_search_policy,
+    compile_chem_enzy_search_policy,
+    compile_strategic_operator_from_case_bundle,
+    run_bounded_guided_rerun,
+    validate_chem_enzy_search_policy,
+    validate_chem_enzy_search_policy_payload,
+)
 from cascade_planner.eval.build_cascade_gold_smoke import build_cascade_gold_smoke
 from cascade_planner.eval.analyze_chem_enzy_expansion_trace import analyze_expansion_trace
 from cascade_planner.eval.chem_enzy_broad_union import build_union_report
@@ -19,16 +29,19 @@ from cascade_planner.eval.compare_chem_enzy_baseline import compare_baselines
 from cascade_planner.eval import run_cascade_search_benchmark as benchmark_runner
 from cascade_planner.eval.run_cascade_search_benchmark import _chem_enzy_search_flags_for_row
 from cascade_planner.eval.run_cascade_search_benchmark import _cascade_result_programs
+from cascade_planner.eval.run_cascade_search_benchmark import _cascade_value_model_label
 from cascade_planner.eval.run_cascade_search_benchmark import _expansion_proposal_cache_from_chem_enzy
 from cascade_planner.eval.run_cascade_search_benchmark import _merge_proposal_caches
 from cascade_planner.eval.run_cascade_search_benchmark import _proposal_cache_from_chem_enzy
 from cascade_planner.eval.run_cascade_search_benchmark import _proposal_pool_keys
 from cascade_planner.eval.run_cascade_search_benchmark import _run_one_target
 from cascade_planner.eval.run_cascade_search_benchmark import _sort_proposal_cache
+from cascade_planner.eval.run_cascade_search_benchmark import _guard_legacy_benchmark_options
 from cascade_planner.eval.run_cascade_search_benchmark import _validate_stock_inputs
 from cascade_planner.eval.run_cascade_search_benchmark import _validate_model_inputs
 from cascade_planner.eval.run_cascade_search_benchmark import ProductAuditFinalReranker
 from cascade_planner.cascade_search import CascadeSearchConfig
+from cascade_planner.cascade_search.proposals import ProposalDiagnostics
 
 
 class ChemEnzyBaselineAdapterTest(unittest.TestCase):
@@ -88,6 +101,44 @@ class ChemEnzyBaselineAdapterTest(unittest.TestCase):
         self.assertTrue(all(failure.target_smiles == "CCO" for failure in result.failures))
         self.assertFalse(result.solved)
         self.assertTrue(result.raw_backend_metadata["dry_run"])
+
+    def test_chemenzy_step_strengthening_preset_adds_quality_gates(self):
+        config = chem_enzy_step_strengthened_config(
+            RouteSearchConfig(
+                target_smiles="CCO",
+                search_flags={"chem_enzy_step_strengthening": True},
+            )
+        )
+
+        flags = config.search_flags
+        plugin = flags["native_enzyme_plugin"]
+        weights = flags["cascade_cost_model"]["weights"]
+        self.assertTrue(plugin["enabled"])
+        self.assertTrue(plugin["require_bridge"])
+        self.assertTrue(plugin["require_material_sanity"])
+        self.assertTrue(flags["use_cascade_cost_model"])
+        self.assertGreater(weights["material_heavy_gain_penalty"], 0.0)
+        self.assertEqual(flags["cascade_search_context"]["context_policy"], "chem_enzy_step_strengthening_v1")
+
+    def test_missing_template_relevance_model_is_structured_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            config = root / "retro_planner" / "config" / "config.yaml"
+            config.parent.mkdir(parents=True)
+            config.write_text(json.dumps({"stocks": {"Test-stock": "stock.csv"}}), encoding="utf-8")
+            adapter = ChemEnzyBackendAdapter(vendor_root=root, config_path=config)
+
+            result = adapter.run_target(
+                RouteSearchConfig(
+                    target_smiles="CCO",
+                    stock_names=["Test-stock"],
+                    one_step_models=["template_relevance.reaxys"],
+                )
+            )
+
+        self.assertFalse(result.solved)
+        self.assertEqual(result.failures[0].category, "template_relevance_model_missing")
+        self.assertIn("template_relevance.reaxys", result.failures[0].message)
 
     def test_batch_run_reuses_planner_for_matching_configs(self):
         class FakePlanner:
@@ -315,6 +366,65 @@ class ChemEnzyBaselineAdapterTest(unittest.TestCase):
         model_config = vendor_config["one_step_model_configs"]["onmt_models"]["bionav_one_step"]
         self.assertEqual(model_config["model_path"], [str(checkpoint)])
 
+    def test_vendor_config_can_override_onmt_tokenizer(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            config = root / "retro_planner" / "config" / "config.yaml"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps({
+                    "stocks": {"Test-stock": "stock.csv"},
+                    "one_step_model_configs": {
+                        "onmt_models": {
+                            "bionav_one_step": {
+                                "model_path": ["packages/onmt/checkpoints/np-like/model_step_100000.pt"],
+                                "beam_size": 20,
+                                "weight": 1.0,
+                            }
+                        }
+                    },
+                }),
+                encoding="utf-8",
+            )
+            adapter = ChemEnzyBackendAdapter(vendor_root=root, config_path=config)
+
+            vendor_config = adapter._vendor_config(
+                RouteSearchConfig(
+                    target_smiles="CCO",
+                    stock_names=["Test-stock"],
+                    search_flags={"chem_enzy_onmt_tokenizer": "token"},
+                )
+            )
+
+        model_config = vendor_config["one_step_model_configs"]["onmt_models"]["bionav_one_step"]
+        self.assertEqual(model_config["tokenizer"], "token")
+        self.assertEqual(vendor_config["chem_enzy_onmt_tokenizer"], "token")
+
+    def test_vendor_config_rejects_invalid_onmt_tokenizer(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            config = root / "retro_planner" / "config" / "config.yaml"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps({
+                    "stocks": {"Test-stock": "stock.csv"},
+                    "one_step_model_configs": {
+                        "onmt_models": {"bionav_one_step": {"model_path": ["model.pt"], "beam_size": 20}}
+                    },
+                }),
+                encoding="utf-8",
+            )
+            adapter = ChemEnzyBackendAdapter(vendor_root=root, config_path=config)
+
+            with self.assertRaises(ValueError):
+                adapter._vendor_config(
+                    RouteSearchConfig(
+                        target_smiles="CCO",
+                        stock_names=["Test-stock"],
+                        search_flags={"chem_enzy_onmt_tokenizer": "sentencepiece"},
+                    )
+                )
+
     def test_vendor_config_normalizes_action_value_model_path(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -389,6 +499,121 @@ class ChemEnzyBaselineAdapterTest(unittest.TestCase):
             )
 
         self.assertTrue(Path(vendor_config["cascade_source_policy"]["source_value_model_path"]).is_absolute())
+
+    def test_p1b_compiles_strategic_operator_to_guided_policy_trace(self):
+        bundle = _p1b_case_bundle()
+        operator = compile_strategic_operator_from_case_bundle(
+            bundle,
+            max_iterations=12,
+            max_depth=4,
+            expansion_topk=20,
+        )
+        policy = compile_chem_enzy_search_policy(operator)
+
+        validation = validate_chem_enzy_search_policy(policy)
+        guided_config = apply_chem_enzy_search_policy(
+            RouteSearchConfig(
+                target_smiles="CCO",
+                stock_names=["Test-stock"],
+                max_iterations=100,
+                max_depth=10,
+                expansion_topk=100,
+            ),
+            policy,
+        )
+
+        self.assertTrue(validation["accepted"], validation)
+        self.assertEqual(guided_config.max_iterations, 12)
+        self.assertEqual(guided_config.max_depth, 4)
+        self.assertEqual(guided_config.expansion_topk, 20)
+        self.assertEqual(guided_config.search_flags["chem_enzy_search_policy"]["policy_id"], policy.policy_id)
+        self.assertEqual(guided_config.search_flags["cascade_search_context"]["chem_enzy_policy_id"], policy.policy_id)
+        self.assertIn("CCO", guided_config.search_flags["cascade_search_context"]["terminal_blacklist"])
+        self.assertIn("CC", guided_config.search_flags["cascade_search_context"]["anchor_whitelist"])
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            config_path = root / "retro_planner" / "config" / "config.yaml"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(json.dumps({"stocks": {"Test-stock": "stock.csv"}}), encoding="utf-8")
+            adapter = ChemEnzyBackendAdapter(vendor_root=root, config_path=config_path)
+            vendor_config = adapter._vendor_config(guided_config)
+            result = adapter.run_target(guided_config, dry_run=True)
+
+        self.assertEqual(vendor_config["chem_enzy_search_policy"]["policy_id"], policy.policy_id)
+        trace = result.raw_backend_metadata["chem_enzy_policy_trace"]
+        self.assertEqual(trace["policy_id"], policy.policy_id)
+        self.assertEqual(trace["evidence_refs"], policy.evidence_refs)
+        self.assertTrue(trace["validation"]["accepted"], trace)
+        self.assertFalse(trace["raw_reaction_injection"])
+
+    def test_p1b_policy_validator_rejects_raw_reaction_injection(self):
+        policy = compile_chem_enzy_search_policy(
+            compile_strategic_operator_from_case_bundle(_p1b_case_bundle())
+        )
+        payload = policy.to_dict()
+        payload["preferred_subgoal"]["rxn_smiles"] = "CC.O>>CCO"
+
+        validation = validate_chem_enzy_search_policy_payload(payload)
+
+        self.assertFalse(validation["accepted"])
+        self.assertIn("raw_reaction_injection", validation["reasons"])
+
+    def test_p1b_baseline_run_without_policy_has_no_policy_trace(self):
+        with tempfile.TemporaryDirectory() as td:
+            missing = Path(td) / "missing_vendor"
+            adapter = ChemEnzyBackendAdapter(vendor_root=missing)
+            config = RouteSearchConfig(target_smiles="CCO")
+            before_flags = dict(config.search_flags)
+            result = adapter.run_target(config, dry_run=True)
+
+        self.assertEqual(config.search_flags, before_flags)
+        self.assertEqual(config.search_flags, {})
+        self.assertNotIn("chem_enzy_policy_trace", result.raw_backend_metadata)
+
+    def test_p1b_guided_rerun_stops_after_one_attempt_without_improvement(self):
+        policy = compile_chem_enzy_search_policy(
+            compile_strategic_operator_from_case_bundle(_p1b_case_bundle())
+        )
+
+        class NoImprovementAdapter:
+            def __init__(self):
+                self.calls = []
+
+            def run_target(self, config, *, dry_run=False):
+                self.calls.append((config, dry_run))
+                return BaselineRunResult(
+                    target_smiles=config.target_smiles,
+                    backend="fake",
+                    failures=[
+                        BackendFailure(
+                            category="no_route_found",
+                            message="no route",
+                            target_smiles=config.target_smiles,
+                        )
+                    ],
+                )
+
+        adapter = NoImprovementAdapter()
+        baseline_result = BaselineRunResult(
+            target_smiles="CCO",
+            backend="fake",
+            failures=[BackendFailure(category="no_route_found", message="no route", target_smiles="CCO")],
+        )
+
+        rerun = run_bounded_guided_rerun(
+            adapter,
+            RouteSearchConfig(target_smiles="CCO"),
+            policy,
+            baseline_result=baseline_result,
+            dry_run=True,
+        )
+
+        self.assertEqual(len(adapter.calls), 1)
+        self.assertTrue(adapter.calls[0][1])
+        self.assertEqual(rerun["trace"]["final_route_status"], "unresolved")
+        self.assertEqual(rerun["trace"]["stop_reason"], "no_improvement_budget_exhausted")
+        self.assertEqual(len(rerun["trace"]["attempts"]), 1)
 
     def test_cascade_cost_hook_changes_molstar_route_choice(self):
         vendor_root = Path("vendor/ChemEnzyRetroPlanner")
@@ -492,6 +717,37 @@ class ChemEnzyBaselineAdapterTest(unittest.TestCase):
         self.assertEqual(decision.topk_by_model["graphfp_models.USPTO-full_remapped"], 10)
         self.assertEqual(decision.model_domains["onmt_models.bionav_one_step"], "enzymatic")
         self.assertIn("rebalance_topk_by_preferred_domain", decision.reasons)
+
+    def test_cascade_source_policy_recognizes_literature_template_domain(self):
+        vendor_root = Path("vendor/ChemEnzyRetroPlanner")
+
+        with _vendor_pythonpath(vendor_root):
+            from retro_planner.search_frame.mcts_star.cascade_source_policy import RuleCascadeSourcePolicy
+
+            decision = RuleCascadeSourcePolicy(
+                {
+                    "enabled": True,
+                    "unpreferred_topk_fraction": 0.20,
+                    "min_unpreferred_topk": 5,
+                    "active_failure_topk_multiplier": 1.0,
+                }
+            ).decide(
+                parent_mol="P",
+                available_models=[
+                    "graphfp_models.USPTO-full_remapped",
+                    "autoplanner.literature_template_plugin",
+                ],
+                expansion_topk=50,
+                context={
+                    "enabled": True,
+                    "preferred_reaction_domains": ["literature_chemical"],
+                },
+                parent_depth=0,
+            )
+
+        self.assertEqual(decision.model_domains["autoplanner.literature_template_plugin"], "literature_chemical")
+        self.assertEqual(decision.topk_by_model["autoplanner.literature_template_plugin"], 50)
+        self.assertEqual(decision.topk_by_model["graphfp_models.USPTO-full_remapped"], 10)
 
     def test_cascade_cost_hook_uses_learned_source_value_decision(self):
         vendor_root = Path("vendor/ChemEnzyRetroPlanner")
@@ -888,6 +1144,7 @@ class ChemEnzyBaselineAdapterTest(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "cascade_transition_model"):
                 _validate_model_inputs(
                     cascade_value_model_path=None,
+                    learned_verifier_model_path=None,
                     cascade_transition_model_path=missing,
                     cascade_pair_scorer_path=None,
                     chem_enzy_cascade_cost_model=None,
@@ -897,6 +1154,7 @@ class ChemEnzyBaselineAdapterTest(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "action_value_model_path"):
                 _validate_model_inputs(
                     cascade_value_model_path=None,
+                    learned_verifier_model_path=None,
                     cascade_transition_model_path=None,
                     cascade_pair_scorer_path=None,
                     chem_enzy_cascade_cost_model={
@@ -908,6 +1166,65 @@ class ChemEnzyBaselineAdapterTest(unittest.TestCase):
                         "source_value_model_path": str(existing),
                     },
                 )
+
+            learned_verifier = root / "missing_verifier.joblib"
+            with self.assertRaisesRegex(FileNotFoundError, "learned_verifier_model"):
+                _validate_model_inputs(
+                    learned_verifier_model_path=learned_verifier,
+                )
+
+    def test_benchmark_runner_guards_legacy_value_models_but_allows_verifier_value(self):
+        with self.assertRaisesRegex(ValueError, "cascade_value_model"):
+            _guard_legacy_benchmark_options(
+                cascade_value_model_path=Path("old_value.pt"),
+                cascade_transition_model_path=None,
+                cascade_action_value_model_path=None,
+                cascade_pair_scorer_path=None,
+                use_rule_pair_scorer=False,
+                route_block_value_final_reranker_path=None,
+                use_chem_enzy_cascade_cost=False,
+                use_chem_enzy_cascade_source_policy=False,
+                chem_enzy_cascade_cost_model=None,
+                chem_enzy_cascade_source_policy=None,
+            )
+
+        _guard_legacy_benchmark_options(
+            cascade_value_model_path=None,
+            cascade_transition_model_path=None,
+            cascade_action_value_model_path=None,
+            cascade_pair_scorer_path=None,
+            use_rule_pair_scorer=False,
+            route_block_value_final_reranker_path=None,
+            use_chem_enzy_cascade_cost=False,
+            use_chem_enzy_cascade_source_policy=False,
+            chem_enzy_cascade_cost_model=None,
+            chem_enzy_cascade_source_policy=None,
+        )
+
+        self.assertEqual(
+            _cascade_value_model_label(
+                cascade_value_model_path=None,
+                use_rule_verifier_value=True,
+                learned_verifier_model_path=None,
+            ),
+            "rule_verifier_augmented",
+        )
+        self.assertEqual(
+            _cascade_value_model_label(
+                cascade_value_model_path=None,
+                use_rule_verifier_value=False,
+                learned_verifier_model_path=Path("learned.joblib"),
+            ),
+            "learned_verifier_augmented",
+        )
+        self.assertEqual(
+            _cascade_value_model_label(
+                cascade_value_model_path=Path("old.pt"),
+                use_rule_verifier_value=False,
+                learned_verifier_model_path=None,
+            ),
+            "legacy_learned_cascade_value",
+        )
 
     def test_benchmark_runner_validates_stock_names_before_search(self):
         with tempfile.TemporaryDirectory() as td:
@@ -941,6 +1258,7 @@ class ChemEnzyBaselineAdapterTest(unittest.TestCase):
         def fake_run_one_target(row, chem_result, *, cascade_config, **kwargs):
             captured["pair_reward_mode"] = cascade_config.pair_reward_mode
             captured["pair_reward_tie_epsilon"] = cascade_config.pair_reward_tie_epsilon
+            captured["value_model_class"] = kwargs["cascade_value_model"].__class__.__name__ if kwargs.get("cascade_value_model") else None
             return (
                 {
                     "target_smiles": row["target_smiles"],
@@ -984,6 +1302,8 @@ class ChemEnzyBaselineAdapterTest(unittest.TestCase):
                     cascade_pair_reward_weight=0.1,
                     cascade_pair_reward_mode="guarded_tie_break",
                     cascade_pair_reward_tie_epsilon=0.03,
+                    use_rule_verifier_value=True,
+                    cascade_verifier_weight=0.7,
                 )
         finally:
             benchmark_runner.ChemEnzyBackendAdapter = original_adapter
@@ -991,8 +1311,11 @@ class ChemEnzyBaselineAdapterTest(unittest.TestCase):
 
         self.assertEqual(captured["pair_reward_mode"], "guarded_tie_break")
         self.assertEqual(captured["pair_reward_tie_epsilon"], 0.03)
+        self.assertEqual(captured["value_model_class"], "VerifierAugmentedCascadeValueModel")
         self.assertEqual(payload["metadata"]["cascade_search"]["pair_reward_mode"], "guarded_tie_break")
         self.assertEqual(payload["metadata"]["cascade_search"]["pair_reward_tie_epsilon"], 0.03)
+        self.assertTrue(payload["metadata"]["cascade_search"]["rule_verifier_value"])
+        self.assertEqual(payload["metadata"]["cascade_search"]["cascade_verifier_weight"], 0.7)
 
     def test_expansion_trace_rows_can_be_exposed_as_cascade_proposals(self):
         result = BaselineRunResult(
@@ -1171,6 +1494,10 @@ class ChemEnzyComparisonTest(unittest.TestCase):
         step = SimpleNamespace(
             rxn_smiles="CC.O>>CCO",
             reactant_smiles=["CC", "O"],
+            product_smiles="CCO",
+            source_model="legal_corpus",
+            score=0.8,
+            raw_metadata={"match_type": "exact_product", "product_similarity": 1.0, "corpus_source": "toy"},
         )
         state = SimpleNamespace(step_annotations=[step])
         result = SimpleNamespace(
@@ -1190,6 +1517,8 @@ class ChemEnzyComparisonTest(unittest.TestCase):
         self.assertTrue(programs[0]["exact_gt_route_recovered"])
         self.assertEqual(programs[0]["route_outcome_value"], 1.0)
         self.assertIn("CC.O>>CCO", programs[0]["route_rxns"])
+        self.assertEqual(programs[0]["route_steps"][0]["match_type"], "exact_product")
+        self.assertEqual(programs[0]["route_steps"][0]["corpus_source"], "toy")
 
     def test_route_block_value_final_reranker_can_promote_generated_result(self):
         class FakeFinalReranker:
@@ -1297,6 +1626,266 @@ class ChemEnzyComparisonTest(unittest.TestCase):
         self.assertEqual(programs[0]["product_audit_original_rank"], 2)
         self.assertIn("late_stage_derivatization", programs[0]["product_audit_tags"])
         self.assertTrue(payload["cascade_search"]["product_audit_final_rerank"]["changed_top_route"])
+
+    def test_context_onmt_sidecar_can_be_used_by_cascade_benchmark(self):
+        class FakeContextProvider:
+            provider_name = "chem_enzy_context_onmt"
+            last_kwargs = {}
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                FakeContextProvider.last_kwargs = dict(kwargs)
+                self.last_diagnostics = ProposalDiagnostics(
+                    provider_name=self.provider_name,
+                    metadata={"model_path": str(kwargs.get("model_path"))},
+                )
+
+            def propose(self, request):
+                self.last_diagnostics = ProposalDiagnostics(
+                    provider_name=self.provider_name,
+                    requested=request.top_k,
+                    returned=1,
+                    metadata={"model_path": str(self.kwargs.get("model_path"))},
+                )
+                return [
+                    {
+                        "product_smiles": request.leaf_smiles,
+                        "reactant_smiles": ["CC"],
+                        "rxn_smiles": f"CC>>{request.leaf_smiles}",
+                        "source": self.provider_name,
+                        "score": 0.9,
+                        "stock_status": {"CC": True},
+                    }
+                ]
+
+        original_provider = benchmark_runner.ChemEnzyContextONMTProposalProvider
+        try:
+            benchmark_runner.ChemEnzyContextONMTProposalProvider = FakeContextProvider
+            with tempfile.TemporaryDirectory() as td:
+                ckpt = Path(td) / "context.pt"
+                scorer = Path(td) / "preference.joblib"
+                ckpt.write_bytes(b"fake")
+                scorer.write_bytes(b"fake")
+                payload, _trace = _run_one_target(
+                    {
+                        "target_smiles": "CCO",
+                        "starting_materials": [{"smiles": "CC"}],
+                    },
+                    BaselineRunResult(target_smiles="CCO", backend=BACKEND_NAME),
+                    cascade_config=CascadeSearchConfig(branch_factor=2, expansion_budget=4, max_depth=1),
+                    use_chem_enzy_context_onmt_proposals=True,
+                    chem_enzy_context_onmt_model_path=ckpt,
+                    chem_enzy_context_onmt_topk=3,
+                    chem_enzy_context_onmt_preference_scorer_path=scorer,
+                    chem_enzy_context_onmt_preference_min_score=0.25,
+                    chem_enzy_context_onmt_preference_rerank=True,
+                    cascade_result_limit=1,
+                )
+        finally:
+            benchmark_runner.ChemEnzyContextONMTProposalProvider = original_provider
+
+        self.assertTrue(payload["cascade_search"]["solved"])
+        diagnostics = payload["cascade_search"]["stats"]["provider_diagnostics"]
+        self.assertTrue(any(row.get("provider_name") == "chem_enzy_context_onmt" for row in diagnostics))
+        self.assertEqual(FakeContextProvider.last_kwargs["preference_scorer_path"], scorer)
+        self.assertEqual(FakeContextProvider.last_kwargs["preference_min_score"], 0.25)
+        self.assertTrue(FakeContextProvider.last_kwargs["preference_rerank"])
+
+    def test_legal_corpus_sidecar_can_be_used_by_cascade_benchmark(self):
+        class FakeLegalCorpusProvider:
+            provider_name = "legal_corpus"
+            last_kwargs = {}
+
+            def __init__(self, corpus_paths, **kwargs):
+                self.corpus_paths = list(corpus_paths)
+                self.kwargs = kwargs
+                FakeLegalCorpusProvider.last_kwargs = {
+                    "corpus_paths": list(corpus_paths),
+                    **kwargs,
+                }
+                self.last_diagnostics = ProposalDiagnostics(
+                    provider_name=self.provider_name,
+                    metadata={"corpus_paths": [str(path) for path in corpus_paths]},
+                )
+
+            def propose(self, request):
+                self.last_diagnostics = ProposalDiagnostics(
+                    provider_name=self.provider_name,
+                    requested=request.top_k,
+                    returned=1,
+                    metadata={
+                        "corpus_paths": [str(path) for path in self.corpus_paths],
+                        "loaded_from_cache": bool(self.kwargs.get("index_cache_path")),
+                    },
+                )
+                return [
+                    {
+                        "product_smiles": request.leaf_smiles,
+                        "reactant_smiles": ["CC", "O"],
+                        "rxn_smiles": f"CC.O>>{request.leaf_smiles}",
+                        "source": self.provider_name,
+                        "score": 1.0,
+                        "stock_status": {"CC": True, "O": True},
+                    }
+                ]
+
+        original_provider = benchmark_runner.LegalCorpusProposalProvider
+        try:
+            benchmark_runner.LegalCorpusProposalProvider = FakeLegalCorpusProvider
+            with tempfile.TemporaryDirectory() as td:
+                corpus = Path(td) / "context.train.meta.jsonl"
+                cache = Path(td) / "legal.pkl"
+                corpus.write_text("{}", encoding="utf-8")
+                payload, _trace = _run_one_target(
+                    {
+                        "target_smiles": "CCO",
+                        "starting_materials": [{"smiles": "CC"}, {"smiles": "O"}],
+                    },
+                    BaselineRunResult(target_smiles="CCO", backend=BACKEND_NAME),
+                    cascade_config=CascadeSearchConfig(branch_factor=2, expansion_budget=4, max_depth=1),
+                    use_legal_corpus_proposals=True,
+                    legal_corpus_paths=[corpus],
+                    legal_corpus_topk=3,
+                    legal_corpus_candidate_pool_size=17,
+                    legal_corpus_similarity_floor=0.2,
+                    legal_corpus_index_cache_path=cache,
+                    cascade_result_limit=1,
+                )
+        finally:
+            benchmark_runner.LegalCorpusProposalProvider = original_provider
+
+        self.assertTrue(payload["cascade_search"]["solved"])
+        diagnostics = payload["cascade_search"]["stats"]["provider_diagnostics"]
+        self.assertTrue(any(row.get("provider_name") == "legal_corpus" for row in diagnostics))
+        self.assertEqual(FakeLegalCorpusProvider.last_kwargs["corpus_paths"], [corpus])
+        self.assertEqual(FakeLegalCorpusProvider.last_kwargs["candidate_pool_size"], 17)
+        self.assertEqual(FakeLegalCorpusProvider.last_kwargs["similarity_floor"], 0.2)
+        self.assertEqual(FakeLegalCorpusProvider.last_kwargs["index_cache_path"], cache)
+
+    def test_aizynthfinder_onnx_sidecar_can_be_used_by_cascade_benchmark(self):
+        class FakeAiZynthProvider:
+            provider_name = "aizynth_onnx"
+            last_kwargs = {}
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                FakeAiZynthProvider.last_kwargs = dict(kwargs)
+                self.last_diagnostics = ProposalDiagnostics(provider_name=self.provider_name)
+
+            def propose(self, request):
+                self.last_diagnostics = ProposalDiagnostics(
+                    provider_name=self.provider_name,
+                    requested=request.top_k,
+                    returned=1,
+                    metadata={
+                        "config_path": str(self.kwargs.get("config_path")),
+                        "policy_name": self.kwargs.get("policy_name"),
+                    },
+                )
+                return [
+                    {
+                        "product_smiles": request.leaf_smiles,
+                        "reactant_smiles": ["CC", "O"],
+                        "rxn_smiles": f"CC.O>>{request.leaf_smiles}",
+                        "source": self.provider_name,
+                        "score": 0.7,
+                        "stock_status": {"CC": True, "O": True},
+                    }
+                ]
+
+        original_provider = benchmark_runner.AiZynthFinderONNXProposalProvider
+        try:
+            benchmark_runner.AiZynthFinderONNXProposalProvider = FakeAiZynthProvider
+            with tempfile.TemporaryDirectory() as td:
+                config = Path(td) / "config.yml"
+                config.write_text("expansion: {}\n", encoding="utf-8")
+                payload, _trace = _run_one_target(
+                    {
+                        "target_smiles": "CCO",
+                        "starting_materials": [{"smiles": "CC"}, {"smiles": "O"}],
+                    },
+                    BaselineRunResult(target_smiles="CCO", backend=BACKEND_NAME),
+                    cascade_config=CascadeSearchConfig(branch_factor=2, expansion_budget=4, max_depth=1),
+                    use_aizynthfinder_onnx_proposals=True,
+                    aizynthfinder_config_path=config,
+                    aizynthfinder_policy="ringbreaker",
+                    aizynthfinder_topk=3,
+                    cascade_result_limit=1,
+                )
+        finally:
+            benchmark_runner.AiZynthFinderONNXProposalProvider = original_provider
+
+        self.assertTrue(payload["cascade_search"]["solved"])
+        diagnostics = payload["cascade_search"]["stats"]["provider_diagnostics"]
+        self.assertTrue(any(row.get("provider_name") == "aizynth_onnx" for row in diagnostics))
+        self.assertEqual(FakeAiZynthProvider.last_kwargs["config_path"], config)
+        self.assertEqual(FakeAiZynthProvider.last_kwargs["policy_name"], "ringbreaker")
+        self.assertEqual(FakeAiZynthProvider.last_kwargs["topk"], 3)
+
+    def test_retroknn_sidecar_can_be_used_by_cascade_benchmark(self):
+        class FakeRetroKNNProvider:
+            provider_name = "retroknn"
+            last_kwargs = {}
+
+            def __init__(self, corpus_paths, **kwargs):
+                self.corpus_paths = list(corpus_paths)
+                self.kwargs = kwargs
+                FakeRetroKNNProvider.last_kwargs = {"corpus_paths": list(corpus_paths), **kwargs}
+                self.last_diagnostics = ProposalDiagnostics(provider_name=self.provider_name)
+
+            def propose(self, request):
+                self.last_diagnostics = ProposalDiagnostics(
+                    provider_name=self.provider_name,
+                    requested=request.top_k,
+                    returned=1,
+                    metadata={
+                        "corpus_paths": [str(path) for path in self.corpus_paths],
+                        "loaded_from_cache": bool(self.kwargs.get("index_cache_path")),
+                    },
+                )
+                return [
+                    {
+                        "product_smiles": request.leaf_smiles,
+                        "reactant_smiles": ["CC", "O"],
+                        "rxn_smiles": f"CC.O>>{request.leaf_smiles}",
+                        "source": self.provider_name,
+                        "score": 1.0,
+                        "stock_status": {"CC": True, "O": True},
+                    }
+                ]
+
+        original_provider = benchmark_runner.RetroKNNProposalProvider
+        try:
+            benchmark_runner.RetroKNNProposalProvider = FakeRetroKNNProvider
+            with tempfile.TemporaryDirectory() as td:
+                corpus = Path(td) / "real_reactions.jsonl"
+                cache = Path(td) / "retroknn.pkl"
+                corpus.write_text("{}", encoding="utf-8")
+                payload, _trace = _run_one_target(
+                    {
+                        "target_smiles": "CCO",
+                        "starting_materials": [{"smiles": "CC"}, {"smiles": "O"}],
+                    },
+                    BaselineRunResult(target_smiles="CCO", backend=BACKEND_NAME),
+                    cascade_config=CascadeSearchConfig(branch_factor=2, expansion_budget=4, max_depth=1),
+                    use_retroknn_proposals=True,
+                    retroknn_corpus_paths=[corpus],
+                    retroknn_topk=3,
+                    retroknn_candidate_pool_size=19,
+                    retroknn_similarity_floor=0.15,
+                    retroknn_index_cache_path=cache,
+                    cascade_result_limit=1,
+                )
+        finally:
+            benchmark_runner.RetroKNNProposalProvider = original_provider
+
+        self.assertTrue(payload["cascade_search"]["solved"])
+        diagnostics = payload["cascade_search"]["stats"]["provider_diagnostics"]
+        self.assertTrue(any(row.get("provider_name") == "retroknn" for row in diagnostics))
+        self.assertEqual(FakeRetroKNNProvider.last_kwargs["corpus_paths"], [corpus])
+        self.assertEqual(FakeRetroKNNProvider.last_kwargs["candidate_pool_size"], 19)
+        self.assertEqual(FakeRetroKNNProvider.last_kwargs["similarity_floor"], 0.15)
+        self.assertEqual(FakeRetroKNNProvider.last_kwargs["index_cache_path"], cache)
 
 
 class ChemEnzyBroadUnionTest(unittest.TestCase):
@@ -1578,6 +2167,103 @@ class ChemEnzyExpansionTraceAnalysisTest(unittest.TestCase):
         self.assertEqual(report["summary"]["exact_gt_hits"], 1)
         self.assertEqual(report["by_source"]["graphfp"]["exact_gt_hits"], 1)
         self.assertEqual(report["adjustment"]["mean_hit_adjustment"], -0.1)
+
+
+def _p1b_case_bundle() -> CaseBundle:
+    bundle = CaseBundle(case_id="p1b_case", route_status=RouteStatus.PARTIAL_ANCHOR)
+    route_package = {
+        "case_id": "p1b_case",
+        "route_status": "partial_anchor",
+        "frontier": {
+            "frontier_smiles": "CCO",
+            "flags": ["advanced_same_scaffold", "unresolved_core"],
+        },
+        "literature_evidence_refs": ["ev_anchor"],
+    }
+    validation = {
+        "case_id": "p1b_case",
+        "accepted": True,
+        "route_status": "partial_anchor",
+        "reasons": [],
+    }
+    evidence_cards = [
+        {
+            "evidence_id": "ev_anchor",
+            "case_id": "p1b_case",
+            "source_type": "local_seed",
+            "source_title": "validated route anchor",
+            "target_relation": "family_precedent",
+            "claim_type": "route anchor",
+            "route_role": "route_anchor",
+            "confidence": "high",
+            "local_ref": "data/strategic_disconnections/test.json",
+            "source_record_id": "record_anchor",
+            "family_id": "test_family",
+            "route_role_detail": "semisynthesis_anchor",
+            "source_metadata": {"record": {"smiles": "CC"}},
+            "validation_status": "validated",
+            "schema_version": "evidence_card.v1",
+        }
+    ]
+    candidates = [
+        {
+            "candidate_id": "candidate_anchor",
+            "case_id": "p1b_case",
+            "candidate_kind": "route_anchor",
+            "target_smiles": "CCO",
+            "product_smiles": "CCO",
+            "precursor_smiles": ["CC"],
+            "rxn_smiles": "",
+            "reaction_class": "route_anchor",
+            "strategic_bond": "multi_step_anchor",
+            "literature_basis": "validated route anchor",
+            "use_case": "multi_step_anchor_planning_material",
+            "confidence": "high",
+            "evidence_refs": ["ev_anchor"],
+            "source_record_refs": ["record_anchor"],
+            "route_anchor_role": "semisynthesis_anchor",
+            "strategy_template": {
+                "template_schema": "advisory_strategy_template.v1",
+                "candidate_kind": "route_anchor",
+                "reaction_class": "route_anchor",
+                "not_raw_reaction_injection": True,
+            },
+            "validation_status": "validated",
+            "schema_version": "literature_candidate.v1",
+        }
+    ]
+    bundle.append_artifact(ArtifactRecord(
+        artifact_id="hybrid_route_package",
+        case_id="p1b_case",
+        artifact_type="HybridRoutePackage",
+        payload=route_package,
+        evidence_refs=["ev_anchor"],
+    ))
+    bundle.append_artifact(ArtifactRecord(
+        artifact_id="route_package_validation",
+        case_id="p1b_case",
+        artifact_type="RoutePackageValidation",
+        payload=validation,
+    ))
+    bundle.append_artifact(ArtifactRecord(
+        artifact_id="evidence_cards",
+        case_id="p1b_case",
+        artifact_type="EvidenceCardList",
+        payload=evidence_cards,
+    ))
+    bundle.append_artifact(ArtifactRecord(
+        artifact_id="literature_candidates",
+        case_id="p1b_case",
+        artifact_type="LiteratureCandidateList",
+        payload=candidates,
+        evidence_refs=["ev_anchor"],
+    ))
+    bundle.append_failure_event(FailureEvent(
+        failure_id="frontier_unresolved",
+        case_id="p1b_case",
+        reason="unresolved_core",
+    ))
+    return bundle
 
 
 def _record(*, doi: str, target: str, rxn: str, cascade_id: str) -> dict:

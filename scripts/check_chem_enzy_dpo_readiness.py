@@ -52,6 +52,7 @@ def main() -> None:
         config_path=args.config,
         preference_summary=args.preference_summary,
         preference_jsonl=args.preference_jsonl,
+        supervised_corpus_manifest=args.supervised_corpus_manifest,
     )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -68,6 +69,7 @@ def check_readiness(
     config_path: Path | None = None,
     preference_summary: Path | None = None,
     preference_jsonl: Path | None = None,
+    supervised_corpus_manifest: Path | None = None,
 ) -> dict[str, Any]:
     vendor_root = Path(vendor_root)
     config_path = Path(config_path) if config_path else vendor_root / "retro_planner" / "config" / "config.yaml"
@@ -82,6 +84,7 @@ def check_readiness(
     entrypoints = _training_entrypoints(retro_root)
     code_support = _code_support(vendor_root)
     preference = _preference_pack(preference_summary, preference_jsonl)
+    supervised_corpus = _supervised_corpus(supervised_corpus_manifest)
 
     missing = []
     if not vendor_root.exists():
@@ -109,8 +112,12 @@ def check_readiness(
     dpo_ready = preference["available"] and code_support["dpo"]
     lora_ready = code_support["lora"] and any(model["family"] == "onmt_models" for model in configured_models)
 
+    supervised_adapter_input_ready = supervised_ready and supervised_corpus["available"]
+
     if dpo_ready:
         overall_status = "direct_dpo_entrypoint_detected"
+    elif preference["available"] and supervised_adapter_input_ready:
+        overall_status = "ready_for_supervised_adapter_training_not_direct_dpo"
     elif preference["available"] and supervised_ready:
         overall_status = "ready_for_supervised_adapter_manifest_not_direct_dpo"
     elif supervised_ready:
@@ -128,11 +135,18 @@ def check_readiness(
         "training_entrypoints": entrypoints,
         "code_support": code_support,
         "preference_pack": preference,
+        "supervised_corpus": supervised_corpus,
         "capability_matrix": {
             "supervised_continue_train": {
-                "status": "available" if supervised_ready else "blocked",
+                "status": (
+                    "input_corpus_ready"
+                    if supervised_adapter_input_ready
+                    else "available_needs_corpus"
+                    if supervised_ready
+                    else "blocked"
+                ),
                 "best_current_target": "onmt_models" if onmt_ready else "graphfp_or_mlp_template_classifier",
-                "note": "This is not DPO; it needs converted src/tgt or template-indexed supervised corpora.",
+                "note": "This is not DPO; it consumes converted src/tgt or template-indexed supervised corpora.",
             },
             "cascade_conditioned_generation": {
                 "status": "requires_new_data_adapter_and_training_objective",
@@ -148,13 +162,21 @@ def check_readiness(
             },
         },
         "blockers": missing,
-        "recommended_next_steps": _recommended_next_steps(preference["available"], onmt_ready, code_support),
+        "recommended_next_steps": _recommended_next_steps(
+            preference["available"],
+            onmt_ready,
+            code_support,
+            supervised_corpus_available=supervised_corpus["available"],
+        ),
         "summary": {
             "overall_status": overall_status,
             "configured_model_count": len(configured_models),
             "configured_families": sorted({model["family"] for model in configured_models}),
             "preference_pairs": preference.get("n_pairs"),
             "preference_groups": preference.get("n_groups"),
+            "supervised_corpus_available": supervised_corpus["available"],
+            "supervised_corpus_examples": supervised_corpus.get("total_examples"),
+            "supervised_corpus_tokenizer": supervised_corpus.get("tokenizer"),
             "supervised_vendor_training_ready": supervised_ready,
             "direct_dpo_ready": dpo_ready,
             "lora_ready": lora_ready,
@@ -178,6 +200,8 @@ def render_markdown(result: dict[str, Any]) -> str:
         f"- configured_model_count: {summary['configured_model_count']}",
         f"- configured_families: {', '.join(summary['configured_families']) or 'none'}",
         f"- preference_pairs: {summary.get('preference_pairs')}",
+        f"- supervised_corpus_available: {summary.get('supervised_corpus_available')}",
+        f"- supervised_corpus_examples: {summary.get('supervised_corpus_examples')}",
         f"- supervised_vendor_training_ready: {summary['supervised_vendor_training_ready']}",
         f"- direct_dpo_ready: {summary['direct_dpo_ready']}",
         f"- lora_ready: {summary['lora_ready']}",
@@ -210,6 +234,17 @@ def render_markdown(result: dict[str, Any]) -> str:
     ])
     for name, row in result["capability_matrix"].items():
         lines.append(f"| {name} | {row['status']} | {row['note']} |")
+    corpus = result.get("supervised_corpus") or {}
+    lines.extend([
+        "",
+        "## Supervised Corpus",
+        "",
+        f"- available: `{corpus.get('available')}`",
+        f"- manifest: `{corpus.get('manifest_path')}`",
+        f"- modes: `{', '.join(corpus.get('modes') or [])}`",
+        f"- tokenizer: `{corpus.get('tokenizer')}`",
+        f"- total_examples: `{corpus.get('total_examples')}`",
+    ])
     lines.extend([
         "",
         "## Blockers",
@@ -236,6 +271,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--config", type=Path)
     parser.add_argument("--preference-summary", type=Path)
     parser.add_argument("--preference-jsonl", type=Path)
+    parser.add_argument("--supervised-corpus-manifest", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--markdown", type=Path)
     return parser.parse_args()
@@ -380,13 +416,57 @@ def _preference_pack(preference_summary: Path | None, preference_jsonl: Path | N
     return out
 
 
-def _recommended_next_steps(preferences_available: bool, onmt_ready: bool, code_support: dict[str, Any]) -> list[str]:
+def _supervised_corpus(manifest_path: Path | None) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "available": False,
+        "manifest_path": str(manifest_path) if manifest_path else None,
+        "modes": [],
+        "tokenizer": None,
+        "total_examples": {},
+        "files_ok": False,
+    }
+    if not manifest_path or not manifest_path.exists():
+        return out
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    files_ok = True
+    for mode_rows in (manifest.get("files") or {}).values():
+        for row in mode_rows.values():
+            for key in ("src", "tgt", "metadata"):
+                path = Path(str(row.get(key) or ""))
+                if not path.exists():
+                    files_ok = False
+    total_examples = manifest.get("summary", {}).get("total_examples") or {}
+    out.update(
+        {
+            "available": bool(total_examples) and files_ok,
+            "manifest_path": str(manifest_path),
+            "modes": list(manifest.get("modes") or []),
+            "tokenizer": manifest.get("tokenizer"),
+            "total_examples": total_examples,
+            "examples_by_mode_split": manifest.get("summary", {}).get("examples_by_mode_split") or {},
+            "files_ok": files_ok,
+            "schema_version": manifest.get("schema_version"),
+            "contract": manifest.get("contract"),
+        }
+    )
+    return out
+
+
+def _recommended_next_steps(
+    preferences_available: bool,
+    onmt_ready: bool,
+    code_support: dict[str, Any],
+    *,
+    supervised_corpus_available: bool,
+) -> list[str]:
     steps = []
     if preferences_available:
         steps.append("Freeze verifier-derived preference JSONL as DPO/rerank input, but label it as verifier preference, not expert preference.")
     else:
         steps.append("Generate verifier-derived preference JSONL before any DPO/rerank training claim.")
-    if onmt_ready:
+    if supervised_corpus_available:
+        steps.append("Use the chosen-only supervised corpus for OpenNMT continue-training; do not include rejected cascades as positives.")
+    elif onmt_ready:
         steps.append("Build an OpenNMT supervised cascade-conditioned src/tgt corpus as the first ChemEnzy-compatible adapter target.")
     else:
         steps.append("Select a trainable local ChemEnzy model family and verify checkpoints/data before training.")

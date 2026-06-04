@@ -7,6 +7,7 @@ const state = {
   artifacts: [],
   currentPlan: null,
   selectedRouteIndex: 0,
+  templateRelevance: null,
   activeTool: "plan",
   activeView: "setup",
   artifactsOpen: false,
@@ -37,6 +38,12 @@ const routePresets = {
     expansionTopk: 100,
   },
 };
+
+const defaultOneStepModels = [
+  "graphfp_models.USPTO-full_remapped",
+  "onmt_models.bionav_one_step",
+  "onmt_models.bionav_native_one_step",
+];
 
 function applyRoutePreset(name) {
   const preset = routePresets[name] || routePresets.quick;
@@ -147,7 +154,7 @@ function showRouteSearchHome() {
   setArtifactsOpen(false);
   setWorkspaceMode("setup");
   $("view-title").textContent = "Route Search";
-  $("view-subtitle").textContent = "核心工作台：调用 CascadePlanner，并启用已整合的 cascade/value hooks。";
+  $("view-subtitle").textContent = "核心工作台：ChemEnzy native 搜索，叠加物料审计和规则级联 verifier。";
   setPrimaryPanel("路线搜索", "就绪", "muted");
   setDetailsButtonsVisible(false);
   $("summary-cards").innerHTML = "";
@@ -157,11 +164,11 @@ function showRouteSearchHome() {
       <div>
         <span class="eyebrow">核心流程</span>
         <h3>从路线搜索开始</h3>
-        <p>路线搜索调用 CascadePlanner：以 ChemEnzyRetroPlanner 多步搜索为底层引擎，并在搜索内部接入 cascade cost、source policy、state/action value hook。</p>
+        <p>路线搜索调用 ChemEnzyRetroPlanner 原生多步搜索；AutoPlanner 在输出层附加 stock closure、product audit、条件注释和规则级联 verifier。</p>
       </div>
       <div class="route-start-grid">
-        <div><b>CascadePlanner</b><span>主路径是多步搜索控制器，不再走临时外层搜索。</span></div>
-        <div><b>Cascade hooks</b><span>source policy、cost model、action value trace 已在 ChemEnzy 搜索内部启用。</span></div>
+        <div><b>ChemEnzy native</b><span>主路径直接使用 ChemEnzy 原生多步搜索，不再默认启用旧 CCTS/ranker。</span></div>
+        <div><b>Verifier-first</b><span>规则级联 verifier 默认作为指标；需要保守展示时可显式开启 hard gate。</span></div>
         <div><b>CUDA</b><span>当 ChemEnzy 模型支持 GPU 时，搜索请求会使用本机 GPU。</span></div>
       </div>
     </div>
@@ -227,11 +234,18 @@ function readPlanPayload() {
   }
   const maxSteps = Number($("max-steps").value);
   const stockMode = $("stock-mode")?.value || "building-block";
+  const auditMode = $("product-audit-filter-mode")?.value || "risk_guarded";
+  const proposalGateMode = $("proposal-gate-mode")?.value || "hard_reject";
+  const oneStepModels = selectedOneStepModels();
   return {
     target_smiles: $("target-smiles").value.trim(),
     search_preset: $("search-preset").value,
     stock_mode: stockMode,
     stock_names: stockNamesForMode(stockMode),
+    enable_product_audit_filter: auditMode !== "off",
+    product_audit_filter_mode: auditMode,
+    enable_proposal_gate: proposalGateMode !== "off",
+    proposal_gate_mode: proposalGateMode,
     search_mode: "fixed",
     planner_backend: "chem_enzy_native",
     planner_mode: "chem_enzy_native",
@@ -244,11 +258,34 @@ function readPlanPayload() {
     device: $("device").value,
     chem_enzy_iterations: Number($("chem-enzy-iterations").value),
     chem_enzy_expansion_topk: Number($("chem-enzy-expansion-topk").value),
+    chem_enzy_onmt_tokenizer: $("chem-enzy-onmt-tokenizer")?.value || "char",
+    one_step_models: oneStepModels,
     enable_condition_prediction: $("enable-condition-prediction")?.checked || false,
     enable_enzyme_assignment: $("enable-enzyme-assignment")?.checked || false,
+    enable_rule_verifier_gate: $("enable-rule-verifier-gate")?.checked || false,
+    enable_learned_verifier_annotation: $("enable-learned-verifier-annotation")?.checked || false,
+    enable_enzyme_coverage_sidecar: $("enable-enzyme-coverage-sidecar")?.checked || false,
+    enable_chem_enzy_step_strengthening: $("enable-chem-enzy-step-strengthening")?.checked || false,
+    enzyme_coverage_topk: 8,
+    enzyme_coverage_bridge_topk: 8,
+    enzyme_coverage_max_ec_contexts: 2,
     condition_model: "rcr",
     constraints,
   };
+}
+
+function selectedOneStepModels() {
+  const mode = $("one-step-model-mode")?.value || "default";
+  const templateModels = templateRelevanceAvailableModels();
+  if (mode === "template_only") return templateModels.length ? templateModels : defaultOneStepModels.slice();
+  if (mode === "template_available") return [...defaultOneStepModels, ...templateModels];
+  return defaultOneStepModels.slice();
+}
+
+function templateRelevanceAvailableModels() {
+  const report = state.templateRelevance || {};
+  const models = Array.isArray(report.available_model_names) ? report.available_model_names : [];
+  return models.filter((name) => String(name || "").startsWith("template_relevance."));
 }
 
 function stockNamesForMode(mode) {
@@ -590,13 +627,32 @@ function jobTone(status) {
 async function loadStatus() {
   try {
     const data = await api("/api/status");
+    state.templateRelevance = data.template_relevance || null;
     const pill = $("status-pill");
     pill.textContent = data.cuda.available ? "cuda ready" : "cpu";
     pill.className = data.cuda.available ? "pill good" : "pill warn";
+    renderTemplateRelevanceStatus();
   } catch {
     $("status-pill").textContent = "offline";
     $("status-pill").className = "pill bad";
+    state.templateRelevance = null;
+    renderTemplateRelevanceStatus();
   }
+}
+
+function renderTemplateRelevanceStatus() {
+  const el = $("template-relevance-status");
+  if (!el) return;
+  const models = templateRelevanceAvailableModels();
+  if (!state.templateRelevance) {
+    el.textContent = "template relevance: unavailable";
+    return;
+  }
+  if (!models.length) {
+    el.textContent = "template relevance: no local .mar installed";
+    return;
+  }
+  el.textContent = `template relevance: ${models.length} local model(s) · ${models.map((name) => name.replace("template_relevance.", "")).join(", ")}`;
 }
 
 async function loadArtifacts() {
@@ -938,12 +994,16 @@ function planCards(data, route) {
   const metrics = route?.metrics || {};
   const progress = metrics.retrosynthesis_progress || {};
   const diversity = data.route_set_metrics?.diversity || {};
+  const verifierGate = cascadeVerifierGateSummary(data);
+  const proposalGate = proposalGateSummary(data);
   const status = normalizedSearchStatus(data);
   return [
     ["Runtime", `${data.time_s ?? "-"}s`],
     ["Search status", statusLabel(status.status)],
     ["Best depth", status.best_depth ?? "-"],
     ["Routes", data.routes?.length ?? 0],
+    ["Proposal gate", proposalGate.enabled ? `${proposalGate.kept}/${proposalGate.input}` : "off"],
+    ["Verifier gate", verifierGate.enabled ? `${verifierGate.kept}/${verifierGate.input}` : "off"],
     ["Unique routes", diversity.unique_full_signatures ?? "-"],
     ["Solved", boolText(professionalSolved(route))],
     ["Diagnostic", boolText(diagnosticSolved(route))],
@@ -1188,12 +1248,18 @@ function chemEnzyOverviewHtml(route, data = {}) {
   const hooks = meta.cascade_hooks || {};
   const metrics = route.metrics || {};
   const postFilter = data.post_filter || {};
+  const proposalGate = proposalGateSummary(data);
+  const verifierGate = cascadeVerifierGateSummary(data);
+  const learnedAnnotation = learnedVerifierAnnotationSummary(route, data);
   const cards = [
     ["planner", plannerPublicName(meta.backend)],
     ["engine", meta.engine || "ChemEnzyRetroPlanner"],
     ["routes", data.routes?.length ?? 0],
-    ["raw routes", postFilter.original_route_count ?? "-"],
+    ["raw routes", proposalGate.input || postFilter.original_route_count || "-"],
+    ["proposal gate", proposalGate.enabled ? `${proposalGate.kept}/${proposalGate.input}` : "off"],
     ["filtered", postFilter.removed_route_count ?? 0],
+    ["verifier gate", verifierGate.enabled ? `${verifierGate.kept}/${verifierGate.input}` : "off"],
+    ["learned verifier", learnedAnnotation.enabled ? learnedAnnotation.routeText : "off"],
     ["steps", route.steps?.length ?? 0],
     ["time", `${fmt(data.time_s)}s`],
     ["solved", boolText(metrics.route_solved)],
@@ -1211,11 +1277,148 @@ function chemEnzyOverviewHtml(route, data = {}) {
         </div>
       `).join("")}
     </section>
+    ${proposalGateHtml(data)}
+    ${cascadeVerifierGateHtml(data)}
+    ${learnedVerifierAnnotationHtml(route, data)}
     ${productAuditPostFilterHtml(data)}
+    ${routeProposalGateHtml(route)}
     ${routeProductAuditHtml(route)}
     <div class="route-strategy-line">
       <b>strategy</b>
       <span>${escapeHtml(meta.planner_strategy || "CascadePlanner search")}</span>
+    </div>
+  `;
+}
+
+function learnedVerifierAnnotationSummary(route = {}, data = {}) {
+  const routePayload = route.metrics?.learned_cascade_verifier || {};
+  const setPayload = data.route_set_metrics?.learned_verifier_annotation || data.ui_metadata?.learned_verifier_annotation || {};
+  const enabled = Boolean(setPayload.enabled || routePayload.available);
+  const probability = Number(routePayload.feasible_probability);
+  const threshold = Number(routePayload.recommended_feasible_threshold);
+  const routeText = routePayload.available && Number.isFinite(probability)
+    ? `p=${probability.toFixed(2)}`
+    : enabled
+      ? "enabled"
+      : "off";
+  return {
+    enabled,
+    routeAvailable: Boolean(routePayload.available),
+    routeText,
+    probability,
+    threshold,
+    conservativeFeasible: routePayload.conservative_feasible,
+    reasons: routePayload.reason_probabilities || {},
+    setPayload,
+    policy: routePayload.policy || setPayload.policy || "annotation_only",
+  };
+}
+
+function learnedVerifierAnnotationHtml(route = {}, data = {}) {
+  const summary = learnedVerifierAnnotationSummary(route, data);
+  if (!summary.enabled) {
+    return "";
+  }
+  const reasonText = Object.entries(summary.reasons || {})
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 4)
+    .map(([label, value]) => `${label}:${Number(value).toFixed(2)}`)
+    .join(", ");
+  const pText = Number.isFinite(summary.probability) ? `p_feasible=${summary.probability.toFixed(3)}` : "no route annotation";
+  const thresholdText = Number.isFinite(summary.threshold) ? `threshold=${summary.threshold.toFixed(2)}` : "threshold=-";
+  const statusText = summary.conservativeFeasible === true
+    ? "conservative pass"
+    : summary.conservativeFeasible === false
+      ? "below conservative threshold"
+      : "annotation only";
+  return `
+    <div class="route-strategy-line verifier-annotation-line">
+      <b>learned verifier</b>
+      <span>${escapeHtml(summary.policy)} · ${escapeHtml(pText)} · ${escapeHtml(thresholdText)} · ${escapeHtml(statusText)}${reasonText ? ` · risks=${escapeHtml(reasonText)}` : ""}</span>
+    </div>
+  `;
+}
+
+function proposalGateSummary(data = {}) {
+  const gate = data.route_set_metrics?.proposal_gate || data.proposal_gate || data.ui_metadata?.proposal_gate || {};
+  return {
+    enabled: Boolean(gate.enabled),
+    mode: gate.mode || "off",
+    input: Number(gate.input_routes ?? 0),
+    kept: Number(gate.kept_routes ?? (data.routes?.length ?? 0)),
+    dropped: Number(gate.dropped_routes ?? 0),
+    reasonCounts: gate.reason_counts || {},
+    frontiers: gate.frontiers || data.frontiers || [],
+    droppedRows: gate.dropped || [],
+  };
+}
+
+function proposalGateHtml(data = {}) {
+  const gate = proposalGateSummary(data);
+  if (!gate.enabled) {
+    return "";
+  }
+  const reasons = topCounterEntries(gate.reasonCounts, 5)
+    .map(([label, count]) => `${label}:${count}`)
+    .join(", ");
+  const frontierText = gate.frontiers.length ? ` · frontiers=${gate.frontiers.length}` : "";
+  return `
+    <div class="route-strategy-line product-audit-line">
+      <b>proposal gate</b>
+      <span>${escapeHtml(gate.mode)} · ${escapeHtml(gate.kept)}/${escapeHtml(gate.input)} kept · ${escapeHtml(gate.dropped)} rejected${escapeHtml(frontierText)}${reasons ? ` · reasons=${escapeHtml(reasons)}` : ""}</span>
+    </div>
+  `;
+}
+
+function routeProposalGateHtml(route = {}) {
+  const gate = route.proposal_gate || route.metrics?.proposal_gate || {};
+  if (!Object.keys(gate).length) {
+    return "";
+  }
+  const reasons = topCounterEntries(gate.reason_counts || {}, 5)
+    .map(([label, count]) => `${label}:${count}`)
+    .join(", ") || "none";
+  const tone = gate.hard_reject ? "bad" : "good";
+  return `
+    <div class="route-strategy-line product-audit-line">
+      <b>route proposal gate</b>
+      <span><span class="pill ${tone}">${escapeHtml(gate.decision || "-")}</span> rejected_steps=${escapeHtml(gate.rejected_step_count ?? 0)} · reasons=${escapeHtml(reasons)}</span>
+    </div>
+  `;
+}
+
+function cascadeVerifierGateSummary(data = {}) {
+  const gate = data.route_set_metrics?.cascade_verifier_gate || data.ui_metadata?.cascade_verifier_gate || {};
+  return {
+    enabled: Boolean(gate.enabled),
+    input: Number(gate.input_routes ?? 0),
+    kept: Number(gate.kept_routes ?? (data.routes?.length ?? 0)),
+    dropped: Number(gate.dropped_routes ?? 0),
+    droppedRows: gate.dropped || [],
+    stageMode: gate.default_stage_mode || "stepwise",
+  };
+}
+
+function cascadeVerifierGateHtml(data = {}) {
+  const gate = cascadeVerifierGateSummary(data);
+  if (!gate.enabled) {
+    return "";
+  }
+  const reasonCounts = {};
+  (gate.droppedRows || []).forEach((row) => {
+    Object.entries(row.reason_counts || {}).forEach(([reason, count]) => {
+      reasonCounts[reason] = (reasonCounts[reason] || 0) + Number(count || 0);
+    });
+  });
+  const reasons = Object.entries(reasonCounts)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 5)
+    .map(([label, count]) => `${label}:${count}`)
+    .join(", ");
+  return `
+    <div class="route-strategy-line verifier-gate-line">
+      <b>cascade gate</b>
+      <span>${escapeHtml(gate.stageMode)} · ${escapeHtml(gate.kept)}/${escapeHtml(gate.input)} kept · ${escapeHtml(gate.dropped)} hidden${reasons ? ` · reasons=${escapeHtml(reasons)}` : ""}</span>
     </div>
   `;
 }
@@ -1235,10 +1438,11 @@ function productAuditPostFilterHtml(data = {}) {
     .slice(0, 5)
     .map(([label, count]) => `${label}:${count}`)
     .join(", ");
+  const action = mode === "risk_guarded" ? "shown" : "hidden";
   return `
     <div class="route-strategy-line product-audit-line">
-      <b>initial filter</b>
-      <span>${escapeHtml(mode)} · ${escapeHtml(kept)}/${escapeHtml(before)} kept · ${escapeHtml(removed)} hidden${escapeHtml(fallback)}${removedIssues ? ` · removed=${escapeHtml(removedIssues)}` : ""}</span>
+      <b>route screening</b>
+      <span>${escapeHtml(mode)} · ${escapeHtml(kept)}/${escapeHtml(before)} kept · ${escapeHtml(removed)} ${escapeHtml(action)}${escapeHtml(fallback)}${removedIssues ? ` · flagged=${escapeHtml(removedIssues)}` : ""}</span>
     </div>
   `;
 }
@@ -1376,6 +1580,8 @@ function chemEnzyStepProvenanceHtml(step) {
   const interp = step.reaction_interpretation || {};
   const atom = interp.atom_change || {};
   const evidence = step.evidence || {};
+  const quality = step.enzyme_quality || {};
+  const material = quality.material_sanity || {};
   const model = step.model_full_name || step.model_name || step.model || step.provider_model || "-";
   const stock = step.stock_status || {};
   const stockText = Object.entries(stock).map(([smi, ok]) => `${ok ? "stock" : "not stock"}:${smi}`).join(" | ");
@@ -1393,6 +1599,8 @@ function chemEnzyStepProvenanceHtml(step) {
         <div><b>source</b><span>${escapeHtml(readableStepSource(step))}</span></div>
         <div><b>type / model</b><span>${escapeHtml(step.reaction_type || "-")} / ${escapeHtml(model)}</span></div>
         <div><b>scores</b><span>retro=${escapeHtml(fmt(scores.retro))} enzyme=${escapeHtml(fmt(scores.enzyme))} condition=${escapeHtml(fmt(scores.condition))} confidence=${escapeHtml(fmt(scores.confidence))}</span></div>
+        <div><b>enzyme quality</b><span>${escapeHtml(quality.quality_score !== undefined && quality.quality_score !== null ? `${fmt(quality.quality_score)} / ${quality.decision || "scored"}` : "-")}</span></div>
+        <div><b>material gate</b><span>${escapeHtml(material.passed === true ? "passed" : material.passed === false ? `flagged: ${(material.reasons || []).join(" | ") || "material_sanity_failed"}` : "-")}</span></div>
         <div><b>atom balance screen</b><span>reactants=${escapeHtml(fmt(atom.reactant_heavy_atoms))} product=${escapeHtml(fmt(atom.product_heavy_atoms))} delta=${escapeHtml(fmt(atom.heavy_atom_delta))}</span></div>
         <div><b>stock evidence</b><span>${escapeHtml(stockText || "-")}</span></div>
         <div><b>external evidence</b><span>${escapeHtml(evidenceBits || "-")}</span></div>
@@ -1508,8 +1716,13 @@ function routeCascadeSummary(route, data = {}) {
     }
   }
   const hookCount = ["cost_model", "source_policy", "expansion_trace"].filter((key) => hooks[key]).length;
+  const legacyHooks = Boolean(hooks.legacy_hooks_enabled);
+  const verifierGate = cascadeVerifierGateSummary(data);
+  const learnedAnnotation = learnedVerifierAnnotationSummary(route, data);
   const signals = [
-    { label: hookCount ? `${hookCount}/3 cascade hooks enabled` : "cascade hooks not exported", tone: hookCount ? "good" : "muted" },
+    { label: legacyHooks ? `${hookCount}/3 legacy hooks enabled` : "legacy hooks off", tone: legacyHooks ? "warn" : "good" },
+    { label: verifierGate.enabled ? `verifier gate kept ${verifierGate.kept}/${verifierGate.input}` : "verifier metric only", tone: verifierGate.enabled ? "warn" : "muted" },
+    { label: learnedAnnotation.enabled ? `learned verifier ${learnedAnnotation.routeText}` : "learned verifier off", tone: learnedAnnotation.routeAvailable ? "good" : "muted" },
     { label: steps.length > 1 ? `${steps.length - 1} adjacent step pairs` : "single-step route", tone: steps.length > 1 ? "good" : "muted" },
     { label: enzymeSteps ? `${enzymeSteps} enzymatic step(s)` : "no enzymatic step in route", tone: enzymeSteps ? "good" : "muted" },
     { label: templateSteps ? `${templateSteps} template proposal(s)` : "no template proposal", tone: templateSteps ? "muted" : "warn" },
@@ -1523,7 +1736,7 @@ function routeCascadeSummary(route, data = {}) {
     tone: steps.length > 1 ? "good" : "muted",
     stepText: `${steps.length} step${steps.length === 1 ? "" : "s"}`,
     transitionText: transitions.length ? `${transitions.length} chemo/enzyme transition(s)` : "no domain transition",
-    hookText: hookCount ? `${hookCount} cascade hooks active` : "hook metadata absent",
+    hookText: legacyHooks ? `${hookCount} legacy hook(s) active` : "legacy hooks off",
     signals,
   };
 }
@@ -1617,6 +1830,23 @@ function renderMetrics(metrics, data = {}) {
     wrap.appendChild(candidateRow);
   }
 
+  const verifierGate = cascadeVerifierGateSummary(data);
+  if (verifierGate.enabled) {
+    const droppedReasons = {};
+    verifierGate.droppedRows.forEach((row) => {
+      Object.entries(row.reason_counts || {}).forEach(([reason, count]) => {
+        droppedReasons[reason] = (droppedReasons[reason] || 0) + Number(count || 0);
+      });
+    });
+    const verifierRow = document.createElement("div");
+    verifierRow.className = "metric-row";
+    verifierRow.innerHTML = `
+      <b>Cascade Verifier Gate</b>
+      <div class="smiles">mode=${escapeHtml(verifierGate.stageMode)} input=${fmt(verifierGate.input)} kept=${fmt(verifierGate.kept)} hidden=${fmt(verifierGate.dropped)} reasons=${Object.entries(droppedReasons).map(([k, v]) => `${escapeHtml(k)}:${escapeHtml(v)}`).join(", ") || "none"}</div>
+    `;
+    wrap.appendChild(verifierRow);
+  }
+
   const issues = [
     ...(compat.issues || []),
     ...((natural.issues_by_step || []).flatMap((x) => x.issues || [])),
@@ -1699,6 +1929,7 @@ function failureAnalysisHtml(data = {}) {
     cfg.max_depth !== undefined ? `depth=${cfg.max_depth}` : "",
     cfg.iterations !== undefined ? `iter=${cfg.iterations}` : "",
     cfg.expansion_topk !== undefined ? `topk=${cfg.expansion_topk}` : "",
+    cfg.chem_enzy_onmt_tokenizer ? `onmt=${cfg.chem_enzy_onmt_tokenizer}` : "",
     cfg.condition_prediction_enabled ? "condition=on" : "condition=off",
     cfg.enzyme_assignment_enabled ? "enzyme=on" : "enzyme=off",
   ].filter(Boolean).join(" | ");
@@ -2141,13 +2372,14 @@ function statusLabel(status) {
   if (status === "partial") return "Partial";
   if (status === "diagnostic") return "Diagnostic";
   if (status === "filtered") return "Filtered";
+  if (status === "frontier") return "Frontier";
   if (status === "failed") return "Failed";
   return status || "Idle";
 }
 
 function pillTone(status) {
   if (status === "solved") return "good";
-  if (status === "partial" || status === "diagnostic" || status === "filtered") return "warn";
+  if (status === "partial" || status === "diagnostic" || status === "filtered" || status === "frontier") return "warn";
   if (status === "failed") return "bad";
   return "muted";
 }
@@ -2188,6 +2420,28 @@ function fmtBenchmark(value) {
 function normalizedSearchStatus(data) {
   const raw = data?.search_status || {};
   const routes = data?.routes || [];
+  const proposalGate = proposalGateSummary(data);
+  if (!routes.length && proposalGate.enabled && proposalGate.input > 0 && proposalGate.kept === 0) {
+    return {
+      ...raw,
+      status: "frontier",
+      solved: false,
+      native_raw_returned_routes: true,
+      proposal_gate_removed_all: true,
+      message: raw.message || `ChemEnzy returned ${proposalGate.input} route(s), but proposal gate rejected all impossible core-growth steps`,
+    };
+  }
+  const verifierGate = cascadeVerifierGateSummary(data);
+  if (!routes.length && verifierGate.enabled && verifierGate.input > 0 && verifierGate.kept === 0) {
+    return {
+      ...raw,
+      status: "filtered",
+      solved: false,
+      native_returned_routes: true,
+      cascade_verifier_removed_all: true,
+      message: raw.message || `ChemEnzy returned ${verifierGate.input} route(s), but cascade verifier hid all of them`,
+    };
+  }
   const filter = productAuditFilteredAll(data);
   if (!routes.length && filter.filteredAll) {
     return {
@@ -2305,6 +2559,14 @@ function productAuditFilteredAll(data = {}) {
 }
 
 function emptyRoutePanelLabel(data = {}, status = {}) {
+  const proposalGate = proposalGateSummary(data);
+  if (status.proposal_gate_removed_all || (proposalGate.enabled && proposalGate.input > 0 && proposalGate.kept === 0)) {
+    return "frontier unresolved";
+  }
+  const verifierGate = cascadeVerifierGateSummary(data);
+  if (status.cascade_verifier_removed_all || (verifierGate.enabled && verifierGate.input > 0 && verifierGate.kept === 0)) {
+    return "filtered by cascade gate";
+  }
   if (status.status === "filtered" || productAuditFilteredAll(data).filteredAll) {
     return "filtered by audit";
   }
@@ -2312,6 +2574,59 @@ function emptyRoutePanelLabel(data = {}, status = {}) {
 }
 
 function emptyRouteHtml(data = {}) {
+  const proposalGate = proposalGateSummary(data);
+  if (proposalGate.enabled && proposalGate.input > 0 && proposalGate.kept === 0) {
+    const issueRows = topCounterEntries(proposalGate.reasonCounts, 6).map(([label, count]) => `
+      <span class="audit-chip bad">${escapeHtml(formatRiskLabel(label))}<b>${escapeHtml(count)}</b></span>
+    `).join("");
+    const frontierRows = (proposalGate.frontiers || []).slice(0, 5).map((frontier) => `
+      <li><span>${escapeHtml(frontier.reason || "frontier")}</span><code>${escapeHtml(frontier.smiles || "")}</code></li>
+    `).join("");
+    return `
+      <section class="audit-empty-state">
+        <div class="audit-empty-head">
+          <div>
+            <b>Raw routes found, all stopped at unresolved frontiers</b>
+            <span>ChemEnzy 返回了 ${escapeHtml(proposalGate.input)} 条候选，但 proposal gate 发现所有路线都包含无法解释的大骨架增长伪单步。</span>
+          </div>
+          <span class="pill warn">frontier</span>
+        </div>
+        <div class="audit-chip-list">
+          ${issueRows || '<span class="audit-chip muted">no reason counts</span>'}
+        </div>
+        ${frontierRows ? `<ul class="audit-diagnosis">${frontierRows}</ul>` : ""}
+        <div class="audit-actions">
+          <span>这些 frontier 应作为后续文献/核心骨架子任务处理，不应强行展示为全合成闭合路线。</span>
+        </div>
+      </section>
+    `;
+  }
+  const verifierGate = cascadeVerifierGateSummary(data);
+  if (verifierGate.enabled && verifierGate.input > 0 && verifierGate.kept === 0) {
+    const reasonCounts = {};
+    verifierGate.droppedRows.forEach((row) => {
+      Object.entries(row.reason_counts || {}).forEach(([reason, count]) => {
+        reasonCounts[reason] = (reasonCounts[reason] || 0) + Number(count || 0);
+      });
+    });
+    const issueRows = topCounterEntries(reasonCounts, 6).map(([label, count]) => `
+      <span class="audit-chip bad">${escapeHtml(formatRiskLabel(label))}<b>${escapeHtml(count)}</b></span>
+    `).join("");
+    return `
+      <section class="audit-empty-state">
+        <div class="audit-empty-head">
+          <div>
+            <b>Raw routes found, all hidden by cascade verifier</b>
+            <span>ChemEnzy 返回了 ${escapeHtml(verifierGate.input)} 条候选，但规则级联 hard gate 在 ${escapeHtml(verifierGate.stageMode)} 模式下全部过滤。</span>
+          </div>
+          <span class="pill warn">cascade-filtered</span>
+        </div>
+        <div class="audit-chip-list">
+          ${issueRows || '<span class="audit-chip muted">no reason counts</span>'}
+        </div>
+      </section>
+    `;
+  }
   const filter = productAuditFilteredAll(data);
   if (filter.filteredAll) {
     const analysis = data.failure_analysis || {};

@@ -1,0 +1,1185 @@
+{
+  "schema_version": "strategic_disconnections.v14_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Thirteenth expanded public source layer focused on enzyme-aware strategic disconnections for ketoreductase chiral alcohol formation, transaminase/imine-reductase chiral amines, site-selective enzymatic halogenation, P450 and oxygenase late-stage C-H oxidation, glycosyltransferase-mediated glycodiversification, Baeyer-Villiger monooxygenase oxygen insertion, aldolase/transketolase C-C bond formation, and terpene cyclase or PKS/NRPS biosynthetic assembly-line boundaries.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist and biocatalysis review",
+      "explicit substrate, product, enzyme class, stereochemical outcome, and cofactor or donor metadata before proposal promotion",
+      "separate ketoreductase, transaminase, imine-reductase, halogenase, P450, glycosyltransferase, BVMO, aldolase, transketolase, terpene-cyclase, PKS, and NRPS policy",
+      "route-specific enzyme scope, cofactor recycling, donor/acceptor identity, site selectivity, stereochemical model, cascade order, and biosynthetic-module review",
+      "biological-mode, antimicrobial, toxin, metabolic-engineering, expression-host, environmental, or process-safety review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, expression protocols, and synthesis conditions",
+      "enzyme records are precedent-backed strategic priors only and must not auto-close routes as stock or executable wet-lab recipes"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "biocatalytic_ketoreductase_chiral_alcohol",
+      "name": "Ketoreductase and alcohol-dehydrogenase chiral alcohol route anchors",
+      "pattern_keywords": [
+        "ketoreductase",
+        "KRED",
+        "alcohol dehydrogenase",
+        "chiral alcohol",
+        "asymmetric ketone reduction",
+        "dynamic kinetic resolution"
+      ],
+      "strategic_principle": "Separate prochiral ketone synthesis, enzyme stereopreference, cofactor recycling, and product alcohol configuration. A chiral alcohol made by KRED/ADH logic is not an ordinary hydride reduction."
+    },
+    {
+      "family_id": "biocatalytic_transaminase_imine_reductase_chiral_amine",
+      "name": "Transaminase, imine-reductase, and reductive-aminase chiral amine route anchors",
+      "pattern_keywords": [
+        "transaminase",
+        "amine transaminase",
+        "imine reductase",
+        "reductive aminase",
+        "chiral amine",
+        "biocatalytic reductive amination"
+      ],
+      "strategic_principle": "Separate carbonyl/imine precursor design, amine donor or partner, enzyme family, and amine stereochemistry. The enzyme class determines whether the strategic move is transamination, imine reduction, or direct reductive amination."
+    },
+    {
+      "family_id": "enzymatic_halogenase_site_selective_halogenation",
+      "name": "Flavin-dependent, alpha-ketoglutarate-dependent, and late-stage enzymatic halogenation",
+      "pattern_keywords": [
+        "flavin-dependent halogenase",
+        "halogenase",
+        "site-selective halogenation",
+        "enzymatic halogenation",
+        "alpha-ketoglutarate halogenase",
+        "late-stage halogenation"
+      ],
+      "strategic_principle": "Separate scaffold synthesis from enzyme-controlled halogen placement, halide identity, cofactor system, and biosynthetic context. Halogenase selectivity is route-defining metadata, not a generic aryl halide decoration."
+    },
+    {
+      "family_id": "p450_oxygenase_late_stage_c_h_oxidation",
+      "name": "P450, peroxygenase, and oxygenase late-stage C-H oxidation route anchors",
+      "pattern_keywords": [
+        "cytochrome P450",
+        "oxygenase",
+        "peroxygenase",
+        "late-stage hydroxylation",
+        "C-H oxidation",
+        "metabolite synthesis"
+      ],
+      "strategic_principle": "Separate advanced scaffold synthesis from site-selective enzymatic oxidation, oxygenase identity, redox partner, and metabolite or analogue objective. Enzymatic C-H oxidation can be the strategic route handle."
+    },
+    {
+      "family_id": "glycosyltransferase_glycodiversification_route",
+      "name": "Glycosyltransferase donor-acceptor strategy and glycodiversification boundaries",
+      "pattern_keywords": [
+        "glycosyltransferase",
+        "glycodiversification",
+        "sugar nucleotide",
+        "natural product glycoside",
+        "glycorandomization",
+        "donor acceptor pair"
+      ],
+      "strategic_principle": "Separate aglycone assembly, sugar-nucleotide donor preparation, glycosyltransferase acceptor scope, and attachment site. Sugar identity and donor/acceptor pairing are strategic route fields."
+    },
+    {
+      "family_id": "baeyer_villiger_monooxygenase_lactone_lactam",
+      "name": "Baeyer-Villiger monooxygenase lactone, ester, and cascade oxygen-insertion anchors",
+      "pattern_keywords": [
+        "Baeyer-Villiger monooxygenase",
+        "BVMO",
+        "lactone",
+        "ester oxygen insertion",
+        "monooxygenase cascade",
+        "biocatalytic lactone"
+      ],
+      "strategic_principle": "Separate ketone or cyclic ketone precursor design from enzyme-controlled oxygen insertion, migratory aptitude, cofactor recycling, and lactone/ester regiochemistry."
+    },
+    {
+      "family_id": "aldolase_transketolase_asymmetric_c_c_bond",
+      "name": "Aldolase, transketolase, and enzyme-mediated asymmetric C-C bond formation",
+      "pattern_keywords": [
+        "aldolase",
+        "transketolase",
+        "biocatalytic C-C bond formation",
+        "beta-hydroxy carbonyl",
+        "ketol donor",
+        "ThDP enzyme"
+      ],
+      "strategic_principle": "Separate carbonyl partners, donor identity, enzyme family, and stereochemical array. Enzyme-catalyzed C-C formation can replace a chemical aldol or umpolung step when substrate scope is explicit."
+    },
+    {
+      "family_id": "terpene_cyclase_pks_nrps_biosynthetic_boundary",
+      "name": "Terpene cyclase, PKS, and NRPS biosynthetic assembly-line boundaries",
+      "pattern_keywords": [
+        "terpene cyclase",
+        "terpene synthase",
+        "polyketide synthase",
+        "nonribosomal peptide synthetase",
+        "PKS NRPS",
+        "biosynthetic assembly line"
+      ],
+      "strategic_principle": "Separate linear isoprenoid, acyl-chain, or peptide assembly from enzyme-programmed cyclization, module order, tailoring domains, and pathway-engineering feasibility. Biosynthetic modules are source records, not stock materials."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "kred_adh_chiral_alcohol_stereopreference_anchor",
+      "family_id": "biocatalytic_ketoreductase_chiral_alcohol",
+      "name": "KRED/ADH chiral alcohol anchor with reviewed ketone substrate, stereopreference, and cofactor policy",
+      "role": "kred_chiral_alcohol_anchor",
+      "aliases": [
+        "ketoreductase reduction",
+        "ADH asymmetric reduction",
+        "KRED dynamic kinetic resolution"
+      ],
+      "acceptance_policy": "requires_substrate_class_stereopreference_cofactor_recycling_and_enzyme_scope_review"
+    },
+    {
+      "anchor_id": "ta_ired_redam_chiral_amine_anchor",
+      "family_id": "biocatalytic_transaminase_imine_reductase_chiral_amine",
+      "name": "TA/IRED/RedAm chiral amine anchor with reviewed carbonyl or imine precursor and enzyme family",
+      "role": "biocatalytic_chiral_amine_anchor",
+      "aliases": [
+        "omega-transaminase",
+        "imine reductase",
+        "reductive aminase"
+      ],
+      "acceptance_policy": "requires_carbonyl_or_imine_precursor_amine_partner_enzyme_family_stereochemistry_and_equilibrium_review"
+    },
+    {
+      "anchor_id": "enzymatic_halogenase_site_selectivity_anchor",
+      "family_id": "enzymatic_halogenase_site_selective_halogenation",
+      "name": "Halogenase anchor with reviewed substrate class, halide identity, and enzyme-controlled site selectivity",
+      "role": "site_selective_halogenase_anchor",
+      "aliases": [
+        "flavin-dependent halogenase",
+        "alpha-ketoglutarate halogenase",
+        "late-stage enzymatic halogenation"
+      ],
+      "acceptance_policy": "requires_substrate_class_halide_identity_enzyme_family_site_selectivity_and_biocatalysis_review"
+    },
+    {
+      "anchor_id": "p450_oxygenase_lsf_anchor",
+      "family_id": "p450_oxygenase_late_stage_c_h_oxidation",
+      "name": "P450 or oxygenase late-stage oxidation anchor with reviewed oxidation site and redox system",
+      "role": "oxygenase_late_stage_functionalization_anchor",
+      "aliases": [
+        "P450 hydroxylation",
+        "oxygenase C-H oxidation",
+        "metabolite biocatalysis"
+      ],
+      "acceptance_policy": "requires_scaffold_oxidation_site_oxygenase_identity_redox_partner_and_metabolite_or_lsf_review"
+    },
+    {
+      "anchor_id": "glycosyltransferase_donor_acceptor_anchor",
+      "family_id": "glycosyltransferase_glycodiversification_route",
+      "name": "Glycosyltransferase anchor with reviewed aglycone acceptor, sugar donor, and attachment site",
+      "role": "glycosyltransferase_donor_acceptor_anchor",
+      "aliases": [
+        "GT glycosylation",
+        "sugar-nucleotide donor",
+        "glycodiversification"
+      ],
+      "acceptance_policy": "requires_aglycone_acceptor_sugar_donor_transferase_scope_attachment_site_and_glycan_biology_review"
+    },
+    {
+      "anchor_id": "bvmo_oxygen_insertion_lactone_anchor",
+      "family_id": "baeyer_villiger_monooxygenase_lactone_lactam",
+      "name": "BVMO oxygen-insertion anchor with reviewed ketone precursor, regiochemistry, and cofactor policy",
+      "role": "bvmo_lactone_oxygen_insertion_anchor",
+      "aliases": [
+        "Baeyer-Villiger monooxygenase",
+        "enzymatic lactone synthesis",
+        "BVMO cascade"
+      ],
+      "acceptance_policy": "requires_ketone_precursor_migratory_regiochemistry_cofactor_recycling_and_bvmo_scope_review"
+    },
+    {
+      "anchor_id": "aldolase_transketolase_cc_stereocontrol_anchor",
+      "family_id": "aldolase_transketolase_asymmetric_c_c_bond",
+      "name": "Aldolase/transketolase C-C bond anchor with reviewed donor, acceptor, and stereochemical array",
+      "role": "enzymatic_cc_bond_stereocontrol_anchor",
+      "aliases": [
+        "aldolase C-C bond formation",
+        "transketolase ketol transfer",
+        "ThDP-dependent C-C formation"
+      ],
+      "acceptance_policy": "requires_donor_acceptor_identity_enzyme_family_stereochemical_array_and_substrate_scope_review"
+    },
+    {
+      "anchor_id": "terpene_pks_nrps_assembly_line_anchor",
+      "family_id": "terpene_cyclase_pks_nrps_biosynthetic_boundary",
+      "name": "Terpene cyclase or PKS/NRPS assembly-line anchor with reviewed precursor, module order, and tailoring logic",
+      "role": "biosynthetic_assembly_line_anchor",
+      "aliases": [
+        "terpene synthase",
+        "terpene cyclase",
+        "PKS module",
+        "NRPS module"
+      ],
+      "acceptance_policy": "requires_precursor_identity_enzyme_or_module_order_tailoring_domains_pathway_context_and_biosafety_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "kred_prochiral_ketone_to_chiral_alcohol_split",
+      "family_id": "biocatalytic_ketoreductase_chiral_alcohol",
+      "name": "Chiral alcohol to prochiral ketone plus KRED/ADH stereopreference and cofactor policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "chiral secondary alcohols",
+          "pharmaceutical alcohol intermediates",
+          "stereodefined hydroxy fragments"
+        ],
+        "target_features": [
+          "single alcohol stereocenter",
+          "prochiral ketone precursor",
+          "enzyme-controlled hydride delivery"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C=O to C-OH stereocenter boundary",
+          "cofactor-dependent hydride-transfer boundary"
+        ],
+        "forward_logic": [
+          "synthesize or identify the corresponding prochiral ketone",
+          "track KRED or ADH stereopreference and cofactor recycling as route metadata",
+          "carry product configuration into route ranking"
+        ],
+        "suggested_precursor_roles": [
+          "prochiral ketone",
+          "KRED or ADH enzyme class",
+          "chiral alcohol product",
+          "cofactor recycling metadata"
+        ],
+        "planner_hint": "Reward routes that expose enzyme stereopreference and cofactor policy instead of treating the step as a generic hydride reduction."
+      },
+      "risks": [
+        "enzyme substrate scope mismatch",
+        "wrong Prelog or anti-Prelog stereopreference",
+        "cofactor recycling omission",
+        "product configuration ambiguity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Ketoreductase update review covers asymmetric synthesis of chiral secondary alcohol pharmaceutical and bioactive intermediates.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33835705/"
+        },
+        {
+          "type": "literature",
+          "citation": "Enzymatic asymmetric synthesis review covers ADH/KRED reductions as a broadly useful stereoselective strategy.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8341948/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "kred_chiral_alcohol_prior",
+        "rerank_bonus": "high for explicit ketone precursor, enzyme stereopreference, product configuration, and cofactor policy",
+        "compliance_gate": "biocatalytic_reduction_scope_and_stereochemistry_review_required"
+      }
+    },
+    {
+      "id": "kred_dynamic_kinetic_resolution_stereocenter_policy",
+      "family_id": "biocatalytic_ketoreductase_chiral_alcohol",
+      "name": "KRED kinetic or dynamic kinetic resolution to racemate plus enzyme selectivity and racemization policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "multi-stereocenter alcohols",
+          "resolved chiral alcohols",
+          "biomanufacturing intermediates"
+        ],
+        "target_features": [
+          "racemate or epimerizable precursor",
+          "kinetic resolution",
+          "dynamic kinetic resolution"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "resolved alcohol to racemate boundary",
+          "racemization or selectivity boundary"
+        ],
+        "forward_logic": [
+          "separate racemate or epimerizable substrate preparation from enzymatic resolution",
+          "track whether selectivity is KR, DKR, or deracemization-like",
+          "require explicit mass-balance and stereochemical interpretation before promotion"
+        ],
+        "suggested_precursor_roles": [
+          "racemic alcohol or ketone",
+          "selective KRED/ADH",
+          "resolved stereoisomer",
+          "racemization or resolution metadata"
+        ],
+        "planner_hint": "Use this entry only when the strategic value is stereochemical resolution or DKR, not simple carbonyl reduction."
+      },
+      "risks": [
+        "unmodeled racemization requirement",
+        "yield ceiling for ordinary kinetic resolution",
+        "diastereomeric impurity risk",
+        "biomanufacturing evidence gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "KRED kinetic and dynamic kinetic resolution review covers biomanufacturing of chiral chemicals with multiple stereocenters.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9280296/"
+        },
+        {
+          "type": "literature",
+          "citation": "Industrial enzymatic synthesis review discusses KREDs as major methods for making chiral alcohols.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7818486/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "kred_resolution_prior",
+        "rerank_bonus": "moderate for explicit KR/DKR role, stereochemical accounting, and enzyme selectivity",
+        "compliance_gate": "kred_resolution_stereochemical_and_process_review_required"
+      }
+    },
+    {
+      "id": "transaminase_chiral_primary_amine_disconnection",
+      "family_id": "biocatalytic_transaminase_imine_reductase_chiral_amine",
+      "name": "Chiral primary amine to ketone or aldehyde plus transaminase donor/equilibrium policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "chiral primary amines",
+          "amine API intermediates",
+          "alpha- or beta-branched amines"
+        ],
+        "target_features": [
+          "primary amine stereocenter",
+          "carbonyl precursor",
+          "transaminase donor requirement"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-N bond from carbonyl amination boundary",
+          "transaminase equilibrium boundary"
+        ],
+        "forward_logic": [
+          "disconnect the amine to the corresponding ketone or aldehyde precursor",
+          "track amine donor, equilibrium strategy, and transaminase enantiopreference",
+          "separate enzyme selection from ordinary reductive amination templates"
+        ],
+        "suggested_precursor_roles": [
+          "ketone or aldehyde acceptor",
+          "amine donor",
+          "transaminase enzyme class",
+          "chiral primary amine"
+        ],
+        "planner_hint": "Reward transaminase routes when donor/equilibrium handling and enzyme stereopreference are explicit."
+      },
+      "risks": [
+        "equilibrium not addressed",
+        "bulky ketone substrate scope mismatch",
+        "amine donor incompatibility",
+        "enantioselectivity overclaim"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Transaminase review discusses chiral primary amine synthesis by amine transaminases.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/29278779/"
+        },
+        {
+          "type": "literature",
+          "citation": "Transaminase industrial biocatalysis review covers discovery, engineering, and chiral amine applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/32300853/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "transaminase_chiral_amine_prior",
+        "rerank_bonus": "high for explicit carbonyl precursor, amine donor, equilibrium strategy, and enzyme enantiopreference",
+        "compliance_gate": "transaminase_scope_equilibrium_and_stereochemistry_review_required"
+      }
+    },
+    {
+      "id": "ired_redam_reductive_amination_policy",
+      "family_id": "biocatalytic_transaminase_imine_reductase_chiral_amine",
+      "name": "Secondary or tertiary chiral amine to imine/carbonyl plus IRED or RedAm reduction policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "cyclic chiral amines",
+          "secondary amines",
+          "tertiary amines",
+          "reductive amination products"
+        ],
+        "target_features": [
+          "imine or iminium precursor",
+          "IRED or RedAm enzyme family",
+          "NAD(P)H-dependent reduction"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-N reductive amination boundary",
+          "imine or iminium reduction boundary"
+        ],
+        "forward_logic": [
+          "separate carbonyl and amine partners from enzymatic imine formation/reduction",
+          "track whether the enzyme is an imine reductase, reductive aminase, amine dehydrogenase, or related scaffold",
+          "carry NAD(P)H and stereochemical metadata into route ranking"
+        ],
+        "suggested_precursor_roles": [
+          "carbonyl substrate",
+          "amine partner or imine",
+          "IRED/RedAm enzyme class",
+          "chiral amine product"
+        ],
+        "planner_hint": "Use IRED/RedAm entries when enzyme family determines whether imine formation and reduction are both plausible."
+      },
+      "risks": [
+        "enzyme class confusion",
+        "imine formation not enzyme-supported",
+        "NADPH cofactor omission",
+        "secondary amine substrate scope gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "IRED and reductive-aminase review discusses reductive aminations from milligram to ton scale.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9067572/"
+        },
+        {
+          "type": "literature",
+          "citation": "NAD(P)H-dependent dehydrogenase review covers imine reductases and related asymmetric reductive amination biocatalysts.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6033044/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "ired_redam_chiral_amine_prior",
+        "rerank_bonus": "high for explicit imine/carbonyl precursor, amine partner, enzyme class, cofactor, and stereochemical outcome",
+        "compliance_gate": "ired_redam_scope_cofactor_and_stereochemistry_review_required"
+      }
+    },
+    {
+      "id": "flavin_halogenase_site_selective_aromatic_halogenation",
+      "family_id": "enzymatic_halogenase_site_selective_halogenation",
+      "name": "Aryl halide product to unhalogenated scaffold plus flavin-dependent halogenase site-selectivity policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "site-selective aryl halides",
+          "halogenated indoles or phenols",
+          "halogenated natural-product analogues"
+        ],
+        "target_features": [
+          "enzyme-controlled halogen placement",
+          "flavin-dependent halogenase motif",
+          "late-stage aromatic halogenation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-H to C-halogen site-selectivity boundary",
+          "flavin halogenase cofactor boundary"
+        ],
+        "forward_logic": [
+          "disconnect to the unhalogenated aromatic substrate",
+          "track halogenase family, halide identity, and position selectivity",
+          "flag enzyme records for substrate-scope and cofactor review"
+        ],
+        "suggested_precursor_roles": [
+          "unhalogenated aromatic scaffold",
+          "flavin-dependent halogenase",
+          "halogenated product",
+          "site-selectivity metadata"
+        ],
+        "planner_hint": "Reward enzymatic halogenation only when the target halogen position matches known or reviewed enzyme selectivity."
+      },
+      "risks": [
+        "site selectivity overgeneralization",
+        "substrate recognition mismatch",
+        "halide identity unsupported",
+        "enzyme cofactor partner omitted"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Flavin-dependent halogenase review discusses catalyst-controlled halogenation, mutagenesis, and biocatalysis applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6013374/"
+        },
+        {
+          "type": "literature",
+          "citation": "Flavin-dependent biocatalyst review covers halogenase-mediated halogenation and synthetic selectivity.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6605781/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "flavin_halogenase_site_selectivity_prior",
+        "rerank_bonus": "moderate for explicit unhalogenated precursor, halogenase family, halide identity, and site selectivity",
+        "compliance_gate": "enzymatic_halogenation_scope_and_biocatalysis_review_required"
+      }
+    },
+    {
+      "id": "alpha_kg_halogenase_late_stage_halogen_policy",
+      "family_id": "enzymatic_halogenase_site_selective_halogenation",
+      "name": "Aliphatic or noncanonical halogenated product to substrate plus alpha-ketoglutarate halogenase policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "noncanonical enzymatic halides",
+          "aliphatic halogenated natural products",
+          "biosynthetic halogenation products"
+        ],
+        "target_features": [
+          "alpha-ketoglutarate-dependent halogenase",
+          "non-aromatic halogenation",
+          "biosynthetic halogen placement"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-H to C-halogen biosynthetic boundary",
+          "alpha-ketoglutarate enzyme boundary"
+        ],
+        "forward_logic": [
+          "separate substrate scaffold from enzyme-catalyzed halogen placement",
+          "track halogenating-enzyme family and biosynthetic context",
+          "avoid promoting halogenated targets without explicit enzyme precedent"
+        ],
+        "suggested_precursor_roles": [
+          "unhalogenated substrate",
+          "alpha-ketoglutarate halogenase family",
+          "halogenated product",
+          "biosynthetic context metadata"
+        ],
+        "planner_hint": "Use this entry for biosynthetic halogenation critique when halogen placement is enzyme-defined and not reproduced by generic halogenation templates."
+      },
+      "risks": [
+        "enzyme family mismatch",
+        "biosynthetic context missing",
+        "unverified halogen placement",
+        "halogenated bioactive compound safety review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Halogenating-enzyme review covers flavin-dependent and alpha-ketoglutarate-dependent halogenases and biotechnological applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/18330472/"
+        },
+        {
+          "type": "literature",
+          "citation": "Recent drug-synthesis biocatalysis review includes halogenation among API-relevant late-stage biocatalytic developments.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35625702/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "alpha_kg_halogenase_biosynthetic_prior",
+        "rerank_bonus": "moderate for explicit enzyme family, substrate class, halogen placement, and biosynthetic context",
+        "compliance_gate": "halogenated_bioactive_scaffold_and_biocatalysis_review_required"
+      }
+    },
+    {
+      "id": "p450_late_stage_hydroxylation_disconnection",
+      "family_id": "p450_oxygenase_late_stage_c_h_oxidation",
+      "name": "Hydroxylated analogue to parent scaffold plus P450 late-stage oxidation policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "late-stage hydroxylated analogues",
+          "drug metabolites",
+          "oxidized natural-product derivatives"
+        ],
+        "target_features": [
+          "remote C-H hydroxylation",
+          "P450 or oxygenase selectivity",
+          "advanced scaffold oxidation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-H to C-OH late-stage oxidation boundary",
+          "oxygenase redox-partner boundary"
+        ],
+        "forward_logic": [
+          "disconnect to the parent scaffold or metabolite precursor",
+          "track P450/oxygenase identity, oxidation site, and redox support",
+          "rank routes only when site selectivity is supported by evidence"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "P450 or oxygenating biocatalyst",
+          "hydroxylated product",
+          "redox partner metadata"
+        ],
+        "planner_hint": "Reward oxygenase routes when a late-stage oxidation replaces lengthy de novo oxygenated-scaffold synthesis with explicit site-selectivity evidence."
+      },
+      "risks": [
+        "site-selectivity mismatch",
+        "overoxidation risk",
+        "redox partner or cofactor gap",
+        "substrate turnover uncertainty"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "P450 late-stage functionalization review discusses use of P450 enzymes in drug discovery.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41076635/"
+        },
+        {
+          "type": "literature",
+          "citation": "Enzymatic late-stage modification review covers oxygenases including P450s for early and late-stage functionalization.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8359417/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "p450_late_stage_oxidation_prior",
+        "rerank_bonus": "high for explicit parent scaffold, oxidation site, enzyme identity, and redox support",
+        "compliance_gate": "p450_oxygenase_site_selectivity_and_metabolite_review_required"
+      }
+    },
+    {
+      "id": "oxygenase_metabolite_reference_standard_policy",
+      "family_id": "p450_oxygenase_late_stage_c_h_oxidation",
+      "name": "Metabolite or hydroxylated reference standard to parent drug plus oxygenating-biocatalyst policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "drug metabolite reference standards",
+          "hydroxylated screening analogues",
+          "oxidative biotransformation products"
+        ],
+        "target_features": [
+          "metabolite-like oxidation",
+          "oxygenating biocatalyst",
+          "reference standard objective"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "metabolite oxidation boundary",
+          "reference-standard route boundary"
+        ],
+        "forward_logic": [
+          "separate parent-drug scaffold access from biocatalytic metabolite generation",
+          "track whether route objective is isolation, analogue generation, or reference-standard synthesis",
+          "flag bioactive metabolite records for toxicology and analytical validation"
+        ],
+        "suggested_precursor_roles": [
+          "parent drug or natural product",
+          "oxygenating biocatalyst panel",
+          "metabolite or analogue",
+          "analytical validation metadata"
+        ],
+        "planner_hint": "Use oxygenase metabolite entries for route critique when the product is valuable because it matches a biologically relevant oxidation pattern."
+      },
+      "risks": [
+        "metabolite identity ambiguity",
+        "analytical reference mismatch",
+        "bioactive metabolite safety review required",
+        "low-turnover biotransformation"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Oxygenating-biocatalyst review discusses hydroxyl functionalization for drug discovery and development.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35385205/"
+        },
+        {
+          "type": "literature",
+          "citation": "Biocatalysis drug-synthesis review includes late-stage functionalization and oxyfunctionalization for APIs.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35625702/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "oxygenase_metabolite_reference_prior",
+        "rerank_bonus": "moderate for explicit parent scaffold, metabolite site, oxygenase class, and validation objective",
+        "compliance_gate": "metabolite_reference_toxicology_and_analytical_review_required"
+      }
+    },
+    {
+      "id": "glycosyltransferase_donor_acceptor_disconnection",
+      "family_id": "glycosyltransferase_glycodiversification_route",
+      "name": "Natural-product glycoside to aglycone acceptor plus sugar-nucleotide donor and GT scope",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "natural product glycosides",
+          "glycodiversified analogues",
+          "plant or microbial glycosylated small molecules"
+        ],
+        "target_features": [
+          "glycosidic linkage",
+          "sugar-nucleotide donor",
+          "glycosyltransferase acceptor site"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aglycone-sugar glycosidic bond",
+          "sugar-nucleotide donor boundary"
+        ],
+        "forward_logic": [
+          "disconnect the glycoside into aglycone acceptor and sugar donor roles",
+          "track glycosyltransferase family, donor identity, and acceptor-site scope",
+          "separate enzymatic donor/acceptor policy from ordinary chemical glycosylation"
+        ],
+        "suggested_precursor_roles": [
+          "aglycone acceptor",
+          "sugar-nucleotide donor",
+          "glycosyltransferase",
+          "glycosylated product"
+        ],
+        "planner_hint": "Reward glycosyltransferase routes when donor identity, acceptor site, and enzyme scope are explicit."
+      },
+      "risks": [
+        "donor availability gap",
+        "acceptor substrate scope mismatch",
+        "regioselectivity ambiguity",
+        "glycan biological-mode review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Natural-product sugar biosynthesis review covers sugar donors, glycosyltransferases, and glycodiversification.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2796923/"
+        },
+        {
+          "type": "literature",
+          "citation": "Plant natural-product glycosyltransferase review covers mining, engineering, and biosynthetic applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35261926/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "glycosyltransferase_donor_acceptor_prior",
+        "rerank_bonus": "high for explicit aglycone, sugar donor, attachment site, and transferase scope",
+        "compliance_gate": "glycosyltransferase_scope_glycan_biology_and_manufacturing_review_required"
+      }
+    },
+    {
+      "id": "glycodiversification_sugar_nucleotide_module_policy",
+      "family_id": "glycosyltransferase_glycodiversification_route",
+      "name": "Glycodiversified analogue to sugar-activation module plus promiscuous GT policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "glycodiversified libraries",
+          "unusual-sugar natural products",
+          "glycorandomized drug analogues"
+        ],
+        "target_features": [
+          "unusual sugar",
+          "promiscuous glycosyltransferase",
+          "sugar-activation enzyme module"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "unusual sugar attachment boundary",
+          "sugar activation module boundary"
+        ],
+        "forward_logic": [
+          "separate aglycone construction from sugar biosynthesis or sugar-nucleotide activation",
+          "track donor engineering, GT promiscuity, and analogue-library intent",
+          "flag glycodiversification entries for biological-mode and manufacturing review"
+        ],
+        "suggested_precursor_roles": [
+          "aglycone scaffold",
+          "activated sugar library",
+          "promiscuous or engineered glycosyltransferase",
+          "glycodiversified analogue"
+        ],
+        "planner_hint": "Use glycodiversification entries when analogue value depends on sugar exchange rather than aglycone rebuilding."
+      },
+      "risks": [
+        "engineered donor module unsupported",
+        "glycosyltransferase promiscuity overclaim",
+        "library provenance gap",
+        "bioactivity/tolerability review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Enzyme-engineering glycodiversification review highlights natural-product glycosyltransferases and donor modules.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/18678278/"
+        },
+        {
+          "type": "literature",
+          "citation": "Small-molecule glycosyltransferase-mediated glycodiversification review covers enzymatic glycodiversification advances.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39184913/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "glycodiversification_module_prior",
+        "rerank_bonus": "moderate for explicit sugar-activation module, GT promiscuity, and library provenance",
+        "compliance_gate": "glycodiversification_biological_mode_and_library_review_required"
+      }
+    },
+    {
+      "id": "bvmo_ketone_to_lactone_oxygen_insertion_disconnection",
+      "family_id": "baeyer_villiger_monooxygenase_lactone_lactam",
+      "name": "Lactone or ester to ketone precursor plus BVMO oxygen-insertion and regiochemistry policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "lactones",
+          "esters from ketone oxygen insertion",
+          "oxygenated natural-product intermediates"
+        ],
+        "target_features": [
+          "Baeyer-Villiger oxygen insertion",
+          "cyclic ketone precursor",
+          "enzyme-controlled regiochemistry"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "ketone to ester/lactone oxygen-insertion boundary",
+          "migratory-regiochemistry boundary"
+        ],
+        "forward_logic": [
+          "disconnect lactone or ester product to the corresponding ketone precursor",
+          "track BVMO class, migratory aptitude, cofactor recycling, and product regiochemistry",
+          "avoid generic peracid BV templates when enzymatic selectivity is the strategic reason"
+        ],
+        "suggested_precursor_roles": [
+          "ketone or cyclic ketone",
+          "BVMO enzyme",
+          "lactone or ester product",
+          "regiochemistry metadata"
+        ],
+        "planner_hint": "Reward BVMO routes when ketone precursor access and enzyme-controlled oxygen insertion explain product selectivity."
+      },
+      "risks": [
+        "wrong regioisomer prediction",
+        "cofactor recycling omitted",
+        "substrate or product inhibition",
+        "enzyme stability risk"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "BVMO review describes discovery, application, and protein engineering for organic synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/22733152/"
+        },
+        {
+          "type": "literature",
+          "citation": "BVMO application review covers biocatalytic processes and high-value compound synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/20936617/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "bvmo_oxygen_insertion_prior",
+        "rerank_bonus": "high for explicit ketone precursor, BVMO identity, cofactor policy, and lactone/ester regiochemistry",
+        "compliance_gate": "bvmo_scope_regiochemistry_and_cofactor_review_required"
+      }
+    },
+    {
+      "id": "bvmo_lactone_lactam_cascade_boundary_policy",
+      "family_id": "baeyer_villiger_monooxygenase_lactone_lactam",
+      "name": "Biocatalytic lactone/lactam product to oxidation cascade plus BVMO or hydrolase pathway policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "biocatalytic lactones",
+          "lactams",
+          "cascade-derived oxygenated building blocks"
+        ],
+        "target_features": [
+          "multi-enzyme oxidation cascade",
+          "lactone or lactam endpoint",
+          "BVMO plus upstream redox enzyme"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "cascade endpoint boundary",
+          "BVMO or hydrolase lactonization boundary"
+        ],
+        "forward_logic": [
+          "separate upstream alcohol/alkane/ketone generation from lactone or lactam-forming enzyme step",
+          "track cascade order and cofactor compatibility",
+          "require explicit endpoint identity before route scoring"
+        ],
+        "suggested_precursor_roles": [
+          "cascade substrate",
+          "upstream redox enzyme",
+          "BVMO or perhydrolase pathway",
+          "lactone/lactam endpoint"
+        ],
+        "planner_hint": "Use this entry when the strategic route object is an enzyme cascade leading to lactone or lactam, not a single named oxidation."
+      },
+      "risks": [
+        "cascade incompatibility",
+        "endpoint misassignment",
+        "cofactor mismatch",
+        "process stability gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Biocatalytic lactone/lactam synthesis review discusses BVMO and related enzymatic alternatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6348383/"
+        },
+        {
+          "type": "literature",
+          "citation": "In vitro redox-cascade study demonstrates an ADH/enoate-reductase/BVMO enzymatic toolbox for lactone-forming cascades.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4263279/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "bvmo_lactone_cascade_prior",
+        "rerank_bonus": "moderate for explicit cascade order, endpoint identity, and cofactor compatibility",
+        "compliance_gate": "bvmo_cascade_process_and_endpoint_review_required"
+      }
+    },
+    {
+      "id": "aldolase_beta_hydroxycarbonyl_cc_split",
+      "family_id": "aldolase_transketolase_asymmetric_c_c_bond",
+      "name": "Beta-hydroxy carbonyl or polyhydroxy fragment to aldehyde/ketone partners plus aldolase stereocontrol",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "beta-hydroxy carbonyls",
+          "polyhydroxy fragments",
+          "sugar-like chiral building blocks"
+        ],
+        "target_features": [
+          "enzyme-catalyzed aldol C-C bond",
+          "multiple stereocenters",
+          "carbonyl donor/acceptor pair"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aldol C-C bond boundary",
+          "enzyme stereocontrol boundary"
+        ],
+        "forward_logic": [
+          "disconnect to carbonyl donor and acceptor roles",
+          "track aldolase class, donor identity, and stereochemical array",
+          "compare enzymatic aldol logic against chemical aldol/crotylation alternatives"
+        ],
+        "suggested_precursor_roles": [
+          "donor carbonyl equivalent",
+          "acceptor aldehyde or ketone",
+          "aldolase enzyme",
+          "stereodefined hydroxycarbonyl product"
+        ],
+        "planner_hint": "Reward aldolase routes when the enzyme explains simultaneous C-C bond formation and stereochemical array control."
+      },
+      "risks": [
+        "donor specificity mismatch",
+        "acceptor scope gap",
+        "diastereoselectivity overclaim",
+        "polyhydroxy protecting-group mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Aldolase engineering review discusses aldolases as C-C bond-forming biocatalysts.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4012138/"
+        },
+        {
+          "type": "literature",
+          "citation": "Enzymatic asymmetric synthesis review includes C-C bond formation by nucleophilic carbon addition.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8341948/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "aldolase_cc_bond_prior",
+        "rerank_bonus": "high for explicit donor/acceptor pair, aldolase class, and stereochemical array",
+        "compliance_gate": "aldolase_substrate_scope_and_stereochemistry_review_required"
+      }
+    },
+    {
+      "id": "transketolase_ketol_donor_acceptor_policy",
+      "family_id": "aldolase_transketolase_asymmetric_c_c_bond",
+      "name": "Ketol or dihydroxy fragment to aldehyde acceptor plus transketolase donor-transfer policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "ketodiols",
+          "polyhydroxy ketones",
+          "C2-extended aldehyde products"
+        ],
+        "target_features": [
+          "transketolase C-C formation",
+          "ketol donor",
+          "ThDP-dependent enzyme"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C2 ketol-transfer boundary",
+          "ThDP enzyme donor/acceptor boundary"
+        ],
+        "forward_logic": [
+          "disconnect product to aldehyde acceptor and ketol donor roles",
+          "track ThDP-dependent transketolase class and donor thermodynamics",
+          "flag routes where charged or highly polar substrate recognition dominates feasibility"
+        ],
+        "suggested_precursor_roles": [
+          "aldehyde acceptor",
+          "ketol donor",
+          "transketolase",
+          "ketodiol or polyhydroxy product"
+        ],
+        "planner_hint": "Use transketolase entries when C2 donor transfer and enzyme active-site recognition are strategic feasibility drivers."
+      },
+      "risks": [
+        "thermodynamic limitation",
+        "charged substrate recognition gap",
+        "donor availability issue",
+        "highly polar intermediate handling"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Transketolase study discusses asymmetric C-C bond formation of polar compounds and substrate binding.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/28919932/"
+        },
+        {
+          "type": "literature",
+          "citation": "Biocatalytic C-C bond formation review includes transketolase and related C1-resource utilization enzymes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33672882/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "transketolase_cc_bond_prior",
+        "rerank_bonus": "moderate for explicit donor, aldehyde acceptor, ThDP enzyme class, and thermodynamic policy",
+        "compliance_gate": "transketolase_scope_thermodynamic_and_process_review_required"
+      }
+    },
+    {
+      "id": "terpene_cyclase_linear_prenyl_cascade_disconnection",
+      "family_id": "terpene_cyclase_pks_nrps_biosynthetic_boundary",
+      "name": "Terpene skeleton to linear prenyl precursor plus cyclase-controlled cation cascade policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "terpenoid natural products",
+          "polycyclic terpene skeletons",
+          "terpene analogues"
+        ],
+        "target_features": [
+          "terpene cyclase",
+          "linear prenyl diphosphate precursor",
+          "cationic cyclization cascade"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "polycyclization cascade boundary",
+          "linear prenyl precursor boundary"
+        ],
+        "forward_logic": [
+          "separate linear isoprenoid precursor generation from cyclase-controlled ring construction",
+          "track terpene synthase class, carbocation cascade, and product selectivity",
+          "avoid flattening terpene skeletons into generic cationic cyclization templates"
+        ],
+        "suggested_precursor_roles": [
+          "linear prenyl diphosphate precursor",
+          "terpene cyclase/synthase",
+          "terpene skeleton",
+          "cyclization cascade metadata"
+        ],
+        "planner_hint": "Reward terpene-cyclase routes when ring topology is best explained by enzyme-templated cation cascade logic."
+      },
+      "risks": [
+        "cyclase product promiscuity",
+        "wrong prenyl precursor length",
+        "cation cascade overgeneralization",
+        "bioactive terpene safety review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Terpenoid cyclase review covers structural and chemical biology of terpene cyclase catalysis and engineering.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5599884/"
+        },
+        {
+          "type": "literature",
+          "citation": "Non-canonical terpene synthase review discusses structure, enzymology, and opportunities for terpene biosynthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31650156/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "terpene_cyclase_cascade_prior",
+        "rerank_bonus": "moderate for explicit linear precursor, terpene cyclase class, and cyclization topology",
+        "compliance_gate": "terpene_biosynthetic_scope_and_bioactive_scaffold_review_required"
+      }
+    },
+    {
+      "id": "pks_nrps_module_domain_boundary_policy",
+      "family_id": "terpene_cyclase_pks_nrps_biosynthetic_boundary",
+      "name": "PKS/NRPS-derived product to starter/extender or amino-acid units plus module/domain policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "polyketide natural products",
+          "nonribosomal peptides",
+          "PKS-NRPS hybrid scaffolds",
+          "biosynthetically engineered analogues"
+        ],
+        "target_features": [
+          "assembly-line biosynthesis",
+          "starter or extender unit pattern",
+          "NRPS/PKS module order"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "biosynthetic module boundary",
+          "starter/extender or amino-acid unit boundary",
+          "tailoring-domain boundary"
+        ],
+        "forward_logic": [
+          "separate chemical synthesis of building blocks from biosynthetic module logic",
+          "track PKS/NRPS domain order, carrier-protein tethering, and tailoring enzymes",
+          "treat pathway engineering as a source-backed strategy rather than ordinary fragment coupling"
+        ],
+        "suggested_precursor_roles": [
+          "starter unit",
+          "extender unit or amino-acid building block",
+          "PKS/NRPS module set",
+          "tailored natural-product scaffold"
+        ],
+        "planner_hint": "Use PKS/NRPS entries for route critique when module order and biosynthetic feasibility dominate over normal retrosynthetic bond disconnections."
+      },
+      "risks": [
+        "module-swapping overclaim",
+        "carrier-protein interaction mismatch",
+        "antimicrobial or toxin context",
+        "pathway-expression feasibility gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "PKS/NRPS engineering review discusses engineering substrate specificity, activity, and protein interactions of biosynthetic machinery.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4271453/"
+        },
+        {
+          "type": "literature",
+          "citation": "Polyketide chemoenzymatic synthesis review covers PKS assembly-line studies and natural-product derivatives.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37615926/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "pks_nrps_biosynthetic_module_prior",
+        "rerank_bonus": "moderate for explicit module order, building-block logic, carrier-protein constraints, and tailoring domains",
+        "compliance_gate": "pks_nrps_biosynthetic_engineering_biosecurity_and_stewardship_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v14 expansion promotes the biocatalytic strategic-source backlog into enzyme-aware source records for KRED/ADH, TA/IRED/RedAm, halogenase, P450/oxygenase, glycosyltransferase, BVMO, aldolase/transketolase, terpene cyclase, and PKS/NRPS route logic."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Biocatalytic records are advisory and evidence-gated. Promotion to proposal generation requires explicit substrate scope, enzyme identity, stereochemical or site-selectivity support, cofactor/donor handling, pathway context, and biological/process safety review."
+    }
+  ]
+}

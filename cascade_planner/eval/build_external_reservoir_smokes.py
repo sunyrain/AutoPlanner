@@ -853,7 +853,7 @@ def _config_env(
                 "AUTOPLANNER_ENABLE_CHEMENZY_ONESTEP_PROPOSALS=1",
                 "AUTOPLANNER_CHEMENZY_ONESTEP_TOPK=50",
                 "AUTOPLANNER_CHEMENZY_ONESTEP_MIN_BUDGET=5",
-                "AUTOPLANNER_CHEMENZY_ONESTEP_MODELS=graphfp_models.USPTO-full_remapped,onmt_models.bionav_one_step",
+                "AUTOPLANNER_CHEMENZY_ONESTEP_MODELS=graphfp_models.USPTO-full_remapped,onmt_models.bionav_one_step,onmt_models.bionav_native_one_step",
                 "AUTOPLANNER_ROUTE_TREE_SOURCE_REQUEST_CAPS=chem_enzy_onestep:50",
                 "AUTOPLANNER_ROUTE_TREE_ROOT_PROPOSAL_BUDGET=16",
                 "AUTOPLANNER_ROUTE_TREE_MIN_BRANCH_FACTOR=12",
@@ -1421,4 +1421,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("build_external_reservoir_smokes")
     main()

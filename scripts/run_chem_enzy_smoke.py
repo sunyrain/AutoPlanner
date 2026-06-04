@@ -45,6 +45,7 @@ def main() -> None:
     ap.add_argument("--max-depth", type=int, default=6)
     ap.add_argument("--expansion-topk", type=int, default=50)
     ap.add_argument("--gpu", type=int, default=-1)
+    ap.add_argument("--offset", type=int, default=0)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--dry-run", action="store_true", help="Validate setup and emit structured requests only")
     ap.add_argument("--enable-condition-prediction", action="store_true")
@@ -57,6 +58,8 @@ def main() -> None:
 
     benchmark_path = Path(args.benchmark) if args.benchmark else None
     rows = read_targets(benchmark_path, args.target)
+    if args.offset:
+        rows = rows[max(0, int(args.offset)) :]
     if args.limit is not None:
         rows = rows[: args.limit]
 
@@ -97,6 +100,7 @@ def main() -> None:
             "vendor_root": args.vendor_root,
             "dry_run": args.dry_run,
             "n_requested": len(rows),
+            "offset": max(0, int(args.offset)),
             "core_search_only": not (args.enable_condition_prediction or args.enable_enzyme_assignment),
             "reuse_planner": not args.no_reuse_planner,
             "condition_model": args.condition_model if args.enable_condition_prediction else None,

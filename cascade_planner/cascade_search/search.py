@@ -282,9 +282,10 @@ class CascadeProgramSearch:
                 )
             return children
 
-        candidate_limit = len(actions) if self._score_all_candidate_transitions() else min(len(actions), self.config.branch_factor)
+        ordered_actions = actions if self._score_all_candidate_transitions() else _interleave_actions_by_source(actions)
+        candidate_limit = len(ordered_actions) if self._score_all_candidate_transitions() else min(len(ordered_actions), self.config.branch_factor)
         candidate_children: list[tuple[CascadeAction, CascadeProgramState]] = []
-        for action in actions[:candidate_limit]:
+        for action in ordered_actions[:candidate_limit]:
             child = apply_cascade_action(context_state, action, stock_checker=self.stock_checker)
             child.raw_metadata.setdefault("applied_actions", []).append(action.to_dict())
             annotate_state_failures(
@@ -867,6 +868,27 @@ def _is_sidecar_evidence_action(action: CascadeAction) -> bool:
         action.action_type == CascadeActionType.EVIDENCE_RETRIEVAL
         and str((action.evidence_payload or {}).get("contract") or "").startswith("learned subgoal evidence hint")
     )
+
+
+def _interleave_actions_by_source(actions: list[CascadeAction]) -> list[CascadeAction]:
+    groups: dict[str, list[CascadeAction]] = {}
+    order: list[str] = []
+    for action in actions:
+        source = str(action.source or getattr(action.step, "source_model", "") or "")
+        if source not in groups:
+            groups[source] = []
+            order.append(source)
+        groups[source].append(action)
+    if len(order) <= 1:
+        return list(actions)
+    interleaved: list[CascadeAction] = []
+    max_len = max(len(groups[source]) for source in order)
+    for idx in range(max_len):
+        for source in order:
+            group = groups[source]
+            if idx < len(group):
+                interleaved.append(group[idx])
+    return interleaved
 
 
 def _state_signature(state: CascadeProgramState) -> str:

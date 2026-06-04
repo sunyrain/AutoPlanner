@@ -9,8 +9,8 @@ through `scripts/run_chem_enzy_plan_for_web.py`.
 `cascade_search` is retained for:
 
 - cascade-state/search contracts
-- action-value hooks
-- v4 product-value and product-audit features
+- rule / learned verifier value hooks
+- product-audit features
 - subgoal proposal experiments
 - search-time rerank/proposal ablations
 
@@ -33,3 +33,16 @@ A `cascade_search` feature becomes runtime-promoted only after:
 3. product-audit and stock-closure guardrails remain acceptable,
 4. focused tests pass.
 
+## Verifier-First Boundary
+
+Verifier-first work is now the main research direction. Rule verifier signals
+may be used as conservative route metrics or hard gates. Learned verifier
+signals must remain behind an explicit flag until a held-out benchmark shows
+that reranking improves route quality rather than only changing the order. The
+current learned verifier artifact includes a calibrated feasible threshold; use
+the calibrated conservative policy by default and reserve raw learned-score
+sorting for ablation only.
+
+When a route lacks an explicit `stage_partition`, treat it as a sequential
+stepwise synthesis. Only use a single-stage / one-pot assumption when the input
+route explicitly says so or an experiment flag requests it.

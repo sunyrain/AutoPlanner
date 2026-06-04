@@ -418,6 +418,9 @@ def _markdown(result: dict[str, Any]) -> str:
 
 
 def main() -> None:
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("audit_ccts_block_supported_labels")
     RDLogger.DisableLog("rdApp.*")
     ap = argparse.ArgumentParser(description="Audit block-supported CCTS labels")
     ap.add_argument("--candidates-jsonl", default="results/shared/cascadebench_strict_20260516/ccts_v2_sparse_block/ccts_v2_sparse_test_candidates.jsonl")

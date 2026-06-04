@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT="${ROOT:-/root/autodl-tmp/AutoPlanner}"
 cd "$ROOT"
 
+if [[ "${AUTOPLANNER_ALLOW_LEGACY_RESEARCH:-}" != "1" ]]; then
+  echo "strict review after-key workflow is archived/fallback research; set AUTOPLANNER_ALLOW_LEGACY_RESEARCH=1 to run it." >&2
+  exit 4
+fi
+
 READINESS_JSON="${READINESS_JSON:-results/shared/model_strengthening_20260519_strict_review_readiness.json}"
 RUN_EXTENDED_IF_NOT_READY="${RUN_EXTENDED_IF_NOT_READY:-0}"
 ALLOW_NOT_READY_EXIT_ZERO="${ALLOW_NOT_READY_EXIT_ZERO:-0}"

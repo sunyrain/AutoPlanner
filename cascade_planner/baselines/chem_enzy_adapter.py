@@ -15,6 +15,7 @@ import sys
 import time
 import types
 import warnings
+import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -29,6 +30,34 @@ from cascade_planner.baselines.route_contract import (
     RouteSearchConfig,
     RouteStepCandidate,
 )
+from cascade_planner.baselines.template_relevance_runtime import missing_template_relevance_models
+from cascade_planner.baselines.chem_enzy_native_enzyme_plugin import (
+    NativeEnzymeOneStepWrapper,
+    NativeEnzymePluginConfig,
+    NativeEnzymePluginState,
+    native_enzyme_plugin_config_from_flags,
+    native_enzyme_plugin_stats,
+    reset_native_enzyme_plugin_state,
+)
+from cascade_planner.baselines.chem_enzy_native_chemical_plugin import (
+    NativeChemicalOneStepWrapper,
+    NativeChemicalPluginConfig,
+    NativeChemicalPluginState,
+    native_chemical_plugin_config_from_flags,
+    native_chemical_plugin_stats,
+    reset_native_chemical_plugin_state,
+)
+from cascade_planner.baselines.literature_one_step_plugin import (
+    LITERATURE_TEMPLATE_PLUGIN_SOURCE,
+    LiteratureOneStepPluginConfig,
+    LiteratureOneStepPluginState,
+    LiteratureTemplateOneStepWrapper,
+    PLUGIN_MODEL_FULL_NAME as LITERATURE_PLUGIN_MODEL_FULL_NAME,
+    literature_plugin_config_from_flags,
+    literature_plugin_stats,
+    reset_literature_plugin_state,
+)
+from cascade_planner.agent.chem_enzy_policy import chem_enzy_policy_trace_from_search_flags
 
 
 BACKEND_NAME = "ChemEnzyRetroPlanner"
@@ -38,9 +67,14 @@ DEFAULT_STOCKS = ["Zinc_Fix-stock"]
 DEFAULT_ONE_STEP_MODELS = [
     "graphfp_models.USPTO-full_remapped",
     "onmt_models.bionav_one_step",
+    "onmt_models.bionav_native_one_step",
 ]
 DEFAULT_ONMT_MODEL_NAME = "onmt_models.bionav_one_step"
 CHEMENZY_ONMT_MODEL_PATH_ENV = "AUTOPLANNER_CHEMENZY_ONMT_MODEL_PATH"
+CHEMENZY_ONMT_TOKENIZER_ENV = "AUTOPLANNER_CHEMENZY_ONMT_TOKENIZER"
+CHEMENZY_ONMT_SOURCE_PREFIX_ENV = "AUTOPLANNER_CHEMENZY_ONMT_SOURCE_PREFIX"
+CHEMENZY_ONMT_PRETOKENIZE_MODE_ENV = "AUTOPLANNER_CHEMENZY_ONMT_PRETOKENIZE_MODE"
+CHEMENZY_STEP_STRENGTHENING_SCHEMA = "chem_enzy_step_strengthening.v1"
 _RUNTIME_SEARCH_FLAGS = {
     # Row-derived cascade state changes how a target is searched, but it does
     # not require rebuilding ChemEnzy's stock/model/value-function machinery.
@@ -93,13 +127,16 @@ class ChemEnzyBackendAdapter:
 
     def run_target(self, config: RouteSearchConfig, *, dry_run: bool = False) -> BaselineRunResult:
         """Run one target, returning structured failures instead of raising."""
+        config = chem_enzy_step_strengthened_config(config)
         failures = self.preflight()
         if dry_run:
+            policy_trace = chem_enzy_policy_trace_from_search_flags(config.search_flags)
             metadata = {
                 "dry_run": True,
                 "vendor_root": str(self.vendor_root),
                 "config_path": str(self.config_path),
                 "search_config": config.to_dict(),
+                **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
             }
             return BaselineRunResult(
                 target_smiles=config.target_smiles,
@@ -112,6 +149,17 @@ class ChemEnzyBackendAdapter:
                 target_smiles=config.target_smiles,
                 backend=BACKEND_NAME,
                 failures=_failures_for_target(failures, config.target_smiles),
+            )
+        template_failures = _template_relevance_failures(
+            config.one_step_models or DEFAULT_ONE_STEP_MODELS,
+            self.vendor_root,
+            target_smiles=config.target_smiles,
+        )
+        if template_failures:
+            return BaselineRunResult(
+                target_smiles=config.target_smiles,
+                backend=BACKEND_NAME,
+                failures=template_failures,
             )
 
         try:
@@ -141,7 +189,7 @@ class ChemEnzyBackendAdapter:
         reuse_planner: bool = True,
     ) -> list[BaselineRunResult]:
         """Run many targets, reusing one initialized ChemEnzy planner per shared config."""
-        config_list = list(configs)
+        config_list = [chem_enzy_step_strengthened_config(config) for config in configs]
         if not config_list:
             return []
         if dry_run or not reuse_planner:
@@ -157,12 +205,30 @@ class ChemEnzyBackendAdapter:
                 )
                 for config in config_list
             ]
-
         grouped: dict[str, list[tuple[int, RouteSearchConfig]]] = {}
-        for idx, config in enumerate(config_list):
-            grouped.setdefault(_planner_signature(config), []).append((idx, config))
-
         results: list[BaselineRunResult | None] = [None] * len(config_list)
+        template_failure_by_signature: dict[str, list[BackendFailure]] = {}
+        for idx, config in enumerate(config_list):
+            signature = _planner_signature(config)
+            if signature not in template_failure_by_signature:
+                template_failure_by_signature[signature] = _template_relevance_failures(
+                    config.one_step_models or DEFAULT_ONE_STEP_MODELS,
+                    self.vendor_root,
+                    target_smiles=config.target_smiles,
+                )
+            template_failures = template_failure_by_signature[signature]
+            if template_failures:
+                results[idx] = BaselineRunResult(
+                    target_smiles=config.target_smiles,
+                    backend=BACKEND_NAME,
+                    failures=[
+                        replace(failure, target_smiles=config.target_smiles)
+                        for failure in template_failures
+                    ],
+                )
+                continue
+            grouped.setdefault(signature, []).append((idx, config))
+
         for group in grouped.values():
             first_config = group[0][1]
             try:
@@ -192,10 +258,18 @@ class ChemEnzyBackendAdapter:
         annotation_failures: list[BackendFailure] = []
         annotation_metadata: dict[str, Any] = {}
         started = time.monotonic()
+        policy_trace = chem_enzy_policy_trace_from_search_flags(config.search_flags)
         try:
             _apply_runtime_search_flags(planner, config)
+            reset_native_enzyme_plugin_state(planner, config.target_smiles)
+            reset_native_chemical_plugin_state(planner, config.target_smiles)
+            reset_literature_plugin_state(planner, config.target_smiles)
             raw_result = planner.plan(config.target_smiles)
         except Exception as exc:  # pragma: no cover - depends on optional vendor env
+            enzyme_plugin_stats = native_enzyme_plugin_stats(planner)
+            chemical_plugin_stats = native_chemical_plugin_stats(planner)
+            literature_template_plugin_stats = literature_plugin_stats(planner)
+            traceback_text = traceback.format_exc(limit=12)
             return BaselineRunResult(
                 target_smiles=config.target_smiles,
                 backend=BACKEND_NAME,
@@ -207,11 +281,21 @@ class ChemEnzyBackendAdapter:
                         retryable=True,
                     )
                 ],
-                raw_backend_metadata={"elapsed_s": round(time.monotonic() - started, 3)},
+                raw_backend_metadata={
+                    "elapsed_s": round(time.monotonic() - started, 3),
+                    "exception_traceback": traceback_text,
+                    **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
+                    **({"native_enzyme_plugin": enzyme_plugin_stats} if enzyme_plugin_stats is not None else {}),
+                    **({"native_chemical_plugin": chemical_plugin_stats} if chemical_plugin_stats is not None else {}),
+                    **({"literature_template_plugin": literature_template_plugin_stats} if literature_template_plugin_stats is not None else {}),
+                },
             )
 
         elapsed_s = time.monotonic() - started
         if not raw_result:
+            enzyme_plugin_stats = native_enzyme_plugin_stats(planner)
+            chemical_plugin_stats = native_chemical_plugin_stats(planner)
+            literature_template_plugin_stats = literature_plugin_stats(planner)
             return BaselineRunResult(
                 target_smiles=config.target_smiles,
                 backend=BACKEND_NAME,
@@ -223,7 +307,13 @@ class ChemEnzyBackendAdapter:
                         retryable=True,
                     )
                 ],
-                raw_backend_metadata={"elapsed_s": round(elapsed_s, 3)},
+                raw_backend_metadata={
+                    "elapsed_s": round(elapsed_s, 3),
+                    **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
+                    **({"native_enzyme_plugin": enzyme_plugin_stats} if enzyme_plugin_stats is not None else {}),
+                    **({"native_chemical_plugin": chemical_plugin_stats} if chemical_plugin_stats is not None else {}),
+                    **({"literature_template_plugin": literature_template_plugin_stats} if literature_template_plugin_stats is not None else {}),
+                },
             )
 
         if self._attributes_enabled():
@@ -253,6 +343,9 @@ class ChemEnzyBackendAdapter:
         }
         if config.search_flags.get("include_cascade_expansion_trace"):
             trace_metadata["rows"] = expansion_trace
+        enzyme_plugin_stats = native_enzyme_plugin_stats(planner)
+        chemical_plugin_stats = native_chemical_plugin_stats(planner)
+        literature_template_plugin_stats = literature_plugin_stats(planner)
         return BaselineRunResult(
             target_smiles=config.target_smiles,
             backend=BACKEND_NAME,
@@ -265,10 +358,15 @@ class ChemEnzyBackendAdapter:
                 "first_succ_time": _finite_or_none(raw_result.get("first_succ_time")),
                 "rxn_annotation": annotation_metadata,
                 "cascade_expansion_trace": trace_metadata,
+                **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
+                **({"native_enzyme_plugin": enzyme_plugin_stats} if enzyme_plugin_stats is not None else {}),
+                **({"native_chemical_plugin": chemical_plugin_stats} if chemical_plugin_stats is not None else {}),
+                **({"literature_template_plugin": literature_template_plugin_stats} if literature_template_plugin_stats is not None else {}),
             },
         )
 
     def _build_planner(self, search_config: RouteSearchConfig) -> Any:
+        search_config = chem_enzy_step_strengthened_config(search_config)
         vendor_config = self._vendor_config(search_config)
         with _vendor_pythonpath(self.vendor_root):
             _patch_numpy_legacy_aliases()
@@ -277,6 +375,21 @@ class ChemEnzyBackendAdapter:
             _patch_optional_easifa_import(self.enable_easifa)
             _patch_optional_graphviz_import(bool(search_config.search_flags.get("viz", False)))
             api = importlib.import_module("retro_planner.api")
+            _patch_onmt_tokenizer(api, str(vendor_config.get("chem_enzy_onmt_tokenizer") or "char"))
+            enzyme_plugin_config = native_enzyme_plugin_config_from_flags(search_config.search_flags)
+            chemical_plugin_config = native_chemical_plugin_config_from_flags(search_config.search_flags)
+            literature_plugin_config = literature_plugin_config_from_flags(search_config.search_flags)
+            chemical_plugin_config = _chemical_plugin_config_with_base_model(
+                chemical_plugin_config,
+                search_config.one_step_models or DEFAULT_ONE_STEP_MODELS,
+            )
+            plugin_states = _configure_native_autoplanner_plugins(
+                api,
+                enzyme_config=enzyme_plugin_config,
+                chemical_config=chemical_plugin_config,
+                literature_config=literature_plugin_config,
+            )
+            enzyme_plugin_state, chemical_plugin_state, literature_plugin_state = plugin_states
             planner = api.RSPlanner(vendor_config)
             planner.select_stocks(search_config.stock_names or DEFAULT_STOCKS)
             planner.select_one_step_model(search_config.one_step_models or DEFAULT_ONE_STEP_MODELS)
@@ -287,12 +400,19 @@ class ChemEnzyBackendAdapter:
                 prepare_condition_predictor=self.enable_condition_prediction,
                 prepare_enzyme_recommander=self.enable_enzyme_assignment,
             )
+            if enzyme_plugin_state is not None:
+                planner._autoplanner_native_enzyme_plugin_state = enzyme_plugin_state
+            if chemical_plugin_state is not None:
+                planner._autoplanner_native_chemical_plugin_state = chemical_plugin_state
+            if literature_plugin_state is not None:
+                planner._autoplanner_literature_plugin_state = literature_plugin_state
             return planner
 
     def _attributes_enabled(self) -> bool:
         return bool(self.enable_condition_prediction or self.enable_enzyme_assignment)
 
     def _vendor_config(self, search_config: RouteSearchConfig) -> dict[str, Any]:
+        search_config = chem_enzy_step_strengthened_config(search_config)
         config = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
         selected_stocks = search_config.stock_names or DEFAULT_STOCKS
         config["stocks"] = {
@@ -318,6 +438,8 @@ class ChemEnzyBackendAdapter:
         )
         if "cascade_search_context" in search_config.search_flags:
             config["cascade_search_context"] = dict(search_config.search_flags["cascade_search_context"] or {})
+        if "chem_enzy_search_policy" in search_config.search_flags:
+            config["chem_enzy_search_policy"] = dict(search_config.search_flags["chem_enzy_search_policy"] or {})
         if "cascade_cost_model" in search_config.search_flags:
             config["cascade_cost_model"] = dict(search_config.search_flags["cascade_cost_model"] or {})
             _normalize_cost_model_paths(config["cascade_cost_model"])
@@ -341,7 +463,162 @@ class ChemEnzyBackendAdapter:
         )
         if onmt_model_path:
             apply_onmt_model_path_override(config, onmt_model_path)
+        onmt_tokenizer = (
+            search_config.search_flags.get("chem_enzy_onmt_tokenizer")
+            or search_config.search_flags.get("onmt_tokenizer")
+            or os.environ.get(CHEMENZY_ONMT_TOKENIZER_ENV)
+        )
+        if onmt_tokenizer:
+            apply_onmt_tokenizer_override(config, str(onmt_tokenizer))
         return config
+
+
+def chem_enzy_step_strengthened_config(config: RouteSearchConfig) -> RouteSearchConfig:
+    """Return a copy with the ChemEnzy enzyme-step strengthening preset applied."""
+    flags = dict(config.search_flags or {})
+    raw = flags.get("chem_enzy_step_strengthening", flags.get("strengthen_chem_enzy_steps"))
+    if not _strengthening_enabled(raw):
+        return config
+
+    options = raw if isinstance(raw, dict) else {}
+    flags["chem_enzy_step_strengthening_enabled"] = True
+    flags["chem_enzy_step_strengthening_schema"] = CHEMENZY_STEP_STRENGTHENING_SCHEMA
+
+    plugin = dict(flags.get("native_enzyme_plugin") or flags.get("autoplanner_native_enzyme_plugin") or {})
+    _setdefault(plugin, "enabled", True)
+    _setdefault(plugin, "top_k", int(options.get("top_k") or 8))
+    _setdefault(plugin, "bridge_top_k", int(options.get("bridge_top_k") or 10))
+    _setdefault(plugin, "max_ec_contexts", int(options.get("max_ec_contexts") or 3))
+    _setdefault(plugin, "require_bridge", True)
+    _setdefault(plugin, "require_verifier_pass", True)
+    _setdefault(plugin, "enable_sp_v1", True)
+    _setdefault(plugin, "sp_v1_hard_gate", True)
+    _setdefault(plugin, "require_material_sanity", True)
+    _setdefault(plugin, "material_max_heavy_gain", int(options.get("material_max_heavy_gain") or 3))
+    _setdefault(plugin, "material_max_carbon_gain", int(options.get("material_max_carbon_gain") or 2))
+    _setdefault(plugin, "material_max_hetero_gain", int(options.get("material_max_hetero_gain") or 3))
+    _setdefault(plugin, "min_quality_score", options.get("min_quality_score"))
+    _setdefault(plugin, "max_added", int(options.get("max_added") or 8))
+    _setdefault(plugin, "score_scale", float(options.get("score_scale") or 1.0))
+    _setdefault(plugin, "sp_v1_score_bonus", float(options.get("sp_v1_score_bonus") or 0.20))
+    _setdefault(plugin, "quality_score_bonus", float(options.get("quality_score_bonus") or 0.18))
+    flags["native_enzyme_plugin"] = plugin
+
+    cost_model = dict(flags.get("cascade_cost_model") or {})
+    _setdefault(cost_model, "enabled", True)
+    weights = dict(_default_enzyme_strengthening_cost_weights())
+    weights.update(cost_model.get("weights") or {})
+    cost_model["weights"] = weights
+    _setdefault(cost_model, "material_max_heavy_gain", int(options.get("material_max_heavy_gain") or 3))
+    _setdefault(cost_model, "material_max_carbon_gain", int(options.get("material_max_carbon_gain") or 2))
+    _setdefault(cost_model, "material_max_hetero_gain", int(options.get("material_max_hetero_gain") or 3))
+    flags["cascade_cost_model"] = cost_model
+    flags["use_cascade_cost_model"] = True
+
+    context = dict(flags.get("cascade_search_context") or {})
+    _setdefault(context, "context_policy", "chem_enzy_step_strengthening_v1")
+    _setdefault(context, "min_enzyme_evidence_confidence", float(options.get("min_enzyme_evidence_confidence") or 0.35))
+    active = list(context.get("active_failure_modes") or [])
+    if "enzymeevidenceweak" not in {str(item).lower() for item in active}:
+        active.append("enzymeevidenceweak")
+    context["active_failure_modes"] = active
+    flags["cascade_search_context"] = context
+
+    return replace(config, search_flags=flags)
+
+
+def _configure_native_autoplanner_plugins(
+    api_module: Any,
+    *,
+    enzyme_config: NativeEnzymePluginConfig,
+    chemical_config: NativeChemicalPluginConfig,
+    literature_config: LiteratureOneStepPluginConfig | None = None,
+) -> (
+    tuple[NativeEnzymePluginState | None, NativeChemicalPluginState | None]
+    | tuple[NativeEnzymePluginState | None, NativeChemicalPluginState | None, LiteratureOneStepPluginState | None]
+):
+    original = getattr(api_module, "_autoplanner_original_prepare_molstar_planner", None)
+    if original is None:
+        original = api_module.prepare_molstar_planner
+        api_module._autoplanner_original_prepare_molstar_planner = original
+
+    enzyme_state = NativeEnzymePluginState(config=enzyme_config) if enzyme_config.enabled else None
+    chemical_state = NativeChemicalPluginState(config=chemical_config) if chemical_config.enabled else None
+    literature_state = (
+        LiteratureOneStepPluginState(config=literature_config)
+        if literature_config is not None and literature_config.enabled
+        else None
+    )
+    if enzyme_state is None and chemical_state is None and literature_state is None:
+        api_module.prepare_molstar_planner = original
+        return (None, None, None) if literature_config is not None else (None, None)
+
+    def patched_prepare_molstar_planner(*args: Any, **kwargs: Any) -> Any:
+        if args:
+            one_step = args[0]
+            if chemical_state is not None:
+                one_step = NativeChemicalOneStepWrapper(one_step, config=chemical_config, state=chemical_state)
+            if literature_state is not None:
+                one_step = LiteratureTemplateOneStepWrapper(one_step, config=literature_config, state=literature_state)
+            if enzyme_state is not None:
+                one_step = NativeEnzymeOneStepWrapper(one_step, config=enzyme_config, state=enzyme_state)
+            args = (one_step, *args[1:])
+        elif "one_step" in kwargs:
+            kwargs = dict(kwargs)
+            one_step = kwargs["one_step"]
+            if chemical_state is not None:
+                one_step = NativeChemicalOneStepWrapper(one_step, config=chemical_config, state=chemical_state)
+            if literature_state is not None:
+                one_step = LiteratureTemplateOneStepWrapper(one_step, config=literature_config, state=literature_state)
+            if enzyme_state is not None:
+                one_step = NativeEnzymeOneStepWrapper(one_step, config=enzyme_config, state=enzyme_state)
+            kwargs["one_step"] = one_step
+        return original(*args, **kwargs)
+
+    api_module.prepare_molstar_planner = patched_prepare_molstar_planner
+    if literature_config is None:
+        return enzyme_state, chemical_state
+    return enzyme_state, chemical_state, literature_state
+
+
+def _chemical_plugin_config_with_base_model(
+    config: NativeChemicalPluginConfig,
+    one_step_models: Iterable[str],
+) -> NativeChemicalPluginConfig:
+    if not config.enabled or config.base_model_full_name:
+        return config
+    names = [str(name) for name in one_step_models or [] if str(name or "")]
+    graphfp = [name for name in names if name.startswith("graphfp_models.")]
+    if len(graphfp) == 1:
+        return replace(config, base_model_full_name=graphfp[0])
+    if len(names) == 1:
+        return replace(config, base_model_full_name=names[0])
+    return config
+
+
+def _default_enzyme_strengthening_cost_weights() -> dict[str, float]:
+    return {
+        "weak_enzyme_evidence_penalty": 0.70,
+        "active_failure_match_reward": 0.10,
+        "material_new_element_penalty": 1.40,
+        "material_heavy_gain_penalty": 1.15,
+        "material_carbon_gain_penalty": 1.15,
+        "material_hetero_gain_penalty": 0.85,
+        "enzyme_material_penalty_multiplier": 1.35,
+    }
+
+
+def _strengthening_enabled(raw: Any) -> bool:
+    if isinstance(raw, dict):
+        return bool(raw.get("enabled", True))
+    if isinstance(raw, str):
+        return raw.strip().lower() not in {"", "0", "false", "off", "no"}
+    return bool(raw)
+
+
+def _setdefault(mapping: dict[str, Any], key: str, value: Any) -> None:
+    if key not in mapping or mapping.get(key) in (None, ""):
+        mapping[key] = value
 
 
 def apply_onmt_model_path_override(
@@ -365,6 +642,96 @@ def apply_onmt_model_path_override(
     model_config["model_path"] = model_paths
     one_step_configs[model_type][model_subname] = model_config
     return config
+
+
+def apply_onmt_tokenizer_override(
+    config: dict[str, Any],
+    tokenizer: str,
+    *,
+    model_name: str = DEFAULT_ONMT_MODEL_NAME,
+) -> dict[str, Any]:
+    """Record the tokenizer mode used by the vendored ONMT one-step wrapper."""
+    tokenizer = str(tokenizer or "char").strip().lower()
+    if tokenizer not in {"char", "token", "pretokenized"}:
+        raise ValueError(f"unsupported ChemEnzy ONMT tokenizer: {tokenizer}")
+    try:
+        model_type, model_subname = model_name.split(".", 1)
+    except ValueError as exc:
+        raise ValueError(f"invalid ChemEnzy one-step model name: {model_name}") from exc
+    one_step_configs = config.setdefault("one_step_model_configs", {})
+    if model_type not in one_step_configs or model_subname not in (one_step_configs.get(model_type) or {}):
+        raise ValueError(f"cannot override unknown ChemEnzy ONMT model config: {model_name}")
+    model_config = dict(one_step_configs[model_type][model_subname] or {})
+    model_config["tokenizer"] = tokenizer
+    if tokenizer in {"char", "token", "pretokenized"}:
+        model_config.pop("source_prefix", None)
+        model_config.pop("source_tokenizer", None)
+    one_step_configs[model_type][model_subname] = model_config
+    config["chem_enzy_onmt_tokenizer"] = tokenizer
+    return config
+
+
+def _patch_onmt_tokenizer(api_module: Any, tokenizer: str) -> None:
+    """Patch vendored ONMT preparation to honor a tokenizer mode without editing vendor files."""
+    tokenizer = str(tokenizer or "char").strip().lower()
+    if tokenizer not in {"char", "token", "pretokenized"}:
+        raise ValueError(f"unsupported ChemEnzy ONMT tokenizer: {tokenizer}")
+    if tokenizer == "char":
+        return
+    from retro_planner.common import prepare_utils  # type: ignore
+    from onmt.bin.translate import load_model, run, smi_tokenizer  # type: ignore
+
+    original = getattr(prepare_utils, "_autoplanner_original_prepare_onmt_models", None)
+    if original is None:
+        original = prepare_utils.prepare_onmt_models
+        prepare_utils._autoplanner_original_prepare_onmt_models = original
+
+    def prepare_onmt_models_token(
+        model_path: Any,
+        beam_size: int,
+        topk: int,
+        device: Any,
+        tokenizer: str = tokenizer,
+        source_prefix: str | None = None,
+        source_tokenizer: str | None = None,
+        **_: Any,
+    ) -> Any:
+        class OnmtRunWrapper:
+            def __init__(self, model_path: Any, beam_size: int, topk: int, device: Any) -> None:
+                self.opt, self.translator = load_model(
+                    model_path=model_path,
+                    beam_size=beam_size,
+                    topk=topk,
+                    device=int(str(device).split(":")[-1]) if str(device) != "cpu" else -1,
+                    tokenizer=tokenizer,
+                )
+
+            def run(self, target: str, topk: int | None = None) -> dict[str, Any]:
+                results = run(self.translator, self.opt, _format_onmt_source_for_tokenizer(target, tokenizer, smi_tokenizer))
+                templates = [None for _ in range(len(results.get("scores") or []))]
+                results["template"] = templates
+                return results
+
+        return OnmtRunWrapper(model_path=model_path, beam_size=beam_size, topk=topk, device=device)
+
+    prepare_utils.prepare_onmt_models = prepare_onmt_models_token
+    api_module.prepare_single_step.__globals__["prepare_onmt_models"] = prepare_onmt_models_token
+
+
+def _format_onmt_source_for_tokenizer(target: str, tokenizer: str, smi_tokenizer_fn: Any) -> str:
+    text = str(target or "").strip()
+    if tokenizer != "pretokenized":
+        return text
+    prefix = str(os.environ.get(CHEMENZY_ONMT_SOURCE_PREFIX_ENV) or "").strip()
+    if not prefix:
+        return text
+    mode = str(os.environ.get(CHEMENZY_ONMT_PRETOKENIZE_MODE_ENV) or "char").strip().lower()
+    compact = text.replace(" ", "")
+    if mode == "token":
+        tokenized = smi_tokenizer_fn(compact)
+    else:
+        tokenized = " ".join(compact)
+    return f"{prefix} {tokenized}".strip()
 
 
 def _as_model_path_list(model_path: Path | str | Iterable[Path | str]) -> list[str]:
@@ -422,6 +789,9 @@ def _flatten_chem_enzy_dict_route(route: dict[str, Any]) -> list[RouteStepCandid
             product = str(mol_node.get("smiles") or "")
             rxn_smiles = str(reaction_node.get("rxn_smiles") or _reaction_smiles(reactants, product))
             attrs = reaction_node.get("rxn_attribute") or {}
+            template_payload = reaction_node.get("template")
+            enzyme_annotations = _enzyme_annotations(attrs)
+            enzyme_annotations.extend(_enzyme_annotations_from_template(template_payload))
             steps.append(
                 RouteStepCandidate(
                     product_smiles=product,
@@ -431,7 +801,7 @@ def _flatten_chem_enzy_dict_route(route: dict[str, Any]) -> list[RouteStepCandid
                     score=_step_score(reaction_node),
                     stock_status={str(node.get("smiles") or ""): node.get("in_stock") for node in reactant_nodes},
                     condition_predictions=_condition_predictions(attrs),
-                    enzyme_ec_annotations=_enzyme_annotations(attrs),
+                    enzyme_ec_annotations=enzyme_annotations,
                     raw_backend_metadata={
                         "template": reaction_node.get("template"),
                         "cost": reaction_node.get("cost"),
@@ -449,9 +819,16 @@ def _flatten_chem_enzy_dict_route(route: dict[str, Any]) -> list[RouteStepCandid
 
 
 def _source_model(reaction_node: dict[str, Any]) -> str:
+    cascade_cost = reaction_node.get("cascade_cost")
+    if isinstance(cascade_cost, dict) and cascade_cost.get("source_model"):
+        return str(cascade_cost.get("source_model") or "")
     template = reaction_node.get("template")
     if isinstance(template, dict):
-        return str(template.get("model_full_name") or template.get("model_name") or template.get("source") or "")
+        model = str(template.get("model_full_name") or template.get("model_name") or "")
+        source_model = str(template.get("source_model") or template.get("source") or "")
+        if model == LITERATURE_PLUGIN_MODEL_FULL_NAME or source_model == LITERATURE_TEMPLATE_PLUGIN_SOURCE:
+            return LITERATURE_TEMPLATE_PLUGIN_SOURCE
+        return str(model or source_model or "")
     if template:
         return str(template)
     return BACKEND_NAME
@@ -492,6 +869,43 @@ def _enzyme_annotations(attrs: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def _enzyme_annotations_from_template(template: Any) -> list[dict[str, Any]]:
+    if not isinstance(template, dict):
+        return []
+    source = str(template.get("source") or template.get("model_full_name") or "").lower()
+    ec = str(template.get("ec") or "").strip()
+    sp_payload = template.get("enzyme_sp_verifier_v1") if isinstance(template.get("enzyme_sp_verifier_v1"), dict) else {}
+    evidence = template.get("evidence") if isinstance(template.get("evidence"), dict) else {}
+    ec_numbers = []
+    for raw in (
+        [ec] if ec else [],
+        sp_payload.get("ec_numbers") if isinstance(sp_payload, dict) else [],
+        evidence.get("ec_numbers") if isinstance(evidence, dict) else [],
+    ):
+        if isinstance(raw, str):
+            ec_numbers.append(raw)
+        elif isinstance(raw, list):
+            ec_numbers.extend(str(item) for item in raw if str(item or "").strip())
+    ec_numbers = list(dict.fromkeys(item for item in ec_numbers if item))
+    if not ec_numbers and "enzyme" not in source:
+        return []
+    confidence = sp_payload.get("score") if isinstance(sp_payload, dict) else None
+    return [
+        {
+            "rank": f"Top-{idx + 1}",
+            "ec_number": ec_number,
+            "confidence": confidence,
+            "raw": {
+                "source": template.get("source") or template.get("model_full_name"),
+                "enzyme_sp_verifier_v1": sp_payload,
+                "autoplanner_native_enzyme_plugin": bool(template.get("autoplanner_native_enzyme_plugin")),
+                "autoplanner_native_chemical_plugin": bool(template.get("autoplanner_native_chemical_plugin")),
+            },
+        }
+        for idx, ec_number in enumerate(ec_numbers or [ec or "enzyme_precedent"])
+    ]
 
 
 def _is_enzymatic_reaction(attrs: dict[str, Any]) -> bool | None:
@@ -719,6 +1133,29 @@ def _normalize_cost_model_paths(cost_config: dict[str, Any]) -> None:
 
 def _failures_for_target(failures: list[BackendFailure], target_smiles: str) -> list[BackendFailure]:
     return [replace(failure, target_smiles=failure.target_smiles or target_smiles) for failure in failures]
+
+
+def _template_relevance_failures(
+    models: Iterable[str],
+    vendor_root: Path,
+    *,
+    target_smiles: str = "",
+) -> list[BackendFailure]:
+    missing = missing_template_relevance_models(tuple(models or ()), vendor_root=vendor_root)
+    if not missing:
+        return []
+    return [
+        BackendFailure(
+            category="template_relevance_model_missing",
+            message="missing local template_relevance .mar archive(s): " + ", ".join(missing),
+            target_smiles=target_smiles,
+            retryable=True,
+            raw_backend_metadata={
+                "missing_models": missing,
+                "vendor_root": str(vendor_root),
+            },
+        )
+    ]
 
 
 def _rxn_attribute_summary(value: Any) -> dict[str, Any]:

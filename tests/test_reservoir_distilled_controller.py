@@ -2171,7 +2171,7 @@ class ReservoirDistilledControllerTest(unittest.TestCase):
         chemstep = next(cmd for cmd in commands if cmd["config"] == "C_CHEMSTEP")
         hybrid = next(cmd for cmd in commands if cmd["config"] == "D_CHEMSTEP")
         self.assertIn("AUTOPLANNER_ENABLE_CHEMENZY_ONESTEP_PROPOSALS=1", chemstep["cmd"])
-        self.assertIn("AUTOPLANNER_CHEMENZY_ONESTEP_MODELS=graphfp_models.USPTO-full_remapped,onmt_models.bionav_one_step", chemstep["cmd"])
+        self.assertIn("AUTOPLANNER_CHEMENZY_ONESTEP_MODELS=graphfp_models.USPTO-full_remapped,onmt_models.bionav_one_step,onmt_models.bionav_native_one_step", chemstep["cmd"])
         self.assertIn("AUTOPLANNER_ROUTE_TREE_DISABLE_SOURCES_AFTER_DEPTH=retrochimera:0,chemtemplates:0,chem_enzy_onestep:0", chemstep["cmd"])
         self.assertIn("AUTOPLANNER_ROUTE_TREE_ROOT_PROPOSAL_BUDGET=16", chemstep["cmd"])
         self.assertIn("AUTOPLANNER_ROUTE_TREE_MIN_BRANCH_FACTOR=12", chemstep["cmd"])

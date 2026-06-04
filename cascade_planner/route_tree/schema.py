@@ -257,7 +257,7 @@ class RouteTreeState:
             slot.solvent = action.solvent or None
             slot.e_retro = action.raw_score
             slot.source = action.source
-            slot.evidence = dict(action.metadata.get("evidence") or {})
+            slot.evidence = _slot_evidence_from_action(action)
             pool_key = canonical_smiles(step.product) or step.product
             slot.candidates = [cand.to_candidate_dict() for cand in self.candidate_pools.get(pool_key, [])]
         return board
@@ -301,6 +301,27 @@ def _candidate_reactants(
         seen.add(key)
         out.append(smi)
     return tuple(out)
+
+
+def _slot_evidence_from_action(action: CandidateAction) -> dict[str, Any]:
+    evidence = dict(action.metadata.get("evidence") or {})
+    for key in (
+        "enzyme_sp_verifier_v1",
+        "enzyme_step_quality_v1",
+        "source_provenance",
+        "duplicate_source_provenance",
+        "source_gate",
+        "route_verifier",
+        "condition_prior",
+        "condition_predictions",
+        "semisynthesis_rescue",
+        "chemical_anchor_rescue",
+        "route_class_hint",
+    ):
+        value = action.metadata.get(key)
+        if value not in (None, "", [], {}):
+            evidence[key] = value
+    return evidence
 
 
 def _validity_flags(product: str, rxn: str, reactants: tuple[str, ...], main: str) -> list[str]:

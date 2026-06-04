@@ -449,7 +449,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--perturbations-per-route", type=int, default=5)
     parser.add_argument("--include-seeds", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--skip-reject-artifacts", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--require-seed-verifier-pass", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--require-seed-verifier-pass",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Only keep seed positives that the rule verifier accepts. "
+            "Use --no-require-seed-verifier-pass only for reproducing older noisy packs."
+        ),
+    )
     parser.add_argument(
         "--default-stage-mode",
         choices=["stepwise", "single"],

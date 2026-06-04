@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -10,15 +11,34 @@ from typing import Any
 import yaml
 from rdkit import Chem, RDLogger
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from cascade_planner.baselines.chem_enzy_adapter import (
     ChemEnzyBackendAdapter,
     DEFAULT_ONE_STEP_MODELS,
     DEFAULT_STOCKS,
 )
+from cascade_planner.baselines.chem_enzy_step_quality import evaluate_enzyme_step_quality
 from cascade_planner.baselines.route_contract import RouteCandidate, RouteSearchConfig, RouteStepCandidate
+from cascade_planner.baselines.semisynthesis_rescue import semisynthesis_rescue_routes, summarize_semisynthesis_rescue
+from cascade_planner.baselines.template_relevance_runtime import missing_template_relevance_models
+from cascade_planner.agent.chem_enzy_policy import apply_chem_enzy_search_policy
+from cascade_planner.cascade_search.enzyme_coverage_sidecar import (
+    EnzymeCoverageSidecarConfig,
+    build_enzyme_coverage_sidecar,
+)
+from cascade_planner.cascade_verifier import load_learned_verifier, predict_learned_verifier, verify_cascade_route
+from cascade_planner.legacy_guard import LEGACY_RESEARCH_ENV, legacy_research_enabled
 
 
 RDLogger.DisableLog("rdApp.*")
+
+
+DEFAULT_LEARNED_VERIFIER_MODEL = Path(
+    "results/shared/cascade_verifier_mainline_20260521/learned_verifier_v4_30k_stage_aware.joblib"
+)
 
 
 def main() -> None:
@@ -58,9 +78,20 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
     else:
         iterations = _as_int(payload.get("chem_enzy_iterations"), 25, lo=1, hi=300)
         expansion_topk = _as_int(payload.get("chem_enzy_expansion_topk"), 75, lo=1, hi=300)
+    legacy_hooks_requested = bool(payload.get("enable_legacy_cascade_hooks", False))
+    if legacy_hooks_requested and not legacy_research_enabled():
+        raise ValueError(
+            "legacy cascade hooks are archived/frozen research code; "
+            f"set {LEGACY_RESEARCH_ENV}=1 to enable them explicitly"
+        )
+    legacy_hooks_enabled = legacy_hooks_requested and legacy_research_enabled()
+    onmt_tokenizer = str(payload.get("chem_enzy_onmt_tokenizer") or payload.get("onmt_tokenizer") or "char").strip().lower()
+    if onmt_tokenizer not in {"char", "token"}:
+        raise ValueError(f"unsupported chem_enzy_onmt_tokenizer: {onmt_tokenizer}")
     search_flags = {
         "gpu": gpu,
         "condition_model": payload.get("condition_model", "rcr"),
+        "chem_enzy_onmt_tokenizer": onmt_tokenizer,
         "keep_search": True,
         "use_filter": payload.get("use_filter", False),
         "use_depth_value_fn": payload.get("use_depth_value_fn", False),
@@ -71,20 +102,81 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
             "search_preset": preset,
             "domain": payload.get("domain", "chemoenzymatic"),
         },
-        "use_cascade_cost_model": True,
-        "cascade_cost_model": _default_cascade_cost_model(),
-        "use_cascade_source_policy": True,
-        "cascade_source_policy": _default_cascade_source_policy(),
+        "use_cascade_cost_model": legacy_hooks_enabled,
+        "cascade_cost_model": _default_cascade_cost_model() if legacy_hooks_enabled else {"enabled": False},
+        "use_cascade_source_policy": legacy_hooks_enabled,
+        "cascade_source_policy": _default_cascade_source_policy() if legacy_hooks_enabled else {"enabled": False},
+        "legacy_cascade_hooks_requested": legacy_hooks_requested,
+        "legacy_cascade_hooks_enabled": legacy_hooks_enabled,
     }
-    return RouteSearchConfig(
+    native_enzyme_plugin = _native_enzyme_plugin_from_payload(payload)
+    if native_enzyme_plugin:
+        search_flags["native_enzyme_plugin"] = native_enzyme_plugin
+    step_strengthening = _chem_enzy_step_strengthening_from_payload(payload)
+    if step_strengthening:
+        search_flags["chem_enzy_step_strengthening"] = step_strengthening
+    one_step_models = list(payload.get("one_step_models") or DEFAULT_ONE_STEP_MODELS)
+    missing_template_models = missing_template_relevance_models(one_step_models)
+    if missing_template_models:
+        raise ValueError(
+            "missing local template_relevance .mar archive(s): "
+            + ", ".join(missing_template_models)
+        )
+    config = RouteSearchConfig(
         target_smiles=str(payload["target_smiles"]),
         stock_names=_stock_names_from_payload(payload),
         max_iterations=iterations,
         max_depth=max_depth,
         expansion_topk=expansion_topk,
-        one_step_models=list(payload.get("one_step_models") or DEFAULT_ONE_STEP_MODELS),
+        one_step_models=one_step_models,
         search_flags=search_flags,
     )
+    policy_payload = payload.get("chem_enzy_search_policy") or payload.get("search_policy")
+    if policy_payload:
+        config = apply_chem_enzy_search_policy(config, dict(policy_payload))
+    return config
+
+
+def _chem_enzy_step_strengthening_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    enabled = bool(
+        payload.get("enable_chem_enzy_step_strengthening")
+        or payload.get("chem_enzy_step_strengthening")
+        or str(payload.get("search_preset") or "").lower() in {"enzyme_strengthened", "enzyme-strengthened"}
+    )
+    if not enabled:
+        return {}
+    return {
+        "enabled": True,
+        "top_k": _as_int(payload.get("native_enzyme_topk"), 8, lo=1, hi=50),
+        "bridge_top_k": _as_int(payload.get("native_enzyme_bridge_topk"), 10, lo=1, hi=50),
+        "max_ec_contexts": _as_int(payload.get("native_enzyme_max_ec_contexts"), 3, lo=0, hi=7),
+        "max_added": _as_int(payload.get("native_enzyme_max_added"), 8, lo=1, hi=50),
+        "sp_v1_score_bonus": float(payload.get("native_enzyme_sp_v1_score_bonus") or 0.20),
+        "quality_score_bonus": float(payload.get("native_enzyme_quality_score_bonus") or 0.18),
+    }
+
+
+def _native_enzyme_plugin_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    enabled = bool(
+        payload.get("enable_native_enzyme_plugin")
+        or payload.get("native_enzyme_plugin")
+        or str(payload.get("search_preset") or "").lower() in {"native_enzyme", "native-enzyme"}
+    )
+    if not enabled:
+        return {}
+    return {
+        "enabled": True,
+        "top_k": _as_int(payload.get("native_enzyme_topk"), 6, lo=1, hi=50),
+        "bridge_top_k": _as_int(payload.get("native_enzyme_bridge_topk"), 8, lo=1, hi=50),
+        "max_ec_contexts": _as_int(payload.get("native_enzyme_max_ec_contexts"), 2, lo=0, hi=7),
+        "require_bridge": not bool(payload.get("native_enzyme_disable_bridge_gate")),
+        "require_verifier_pass": not bool(payload.get("native_enzyme_disable_bridge_verifier")),
+        "enable_sp_v1": not bool(payload.get("disable_enzyme_sp_v1")),
+        "sp_v1_hard_gate": not bool(payload.get("native_enzyme_disable_sp_v1_hard_gate")),
+        "max_added": _as_int(payload.get("native_enzyme_max_added"), 6, lo=1, hi=50),
+        "score_scale": float(payload.get("native_enzyme_score_scale") or 1.0),
+        "sp_v1_score_bonus": float(payload.get("native_enzyme_sp_v1_score_bonus") or 0.0),
+    }
 
 
 def _stock_names_from_payload(payload: dict[str, Any]) -> list[str]:
@@ -131,18 +223,46 @@ def _web_payload_from_result(
     elapsed_s: float,
     vendor_root: Path | str | None = None,
 ) -> dict[str, Any]:
-    routes = [_web_route(route, index) for index, route in enumerate(result.routes)]
+    learned_verifier, learned_annotation_report = _load_learned_verifier_annotation(request_payload)
+    rescue_candidates = _semisynthesis_rescue_candidates(result, request_payload)
+    rescue_routes = [
+        _web_route(route, index, learned_verifier=learned_verifier)
+        for index, route in enumerate(rescue_candidates)
+    ]
+    native_raw_routes = [
+        _web_route(route, index, learned_verifier=learned_verifier)
+        for index, route in enumerate(result.routes)
+    ]
+    raw_routes = _merge_rescue_and_native_routes(rescue_routes, native_raw_routes)
+    learned_annotation_report["input_routes"] = len(raw_routes)
+    learned_annotation_report["annotated_routes"] = sum(
+        1
+        for route in raw_routes
+        if ((route.get("metrics") or {}).get("learned_cascade_verifier") or {}).get("available")
+    )
+    verifier_gate = _cascade_verifier_gate_enabled(request_payload)
+    routes, verifier_gate_report = _apply_cascade_verifier_gate(raw_routes, enabled=verifier_gate)
     strict_solved = any(bool((route.get("metrics") or {}).get("route_solved")) for route in routes)
-    status = "solved" if strict_solved else "partial" if routes else "failed"
+    rescue_report = summarize_semisynthesis_rescue(rescue_candidates)
+    rescue_report["enabled"] = request_payload.get("enable_semisynthesis_rescue") is not False
+    rescue_report["input_native_routes"] = len(native_raw_routes)
+    rescue_report["displayed_routes"] = sum(
+        1 for route in routes if ((route.get("raw_backend_metadata") or {}).get("rescue_type"))
+    )
+    status = "solved" if strict_solved else "partial" if routes else "filtered" if raw_routes and verifier_gate else "failed"
     message = (
         "ChemEnzy native core search returned stock-closed routes"
         if strict_solved
+        else "AutoPlanner generated semisynthesis anchor routes; the advanced precursor remains an open upstream subgoal"
+        if routes and rescue_routes and not native_raw_routes
         else "ChemEnzy native core search returned routes, but terminal reactants are not all in the selected stock"
         if routes
+        else "ChemEnzy native core search returned routes, but the rule verifier gate removed all displayed candidates"
+        if raw_routes and verifier_gate
         else "ChemEnzy native core search returned no route"
     )
     output = {
-        "ok": not bool(result.failures) and (bool(routes) or strict_solved),
+        "ok": (not bool(result.failures) or bool(rescue_routes)) and (bool(routes) or strict_solved),
         "target": result.target_smiles,
         "objective": "chem_enzy_native",
         "constraints": request_payload.get("constraints"),
@@ -153,12 +273,15 @@ def _web_payload_from_result(
             "diversity": {
                 "n_routes": len(routes),
                 "unique_full_signatures": len({_route_signature(route) for route in routes}),
-            }
+            },
+            "cascade_verifier_gate": verifier_gate_report,
+            "learned_verifier_annotation": learned_annotation_report,
+            "semisynthesis_rescue": rescue_report,
         },
         "ui_metadata": {
             "backend": "CascadePlanner",
             "engine": "ChemEnzyRetroPlanner",
-            "planner_strategy": "CascadePlanner search with ChemEnzy RSPlanner core and AutoPlanner-Cascade hooks",
+            "planner_strategy": "ChemEnzy native multi-step search with AutoPlanner product audit and rule cascade verifier",
             "search_mode": "chem_enzy_native",
             "search_preset": request_payload.get("search_preset", "quick"),
             "stock_mode": request_payload.get("stock_mode", "commercial"),
@@ -167,7 +290,12 @@ def _web_payload_from_result(
             "expansion_topk": config.expansion_topk,
             "condition_prediction_enabled": bool(request_payload.get("enable_condition_prediction", False)),
             "enzyme_assignment_enabled": bool(request_payload.get("enable_enzyme_assignment", False)),
+            "chem_enzy_step_strengthening_enabled": bool(
+                config.search_flags.get("chem_enzy_step_strengthening_enabled")
+                or config.search_flags.get("chem_enzy_step_strengthening")
+            ),
             "condition_model": request_payload.get("condition_model", "rcr"),
+            "chem_enzy_onmt_tokenizer": config.search_flags.get("chem_enzy_onmt_tokenizer", "char"),
             "one_step_models": config.one_step_models,
             "stock_names": config.stock_names,
             "cascade_hooks": {
@@ -176,7 +304,11 @@ def _web_payload_from_result(
                 "expansion_trace": bool(config.search_flags.get("include_cascade_expansion_trace")),
                 "action_value_model_path": (config.search_flags.get("cascade_cost_model") or {}).get("action_value_model_path"),
                 "source_value_model_path": (config.search_flags.get("cascade_source_policy") or {}).get("source_value_model_path"),
+                "legacy_hooks_enabled": bool(config.search_flags.get("legacy_cascade_hooks_enabled")),
             },
+            "cascade_verifier_gate": verifier_gate_report,
+            "learned_verifier_annotation": learned_annotation_report,
+            "semisynthesis_rescue": rescue_report,
             "saved_at": None,
         },
         "skeletons": [],
@@ -195,7 +327,14 @@ def _web_payload_from_result(
         "search_status": {
             "status": status,
             "solved": strict_solved,
-            "native_returned_routes": bool(routes),
+            "native_returned_routes": any(
+                not ((route.get("raw_backend_metadata") or {}).get("rescue_type"))
+                for route in routes
+            ),
+            "native_raw_returned_routes": bool(native_raw_routes),
+            "native_raw_n_routes": len(native_raw_routes),
+            "semisynthesis_rescue_returned_routes": bool(rescue_routes),
+            "semisynthesis_rescue_n_routes": len(rescue_routes),
             "best_depth": config.max_depth,
             "message": message,
         },
@@ -203,13 +342,88 @@ def _web_payload_from_result(
         "backend_failures": [failure.to_dict() for failure in result.failures],
         "raw_backend_metadata": result.raw_backend_metadata,
     }
+    _attach_enzyme_coverage_sidecar(output, request_payload)
     output["failure_analysis"] = _failure_analysis(result, request_payload, config, vendor_root=Path(vendor_root) if vendor_root else None)
     return output
 
 
-def _web_route(route: RouteCandidate, index: int) -> dict[str, Any]:
+def _attach_enzyme_coverage_sidecar(output: dict[str, Any], request_payload: dict[str, Any]) -> None:
+    enabled = bool(
+        request_payload.get("enable_enzyme_coverage_sidecar")
+        or request_payload.get("enzyme_coverage_sidecar")
+        or str(request_payload.get("search_preset") or "").lower() in {"enzyme_coverage", "enzyme-coverage"}
+    )
+    metadata = output.setdefault("ui_metadata", {})
+    metadata["enzyme_coverage_sidecar_enabled"] = enabled
+    if not enabled:
+        return
+    config = EnzymeCoverageSidecarConfig(
+        top_k=_as_int(request_payload.get("enzyme_coverage_topk"), 8, lo=1, hi=50),
+        bridge_top_k=_as_int(request_payload.get("enzyme_coverage_bridge_topk"), 8, lo=1, hi=50),
+        max_ec_contexts=_as_int(request_payload.get("enzyme_coverage_max_ec_contexts"), 2, lo=0, hi=7),
+        enable_sp_v1=not bool(request_payload.get("disable_enzyme_sp_v1")),
+    )
+    sidecar = build_enzyme_coverage_sidecar(
+        str(output.get("target") or request_payload.get("target_smiles") or ""),
+        config=config,
+    )
+    output.setdefault("route_set_metrics", {})["enzyme_coverage_sidecar"] = sidecar
+    metadata["enzyme_coverage_sidecar"] = {
+        "enabled": True,
+        "source": sidecar.get("source"),
+        "bridge_hit_count": sidecar.get("bridge_hit_count"),
+        "candidate_count": sidecar.get("candidate_count"),
+        "sp_v1_accepted_count": sidecar.get("sp_v1_accepted_count"),
+        "error": sidecar.get("error"),
+    }
+
+
+def _semisynthesis_rescue_candidates(result: Any, request_payload: dict[str, Any]) -> list[RouteCandidate]:
+    if request_payload.get("enable_semisynthesis_rescue") is False:
+        return []
+    target = str(result.target_smiles or request_payload.get("target_smiles") or "")
+    return semisynthesis_rescue_routes(target)
+
+
+def _merge_rescue_and_native_routes(
+    rescue_routes: list[dict[str, Any]],
+    native_routes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for route in [*rescue_routes, *native_routes]:
+        signature = _route_signature(route)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        merged.append(route)
+    merged = sorted(merged, key=_display_route_sort_key)
+    for index, route in enumerate(merged):
+        route["route_rank"] = index
+    return merged
+
+
+def _display_route_sort_key(route: dict[str, Any]) -> tuple[int, int, int, int, float]:
+    metrics = route.get("metrics") or {}
+    verifier = metrics.get("cascade_verifier") or {}
+    return (
+        0 if metrics.get("source_supported_semisynthesis") else 1,
+        0 if metrics.get("route_solved") else 1,
+        0 if verifier.get("feasible") else 1,
+        0 if metrics.get("semisynthesis_anchor") else 1,
+        -float(route.get("score") or 0.0),
+    )
+
+
+def _web_route(route: RouteCandidate, index: int, *, learned_verifier: dict[str, Any] | None = None) -> dict[str, Any]:
     steps = [_web_step(step, idx) for idx, step in enumerate(route.steps)]
-    metrics = _route_metrics(route, steps)
+    metrics = _route_metrics(route, steps, learned_verifier=learned_verifier)
+    rescue_type = (route.raw_backend_metadata or {}).get("rescue_type")
+    why_selected = (
+        "Generated by AutoPlanner semisynthesis rescue as a late-stage derivatization anchor; upstream access to the advanced precursor remains unresolved."
+        if rescue_type
+        else "Returned by CascadePlanner using ChemEnzyRetroPlanner as the multi-step search engine."
+    )
     return {
         "score": route.score,
         "confidence": 1.0 if route.solved else 0.0,
@@ -223,7 +437,7 @@ def _web_route(route: RouteCandidate, index: int) -> dict[str, Any]:
         "steps": steps,
         "metrics": metrics,
         "explanation": {
-            "why_selected": "Returned by CascadePlanner using ChemEnzyRetroPlanner as the multi-step search engine.",
+            "why_selected": why_selected,
             "uncertainty_table": {
                 "expansions": None,
                 "generated_reactions": None,
@@ -231,6 +445,55 @@ def _web_route(route: RouteCandidate, index: int) -> dict[str, Any]:
         },
         "route_rank": index,
         "raw_backend_metadata": route.raw_backend_metadata,
+    }
+
+
+def _cascade_verifier_gate_enabled(request_payload: dict[str, Any]) -> bool:
+    return bool(request_payload.get("enable_rule_verifier_gate") or request_payload.get("cascade_verifier_gate"))
+
+
+def _apply_cascade_verifier_gate(
+    routes: list[dict[str, Any]],
+    *,
+    enabled: bool,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if not enabled:
+        return routes, {
+            "enabled": False,
+            "input_routes": len(routes),
+            "kept_routes": len(routes),
+            "dropped_routes": 0,
+            "default_stage_mode": "stepwise",
+            "dropped": [],
+        }
+
+    kept: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    for route in routes:
+        metrics = route.get("metrics") or {}
+        report = metrics.get("cascade_verifier") or {}
+        if report.get("feasible") is False:
+            dropped.append(
+                {
+                    "route_rank": route.get("route_rank"),
+                    "n_steps": route.get("n_steps"),
+                    "score": route.get("score"),
+                    "reason_counts": report.get("reason_counts") or {},
+                }
+            )
+            continue
+        kept.append(route)
+
+    for index, route in enumerate(kept):
+        route["route_rank"] = index
+
+    return kept, {
+        "enabled": True,
+        "input_routes": len(routes),
+        "kept_routes": len(kept),
+        "dropped_routes": len(dropped),
+        "default_stage_mode": "stepwise",
+        "dropped": dropped[:50],
     }
 
 
@@ -251,6 +514,7 @@ def _web_step(step: RouteStepCandidate, index: int) -> dict[str, Any]:
     condition_score = _safe_float(_condition_value(condition, "Score", "score", "confidence"))
     enzyme_score = _safe_float(enzyme.get("confidence")) if enzyme else None
     condition_notes = _condition_notes(condition, enzyme)
+    quality = _enzyme_quality(step)
     return {
         "index": index,
         "product": step.product_smiles,
@@ -266,18 +530,21 @@ def _web_step(step: RouteStepCandidate, index: int) -> dict[str, Any]:
         "solvent": str(solvent or ""),
         "condition_predictions": list(step.condition_predictions or []),
         "enzyme_ec_annotations": list(step.enzyme_ec_annotations or []),
+        "enzyme_quality": quality,
         "evidence": {
             "backend": "CascadePlanner",
             "engine": "ChemEnzyRetroPlanner",
             "condition_prediction_available": bool(step.condition_predictions),
             "enzyme_annotation_available": bool(step.enzyme_ec_annotations),
+            "enzyme_quality_score": quality.get("quality_score") if quality else None,
+            "enzyme_quality_decision": quality.get("decision") if quality else "",
         },
         "source": _display_source(step),
         "scores": {
             "retro": step.score,
             "enzyme": enzyme_score,
             "condition": condition_score,
-            "confidence": step.score,
+            "confidence": quality.get("quality_score") if quality else step.score,
         },
         "fixed_fields": [],
         "is_filled": True,
@@ -295,36 +562,73 @@ def _web_step(step: RouteStepCandidate, index: int) -> dict[str, Any]:
     }
 
 
-def _route_metrics(route: RouteCandidate, steps: list[dict[str, Any]]) -> dict[str, Any]:
+def _route_metrics(
+    route: RouteCandidate,
+    steps: list[dict[str, Any]],
+    *,
+    learned_verifier: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     terminal_stock_status = _terminal_stock_status(steps)
+    route_metadata = route.raw_backend_metadata or {}
+    semisynthesis_anchor = bool(route_metadata.get("rescue_type"))
+    route_class_hint = str(route_metadata.get("route_class_hint") or "")
+    stitched_semisynthesis = route_class_hint == "stitched_semisynthesis_upstream"
+    source_supported_semisynthesis = route_class_hint == "source_supported_semisynthesis"
     strict_stock = (
         all(bool(value) for value in terminal_stock_status.values())
         if terminal_stock_status
         else bool(route.solved)
     )
-    native_returned_route = bool(route.solved)
-    stock_closed = bool(native_returned_route and strict_stock)
+    native_returned_route = bool(route.solved and not semisynthesis_anchor)
+    displayed_progressive_route = bool(native_returned_route or semisynthesis_anchor)
+    stock_closed = bool((native_returned_route or stitched_semisynthesis or source_supported_semisynthesis) and strict_stock)
+    verifier_report = verify_cascade_route(
+        {
+            "target": route.target_smiles,
+            "steps": steps,
+            # ChemEnzy route exports are sequential syntheses unless a stage
+            # partition is explicitly supplied. Treating every route as
+            # one-pot would falsely reject normal multi-step chemistry for
+            # having different temperatures, solvents, or pH values.
+            "stage_partition": [f"stage_{idx + 1}" for idx, _step in enumerate(steps)],
+        },
+        target_smiles=route.target_smiles,
+        assume_single_stage=False,
+    ).to_dict()
+    learned_report = _learned_verifier_route_annotation(
+        learned_verifier,
+        target_smiles=route.target_smiles,
+        steps=steps,
+    )
     return {
         "professional_solved": stock_closed,
-        "diagnostic_solved": bool(native_returned_route and not stock_closed),
+        "diagnostic_solved": bool(displayed_progressive_route and not stock_closed),
         "route_solved": stock_closed,
         "strict_stock_solve": strict_stock,
         "native_returned_route": native_returned_route,
+        "semisynthesis_anchor": semisynthesis_anchor,
+        "stitched_semisynthesis": stitched_semisynthesis,
+        "source_supported_semisynthesis": source_supported_semisynthesis,
         "terminal_reactants": list(terminal_stock_status),
         "terminal_stock_status": terminal_stock_status,
-        "progressive_route": native_returned_route,
-        "filled_route": native_returned_route,
+        "progressive_route": displayed_progressive_route,
+        "filled_route": displayed_progressive_route,
         "n_steps": len(steps),
         "retrosynthesis_progress": {
-            "main_chain_reduction": 1.0 if native_returned_route else 0.0,
-            "largest_leaf_reduction": 1.0 if native_returned_route else 0.0,
+            "main_chain_reduction": 1.0 if displayed_progressive_route else 0.0,
+            "largest_leaf_reduction": 1.0 if displayed_progressive_route else 0.0,
             "progressive_steps": len(steps),
-            "progressive_step_fraction": 1.0 if native_returned_route else 0.0,
+            "progressive_step_fraction": 1.0 if displayed_progressive_route else 0.0,
         },
         "cascade_compatibility": {
-            "cascade_compatibility_success": None,
-            "issues": [],
+            "cascade_compatibility_success": bool(verifier_report.get("feasible")),
+            "score": verifier_report.get("score"),
+            "issues": sorted((verifier_report.get("reason_counts") or {}).keys()),
+            "reason_counts": verifier_report.get("reason_counts") or {},
+            "verifier_contract": verifier_report.get("metrics", {}).get("contract"),
         },
+        "cascade_verifier": verifier_report,
+        "learned_cascade_verifier": learned_report,
         "condition": {"condition_window_success": None},
         "enzyme_evidence": {"enzyme_evidence_coverage": None},
         "operation_transitions": {"operation_score": None, "issues": []},
@@ -334,6 +638,65 @@ def _route_metrics(route: RouteCandidate, steps: list[dict[str, Any]]) -> dict[s
             "candidate_pool_coverage": 0.0,
         },
     }
+
+
+def _load_learned_verifier_annotation(request_payload: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    enabled = bool(
+        request_payload.get("enable_learned_verifier_annotation")
+        or request_payload.get("learned_verifier_annotation")
+    )
+    raw_model = (
+        request_payload.get("learned_verifier_model")
+        or request_payload.get("learned_verifier_model_path")
+        or str(DEFAULT_LEARNED_VERIFIER_MODEL)
+    )
+    report: dict[str, Any] = {
+        "enabled": enabled,
+        "policy": "annotation_only",
+        "model_path": str(raw_model) if raw_model else None,
+        "model_loaded": False,
+        "input_routes": 0,
+        "annotated_routes": 0,
+    }
+    if not enabled:
+        return None, report
+
+    model_path = Path(str(raw_model))
+    if not model_path.exists():
+        report["error"] = "model_not_found"
+        return None, report
+    try:
+        learned = load_learned_verifier(model_path)
+    except Exception as exc:  # pragma: no cover - defensive for web robustness
+        report["error"] = f"model_load_failed:{type(exc).__name__}"
+        return None, report
+    report["model_path"] = learned["path"]
+    report["model_loaded"] = True
+    return learned, report
+
+
+def _learned_verifier_route_annotation(
+    learned_verifier: dict[str, Any] | None,
+    *,
+    target_smiles: str,
+    steps: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if learned_verifier is None:
+        return {
+            "available": False,
+            "policy": "annotation_only",
+        }
+    cascade = {
+        "target": target_smiles,
+        "target_smiles": target_smiles,
+        "steps": steps,
+        "stage_partition": [f"stage_{idx + 1}" for idx, _step in enumerate(steps)],
+        "metadata": {},
+    }
+    payload = predict_learned_verifier(learned_verifier, cascade, target_smiles=target_smiles)
+    payload["available"] = True
+    payload["policy"] = "annotation_only"
+    return payload
 
 
 def _terminal_stock_status(steps: list[dict[str, Any]]) -> dict[str, bool | None]:
@@ -401,6 +764,60 @@ def _top_enzyme_annotation(step: RouteStepCandidate) -> dict[str, Any]:
         if isinstance(row, dict):
             return row
     return {}
+
+
+def _enzyme_quality(step: RouteStepCandidate) -> dict[str, Any]:
+    metadata = step.raw_backend_metadata if isinstance(step.raw_backend_metadata, dict) else {}
+    template = metadata.get("template") if isinstance(metadata.get("template"), dict) else {}
+    quality = template.get("autoplanner_enzyme_quality_v1") if isinstance(template.get("autoplanner_enzyme_quality_v1"), dict) else {}
+    if quality:
+        out = dict(quality)
+        out.setdefault("origin", "template")
+        return out
+    cascade_cost = metadata.get("cascade_cost") if isinstance(metadata.get("cascade_cost"), dict) else {}
+    enzyme_like = bool(step.enzyme_ec_annotations) or _source_is_enzyme_like(step.source_model)
+    if not enzyme_like and not cascade_cost:
+        return {}
+    sp_payload = template.get("enzyme_sp_verifier_v1") if isinstance(template.get("enzyme_sp_verifier_v1"), dict) else {}
+    evidence = template.get("evidence") if isinstance(template.get("evidence"), dict) else {}
+    if cascade_cost:
+        evidence = dict(evidence)
+        evidence.setdefault("cascade_cost_available", True)
+    ec_numbers = [
+        str(row.get("ec_number") or row.get("EC Number") or "")
+        for row in step.enzyme_ec_annotations or []
+        if isinstance(row, dict) and (row.get("ec_number") or row.get("EC Number"))
+    ]
+    out = evaluate_enzyme_step_quality(
+        product_smiles=step.product_smiles,
+        reactants=step.reactant_smiles,
+        source_model=step.source_model,
+        template={
+            "model_full_name": step.source_model,
+            "source": step.source_model,
+            "evidence": evidence,
+            "enzyme_sp_verifier_v1": sp_payload,
+        },
+        sp_payload=sp_payload,
+        ec_numbers=ec_numbers,
+    )
+    flags = list(out.get("flags") or [])
+    flags.append("native_or_posthoc_derived_quality")
+    if cascade_cost:
+        flags.append("cascade_costed_during_search")
+    out.update({
+        "origin": "derived_from_selected_step",
+        "search_time_costed": bool(cascade_cost),
+        "flags": list(dict.fromkeys(flags)),
+        "cascade_adjustment": cascade_cost.get("cascade_adjustment"),
+    }
+    )
+    return out
+
+
+def _source_is_enzyme_like(source_model: str) -> bool:
+    text = str(source_model or "").lower()
+    return any(token in text for token in ("enzyme", "enzymatic", "bionav", "bkms", "biocatalysis", "ecreact", "ec_"))
 
 
 def _condition_value(row: dict[str, Any], *keys: str) -> Any:
@@ -563,6 +980,7 @@ def _failure_analysis(
             "expansion_topk": config.expansion_topk,
             "condition_prediction_enabled": bool(request_payload.get("enable_condition_prediction", False)),
             "enzyme_assignment_enabled": bool(request_payload.get("enable_enzyme_assignment", False)),
+            "chem_enzy_onmt_tokenizer": config.search_flags.get("chem_enzy_onmt_tokenizer", "char"),
             "one_step_models": config.one_step_models,
             "stock_names": config.stock_names,
             "target_stock_membership": stock_membership,

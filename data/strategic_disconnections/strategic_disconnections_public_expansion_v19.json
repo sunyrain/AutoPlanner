@@ -1,0 +1,1203 @@
+{
+  "schema_version": "strategic_disconnections.v19_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Eighteenth expanded public source layer focused on whole-route and source-governance boundaries beyond ordinary reaction templates: route economics and PMI, scalable purification/isolation bottlenecks, formulation and solid-form developability, photostability/autoxidation storage liability, biosynthetic-origin and isotope/biogenic annotation, bioassay and binding-mode source validation, genotoxic/nitrosamine impurity precursor liability, and controlled, stewardship-sensitive, dual-use, or regulated route governance.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist, process, analytical, toxicology, formulation, biosynthesis, biology, regulatory, safety, and governance review",
+      "explicit whole-route economics, separation evidence, developability data, stability-indicating evidence, biosynthetic lineage, target-validation evidence, impurity-risk assessment, or governance authorization before proposal promotion",
+      "separate process-economics, purification, formulation, stability, biosynthetic-origin, assay-validation, genotoxic-impurity, controlled-substance, stewardship, dual-use, cytotoxic, radiochemical, and environmental-persistence policy",
+      "route-specific PMI or step-economy evidence, impurity purge and scalable isolation evidence, salt/coformer or delivery characterization, forced-degradation or photostability data, isotope/genome/metabolome support, potency/selectivity/target-engagement and assay-interference controls, nitrosamine or mutagenic-impurity risk assessment, and project governance review",
+      "safety, toxicology, antimicrobial-stewardship, controlled-substance, dual-use, environmental, regulatory, analytical-validation, formulation, and biological-mode review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operating conditions, hazardous execution instructions, purification recipes, assay protocols, biological handling steps, and scale-up instructions",
+      "v19 records are source-quality and route-choice priors only and must not auto-close routes as stock, validated scalable processes, formulation endpoints, stable reference standards, validated biosynthetic origins, proven probes, impurity-safe routes, or authorized regulated work"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "route_economics_pmi_step_count_process_intensity_policy",
+      "name": "Whole-route economics, process mass intensity, step count, convergence, yield, solvent burden, and manufacturing-cost policy",
+      "pattern_keywords": [
+        "process mass intensity",
+        "PMI",
+        "step count",
+        "convergent synthesis",
+        "route economics",
+        "manufacturing cost"
+      ],
+      "strategic_principle": "Separate a formally short route from whole-route resource intensity. Strategic value depends on step count, convergence, yield, solvent/workup burden, PMI, waste, and comparator process evidence rather than single-step template feasibility."
+    },
+    {
+      "family_id": "scalable_purification_isolation_bottleneck_policy",
+      "name": "Scalable purification, isolation, crystallization, chromatography, extraction, distillation, and impurity-purge bottleneck policy",
+      "pattern_keywords": [
+        "purification bottleneck",
+        "crystallization",
+        "chromatography",
+        "isolation",
+        "impurity purge",
+        "mother liquor"
+      ],
+      "strategic_principle": "Separate bond formation from the isolation operation that makes a route scalable. Purification, crystallization, washing, drying, extraction, distillation, chromatography, and impurity-purge records can dominate feasibility."
+    },
+    {
+      "family_id": "formulation_salt_coformer_delivery_boundary",
+      "name": "Formulation, salt, cocrystal, coformer, polymorph, particle-size, excipient, and delivery-boundary policy",
+      "pattern_keywords": [
+        "salt form",
+        "cocrystal",
+        "polymorph",
+        "formulation",
+        "particle size",
+        "delivery"
+      ],
+      "strategic_principle": "Separate synthetic endpoint from developable drug substance or product form. Salt, cocrystal, polymorph, hydrate, amorphous, particle-size, excipient, and delivery choices can define whether a route endpoint is meaningful."
+    },
+    {
+      "family_id": "photostability_autoxidation_storage_liability_policy",
+      "name": "Photostability, autoxidation, peroxide, radical, oxygen/moisture, and storage-liability policy",
+      "pattern_keywords": [
+        "photostability",
+        "autoxidation",
+        "peroxide",
+        "forced degradation",
+        "storage liability",
+        "stability indicating"
+      ],
+      "strategic_principle": "Separate isolated compound access from evidence that the compound remains chemically assigned and usable under storage, light, oxygen, moisture, or formulation stress. Stability liabilities can invalidate source trust."
+    },
+    {
+      "family_id": "biosynthetic_origin_isotopic_or_biogenic_annotation_policy",
+      "name": "Biosynthetic origin, isotope tracing, biogenic precursor, pathway annotation, genome/metabolome, and source-lineage policy",
+      "pattern_keywords": [
+        "biosynthetic origin",
+        "isotope tracing",
+        "biogenic precursor",
+        "biosynthetic gene cluster",
+        "genome mining",
+        "metabolomics"
+      ],
+      "strategic_principle": "Separate a natural-product source claim from pathway evidence. Biosynthetic-origin records need isotope, genome, metabolome, enzyme, organism, and isolation-lineage support before they guide route critique or biomimetic proposals."
+    },
+    {
+      "family_id": "bioassay_binding_mode_target_validation_source_policy",
+      "name": "Bioassay, binding mode, selectivity, target engagement, chemical-probe, and assay-provenance source policy",
+      "pattern_keywords": [
+        "bioassay",
+        "binding mode",
+        "target engagement",
+        "selectivity",
+        "chemical probe",
+        "assay interference"
+      ],
+      "strategic_principle": "Separate a bioactive structure from evidence that it is a trustworthy biological source. Probe and hit records require potency, selectivity, target engagement, assay lineage, interference controls, comparator analogues, and biological-mode context."
+    },
+    {
+      "family_id": "impurity_genotoxic_nitrosamine_precursor_liability_policy",
+      "name": "Genotoxic impurity, nitrosamine, azide, hydrazine, alkylating precursor, purge, and regulatory-liability policy",
+      "pattern_keywords": [
+        "genotoxic impurity",
+        "nitrosamine",
+        "NDSRI",
+        "mutagenic impurity",
+        "azide impurity",
+        "impurity purge"
+      ],
+      "strategic_principle": "Separate route feasibility from impurity liability. Mutagenic, nitrosamine, alkylating, azide, hydrazine, epoxide, and reactive precursor records need root-cause, purge, analytical, toxicology, and regulatory-control evidence."
+    },
+    {
+      "family_id": "regulatory_controlled_dual_use_or_stewardship_boundary",
+      "name": "Controlled, stewardship-sensitive, dual-use, radiochemical, cytotoxic, antimicrobial, persistent, and governed route-boundary policy",
+      "pattern_keywords": [
+        "controlled substance",
+        "dual use",
+        "antimicrobial stewardship",
+        "radiochemical",
+        "cytotoxic payload",
+        "environmental persistence"
+      ],
+      "strategic_principle": "Separate chemically possible routes from authorized, appropriate, and governed use. Controlled, stewardship-sensitive, dual-use, cytotoxic, radiochemical, antimicrobial, endocrine-active, or persistent records must carry explicit governance metadata."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "route_economics_pmi_process_intensity_anchor",
+      "family_id": "route_economics_pmi_step_count_process_intensity_policy",
+      "name": "Whole-route economics anchor with reviewed PMI, step count, convergence, solvent/workup burden, yield, and comparator-process evidence",
+      "role": "route_economics_anchor",
+      "aliases": [
+        "PMI route score",
+        "convergent PMI comparator",
+        "whole-route step-economy record"
+      ],
+      "acceptance_policy": "requires_whole_route_step_count_convergence_yield_pmi_solvent_workup_waste_cost_and_comparator_review"
+    },
+    {
+      "anchor_id": "scalable_purification_isolation_bottleneck_anchor",
+      "family_id": "scalable_purification_isolation_bottleneck_policy",
+      "name": "Isolation bottleneck anchor with reviewed crystallization, chromatography, washing, drying, phase behavior, and impurity-purge evidence",
+      "role": "purification_isolation_anchor",
+      "aliases": [
+        "crystallization purge record",
+        "chromatography bottleneck",
+        "filter cake wash and isolation record"
+      ],
+      "acceptance_policy": "requires_isolation_mode_impurity_purge_phase_behavior_mother_liquor_wash_or_chromatography_scalability_and_assay_review"
+    },
+    {
+      "anchor_id": "formulation_solid_form_delivery_anchor",
+      "family_id": "formulation_salt_coformer_delivery_boundary",
+      "name": "Formulation/solid-form anchor with reviewed salt or coformer choice, polymorph/hydrate identity, particle attributes, excipient compatibility, and delivery evidence",
+      "role": "formulation_developability_anchor",
+      "aliases": [
+        "salt form endpoint",
+        "pharmaceutical cocrystal endpoint",
+        "polymorph and delivery boundary"
+      ],
+      "acceptance_policy": "requires_solid_form_identity_salt_or_coformer_rationale_polymorph_screen_particle_or_excipient_compatibility_delivery_and_regulatory_review"
+    },
+    {
+      "anchor_id": "photostability_autoxidation_storage_liability_anchor",
+      "family_id": "photostability_autoxidation_storage_liability_policy",
+      "name": "Stability-liability anchor with reviewed photostability, oxidative degradation, peroxide/radical risk, storage state, degradant identity, and stability-indicating assay",
+      "role": "stability_liability_anchor",
+      "aliases": [
+        "photostability source card",
+        "autoxidation liability record",
+        "forced-degradation route trust record"
+      ],
+      "acceptance_policy": "requires_photostability_or_forced_degradation_storage_state_oxygen_moisture_peroxide_risk_degradant_identity_and_stability_indicating_method_review"
+    },
+    {
+      "anchor_id": "biosynthetic_origin_isotopic_biogenic_anchor",
+      "family_id": "biosynthetic_origin_isotopic_or_biogenic_annotation_policy",
+      "name": "Biosynthetic-origin anchor with reviewed isotope tracing, biogenic precursor, biosynthetic gene cluster, organism, metabolome, and pathway-lineage evidence",
+      "role": "biosynthetic_origin_anchor",
+      "aliases": [
+        "isotope-labeled precursor lineage",
+        "biosynthetic gene cluster source",
+        "biogenic route annotation"
+      ],
+      "acceptance_policy": "requires_isotope_tracing_or_genome_metabolome_pathway_organism_isolation_and_structure_assignment_review"
+    },
+    {
+      "anchor_id": "bioassay_binding_mode_target_validation_anchor",
+      "family_id": "bioassay_binding_mode_target_validation_source_policy",
+      "name": "Biological-source anchor with reviewed potency, selectivity, binding mode, target engagement, assay lineage, interference controls, and comparator analogues",
+      "role": "bioassay_target_validation_anchor",
+      "aliases": [
+        "chemical probe validation source",
+        "binding-mode route card",
+        "assay-provenance hit lineage"
+      ],
+      "acceptance_policy": "requires_potency_selectivity_target_engagement_binding_mode_assay_lineage_interference_controls_comparator_series_and_biological_mode_review"
+    },
+    {
+      "anchor_id": "genotoxic_nitrosamine_impurity_liability_anchor",
+      "family_id": "impurity_genotoxic_nitrosamine_precursor_liability_policy",
+      "name": "Genotoxic/nitrosamine impurity anchor with reviewed precursor root cause, purge path, analytical method, toxicology limit, and regulatory-control evidence",
+      "role": "genotoxic_impurity_anchor",
+      "aliases": [
+        "nitrosamine root-cause record",
+        "mutagenic impurity purge boundary",
+        "reactive precursor liability card"
+      ],
+      "acceptance_policy": "requires_impurity_class_root_cause_precursor_path_purge_factor_validated_method_toxicology_limit_and_regulatory_control_review"
+    },
+    {
+      "anchor_id": "regulated_stewardship_dual_use_governance_anchor",
+      "family_id": "regulatory_controlled_dual_use_or_stewardship_boundary",
+      "name": "Governed-route anchor with reviewed controlled-substance, stewardship, dual-use, cytotoxic, radiochemical, persistence, authorization, access, and use-case metadata",
+      "role": "regulated_governance_anchor",
+      "aliases": [
+        "controlled-substance governance record",
+        "antimicrobial stewardship source",
+        "dual-use route boundary"
+      ],
+      "acceptance_policy": "requires_governance_scope_authorization_access_control_stewardship_dual_use_or_controlled_status_safety_and_use_case_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "whole_route_pmi_convergence_step_count_boundary",
+      "family_id": "route_economics_pmi_step_count_process_intensity_policy",
+      "name": "Target route to convergent branch map plus PMI, step count, solvent/workup burden, and comparator-process boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "process chemistry routes",
+          "API route comparisons",
+          "complex convergent syntheses"
+        ],
+        "target_features": [
+          "PMI",
+          "convergent synthesis",
+          "step count",
+          "solvent and workup burden"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "target route to whole-route PMI boundary",
+          "linear route to convergent-branch comparator boundary"
+        ],
+        "forward_logic": [
+          "separate a formally valid bond-disconnection sequence from the mass and waste required across the whole route",
+          "track longest linear sequence, convergence, isolated yields, solvent and workup mass, and comparator process",
+          "avoid rewarding routes that look short but shift burden into purification, protection, or low-yield branches"
+        ],
+        "suggested_precursor_roles": [
+          "branch intermediate",
+          "route mass ledger",
+          "convergent assembly point",
+          "comparator route"
+        ],
+        "planner_hint": "Reward route sources only when step count, convergence, PMI, yield, and solvent/workup burden are explicit."
+      },
+      "risks": [
+        "single-step yield overweights route value",
+        "hidden workup solvent burden",
+        "convergent branch ignored",
+        "non-comparable PMI boundary"
+      ],
+      "evidence": [
+        {
+          "type": "method",
+          "citation": "ACS GCI Pharmaceutical Roundtable describes PMI as a route-level metric that includes materials such as reactants, solvents, catalysts, and workup inputs.",
+          "url": "https://learning.acsgcipr.org/guides-and-metrics/metrics/process-mass-intensity-metric/"
+        },
+        {
+          "type": "literature",
+          "citation": "Process Mass Intensity paper explains why PMI was selected as a high-level pharmaceutical manufacturing sustainability metric.",
+          "url": "https://pubs.acs.org/doi/10.1021/op200097d"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "whole_route_pmi_economics_prior",
+        "rerank_bonus": "moderate for explicit whole-route mass ledger, convergence, isolated yields, solvent/workup burden, and comparator process",
+        "compliance_gate": "whole_route_economics_pmi_and_process_review_required"
+      }
+    },
+    {
+      "id": "manufacturing_cost_supply_route_intensity_policy",
+      "family_id": "route_economics_pmi_step_count_process_intensity_policy",
+      "name": "Route endpoint to manufacturing-cost, solvent-class, raw-material, and sustainability-intensity policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "manufacturing route candidates",
+          "green-chemistry route comparisons",
+          "late development process routes"
+        ],
+        "target_features": [
+          "manufacturing cost",
+          "solvent class",
+          "raw material intensity",
+          "sustainability assessment"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "synthetic endpoint to manufacturing-cost boundary",
+          "laboratory solvent choice to process-intensity boundary"
+        ],
+        "forward_logic": [
+          "separate laboratory success from manufacturing cost, solvent burden, and sustainability intensity",
+          "track raw material price/grade, solvent-selection class, energy or cleaning burden, and process-change comparator",
+          "flag routes where low step count is offset by high material, solvent, or containment cost"
+        ],
+        "suggested_precursor_roles": [
+          "raw material ledger",
+          "solvent/process choice",
+          "cost or sustainability comparator",
+          "route endpoint"
+        ],
+        "planner_hint": "Use route-intensity records when manufacturing economics or sustainability, not a single reaction, is route-defining."
+      },
+      "risks": [
+        "solvent burden omitted",
+        "raw material grade mismatch",
+        "cost model not comparable",
+        "sustainability claim not bounded"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Manufacturing Mass Intensity article reviews 15 years of PMI use and extension to broader API manufacturing inputs.",
+          "url": "https://www.sciencedirect.com/science/article/pii/S2666086521001764"
+        },
+        {
+          "type": "literature",
+          "citation": "ACS sustainability perspective discusses environmental sustainability strategy for API manufacturing and PMI/LCA concepts.",
+          "url": "https://pubs.acs.org/doi/10.1021/acssuschemeng.5c01094"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "manufacturing_route_intensity_prior",
+        "rerank_bonus": "moderate for explicit cost, raw-material grade, solvent class, sustainability boundary, and process comparator",
+        "compliance_gate": "manufacturing_cost_sustainability_and_process_boundary_review_required"
+      }
+    },
+    {
+      "id": "crystallization_impurity_purge_isolation_boundary",
+      "family_id": "scalable_purification_isolation_bottleneck_policy",
+      "name": "Crude product to crystallization/isolation plus impurity incorporation, mother-liquor, wash, and purge-policy boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "API isolation routes",
+          "crystallized intermediates",
+          "impurity-sensitive process products"
+        ],
+        "target_features": [
+          "crystallization",
+          "impurity purge",
+          "mother liquor",
+          "filter cake washing"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "crude product to crystallization-purge boundary",
+          "isolated solid to mother-liquor and wash boundary"
+        ],
+        "forward_logic": [
+          "separate chemical conversion from the crystallization and isolation operation that determines purity",
+          "track impurity incorporation mechanism, phase behavior, mother-liquor fate, washing, drying, and analytical release method",
+          "avoid treating crystallization as generic cleanup when impurity purge is route-defining"
+        ],
+        "suggested_precursor_roles": [
+          "crude reaction mixture",
+          "crystallization mother liquor",
+          "washed isolated solid",
+          "impurity purge evidence"
+        ],
+        "planner_hint": "Reward crystallization-source routes only when impurity incorporation, wash, mother-liquor, and assay evidence are explicit."
+      },
+      "risks": [
+        "impurity occlusion",
+        "mother-liquor entrainment",
+        "wash causes impurity recrystallization",
+        "purity assay not route-relevant"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Industrial crystallization workflow paper describes mechanisms of impurity incorporation and targeted impurity management.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7461122/"
+        },
+        {
+          "type": "literature",
+          "citation": "API washing study discusses filtration, washing, mother liquor, and effects on final API purity.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8057229/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "crystallization_impurity_purge_prior",
+        "rerank_bonus": "moderate for explicit impurity purge, crystallization mechanism, mother-liquor fate, wash/dry evidence, and analytical assay",
+        "compliance_gate": "scalable_crystallization_impurity_purge_review_required"
+      }
+    },
+    {
+      "id": "chromatography_or_membrane_purification_scale_boundary",
+      "family_id": "scalable_purification_isolation_bottleneck_policy",
+      "name": "Purified product to chromatography, membrane, extraction, distillation, or alternative scalable-isolation boundary",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "chromatography-dependent routes",
+          "difficult separations",
+          "late-stage impurity purge candidates"
+        ],
+        "target_features": [
+          "preparative chromatography",
+          "membrane separation",
+          "extraction",
+          "distillation",
+          "scale boundary"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "purified target to separation-scale boundary",
+          "chromatographic cleanup to isolation-feasibility boundary"
+        ],
+        "forward_logic": [
+          "separate product formation from the separation technology that controls scale, recovery, and waste",
+          "track chromatographic load, solvent use, stationary phase or membrane burden, extraction selectivity, distillation feasibility, and impurity profile",
+          "down-rank routes that depend on unbounded chromatography when scalable alternatives are missing"
+        ],
+        "suggested_precursor_roles": [
+          "crude product",
+          "separation technology",
+          "impurity set",
+          "isolated product"
+        ],
+        "planner_hint": "Use scalable-isolation records when separation technology, recovery, and solvent or material burden drive route feasibility."
+      },
+      "risks": [
+        "chromatography hidden as cleanup",
+        "low loading or recovery",
+        "solvent waste dominates PMI",
+        "separation selectivity not transferable"
+      ],
+      "evidence": [
+        {
+          "type": "method",
+          "citation": "ACS GCI med-chem purification resources include green chromatography and purification decision guidance.",
+          "url": "https://www.acs.org/green-chemistry-sustainability/research-innovation/research-tools/medchem-tips-and-tricks.html"
+        },
+        {
+          "type": "literature",
+          "citation": "Preparative and analytical chromatography greenness review discusses solvent and productivity burdens in chromatographic methods.",
+          "url": "https://pubs.rsc.org/en/content/articlehtml/2025/gc/d4gc04300f"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "scalable_isolation_bottleneck_prior",
+        "rerank_bonus": "moderate for explicit separation mode, load/recovery, solvent/material burden, impurity selectivity, and scale boundary",
+        "compliance_gate": "scalable_purification_isolation_process_review_required"
+      }
+    },
+    {
+      "id": "salt_cocrystal_polymorph_formulation_endpoint_boundary",
+      "family_id": "formulation_salt_coformer_delivery_boundary",
+      "name": "Synthetic endpoint to salt, cocrystal, coformer, polymorph, hydrate, or amorphous developability boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "drug substance endpoints",
+          "solid-form candidates",
+          "poorly soluble compounds"
+        ],
+        "target_features": [
+          "salt or cocrystal",
+          "polymorph",
+          "hydrate or solvate",
+          "solid-form developability"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "free form to salt/coformer boundary",
+          "synthetic target to solid-form performance boundary"
+        ],
+        "forward_logic": [
+          "separate access to a molecular structure from evidence that its solid form is developable",
+          "track salt or coformer rationale, polymorph/hydrate identity, solubility/dissolution, stability, manufacturability, and regulatory classification",
+          "avoid treating a free base or acid endpoint as equivalent to a qualified product form"
+        ],
+        "suggested_precursor_roles": [
+          "free base or acid",
+          "salt or coformer",
+          "solid form",
+          "developability evidence"
+        ],
+        "planner_hint": "Reward synthetic endpoints only when the salt, cocrystal, or polymorph identity and developability boundary are explicit."
+      },
+      "risks": [
+        "wrong solid form",
+        "unstable hydrate or solvate",
+        "coformer not acceptable",
+        "regulatory classification overlooked"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "FDA cocrystal guidance discusses regulatory classification and data to support pharmaceutical cocrystal solid forms.",
+          "url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/regulatory-classification-pharmaceutical-co-crystals"
+        },
+        {
+          "type": "guideline",
+          "citation": "FDA ICH Q6A guidance discusses polymorphism and specifications for new drug substances and products.",
+          "url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/q6a-specifications-test-procedures-and-acceptance-criteria-new-drug-substances-and-new-drug-products"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "solid_form_formulation_endpoint_prior",
+        "rerank_bonus": "moderate for explicit solid-form identity, salt/coformer rationale, solubility or performance data, stability, manufacturability, and regulatory classification",
+        "compliance_gate": "formulation_solid_form_developability_review_required"
+      }
+    },
+    {
+      "id": "particle_excipient_delivery_formulation_policy",
+      "family_id": "formulation_salt_coformer_delivery_boundary",
+      "name": "Active compound to particle-size, excipient compatibility, delivery vehicle, and formulation-performance policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "formulated small molecules",
+          "poorly soluble drug candidates",
+          "delivery-enabled endpoints"
+        ],
+        "target_features": [
+          "particle size",
+          "excipient compatibility",
+          "delivery system",
+          "bioavailability"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "isolated active to formulation-performance boundary",
+          "particle or excipient choice to delivery boundary"
+        ],
+        "forward_logic": [
+          "separate chemical identity from formulation attributes that control exposure and manufacturability",
+          "track particle size, excipient compatibility, dissolution, physical stability, delivery vehicle, and bioavailability context",
+          "flag routes where the synthetic endpoint is not the practical delivery endpoint"
+        ],
+        "suggested_precursor_roles": [
+          "active compound",
+          "particle-engineered form",
+          "excipient or vehicle",
+          "formulated product endpoint"
+        ],
+        "planner_hint": "Use formulation records when delivery, particle attributes, or excipient compatibility determine whether the route endpoint is useful."
+      },
+      "risks": [
+        "particle form not stable",
+        "excipient incompatibility",
+        "dissolution not transferable",
+        "bioavailability claim unsupported"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Pharmaceutical cocrystal review discusses solid-form approaches to modulate solubility, dissolution, pharmacokinetics, and stability.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8424375/"
+        },
+        {
+          "type": "literature",
+          "citation": "Pharmaceutical cocrystal regulatory and strategic review covers cocrystal development, physicochemical properties, and regulatory aspects.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5241406/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "particle_delivery_formulation_prior",
+        "rerank_bonus": "moderate for explicit particle/excipient attributes, dissolution or exposure context, compatibility, and stability evidence",
+        "compliance_gate": "formulation_delivery_and_excipient_compatibility_review_required"
+      }
+    },
+    {
+      "id": "photostability_forced_degradation_source_boundary",
+      "family_id": "photostability_autoxidation_storage_liability_policy",
+      "name": "Source compound to photostability and forced-degradation evidence plus stability-indicating method boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "light-sensitive compounds",
+          "reference standards",
+          "degradation-prone drug substances"
+        ],
+        "target_features": [
+          "photostability",
+          "forced degradation",
+          "stability indicating method",
+          "degradant identity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "isolated compound to photostability boundary",
+          "degradant assignment to stability-indicating method boundary"
+        ],
+        "forward_logic": [
+          "separate source isolation from evidence that light or stress exposure does not change target identity",
+          "track photostability study, forced-degradation conditions, degradant identity, assay specificity, and storage recommendation",
+          "avoid promoting unstable source records without a stability-indicating method"
+        ],
+        "suggested_precursor_roles": [
+          "isolated target",
+          "photodegradant or forced-degradation sample",
+          "stability-indicating analytical method",
+          "storage-qualified source"
+        ],
+        "planner_hint": "Reward stability-sensitive sources only when photostability, forced-degradation, and stability-indicating method evidence are explicit."
+      },
+      "risks": [
+        "photodegradation changes identity",
+        "forced degradation over- or under-stressed",
+        "method not stability indicating",
+        "storage recommendation unsupported"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "EMA ICH Q1B guidance covers photostability testing expectations for new active substances and medicinal products.",
+          "url": "https://www.ema.europa.eu/en/ich-q1b-photostability-testing-new-active-substances-medicinal-products-scientific-guideline"
+        },
+        {
+          "type": "literature",
+          "citation": "Forced-degradation review discusses development of stability-indicating studies and methods for drugs.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5761119/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "photostability_forced_degradation_prior",
+        "rerank_bonus": "moderate for explicit photostability, forced degradation, degradant identity, method specificity, and storage policy",
+        "compliance_gate": "photostability_stability_indicating_method_review_required"
+      }
+    },
+    {
+      "id": "autoxidation_peroxide_storage_liability_policy",
+      "family_id": "photostability_autoxidation_storage_liability_policy",
+      "name": "Oxidation-sensitive target to oxygen, peroxide, radical, moisture, and storage-liability policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "oxidation-sensitive compounds",
+          "peroxide-forming or peroxide-sensitive products",
+          "storage-labile standards"
+        ],
+        "target_features": [
+          "autoxidation",
+          "peroxide",
+          "oxygen sensitivity",
+          "moisture sensitivity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "isolated target to oxidative-liability boundary",
+          "storage source to oxygen/moisture exposure boundary"
+        ],
+        "forward_logic": [
+          "separate synthetic access from stability under oxygen, peroxide, radical, or moisture stress",
+          "track vulnerable functional groups, oxidative degradants, excipient or solvent peroxide sources, packaging/storage state, and retest policy",
+          "flag sources whose reference identity may drift during storage or handling"
+        ],
+        "suggested_precursor_roles": [
+          "oxidation-sensitive target",
+          "oxidative degradant",
+          "storage state",
+          "retest or stability evidence"
+        ],
+        "planner_hint": "Use autoxidation records when storage liability or degradation, not synthesis, determines source trust."
+      },
+      "risks": [
+        "peroxide contamination",
+        "oxygen exposure degradation",
+        "moisture-mediated identity drift",
+        "retest period absent"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "FDA ICH Q1A(R2) guidance describes stability testing of new drug substances and products.",
+          "url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/q1ar2-stability-testing-new-drug-substances-and-products"
+        },
+        {
+          "type": "literature",
+          "citation": "Forced-degradation review discusses oxidative stress and peroxide-mediated degradation as method-development challenges.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5761119/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "autoxidation_storage_liability_prior",
+        "rerank_bonus": "moderate for explicit oxidative liability, degradant profile, storage state, packaging or retest policy, and analytical method",
+        "compliance_gate": "autoxidation_storage_stability_review_required"
+      }
+    },
+    {
+      "id": "isotope_tracing_biosynthetic_origin_disconnection",
+      "family_id": "biosynthetic_origin_isotopic_or_biogenic_annotation_policy",
+      "name": "Natural product to isotope-labeled precursor incorporation plus biosynthetic-origin evidence boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "natural products",
+          "biosynthetic intermediates",
+          "biomimetic route candidates"
+        ],
+        "target_features": [
+          "stable isotope tracing",
+          "biogenic precursor",
+          "pathway annotation",
+          "biosynthetic origin"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "natural product skeleton to labeled-precursor boundary",
+          "biogenic claim to isotope-incorporation evidence boundary"
+        ],
+        "forward_logic": [
+          "separate a plausible biogenic disconnection from isotope evidence that supports the precursor lineage",
+          "track labeled precursor, incorporation pattern, analytical method, organism/source, and alternative pathway hypotheses",
+          "avoid promoting biomimetic route logic from unsupported biosynthetic stories"
+        ],
+        "suggested_precursor_roles": [
+          "labeled biogenic precursor",
+          "natural product skeleton",
+          "isotope incorporation pattern",
+          "pathway hypothesis"
+        ],
+        "planner_hint": "Reward biosynthesis-aware route priors only when isotope incorporation and source lineage are explicit."
+      },
+      "risks": [
+        "biogenic precursor overclaimed",
+        "isotope scrambling",
+        "organism source not traceable",
+        "alternative pathway ignored"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Isotopic labeling approach links natural products with biosynthetic gene clusters and discusses stable-isotope patterns.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8891042/"
+        },
+        {
+          "type": "literature",
+          "citation": "Stable isotope biosynthesis review emphasizes isotope labeling as an important natural-product pathway tool.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4685789/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "isotope_tracing_biosynthetic_origin_prior",
+        "rerank_bonus": "moderate for explicit labeled precursor, incorporation pattern, organism/source, analytical method, and pathway alternatives",
+        "compliance_gate": "biosynthetic_origin_isotope_lineage_review_required"
+      }
+    },
+    {
+      "id": "biosynthetic_gene_cluster_metabolome_annotation_policy",
+      "family_id": "biosynthetic_origin_isotopic_or_biogenic_annotation_policy",
+      "name": "Natural product source to biosynthetic gene cluster, organism, metabolome, and structure-assignment policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "microbial natural products",
+          "genome-mined metabolites",
+          "orphan biosynthetic gene cluster products"
+        ],
+        "target_features": [
+          "biosynthetic gene cluster",
+          "genome mining",
+          "metabolomics",
+          "structure assignment"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "natural product source claim to BGC evidence boundary",
+          "metabolite annotation to structure-assignment boundary"
+        ],
+        "forward_logic": [
+          "separate metabolite detection from experimentally supported biosynthetic lineage",
+          "track BGC prediction, organism strain, expression context, metabolomic match, isolation evidence, and structure assignment",
+          "down-rank source records based only on genome prediction or MS similarity without chemical validation"
+        ],
+        "suggested_precursor_roles": [
+          "organism or strain",
+          "biosynthetic gene cluster",
+          "metabolite feature",
+          "isolated assigned product"
+        ],
+        "planner_hint": "Use BGC/metabolome records as advisory priors unless organism, pathway, metabolite, and structure evidence align."
+      },
+      "risks": [
+        "silent BGC not expressed",
+        "metabolite match ambiguous",
+        "structure assignment weak",
+        "strain/source lineage missing"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Meta-omic natural-product review discusses characterizing biosynthetic gene clusters and pathways.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3797859/"
+        },
+        {
+          "type": "literature",
+          "citation": "Natural-products genomics/metabolomics review surveys integrated strategies for targeting new chemical entities.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8691422/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "bgc_metabolome_source_lineage_prior",
+        "rerank_bonus": "moderate for explicit organism, BGC, expression/metabolome evidence, isolation, and structure assignment",
+        "compliance_gate": "biosynthetic_gene_cluster_metabolome_annotation_review_required"
+      }
+    },
+    {
+      "id": "chemical_probe_target_engagement_binding_mode_boundary",
+      "family_id": "bioassay_binding_mode_target_validation_source_policy",
+      "name": "Bioactive compound to chemical-probe target engagement, selectivity, binding mode, and comparator-policy boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "chemical probes",
+          "bioactive medicinal chemistry hits",
+          "target-validation compounds"
+        ],
+        "target_features": [
+          "target engagement",
+          "selectivity",
+          "binding mode",
+          "inactive analogue"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "bioactive structure to target-engagement boundary",
+          "probe claim to selectivity and comparator boundary"
+        ],
+        "forward_logic": [
+          "separate a compound with activity from a probe-quality source record",
+          "track biochemical potency, cellular activity, target engagement, selectivity panel, binding-mode evidence, inactive analogue, and orthogonal validation",
+          "avoid promoting a route source because a structure is bioactive without target-validation support"
+        ],
+        "suggested_precursor_roles": [
+          "bioactive compound",
+          "validated target",
+          "inactive analogue or comparator",
+          "binding-mode evidence"
+        ],
+        "planner_hint": "Reward bioactive source records only when target engagement, selectivity, binding mode, and comparator evidence are explicit."
+      },
+      "risks": [
+        "off-target activity",
+        "binding mode inferred only",
+        "inactive analogue missing",
+        "cellular exposure unsupported"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "High-quality chemical-probes review discusses potency, selectivity, target engagement, and inactive analogues.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9749956/"
+        },
+        {
+          "type": "literature",
+          "citation": "Target-engagement review argues that engagement assays should be standard for chemical probe and drug-discovery programs.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4004587/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "chemical_probe_target_validation_prior",
+        "rerank_bonus": "moderate for explicit potency, selectivity, target engagement, binding mode, inactive analogue, and orthogonal validation",
+        "compliance_gate": "bioassay_target_validation_and_probe_quality_review_required"
+      }
+    },
+    {
+      "id": "assay_interference_pains_hit_lineage_policy",
+      "family_id": "bioassay_binding_mode_target_validation_source_policy",
+      "name": "Screening hit to assay-interference, PAINS/reactivity, aggregation, purity, and hit-lineage policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "screening hits",
+          "phenotypic assay actives",
+          "high-throughput screening compounds"
+        ],
+        "target_features": [
+          "PAINS",
+          "assay interference",
+          "aggregation",
+          "reactive compound",
+          "hit validation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "screening activity to assay-interference boundary",
+          "hit structure to purity and validation lineage boundary"
+        ],
+        "forward_logic": [
+          "separate apparent assay activity from a validated biological source",
+          "track assay format, counter-screens, aggregation/reactivity, purity and stability in assay buffer, SAR consistency, and resynthesis",
+          "down-rank source records where assay interference or promiscuity has not been addressed"
+        ],
+        "suggested_precursor_roles": [
+          "screening hit",
+          "assay format",
+          "counter-screen evidence",
+          "validated hit or rejected artifact"
+        ],
+        "planner_hint": "Use screening-hit records cautiously unless assay interference, purity, SAR, and validation lineage are explicit."
+      },
+      "risks": [
+        "PAINS or nuisance compound",
+        "reporter interference",
+        "aggregation artifact",
+        "compound purity or stability unknown"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Assay-interference review discusses PAINS, promiscuity, counter-screening, purity, and stability in assay buffers.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5392755/"
+        },
+        {
+          "type": "reference",
+          "citation": "NCBI Assay Guidance Manual chapter covers chemical reactivity interference in target-based and cell-based assays.",
+          "url": "https://www.ncbi.nlm.nih.gov/books/NBK326709/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "assay_interference_hit_lineage_prior",
+        "rerank_bonus": "moderate for explicit counter-screens, interference controls, purity, stability, SAR consistency, and resynthesis",
+        "compliance_gate": "assay_interference_and_hit_validation_review_required"
+      }
+    },
+    {
+      "id": "nitrosamine_precursor_root_cause_route_boundary",
+      "family_id": "impurity_genotoxic_nitrosamine_precursor_liability_policy",
+      "name": "API route to nitrosamine or NDSRI precursor, root-cause, risk assessment, confirmatory testing, and control-policy boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "amine-containing APIs",
+          "nitrosation-risk routes",
+          "NDSRI-prone drug products"
+        ],
+        "target_features": [
+          "nitrosamine",
+          "nitrite",
+          "secondary or tertiary amine",
+          "NDSRI",
+          "risk assessment"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "API route to nitrosamine-root-cause boundary",
+          "amine/nitrite precursor pair to control-strategy boundary"
+        ],
+        "forward_logic": [
+          "separate route feasibility from nitrosamine formation risk and regulatory control",
+          "track amine and nitrosating sources, excipient or solvent contributions, process/storage conditions, analytical method, acceptable intake, and mitigation",
+          "avoid treating routes as clean unless nitrosamine root cause and control strategy are reviewed"
+        ],
+        "suggested_precursor_roles": [
+          "amine-containing intermediate or API",
+          "nitrosating source",
+          "nitrosamine or NDSRI impurity",
+          "control strategy"
+        ],
+        "planner_hint": "Down-rank nitrosation-risk routes unless root cause, confirmatory testing, mitigation, and regulatory limits are explicit."
+      },
+      "risks": [
+        "NDSRI formation",
+        "nitrite excipient source overlooked",
+        "analytical method not sensitive enough",
+        "acceptable intake not established"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "FDA nitrosamine guidance discusses root causes, detection, risk assessments, testing, and controls for APIs and drug products.",
+          "url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/control-nitrosamine-impurities-human-drugs"
+        },
+        {
+          "type": "literature",
+          "citation": "Nitrosamine systematic review covers toxicological implications, root causes, risk assessment, and mitigation strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11126534/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "nitrosamine_root_cause_route_prior",
+        "rerank_bonus": "moderate for explicit nitrosating source, root-cause analysis, confirmatory method, acceptable intake, purge/mitigation, and regulatory control",
+        "compliance_gate": "nitrosamine_impurity_risk_assessment_and_control_review_required"
+      }
+    },
+    {
+      "id": "mutagenic_impurity_precursor_purge_control_policy",
+      "family_id": "impurity_genotoxic_nitrosamine_precursor_liability_policy",
+      "name": "Synthetic route to mutagenic impurity precursor plus purge, analytical, toxicology, and regulatory-control policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "mutagenic impurity risk routes",
+          "reactive intermediate routes",
+          "regulated API manufacturing routes"
+        ],
+        "target_features": [
+          "mutagenic impurity",
+          "azide",
+          "hydrazine",
+          "alkylating agent",
+          "purge factor"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "route precursor to mutagenic-impurity liability boundary",
+          "reactive impurity to purge and analytical-control boundary"
+        ],
+        "forward_logic": [
+          "separate useful reactive chemistry from genotoxic impurity liability",
+          "track structural alert, impurity formation pathway, purge factor, analytical method, toxicology threshold, and lifecycle control",
+          "flag routes where reactive precursors improve synthesis but create unbounded impurity risk"
+        ],
+        "suggested_precursor_roles": [
+          "reactive precursor",
+          "potential mutagenic impurity",
+          "purge step",
+          "validated impurity method"
+        ],
+        "planner_hint": "Use mutagenic-impurity records as hard route-quality constraints unless purge, method, toxicology, and control evidence are explicit."
+      },
+      "risks": [
+        "genotoxic impurity carried forward",
+        "purge factor assumed",
+        "method validation gap",
+        "lifecycle control missing"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "ICH M7(R2) guidance covers assessment and control of DNA-reactive mutagenic impurities in pharmaceuticals.",
+          "url": "https://www.hhs.gov/guidance/sites/default/files/hhs-guidance-documents/FDA/50093402fnl-ICH-M7%28R2%29-Assessment-and-Control-of-DNA-Reactive-Impurities.pdf"
+        },
+        {
+          "type": "literature",
+          "citation": "Nitrosation pathway review notes risk evaluation for reactive genotoxic impurities such as azido, nitroso, epoxide, and hydrazine classes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10023554/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "mutagenic_impurity_purge_control_prior",
+        "rerank_bonus": "moderate for explicit structural alert, formation route, purge factor, validated method, toxicology limit, and lifecycle controls",
+        "compliance_gate": "mutagenic_impurity_purge_and_regulatory_control_review_required"
+      }
+    },
+    {
+      "id": "controlled_substance_or_listed_chemical_governance_boundary",
+      "family_id": "regulatory_controlled_dual_use_or_stewardship_boundary",
+      "name": "Route target or precursor to controlled-substance/listed-chemical status, authorization, storage, recordkeeping, and access-policy boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "controlled or scheduled compounds",
+          "listed chemical precursors",
+          "regulated reference standards"
+        ],
+        "target_features": [
+          "controlled substance",
+          "listed chemical",
+          "DEA registration",
+          "recordkeeping",
+          "access control"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "regulated compound to authorization boundary",
+          "precursor source to controlled-access boundary"
+        ],
+        "forward_logic": [
+          "separate chemical route availability from legal authorization and secure handling",
+          "track schedule/list status, registration or exemption basis, storage and access controls, recordkeeping, disposal, and approved use case",
+          "do not promote controlled or listed source records without project-level governance approval"
+        ],
+        "suggested_precursor_roles": [
+          "regulated target or precursor",
+          "authorization record",
+          "controlled storage/access metadata",
+          "approved use case"
+        ],
+        "planner_hint": "Treat controlled or listed-chemical source records as governance-gated, not ordinary route anchors."
+      },
+      "risks": [
+        "unauthorized controlled-substance work",
+        "listed precursor diversion risk",
+        "recordkeeping gap",
+        "use-case not approved"
+      ],
+      "evidence": [
+        {
+          "type": "manual",
+          "citation": "DEA Chemical Handler's Manual summarizes basic requirements for handling List I and List II chemicals under the Controlled Substances Act.",
+          "url": "https://www.deadiversion.usdoj.gov/GDP/%28DEA-DC-054%29%28EO-DEA168%29_Chemical_Handler%27s_Manual_Final_%28OMB_Approved%29.pdf"
+        },
+        {
+          "type": "institutional_guidance",
+          "citation": "University controlled-substance research guidance summarizes registration, storage, security, use, disposal, and records expectations.",
+          "url": "https://ehs.utexas.edu/working-safely/chemical-safety/controlled-substances/dea-controlled-substances"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "controlled_substance_governance_prior",
+        "rerank_bonus": "none without explicit legal authorization, access control, recordkeeping, and approved research or analytical use case",
+        "compliance_gate": "controlled_substance_or_listed_chemical_governance_review_required"
+      }
+    },
+    {
+      "id": "stewardship_sensitive_dual_use_route_policy",
+      "family_id": "regulatory_controlled_dual_use_or_stewardship_boundary",
+      "name": "Bioactive or regulated route to antimicrobial stewardship, dual-use, cytotoxic, radiochemical, persistence, and project-governance policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "antimicrobial or resistance-relevant compounds",
+          "dual-use-sensitive biological agents or payloads",
+          "cytotoxic, radiochemical, or persistent compounds"
+        ],
+        "target_features": [
+          "antimicrobial stewardship",
+          "dual use",
+          "cytotoxic payload",
+          "radiochemical",
+          "environmental persistence"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "bioactive route source to stewardship boundary",
+          "regulated capability to project-governance boundary"
+        ],
+        "forward_logic": [
+          "separate bioactive route plausibility from whether the work is appropriate, authorized, and governed",
+          "track stewardship rationale, use-case necessity, exposure or dissemination risk, access controls, review board or project approval, and release restrictions",
+          "avoid turning sensitive source records into proposal generators without governance metadata"
+        ],
+        "suggested_precursor_roles": [
+          "stewardship-sensitive target",
+          "regulated payload or modality",
+          "governance approval",
+          "approved route-use boundary"
+        ],
+        "planner_hint": "Use stewardship and dual-use records only as policy gates unless explicit governance and use-case evidence exists."
+      },
+      "risks": [
+        "antimicrobial resistance pressure",
+        "dual-use misuse potential",
+        "cytotoxic or radiochemical exposure",
+        "environmental persistence or release risk"
+      ],
+      "evidence": [
+        {
+          "type": "guidance",
+          "citation": "CDC core elements describe antibiotic stewardship principles to improve antibiotic use, patient safety, and resistance control.",
+          "url": "https://www.cdc.gov/antibiotic-use/hcp/core-elements/index.html"
+        },
+        {
+          "type": "policy",
+          "citation": "NIH notice describes the 2024 US Government policy for oversight of dual-use research of concern and enhanced pandemic potential.",
+          "url": "https://osp.od.nih.gov/us-government-releases-policy-for-oversight-of-dual-use-research-of-concern-and-pathogens-with-enhanced-pandemic-potential/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "stewardship_dual_use_governance_prior",
+        "rerank_bonus": "none without explicit stewardship rationale, governance approval, access control, and approved use-case boundary",
+        "compliance_gate": "stewardship_sensitive_dual_use_or_regulated_route_governance_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v19 expansion promotes backlog families covering whole-route economics/PMI, purification and isolation bottlenecks, formulation and solid-form developability, stability liability, biosynthetic-origin evidence, biological-source validation, genotoxic/nitrosamine impurity liability, and governed regulated-source boundaries."
+    },
+    {
+      "type": "safety_note",
+      "summary": "V19 records are advisory. Promotion requires route-specific evidence and governance; process, purification, formulation, stability, bioassay, impurity, controlled-substance, stewardship, and dual-use records must not be treated as executable procedures or validated route closures by default."
+    }
+  ]
+}

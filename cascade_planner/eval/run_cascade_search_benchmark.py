@@ -24,7 +24,9 @@ from cascade_planner.baselines.chem_enzy_adapter import (
     ChemEnzyBackendAdapter,
 )
 from cascade_planner.baselines.route_contract import BaselineRunResult, RouteSearchConfig
+from cascade_planner.legacy_guard import LEGACY_RESEARCH_ENV, legacy_research_enabled
 from cascade_planner.cascade_search import (
+    AiZynthFinderONNXProposalProvider,
     CascadeProgramSearch,
     CascadeSearchConfig,
     CascadeSearchController,
@@ -33,12 +35,18 @@ from cascade_planner.cascade_search import (
     LearnedCascadeValueModel,
     LoadedCascadeTransitionValueModel,
     LoadedCascadeActionValueModel,
+    LoadedLearnedVerifierValueModel,
     SubgoalHintActionScorer,
     RuleCascadePairScorer,
+    VerifierAugmentedCascadeValueModel,
     CascadeRetrievalProposalProvider,
     CascadeSubgoalEvidenceProvider,
     ChemicalTemplateProposalProvider,
+    ChemEnzyContextONMTProposalProvider,
+    FallbackProposalProvider,
+    LegalCorpusProposalProvider,
     RetroChimeraProposalProvider,
+    RetroKNNProposalProvider,
     StaticProposalProvider,
     TemplateRelevanceProposalProvider,
     CascadeAction,
@@ -86,6 +94,9 @@ def run_cascade_search_benchmark(
     cascade_result_limit: int = 5,
     cascade_min_step_score: float = 0.05,
     cascade_value_model_path: Path | None = None,
+    use_rule_verifier_value: bool = False,
+    learned_verifier_model_path: Path | None = None,
+    cascade_verifier_weight: float = 0.35,
     cascade_transition_model_path: Path | None = None,
     cascade_action_value_model_path: Path | None = None,
     cascade_subgoal_provider_model_path: Path | None = None,
@@ -127,9 +138,40 @@ def run_cascade_search_benchmark(
     use_chemical_template_proposals: bool = False,
     chemical_template_topk: int = 12,
     chemical_template_prefer_preselector: bool = True,
+    use_aizynthfinder_onnx_proposals: bool = False,
+    aizynthfinder_config_path: Path = Path("workspace/aizdata/config.yml"),
+    aizynthfinder_policy: str = "uspto",
+    aizynthfinder_topk: int = 8,
     use_template_relevance_proposals: bool = False,
     template_relevance_models: list[str] | None = None,
     template_relevance_topk: int = 8,
+    template_relevance_fallback: bool = False,
+    template_relevance_fallback_min_primary: int = 1,
+    template_relevance_fallback_max_calls: int | None = None,
+    use_chem_enzy_context_onmt_proposals: bool = False,
+    chem_enzy_context_onmt_model_path: Path | None = None,
+    chem_enzy_context_onmt_topk: int = 8,
+    chem_enzy_context_onmt_beam_size: int = 8,
+    chem_enzy_context_onmt_batch_size: int = 16,
+    chem_enzy_context_onmt_min_score: float = 0.05,
+    chem_enzy_context_onmt_max_step: int | None = 1,
+    chem_enzy_context_onmt_preference_scorer_path: Path | None = None,
+    chem_enzy_context_onmt_preference_min_score: float | None = None,
+    chem_enzy_context_onmt_preference_rerank: bool = False,
+    chem_enzy_context_onmt_raw_topk_multiplier: int = 3,
+    use_legal_corpus_proposals: bool = False,
+    legal_corpus_paths: list[Path] | None = None,
+    legal_corpus_topk: int = 100,
+    legal_corpus_candidate_pool_size: int = 1024,
+    legal_corpus_similarity_floor: float = 0.0,
+    legal_corpus_index_cache_path: Path | None = None,
+    use_retroknn_proposals: bool = False,
+    retroknn_corpus_paths: list[Path] | None = None,
+    retroknn_topk: int = 32,
+    retroknn_max_index_rows: int | None = None,
+    retroknn_candidate_pool_size: int = 1024,
+    retroknn_similarity_floor: float = 0.0,
+    retroknn_index_cache_path: Path | None = None,
     include_route_outcomes: bool = False,
 ) -> dict[str, Any]:
     rows = _read_rows(benchmark_path)
@@ -141,13 +183,37 @@ def run_cascade_search_benchmark(
         raise ValueError(f"shard_index must be in [0, {num_shards}), got {shard_index}")
     unsharded_count = len(rows)
     rows = rows[shard_index::num_shards]
+    _guard_legacy_benchmark_options(
+        cascade_value_model_path=cascade_value_model_path,
+        cascade_transition_model_path=cascade_transition_model_path,
+        cascade_action_value_model_path=cascade_action_value_model_path,
+        cascade_pair_scorer_path=cascade_pair_scorer_path,
+        use_rule_pair_scorer=use_rule_pair_scorer,
+        route_block_value_final_reranker_path=route_block_value_final_reranker_path,
+        use_chem_enzy_cascade_cost=use_chem_enzy_cascade_cost,
+        use_chem_enzy_cascade_source_policy=use_chem_enzy_cascade_source_policy,
+        chem_enzy_cascade_cost_model=chem_enzy_cascade_cost_model,
+        chem_enzy_cascade_source_policy=chem_enzy_cascade_source_policy,
+    )
     _validate_model_inputs(
         cascade_value_model_path=cascade_value_model_path,
+        learned_verifier_model_path=learned_verifier_model_path,
         cascade_transition_model_path=cascade_transition_model_path,
         cascade_action_value_model_path=cascade_action_value_model_path,
         cascade_subgoal_provider_model_path=cascade_subgoal_provider_model_path,
         cascade_pair_scorer_path=cascade_pair_scorer_path,
         route_block_value_final_reranker_path=route_block_value_final_reranker_path,
+        chem_enzy_context_onmt_model_path=(
+            chem_enzy_context_onmt_model_path if use_chem_enzy_context_onmt_proposals else None
+        ),
+        chem_enzy_context_onmt_preference_scorer_path=(
+            chem_enzy_context_onmt_preference_scorer_path if use_chem_enzy_context_onmt_proposals else None
+        ),
+        legal_corpus_paths=legal_corpus_paths if use_legal_corpus_proposals else None,
+        retroknn_corpus_paths=retroknn_corpus_paths if use_retroknn_proposals else None,
+        aizynthfinder_config_path=(
+            aizynthfinder_config_path if use_aizynthfinder_onnx_proposals else None
+        ),
         chem_enzy_cascade_cost_model=chem_enzy_cascade_cost_model,
         chem_enzy_cascade_source_policy=chem_enzy_cascade_source_policy,
     )
@@ -213,7 +279,21 @@ def run_cascade_search_benchmark(
             shard_index=shard_index,
         )
         _write_chem_enzy_expansion_trace(chem_results, chem_trace_path)
-    cascade_value_model = LearnedCascadeValueModel(cascade_value_model_path) if cascade_value_model_path else None
+    legacy_cascade_value_model = (
+        LearnedCascadeValueModel(cascade_value_model_path) if cascade_value_model_path else None
+    )
+    cascade_value_model: Any | None = legacy_cascade_value_model
+    if learned_verifier_model_path is not None:
+        cascade_value_model = LoadedLearnedVerifierValueModel(
+            learned_verifier_model_path,
+            base_model=legacy_cascade_value_model,
+            learned_weight=cascade_verifier_weight,
+        )
+    elif use_rule_verifier_value:
+        cascade_value_model = VerifierAugmentedCascadeValueModel(
+            base_model=legacy_cascade_value_model,
+            verifier_weight=cascade_verifier_weight,
+        )
     cascade_transition_model = (
         LoadedCascadeTransitionValueModel(cascade_transition_model_path)
         if cascade_transition_model_path
@@ -236,6 +316,41 @@ def run_cascade_search_benchmark(
         if route_block_value_final_reranker_path
         else None
     )
+    template_relevance_runtime_provider = None
+    if use_template_relevance_proposals:
+        template_relevance_runtime_provider = TopKProvider(
+            TemplateRelevanceProposalProvider(
+                vendor_root=vendor_root,
+                models=tuple(template_relevance_models or ["template_relevance.reaxys_biocatalysis"]),
+                expansion_topk=template_relevance_topk,
+                gpu=gpu,
+            ),
+            top_k=template_relevance_topk,
+        )
+    aizynthfinder_runtime_provider = None
+    if use_aizynthfinder_onnx_proposals:
+        aizynthfinder_runtime_provider = TopKProvider(
+            AiZynthFinderONNXProposalProvider(
+                config_path=aizynthfinder_config_path,
+                policy_name=aizynthfinder_policy,
+                topk=aizynthfinder_topk,
+            ),
+            top_k=aizynthfinder_topk,
+        )
+    retroknn_runtime_provider = None
+    if use_retroknn_proposals:
+        if not retroknn_corpus_paths:
+            raise ValueError("retroknn_corpus_paths is required when RetroKNN proposals are enabled")
+        retroknn_runtime_provider = TopKProvider(
+            RetroKNNProposalProvider(
+                retroknn_corpus_paths,
+                max_index_rows=retroknn_max_index_rows,
+                candidate_pool_size=retroknn_candidate_pool_size,
+                similarity_floor=retroknn_similarity_floor,
+                index_cache_path=retroknn_index_cache_path,
+            ),
+            top_k=retroknn_topk,
+        )
     chem_by_target = {result.target_smiles: result for result in chem_results}
     trace_fh = None
     trace_path = None
@@ -293,9 +408,43 @@ def run_cascade_search_benchmark(
                 chemical_template_prefer_preselector=chemical_template_prefer_preselector,
                 chemical_template_predict_conditions=enable_condition_prediction,
                 condition_model=condition_model,
+                use_aizynthfinder_onnx_proposals=use_aizynthfinder_onnx_proposals,
+                aizynthfinder_config_path=aizynthfinder_config_path,
+                aizynthfinder_policy=aizynthfinder_policy,
+                aizynthfinder_topk=aizynthfinder_topk,
+                aizynthfinder_runtime_provider=aizynthfinder_runtime_provider,
                 use_template_relevance_proposals=use_template_relevance_proposals,
                 template_relevance_models=template_relevance_models,
                 template_relevance_topk=template_relevance_topk,
+                template_relevance_fallback=template_relevance_fallback,
+                template_relevance_fallback_min_primary=template_relevance_fallback_min_primary,
+                template_relevance_fallback_max_calls=template_relevance_fallback_max_calls,
+                template_relevance_runtime_provider=template_relevance_runtime_provider,
+                use_chem_enzy_context_onmt_proposals=use_chem_enzy_context_onmt_proposals,
+                chem_enzy_context_onmt_model_path=chem_enzy_context_onmt_model_path,
+                chem_enzy_context_onmt_topk=chem_enzy_context_onmt_topk,
+                chem_enzy_context_onmt_beam_size=chem_enzy_context_onmt_beam_size,
+                chem_enzy_context_onmt_batch_size=chem_enzy_context_onmt_batch_size,
+                chem_enzy_context_onmt_min_score=chem_enzy_context_onmt_min_score,
+                chem_enzy_context_onmt_max_step=chem_enzy_context_onmt_max_step,
+                chem_enzy_context_onmt_preference_scorer_path=chem_enzy_context_onmt_preference_scorer_path,
+                chem_enzy_context_onmt_preference_min_score=chem_enzy_context_onmt_preference_min_score,
+                chem_enzy_context_onmt_preference_rerank=chem_enzy_context_onmt_preference_rerank,
+                chem_enzy_context_onmt_raw_topk_multiplier=chem_enzy_context_onmt_raw_topk_multiplier,
+                use_legal_corpus_proposals=use_legal_corpus_proposals,
+                legal_corpus_paths=legal_corpus_paths,
+                legal_corpus_topk=legal_corpus_topk,
+                legal_corpus_candidate_pool_size=legal_corpus_candidate_pool_size,
+                legal_corpus_similarity_floor=legal_corpus_similarity_floor,
+                legal_corpus_index_cache_path=legal_corpus_index_cache_path,
+                use_retroknn_proposals=use_retroknn_proposals,
+                retroknn_corpus_paths=retroknn_corpus_paths,
+                retroknn_topk=retroknn_topk,
+                retroknn_max_index_rows=retroknn_max_index_rows,
+                retroknn_candidate_pool_size=retroknn_candidate_pool_size,
+                retroknn_similarity_floor=retroknn_similarity_floor,
+                retroknn_index_cache_path=retroknn_index_cache_path,
+                retroknn_runtime_provider=retroknn_runtime_provider,
                 cascade_result_limit=cascade_result_limit,
             )
             target_payloads.append(target_payload)
@@ -346,8 +495,8 @@ def run_cascade_search_benchmark(
                                 "route_metrics": [],
                                 "route_model_active": bool(cascade_value_model is not None),
                                 "transition_model_active": bool(cascade_transition_model is not None),
-                                    "action_value_model_active": bool(cascade_action_value_model is not None),
-                                    "subgoal_action_scorer_active": bool(use_cascade_subgoal_action_scorer),
+                                "action_value_model_active": bool(cascade_action_value_model is not None),
+                                "subgoal_action_scorer_active": bool(use_cascade_subgoal_action_scorer),
                                 "event": None,
                                 "outcome": target_payload["cascade_search"],
                             },
@@ -399,7 +548,15 @@ def run_cascade_search_benchmark(
                 "expansion_budget": cascade_expansion_budget,
                 "result_limit": cascade_result_limit,
                 "min_step_score": cascade_min_step_score,
-                "value_model": str(cascade_value_model_path) if cascade_value_model_path else "heuristic",
+                "value_model": _cascade_value_model_label(
+                    cascade_value_model_path=cascade_value_model_path,
+                    use_rule_verifier_value=use_rule_verifier_value,
+                    learned_verifier_model_path=learned_verifier_model_path,
+                ),
+                "legacy_cascade_value_model": str(cascade_value_model_path) if cascade_value_model_path else None,
+                "rule_verifier_value": bool(use_rule_verifier_value),
+                "learned_verifier_model": str(learned_verifier_model_path) if learned_verifier_model_path else None,
+                "cascade_verifier_weight": cascade_verifier_weight,
                 "transition_value_model": (
                     str(cascade_transition_model_path) if cascade_transition_model_path else None
                 ),
@@ -449,9 +606,98 @@ def run_cascade_search_benchmark(
                 "chemical_template_condition_prediction": (
                     enable_condition_prediction if use_chemical_template_proposals else None
                 ),
+                "use_aizynthfinder_onnx_proposals": use_aizynthfinder_onnx_proposals,
+                "aizynthfinder_config_path": (
+                    str(aizynthfinder_config_path) if use_aizynthfinder_onnx_proposals else None
+                ),
+                "aizynthfinder_policy": aizynthfinder_policy if use_aizynthfinder_onnx_proposals else None,
+                "aizynthfinder_topk": aizynthfinder_topk if use_aizynthfinder_onnx_proposals else None,
                 "use_template_relevance_proposals": use_template_relevance_proposals,
                 "template_relevance_models": list(template_relevance_models or []) if use_template_relevance_proposals else None,
                 "template_relevance_topk": template_relevance_topk if use_template_relevance_proposals else None,
+                "template_relevance_fallback": template_relevance_fallback if use_template_relevance_proposals else None,
+                "template_relevance_fallback_min_primary": (
+                    template_relevance_fallback_min_primary
+                    if use_template_relevance_proposals and template_relevance_fallback
+                    else None
+                ),
+                "template_relevance_fallback_max_calls": (
+                    template_relevance_fallback_max_calls
+                    if use_template_relevance_proposals and template_relevance_fallback
+                    else None
+                ),
+                "use_chem_enzy_context_onmt_proposals": use_chem_enzy_context_onmt_proposals,
+                "chem_enzy_context_onmt_model_path": (
+                    str(chem_enzy_context_onmt_model_path)
+                    if use_chem_enzy_context_onmt_proposals and chem_enzy_context_onmt_model_path
+                    else None
+                ),
+                "chem_enzy_context_onmt_topk": (
+                    chem_enzy_context_onmt_topk if use_chem_enzy_context_onmt_proposals else None
+                ),
+                "chem_enzy_context_onmt_beam_size": (
+                    chem_enzy_context_onmt_beam_size if use_chem_enzy_context_onmt_proposals else None
+                ),
+                "chem_enzy_context_onmt_batch_size": (
+                    chem_enzy_context_onmt_batch_size if use_chem_enzy_context_onmt_proposals else None
+                ),
+                "chem_enzy_context_onmt_min_score": (
+                    chem_enzy_context_onmt_min_score if use_chem_enzy_context_onmt_proposals else None
+                ),
+                "chem_enzy_context_onmt_max_step": (
+                    chem_enzy_context_onmt_max_step if use_chem_enzy_context_onmt_proposals else None
+                ),
+                "chem_enzy_context_onmt_preference_scorer_path": (
+                    str(chem_enzy_context_onmt_preference_scorer_path)
+                    if use_chem_enzy_context_onmt_proposals and chem_enzy_context_onmt_preference_scorer_path
+                    else None
+                ),
+                "chem_enzy_context_onmt_preference_min_score": (
+                    chem_enzy_context_onmt_preference_min_score
+                    if use_chem_enzy_context_onmt_proposals
+                    else None
+                ),
+                "chem_enzy_context_onmt_preference_rerank": (
+                    chem_enzy_context_onmt_preference_rerank
+                    if use_chem_enzy_context_onmt_proposals
+                    else None
+                ),
+                "chem_enzy_context_onmt_raw_topk_multiplier": (
+                    chem_enzy_context_onmt_raw_topk_multiplier
+                    if use_chem_enzy_context_onmt_proposals
+                    else None
+                ),
+                "use_legal_corpus_proposals": use_legal_corpus_proposals,
+                "legal_corpus_paths": (
+                    [str(path) for path in legal_corpus_paths or []] if use_legal_corpus_proposals else None
+                ),
+                "legal_corpus_topk": legal_corpus_topk if use_legal_corpus_proposals else None,
+                "legal_corpus_candidate_pool_size": (
+                    legal_corpus_candidate_pool_size if use_legal_corpus_proposals else None
+                ),
+                "legal_corpus_similarity_floor": (
+                    legal_corpus_similarity_floor if use_legal_corpus_proposals else None
+                ),
+                "legal_corpus_index_cache_path": (
+                    str(legal_corpus_index_cache_path)
+                    if use_legal_corpus_proposals and legal_corpus_index_cache_path
+                    else None
+                ),
+                "use_retroknn_proposals": use_retroknn_proposals,
+                "retroknn_corpus_paths": (
+                    [str(path) for path in retroknn_corpus_paths or []] if use_retroknn_proposals else None
+                ),
+                "retroknn_topk": retroknn_topk if use_retroknn_proposals else None,
+                "retroknn_max_index_rows": retroknn_max_index_rows if use_retroknn_proposals else None,
+                "retroknn_candidate_pool_size": (
+                    retroknn_candidate_pool_size if use_retroknn_proposals else None
+                ),
+                "retroknn_similarity_floor": retroknn_similarity_floor if use_retroknn_proposals else None,
+                "retroknn_index_cache_path": (
+                    str(retroknn_index_cache_path)
+                    if use_retroknn_proposals and retroknn_index_cache_path
+                    else None
+                ),
             },
             "trace_output": str(trace_path) if trace_path is not None else None,
             "chem_enzy_expansion_trace_output": str(chem_trace_path) if chem_trace_path is not None else None,
@@ -767,9 +1013,43 @@ def _run_one_target(
     chemical_template_prefer_preselector: bool = True,
     chemical_template_predict_conditions: bool = False,
     condition_model: str = "rcr",
+    use_aizynthfinder_onnx_proposals: bool = False,
+    aizynthfinder_config_path: Path = Path("workspace/aizdata/config.yml"),
+    aizynthfinder_policy: str = "uspto",
+    aizynthfinder_topk: int = 8,
+    aizynthfinder_runtime_provider: Any | None = None,
     use_template_relevance_proposals: bool = False,
     template_relevance_models: list[str] | None = None,
     template_relevance_topk: int = 8,
+    template_relevance_fallback: bool = False,
+    template_relevance_fallback_min_primary: int = 1,
+    template_relevance_fallback_max_calls: int | None = None,
+    template_relevance_runtime_provider: Any | None = None,
+    use_chem_enzy_context_onmt_proposals: bool = False,
+    chem_enzy_context_onmt_model_path: Path | None = None,
+    chem_enzy_context_onmt_topk: int = 8,
+    chem_enzy_context_onmt_beam_size: int = 8,
+    chem_enzy_context_onmt_batch_size: int = 16,
+    chem_enzy_context_onmt_min_score: float = 0.05,
+    chem_enzy_context_onmt_max_step: int | None = 1,
+    chem_enzy_context_onmt_preference_scorer_path: Path | None = None,
+    chem_enzy_context_onmt_preference_min_score: float | None = None,
+    chem_enzy_context_onmt_preference_rerank: bool = False,
+    chem_enzy_context_onmt_raw_topk_multiplier: int = 3,
+    use_legal_corpus_proposals: bool = False,
+    legal_corpus_paths: list[Path] | None = None,
+    legal_corpus_topk: int = 100,
+    legal_corpus_candidate_pool_size: int = 1024,
+    legal_corpus_similarity_floor: float = 0.0,
+    legal_corpus_index_cache_path: Path | None = None,
+    use_retroknn_proposals: bool = False,
+    retroknn_corpus_paths: list[Path] | None = None,
+    retroknn_topk: int = 32,
+    retroknn_max_index_rows: int | None = None,
+    retroknn_candidate_pool_size: int = 1024,
+    retroknn_similarity_floor: float = 0.0,
+    retroknn_index_cache_path: Path | None = None,
+    retroknn_runtime_provider: Any | None = None,
     cascade_result_limit: int = 5,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     target = str(row.get("target_smiles") or chem_result.target_smiles or "")
@@ -831,9 +1111,22 @@ def _run_one_target(
                 top_k=chemical_template_topk,
             )
         )
+    if use_aizynthfinder_onnx_proposals:
+        aizynth_provider = aizynthfinder_runtime_provider
+        if aizynth_provider is None:
+            aizynth_provider = TopKProvider(
+                AiZynthFinderONNXProposalProvider(
+                    config_path=aizynthfinder_config_path,
+                    policy_name=aizynthfinder_policy,
+                    topk=aizynthfinder_topk,
+                ),
+                top_k=aizynthfinder_topk,
+            )
+        providers.append(aizynth_provider)
     if use_template_relevance_proposals:
-        providers.append(
-            TopKProvider(
+        template_provider = template_relevance_runtime_provider
+        if template_provider is None:
+            template_provider = TopKProvider(
                 TemplateRelevanceProposalProvider(
                     vendor_root=vendor_root,
                     models=tuple(template_relevance_models or ["template_relevance.reaxys_biocatalysis"]),
@@ -841,7 +1134,67 @@ def _run_one_target(
                 ),
                 top_k=template_relevance_topk,
             )
+        if template_relevance_fallback:
+            template_provider = FallbackProposalProvider(
+                template_provider,
+                primary=provider,
+                trigger_min_primary=template_relevance_fallback_min_primary,
+                max_calls=template_relevance_fallback_max_calls,
+                provider_name="template_relevance",
+            )
+        providers.append(template_provider)
+    if use_chem_enzy_context_onmt_proposals:
+        if chem_enzy_context_onmt_model_path is None:
+            raise ValueError("chem_enzy_context_onmt_model_path is required when context ONMT proposals are enabled")
+        providers.append(
+            TopKProvider(
+                ChemEnzyContextONMTProposalProvider(
+                    model_path=chem_enzy_context_onmt_model_path,
+                    vendor_root=vendor_root,
+                    beam_size=chem_enzy_context_onmt_beam_size,
+                    topk=chem_enzy_context_onmt_topk,
+                    batch_size=chem_enzy_context_onmt_batch_size,
+                    device=-1,
+                    min_score=chem_enzy_context_onmt_min_score,
+                    max_context_step=chem_enzy_context_onmt_max_step,
+                    preference_scorer_path=chem_enzy_context_onmt_preference_scorer_path,
+                    preference_min_score=chem_enzy_context_onmt_preference_min_score,
+                    preference_rerank=chem_enzy_context_onmt_preference_rerank,
+                    raw_topk_multiplier=chem_enzy_context_onmt_raw_topk_multiplier,
+                ),
+                top_k=chem_enzy_context_onmt_topk,
+            )
         )
+    if use_legal_corpus_proposals:
+        if not legal_corpus_paths:
+            raise ValueError("legal_corpus_paths is required when legal-corpus proposals are enabled")
+        providers.append(
+            TopKProvider(
+                LegalCorpusProposalProvider(
+                    legal_corpus_paths,
+                    similarity_floor=legal_corpus_similarity_floor,
+                    candidate_pool_size=legal_corpus_candidate_pool_size,
+                    index_cache_path=legal_corpus_index_cache_path,
+                ),
+                top_k=legal_corpus_topk,
+            )
+        )
+    if use_retroknn_proposals:
+        retroknn_provider = retroknn_runtime_provider
+        if retroknn_provider is None:
+            if not retroknn_corpus_paths:
+                raise ValueError("retroknn_corpus_paths is required when RetroKNN proposals are enabled")
+            retroknn_provider = TopKProvider(
+                RetroKNNProposalProvider(
+                    retroknn_corpus_paths,
+                    max_index_rows=retroknn_max_index_rows,
+                    candidate_pool_size=retroknn_candidate_pool_size,
+                    similarity_floor=retroknn_similarity_floor,
+                    index_cache_path=retroknn_index_cache_path,
+                ),
+                top_k=retroknn_topk,
+            )
+        providers.append(retroknn_provider)
     started = time.monotonic()
     trace_collector = CascadeTraceCollector() if collect_trace else None
     controller = CascadeSearchController(
@@ -1065,6 +1418,7 @@ def _cascade_result_programs(
                     if isinstance(getattr(result, "diagnostics", None), dict)
                     else None
                 ),
+                "route_steps": _result_program_steps(state),
                 "route_rxns": sorted(route_rxns),
                 "route_reactants": sorted(route_reactants),
                 "exact_reaction_hit_count": len(exact_hits),
@@ -1084,6 +1438,34 @@ def _cascade_result_programs(
             }
         )
     return programs
+
+
+def _result_program_steps(state: Any) -> list[dict[str, Any]]:
+    steps = list(getattr(state, "step_annotations", []) or []) if state is not None else []
+    rows = []
+    for idx, step in enumerate(steps):
+        raw = dict(getattr(step, "raw_metadata", {}) or {})
+        rows.append(
+            {
+                "index": idx,
+                "product_smiles": getattr(step, "product_smiles", ""),
+                "reactant_smiles": list(getattr(step, "reactant_smiles", []) or []),
+                "rxn_smiles": getattr(step, "rxn_smiles", ""),
+                "source_model": getattr(step, "source_model", ""),
+                "score": getattr(step, "score", None),
+                "proposal_type": raw.get("proposal_type"),
+                "match_type": raw.get("match_type"),
+                "product_similarity": raw.get("product_similarity"),
+                "corpus_source": raw.get("corpus_source"),
+                "corpus_source_row_id": raw.get("corpus_source_row_id"),
+                "corpus_reaction_smiles": raw.get("corpus_reaction_smiles"),
+                "corpus_canonical_reaction": raw.get("corpus_canonical_reaction"),
+                "selection_reason": raw.get("selection_reason"),
+                "transition_value_score": raw.get("transition_value_score"),
+                "transition_value_rank": raw.get("transition_value_rank"),
+            }
+        )
+    return rows
 
 
 def _route_outcome_value(
@@ -1558,6 +1940,10 @@ def main() -> None:
         action="store_true",
         help="Use USPTO template ranking without the local lightweight product-to-template preselector.",
     )
+    ap.add_argument("--use-aizynthfinder-onnx-proposals", action="store_true")
+    ap.add_argument("--aizynthfinder-config", default="workspace/aizdata/config.yml")
+    ap.add_argument("--aizynthfinder-policy", default="uspto")
+    ap.add_argument("--aizynthfinder-topk", type=int, default=8)
     ap.add_argument("--use-template-relevance-proposals", action="store_true")
     ap.add_argument(
         "--template-relevance-model",
@@ -1566,6 +1952,84 @@ def main() -> None:
         help="Template relevance model name(s), e.g. template_relevance.reaxys_biocatalysis",
     )
     ap.add_argument("--template-relevance-topk", type=int, default=8)
+    ap.add_argument(
+        "--template-relevance-fallback",
+        action="store_true",
+        help="Call template relevance only when the static ChemEnzy proposal cache is below the fallback threshold.",
+    )
+    ap.add_argument(
+        "--template-relevance-fallback-min-primary",
+        type=int,
+        default=1,
+        help="Skip template relevance when the primary static provider has at least this many candidates for the leaf.",
+    )
+    ap.add_argument(
+        "--template-relevance-fallback-max-calls",
+        type=int,
+        default=None,
+        help="Maximum template relevance fallback calls per target; omit for unlimited.",
+    )
+    ap.add_argument("--use-chem-enzy-context-onmt-proposals", action="store_true")
+    ap.add_argument(
+        "--chem-enzy-context-onmt-model",
+        default=None,
+        help="Context-prefix ChemEnzy OpenNMT checkpoint used as an experimental sidecar proposal provider.",
+    )
+    ap.add_argument("--chem-enzy-context-onmt-topk", type=int, default=8)
+    ap.add_argument("--chem-enzy-context-onmt-beam-size", type=int, default=8)
+    ap.add_argument("--chem-enzy-context-onmt-batch-size", type=int, default=16)
+    ap.add_argument("--chem-enzy-context-onmt-min-score", type=float, default=0.05)
+    ap.add_argument(
+        "--chem-enzy-context-onmt-max-step",
+        type=int,
+        default=1,
+        help="Only call the experimental context ONMT sidecar through this 1-based retrosynthesis step; <=0 disables this limit.",
+    )
+    ap.add_argument(
+        "--chem-enzy-context-onmt-preference-scorer",
+        default=None,
+        help="Optional no-expert proposal preference scorer joblib used to score context-ONMT sidecar candidates.",
+    )
+    ap.add_argument(
+        "--chem-enzy-context-onmt-preference-min-score",
+        type=float,
+        default=None,
+        help="Optional minimum preference score for context-ONMT sidecar candidates.",
+    )
+    ap.add_argument(
+        "--chem-enzy-context-onmt-preference-rerank",
+        action="store_true",
+        help="Rerank context-ONMT sidecar candidates by the optional proposal preference scorer.",
+    )
+    ap.add_argument(
+        "--chem-enzy-context-onmt-raw-topk-multiplier",
+        type=int,
+        default=3,
+        help="Decode this multiple of requested context-ONMT candidates before conservative validity filtering.",
+    )
+    ap.add_argument("--use-legal-corpus-proposals", action="store_true")
+    ap.add_argument(
+        "--legal-corpus",
+        action="append",
+        default=[],
+        help="Canonical external top-level metadata JSONL used by the opt-in known-legal proposal provider.",
+    )
+    ap.add_argument("--legal-corpus-topk", type=int, default=100)
+    ap.add_argument("--legal-corpus-candidate-pool-size", type=int, default=1024)
+    ap.add_argument("--legal-corpus-similarity-floor", type=float, default=0.0)
+    ap.add_argument("--legal-corpus-index-cache", default=None)
+    ap.add_argument("--use-retroknn-proposals", action="store_true")
+    ap.add_argument(
+        "--retroknn-corpus",
+        action="append",
+        default=[],
+        help="Known real-reaction metadata JSONL used by the RetroKNN retrieval proposal provider.",
+    )
+    ap.add_argument("--retroknn-topk", type=int, default=32)
+    ap.add_argument("--retroknn-max-index-rows", type=int, default=None)
+    ap.add_argument("--retroknn-candidate-pool-size", type=int, default=1024)
+    ap.add_argument("--retroknn-similarity-floor", type=float, default=0.0)
+    ap.add_argument("--retroknn-index-cache", default=None)
     ap.add_argument("--include-route-outcomes", action="store_true")
     ap.add_argument("--vendor-root", default="vendor/ChemEnzyRetroPlanner")
     ap.add_argument("--stock", action="append", default=[])
@@ -1587,6 +2051,17 @@ def main() -> None:
     ap.add_argument("--cascade-result-limit", type=int, default=5)
     ap.add_argument("--cascade-min-step-score", type=float, default=0.05)
     ap.add_argument("--cascade-value-model", default=None)
+    ap.add_argument(
+        "--rule-verifier-value",
+        action="store_true",
+        help="Use the current rule cascade verifier as the CascadeProgramSearch value guard.",
+    )
+    ap.add_argument(
+        "--learned-verifier-model",
+        default=None,
+        help="Joblib model from scripts/train_cascade_verifier_from_pack.py.",
+    )
+    ap.add_argument("--cascade-verifier-weight", type=float, default=0.35)
     ap.add_argument("--cascade-transition-model", default=None)
     ap.add_argument("--cascade-action-value-model", default=None)
     ap.add_argument("--cascade-subgoal-provider-model", default=None)
@@ -1664,9 +2139,50 @@ def main() -> None:
         use_chemical_template_proposals=args.use_chemical_template_proposals,
         chemical_template_topk=args.chemical_template_topk,
         chemical_template_prefer_preselector=not args.chemical_template_no_preselector,
+        use_aizynthfinder_onnx_proposals=args.use_aizynthfinder_onnx_proposals,
+        aizynthfinder_config_path=Path(args.aizynthfinder_config),
+        aizynthfinder_policy=args.aizynthfinder_policy,
+        aizynthfinder_topk=args.aizynthfinder_topk,
         use_template_relevance_proposals=args.use_template_relevance_proposals,
         template_relevance_models=args.template_relevance_model or None,
         template_relevance_topk=args.template_relevance_topk,
+        template_relevance_fallback=args.template_relevance_fallback,
+        template_relevance_fallback_min_primary=args.template_relevance_fallback_min_primary,
+        template_relevance_fallback_max_calls=args.template_relevance_fallback_max_calls,
+        use_chem_enzy_context_onmt_proposals=args.use_chem_enzy_context_onmt_proposals,
+        chem_enzy_context_onmt_model_path=(
+            Path(args.chem_enzy_context_onmt_model) if args.chem_enzy_context_onmt_model else None
+        ),
+        chem_enzy_context_onmt_topk=args.chem_enzy_context_onmt_topk,
+        chem_enzy_context_onmt_beam_size=args.chem_enzy_context_onmt_beam_size,
+        chem_enzy_context_onmt_batch_size=args.chem_enzy_context_onmt_batch_size,
+        chem_enzy_context_onmt_min_score=args.chem_enzy_context_onmt_min_score,
+        chem_enzy_context_onmt_max_step=(
+            args.chem_enzy_context_onmt_max_step if args.chem_enzy_context_onmt_max_step > 0 else None
+        ),
+        chem_enzy_context_onmt_preference_scorer_path=(
+            Path(args.chem_enzy_context_onmt_preference_scorer)
+            if args.chem_enzy_context_onmt_preference_scorer
+            else None
+        ),
+        chem_enzy_context_onmt_preference_min_score=args.chem_enzy_context_onmt_preference_min_score,
+        chem_enzy_context_onmt_preference_rerank=args.chem_enzy_context_onmt_preference_rerank,
+        chem_enzy_context_onmt_raw_topk_multiplier=args.chem_enzy_context_onmt_raw_topk_multiplier,
+        use_legal_corpus_proposals=args.use_legal_corpus_proposals,
+        legal_corpus_paths=[Path(path) for path in args.legal_corpus] if args.legal_corpus else None,
+        legal_corpus_topk=args.legal_corpus_topk,
+        legal_corpus_candidate_pool_size=args.legal_corpus_candidate_pool_size,
+        legal_corpus_similarity_floor=args.legal_corpus_similarity_floor,
+        legal_corpus_index_cache_path=(
+            Path(args.legal_corpus_index_cache) if args.legal_corpus_index_cache else None
+        ),
+        use_retroknn_proposals=args.use_retroknn_proposals,
+        retroknn_corpus_paths=[Path(path) for path in args.retroknn_corpus] if args.retroknn_corpus else None,
+        retroknn_topk=args.retroknn_topk,
+        retroknn_max_index_rows=args.retroknn_max_index_rows,
+        retroknn_candidate_pool_size=args.retroknn_candidate_pool_size,
+        retroknn_similarity_floor=args.retroknn_similarity_floor,
+        retroknn_index_cache_path=Path(args.retroknn_index_cache) if args.retroknn_index_cache else None,
         vendor_root=Path(args.vendor_root),
         stock_names=args.stock or DEFAULT_STOCKS,
         one_step_models=args.one_step_model or DEFAULT_ONE_STEP_MODELS,
@@ -1687,6 +2203,9 @@ def main() -> None:
         cascade_result_limit=args.cascade_result_limit,
         cascade_min_step_score=args.cascade_min_step_score,
         cascade_value_model_path=Path(args.cascade_value_model) if args.cascade_value_model else None,
+        use_rule_verifier_value=args.rule_verifier_value,
+        learned_verifier_model_path=Path(args.learned_verifier_model) if args.learned_verifier_model else None,
+        cascade_verifier_weight=args.cascade_verifier_weight,
         cascade_transition_model_path=Path(args.cascade_transition_model) if args.cascade_transition_model else None,
         cascade_action_value_model_path=(
             Path(args.cascade_action_value_model) if args.cascade_action_value_model else None
@@ -1733,29 +2252,98 @@ def _json_mapping(value: str | None) -> dict[str, Any] | None:
     return payload
 
 
+def _cascade_value_model_label(
+    *,
+    cascade_value_model_path: Path | None,
+    use_rule_verifier_value: bool,
+    learned_verifier_model_path: Path | None,
+) -> str:
+    if learned_verifier_model_path is not None:
+        return "learned_verifier_augmented"
+    if use_rule_verifier_value:
+        return "rule_verifier_augmented"
+    if cascade_value_model_path is not None:
+        return "legacy_learned_cascade_value"
+    return "heuristic"
+
+
+def _guard_legacy_benchmark_options(
+    *,
+    cascade_value_model_path: Path | None,
+    cascade_transition_model_path: Path | None,
+    cascade_action_value_model_path: Path | None,
+    cascade_pair_scorer_path: Path | None,
+    use_rule_pair_scorer: bool,
+    route_block_value_final_reranker_path: Path | None,
+    use_chem_enzy_cascade_cost: bool,
+    use_chem_enzy_cascade_source_policy: bool,
+    chem_enzy_cascade_cost_model: dict[str, Any] | None,
+    chem_enzy_cascade_source_policy: dict[str, Any] | None,
+) -> None:
+    requested = []
+    if cascade_value_model_path:
+        requested.append("cascade_value_model")
+    if cascade_transition_model_path:
+        requested.append("cascade_transition_model")
+    if cascade_action_value_model_path:
+        requested.append("cascade_action_value_model")
+    if cascade_pair_scorer_path:
+        requested.append("cascade_pair_scorer")
+    if use_rule_pair_scorer:
+        requested.append("cascade_rule_pair_scorer")
+    if route_block_value_final_reranker_path:
+        requested.append("route_block_value_final_reranker")
+    if use_chem_enzy_cascade_cost or chem_enzy_cascade_cost_model:
+        requested.append("chem_enzy_cascade_cost")
+    if use_chem_enzy_cascade_source_policy or chem_enzy_cascade_source_policy:
+        requested.append("chem_enzy_cascade_source_policy")
+    if requested and not legacy_research_enabled():
+        raise ValueError(
+            "legacy/frozen benchmark options requested: "
+            + ", ".join(requested)
+            + f". Set {LEGACY_RESEARCH_ENV}=1 only when reproducing old reports."
+        )
+
+
 def _validate_model_inputs(
     *,
     cascade_value_model_path: Path | None = None,
+    learned_verifier_model_path: Path | None = None,
     cascade_transition_model_path: Path | None = None,
     cascade_action_value_model_path: Path | None = None,
     cascade_subgoal_provider_model_path: Path | None = None,
     cascade_pair_scorer_path: Path | None = None,
     route_block_value_final_reranker_path: Path | None = None,
+    chem_enzy_context_onmt_model_path: Path | None = None,
+    chem_enzy_context_onmt_preference_scorer_path: Path | None = None,
+    legal_corpus_paths: list[Path] | None = None,
+    retroknn_corpus_paths: list[Path] | None = None,
+    aizynthfinder_config_path: Path | None = None,
     chem_enzy_cascade_cost_model: dict[str, Any] | None = None,
     chem_enzy_cascade_source_policy: dict[str, Any] | None = None,
 ) -> None:
     """Fail before expensive ChemEnzy search when configured model files are missing."""
     explicit_paths = {
         "cascade_value_model": cascade_value_model_path,
+        "learned_verifier_model": learned_verifier_model_path,
         "cascade_transition_model": cascade_transition_model_path,
         "cascade_action_value_model": cascade_action_value_model_path,
         "cascade_subgoal_provider_model": cascade_subgoal_provider_model_path,
         "cascade_pair_scorer": cascade_pair_scorer_path,
         "route_block_value_final_reranker": route_block_value_final_reranker_path,
+        "chem_enzy_context_onmt_model": chem_enzy_context_onmt_model_path,
+        "chem_enzy_context_onmt_preference_scorer": chem_enzy_context_onmt_preference_scorer_path,
+        "aizynthfinder_config": aizynthfinder_config_path,
     }
     for label, path in explicit_paths.items():
         if path is not None and not path.is_file():
             raise FileNotFoundError(f"{label} not found: {path}")
+    for path in legal_corpus_paths or []:
+        if not Path(path).is_file():
+            raise FileNotFoundError(f"legal_corpus not found: {path}")
+    for path in retroknn_corpus_paths or []:
+        if not Path(path).is_file():
+            raise FileNotFoundError(f"retroknn_corpus not found: {path}")
 
     for label, payload in (
         ("chem_enzy_cascade_cost_model", chem_enzy_cascade_cost_model),

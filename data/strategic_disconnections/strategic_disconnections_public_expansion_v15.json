@@ -1,0 +1,1181 @@
+{
+  "schema_version": "strategic_disconnections.v15_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Fourteenth expanded public source layer focused on additional enzyme and process-aware strategic disconnections: lipase/esterase resolution and acylation, nitrile-metabolizing enzyme routes, ene-reductase asymmetric alkene reduction, methyltransferase/acyltransferase tailoring enzymes, enzymatic C1 fixation or decarboxylation, oxygenase/peroxygenase epoxidation and hydroxylation, chemoenzymatic dynamic kinetic resolution, and immobilized-enzyme or continuous-flow biocatalysis process boundaries.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist, enzymologist, and process review",
+      "explicit substrate, product, enzyme class, selectivity, yield-ceiling or process-boundary metadata before proposal promotion",
+      "separate lipase, esterase, nitrilase, nitrile hydratase, amidase, ene-reductase, tailoring-enzyme, carboxylase, decarboxylase, oxygenase, peroxygenase, DKR, immobilization, and flow-process policy",
+      "route-specific enzyme scope, substrate recognition, stereochemical or regioselective outcome, donor/cofactor handling, support/catalyst lifetime, cascade order, and process provenance review",
+      "toxicology, environmental, bioactive-natural-product, whole-cell, immobilized-catalyst, solvent, oxygenation, or process-safety review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, procedures, expression protocols, and operating conditions",
+      "process and enzyme records are source-backed strategic priors only and must not auto-close routes as stock, wet-lab recipes, or validated manufacturing processes"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "lipase_esterase_resolution_and_acylation_route",
+      "name": "Lipase and esterase kinetic resolution, desymmetrization, and acylation route anchors",
+      "pattern_keywords": [
+        "lipase",
+        "esterase",
+        "kinetic resolution",
+        "dynamic kinetic resolution",
+        "desymmetrization",
+        "enantioselective acylation"
+      ],
+      "strategic_principle": "Separate substrate or prochiral diester synthesis, enzyme selectivity, acyl donor or hydrolysis role, and yield-ceiling policy. Lipase/esterase routes are strategic resolution or desymmetrization records, not ordinary esterification templates."
+    },
+    {
+      "family_id": "nitrilase_nitrile_hydratase_amidase_route",
+      "name": "Nitrilase, nitrile-hydratase, and amidase routes to acids, amides, and chiral carboxylates",
+      "pattern_keywords": [
+        "nitrilase",
+        "nitrile hydratase",
+        "amidase",
+        "nitrile hydrolysis",
+        "chiral carboxylic acid",
+        "amide biotransformation"
+      ],
+      "strategic_principle": "Separate nitrile precursor design from enzymatic hydration, hydrolysis, or amide resolution. Chemoselectivity, enantioselectivity, and nitrile-to-acid/amide process precedent define route value."
+    },
+    {
+      "family_id": "ene_reductase_asymmetric_alkene_reduction",
+      "name": "Ene-reductase and old yellow enzyme asymmetric activated-alkene reduction",
+      "pattern_keywords": [
+        "ene reductase",
+        "old yellow enzyme",
+        "activated alkene",
+        "enone reduction",
+        "asymmetric alkene reduction",
+        "conjugated C=C"
+      ],
+      "strategic_principle": "Separate activated alkene precursor access, C=C geometry, enzyme facial selectivity, and cofactor recycling. Ene-reductase logic is route-defining when alkene reduction creates stereochemistry or avoids chemoselectivity problems."
+    },
+    {
+      "family_id": "methyltransferase_acyltransferase_tailoring_enzyme",
+      "name": "Methyltransferase, acyltransferase, and natural-product tailoring-enzyme route anchors",
+      "pattern_keywords": [
+        "methyltransferase",
+        "S-adenosylmethionine",
+        "acyltransferase",
+        "tailoring enzyme",
+        "natural product diversification",
+        "post-assembly modification"
+      ],
+      "strategic_principle": "Separate scaffold assembly from donor-dependent tailoring, regioselectivity, and biosynthetic context. Tailoring-enzyme identity can define an analogue strategy even when the formal bond is a methyl, acyl, or heteroatom substituent."
+    },
+    {
+      "family_id": "decarboxylase_carboxylase_c1_fixation_route",
+      "name": "Carboxylase, decarboxylase, and enzymatic C1 fixation or removal route handles",
+      "pattern_keywords": [
+        "carboxylase",
+        "decarboxylase",
+        "CO2 fixation",
+        "carbon dioxide utilization",
+        "biocatalytic carboxylation",
+        "C1 conversion"
+      ],
+      "strategic_principle": "Separate C1 source or carboxyl group logic from ordinary carboxylation/decarboxylation templates. CO2/bicarbonate insertion, carboxylate loss, and thermodynamic driving force are route metadata."
+    },
+    {
+      "family_id": "enzymatic_epoxidation_dihydroxylation_oxygenation_route",
+      "name": "Peroxygenase, monooxygenase, epoxidase, and dioxygenase oxygenation strategy",
+      "pattern_keywords": [
+        "peroxygenase",
+        "monooxygenase",
+        "dioxygenase",
+        "styrene monooxygenase",
+        "epoxidation",
+        "dihydroxylation"
+      ],
+      "strategic_principle": "Separate alkene or arene precursor synthesis from enzyme-controlled epoxidation, hydroxylation, dihydroxylation, or oxygenation pattern. Oxygen transfer mode, site selectivity, and oxidative risk are strategic fields."
+    },
+    {
+      "family_id": "chemoenzymatic_dynamic_cascade_resolution",
+      "name": "Chemoenzymatic dynamic kinetic resolution, deracemization, and cascade-resolution boundaries",
+      "pattern_keywords": [
+        "chemoenzymatic dynamic kinetic resolution",
+        "DKR",
+        "deracemization",
+        "racemization",
+        "cascade resolution",
+        "enzyme chemical cascade"
+      ],
+      "strategic_principle": "Separate chemical racemization, enzyme selectivity, resolution yield ceiling, and cascade compatibility. A DKR or deracemization route must represent both the chemical and enzymatic halves."
+    },
+    {
+      "family_id": "enzyme_immobilization_flow_biocatalysis_process_boundary",
+      "name": "Immobilized-enzyme, packed-bed, and continuous-flow biocatalysis process boundaries",
+      "pattern_keywords": [
+        "immobilized enzyme",
+        "flow biocatalysis",
+        "packed bed",
+        "protein immobilization",
+        "continuous reactor",
+        "enzyme support"
+      ],
+      "strategic_principle": "Separate molecular retrosynthesis from process-intensification evidence. Catalyst support, lifetime, mass transfer, packed-bed or wall-immobilized format, and downstream integration can be route-defining."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "lipase_esterase_selectivity_resolution_anchor",
+      "family_id": "lipase_esterase_resolution_and_acylation_route",
+      "name": "Lipase/esterase anchor with reviewed substrate class, selectivity mode, acyl donor or hydrolysis role, and resolution ceiling",
+      "role": "lipase_esterase_resolution_anchor",
+      "aliases": [
+        "lipase kinetic resolution",
+        "esterase desymmetrization",
+        "lipase acylation"
+      ],
+      "acceptance_policy": "requires_substrate_class_enzyme_selectivity_resolution_ceiling_acyl_donor_or_hydrolysis_and_process_review"
+    },
+    {
+      "anchor_id": "nitrile_metabolizing_enzyme_route_anchor",
+      "family_id": "nitrilase_nitrile_hydratase_amidase_route",
+      "name": "Nitrile-metabolizing enzyme anchor with reviewed nitrile precursor, enzyme class, acid/amide endpoint, and selectivity",
+      "role": "nitrile_metabolizing_enzyme_anchor",
+      "aliases": [
+        "nitrilase hydrolysis",
+        "nitrile hydratase",
+        "amidase resolution"
+      ],
+      "acceptance_policy": "requires_nitrile_precursor_enzyme_class_endpoint_selectivity_toxicology_and_process_review"
+    },
+    {
+      "anchor_id": "ene_reductase_activated_alkene_stereocontrol_anchor",
+      "family_id": "ene_reductase_asymmetric_alkene_reduction",
+      "name": "Ene-reductase anchor with reviewed activated alkene, E/Z geometry, facial selectivity, and cofactor handling",
+      "role": "ene_reductase_stereocontrol_anchor",
+      "aliases": [
+        "old yellow enzyme",
+        "ene-reductase bioreduction",
+        "activated alkene asymmetric reduction"
+      ],
+      "acceptance_policy": "requires_activated_alkene_geometry_enzyme_family_stereochemical_outcome_cofactor_and_scope_review"
+    },
+    {
+      "anchor_id": "tailoring_enzyme_donor_regioselectivity_anchor",
+      "family_id": "methyltransferase_acyltransferase_tailoring_enzyme",
+      "name": "Tailoring-enzyme anchor with reviewed scaffold, donor identity, enzyme family, and regioselective modification",
+      "role": "natural_product_tailoring_enzyme_anchor",
+      "aliases": [
+        "SAM-dependent methyltransferase",
+        "acyltransferase tailoring",
+        "post-assembly natural-product modification"
+      ],
+      "acceptance_policy": "requires_scaffold_donor_identity_enzyme_family_regioselectivity_biosynthetic_context_and_biological_mode_review"
+    },
+    {
+      "anchor_id": "carboxylase_decarboxylase_c1_anchor",
+      "family_id": "decarboxylase_carboxylase_c1_fixation_route",
+      "name": "Carboxylase/decarboxylase C1 route anchor with reviewed CO2 source or carboxyl-loss logic and thermodynamic policy",
+      "role": "enzymatic_c1_fixation_anchor",
+      "aliases": [
+        "enzymatic carboxylation",
+        "CO2 fixation biocatalysis",
+        "decarboxylase route"
+      ],
+      "acceptance_policy": "requires_c1_source_substrate_class_enzyme_identity_thermodynamic_driving_force_and_sustainability_review"
+    },
+    {
+      "anchor_id": "enzymatic_oxygenation_pattern_anchor",
+      "family_id": "enzymatic_epoxidation_dihydroxylation_oxygenation_route",
+      "name": "Enzymatic oxygenation anchor with reviewed substrate, oxygenation pattern, enzyme class, and oxidative-safety policy",
+      "role": "enzymatic_oxygenation_anchor",
+      "aliases": [
+        "peroxygenase oxygenation",
+        "monooxygenase epoxidation",
+        "dioxygenase dihydroxylation"
+      ],
+      "acceptance_policy": "requires_substrate_oxygenation_pattern_enzyme_class_site_selectivity_cofactor_or_oxidant_and_safety_review"
+    },
+    {
+      "anchor_id": "chemoenzymatic_dkr_cascade_resolution_anchor",
+      "family_id": "chemoenzymatic_dynamic_cascade_resolution",
+      "name": "Chemoenzymatic DKR anchor with reviewed racemization, enzyme selectivity, cascade compatibility, and mass balance",
+      "role": "chemoenzymatic_dkr_anchor",
+      "aliases": [
+        "dynamic kinetic resolution",
+        "chemoenzymatic deracemization",
+        "cascade resolution"
+      ],
+      "acceptance_policy": "requires_racemization_mode_enzyme_selectivity_resolution_ceiling_mass_balance_cascade_order_and_process_review"
+    },
+    {
+      "anchor_id": "immobilized_flow_biocatalysis_process_anchor",
+      "family_id": "enzyme_immobilization_flow_biocatalysis_process_boundary",
+      "name": "Immobilized or flow biocatalysis anchor with reviewed support, reactor boundary, catalyst lifetime, and process integration",
+      "role": "flow_biocatalysis_process_anchor",
+      "aliases": [
+        "immobilized enzyme",
+        "packed-bed biocatalyst",
+        "continuous-flow biocatalysis"
+      ],
+      "acceptance_policy": "requires_support_reactor_boundary_catalyst_lifetime_mass_transfer_downstream_integration_and_scale_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "lipase_kinetic_resolution_acylation_disconnection",
+      "family_id": "lipase_esterase_resolution_and_acylation_route",
+      "name": "Enantioenriched alcohol or ester to racemate plus lipase/esterase acylation or hydrolysis policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "enantioenriched alcohols",
+          "chiral esters",
+          "resolved pharmaceutical intermediates"
+        ],
+        "target_features": [
+          "racemate or prochiral ester",
+          "lipase or esterase selectivity",
+          "resolution yield ceiling"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "resolved enantiomer to racemate boundary",
+          "enzyme-selective acylation or hydrolysis boundary"
+        ],
+        "forward_logic": [
+          "separate racemate preparation from enzymatic resolution",
+          "track acyl donor or hydrolysis role and maximum yield ceiling",
+          "carry enzyme selectivity and unresolved enantiomer fate into route ranking"
+        ],
+        "suggested_precursor_roles": [
+          "racemic alcohol or ester",
+          "lipase or esterase",
+          "acyl donor or hydrolysis condition class",
+          "resolved product"
+        ],
+        "planner_hint": "Reward lipase/esterase resolution only when the route exposes selectivity, yield ceiling, and fate of the undesired enantiomer."
+      },
+      "risks": [
+        "ordinary kinetic resolution yield ceiling",
+        "substrate selectivity mismatch",
+        "acyl donor compatibility gap",
+        "untracked opposite enantiomer"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Lipase review covers kinetic resolution access to enantiomerically pure or enriched compounds.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33675087/"
+        },
+        {
+          "type": "literature",
+          "citation": "Lipase-mediated pharmaceutical-intermediate review supports lipase routes for preparation and resolution of useful intermediates.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/26690428/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "lipase_resolution_prior",
+        "rerank_bonus": "moderate for explicit racemate, enzyme selectivity, acyl/hydrolysis role, and yield-ceiling policy",
+        "compliance_gate": "lipase_resolution_selectivity_and_process_review_required"
+      }
+    },
+    {
+      "id": "lipase_desymmetrization_dynamic_resolution_policy",
+      "family_id": "lipase_esterase_resolution_and_acylation_route",
+      "name": "Desymmetrized or dynamically resolved product to meso/racemizing precursor plus lipase/esterase policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "desymmetrized diols",
+          "desymmetrized diesters",
+          "dynamic-resolution alcohols or amines"
+        ],
+        "target_features": [
+          "meso precursor",
+          "enzymatic desymmetrization",
+          "dynamic kinetic resolution"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "desymmetrization boundary",
+          "racemization plus enzyme-resolution boundary"
+        ],
+        "forward_logic": [
+          "separate meso or racemizing precursor synthesis from enzyme-selective transformation",
+          "track whether the route is desymmetrization, KR, or DKR",
+          "require explicit racemization or symmetry-breaking evidence before promotion"
+        ],
+        "suggested_precursor_roles": [
+          "meso or racemizing precursor",
+          "selective lipase or esterase",
+          "symmetry-broken product",
+          "resolution-mode metadata"
+        ],
+        "planner_hint": "Use this record when enzyme selectivity breaks symmetry or pairs with racemization, not for a generic ester interchange."
+      },
+      "risks": [
+        "racemization not coupled",
+        "desymmetrization overclaim",
+        "enzyme selectivity substrate gap",
+        "mass-balance ambiguity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Lipase dynamic-kinetic-resolution review supports lipases as route handles for DKR.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25795055/"
+        },
+        {
+          "type": "literature",
+          "citation": "Chemoenzymatic DKR review covers dynamic resolution strategies for enantiopure alcohols and amines.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25730714/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "lipase_desymmetrization_dkr_prior",
+        "rerank_bonus": "moderate for explicit meso/racemizing precursor, selectivity, racemization, and mass balance",
+        "compliance_gate": "lipase_desymmetrization_dkr_review_required"
+      }
+    },
+    {
+      "id": "nitrilase_chiral_acid_from_nitrile_disconnection",
+      "family_id": "nitrilase_nitrile_hydratase_amidase_route",
+      "name": "Chiral acid or amide to nitrile precursor plus nitrilase/amidase selectivity policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "chiral carboxylic acids",
+          "alpha- or beta-substituted amides",
+          "nitrile-derived API intermediates"
+        ],
+        "target_features": [
+          "nitrile precursor",
+          "nitrilase or amidase endpoint",
+          "chemoselective hydrolysis or resolution"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "nitrile to carboxylate boundary",
+          "amide to acid enzyme boundary"
+        ],
+        "forward_logic": [
+          "disconnect acid or amide products to nitrile or amide precursors",
+          "track enzyme class as nitrilase, nitrile hydratase, or amidase",
+          "carry enantioselectivity and endpoint identity into route ranking"
+        ],
+        "suggested_precursor_roles": [
+          "nitrile substrate",
+          "nitrilase or amidase",
+          "acid or amide product",
+          "endpoint and selectivity metadata"
+        ],
+        "planner_hint": "Reward nitrile-enzyme routes when nitrile precursor access and enzyme endpoint selectivity are explicit."
+      },
+      "risks": [
+        "nitrile toxicity and handling review required",
+        "overhydrolysis or endpoint mismatch",
+        "enzyme class confusion",
+        "enantioselectivity unsupported"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Nitrile-metabolizing enzyme review covers nitrilases, nitrile hydratases, and amidases in biocatalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/29380295/"
+        },
+        {
+          "type": "literature",
+          "citation": "Microbial nitrile-transformation review supports nitrile conversion to high-value acids or amides.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/19475377/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "nitrile_enzyme_acid_amide_prior",
+        "rerank_bonus": "moderate for explicit nitrile precursor, enzyme class, endpoint, and selectivity",
+        "compliance_gate": "nitrile_enzyme_toxicology_selectivity_and_process_review_required"
+      }
+    },
+    {
+      "id": "nitrile_hydratase_amidase_process_boundary_policy",
+      "family_id": "nitrilase_nitrile_hydratase_amidase_route",
+      "name": "Amide or acid product to nitrile-hydratase/amidase sequence plus process-boundary policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "industrial amides",
+          "amide intermediates",
+          "acid products from nitrile hydration/hydrolysis"
+        ],
+        "target_features": [
+          "nitrile hydratase",
+          "amidase sequence",
+          "process precedent"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "nitrile hydration boundary",
+          "amide hydrolysis boundary"
+        ],
+        "forward_logic": [
+          "separate nitrile access from hydration and hydrolysis enzyme sequence",
+          "track whether the target endpoint is amide isolation or acid formation",
+          "flag process routes for substrate loading, toxicity, and downstream review"
+        ],
+        "suggested_precursor_roles": [
+          "nitrile substrate",
+          "nitrile hydratase",
+          "amidase",
+          "amide or acid endpoint"
+        ],
+        "planner_hint": "Use nitrile-hydratase/amidase records when endpoint control and process precedent matter more than formal hydrolysis."
+      },
+      "risks": [
+        "endpoint overconversion",
+        "whole-cell or enzyme-process mismatch",
+        "nitrile hazard review required",
+        "amide isolation gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Nitrile-degrading enzyme review provides public context for nitrilase, hydratase, and amidase route roles.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/12382040/"
+        },
+        {
+          "type": "literature",
+          "citation": "Nitrile biotransformation review covers microbial conversion of nitriles to acids or amides.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/19475377/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "nitrile_hydratase_amidase_process_prior",
+        "rerank_bonus": "moderate for explicit enzyme sequence, endpoint identity, and process boundary",
+        "compliance_gate": "nitrile_hydratase_amidase_process_and_safety_review_required"
+      }
+    },
+    {
+      "id": "ene_reductase_activated_alkene_stereoreduction_split",
+      "family_id": "ene_reductase_asymmetric_alkene_reduction",
+      "name": "Saturated stereocenter product to activated alkene plus ene-reductase facial-selectivity policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "enantioenriched carbonyl-adjacent stereocenters",
+          "reduced enones or enoates",
+          "activated-alkene API intermediates"
+        ],
+        "target_features": [
+          "activated C=C precursor",
+          "old yellow enzyme",
+          "NAD(P)H-dependent reduction"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "activated alkene to saturated stereocenter boundary",
+          "cofactor-dependent hydride/proton addition boundary"
+        ],
+        "forward_logic": [
+          "disconnect saturated product to the corresponding activated alkene",
+          "track E/Z geometry, electron-withdrawing group, and enzyme facial selectivity",
+          "carry cofactor and product stereochemistry into route ranking"
+        ],
+        "suggested_precursor_roles": [
+          "activated alkene",
+          "ene-reductase or old yellow enzyme",
+          "saturated stereodefined product",
+          "cofactor metadata"
+        ],
+        "planner_hint": "Reward ene-reductase routes when alkene geometry and enzyme facial selectivity are explicitly represented."
+      },
+      "risks": [
+        "alkene geometry mismatch",
+        "chemoselectivity gap",
+        "cofactor recycling omission",
+        "wrong enantiomer prediction"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Ene-reductase review describes ene-reductases as multifaceted biocatalysts in organic synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35133702/"
+        },
+        {
+          "type": "literature",
+          "citation": "Industrial ene-reductase review covers discovery, engineering, and applications for biocatalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31157123/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "ene_reductase_stereoreduction_prior",
+        "rerank_bonus": "high for explicit activated alkene, geometry, enzyme family, cofactor, and stereochemical outcome",
+        "compliance_gate": "ene_reductase_geometry_cofactor_and_stereochemistry_review_required"
+      }
+    },
+    {
+      "id": "old_yellow_enzyme_cascade_alkene_reduction_policy",
+      "family_id": "ene_reductase_asymmetric_alkene_reduction",
+      "name": "Cascade-derived reduced product to enoate/enone plus old-yellow-enzyme and partner-step policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "cascade-reduced enones",
+          "saturated lactones or esters",
+          "multi-enzyme alkene-reduction products"
+        ],
+        "target_features": [
+          "ene-reductase cascade",
+          "activated alkene plus partner enzyme",
+          "cofactor compatibility"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "cascade alkene-reduction boundary",
+          "partner-enzyme compatibility boundary"
+        ],
+        "forward_logic": [
+          "separate activated-alkene formation from ene-reductase reduction and downstream/upstream partner steps",
+          "track cofactor compatibility across the cascade",
+          "flag routes where alkene reduction changes both stereochemistry and process order"
+        ],
+        "suggested_precursor_roles": [
+          "enone or enoate precursor",
+          "old yellow enzyme",
+          "partner enzyme or chemical step",
+          "cascade product"
+        ],
+        "planner_hint": "Use cascade ene-reductase records when alkene reduction must be coordinated with adjacent enzymatic or chemical steps."
+      },
+      "risks": [
+        "cascade order incompatibility",
+        "cofactor mismatch",
+        "substrate inhibition",
+        "stereochemical drift in partner steps"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Review of asymmetric bioreduction of activated alkenes supports ene-reductase use for industrially relevant optically active compounds.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/22498437/"
+        },
+        {
+          "type": "literature",
+          "citation": "Ene-reductase industrial review covers applications and engineering considerations for process biocatalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31157123/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "old_yellow_enzyme_cascade_prior",
+        "rerank_bonus": "moderate for explicit activated-alkene precursor, cascade order, cofactor compatibility, and stereochemical role",
+        "compliance_gate": "ene_reductase_cascade_process_review_required"
+      }
+    },
+    {
+      "id": "sam_methyltransferase_tailoring_disconnection",
+      "family_id": "methyltransferase_acyltransferase_tailoring_enzyme",
+      "name": "Methylated natural-product analogue to parent scaffold plus SAM-dependent methyltransferase policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "methylated natural products",
+          "O-, N-, C-, or S-methylated analogues",
+          "biosynthetically diversified scaffolds"
+        ],
+        "target_features": [
+          "SAM-dependent methyltransferase",
+          "regioselective methylation",
+          "post-assembly tailoring"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "methyl substituent donor boundary",
+          "tailoring-enzyme regioselectivity boundary"
+        ],
+        "forward_logic": [
+          "separate parent scaffold assembly from donor-dependent methyltransferase tailoring",
+          "track donor identity, enzyme class, methylation atom, and biosynthetic context",
+          "avoid generic methylation templates when enzyme selectivity defines feasibility"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "SAM-dependent methyltransferase",
+          "methyl donor",
+          "methylated product"
+        ],
+        "planner_hint": "Reward methyltransferase records when methylation position and donor/enzyme identity are route-defining."
+      },
+      "risks": [
+        "regioselectivity overclaim",
+        "donor regeneration omitted",
+        "enzyme-substrate mismatch",
+        "bioactive natural-product review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "SAM-dependent methyltransferase review discusses applications for natural-product biosynthesis and diversification.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/38650197/"
+        },
+        {
+          "type": "literature",
+          "citation": "Tailoring-enzyme review frames tailoring enzymes as tools for biocombinatorial lead development.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/15645724/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "sam_methyltransferase_tailoring_prior",
+        "rerank_bonus": "moderate for explicit parent scaffold, methylation atom, donor, enzyme class, and biosynthetic context",
+        "compliance_gate": "methyltransferase_tailoring_biological_mode_review_required"
+      }
+    },
+    {
+      "id": "acyltransferase_tailoring_module_policy",
+      "family_id": "methyltransferase_acyltransferase_tailoring_enzyme",
+      "name": "Acylated or decorated natural product to parent scaffold plus acyltransferase/tailoring-module policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "acylated natural products",
+          "NRPS/PKS tailored analogues",
+          "post-assembly decorated scaffolds"
+        ],
+        "target_features": [
+          "acyltransferase",
+          "tailoring domain",
+          "donor-dependent decoration"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "acyl substituent attachment boundary",
+          "biosynthetic tailoring-domain boundary"
+        ],
+        "forward_logic": [
+          "separate scaffold assembly from acyl donor or tailoring-enzyme modification",
+          "track donor identity, enzyme family, carrier-domain context, and biological role",
+          "flag antimicrobial, cytotoxic, or signalling scaffolds for stewardship and biological-mode review"
+        ],
+        "suggested_precursor_roles": [
+          "parent natural-product scaffold",
+          "acyl donor or carrier-bound intermediate",
+          "acyltransferase or tailoring enzyme",
+          "decorated product"
+        ],
+        "planner_hint": "Use acyltransferase tailoring records when donor identity and biosynthetic module context define analogue feasibility."
+      },
+      "risks": [
+        "carrier-domain context omitted",
+        "donor availability gap",
+        "module specificity overclaim",
+        "bioactive scaffold stewardship review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "NRPS tailoring-enzyme review covers modifications during and after chain elongation on assembly lines.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/11578925/"
+        },
+        {
+          "type": "literature",
+          "citation": "Tailoring-enzyme review supports genome-based and biocombinatorial use of natural-product tailoring enzymes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/15645724/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "acyltransferase_tailoring_prior",
+        "rerank_bonus": "moderate for explicit scaffold, acyl donor, enzyme or module, and biosynthetic context",
+        "compliance_gate": "acyltransferase_tailoring_bioactive_scaffold_review_required"
+      }
+    },
+    {
+      "id": "carboxylase_co2_fixation_disconnection",
+      "family_id": "decarboxylase_carboxylase_c1_fixation_route",
+      "name": "Carboxylated product to substrate plus enzymatic CO2 fixation and thermodynamic policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "enzymatically carboxylated products",
+          "bio-based carboxylic acids",
+          "C1-fixation intermediates"
+        ],
+        "target_features": [
+          "CO2 or bicarbonate source",
+          "carboxylase",
+          "thermodynamic driving force"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-C carboxylation boundary",
+          "CO2 fixation thermodynamic boundary"
+        ],
+        "forward_logic": [
+          "disconnect carboxylated product to decarboxylated substrate and C1 source",
+          "track carboxylase identity, cofactor, and thermodynamic coupling",
+          "flag sustainability claims for process and carbon-accounting review"
+        ],
+        "suggested_precursor_roles": [
+          "decarboxylated substrate",
+          "CO2 or bicarbonate C1 source",
+          "carboxylase",
+          "carboxylated product"
+        ],
+        "planner_hint": "Reward enzymatic carboxylation only when C1 source, enzyme class, and driving force are explicit."
+      },
+      "risks": [
+        "thermodynamic infeasibility",
+        "cofactor or energy-coupling omission",
+        "substrate scope mismatch",
+        "sustainability overclaim"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Synthetic enzyme-catalyzed CO2 fixation review supports enzymatic carboxylation as a route concept.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33631048/"
+        },
+        {
+          "type": "literature",
+          "citation": "Enzymatic CO2 conversion review discusses natural to artificial utilization of CO2.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36692850/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "enzymatic_co2_fixation_prior",
+        "rerank_bonus": "moderate for explicit C1 source, enzyme, cofactor/energy coupling, and thermodynamic policy",
+        "compliance_gate": "enzymatic_carboxylation_thermodynamic_and_sustainability_review_required"
+      }
+    },
+    {
+      "id": "decarboxylase_biocatalytic_c1_removal_policy",
+      "family_id": "decarboxylase_carboxylase_c1_fixation_route",
+      "name": "Decarboxylated product to carboxylate precursor plus decarboxylase and equilibrium policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "decarboxylated bio-based chemicals",
+          "alkenes or phenols from carboxylates",
+          "C1-loss pathway products"
+        ],
+        "target_features": [
+          "carboxylate precursor",
+          "decarboxylase",
+          "CO2 release or reversible carboxylation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "carboxylate loss boundary",
+          "decarboxylase equilibrium boundary"
+        ],
+        "forward_logic": [
+          "separate carboxylate precursor access from enzymatic decarboxylation",
+          "track reversibility, pH/process context, and product volatility or capture",
+          "represent decarboxylation as route policy rather than a generic degradation"
+        ],
+        "suggested_precursor_roles": [
+          "carboxylate precursor",
+          "decarboxylase",
+          "decarboxylated product",
+          "CO2-release or reversibility metadata"
+        ],
+        "planner_hint": "Use decarboxylase entries when carboxylate loss or reversible carboxylation changes precursor strategy."
+      },
+      "risks": [
+        "reversibility or equilibrium not modeled",
+        "side decarboxylation risk",
+        "product capture issue",
+        "bioprocess evidence gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Enzymatic CO2 conversion review covers natural and artificial C1 utilization, including carboxylation/decarboxylation logic.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36692850/"
+        },
+        {
+          "type": "literature",
+          "citation": "Biocatalytic C-C bond formation review discusses one-carbon resource utilization in enzyme routes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33672882/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "enzymatic_decarboxylation_c1_prior",
+        "rerank_bonus": "moderate for explicit carboxylate precursor, enzyme identity, equilibrium, and product-capture policy",
+        "compliance_gate": "enzymatic_decarboxylation_process_and_c1_review_required"
+      }
+    },
+    {
+      "id": "monooxygenase_epoxidation_oxygenation_disconnection",
+      "family_id": "enzymatic_epoxidation_dihydroxylation_oxygenation_route",
+      "name": "Epoxide or oxygenated product to alkene/arene precursor plus monooxygenase or peroxygenase policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "enantioenriched epoxides",
+          "arene or alkene oxygenation products",
+          "oxygenated building blocks"
+        ],
+        "target_features": [
+          "enzymatic epoxidation",
+          "monooxygenase or peroxygenase",
+          "oxygenation pattern"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "alkene to epoxide oxygen-transfer boundary",
+          "oxygenation pattern boundary"
+        ],
+        "forward_logic": [
+          "disconnect epoxide or oxygenated product to alkene/arene precursor",
+          "track oxygenating enzyme class, oxidant/cofactor, and regio- or enantioselectivity",
+          "flag oxygen-transfer routes for oxidative safety and chemoselectivity review"
+        ],
+        "suggested_precursor_roles": [
+          "alkene or arene precursor",
+          "monooxygenase or peroxygenase",
+          "oxygenated product",
+          "oxidant/cofactor metadata"
+        ],
+        "planner_hint": "Reward enzymatic oxygenation when oxygenation pattern and enzyme class are explicit route handles."
+      },
+      "risks": [
+        "overoxidation risk",
+        "oxygenation site mismatch",
+        "oxidant or cofactor omission",
+        "unstable epoxide handling"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Styrene oxygenation cascade review supports side-chain oxygenation as a biotechnological route basis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/29623070/"
+        },
+        {
+          "type": "literature",
+          "citation": "Oxygenating-biocatalyst review discusses hydroxyl functionalization in drug discovery and development.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35385205/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "enzymatic_oxygenation_pattern_prior",
+        "rerank_bonus": "moderate for explicit precursor, oxygenating enzyme, oxygenation site, and oxidant/cofactor policy",
+        "compliance_gate": "enzymatic_oxygenation_selectivity_and_safety_review_required"
+      }
+    },
+    {
+      "id": "dioxygenase_dihydroxylation_arene_policy",
+      "family_id": "enzymatic_epoxidation_dihydroxylation_oxygenation_route",
+      "name": "Dihydroxylated or cis-diol product to arene/alkene plus dioxygenase oxygenation policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "cis-diol building blocks",
+          "dihydroxylated aromatics",
+          "oxygenated chiral synthons"
+        ],
+        "target_features": [
+          "dioxygenase",
+          "cis-dihydroxylation",
+          "arene or alkene oxygenation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "dihydroxylation boundary",
+          "dioxygenase site-selectivity boundary"
+        ],
+        "forward_logic": [
+          "separate arene/alkene precursor synthesis from dioxygenase-controlled dihydroxylation",
+          "track cis-diol stereochemistry, site selectivity, and oxygen source",
+          "compare enzymatic dihydroxylation against chemical oxidation alternatives"
+        ],
+        "suggested_precursor_roles": [
+          "arene or alkene precursor",
+          "dioxygenase",
+          "cis-diol or dihydroxylated product",
+          "site/stereochemistry metadata"
+        ],
+        "planner_hint": "Use dioxygenase entries when simultaneous oxygenation and stereochemical control define the route."
+      },
+      "risks": [
+        "dioxygenase substrate scope gap",
+        "overoxidation or ring-cleavage risk",
+        "cis-diol stability issue",
+        "whole-cell process ambiguity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Oxygenating-biocatalyst review gives public context for enzyme-controlled hydroxyl functionalization.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35385205/"
+        },
+        {
+          "type": "literature",
+          "citation": "Recent drug-synthesis biocatalysis review includes oxygenation and late functionalization as API-relevant biocatalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35625702/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "dioxygenase_dihydroxylation_prior",
+        "rerank_bonus": "moderate for explicit arene/alkene precursor, oxygenation pattern, enzyme class, and stereochemical outcome",
+        "compliance_gate": "dioxygenase_oxygenation_scope_and_process_review_required"
+      }
+    },
+    {
+      "id": "chemoenzymatic_dkr_racemization_enzyme_split",
+      "family_id": "chemoenzymatic_dynamic_cascade_resolution",
+      "name": "Enantiopure product to racemate plus chemical racemization and enzyme-selective resolution policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "enantiopure alcohols",
+          "enantiopure amines",
+          "resolved pharmaceutical intermediates"
+        ],
+        "target_features": [
+          "chemical racemization",
+          "enzyme-selective transformation",
+          "dynamic kinetic resolution"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "racemate to enantiopure product boundary",
+          "chemical racemization and enzyme resolution boundary"
+        ],
+        "forward_logic": [
+          "separate racemic precursor synthesis from coupled racemization and enzymatic selection",
+          "track catalyst compatibility, mass balance, and theoretical yield advantage",
+          "require proof that racemization and enzyme conditions are compatible"
+        ],
+        "suggested_precursor_roles": [
+          "racemic substrate",
+          "chemical racemization catalyst",
+          "selective enzyme",
+          "enantiopure product"
+        ],
+        "planner_hint": "Reward DKR routes when both racemization and enzymatic selectivity are explicitly modeled."
+      },
+      "risks": [
+        "racemization/enzyme incompatibility",
+        "yield advantage overclaimed",
+        "side reaction under racemization",
+        "stereochemical accounting gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Chemoenzymatic DKR review covers preparation of enantiopure alcohols and amines.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25730714/"
+        },
+        {
+          "type": "literature",
+          "citation": "Lipase DKR review supports lipases as catalysts for dynamic kinetic resolution route designs.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25795055/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "chemoenzymatic_dkr_prior",
+        "rerank_bonus": "high for explicit racemate, racemization catalyst, enzyme selectivity, and mass balance",
+        "compliance_gate": "chemoenzymatic_dkr_compatibility_and_stereochemistry_review_required"
+      }
+    },
+    {
+      "id": "chemoenzymatic_deracemization_cascade_policy",
+      "family_id": "chemoenzymatic_dynamic_cascade_resolution",
+      "name": "Deracemized or cascade-resolved product to racemate plus redox/resolution cascade policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "deracemized amines",
+          "deracemized alcohols",
+          "cascade-resolved chiral intermediates"
+        ],
+        "target_features": [
+          "redox deracemization",
+          "multi-catalyst cascade",
+          "stereoinversion or selective consumption"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "deracemization cascade boundary",
+          "stereoinversion or selective-consumption boundary"
+        ],
+        "forward_logic": [
+          "separate racemate access from enzymatic or chemoenzymatic deracemization sequence",
+          "track oxidase/reductase/resolution components and cascade order",
+          "flag routes where apparent one-step enantiopurity hides multiple coupled transformations"
+        ],
+        "suggested_precursor_roles": [
+          "racemic substrate",
+          "oxidation or racemization component",
+          "selective reduction or resolution enzyme",
+          "deracemized product"
+        ],
+        "planner_hint": "Use deracemization records when route feasibility depends on coupled catalysts rather than a single isolated enzymatic step."
+      },
+      "risks": [
+        "redox balance gap",
+        "cascade order mismatch",
+        "enzyme incompatibility",
+        "untracked minor enantiomer fate"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Chemoenzymatic DKR review provides public precedent for coupled chemical and enzymatic stereochemical resolution.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25730714/"
+        },
+        {
+          "type": "literature",
+          "citation": "Recent biocatalysis review covers enzymatic transformations relevant to cascade drug synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35625702/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "chemoenzymatic_deracemization_prior",
+        "rerank_bonus": "moderate for explicit cascade components, stereochemical bookkeeping, and redox/catalyst compatibility",
+        "compliance_gate": "chemoenzymatic_deracemization_cascade_review_required"
+      }
+    },
+    {
+      "id": "immobilized_enzyme_flow_process_boundary_policy",
+      "family_id": "enzyme_immobilization_flow_biocatalysis_process_boundary",
+      "name": "Biocatalytic route to immobilized enzyme plus support, reactor, and catalyst-lifetime policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "flow biocatalysis processes",
+          "immobilized-enzyme transformations",
+          "process-intensified API intermediates"
+        ],
+        "target_features": [
+          "immobilized enzyme",
+          "packed bed or flow reactor",
+          "catalyst support and lifetime"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "molecular route to process boundary",
+          "enzyme support and reactor boundary"
+        ],
+        "forward_logic": [
+          "separate molecular transformation from immobilization and reactor format",
+          "track support chemistry, residence-time concept, catalyst lifetime, and downstream processing",
+          "avoid scoring flow process routes as ordinary batch enzymatic transformations"
+        ],
+        "suggested_precursor_roles": [
+          "soluble-route substrate/product pair",
+          "immobilized enzyme",
+          "support or packed-bed reactor",
+          "process-boundary metadata"
+        ],
+        "planner_hint": "Reward immobilized-enzyme routes when support, reactor boundary, and catalyst lifetime are part of the route evidence."
+      },
+      "risks": [
+        "support deactivation",
+        "mass-transfer limitation",
+        "scale-up mismatch",
+        "downstream integration gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Continuous-flow biocatalysis review provides public context for flow biocatalysis process boundaries.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/29922795/"
+        },
+        {
+          "type": "literature",
+          "citation": "Protein-immobilization review covers immobilization technology for flow biocatalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31865258/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "immobilized_flow_biocatalysis_prior",
+        "rerank_bonus": "moderate for explicit support, reactor, catalyst lifetime, and process integration metadata",
+        "compliance_gate": "immobilized_flow_biocatalysis_process_review_required"
+      }
+    },
+    {
+      "id": "flow_biocatalysis_api_process_intensification_policy",
+      "family_id": "enzyme_immobilization_flow_biocatalysis_process_boundary",
+      "name": "API or natural-product intermediate route to flow-biocatalysis process-intensification policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "API intermediates",
+          "natural-product intermediates",
+          "continuous biocatalytic process candidates"
+        ],
+        "target_features": [
+          "continuous-flow biocatalysis",
+          "process intensification",
+          "immobilized or retained catalyst"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "batch-to-flow process boundary",
+          "upstream/downstream integration boundary"
+        ],
+        "forward_logic": [
+          "separate retrosynthetic bond logic from flow-process evidence",
+          "track whether immobilization, in-line separation, or reactor integration changes feasibility",
+          "flag flow routes for scale, stability, and process-analytical review"
+        ],
+        "suggested_precursor_roles": [
+          "API or natural-product intermediate",
+          "flow-compatible biocatalyst",
+          "reactor/process module",
+          "process-intensification metadata"
+        ],
+        "planner_hint": "Use flow-biocatalysis entries when continuous processing changes route viability, not as a generic condition label."
+      },
+      "risks": [
+        "process-intensification overclaim",
+        "enzyme lifetime unsupported",
+        "downstream separation gap",
+        "API process-control review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Flow biocatalysis review frames flow as an alternative for API and natural-compound synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33498198/"
+        },
+        {
+          "type": "literature",
+          "citation": "Enzyme-immobilization flow review discusses unlocking flow biocatalysis through immobilization.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40568924/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "flow_biocatalysis_process_intensification_prior",
+        "rerank_bonus": "moderate for explicit flow module, immobilization or retention strategy, catalyst lifetime, and downstream boundary",
+        "compliance_gate": "flow_biocatalysis_api_process_control_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v15 expansion promotes the next enzyme/process backlog batch into source records for lipase/esterase resolution, nitrile-metabolizing enzymes, ene-reductases, tailoring enzymes, enzymatic C1 fixation/removal, oxygenation enzymes, chemoenzymatic DKR/deracemization, and immobilized or flow biocatalysis process boundaries."
+    },
+    {
+      "type": "safety_note",
+      "summary": "V15 records are advisory and evidence-gated. Promotion to proposal generation requires explicit substrate scope, selectivity, endpoint, cofactor/donor handling, process boundary, support/lifetime data where relevant, and safety/process review."
+    }
+  ]
+}

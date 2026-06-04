@@ -37,6 +37,8 @@ PYTHONPATH=. python scripts/monitor_autoplanner_web.py --url http://127.0.0.1:79
   - PaRoutes n1 building-block
   - PaRoutes n5 benchmark
 - condition and enzyme annotation display when enabled
+- optional rule cascade-verifier hard gate (`enable_rule_verifier_gate` /
+  `cascade_verifier_gate`) for conservative displays
 - product-audit filtering for severe material-sanity artifacts
 - raw sidecar artifact for the unfiltered ChemEnzy output
 - rejected sidecar artifact for routes hidden by product-audit
@@ -55,3 +57,8 @@ for review. They are not validated experimental protocols.
 
 Routes hidden by product-audit are diagnostic records, not proposed syntheses.
 Open the rejected sidecar to inspect why a route was removed.
+
+The cascade-verifier hard gate is off by default. When enabled, the Web runner
+first computes verifier metrics for every ChemEnzy route and then hides routes
+with explicit rule-verifier failures. Routes without a `stage_partition` are
+interpreted as sequential stepwise syntheses, not one-pot cascades.

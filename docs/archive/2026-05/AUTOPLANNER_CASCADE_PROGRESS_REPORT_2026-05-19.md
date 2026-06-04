@@ -536,4 +536,3 @@ Claims to avoid for now:
 7. ACS Green Chemistry Institute. Process Mass Intensity Calculation Tool. https://www.acs.org/green-chemistry-sustainability/green-chemistry-nexus/articles/process-mass-intensity-calculation-tool.html
 8. ACS GCI Pharmaceutical Roundtable. Process Mass Intensity Metric. https://learning.acsgcipr.org/guides-and-metrics/metrics/process-mass-intensity-metric/
 9. Sheldon, R. A. The E factor at 30: a passion for pollution prevention. Green Chemistry 25, 1704 (2023). https://pubs.rsc.org/fa/content/articlelanding/2023/gc/d2gc04747k
-

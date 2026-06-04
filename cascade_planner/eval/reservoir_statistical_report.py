@@ -301,4 +301,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("reservoir_statistical_report")
     main()

@@ -1,52 +1,53 @@
 # AutoPlanner-Cascade
 
 AutoPlanner-Cascade is the active AutoPlanner research codebase for
-process-aware chemoenzymatic retrosynthesis. The current implementation keeps
-ChemEnzyRetroPlanner as the mature multi-step planning core, then adds
-coverage-aware controller logic, route-tree traces, typed candidate-miss audits,
-open-leaf policy training, cascade search contracts, and a web demo layer.
+process-aware chemoenzymatic retrosynthesis. The current mainline is ChemEnzy-
+backed multi-step search plus conservative material/route audit, SMILES-first
+literature research, strategic disconnection cards, and validated literature
+templates that may enter ChemEnzy only as audited one-step proposal sources.
 
-The repository is intentionally organized around the current development path:
-improve candidate coverage and search access first, then train source scheduling
-and state/action value models, then add process repair actions.
+Old ranker, CCTS, v4 learned-value, and fallback lines are frozen or archived.
+They remain in the tree for reproducibility, but they are not the default
+runtime path or the next training target unless an active checklist explicitly
+promotes them.
 
-## Current Result Anchor
+## Current Anchor
 
-Current project summary:
+Start here:
 
-- [Current state, cleanup, and next step](docs/CURRENT_STATE_2026-05-19.md)
-- [Codebase status and cleanup guard](docs/CODEBASE_STATUS_2026-05-19.md)
-- [Model strengthening plan](docs/MODEL_STRENGTHENING_PLAN_2026-05-19.md)
-- [Phase I closeout report](docs/PHASE1_RESEARCH_CLOSURE_2026-05-15.md)
-- [Phase I cleanup manifest](docs/PHASE1_CLEANUP_MANIFEST_2026-05-15.md)
-- [Phase II completion audit](docs/PHASE2_COMPLETION_AUDIT_2026-05-15.md)
+- [AutoPlanner mainline](docs/MAINLINE.md)
 
-Latest audited artifacts:
+Supporting docs:
 
-- `results/shared/phase2_20260515/full100_abcd_gate30/reports/comparison.md`
-- `results/shared/phase2_20260515/quality_filter_ablation_gate30/reports_quality/comparison.md`
+- [Docs index](docs/README.md)
+- [SMILES-first literature strategic workflow](docs/SMILES_FIRST_LITERATURE_STRATEGIC_WORKFLOW_2026-06-03.md)
+- [EvoChemEnzy code delivery checklist](docs/EvoChemEnzy_Code_Delivery_Checklist_2026-06-03.md)
+- [Literature-to-executable template checklist](docs/LITERATURE_TO_EXECUTABLE_TEMPLATE_CHECKLIST_2026-06-04.md)
+- [Codebase hygiene audit](docs/CODEBASE_HYGIENE_AUDIT_2026-06-04.md)
 
 Current conclusion:
 
-AutoPlanner is currently best read as a ChemEnzy-backed route generation and
-quality-control system. Student-only control remains below baseline; the usable
-path is to preserve strong ChemEnzy proposal/search capability, then add
-AutoPlanner-side queueing, stock policy, material-sanity audit, rejected-route
-traceability, and cascade-aware ranking/search hooks.
+AutoPlanner is best read as a ChemEnzy-backed route generation and quality-
+control system. The usable path is to keep strong ChemEnzy proposal/search
+capability, add material-sanity and route audit, and allow literature-derived
+templates into search only through deterministic retron/applicability/
+reconstruction gates. LLM work remains outside the ChemEnzy inner loop.
 
 ## Repository Layout
 
 | Path | Purpose |
 | --- | --- |
-| `cascade_planner/route_tree/` | Active route-tree controller, proposal adapters, features, traces |
-| `cascade_planner/cascade_search/` | Cascade-native state/search contracts and controller layer |
+| `cascade_planner/cascade_search/` | Cascade-native state/search contracts, verifier hooks, proposal providers |
+| `cascade_planner/route_tree/` | Older route-tree controller and compatibility helpers |
+| `cascade_planner/agent/` | Episode-level agents, artifact schemas, literature workflow, route audit, policy gates |
+| `cascade_planner/baselines/` | ChemEnzy adapter, one-step providers, plugin wrappers, baseline bridges |
 | `cascade_planner/vnext/` | Feature schemas and model-facing route/action representations |
 | `cascade_planner/eval/` | Benchmark, trace, audit, and training scripts |
 | `cascade_planner/web/` | Local demo web interface |
 | `dataset_v4_release/` | Current v4 cascade dataset release |
 | `data/` | Frozen benchmark inputs and small curated datasets |
 | `results/shared/` | Local benchmark outputs, traces, checkpoints, caches; ignored by git |
-| `docs/` | Current architecture notes, cleanup report, and postmortems |
+| `docs/` | Current source-of-truth docs, hygiene report, archive index, static showcase outputs |
 | `paper/nature_autoplanner_cascade/` | Nature-style manuscript draft, main figure, and PDF export |
 | `archive/` | Retired docs, old snapshots, and reference inputs |
 | `vendor/` | Local ChemEnzyRetroPlanner/vendor runtime; ignored by git |
@@ -71,10 +72,20 @@ cp build/main.pdf build/autoplanner_cascade_nature_draft.pdf
 
 ## Quick Checks
 
-Focused checks for the latest policy/training path:
+Focused checks for the current literature-template and ChemEnzy bridge path:
 
 ```bash
-PYTHONPATH=. python tests/test_vnext_pack_and_training.py -v
+pytest -q tests/test_literature_template_cards.py \
+  tests/test_template_applicability.py \
+  tests/test_executable_template_validation.py \
+  tests/test_literature_one_step_plugin.py \
+  tests/test_literature_template_plugin_benchmark.py
+
+pytest -q tests/test_agent_artifact_contracts.py \
+  tests/test_literature_evidence_cards.py \
+  tests/test_smiles_first_workflow.py \
+  tests/test_chem_enzy_onestep.py \
+  tests/test_chem_enzy_native_chemical_plugin.py
 ```
 
 Full test discovery is useful before commits, but some historical tests may
@@ -83,14 +94,11 @@ runtime regression.
 
 ## Cleanup Notes
 
-The root-level `cascade_dataset_v2*.json`, `cascade_dataset_v3.json`,
-`templates*.csv.gz`, and `ecreact-1.0.csv` files remain in place because older
-scripts use them as default paths. Root-level reference image/PDF files were
-moved to `archive/reference_inputs_2026-05-12/`.
+Top-level docs are intentionally small. Historical reports are under
+`docs/archive/`, and root-level presentation/reference drops belong under
+`docs/archive/2026-06/reference_materials/`.
 
-Superseded 2026-05-14 phase-I drafts were removed after the closeout and
-their content was folded into the 2026-05-15 report and cleanup manifest.
-
-Generated AI_OS integration bundles from the Web demo work were archived under
-`archive/code/generated_patches_2026-05-19/`. Keep `AI_OS_AutoResearch/` as its
-own git checkout rather than adding it to this repository.
+Large local artifacts such as `*.mar`, `data_external/`, `vendor/`,
+`AI_OS_AutoResearch/`, `results/shared/`, and generated `results/v2/` outputs
+are ignored or treated as local runtime state. Do not promote them into source
+control unless a release manifest explicitly calls for it.

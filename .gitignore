@@ -33,6 +33,9 @@ Thumbs.db
 aizdata/
 synth_weights/
 data_external/
+data/bridge_pack_v0/
+data/bridge_pack_v0_smoke/
+data/enzyme_sp_verifier_v1/
 ChemEnzyRetroPlanner/
 vendor/ChemEnzyRetroPlanner/
 backup_from_zip/
@@ -53,6 +56,10 @@ dataset_v4_release/
 # Run logs at repo root
 *.log
 
+# Root-level presentation/reference drops should be archived under docs/archive/.
+/*.pdf
+/*.pptx
+
 # Scratch utilities
 _smoke_*.py
 _repair_*.py
@@ -68,8 +75,13 @@ AI_OS_AutoResearch_*.patch
 workspace/
 releases/
 results/v2/k2_preds/
+results/v2/reports/
+results/v2/route_figures_*/
+results/v2/route_schemes_*/
+results/v2/route_trees_*/
 results/v2/*.json
 results/v2/*.csv
+results/v2/*.tsv
 results/v2/*.md
 results/v2/*.pid
 results/v2/live_benchmark_*.stdout
@@ -83,6 +95,7 @@ results/v2/prior_benchmark_*.stderr
 *.tar
 *.tar.gz
 *.tar.bz2
+*.mar
 *.csv.gz
 *.ckpt
 last*.ckpt
@@ -92,15 +105,19 @@ image.png
 archive/datasets/
 archive/results/
 archive/logs/
-archive/code/
+archive/code/*
+!archive/code/frozen_research_2026-05-20/
+!archive/code/frozen_research_2026-05-20/README.md
 
-# Generated model and benchmark artefacts. Keep only curated summaries in git.
+# Generated result/model and benchmark artefacts. Keep these local.
+results/
 ref_routes_n*.json
 targets_n*.txt
 results/enzexpand_*.csv
 results/enzexpand_*.json
 results/shared/**
 results/shared/
+results/shared/bufotalin_12h_*/
 results/shared/**/*.pt
 results/shared/**/*.ckpt
 results/shared/**/*.pth

@@ -1,0 +1,1203 @@
+{
+  "schema_version": "strategic_disconnections.v20_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Nineteenth expanded public source layer focused on decision provenance, conflicting evidence, scale-up transfer, model uncertainty, robustness/design-of-experiments, benchmark leakage, local route-card validation, and strategic failure-case records. These records capture why a route should be trusted, rejected, quarantined, or manually reviewed beyond ordinary reaction-template feasibility.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist, process, data-curation, model-validation, regulatory, safety, and project-owner review",
+      "explicit route-choice rationale, source-conflict resolution, scale-up transfer evidence, calibrated model uncertainty, DoE/robustness evidence, leakage-free split lineage, local route-card signoff, or failure-case correction before proposal promotion",
+      "separate decision-trace, literature-conflict, tech-transfer, model-uncertainty, robustness, data-leakage, local-source, and failure-case policy",
+      "route-specific rejected alternatives, source hierarchy, equipment/site transfer boundary, uncertainty calibration or domain evidence, parameter sensitivity, patent-family or analogue-series split evidence, manually verified structures/stereochemistry, and negative/failure label provenance",
+      "safety, legal, copyright, source-license, model-governance, data-governance, regulatory, and project-approval review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid operational quantities, executable procedures, hazardous instructions, assay protocols, scale-up instructions, and unpublished proprietary details",
+      "v20 records are source-quality and route-policy priors only and must not auto-close routes as stock, validated process transfers, validated model predictions, validated local route cards, or final failure labels"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "route_comparison_decision_trace_policy",
+      "name": "Route comparison, rejected-alternative rationale, chemist decision trace, and route-selection provenance policy",
+      "pattern_keywords": [
+        "route comparison",
+        "decision trace",
+        "rejected route",
+        "route ranking",
+        "chemist review",
+        "route selection"
+      ],
+      "strategic_principle": "Separate the route that was chosen from the decision evidence that made it preferable. A strategic source should preserve rejected alternatives, tradeoffs, objective, cost, availability, risk, and human-review rationale rather than only the winning route."
+    },
+    {
+      "family_id": "literature_conflict_resolution_source_quality_policy",
+      "name": "Literature, patent, database, yield, structure, and procedure conflict-resolution source-quality policy",
+      "pattern_keywords": [
+        "conflicting yield",
+        "patent extraction",
+        "source hierarchy",
+        "reaction provenance",
+        "procedure conflict",
+        "structure assignment conflict"
+      ],
+      "strategic_principle": "Separate a reported transformation from the source hierarchy that supports it. Conflicting yields, identities, procedures, patents, extracted records, and database rows need provenance, source tier, extraction confidence, and reviewer resolution before route promotion."
+    },
+    {
+      "family_id": "scale_up_transfer_and_tech_transfer_boundary_policy",
+      "name": "Scale-up, lab-to-pilot transfer, technology transfer, equipment fit, cleaning, hold-time, and site-transfer boundary policy",
+      "pattern_keywords": [
+        "scale-up",
+        "technology transfer",
+        "site transfer",
+        "equipment fit",
+        "cleaning validation",
+        "hold time"
+      ],
+      "strategic_principle": "Separate bench feasibility from transferability. Route value can change when equipment, site, batch/flow format, cleaning, hold time, raw-material control, and process-knowledge transfer become the controlling constraints."
+    },
+    {
+      "family_id": "computational_prediction_uncertainty_route_policy",
+      "name": "Computational prediction uncertainty, calibration, applicability domain, out-of-distribution, and model-evidence route policy",
+      "pattern_keywords": [
+        "uncertainty quantification",
+        "calibration",
+        "applicability domain",
+        "out of distribution",
+        "model confidence",
+        "prediction interval"
+      ],
+      "strategic_principle": "Separate a model prediction from its calibrated uncertainty and domain of applicability. Predicted retrosynthesis, conditions, selectivity, toxicity, property, or feasibility records need uncertainty, calibration, OOD, and evidence-bounded confidence before route use."
+    },
+    {
+      "family_id": "route_robustness_design_of_experiments_policy",
+      "name": "Route robustness, design-of-experiments, design space, parameter sensitivity, impurity response, and operating-window policy",
+      "pattern_keywords": [
+        "design of experiments",
+        "DoE",
+        "design space",
+        "robustness",
+        "critical process parameter",
+        "operating window"
+      ],
+      "strategic_principle": "Separate a route that works once from a route with an evidence-bounded operating window. DoE, robustness, sensitivity, impurity response, design space, and failure-mode evidence can determine whether a source is reliable."
+    },
+    {
+      "family_id": "analogue_series_template_leakage_and_data_split_policy",
+      "name": "Analogue-series, scaffold, patent-family, template, benchmark split, and train/test leakage policy",
+      "pattern_keywords": [
+        "data leakage",
+        "scaffold split",
+        "analogue series",
+        "patent family",
+        "template leakage",
+        "benchmark split"
+      ],
+      "strategic_principle": "Separate benchmark evidence from source leakage. Analogue-series overlap, shared patent families, template leakage, duplicated structures, source-document overlap, and split lineage must be recorded before using source records for evaluation or model training."
+    },
+    {
+      "family_id": "local_project_route_card_manual_validation_policy",
+      "name": "Local project route-card, PPTX/doc extraction, manual structure/stereochemistry validation, evidence-file, and reviewer-signoff policy",
+      "pattern_keywords": [
+        "local route card",
+        "PPTX extraction",
+        "manual validation",
+        "source file",
+        "stereochemistry review",
+        "reviewer signoff"
+      ],
+      "strategic_principle": "Separate local source extraction from trusted route knowledge. PPTX, slides, rendered schemes, and project docs need manually verified structures, stereochemistry, file provenance, reviewer signoff, and template-promotion status."
+    },
+    {
+      "family_id": "strategic_failure_case_source_policy",
+      "name": "Strategic failure case, non-stock false closure, implausible disconnection, model artifact, and corrected-source policy",
+      "pattern_keywords": [
+        "failure case",
+        "false stock closure",
+        "product-like terminal",
+        "model artifact",
+        "implausible disconnection",
+        "corrected label"
+      ],
+      "strategic_principle": "Separate route success metrics from failures that teach source policy. False stock closures, product-like terminals, self loops, carrier-reagent misclassification, unsupported atom gains, and corrected labels should become auditable negative source records."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "route_comparison_decision_trace_anchor",
+      "family_id": "route_comparison_decision_trace_policy",
+      "name": "Route-comparison anchor with reviewed objectives, alternatives, rejected-route rationale, cost/risk tradeoffs, and decision provenance",
+      "role": "route_decision_trace_anchor",
+      "aliases": [
+        "route selection decision record",
+        "rejected-route rationale",
+        "chemist decision trace"
+      ],
+      "acceptance_policy": "requires_route_objective_alternatives_rejected_route_rationale_cost_risk_availability_and_reviewer_trace"
+    },
+    {
+      "anchor_id": "literature_conflict_source_quality_anchor",
+      "family_id": "literature_conflict_resolution_source_quality_policy",
+      "name": "Source-quality anchor with reviewed patent/literature/database conflict, extraction confidence, procedure context, and resolution decision",
+      "role": "source_conflict_resolution_anchor",
+      "aliases": [
+        "reaction source hierarchy",
+        "conflicting yield resolution",
+        "patent-literature mismatch record"
+      ],
+      "acceptance_policy": "requires_source_tier_conflict_type_extraction_confidence_procedure_context_identity_assignment_and_resolution_review"
+    },
+    {
+      "anchor_id": "scale_up_tech_transfer_boundary_anchor",
+      "family_id": "scale_up_transfer_and_tech_transfer_boundary_policy",
+      "name": "Scale-up/tech-transfer anchor with reviewed equipment, site, process knowledge, cleaning, hold time, and transfer-risk boundary",
+      "role": "scale_up_transfer_anchor",
+      "aliases": [
+        "lab-to-pilot transfer record",
+        "site-transfer route boundary",
+        "equipment-fit process record"
+      ],
+      "acceptance_policy": "requires_scale_boundary_equipment_fit_site_transfer_process_knowledge_cleaning_hold_time_and_change_control_review"
+    },
+    {
+      "anchor_id": "computational_prediction_uncertainty_anchor",
+      "family_id": "computational_prediction_uncertainty_route_policy",
+      "name": "Prediction-uncertainty anchor with reviewed calibration, applicability domain, OOD status, prediction interval, and experimental support",
+      "role": "model_uncertainty_anchor",
+      "aliases": [
+        "calibrated model confidence",
+        "applicability-domain route prior",
+        "OOD prediction boundary"
+      ],
+      "acceptance_policy": "requires_model_version_training_domain_calibration_metric_uncertainty_interval_ood_check_and_experimental_or_source_support_review"
+    },
+    {
+      "anchor_id": "route_robustness_doe_design_space_anchor",
+      "family_id": "route_robustness_design_of_experiments_policy",
+      "name": "Robustness/DoE anchor with reviewed critical parameters, design space, sensitivity, impurity response, and operating-window evidence",
+      "role": "route_robustness_anchor",
+      "aliases": [
+        "DoE route robustness record",
+        "design-space source card",
+        "operating-window evidence"
+      ],
+      "acceptance_policy": "requires_cqa_cpp_design_space_parameter_sensitivity_impurity_response_failure_mode_and_operating_window_review"
+    },
+    {
+      "anchor_id": "analogue_series_template_leakage_split_anchor",
+      "family_id": "analogue_series_template_leakage_and_data_split_policy",
+      "name": "Benchmark split/leakage anchor with reviewed analogue-series, scaffold, patent-family, template, source-document, and duplicate lineage",
+      "role": "benchmark_leakage_anchor",
+      "aliases": [
+        "analogue-series leakage record",
+        "patent-family split lineage",
+        "template leakage guard"
+      ],
+      "acceptance_policy": "requires_train_test_split_lineage_scaffold_or_series_overlap_patent_family_source_document_template_duplicate_and_time_order_review"
+    },
+    {
+      "anchor_id": "local_project_route_card_manual_validation_anchor",
+      "family_id": "local_project_route_card_manual_validation_policy",
+      "name": "Local route-card anchor with source file, extracted scheme, manually verified structures, stereochemistry, hazards, and reviewer signoff",
+      "role": "local_route_card_anchor",
+      "aliases": [
+        "PPTX route card",
+        "manual scheme validation",
+        "local evidence file"
+      ],
+      "acceptance_policy": "requires_local_file_hash_or_path_extracted_scheme_manual_smiles_stereochemistry_hazard_process_context_and_reviewer_signoff"
+    },
+    {
+      "anchor_id": "strategic_failure_case_corrected_source_anchor",
+      "family_id": "strategic_failure_case_source_policy",
+      "name": "Failure-case anchor with observed artifact, source-backed correction, negative label, guardrail, and replay/evaluation evidence",
+      "role": "strategic_failure_case_anchor",
+      "aliases": [
+        "false-stock-closure failure",
+        "product-like terminal correction",
+        "model artifact negative label"
+      ],
+      "acceptance_policy": "requires_observed_failure_trace_source_backed_correction_negative_label_guardrail_and_replay_or_test_evidence"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "route_selection_rejected_alternative_decision_trace",
+      "family_id": "route_comparison_decision_trace_policy",
+      "name": "Chosen route to rejected alternatives plus objective, risk, availability, and decision-trace boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "route-selection reviews",
+          "CASP route pools",
+          "process or medicinal chemistry route comparisons"
+        ],
+        "target_features": [
+          "multiple candidate routes",
+          "rejected alternatives",
+          "human decision rationale",
+          "route ranking"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "selected route to rejected-route decision boundary",
+          "route score to objective-specific tradeoff boundary"
+        ],
+        "forward_logic": [
+          "separate a route result from the reasons other routes were rejected",
+          "track route objective, comparator routes, material availability, risk, cost, schedule, and reviewer rationale",
+          "avoid training or ranking from only the winning route when the rejected alternatives carry strategic information"
+        ],
+        "suggested_precursor_roles": [
+          "selected route",
+          "rejected route candidate",
+          "decision rationale",
+          "review objective"
+        ],
+        "planner_hint": "Reward route sources that preserve rejected alternatives and objective-specific tradeoffs instead of only a final route."
+      },
+      "risks": [
+        "winning route lacks comparator context",
+        "human rationale lost",
+        "objective mismatch",
+        "rejected-route lesson unavailable"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "CompRet describes route enumeration and notes that route-evaluation criteria depend on the chemist's situation, objectives, and needs.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7465358/"
+        },
+        {
+          "type": "literature",
+          "citation": "Computational planning of complex natural products used expert evaluation to compare computational and human-designed routes.",
+          "url": "https://www.nature.com/articles/s41586-020-2855-y"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "route_decision_trace_prior",
+        "rerank_bonus": "moderate for explicit route objective, rejected alternatives, tradeoff rationale, and reviewer provenance",
+        "compliance_gate": "route_decision_trace_and_rejected_alternative_review_required"
+      }
+    },
+    {
+      "id": "reference_route_not_single_answer_policy",
+      "family_id": "route_comparison_decision_trace_policy",
+      "name": "Reference route to alternative-route acceptance and non-single-answer evaluation policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "benchmark route pools",
+          "retrosynthesis evaluation sets",
+          "stock-closed alternative routes"
+        ],
+        "target_features": [
+          "reference route",
+          "alternative route",
+          "route feasibility",
+          "evaluation metric"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "reference route to feasible-alternative boundary",
+          "exact-match metric to route-quality boundary"
+        ],
+        "forward_logic": [
+          "separate reference recall from whether a non-reference route is chemically useful",
+          "track route feasibility, stock closure, plausibility, cost, and expert/audit label for alternatives",
+          "flag benchmark records that treat one historical route as the only acceptable route"
+        ],
+        "suggested_precursor_roles": [
+          "reference route",
+          "non-reference route",
+          "route-quality audit label",
+          "evaluation policy"
+        ],
+        "planner_hint": "Do not penalize non-reference routes by default; require route-quality evidence before accepting or rejecting them."
+      },
+      "risks": [
+        "single-answer benchmark bias",
+        "plausible alternative marked wrong",
+        "stock-closed shortcut marked right",
+        "route metric not aligned with objective"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Predictive chemistry review notes that one-step retrosynthesis evaluation often focuses on recapitulating reported reactants in top-k predictions.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9811563/"
+        },
+        {
+          "type": "literature",
+          "citation": "Re-evaluating retrosynthesis algorithms discusses evaluation limits and the difficulty of measuring precision without expert chemists or wet-lab evidence.",
+          "url": "https://openreview.net/pdf?id=W5U18rgtpg"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "reference_route_alternative_policy_prior",
+        "rerank_bonus": "moderate for explicit alternative-route audit, stock status, plausibility, and route objective",
+        "compliance_gate": "reference_route_alternative_acceptance_review_required"
+      }
+    },
+    {
+      "id": "conflicting_reaction_source_resolution_boundary",
+      "family_id": "literature_conflict_resolution_source_quality_policy",
+      "name": "Reported transformation to conflicting literature/patent/database evidence plus source-resolution boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "reaction database records",
+          "patent/literature extracted routes",
+          "route evidence cards"
+        ],
+        "target_features": [
+          "conflicting yield",
+          "source hierarchy",
+          "reaction provenance",
+          "procedure mismatch"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "reported reaction to source-conflict boundary",
+          "extracted database row to provenance-resolution boundary"
+        ],
+        "forward_logic": [
+          "separate a reaction claim from the source hierarchy and conflicts around it",
+          "track source type, original document, extraction method, yield/procedure conflicts, identity evidence, and final resolution",
+          "avoid promoting a reaction row when patent, paper, database, or extracted procedure evidence disagree"
+        ],
+        "suggested_precursor_roles": [
+          "reaction claim",
+          "source document",
+          "conflicting record",
+          "resolution label"
+        ],
+        "planner_hint": "Use reaction-source records only after conflicting source claims are explicitly resolved or quarantined."
+      },
+      "risks": [
+        "patent/literature mismatch",
+        "yield copied without context",
+        "structure identity conflict",
+        "extraction artifact"
+      ],
+      "evidence": [
+        {
+          "type": "schema",
+          "citation": "Open Reaction Database schema documentation defines reaction provenance requirements and validation fields.",
+          "url": "https://docs.open-reaction-database.org/en/stable/schema.html"
+        },
+        {
+          "type": "literature",
+          "citation": "PatentEye paper reports manual examination of extracted reactions and quantifies extraction accuracy for patent reaction data.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3205044/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "reaction_source_conflict_resolution_prior",
+        "rerank_bonus": "moderate for explicit provenance, conflict type, extraction confidence, and reviewer resolution",
+        "compliance_gate": "literature_patent_database_conflict_resolution_review_required"
+      }
+    },
+    {
+      "id": "llm_or_ocr_reaction_extraction_confidence_policy",
+      "family_id": "literature_conflict_resolution_source_quality_policy",
+      "name": "Extracted reaction to LLM/OCR/text-mining confidence, source restoration, and manual-review policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "LLM-extracted reactions",
+          "OCR or scheme-extracted reactions",
+          "patent-mined route records"
+        ],
+        "target_features": [
+          "LLM extraction",
+          "OCR extraction",
+          "manual review",
+          "source restoration"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "extracted reaction to extraction-confidence boundary",
+          "machine-readable row to original-source restoration boundary"
+        ],
+        "forward_logic": [
+          "separate machine extraction from a reviewed reaction source",
+          "track extraction model/tool, original text or scheme, confidence, false-positive risk, manual correction, and copyright-safe source reference",
+          "quarantine rows whose precursor roles, stoichiometry, or product identity cannot be restored to the source"
+        ],
+        "suggested_precursor_roles": [
+          "machine-extracted reaction",
+          "original source text or scheme",
+          "manual correction",
+          "reviewed reaction row"
+        ],
+        "planner_hint": "Treat extracted reactions as weak sources unless original evidence, confidence, and manual restoration are explicit."
+      },
+      "risks": [
+        "false positive extraction",
+        "missing reagent role",
+        "scheme/product mismatch",
+        "copyright or source-context loss"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "LLM patent-reaction extraction study evaluates extraction quality and correction of previous false positives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11590295/"
+        },
+        {
+          "type": "literature",
+          "citation": "Automated chemical reaction extraction article describes structured extraction from scientific literature.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34115937/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "reaction_extraction_confidence_prior",
+        "rerank_bonus": "moderate for explicit original-source restoration, extraction confidence, manual correction, and role assignment",
+        "compliance_gate": "machine_extracted_reaction_manual_review_required"
+      }
+    },
+    {
+      "id": "lab_to_pilot_scale_up_transfer_boundary",
+      "family_id": "scale_up_transfer_and_tech_transfer_boundary_policy",
+      "name": "Bench route to pilot/manufacturing transfer plus equipment, process-knowledge, and site boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "process development routes",
+          "pilot transfer candidates",
+          "manufacturing site transfers"
+        ],
+        "target_features": [
+          "scale-up",
+          "technology transfer",
+          "equipment fit",
+          "process knowledge"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "bench route to scale-up boundary",
+          "process recipe to site-transfer knowledge boundary"
+        ],
+        "forward_logic": [
+          "separate laboratory feasibility from manufacturing transfer readiness",
+          "track scale boundary, equipment fit, process controls, transfer package, site constraints, raw-material controls, and change-control risks",
+          "avoid promoting bench sources as scalable routes without transfer evidence"
+        ],
+        "suggested_precursor_roles": [
+          "bench route",
+          "pilot transfer package",
+          "manufacturing equipment/site",
+          "process control strategy"
+        ],
+        "planner_hint": "Reward scale-up records only when equipment, site, process knowledge, and transfer-risk boundaries are explicit."
+      },
+      "risks": [
+        "equipment mismatch",
+        "process knowledge incomplete",
+        "site transfer failure",
+        "raw-material change-control gap"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "ICH Q10 describes pharmaceutical quality systems across product lifecycle stages including technology transfer and scale-up.",
+          "url": "https://database.ich.org/sites/default/files/Q10%20Guideline.pdf"
+        },
+        {
+          "type": "guideline",
+          "citation": "ICH Q11 discusses development and manufacture of drug substances, impurity fate, purification, and process justification.",
+          "url": "https://database.ich.org/sites/default/files/Q11_Guideline.pdf"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "scale_up_tech_transfer_prior",
+        "rerank_bonus": "moderate for explicit scale boundary, transfer package, equipment fit, site constraints, and process control",
+        "compliance_gate": "scale_up_transfer_and_site_process_review_required"
+      }
+    },
+    {
+      "id": "cleaning_hold_time_batch_flow_transfer_policy",
+      "family_id": "scale_up_transfer_and_tech_transfer_boundary_policy",
+      "name": "Transferred process to cleaning, hold-time, batch/flow format, and lifecycle-control policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "site-transferred processes",
+          "batch-to-flow or flow-to-batch candidates",
+          "multi-product facility routes"
+        ],
+        "target_features": [
+          "cleaning",
+          "hold time",
+          "batch/flow transfer",
+          "lifecycle control"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "process transfer to cleaning/hold-time boundary",
+          "batch or flow mode to lifecycle-control boundary"
+        ],
+        "forward_logic": [
+          "separate transferred chemistry from operational controls that preserve quality",
+          "track cleaning risk, hold-time stability, batch/flow mode changes, containment, in-process controls, and ongoing verification",
+          "flag routes where transfer changes residence, storage, contamination, or impurity risk"
+        ],
+        "suggested_precursor_roles": [
+          "transferred process",
+          "cleaning control",
+          "hold-time condition",
+          "batch/flow mode record"
+        ],
+        "planner_hint": "Use transfer-boundary records when cleaning, hold time, or process format changes route trust."
+      },
+      "risks": [
+        "hold-time degradation",
+        "cleaning carryover",
+        "batch/flow comparability gap",
+        "lifecycle verification absent"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "ICH Q9(R1) quality risk management guidance frames risk-based decision-making for pharmaceutical quality.",
+          "url": "https://database.ich.org/sites/default/files/ICH_Q9%28R1%29_Guideline_Step4_2025_0115.pdf"
+        },
+        {
+          "type": "guideline",
+          "citation": "FDA Q10 page describes the ICH Q10 pharmaceutical quality system model and lifecycle implementation.",
+          "url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/q10-pharmaceutical-quality-system"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cleaning_hold_time_transfer_prior",
+        "rerank_bonus": "moderate for explicit cleaning, hold-time, batch/flow comparability, risk assessment, and lifecycle verification",
+        "compliance_gate": "cleaning_hold_time_and_transfer_lifecycle_review_required"
+      }
+    },
+    {
+      "id": "model_uncertainty_calibrated_route_prediction_boundary",
+      "family_id": "computational_prediction_uncertainty_route_policy",
+      "name": "Predicted route/condition/selectivity to calibrated uncertainty, prediction interval, and applicability-domain boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "model-predicted reactions",
+          "condition or selectivity predictions",
+          "property/toxicity route priors"
+        ],
+        "target_features": [
+          "uncertainty quantification",
+          "calibration",
+          "prediction interval",
+          "applicability domain"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "model prediction to calibrated-uncertainty boundary",
+          "confidence score to applicability-domain boundary"
+        ],
+        "forward_logic": [
+          "separate a model score from evidence that the score is calibrated for this chemical domain",
+          "track model version, training domain, calibration metric, uncertainty interval, OOD status, and experimental support",
+          "avoid using high confidence as route evidence when calibration or domain transfer is unknown"
+        ],
+        "suggested_precursor_roles": [
+          "model prediction",
+          "uncertainty estimate",
+          "applicability-domain record",
+          "experimental or source support"
+        ],
+        "planner_hint": "Down-rank model-predicted sources outside calibrated domain or without uncertainty evidence."
+      },
+      "risks": [
+        "overconfident prediction",
+        "OOD scaffold or condition",
+        "uncalibrated uncertainty",
+        "model version not traceable"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "JCIM article discusses uncertainty quantification using neural networks for molecular property prediction.",
+          "url": "https://pubs.acs.org/doi/10.1021/acs.jcim.0c00502"
+        },
+        {
+          "type": "literature",
+          "citation": "AutoGNNUQ paper describes uncertainty quantification for molecular property predictions and separates aleatoric and epistemic uncertainty.",
+          "url": "https://www.sciencedirect.com/science/article/pii/S2635098X24001323"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "calibrated_model_uncertainty_prior",
+        "rerank_bonus": "moderate for explicit model version, calibration, uncertainty interval, applicability-domain check, and source support",
+        "compliance_gate": "model_prediction_uncertainty_and_domain_review_required"
+      }
+    },
+    {
+      "id": "ood_prediction_abstention_and_human_review_policy",
+      "family_id": "computational_prediction_uncertainty_route_policy",
+      "name": "Out-of-domain prediction to abstention, human review, and evidence-bound confidence policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "OOD model predictions",
+          "low-data chemical families",
+          "high-impact route decisions"
+        ],
+        "target_features": [
+          "out-of-distribution",
+          "abstention",
+          "human review",
+          "domain shift"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "model suggestion to abstention boundary",
+          "OOD domain to human-review boundary"
+        ],
+        "forward_logic": [
+          "separate a plausible model output from a source strong enough to guide route choice",
+          "track distance to training domain, confidence calibration, uncertainty attribution, abstention threshold, and human/source review",
+          "turn uncertain model outputs into review prompts rather than proposal generators"
+        ],
+        "suggested_precursor_roles": [
+          "OOD target",
+          "uncertain model suggestion",
+          "abstention threshold",
+          "human-reviewed evidence"
+        ],
+        "planner_hint": "Treat OOD predictions as review worklist items unless uncertainty and source evidence justify promotion."
+      },
+      "risks": [
+        "domain shift hidden",
+        "abstention unavailable",
+        "uncertainty attributed to wrong feature",
+        "human review bypassed"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Journal of Cheminformatics paper discusses explainable uncertainty quantification for molecular property predictions.",
+          "url": "https://jcheminf.biomedcentral.com/articles/10.1186/s13321-023-00682-3"
+        },
+        {
+          "type": "literature",
+          "citation": "Scientific Reports article notes that uncertainty quantification in molecular machine learning lacks standard general guidelines.",
+          "url": "https://www.nature.com/articles/s41598-024-57135-6"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "ood_prediction_abstention_prior",
+        "rerank_bonus": "low unless OOD status, abstention threshold, uncertainty attribution, and human review are explicit",
+        "compliance_gate": "ood_model_prediction_human_review_required"
+      }
+    },
+    {
+      "id": "doe_design_space_route_robustness_boundary",
+      "family_id": "route_robustness_design_of_experiments_policy",
+      "name": "Route operation to DoE design space plus critical-parameter, sensitivity, and robustness boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "process development routes",
+          "sensitive transformations",
+          "route robustness studies"
+        ],
+        "target_features": [
+          "design of experiments",
+          "critical process parameter",
+          "design space",
+          "robustness"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "single successful condition to design-space boundary",
+          "route step to critical-parameter sensitivity boundary"
+        ],
+        "forward_logic": [
+          "separate a route that worked once from a route with a known operating window",
+          "track quality attributes, critical material attributes, critical process parameters, DoE model, sensitivity, and design-space limits",
+          "avoid promoting fragile one-condition sources as robust route priors"
+        ],
+        "suggested_precursor_roles": [
+          "route step",
+          "critical parameter set",
+          "DoE design space",
+          "robust operating window"
+        ],
+        "planner_hint": "Reward route sources with explicit DoE or robustness evidence over single-condition precedents."
+      },
+      "risks": [
+        "one-condition overfitting",
+        "critical parameter unknown",
+        "design space unsupported",
+        "robustness claim not validated"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "ICH Q8(R2) describes pharmaceutical development concepts including critical quality attributes, process parameters, and design space.",
+          "url": "https://database.ich.org/sites/default/files/Q8_R2_Guideline.pdf"
+        },
+        {
+          "type": "guideline",
+          "citation": "ICH Q9(R1) provides quality risk management principles relevant to risk-based robustness decisions.",
+          "url": "https://database.ich.org/sites/default/files/ICH_Q9%28R1%29_Guideline_Step4_2025_0115.pdf"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "doe_route_robustness_prior",
+        "rerank_bonus": "moderate for explicit CQA/CPP map, DoE model, sensitivity, design space, and validation evidence",
+        "compliance_gate": "doe_design_space_and_route_robustness_review_required"
+      }
+    },
+    {
+      "id": "impurity_response_failure_mode_operating_window_policy",
+      "family_id": "route_robustness_design_of_experiments_policy",
+      "name": "Route step to impurity response surface, failure mode, edge-of-failure, and operating-window policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "impurity-sensitive steps",
+          "scale-sensitive transformations",
+          "failure-prone route branches"
+        ],
+        "target_features": [
+          "impurity response",
+          "failure mode",
+          "edge of failure",
+          "operating window"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "route step to impurity-response boundary",
+          "nominal condition to edge-of-failure boundary"
+        ],
+        "forward_logic": [
+          "separate nominal success from how impurities and failures respond to parameter drift",
+          "track impurity response surfaces, failure thresholds, material variability, analytical method, and mitigation plan",
+          "flag route sources that lack any evidence near the edge of the operating window"
+        ],
+        "suggested_precursor_roles": [
+          "sensitive route step",
+          "impurity response profile",
+          "failure mode",
+          "mitigation or control"
+        ],
+        "planner_hint": "Use failure-mode and impurity-response records when robustness, not formal reaction type, determines route quality."
+      },
+      "risks": [
+        "edge-of-failure unknown",
+        "impurity cliff",
+        "material variability not tested",
+        "mitigation absent"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Chemical reaction optimization review discusses modern optimization, HTE, process scale-up, and reaction robustness concepts.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10037254/"
+        },
+        {
+          "type": "literature",
+          "citation": "Predictive chemistry review discusses reaction development, experimental feedback, and high-throughput reaction data.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9811563/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "impurity_response_failure_mode_prior",
+        "rerank_bonus": "moderate for explicit impurity response, failure threshold, material variability, analytical method, and mitigation",
+        "compliance_gate": "impurity_response_failure_mode_operating_window_review_required"
+      }
+    },
+    {
+      "id": "analogue_series_scaffold_split_leakage_boundary",
+      "family_id": "analogue_series_template_leakage_and_data_split_policy",
+      "name": "Benchmark route/source to analogue-series and scaffold split leakage boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "molecular ML benchmarks",
+          "route-source train/test splits",
+          "analogue-series evaluation panels"
+        ],
+        "target_features": [
+          "analogue series",
+          "scaffold split",
+          "train/test leakage",
+          "activity cliff"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "benchmark score to split-lineage boundary",
+          "analogue series to train/test leakage boundary"
+        ],
+        "forward_logic": [
+          "separate benchmark performance from the split lineage that makes it trustworthy",
+          "track scaffold overlap, analogue-series overlap, activity cliffs, chronological order, duplicate structures, and split seeds",
+          "avoid treating random-split performance as evidence of route generalization"
+        ],
+        "suggested_precursor_roles": [
+          "training source",
+          "test source",
+          "analogue or scaffold group",
+          "split manifest"
+        ],
+        "planner_hint": "Down-rank benchmark source claims when analogue-series or scaffold leakage is not audited."
+      },
+      "risks": [
+        "structural similarity leakage",
+        "random split overoptimism",
+        "activity cliff hidden",
+        "split seed not reproducible"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Molecular representation analysis argues scaffold split is a more challenging and realistic evaluation than random split for new chemistry.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6727618/"
+        },
+        {
+          "type": "literature",
+          "citation": "Systematic molecular-property study discusses split variability, scaffold generalization, and activity cliff challenges.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10575948/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "analogue_series_split_leakage_prior",
+        "rerank_bonus": "moderate for explicit scaffold/series groups, chronological or leakage-aware split, duplicate checks, and split manifest",
+        "compliance_gate": "analogue_series_scaffold_split_leakage_review_required"
+      }
+    },
+    {
+      "id": "patent_family_template_source_document_leakage_policy",
+      "family_id": "analogue_series_template_leakage_and_data_split_policy",
+      "name": "Reaction/template benchmark to patent-family, source-document, duplicate-template, and procedure-leakage policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "reaction prediction benchmarks",
+          "retrosynthesis template datasets",
+          "patent-derived route corpora"
+        ],
+        "target_features": [
+          "patent family",
+          "source document",
+          "template leakage",
+          "duplicate reaction"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "reaction benchmark to source-document boundary",
+          "template record to procedure-leakage boundary"
+        ],
+        "forward_logic": [
+          "separate model evidence from hidden overlap between train and test reaction sources",
+          "track patent family, source document, reaction template, procedure text, duplicate row, and source extraction lineage",
+          "flag models whose route proposals may reproduce near-duplicate patent or template records from training"
+        ],
+        "suggested_precursor_roles": [
+          "reaction source document",
+          "template record",
+          "patent family",
+          "leakage audit manifest"
+        ],
+        "planner_hint": "Require source-document and template leakage manifests before using benchmark gains as route-source evidence."
+      },
+      "risks": [
+        "same patent family in train/test",
+        "template duplicate leakage",
+        "source-document overlap",
+        "procedure text memorization"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Predictive chemistry review notes that reaction-model performance can be overoptimistic without scaffold or source-document splits and can suffer from lack of negative data.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9811563/"
+        },
+        {
+          "type": "literature",
+          "citation": "DataSAIL paper discusses similarity-induced information leakage and leakage-avoiding data splitting.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11978981/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "source_document_template_leakage_prior",
+        "rerank_bonus": "moderate for explicit patent-family, source-document, template, duplicate, and procedure-leakage audit",
+        "compliance_gate": "patent_family_template_source_document_leakage_review_required"
+      }
+    },
+    {
+      "id": "local_pptx_route_card_manual_validation_boundary",
+      "family_id": "local_project_route_card_manual_validation_policy",
+      "name": "Local PPTX/doc route source to manually verified route card plus structures, stereochemistry, and file-provenance boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "local project PPTX routes",
+          "statin route schemes",
+          "manually reviewed internal route cards"
+        ],
+        "target_features": [
+          "PPTX extraction",
+          "manual SMILES validation",
+          "stereochemistry",
+          "local evidence file"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "local slide scheme to validated route-card boundary",
+          "extracted text/table to structure-stereochemistry boundary"
+        ],
+        "forward_logic": [
+          "separate local source extraction from a route card that can guide proposals",
+          "track source file, slide/scheme location, extracted text, manually assigned structures, stereochemistry, hazards, process notes, and reviewer signoff",
+          "avoid creating templates from local schemes until structures and stereochemistry are manually verified"
+        ],
+        "suggested_precursor_roles": [
+          "local PPTX scheme",
+          "extracted text/table record",
+          "manual structure assignment",
+          "reviewed route card"
+        ],
+        "planner_hint": "Use local PPTX routes as evidence only after route-card structure and stereochemistry signoff."
+      },
+      "risks": [
+        "OLE/image scheme not parsed",
+        "wrong stereochemistry",
+        "structure missing from text extraction",
+        "template promoted before review"
+      ],
+      "evidence": [
+        {
+          "type": "local_file",
+          "citation": "Local statin route extraction records PPTX-derived text/table context and embedded scheme limitations.",
+          "file": "data/strategic_disconnections/pptx_statin_route_extraction.md",
+          "url": "https://docs.open-reaction-database.org/en/stable/schema.html"
+        },
+        {
+          "type": "local_file",
+          "citation": "Local integration notes require extracting/redrawing schemes, assigning structures, checking atom mapping/stereochemistry, and tagging hazards before template promotion.",
+          "file": "data/strategic_disconnections/INTEGRATION_NOTES.md",
+          "url": "https://docs.open-reaction-database.org/en/stable/overview.html"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "local_route_card_manual_validation_prior",
+        "rerank_bonus": "low until local file, scheme, structures, stereochemistry, hazards, and reviewer signoff are explicit",
+        "compliance_gate": "local_route_card_manual_validation_review_required"
+      }
+    },
+    {
+      "id": "local_route_card_template_promotion_quarantine_policy",
+      "family_id": "local_project_route_card_manual_validation_policy",
+      "name": "Local route card to template-promotion quarantine plus reviewer signoff and source-license policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "local route-card corpora",
+          "manually curated project routes",
+          "internal source-backed template candidates"
+        ],
+        "target_features": [
+          "template promotion",
+          "reviewer signoff",
+          "source license",
+          "quarantine"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "reviewed route card to executable-template boundary",
+          "local evidence to source-license and quarantine boundary"
+        ],
+        "forward_logic": [
+          "separate a reviewed local route card from an executable proposal source",
+          "track source permissions, template abstraction, reviewer, hazard/process context, negative controls, and quarantine/promotion status",
+          "keep local route cards advisory unless promotion requirements and source rights are explicit"
+        ],
+        "suggested_precursor_roles": [
+          "reviewed local route card",
+          "template candidate",
+          "source-license metadata",
+          "promotion/quarantine label"
+        ],
+        "planner_hint": "Do not promote local route cards into templates until source rights, abstraction, and reviewer signoff are recorded."
+      },
+      "risks": [
+        "copyright/source-rights gap",
+        "template overgeneralized",
+        "hazard context lost",
+        "reviewer signoff missing"
+      ],
+      "evidence": [
+        {
+          "type": "local_file",
+          "citation": "Strategic disconnection README states these records are advisory, not ordinary templates or stock records.",
+          "file": "data/strategic_disconnections/README.md",
+          "url": "https://docs.open-reaction-database.org/en/stable/schema.html"
+        },
+        {
+          "type": "literature",
+          "citation": "Open Reaction Database overview describes structured reaction data, open access, and schema-driven reaction data goals.",
+          "url": "https://docs.open-reaction-database.org/en/stable/overview.html"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "local_template_promotion_quarantine_prior",
+        "rerank_bonus": "none until source rights, reviewer signoff, template abstraction, hazard context, and quarantine status are explicit",
+        "compliance_gate": "local_route_card_template_promotion_and_license_review_required"
+      }
+    },
+    {
+      "id": "false_stock_closure_product_like_terminal_failure",
+      "family_id": "strategic_failure_case_source_policy",
+      "name": "False stock closure to product-like terminal artifact plus source-backed correction and guardrail boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "stock-closed route audits",
+          "bufadienolide or statin failure cases",
+          "product-like terminal false positives"
+        ],
+        "target_features": [
+          "false stock closure",
+          "product-like terminal",
+          "advanced intermediate",
+          "source-backed correction"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "stock-closed route to product-like-terminal guardrail",
+          "failure trace to corrected negative-label boundary"
+        ],
+        "forward_logic": [
+          "separate stock closure from evidence that the route made real strategic progress",
+          "track product-like terminal similarity, advanced-intermediate status, expected strategic move, source-backed correction, and replay/test evidence",
+          "convert false closures into negative source records and guardrail labels"
+        ],
+        "suggested_precursor_roles": [
+          "bad terminal",
+          "expected strategic precursor",
+          "failure trace",
+          "corrected negative label"
+        ],
+        "planner_hint": "Penalize stock closures that end at product-like analogues without exposing the expected strategic disconnection."
+      },
+      "risks": [
+        "advanced analogue treated as stock",
+        "route closes before skeleton strategy",
+        "success metric inflated",
+        "failure lesson not reused"
+      ],
+      "evidence": [
+        {
+          "type": "local_file",
+          "citation": "Integration notes document the deacetylbufotalin failure: a product-like bufadienolide analogue was treated as stock instead of requiring C17-pyrone strategy.",
+          "file": "data/strategic_disconnections/INTEGRATION_NOTES.md",
+          "url": "https://openreview.net/pdf?id=W5U18rgtpg"
+        },
+        {
+          "type": "local_file",
+          "citation": "AutoPlanner cascade report explains why strict stock closure is insufficient and product-like terminal audits are required.",
+          "file": "docs/archive/2026-05/AUTOPLANNER_CASCADE_PROGRESS_REPORT_2026-05-19.md",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9811563/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "false_stock_closure_failure_prior",
+        "rerank_bonus": "negative penalty when product-like terminal similarity is high and expected strategic disconnection is absent",
+        "compliance_gate": "false_stock_closure_product_like_terminal_review_required"
+      }
+    },
+    {
+      "id": "carrier_reagent_misclassification_and_model_artifact_policy",
+      "family_id": "strategic_failure_case_source_policy",
+      "name": "Large terminal/source artifact to carrier-reagent recognition, self-loop, unsupported atom-gain, and corrected-label policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "route-audit failure cases",
+          "large terminal classifications",
+          "model artifact traces"
+        ],
+        "target_features": [
+          "carrier reagent",
+          "self loop",
+          "unsupported atom gain",
+          "corrected label"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "large terminal to carrier-reagent classification boundary",
+          "model artifact to corrected failure-label boundary"
+        ],
+        "forward_logic": [
+          "separate a large terminal that is a carrier/leaving scaffold from a product-like advanced intermediate",
+          "track atom provenance, contributed fragment, repeated/self-loop candidates, unsupported atom gains, and corrected audit label",
+          "use corrected artifact cases as hard negatives for reranking and proposal gating"
+        ],
+        "suggested_precursor_roles": [
+          "large terminal",
+          "carrier reagent",
+          "artifact route trace",
+          "corrected audit label"
+        ],
+        "planner_hint": "Do not classify large terminals by size alone; require atom-provenance and carrier-reagent context."
+      },
+      "risks": [
+        "carrier reagent mistaken for product-like terminal",
+        "self-loop proposal accepted",
+        "unsupported atoms introduced",
+        "negative case not captured"
+      ],
+      "evidence": [
+        {
+          "type": "local_file",
+          "citation": "AutoPlanner cascade progress report records carrier reagent recognition for a Wittig phosphorane that should not be treated as product-like terminal.",
+          "file": "docs/archive/2026-05/AUTOPLANNER_CASCADE_PROGRESS_REPORT_2026-05-19.md",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7465358/"
+        },
+        {
+          "type": "literature",
+          "citation": "Negative chemical data paper discusses the role of failed experiments and negative data in improving chemistry machine-learning models.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12164950/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "carrier_reagent_artifact_failure_prior",
+        "rerank_bonus": "negative penalty for self loops, unsupported atom gains, or unreviewed product-like terminal labels; neutralize large carrier reagents when atom provenance supports it",
+        "compliance_gate": "carrier_reagent_and_model_artifact_failure_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v20 expansion promotes backlog families covering route decision provenance, source-conflict resolution, scale-up/technology-transfer boundaries, model uncertainty, route robustness/DoE, leakage-aware data splits, local route-card manual validation, and strategic failure-case source records."
+    },
+    {
+      "type": "safety_note",
+      "summary": "V20 records are advisory source-policy records. Promotion requires explicit reviewer evidence and must not convert local files, model predictions, failed traces, or source-conflict records into executable reaction templates, stock closures, or validated process routes by default."
+    }
+  ]
+}

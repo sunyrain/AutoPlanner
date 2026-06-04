@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT="${ROOT:-/root/autodl-tmp/AutoPlanner}"
 cd "$ROOT"
 
+if [[ "${AUTOPLANNER_ALLOW_LEGACY_RESEARCH:-}" != "1" ]]; then
+  echo "real LLM/expert route-block review is archived/fallback research; set AUTOPLANNER_ALLOW_LEGACY_RESEARCH=1 to run it." >&2
+  exit 4
+fi
+
 normalize_deepseek_key_value() {
   local value="${1:-}"
   value="$(printf '%s' "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"

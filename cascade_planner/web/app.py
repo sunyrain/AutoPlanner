@@ -28,6 +28,25 @@ from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from rdkit import Chem, RDLogger
 from rdkit.Chem.Draw import rdMolDraw2D
 
+from cascade_planner.agent.case_blackboard import load_blackboard
+from cascade_planner.agent.case_trace import load_case_bundle
+from cascade_planner.agent.chem_enzy_policy import (
+    apply_chem_enzy_search_policy,
+    compile_chem_enzy_search_policy,
+    compile_strategic_operator_from_case_bundle,
+)
+from cascade_planner.agent.codex_worker import run_codex_worker, worker_task_from_dict
+from cascade_planner.agent.route_auditor import audit_route_package
+from cascade_planner.agent.smiles_first import SmilesFirstWorkflowConfig, run_smiles_first_workflow
+from cascade_planner.baselines.proposal_gate import (
+    ProposalGateConfig,
+    gate_web_route,
+    normalize_proposal_gate_mode,
+    summarize_route_gate_reports,
+)
+from cascade_planner.baselines.route_contract import RouteSearchConfig
+from cascade_planner.baselines.template_relevance_runtime import check_template_relevance
+
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -78,12 +97,46 @@ def create_app() -> Flask:
             "model_exists": (ROOT / DEFAULT_MODEL).exists(),
             "retrochimera_model_exists": (ROOT / "data_external/retrochimera_model").exists(),
             "cuda": _cuda_status(),
+            "template_relevance": _template_relevance_status(),
             "artifacts": _artifact_summary(),
         })
 
     @app.get("/api/artifacts")
     def artifacts():
         return jsonify({"artifacts": _list_artifacts()})
+
+    @app.post("/api/cases")
+    def create_case_api():
+        payload = request.get_json(force=True, silent=False) or {}
+        return jsonify(_api_run_smiles_first_case(payload))
+
+    @app.get("/api/blackboard")
+    def blackboard_api():
+        case_bundle = request.args.get("case_bundle")
+        blackboard = request.args.get("blackboard")
+        return jsonify(_api_inspect_case_or_blackboard(case_bundle=case_bundle, blackboard=blackboard))
+
+    @app.post("/api/route-audit")
+    def route_audit_api():
+        payload = request.get_json(force=True, silent=False) or {}
+        return jsonify(_api_route_audit(payload))
+
+    @app.post("/api/worker-trace")
+    def worker_trace_api():
+        payload = request.get_json(force=True, silent=False) or {}
+        return jsonify(_api_worker_trace(payload))
+
+    @app.post("/api/guided-policy")
+    def guided_policy_api():
+        payload = request.get_json(force=True, silent=False) or {}
+        return jsonify(_api_guided_policy(payload))
+
+    @app.get("/api/final-report")
+    def final_report_api():
+        case_bundle = request.args.get("case_bundle")
+        if not case_bundle:
+            abort(400, description="case_bundle is required")
+        return jsonify(_api_final_report(case_bundle))
 
     @app.get("/api/cascade-demo")
     def cascade_demo():
@@ -207,6 +260,15 @@ def _run_chem_enzy_native_plan(payload: dict[str, Any], *, job_id: str | None = 
     target = str(payload.get("target_smiles") or "").strip()
     if Chem.MolFromSmiles(target) is None:
         abort(400, description="target_smiles is not a valid SMILES")
+    missing_template_models = _missing_selected_template_relevance_models(payload)
+    if missing_template_models:
+        abort(
+            400,
+            description=(
+                "missing local template_relevance .mar archive(s): "
+                + ", ".join(missing_template_models)
+            ),
+        )
     if _plan_job_cancel_requested(job_id):
         raise _PlanJobCancelled("route search cancelled before ChemEnzy launch")
     env_prefix = Path(os.environ.get("CHEMENZY_ENV_PREFIX", "/root/autodl-tmp/chem_enzy_runtime/envs/retro_planner_env"))
@@ -290,10 +352,230 @@ def _run_chem_enzy_native_plan(payload: dict[str, Any], *, job_id: str | None = 
     raw_out_path = out_path.with_name(f"{out_path.stem}_raw.json")
     _save_native_raw_output(output, raw_out_path)
     ui_metadata["raw_saved_at"] = _rel(raw_out_path)
+    _apply_proposal_gate_post_filter(output, payload)
     rejected_out_path = out_path.with_name(f"{out_path.stem}_rejected.json")
     _apply_product_audit_post_filter(output, payload, rejected_out_path=rejected_out_path)
     out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
     return output
+
+
+def _apply_proposal_gate_post_filter(output: dict[str, Any], payload: dict[str, Any]) -> None:
+    routes = output.get("routes")
+    if not isinstance(routes, list):
+        return
+
+    mode = _proposal_gate_mode(payload)
+    enabled = mode != "off"
+    report: dict[str, Any] = {
+        "schema_version": "web_proposal_gate.v1",
+        "enabled": enabled,
+        "mode": mode,
+        "input_routes": len(routes),
+        "kept_routes": len(routes),
+        "dropped_routes": 0,
+        "route_decision_counts": {},
+        "reason_counts": {},
+        "frontiers": [],
+        "dropped": [],
+        "description": (
+            "Proposal gate applies conservative material/core-growth checks before "
+            "product audit. hard_reject hides routes containing impossible one-step proposals."
+        ),
+    }
+    output.setdefault("route_set_metrics", {})["proposal_gate"] = report
+    output.setdefault("ui_metadata", {})["proposal_gate"] = report
+    if not enabled or not routes:
+        return
+
+    config = ProposalGateConfig(mode=mode)
+    kept: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    route_reports: list[dict[str, Any]] = []
+    for original_index, route in enumerate(routes):
+        if not isinstance(route, dict):
+            continue
+        route.setdefault("native_rank", original_index)
+        route.setdefault("original_route_rank", route.get("route_rank", original_index))
+        gate_report = gate_web_route(route, config=config)
+        route["proposal_gate"] = _compact_route_proposal_gate(gate_report)
+        metrics = route.setdefault("metrics", {})
+        if isinstance(metrics, dict):
+            metrics["proposal_gate"] = route["proposal_gate"]
+        route_reports.append(gate_report)
+        if mode == "hard_reject" and gate_report.get("hard_reject"):
+            dropped.append({"route": route, "gate": gate_report, "original_index": original_index})
+        else:
+            kept.append(route)
+
+    for new_rank, route in enumerate(kept):
+        route["route_rank"] = new_rank
+        route["post_proposal_gate_rank"] = new_rank
+
+    frontiers = _proposal_gate_frontiers(dropped)
+    summary = summarize_route_gate_reports(route_reports)
+    report.update(
+        {
+            "input_routes": len(routes),
+            "kept_routes": len(kept),
+            "dropped_routes": len(dropped),
+            "route_decision_counts": summary.get("route_decision_counts") or {},
+            "reason_counts": summary.get("reason_counts") or {},
+            "frontiers": frontiers,
+            "dropped": [_compact_dropped_proposal_gate_row(item) for item in dropped[:50]],
+        }
+    )
+    output["routes"] = kept
+    output["n_results"] = len(kept)
+    output["frontiers"] = frontiers
+    output["proposal_gate"] = report
+    output.setdefault("route_set_metrics", {})["proposal_gate"] = report
+    output.setdefault("ui_metadata", {})["proposal_gate"] = report
+    _refresh_native_route_payload_after_proposal_gate(output)
+    if routes and not kept and dropped:
+        _attach_proposal_gate_failure_analysis(output)
+
+
+def _proposal_gate_mode(payload: dict[str, Any]) -> str:
+    enabled = _as_bool(payload.get("enable_proposal_gate"), True)
+    if not enabled:
+        return "off"
+    return normalize_proposal_gate_mode(
+        payload.get("proposal_gate_mode")
+        or os.environ.get("AUTOPLANNER_PROPOSAL_GATE_MODE")
+        or "hard_reject"
+    )
+
+
+def _compact_route_proposal_gate(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": report.get("schema_version"),
+        "decision": report.get("decision"),
+        "hard_reject": bool(report.get("hard_reject")),
+        "mode": report.get("mode"),
+        "step_count": report.get("step_count"),
+        "rejected_step_count": report.get("rejected_step_count"),
+        "route_hard_reasons": report.get("route_hard_reasons") or [],
+        "reason_counts": report.get("reason_counts") or {},
+        "frontier": report.get("frontier"),
+    }
+
+
+def _compact_dropped_proposal_gate_row(item: dict[str, Any]) -> dict[str, Any]:
+    route = item.get("route") or {}
+    gate = item.get("gate") or {}
+    return {
+        "route_rank": route.get("original_route_rank", route.get("route_rank")),
+        "n_steps": route.get("n_steps"),
+        "score": route.get("score"),
+        "reason_counts": gate.get("reason_counts") or {},
+        "frontier": gate.get("frontier"),
+    }
+
+
+def _proposal_gate_frontiers(dropped: list[dict[str, Any]], *, limit: int = 50) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in dropped:
+        route = item.get("route") or {}
+        gate = item.get("gate") or {}
+        frontier = dict(gate.get("frontier") or {})
+        smiles = str(frontier.get("smiles") or "")
+        if not smiles or smiles in seen:
+            continue
+        seen.add(smiles)
+        frontier.setdefault("route_rank", route.get("original_route_rank", route.get("route_rank")))
+        frontier.setdefault("suggested_next_policy", "literature_or_core_provider")
+        out.append(frontier)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _refresh_native_route_payload_after_proposal_gate(output: dict[str, Any]) -> None:
+    routes = [route for route in output.get("routes") or [] if isinstance(route, dict)]
+    output["n_results"] = len(routes)
+    diversity = output.setdefault("route_set_metrics", {}).setdefault("diversity", {})
+    diversity["n_routes"] = len(routes)
+    diversity["unique_full_signatures"] = len({_native_route_signature(route) for route in routes})
+    for attempt in output.get("depth_attempts") or []:
+        if isinstance(attempt, dict):
+            attempt.setdefault("raw_n_routes", attempt.get("n_routes"))
+            attempt["n_routes"] = len(routes)
+            attempt["best"] = _route_ui_summary(routes[0]) if routes else None
+    gate = output.get("proposal_gate") or {}
+    search_status = output.setdefault("search_status", {})
+    solved = any(bool((route.get("metrics") or {}).get("route_solved")) for route in routes)
+    search_status["solved"] = solved
+    search_status["proposal_gate_removed_all"] = bool(
+        gate.get("enabled") and int(gate.get("input_routes") or 0) > 0 and not routes
+    )
+    if routes:
+        output["ok"] = True
+        search_status["status"] = "solved" if solved else "partial"
+        search_status["best_depth"] = (routes[0].get("metrics") or {}).get("n_steps") or routes[0].get("n_steps")
+        search_status["message"] = (
+            f"ChemEnzy native core search returned {gate.get('input_routes', len(routes))} route(s); "
+            f"proposal gate kept {len(routes)}"
+        )
+    elif search_status["proposal_gate_removed_all"]:
+        output["ok"] = False
+        search_status["status"] = "frontier"
+        search_status["native_returned_routes"] = False
+        search_status["native_raw_returned_routes"] = True
+        search_status["best_depth"] = None
+        search_status["message"] = (
+            f"ChemEnzy returned {gate.get('input_routes')} raw route(s), but proposal gate removed all "
+            "because each contained impossible material/core-growth steps; unresolved frontiers are reported."
+        )
+
+
+def _attach_proposal_gate_failure_analysis(output: dict[str, Any]) -> None:
+    gate = output.get("proposal_gate") or {}
+    input_routes = int(gate.get("input_routes") or 0)
+    dropped_routes = int(gate.get("dropped_routes") or 0)
+    categories = [str(item) for item in output.get("failure_diagnosis") or []]
+    for category in ("proposal_gate_filtered_all", "frontier_unresolved_core"):
+        if category not in categories:
+            categories.append(category)
+    output["failure_diagnosis"] = categories
+
+    analysis = output.setdefault("failure_analysis", {})
+    existing_categories = [str(item) for item in analysis.get("failure_categories") or []]
+    for category in categories:
+        if category not in existing_categories:
+            existing_categories.append(category)
+    diagnosis = [str(item) for item in analysis.get("diagnosis") or []]
+    _append_unique(
+        diagnosis,
+        f"ChemEnzy returned {input_routes} raw route(s), but proposal gate removed {dropped_routes} route(s) before product audit.",
+    )
+    if gate.get("reason_counts"):
+        _append_unique(diagnosis, "Dominant proposal gate reasons: " + _format_counter_rows(gate.get("reason_counts") or {}) + ".")
+    _append_unique(
+        diagnosis,
+        "Rejected routes contain one-step proposals where product core material is not supplied by listed reactants or accepted condition reagents.",
+    )
+    suggestions = [str(item) for item in analysis.get("retry_suggestions") or []]
+    _append_unique(suggestions, "inspect raw_output_json for rejected debug routes; do not present them as proposed syntheses")
+    _append_unique(suggestions, "add a known advanced core intermediate or literature/core provider for unresolved frontiers")
+    _append_unique(suggestions, "use proposal_gate_mode=warn only for debugging the raw proposal family")
+    analysis.update(
+        {
+            "available": True,
+            "failure_categories": existing_categories,
+            "diagnosis": diagnosis,
+            "retry_suggestions": suggestions,
+            "proposal_gate": {
+                "removed_all": True,
+                "input_routes": input_routes,
+                "dropped_routes": dropped_routes,
+                "kept_routes": int(gate.get("kept_routes") or 0),
+                "mode": gate.get("mode"),
+                "reason_counts": gate.get("reason_counts") or {},
+                "frontier_count": len(gate.get("frontiers") or []),
+            },
+        }
+    )
 
 
 def _apply_product_audit_post_filter(
@@ -430,7 +712,7 @@ def _product_audit_filter_mode(payload: dict[str, Any]) -> str:
     raw = str(
         payload.get("product_audit_filter_mode")
         or os.environ.get("AUTOPLANNER_PRODUCT_AUDIT_FILTER_MODE")
-        or "hide_rejects"
+        or "risk_guarded"
     ).strip().lower()
     aliases = {
         "rerank": "risk_guarded",
@@ -742,7 +1024,7 @@ def _chem_enzy_timeout_output(
         "ui_metadata": {
             "backend": "CascadePlanner",
             "engine": "ChemEnzyRetroPlanner",
-            "planner_strategy": "CascadePlanner search with ChemEnzy RSPlanner core and AutoPlanner-Cascade hooks",
+            "planner_strategy": "ChemEnzy native multi-step search with AutoPlanner product audit and rule cascade verifier",
             "search_mode": "chem_enzy_native",
             "search_preset": payload.get("search_preset", "quick"),
             "max_depth": _as_int(payload.get("max_steps"), 6, lo=1, hi=20),
@@ -1171,21 +1453,7 @@ def _run_plan_job(job_id: str, payload: dict[str, Any], log_path: Path) -> None:
             request_path = ((output.get("ui_metadata") or {}).get("request_path"))
             raw_output_path = ((output.get("ui_metadata") or {}).get("raw_saved_at"))
             rejected_output_path = ((output.get("ui_metadata") or {}).get("rejected_saved_at"))
-            routes = output.get("routes") or []
-            search_status = output.get("search_status") or {}
-            failure_analysis = output.get("failure_analysis") or {}
-            summary = {
-                "status": search_status.get("status"),
-                "message": search_status.get("message"),
-                "routes": len(routes),
-                "solved": bool(search_status.get("solved")),
-                "best_depth": search_status.get("best_depth"),
-                "time_s": output.get("time_s"),
-                "failure_categories": list(failure_analysis.get("failure_categories") or output.get("failure_diagnosis") or []),
-                "output_json": output_path,
-                "raw_output_json": raw_output_path,
-                "rejected_output_json": rejected_output_path,
-            }
+            summary = _plan_output_summary(output)
             log.write(f"[{datetime.utcnow().isoformat()}Z] route search finished status={summary['status']} routes={summary['routes']}\n")
             if output_path:
                 log.write(f"output_json={output_path}\n")
@@ -1195,6 +1463,7 @@ def _run_plan_job(job_id: str, payload: dict[str, Any], log_path: Path) -> None:
                 log.write(f"raw_output_json={raw_output_path}\n")
             if rejected_output_path:
                 log.write(f"rejected_output_json={rejected_output_path}\n")
+            failure_analysis = output.get("failure_analysis") or {}
             if failure_analysis.get("diagnosis"):
                 log.write("failure_analysis=" + "; ".join(str(row) for row in failure_analysis.get("diagnosis") or []) + "\n")
             if failure_analysis.get("retry_suggestions"):
@@ -1373,6 +1642,48 @@ def _job_response(job: dict[str, Any], *, include_log: bool) -> dict[str, Any]:
             lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
             out["log_tail"] = lines[-80:]
     return out
+
+
+def _plan_output_summary(output: dict[str, Any]) -> dict[str, Any]:
+    routes = output.get("routes") or []
+    search_status = output.get("search_status") or {}
+    failure_analysis = output.get("failure_analysis") or {}
+    ui_metadata = output.get("ui_metadata") or {}
+    verifier_gate = (
+        (output.get("route_set_metrics") or {}).get("cascade_verifier_gate")
+        or ui_metadata.get("cascade_verifier_gate")
+        or {}
+    )
+    learned_annotation = (
+        (output.get("route_set_metrics") or {}).get("learned_verifier_annotation")
+        or ui_metadata.get("learned_verifier_annotation")
+        or {}
+    )
+    return {
+        "status": search_status.get("status"),
+        "message": search_status.get("message"),
+        "routes": len(routes),
+        "solved": bool(search_status.get("solved")),
+        "best_depth": search_status.get("best_depth"),
+        "time_s": output.get("time_s"),
+        "failure_categories": list(failure_analysis.get("failure_categories") or output.get("failure_diagnosis") or []),
+        "output_json": ui_metadata.get("saved_at"),
+        "raw_output_json": ui_metadata.get("raw_saved_at"),
+        "rejected_output_json": ui_metadata.get("rejected_saved_at"),
+        "cascade_verifier_gate": {
+            "enabled": bool(verifier_gate.get("enabled")),
+            "input_routes": int(verifier_gate.get("input_routes") or 0),
+            "kept_routes": int(verifier_gate.get("kept_routes") or len(routes)),
+            "dropped_routes": int(verifier_gate.get("dropped_routes") or 0),
+        },
+        "learned_verifier_annotation": {
+            "enabled": bool(learned_annotation.get("enabled")),
+            "model_loaded": bool(learned_annotation.get("model_loaded")),
+            "input_routes": int(learned_annotation.get("input_routes") or 0),
+            "annotated_routes": int(learned_annotation.get("annotated_routes") or 0),
+            "policy": learned_annotation.get("policy") or "annotation_only",
+        },
+    }
 
 
 def _target_preview(smiles: str, limit: int = 64) -> str:
@@ -1843,6 +2154,25 @@ def _cuda_status() -> dict[str, Any]:
         return dict(status)
 
 
+def _template_relevance_status() -> dict[str, Any]:
+    try:
+        return check_template_relevance(ROOT / "vendor/ChemEnzyRetroPlanner")
+    except Exception as exc:
+        return {"available_count": 0, "models": [], "error": str(exc)}
+
+
+def _missing_selected_template_relevance_models(payload: dict[str, Any]) -> list[str]:
+    selected = list(payload.get("one_step_models") or [])
+    if not selected:
+        return []
+    available = set((_template_relevance_status().get("available_model_names") or []))
+    return [
+        model
+        for model in selected
+        if str(model).startswith("template_relevance.") and str(model) not in available
+    ]
+
+
 def _resolve_device(device: str) -> str:
     if device == "cuda":
         try:
@@ -2193,6 +2523,200 @@ def _write_result_artifact(prefix: str, payload: dict[str, Any]) -> Path:
     out = RESULTS_DIR / f"{prefix}_{stamp}_{uuid.uuid4().hex[:6]}.json"
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out
+
+
+def _api_run_smiles_first_case(payload: dict[str, Any]) -> dict[str, Any]:
+    target = str(payload.get("target_smiles") or "").strip()
+    if Chem.MolFromSmiles(target) is None:
+        abort(400, description="target_smiles is not a valid SMILES")
+    label = _safe_label(str(payload.get("target_name") or payload.get("case_id") or "case"))
+    output_dir = payload.get("output_dir")
+    if output_dir:
+        out_dir = _safe_path(str(output_dir), allowed_roots=[RESULTS_DIR, DATA_DIR])
+    else:
+        stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        out_dir = RESULTS_DIR / "agent_cases" / f"{label}_{stamp}_{uuid.uuid4().hex[:6]}"
+    result = run_smiles_first_workflow(
+        SmilesFirstWorkflowConfig(
+            target_smiles=target,
+            target_name=str(payload.get("target_name") or label),
+            family_hint=str(payload.get("family_hint") or ""),
+            objective=str(payload.get("objective") or "route"),
+            output_dir=out_dir,
+            frontier_smiles=str(payload.get("frontier_smiles") or ""),
+            baseline_json=payload.get("baseline_json"),
+            evidence_jsonl=payload.get("evidence_jsonl"),
+            db_paths=[str(item) for item in payload.get("db_paths") or []] or None,
+            query_budget=_as_int(payload.get("query_budget"), 12, lo=1, hi=100),
+        )
+    )
+    return {
+        "ok": bool((result.get("validation") or {}).get("accepted", False)),
+        "schema_version": "web_agent_case_result.v1",
+        **result,
+    }
+
+
+def _api_inspect_case_or_blackboard(*, case_bundle: str | None, blackboard: str | None) -> dict[str, Any]:
+    if bool(case_bundle) == bool(blackboard):
+        abort(400, description="provide exactly one of case_bundle or blackboard")
+    if case_bundle:
+        bundle = load_case_bundle(_safe_path(case_bundle, allowed_roots=[RESULTS_DIR, DATA_DIR]))
+        return {
+            "ok": True,
+            "schema_version": "web_case_bundle_inspection.v1",
+            "case_id": bundle.case_id,
+            "route_status": bundle.route_status.value,
+            "artifact_count": len(bundle.artifacts),
+            "failure_event_count": len(bundle.failure_events),
+            "artifact_types": sorted({artifact.artifact_type for artifact in bundle.artifacts}),
+            "failure_reasons": [event.reason for event in bundle.failure_events],
+            "case_bundle": bundle.to_dict(),
+        }
+    board = load_blackboard(_safe_path(str(blackboard), allowed_roots=[RESULTS_DIR, DATA_DIR]))
+    return {
+        "ok": True,
+        "schema_version": "web_blackboard_inspection.v1",
+        "summary": board.current_summary(),
+        "blackboard": board.to_dict(),
+    }
+
+
+def _api_route_audit(payload: dict[str, Any]) -> dict[str, Any]:
+    package = dict(payload.get("package") or {})
+    if not package and payload.get("package_path"):
+        package = _read_json_or_empty(_safe_path(str(payload["package_path"]), allowed_roots=[RESULTS_DIR, DATA_DIR]))
+    if not package:
+        abort(400, description="package or package_path is required")
+    validation = payload.get("validation")
+    if validation is None and payload.get("validation_path"):
+        validation = _read_json_or_empty(_safe_path(str(payload["validation_path"]), allowed_roots=[RESULTS_DIR, DATA_DIR]))
+    report = audit_route_package(
+        package,
+        validation=dict(validation or {}),
+        stock_audit_passed=bool(payload.get("stock_audit_passed")),
+        target_match=not bool(payload.get("target_mismatch")),
+        condition_candidates=[dict(item) for item in payload.get("condition_candidates") or []],
+        enzyme_actions=[dict(item) for item in payload.get("enzyme_actions") or []],
+    )
+    out = report.to_dict()
+    return {
+        "ok": True,
+        "schema_version": "web_route_audit_result.v1",
+        "route_status": report.route_status,
+        "audit": out,
+        "final_report": _route_audit_final_report(out),
+    }
+
+
+def _api_worker_trace(payload: dict[str, Any]) -> dict[str, Any]:
+    task_payload = dict(payload.get("task") or {})
+    if not task_payload and payload.get("task_path"):
+        task_payload = _read_json_or_empty(_safe_path(str(payload["task_path"]), allowed_roots=[RESULTS_DIR, DATA_DIR]))
+    if not task_payload:
+        abort(400, description="task or task_path is required")
+    mock_output = payload.get("mock_output")
+    if mock_output is None and payload.get("mock_output_path"):
+        mock_output = _read_json_or_empty(_safe_path(str(payload["mock_output_path"]), allowed_roots=[RESULTS_DIR, DATA_DIR]))
+    record = run_codex_worker(worker_task_from_dict(task_payload), mock_output=dict(mock_output) if isinstance(mock_output, dict) else None)
+    return {
+        "ok": record.status == "accepted_draft",
+        "schema_version": "web_worker_trace_result.v1",
+        "worker_trace": record.to_dict(),
+    }
+
+
+def _api_guided_policy(payload: dict[str, Any]) -> dict[str, Any]:
+    case_bundle_path = str(payload.get("case_bundle") or "")
+    if not case_bundle_path:
+        abort(400, description="case_bundle is required")
+    bundle = load_case_bundle(_safe_path(case_bundle_path, allowed_roots=[RESULTS_DIR, DATA_DIR]))
+    operator = compile_strategic_operator_from_case_bundle(
+        bundle,
+        max_iterations=_as_int(payload.get("max_iterations"), 16, lo=1, hi=500),
+        max_depth=_as_int(payload.get("max_depth"), 6, lo=1, hi=20),
+        expansion_topk=_as_int(payload.get("expansion_topk"), 50, lo=1, hi=500),
+    )
+    policy = compile_chem_enzy_search_policy(operator)
+    target = str(payload.get("target_smiles") or _target_smiles_from_case_bundle(bundle) or "CCO")
+    guided_config = apply_chem_enzy_search_policy(RouteSearchConfig(target_smiles=target), policy)
+    return {
+        "ok": True,
+        "schema_version": "web_guided_policy_result.v1",
+        "case_id": bundle.case_id,
+        "route_status": bundle.route_status.value,
+        "operator": operator.to_dict(),
+        "policy": policy.to_dict(),
+        "guided_request_payload": {
+            "target_smiles": guided_config.target_smiles,
+            "chem_enzy_search_policy": policy.to_dict(),
+            "chem_enzy_iterations": guided_config.max_iterations,
+            "max_steps": guided_config.max_depth,
+            "chem_enzy_expansion_topk": guided_config.expansion_topk,
+        },
+        "rerun_history": {
+            "policy_id": policy.policy_id,
+            "operator_id": operator.operator_id,
+            "evidence_refs": policy.evidence_refs,
+            "budget": policy.budget.to_dict(),
+        },
+    }
+
+
+def _api_final_report(case_bundle_path: str) -> dict[str, Any]:
+    bundle = load_case_bundle(_safe_path(case_bundle_path, allowed_roots=[RESULTS_DIR, DATA_DIR]))
+    artifact_types = sorted({artifact.artifact_type for artifact in bundle.artifacts})
+    evidence_refs = sorted({ref for artifact in bundle.artifacts for ref in artifact.evidence_refs})
+    validation = _artifact_payload(bundle, "RoutePackageValidation")
+    package = _artifact_payload(bundle, "HybridRoutePackage")
+    audit = audit_route_package(package, validation=validation).to_dict() if package else {}
+    return {
+        "ok": True,
+        "schema_version": "web_final_report.v1",
+        "case_id": bundle.case_id,
+        "route_status": audit.get("route_status") or bundle.route_status.value,
+        "audit": audit,
+        "evidence_refs": evidence_refs,
+        "condition": audit.get("condition_status") or "unknown",
+        "rerun_history": [],
+        "artifact_types": artifact_types,
+        "failure_events": [event.to_dict() for event in bundle.failure_events],
+        "case_bundle": bundle.to_dict(),
+    }
+
+
+def _target_smiles_from_case_bundle(bundle: Any) -> str:
+    package = _artifact_payload(bundle, "HybridRoutePackage")
+    return str(((package.get("target") or {}).get("smiles")) or "")
+
+
+def _artifact_payload(bundle: Any, artifact_type: str) -> dict[str, Any]:
+    rows = bundle.accepted_artifacts(artifact_type)
+    if not rows:
+        return {}
+    payload = rows[0].payload
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _route_audit_final_report(audit: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "route_audit_final_report.v1",
+        "route_status": audit.get("route_status"),
+        "audit": audit,
+        "target_summary": audit.get("top_route_summary") or {},
+        "top_route_summary": audit.get("top_route_summary") or {},
+        "stock_audit": {"passed": bool(audit.get("stock_audit_passed"))},
+        "step_structural_audit": audit.get("step_structural_audit"),
+        "route_mode": audit.get("route_mode"),
+        "enzyme_step_status": audit.get("enzyme_step_status"),
+        "evidence_status": audit.get("evidence_status"),
+        "condition_status": audit.get("condition_status"),
+        "fake_closure_rejected_terminals": audit.get("rejected_terminal_list") or [],
+        "failure_events": audit.get("failure_events") or [],
+        "rerun_history": [],
+        "unresolved_core": bool(audit.get("unresolved_core")),
+        "next_recommended_action": audit.get("next_action"),
+    }
 
 
 def _safe_path(rel_path: str, *, allowed_roots: list[Path]) -> Path:

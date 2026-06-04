@@ -1,0 +1,1214 @@
+{
+  "schema_version": "strategic_disconnections.v7_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Sixth expanded public source layer focused on marine ladder polyethers and meroterpenoids, monoterpene indole alkaloid branches, cyanobacterial peptide/PKS toxin critique, retinoid/secosteroid/bile-acid lipophiles, polyamine siderophores and acylpolyamines, host-guest supramolecular drug motifs, isotope-labeled/PET tracers, and polymer-drug conjugate linker boundaries.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template or proposal promotion",
+      "separate biosynthetic-anchor, host-guest, isotope-label, formulation, polymer-linker, or biological-mode policy",
+      "route-specific stereochemistry, topology, linkage, label-position, release-mechanism, and target-context review",
+      "marine-toxin, psychoactive/toxic alkaloid, cyanotoxin, endocrine-active lipophile, antimicrobial-vector, radiochemical, cytotoxic-payload, and polymer-conjugate safety review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, and synthesis conditions",
+      "toxin, psychoactive alkaloid, radiochemical, cytotoxic payload, and biologically active delivery records are high-level route priors only"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "marine_polyether_ladder_and_prenylated_meroterpenoid",
+      "name": "Marine ladder polyethers and prenylated meroterpenoids",
+      "pattern_keywords": [
+        "ladder polyether",
+        "marine polycyclic ether",
+        "brevetoxin",
+        "ciguatoxin",
+        "polyepoxide cascade",
+        "meroterpenoid",
+        "prenylated polyketide",
+        "mixed biosynthesis"
+      ],
+      "strategic_principle": "Separate polyepoxide or polyene cyclization logic from late oxidation and side-chain editing, and separate meroterpenoid polyketide/aromatic cores from prenyl or terpene-derived annulation modules."
+    },
+    {
+      "family_id": "alkaloid_monoterpene_indole_expansion",
+      "name": "Monoterpene indole alkaloid branch and rearranged skeleton expansion",
+      "pattern_keywords": [
+        "monoterpene indole alkaloid",
+        "strictosidine",
+        "stemmadenine",
+        "iboga",
+        "aspidosperma",
+        "sarpagine",
+        "yohimbine",
+        "strychnos"
+      ],
+      "strategic_principle": "Use strictosidine/stemmadenine-like biosynthetic branch points and scaffold-rearrangement topology before applying generic indole disconnections. Psychoactive or toxic MIA targets remain compliance-gated critique records."
+    },
+    {
+      "family_id": "cyanobacterial_peptide_polyketide_toxin_critique",
+      "name": "Cyanobacterial peptide, PKS, and toxin-like natural-product critique",
+      "pattern_keywords": [
+        "cyanobacterial peptide",
+        "microcystin",
+        "cyanopeptolin",
+        "anabaenopeptin",
+        "dolastatin",
+        "auristatin",
+        "NRPS",
+        "PKS"
+      ],
+      "strategic_principle": "Treat cyanobacterial toxin-like and cytotoxic peptide-polyketide scaffolds as compliance-gated source records. Route critique should identify modular NRPS/PKS origin, unusual residues, macrocyclization, and payload-like risk without operational route generation."
+    },
+    {
+      "family_id": "retinoid_steroid_hormone_like_lipophile",
+      "name": "Retinoids, secosteroids, bile acids, and endocrine-active lipophiles",
+      "pattern_keywords": [
+        "retinoid",
+        "retinoic acid",
+        "retinol",
+        "secosteroid",
+        "vitamin D analog",
+        "bile acid",
+        "ursodeoxycholic acid",
+        "steroid hormone"
+      ],
+      "strategic_principle": "Separate lipophilic scaffold identity, polyene or steroidal geometry, side-chain oxidation state, and receptor/transport biology. Isomer geometry and endocrine activity are route-defining metadata."
+    },
+    {
+      "family_id": "natural_product_polyamine_siderophore_expansion",
+      "name": "Polyamine siderophores, mixed catechol/hydroxamate systems, and acylpolyamines",
+      "pattern_keywords": [
+        "polyamine siderophore",
+        "desferrioxamine",
+        "aerobactin",
+        "catechol siderophore",
+        "hydroxamate siderophore",
+        "acylpolyamine",
+        "spider venom polyamine",
+        "polyamine toxin"
+      ],
+      "strategic_principle": "Separate polyamine backbone, acyl/catechol/hydroxamate metal-binding arms, and biological vector or neuroactive context. Siderophore and venom-polyamine motifs require stewardship or toxicology review before promotion."
+    },
+    {
+      "family_id": "macrocyclic_host_guest_supramolecular_drug",
+      "name": "Macrocyclic host-guest supramolecular drug and delivery motifs",
+      "pattern_keywords": [
+        "cyclodextrin",
+        "cucurbituril",
+        "calixarene",
+        "pillararene",
+        "host-guest",
+        "inclusion complex",
+        "supramolecular drug delivery",
+        "controlled release"
+      ],
+      "strategic_principle": "Do not score host-guest medicines as ordinary covalent synthesis only. Separate macrocyclic host construction or selection, guest binding topology, inclusion/release mechanism, and formulation compatibility."
+    },
+    {
+      "family_id": "isotope_labeled_tracer_and_pet_probe",
+      "name": "Isotope-labeled tracers, PET probes, and radiohalogenated imaging motifs",
+      "pattern_keywords": [
+        "PET tracer",
+        "fluorine-18",
+        "carbon-11",
+        "radioiodination",
+        "radiohalogenation",
+        "stable isotope label",
+        "tritium",
+        "radiotracer"
+      ],
+      "strategic_principle": "Separate unlabeled precursor synthesis, isotope-label position, isotope half-life or stability, radiochemical handle, and imaging-regulatory context. Labeling late-stage feasibility is a distinct strategic boundary."
+    },
+    {
+      "family_id": "polymer_drug_conjugate_and_material_linker",
+      "name": "Polymer-drug conjugates, PEGylated drugs, and material-bound linker motifs",
+      "pattern_keywords": [
+        "polymer-drug conjugate",
+        "PEGylation",
+        "HPMA",
+        "degradable linker",
+        "drug release",
+        "polymer therapeutic",
+        "protein-polymer conjugate",
+        "material-bound drug"
+      ],
+      "strategic_principle": "Separate payload/API synthesis, polymer or material carrier selection, conjugation handle, linker cleavage or release mechanism, and distribution/polydispersity metadata before route scoring."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "marine_polyether_meroterpenoid_biosynthetic_anchor",
+      "family_id": "marine_polyether_ladder_and_prenylated_meroterpenoid",
+      "name": "Polyepoxide cascade or prenylated meroterpenoid biosynthetic boundary",
+      "role": "marine_polyether_meroterpenoid_anchor",
+      "aliases": [
+        "polyepoxide precursor",
+        "ladder polyether",
+        "marine polycyclic ether",
+        "prenylated aromatic core",
+        "fungal meroterpenoid"
+      ],
+      "acceptance_policy": "requires_toxin_context_stereochemical_topology_and_biosynthetic_boundary_review"
+    },
+    {
+      "anchor_id": "monoterpene_indole_alkaloid_branch_anchor",
+      "family_id": "alkaloid_monoterpene_indole_expansion",
+      "name": "Strictosidine/stemmadenine-derived MIA branch-point scaffold",
+      "role": "monoterpene_indole_alkaloid_branch_anchor",
+      "aliases": [
+        "strictosidine",
+        "stemmadenine",
+        "catharanthine/tabersonine branch",
+        "iboga skeleton",
+        "yohimbane skeleton"
+      ],
+      "acceptance_policy": "requires_MIA_branch_topology_and_psychoactive_or_toxic_alkaloid_review"
+    },
+    {
+      "anchor_id": "cyanobacterial_nrps_pks_toxin_anchor",
+      "family_id": "cyanobacterial_peptide_polyketide_toxin_critique",
+      "name": "Cyanobacterial NRPS/PKS peptide or toxin-like scaffold boundary",
+      "role": "cyanobacterial_toxin_critique_anchor",
+      "aliases": [
+        "microcystin",
+        "cyanopeptolin",
+        "anabaenopeptin",
+        "dolastatin-like peptide",
+        "auristatin-like payload"
+      ],
+      "acceptance_policy": "cyanotoxin_cytotoxic_payload_or_biosecurity_review_required_before_promotion"
+    },
+    {
+      "anchor_id": "retinoid_steroid_lipophile_scaffold_anchor",
+      "family_id": "retinoid_steroid_hormone_like_lipophile",
+      "name": "Retinoid polyene, secosteroid, bile-acid, or hormone-like lipophile scaffold",
+      "role": "endocrine_lipophile_anchor",
+      "aliases": [
+        "all-trans retinoic acid",
+        "retinol/retinal",
+        "vitamin D analog",
+        "ursodeoxycholic acid",
+        "bile acid conjugate"
+      ],
+      "acceptance_policy": "requires_isomer_geometry_oxidation_state_receptor_context_and_endocrine_review"
+    },
+    {
+      "anchor_id": "polyamine_siderophore_acyl_anchor",
+      "family_id": "natural_product_polyamine_siderophore_expansion",
+      "name": "Polyamine backbone with siderophore arms or neuroactive acyl capping groups",
+      "role": "polyamine_siderophore_acylpolyamine_anchor",
+      "aliases": [
+        "desferrioxamine-like polyamine",
+        "aerobactin-like hydroxamate",
+        "catechol siderophore",
+        "acylpolyamine",
+        "venom polyamine"
+      ],
+      "acceptance_policy": "requires_polyamine_topology_metal_binding_or_neuroactive_context_review"
+    },
+    {
+      "anchor_id": "macrocyclic_host_guest_anchor",
+      "family_id": "macrocyclic_host_guest_supramolecular_drug",
+      "name": "Macrocyclic host plus guest inclusion or controlled-release complex",
+      "role": "supramolecular_host_guest_anchor",
+      "aliases": [
+        "cyclodextrin inclusion complex",
+        "cucurbituril host",
+        "calixarene host",
+        "pillararene host",
+        "host-guest drug complex"
+      ],
+      "acceptance_policy": "requires_host_identity_guest_binding_stoichiometry_and_release_or_formulation_metadata"
+    },
+    {
+      "anchor_id": "isotope_pet_tracer_labeling_anchor",
+      "family_id": "isotope_labeled_tracer_and_pet_probe",
+      "name": "Unlabeled precursor, isotope label position, and radiochemical handle",
+      "role": "isotope_tracer_labeling_anchor",
+      "aliases": [
+        "fluorine-18 precursor",
+        "carbon-11 methylation precursor",
+        "radioiodinated aryl precursor",
+        "stable-isotope labeled standard",
+        "PET radiotracer"
+      ],
+      "acceptance_policy": "requires_label_position_half_life_specific_activity_and_radiochemical_review"
+    },
+    {
+      "anchor_id": "polymer_drug_linker_material_anchor",
+      "family_id": "polymer_drug_conjugate_and_material_linker",
+      "name": "Payload, polymer/material carrier, conjugation handle, and release linker",
+      "role": "polymer_drug_conjugate_anchor",
+      "aliases": [
+        "PEGylated drug",
+        "HPMA drug conjugate",
+        "polymer therapeutic",
+        "protein-polymer conjugate",
+        "degradable linker"
+      ],
+      "acceptance_policy": "requires_payload_polymer_distribution_linker_release_and_formulation_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "marine_ladder_polyether_polyepoxide_cascade_policy",
+      "family_id": "marine_polyether_ladder_and_prenylated_meroterpenoid",
+      "name": "Marine ladder polyether to polyepoxide cascade precursor policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "marine ladder polyethers",
+          "brevetoxin/ciguatoxin-like polycyclic ethers",
+          "polyether toxin analogues"
+        ],
+        "target_features": [
+          "fused cyclic ether ladder",
+          "multiple contiguous C-O stereocenters",
+          "polyepoxide or polyol cascade retron"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "selected cyclic ether C-O bonds traced to epoxide-opening cascade logic"
+        ],
+        "forward_logic": [
+          "map ring topology and stereochemical sequence before choosing cascade or fragment union",
+          "separate polyepoxide/polyol precursor design from late oxidation and side-chain editing",
+          "treat toxin-like ladder polyethers as route-critique records unless safety review permits promotion"
+        ],
+        "suggested_precursor_roles": [
+          "polyepoxide precursor",
+          "polyhydroxy chain",
+          "ladder-polyether fragment",
+          "late oxidized marine polyether"
+        ],
+        "planner_hint": "Reward topology-aware ether-ring simplification; penalize intact ladder-polyether terminals with only oxidation or protecting-group changes."
+      },
+      "risks": [
+        "marine toxin pharmacology",
+        "ring-topology mismatch",
+        "long-range stereochemical relay",
+        "polyether conformational assignment uncertainty"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Marine polycyclic polyether synthesis review discusses endo-selective epoxide-opening cascades.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2857356/"
+        },
+        {
+          "type": "literature",
+          "citation": "Marine polycyclic ether review highlights synthesis-driven stereochemical assignment challenges.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8145320/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "marine_ladder_polyether_topology_prior",
+        "rerank_bonus": "moderate for explicit polyepoxide topology and stereochemical cascade policy",
+        "compliance_gate": "marine_toxin_safety_review_required"
+      }
+    },
+    {
+      "id": "prenylated_meroterpenoid_aromatic_terpene_junction",
+      "family_id": "marine_polyether_ladder_and_prenylated_meroterpenoid",
+      "name": "Prenylated meroterpenoid to aromatic/polyketide core plus terpene module",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "prenylated meroterpenoids",
+          "fungal meroterpenoids",
+          "mixed terpene-polyketide natural products"
+        ],
+        "target_features": [
+          "prenylated aromatic or polyketide-derived core",
+          "terpene cyclization or rearranged ring system",
+          "mixed biosynthetic origin"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aryl/prenyl or polyketide/terpene junction bond",
+          "terpene-derived annulation bond when topology-changing"
+        ],
+        "forward_logic": [
+          "define aromatic or polyketide core separately from prenyl donor and terpene cyclization",
+          "track prenyltransferase regioselectivity, oxidative rearrangement, and ring expansion/contraction metadata",
+          "do not reduce meroterpenoids to generic aryl alkylation when mixed biosynthesis controls topology"
+        ],
+        "suggested_precursor_roles": [
+          "aromatic/polyketide core",
+          "prenyl donor or terpene module",
+          "oxidatively rearranged meroterpenoid",
+          "biosynthetic tailoring metadata"
+        ],
+        "planner_hint": "Reward routes that expose the core-prenyl junction and terpene-tailoring topology."
+      },
+      "risks": [
+        "prenyl regioselectivity",
+        "oxidative rearrangement sequence",
+        "biosynthetic topology can be misleading in purely chemical routes",
+        "bioactive fungal metabolite context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Engineered biosynthesis review summarizes fungal meroterpenoid prenylation and tailoring strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10949012/"
+        },
+        {
+          "type": "literature",
+          "citation": "Phenalinolactone biosynthesis study illustrates sequential prenylation, epoxidation, and cyclization in terpene-polyketide scaffolds.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11317874/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "prenylated_meroterpenoid_junction_prior",
+        "rerank_bonus": "moderate for explicit core-prenyl and oxidative-tailoring policy"
+      }
+    },
+    {
+      "id": "mia_strictosidine_stemmadenine_branch_policy",
+      "family_id": "alkaloid_monoterpene_indole_expansion",
+      "name": "MIA skeleton to strictosidine/stemmadenine branch-point policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "monoterpene indole alkaloids",
+          "vinca/catharanthus alkaloid-adjacent scaffolds",
+          "stemmadenine-derived alkaloids"
+        ],
+        "target_features": [
+          "tryptamine/iridoid-derived indole alkaloid",
+          "strictosidine or stemmadenine branch topology",
+          "rearranged monoterpene-derived ring system"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "skeleton bond traced to strictosidine/stemmadenine-derived rearrangement branch"
+        ],
+        "forward_logic": [
+          "identify whether the target maps to strictosidine, stemmadenine, catharanthine/tabersonine, or yohimbane-like branches",
+          "separate biosynthetic branch topology from ordinary indole functionalization",
+          "require stereochemical and biological-context metadata before source promotion"
+        ],
+        "suggested_precursor_roles": [
+          "strictosidine-like precursor",
+          "stemmadenine-like branch point",
+          "tryptamine-derived indole unit",
+          "iridoid/secologanin-derived monoterpene unit"
+        ],
+        "planner_hint": "Reward MIA branch mapping; penalize generic indole routes that ignore monoterpene-derived skeleton topology."
+      },
+      "risks": [
+        "many MIAs are potent bioactive alkaloids",
+        "branch misassignment",
+        "dense stereochemistry",
+        "plant pathway context may not translate to chemical feasibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "MIA metabolic-engineering review summarizes strictosidine origin and branch-pathway logic.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10452178/"
+        },
+        {
+          "type": "literature",
+          "citation": "Stemmadenine biosynthesis study describes conserved early steps for downstream MIA diversification.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12860956/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "mia_branchpoint_critique_prior",
+        "rerank_bonus": "moderate for strictosidine/stemmadenine branch mapping",
+        "compliance_gate": "bioactive_alkaloid_review_required"
+      }
+    },
+    {
+      "id": "mia_iboga_aspidosperma_yohimbane_rearrangement_policy",
+      "family_id": "alkaloid_monoterpene_indole_expansion",
+      "name": "Iboga/aspidosperma/yohimbane MIA scaffold-rearrangement policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "iboga alkaloids",
+          "aspidosperma alkaloids",
+          "sarpagine/yohimbane alkaloids",
+          "strychnos-like indole alkaloids"
+        ],
+        "target_features": [
+          "rearranged MIA polycyclic skeleton",
+          "indole fused or bridged topology",
+          "psychoactive or toxic alkaloid-adjacent scaffold"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "skeletal rearrangement or bridged-ring bond traced to MIA branch topology"
+        ],
+        "forward_logic": [
+          "assign target to iboga, aspidosperma, yohimbane, sarpagine, or strychnos-like topology",
+          "separate ring-system rearrangement from late indole decoration",
+          "keep psychoactive/toxic alkaloid records in critique-only mode unless reviewed"
+        ],
+        "suggested_precursor_roles": [
+          "MIA branch precursor",
+          "rearranged indole alkaloid core",
+          "late oxidized alkaloid",
+          "branch-specific stereochemical metadata"
+        ],
+        "planner_hint": "Use as branch/topology critique; do not promote to operational generation for psychoactive or toxic alkaloids."
+      },
+      "risks": [
+        "psychoactive or toxic alkaloid scope",
+        "complex polycyclic stereochemistry",
+        "legal or controlled-substance analog concerns",
+        "biosynthetic branch uncertainty"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "MIA diversity review covers chemical diversity and bioactivity across Apocynaceae genera.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7831967/"
+        },
+        {
+          "type": "literature",
+          "citation": "Rauvolfia genome study suggests multiple biosynthetic routes for yohimbane monoterpene indole alkaloids.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10673892/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "mia_rearranged_scaffold_critique_prior",
+        "rerank_bonus": "low unless branch topology and safety/legal context are explicit",
+        "compliance_gate": "psychoactive_or_toxic_alkaloid_review_required"
+      }
+    },
+    {
+      "id": "cyanobacterial_nrps_pks_macrocycle_unusual_residue_policy",
+      "family_id": "cyanobacterial_peptide_polyketide_toxin_critique",
+      "name": "Cyanobacterial peptide/PKS toxin to modular assembly and unusual-residue policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "microcystin-like cyanotoxins",
+          "cyanopeptolins",
+          "anabaenopeptins",
+          "mixed NRPS/PKS cyanobacterial metabolites"
+        ],
+        "target_features": [
+          "macrocyclic peptide or depsipeptide",
+          "unusual amino acid or polyketide residue",
+          "toxin-like cyanobacterial source"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "macrocycle closure bond",
+          "unusual residue/polyketide module boundary"
+        ],
+        "forward_logic": [
+          "map sequence, macrocyclization, and unusual residue boundaries",
+          "distinguish NRPS, PKS, and tailoring modules before scoring ordinary peptide routes",
+          "keep cyanotoxin records advisory and compliance-gated"
+        ],
+        "suggested_precursor_roles": [
+          "linear peptide or depsipeptide precursor",
+          "NRPS/PKS module annotation",
+          "unusual residue building block",
+          "macrocyclic cyanobacterial metabolite"
+        ],
+        "planner_hint": "Reward modular assembly annotation and unusual-residue policy; reject unreviewed toxin route generation."
+      },
+      "risks": [
+        "cyanotoxin hazard",
+        "biosecurity and environmental toxin context",
+        "unusual residue stereochemistry",
+        "payload-like cytotoxicity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Microcystis secondary-metabolism review discusses cyanobacterial peptide diversity and biosynthetic gene clusters.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12838216/"
+        },
+        {
+          "type": "literature",
+          "citation": "Cyanotoxin synthesis and applications review summarizes cyanobacterial toxin classes and synthetic/biosynthetic context.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10673588/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cyanobacterial_toxin_critique_prior",
+        "rerank_bonus": "low unless toxin review and modular annotation are explicit",
+        "compliance_gate": "cyanotoxin_biosecurity_toxicology_review_required"
+      }
+    },
+    {
+      "id": "dolastatin_auristatin_payload_like_peptide_policy",
+      "family_id": "cyanobacterial_peptide_polyketide_toxin_critique",
+      "name": "Dolastatin/auristatin-adjacent peptide payload to fragment and cytotoxicity policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "dolastatin-like peptides",
+          "auristatin-adjacent payloads",
+          "cytotoxic marine cyanobacterial peptides"
+        ],
+        "target_features": [
+          "modified peptide or depsipeptide",
+          "cytotoxic payload-like motif",
+          "unusual N-methylated or polyketide-derived residue"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "payload peptide amide or depsipeptide fragment boundary",
+          "linker/payload attachment boundary when present"
+        ],
+        "forward_logic": [
+          "separate payload-like peptide core, unusual residue fragments, and any conjugation handle",
+          "track cytotoxicity and ADC-like context separately from synthetic convergence",
+          "do not promote into proposal generation without cytotoxic payload review"
+        ],
+        "suggested_precursor_roles": [
+          "modified peptide fragment",
+          "unusual amino-acid residue",
+          "payload core",
+          "linker handle metadata"
+        ],
+        "planner_hint": "Treat payload-like cyanobacterial peptides as cytotoxic source records, not ordinary peptide SAR decoration."
+      },
+      "risks": [
+        "high cytotoxicity",
+        "ADC payload dual-use concern",
+        "unusual residue stereochemistry",
+        "toxicity context dominates route value"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Marine cyanobacterial anticancer-agent review covers dolastatin/auristatin-adjacent discovery and development context.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11610234/"
+        },
+        {
+          "type": "literature",
+          "citation": "Cyanobacteria drug-discovery review discusses genetic access to cyanobacterial natural products.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12415834/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cyanobacterial_payload_critique_prior",
+        "rerank_bonus": "low unless cytotoxic payload and conjugation context are reviewed",
+        "compliance_gate": "cytotoxic_payload_review_required"
+      }
+    },
+    {
+      "id": "retinoid_polyene_terminal_group_isomer_policy",
+      "family_id": "retinoid_steroid_hormone_like_lipophile",
+      "name": "Retinoid to ionone/polyene/terminal polar group and isomer policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "retinoids",
+          "retinoic acid analogues",
+          "retinol/retinal-derived lipophiles"
+        ],
+        "target_features": [
+          "conjugated polyene",
+          "ionone-like cyclic end group",
+          "terminal alcohol, aldehyde, acid, or amide",
+          "E/Z isomer geometry"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "polyene fragment junction",
+          "terminal polar group side-chain boundary"
+        ],
+        "forward_logic": [
+          "separate hydrophobic end group, polyene geometry, and terminal polar group",
+          "track all-trans/cis isomer state and photo/thermal isomerization risk",
+          "attach receptor subtype and endocrine/developmental biology metadata to route scoring"
+        ],
+        "suggested_precursor_roles": [
+          "ionone-like end group",
+          "polyene chain precursor",
+          "terminal acid/alcohol/aldehyde handle",
+          "retinoid isomer metadata"
+        ],
+        "planner_hint": "Reward routes that preserve retinoid isomer geometry and terminal group identity."
+      },
+      "risks": [
+        "E/Z isomerization",
+        "light and oxidation sensitivity",
+        "RAR/RXR biology",
+        "teratogenic or endocrine-active context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Retinoid therapeutic review covers retinol, retinoid classes, and biological context.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12114363/"
+        },
+        {
+          "type": "literature",
+          "citation": "Retinoid SAR review discusses structure-activity relationships and therapeutic applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11117600/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "retinoid_polyene_isomer_prior",
+        "rerank_bonus": "moderate for explicit isomer geometry and receptor-context metadata",
+        "compliance_gate": "endocrine_developmental_toxicology_review_required"
+      }
+    },
+    {
+      "id": "secosteroid_bile_acid_sidechain_oxidation_policy",
+      "family_id": "retinoid_steroid_hormone_like_lipophile",
+      "name": "Secosteroid/bile-acid lipophile to steroidal core, side chain, and oxidation-state policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "vitamin D analogues",
+          "secosteroids",
+          "bile acid derivatives",
+          "steroid-hormone-like lipophiles"
+        ],
+        "target_features": [
+          "secosteroid triene or steroidal ring system",
+          "bile-acid hydroxylation pattern",
+          "side-chain acid, amide, or conjugate",
+          "nuclear receptor or transporter context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "side-chain attachment or oxidation-state boundary",
+          "secosteroid ring-opening/triene boundary when present"
+        ],
+        "forward_logic": [
+          "separate steroidal or secosteroid scaffold source from side-chain and hydroxylation-state edits",
+          "track receptor, transporter, and endocrine context before treating analogues as stock-like",
+          "distinguish bile-acid conjugation from generic late-stage ester/amide formation"
+        ],
+        "suggested_precursor_roles": [
+          "steroidal/seco-steroidal core",
+          "side-chain acid or alcohol precursor",
+          "bile acid core",
+          "nuclear receptor activity metadata"
+        ],
+        "planner_hint": "Reward oxidation-state and side-chain policies for endocrine lipophiles; penalize product-like steroid analogues used as stock."
+      },
+      "risks": [
+        "endocrine receptor activity",
+        "lipophilic formulation and exposure",
+        "stereochemical hydroxylation pattern",
+        "bile-acid transporter context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Vitamin D receptor modulator review discusses synthetic secosteroid analogues and disease-specific applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13023678/"
+        },
+        {
+          "type": "literature",
+          "citation": "UDCA review summarizes bile-acid biosynthesis, pharmacology, and structural modification.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12687655/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "secosteroid_bile_acid_lipophile_prior",
+        "rerank_bonus": "moderate for side-chain, oxidation-state, and endocrine metadata",
+        "compliance_gate": "endocrine_lipophile_review_required"
+      }
+    },
+    {
+      "id": "polyamine_siderophore_hydroxamate_catechol_arm_disconnection",
+      "family_id": "natural_product_polyamine_siderophore_expansion",
+      "name": "Polyamine siderophore to backbone plus hydroxamate/catechol metal-binding arms",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "polyamine siderophores",
+          "desferrioxamine/aerobactin-like systems",
+          "mixed catechol-hydroxamate siderophores"
+        ],
+        "target_features": [
+          "polyamine or citrate-derived backbone",
+          "hydroxamate or catechol iron-binding groups",
+          "microbial iron-acquisition vector"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "polyamine-acyl hydroxamate bond",
+          "catechol/hydroxamate arm attachment boundary"
+        ],
+        "forward_logic": [
+          "separate polyamine backbone, chelating arms, and microbial uptake/vector role",
+          "track denticity, metal-binding topology, and antimicrobial-vector context",
+          "avoid treating siderophore motifs as ordinary solubilizing tails"
+        ],
+        "suggested_precursor_roles": [
+          "polyamine backbone",
+          "hydroxamate acyl arm",
+          "catechol arm",
+          "metal-binding siderophore"
+        ],
+        "planner_hint": "Reward explicit chelator topology and vector context; require stewardship review for antimicrobial use."
+      },
+      "risks": [
+        "antimicrobial vector activity",
+        "metal-chelation changes distribution",
+        "biosecurity or pathogen-uptake context",
+        "polar purification and speciation"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Bacterial siderophore review covers classification, biosynthesis, and hydroxamate/catechol families.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9694258/"
+        },
+        {
+          "type": "literature",
+          "citation": "Siderophore-biosynthesis targeting review discusses microbial growth and biosynthetic leverage points.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12026967/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "polyamine_siderophore_arm_prior",
+        "rerank_bonus": "moderate for explicit chelator topology and uptake context",
+        "compliance_gate": "antimicrobial_vector_review_required"
+      }
+    },
+    {
+      "id": "acylpolyamine_aromatic_cap_polyamine_disconnection",
+      "family_id": "natural_product_polyamine_siderophore_expansion",
+      "name": "Acylpolyamine natural product to polyamine chain plus acyl/aromatic cap",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "spider and wasp acylpolyamines",
+          "polyamine toxins",
+          "neuroactive acylated polyamines"
+        ],
+        "target_features": [
+          "polyamine chain",
+          "aromatic or heteroaromatic acyl cap",
+          "ion-channel or neuroactive context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "acyl cap-polyamine amide bond",
+          "polyamine chain extension boundary"
+        ],
+        "forward_logic": [
+          "separate acyl/aromatic cap identity from polyamine chain length and branching",
+          "track protonation state and ion-channel/neuroactive context",
+          "keep venom-polyamine records advisory unless toxicology review permits use"
+        ],
+        "suggested_precursor_roles": [
+          "polyamine chain",
+          "aromatic acyl cap",
+          "terminal amine modification",
+          "acylpolyamine pharmacology metadata"
+        ],
+        "planner_hint": "Do not treat acylpolyamines as generic amide analogues; chain topology and neuroactive context matter."
+      },
+      "risks": [
+        "venom or neuroactive toxin context",
+        "polyamine protonation and selectivity",
+        "mixtures of chain lengths",
+        "ion-channel pharmacology"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Spider and wasp acylpolyamine review covers venom components, pharmacological leads, probes, and insecticidal agents.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11209471/"
+        },
+        {
+          "type": "literature",
+          "citation": "VenoMS resource article highlights low-molecular-mass spider venom compounds including polyamine-type metabolites.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7464580/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "acylpolyamine_toxicology_prior",
+        "rerank_bonus": "low unless chain topology and toxicology metadata are explicit",
+        "compliance_gate": "neuroactive_venom_polyamine_review_required"
+      }
+    },
+    {
+      "id": "cyclodextrin_calixarene_host_guest_inclusion_policy",
+      "family_id": "macrocyclic_host_guest_supramolecular_drug",
+      "name": "Cyclodextrin/calixarene host-guest system to host, guest, and inclusion/release policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "cyclodextrin inclusion complexes",
+          "calixarene/pillararene drug delivery systems",
+          "host-guest solubilization systems"
+        ],
+        "target_features": [
+          "macrocyclic host",
+          "noncovalent guest inclusion",
+          "solubility, release, or targeting function"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "do not force covalent bond cleavage; separate noncovalent host-guest association"
+        ],
+        "forward_logic": [
+          "identify macrocyclic host identity and guest binding mode",
+          "track stoichiometry, cavity fit, solubilization, and release mechanism",
+          "score host selection and guest synthesis as separate planning objects"
+        ],
+        "suggested_precursor_roles": [
+          "cyclodextrin or calixarene host",
+          "drug guest",
+          "inclusion complex",
+          "release or formulation metadata"
+        ],
+        "planner_hint": "Use host-guest records to avoid mis-scoring inclusion complexes as covalent synthesis problems."
+      },
+      "risks": [
+        "noncovalent stoichiometry",
+        "formulation-dependent behavior",
+        "host toxicity or excipient limits",
+        "release profile uncertainty"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Cyclodextrin pharmaceutical review covers inclusion complexes and therapeutic applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13029418/"
+        },
+        {
+          "type": "literature",
+          "citation": "Calixarene/pillararene controlled-release review summarizes macrocyclic host drug-delivery systems.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12415917/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "host_guest_inclusion_prior",
+        "rerank_bonus": "moderate for explicit host identity, stoichiometry, and release metadata",
+        "compliance_gate": "formulation_delivery_review_required"
+      }
+    },
+    {
+      "id": "cucurbituril_supramolecular_guest_binding_policy",
+      "family_id": "macrocyclic_host_guest_supramolecular_drug",
+      "name": "Cucurbituril/supramolecular receptor to guest-binding and displacement policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "cucurbituril drug complexes",
+          "supramolecular receptors",
+          "indicator-displacement or release systems"
+        ],
+        "target_features": [
+          "cucurbituril host",
+          "cationic or hydrophobic guest",
+          "noncovalent binding or displacement assay context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "host-guest association boundary",
+          "guest tether or reporter attachment boundary when present"
+        ],
+        "forward_logic": [
+          "separate host synthesis/selection from guest structure and binding evidence",
+          "track affinity, displacement, and biological formulation role",
+          "avoid claiming route closure from host availability alone"
+        ],
+        "suggested_precursor_roles": [
+          "cucurbituril host",
+          "drug or reporter guest",
+          "host-guest complex",
+          "binding/displacement metadata"
+        ],
+        "planner_hint": "Score supramolecular systems through binding evidence and formulation role, not only covalent accessibility."
+      },
+      "risks": [
+        "binding affinity mismatch",
+        "competition in biological media",
+        "noncovalent complex dissociation",
+        "host compatibility and clearance"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Cucurbit[7]uril host-guest study with nabumetone and naproxen illustrates drug guest-binding characterization.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12195925/"
+        },
+        {
+          "type": "literature",
+          "citation": "Synthetic receptor review summarizes supramolecular receptors and biomedical detection/treatment applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10669836/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cucurbituril_binding_prior",
+        "rerank_bonus": "moderate only with host-guest affinity and formulation metadata",
+        "compliance_gate": "supramolecular_formulation_review_required"
+      }
+    },
+    {
+      "id": "pet_tracer_late_stage_f18_c11_labeling_policy",
+      "family_id": "isotope_labeled_tracer_and_pet_probe",
+      "name": "PET tracer to unlabeled precursor plus late-stage fluorine-18 or carbon-11 labeling boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "PET radiotracers",
+          "fluorine-18 labeled probes",
+          "carbon-11 labeled ligands"
+        ],
+        "target_features": [
+          "short-lived isotope label",
+          "late-stage radiochemical handle",
+          "unlabeled precursor with retained binding pharmacophore"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "radiolabeled C-F, C-O, C-N, or C-C bond traced to labeling precursor",
+          "leaving-group/radioisotope handle boundary"
+        ],
+        "forward_logic": [
+          "synthesize and qualify the unlabeled precursor separately from radiolabeling",
+          "track label position, half-life, molar activity, and biological binding retention",
+          "treat PET labeling feasibility as radiochemical metadata, not ordinary late-stage substitution"
+        ],
+        "suggested_precursor_roles": [
+          "unlabeled precursor",
+          "radiofluorination precursor",
+          "carbon-11 methylation/carbonylation precursor",
+          "PET tracer"
+        ],
+        "planner_hint": "Reward routes that explicitly isolate precursor synthesis from isotope-label installation and imaging constraints."
+      },
+      "risks": [
+        "radiochemical safety and regulation",
+        "short half-life logistics",
+        "label-position changes binding or metabolism",
+        "specific activity and impurity constraints"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Loop radiochemistry review summarizes PET radiochemistry developments over fluorine-18 and carbon-11 tracer preparation.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13077027/"
+        },
+        {
+          "type": "literature",
+          "citation": "Copper-mediated radiochemistry review covers radiofluorination/radiohalogenation trends for tracer synthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12151854/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "pet_tracer_labeling_prior",
+        "rerank_bonus": "moderate for precursor/label-position separation and radiochemical metadata",
+        "compliance_gate": "radiochemical_safety_review_required"
+      }
+    },
+    {
+      "id": "radioiodinated_stable_isotope_label_position_policy",
+      "family_id": "isotope_labeled_tracer_and_pet_probe",
+      "name": "Radioiodinated or stable-isotope labeled tracer to label-position and precursor policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "radioiodinated tracers",
+          "stable-isotope labeled standards",
+          "tritium/deuterium/nitrogen isotope probes"
+        ],
+        "target_features": [
+          "radioiodine or stable isotope atom",
+          "label position selected for imaging, quantitation, or metabolism",
+          "precursor handle for isotope exchange or radiohalogenation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-I radiohalogen bond or isotope-exchange site",
+          "labeled atom precursor boundary"
+        ],
+        "forward_logic": [
+          "define the analytical or imaging purpose of the label position",
+          "separate precursor synthesis from isotope incorporation and purification",
+          "track isotope stability, scrambling, and regulatory handling metadata"
+        ],
+        "suggested_precursor_roles": [
+          "aryl boronic ester or radiohalogenation precursor",
+          "isotope-exchange precursor",
+          "labeled tracer/standard",
+          "label stability metadata"
+        ],
+        "planner_hint": "Do not score isotope labels as ordinary substituents; require label-position purpose and isotope-handling metadata."
+      },
+      "risks": [
+        "radiochemical handling",
+        "label scrambling",
+        "metabolic defluorination/deiodination or isotope loss",
+        "regulatory and dosimetry context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Aryl-boronic ester radiohalogenation study describes divergent PET/SPECT tracer development.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12298831/"
+        },
+        {
+          "type": "literature",
+          "citation": "Nitrogen isotope-exchange strategy article illustrates isotope-position planning and multiple isotope incorporation.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11258231/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "isotope_label_position_prior",
+        "rerank_bonus": "moderate for explicit label purpose, precursor, and stability metadata",
+        "compliance_gate": "radiochemical_or_isotope_handling_review_required"
+      }
+    },
+    {
+      "id": "polymer_drug_payload_linker_release_disconnection",
+      "family_id": "polymer_drug_conjugate_and_material_linker",
+      "name": "Polymer-drug conjugate to payload, carrier polymer, and degradable linker release policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "polymer-drug conjugates",
+          "HPMA and related polymer therapeutics",
+          "material-bound drug conjugates"
+        ],
+        "target_features": [
+          "payload covalently linked to polymer",
+          "degradable or stimuli-responsive linker",
+          "polymer distribution and release mechanism"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "payload-linker bond",
+          "linker-polymer attachment bond"
+        ],
+        "forward_logic": [
+          "separate payload synthesis, linker design, polymer carrier, and conjugation chemistry",
+          "track release trigger, drug loading, polymer distribution, and formulation role",
+          "do not mark polymer-bound API routes solved from small-molecule payload synthesis alone"
+        ],
+        "suggested_precursor_roles": [
+          "payload/API",
+          "cleavable linker",
+          "functional polymer carrier",
+          "polymer-drug conjugate"
+        ],
+        "planner_hint": "Reward explicit payload/linker/polymer separation and release-mechanism metadata."
+      },
+      "risks": [
+        "payload release kinetics",
+        "polydispersity",
+        "conjugation heterogeneity",
+        "cytotoxic payload or immunogenicity context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Polymer-drug conjugate review discusses biofunctional polymers, conjugation, and therapeutic platform roles.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13119245/"
+        },
+        {
+          "type": "literature",
+          "citation": "Polymer-drug conjugate nanotheranostic review summarizes diagnosis/therapy and linker-carrier considerations.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11554983/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "polymer_drug_linker_release_prior",
+        "rerank_bonus": "moderate for payload/linker/polymer and release metadata",
+        "compliance_gate": "polymer_conjugate_formulation_review_required"
+      }
+    },
+    {
+      "id": "pegylated_protein_polymer_traceless_linker_policy",
+      "family_id": "polymer_drug_conjugate_and_material_linker",
+      "name": "PEGylated or protein-polymer conjugate to biologic payload, polymer handle, and traceless/reversible linker",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "PEGylated drugs",
+          "protein-polymer conjugates",
+          "reversible polymer conjugates",
+          "next-generation polymer carriers"
+        ],
+        "target_features": [
+          "polymer attached to biologic or small molecule",
+          "site-selective conjugation handle",
+          "reversible or traceless linker option"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "payload-polymer conjugation bond",
+          "traceless linker cleavage boundary"
+        ],
+        "forward_logic": [
+          "separate biologic or payload identity from polymer architecture and conjugation site",
+          "track reversibility, release, immunogenicity, and pharmacokinetic design goal",
+          "treat polymer architecture and distribution as strategic route metadata"
+        ],
+        "suggested_precursor_roles": [
+          "payload or protein",
+          "functional polymer",
+          "traceless or reversible linker",
+          "polymer conjugate"
+        ],
+        "planner_hint": "Score PEGylation/polymer conjugation only when conjugation site and release or PK role are explicit."
+      },
+      "risks": [
+        "heterogeneous conjugation",
+        "immunogenicity and clearance",
+        "reversible linker stability",
+        "polymer batch distribution"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "PEGylation and next-generation polymer review discusses biological-barrier and polymer-carrier design issues.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12943207/"
+        },
+        {
+          "type": "literature",
+          "citation": "Traceless linker review covers reversible protein-polymer conjugation strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12857043/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "pegylated_polymer_conjugate_prior",
+        "rerank_bonus": "moderate for conjugation-site, polymer, and release/PK metadata",
+        "compliance_gate": "biologic_polymer_conjugate_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v7 expansion promotes the next backlog families for marine ladder polyethers/meroterpenoids, expanded MIA alkaloid branches, cyanobacterial toxin-like peptide/PKS records, retinoid/secosteroid/bile-acid lipophiles, polyamine siderophores/acylpolyamines, host-guest supramolecular systems, isotope/PET tracers, and polymer-drug conjugates."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Marine toxin, psychoactive/toxic alkaloid, cyanotoxin, cytotoxic payload, endocrine-active lipophile, antimicrobial-vector, radiochemical, and polymer-conjugate records are advisory. Promotion to proposal generation requires explicit safety, legal, toxicology, radiochemical, stewardship, formulation, or biological-mode review as applicable."
+    }
+  ]
+}

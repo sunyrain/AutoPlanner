@@ -13,6 +13,11 @@ from rdkit import Chem, RDLogger
 
 from cascade_planner.baselines.route_contract import RouteStepCandidate
 from cascade_planner.baselines.route_plausibility import audit_step_plausibility
+from cascade_planner.cascade_verifier.condition_extraction import (
+    condition_predictions,
+    condition_summary,
+    condition_value,
+)
 from cascade_planner.cascade_verifier.schema import (
     CascadeVerifierFinding,
     CascadeVerifierResult,
@@ -115,7 +120,7 @@ def _material_findings(steps: list[dict[str, Any]]) -> list[CascadeVerifierFindi
                 reactant_smiles=reactants,
                 rxn_smiles=str(step.get("reaction_smiles") or step.get("rxn_smiles") or ""),
                 source_model=str(step.get("source") or step.get("source_model") or ""),
-                condition_predictions=_condition_predictions(step),
+                condition_predictions=condition_predictions(step),
                 enzyme_ec_annotations=list(step.get("enzyme_ec_annotations") or []),
             )
         )
@@ -213,7 +218,7 @@ def _condition_findings(
                     step_index=idx,
                     stage_id=partition[idx] if idx < len(partition) else "stage_1",
                     message="Enzymatic step is paired with a strongly enzyme-incompatible solvent or reagent.",
-                    evidence=_condition_summary(step),
+                    evidence=condition_summary(step),
                 )
             )
 
@@ -221,8 +226,8 @@ def _condition_findings(
         for left, right in zip(rows, rows[1:]):
             left_idx, left_step = left
             right_idx, right_step = right
-            left_temp = _safe_float(_condition_value(left_step, "temperature"))
-            right_temp = _safe_float(_condition_value(right_step, "temperature"))
+            left_temp = _safe_float(condition_value(left_step, "temperature"))
+            right_temp = _safe_float(condition_value(right_step, "temperature"))
             if left_temp is not None and right_temp is not None:
                 if abs(left_temp - right_temp) > 2.0 * temperature_tolerance_c:
                     findings.append(
@@ -235,8 +240,8 @@ def _condition_findings(
                             evidence={"left_step_index": left_idx, "left_T": left_temp, "right_T": right_temp},
                         )
                     )
-            left_ph = _safe_float(_condition_value(left_step, "ph"))
-            right_ph = _safe_float(_condition_value(right_step, "ph"))
+            left_ph = _safe_float(condition_value(left_step, "ph"))
+            right_ph = _safe_float(condition_value(right_step, "ph"))
             if left_ph is not None and right_ph is not None:
                 if abs(left_ph - right_ph) > 2.0 * ph_tolerance:
                     findings.append(
@@ -249,8 +254,8 @@ def _condition_findings(
                             evidence={"left_step_index": left_idx, "left_pH": left_ph, "right_pH": right_ph},
                         )
                     )
-            left_class = _solvent_class(str(_condition_value(left_step, "solvent") or ""))
-            right_class = _solvent_class(str(_condition_value(right_step, "solvent") or ""))
+            left_class = _solvent_class(str(condition_value(left_step, "solvent") or ""))
+            right_class = _solvent_class(str(condition_value(right_step, "solvent") or ""))
             if left_class and right_class and {left_class, right_class} == {"aqueous", "hydrophobic"}:
                 findings.append(
                     CascadeVerifierFinding(
@@ -261,8 +266,8 @@ def _condition_findings(
                         message="Adjacent same-stage steps use incompatible aqueous/hydrophobic solvent classes.",
                         evidence={
                             "left_step_index": left_idx,
-                            "left_solvent": _condition_value(left_step, "solvent"),
-                            "right_solvent": _condition_value(right_step, "solvent"),
+                            "left_solvent": condition_value(left_step, "solvent"),
+                            "right_solvent": condition_value(right_step, "solvent"),
                         },
                     )
                 )
@@ -326,37 +331,6 @@ def _step_reactants(step: dict[str, Any]) -> list[str]:
     return _dedupe(reactants)
 
 
-def _condition_predictions(step: dict[str, Any]) -> list[dict[str, Any]]:
-    values = step.get("condition_predictions") or []
-    return [row for row in values if isinstance(row, dict)]
-
-
-def _condition_value(step: dict[str, Any], field: str) -> Any:
-    aliases = {
-        "temperature": ("T", "Temperature", "temperature", "temperature_c"),
-        "ph": ("pH", "ph", "PH"),
-        "solvent": ("solvent", "Solvent"),
-        "catalyst": ("catalyst", "Catalyst", "reagent", "Reagent"),
-    }
-    for key in aliases[field]:
-        if key in step and step[key] not in (None, ""):
-            return step[key]
-    for prediction in _condition_predictions(step):
-        for key in aliases[field]:
-            if key in prediction and prediction[key] not in (None, ""):
-                return prediction[key]
-    return None
-
-
-def _condition_summary(step: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "temperature": _condition_value(step, "temperature"),
-        "pH": _condition_value(step, "ph"),
-        "solvent": _condition_value(step, "solvent"),
-        "catalyst_or_reagent": _condition_value(step, "catalyst"),
-    }
-
-
 def _is_enzymatic_step(step: dict[str, Any]) -> bool:
     if step.get("ec") or step.get("ec_number") or step.get("enzyme_ec_annotations"):
         return True
@@ -365,8 +339,8 @@ def _is_enzymatic_step(step: dict[str, Any]) -> bool:
 
 
 def _enzyme_toxic_condition(step: dict[str, Any]) -> bool:
-    solvent = str(_condition_value(step, "solvent") or "").lower()
-    catalyst = str(_condition_value(step, "catalyst") or "").lower()
+    solvent = str(condition_value(step, "solvent") or "").lower()
+    catalyst = str(condition_value(step, "catalyst") or "").lower()
     return any(token in solvent for token in ENZYME_TOXIC_SOLVENT_TOKENS) or any(
         token in catalyst for token in ENZYME_TOXIC_REAGENT_TOKENS
     )

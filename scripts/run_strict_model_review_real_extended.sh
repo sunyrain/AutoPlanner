@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT="${ROOT:-/root/autodl-tmp/AutoPlanner}"
 cd "$ROOT"
 
+if [[ "${AUTOPLANNER_ALLOW_LEGACY_RESEARCH:-}" != "1" ]]; then
+  echo "strict model review 300-row fallback is archived/fallback research; set AUTOPLANNER_ALLOW_LEGACY_RESEARCH=1 to run it." >&2
+  exit 4
+fi
+
 export REVIEW_JSONL="${REVIEW_JSONL:-results/shared/model_strengthening_20260519_strict_model_review_worklist_extended/strict_model_control_disagreement_review_300.jsonl}"
 export TRANSFORM_SANITY_JSON="${TRANSFORM_SANITY_JSON-}"
 export OUT_DIR="${OUT_DIR:-results/shared/model_strengthening_20260519_strict_model_review_worklist_extended/real_review_pipeline}"

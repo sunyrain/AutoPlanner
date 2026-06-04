@@ -260,6 +260,9 @@ def _fmt(value: Any) -> str:
 
 
 def main() -> None:
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("rerank_runtime_ccts_with_product_audit")
     ap = argparse.ArgumentParser(description="Rerank runtime-scored native pools with product-audit guarded CCTS ranker")
     ap.add_argument("--scored-native-pool", required=True)
     ap.add_argument("--ranker-pickle", required=True)

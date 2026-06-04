@@ -13,10 +13,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from cascade_planner.cascadeboard.route_recovery import canonical_smiles
+from scripts.onmt_corpus_normalization import canonicalize_product_and_reactants
 
 
 SCHEMA_VERSION = "chem_enzy_cascade_onmt_corpus.v1"
@@ -29,8 +33,11 @@ def main() -> None:
         input_path=args.input,
         output_dir=args.output_dir,
         modes=args.mode,
+        tokenizer=args.tokenizer,
         max_routes=args.max_routes,
         dedupe=not args.no_dedupe,
+        step_scope=args.step_scope,
+        canonicalize_training_smiles=not args.no_canonicalize_training_smiles,
     )
     print(json.dumps(result["summary"], indent=2, ensure_ascii=False))
 
@@ -40,8 +47,11 @@ def build_corpus(
     input_path: Path,
     output_dir: Path,
     modes: list[str],
+    tokenizer: str = "char",
     max_routes: int | None = None,
     dedupe: bool = True,
+    step_scope: str = "all",
+    canonicalize_training_smiles: bool = True,
 ) -> dict[str, Any]:
     if "both" in modes:
         modes = ["plain", "context"]
@@ -49,6 +59,10 @@ def build_corpus(
     unknown = sorted(set(modes) - {"plain", "context"})
     if unknown:
         raise ValueError(f"unsupported modes: {unknown}")
+    if tokenizer not in {"char", "smiles_token"}:
+        raise ValueError(f"unsupported tokenizer: {tokenizer}")
+    if step_scope not in {"all", "top_level"}:
+        raise ValueError(f"unsupported step_scope: {step_scope}")
 
     payload = json.loads(input_path.read_text(encoding="utf-8"))
     seed_routes = _positive_seed_routes(payload, max_routes=max_routes)
@@ -68,11 +82,24 @@ def build_corpus(
             skipped["route_without_steps"] += 1
             continue
         for step_idx, step in enumerate(steps):
+            if step_scope == "top_level" and step_idx != 0:
+                skipped["non_top_level_step"] += 1
+                continue
             product = _step_product(step)
             reactants = _step_reactants(step)
             if not product or not reactants:
                 skipped["step_missing_product_or_reactants"] += 1
                 continue
+            if _is_self_reaction_step(product, reactants):
+                skipped["self_reaction_step"] += 1
+                continue
+            raw_product = product
+            raw_reactants = list(reactants)
+            if canonicalize_training_smiles:
+                product, reactants = canonicalize_product_and_reactants(product, reactants)
+                if not product or not reactants:
+                    skipped["strict_canonicalization_failed"] += 1
+                    continue
             reactant_line = ".".join(reactants)
             metadata = {
                 "source_example_id": route_row.get("example_id"),
@@ -84,10 +111,16 @@ def build_corpus(
                 "stage": _stage_for_step(cascade, step_idx),
                 "product": product,
                 "reactants": reactants,
+                "raw_product": raw_product,
+                "raw_reactants": raw_reactants,
             }
             for mode in modes:
-                src = _source_line(mode, cascade, step, step_idx, product, target)
-                tgt = _char_tokenize(reactant_line)
+                try:
+                    src = _source_line(mode, cascade, step, step_idx, product, target, tokenizer=tokenizer)
+                    tgt = _tokenize_smiles(reactant_line, tokenizer)
+                except ValueError:
+                    skipped[f"{mode}_tokenization_failed"] += 1
+                    continue
                 split = SPLIT_MAP.get(route_split, "train")
                 key = (mode, split, src, tgt)
                 if dedupe and key in seen:
@@ -123,11 +156,14 @@ def build_corpus(
         "input": str(input_path),
         "output_dir": str(output_dir),
         "modes": modes,
+        "tokenizer": tokenizer,
+        "step_scope": step_scope,
         "dedupe": dedupe,
+        "canonicalize_training_smiles": canonicalize_training_smiles,
         "source_seed_routes": len(seed_routes),
         "files": files,
         "compatibility": {
-            "plain": "Closest to current ChemEnzy ONMT char-tokenized product-to-reactants checkpoint interface.",
+            "plain": "Closest to current ChemEnzy ONMT product-to-reactants checkpoint interface when tokenizer matches the checkpoint.",
             "context": "Cascade-aware source with condition/stage tokens; requires vocab/model adaptation before checkpoint continue-training.",
         },
         "openmt_command_hints": _command_hints(output_dir),
@@ -135,6 +171,8 @@ def build_corpus(
             "schema_version": SCHEMA_VERSION,
             "source_seed_routes": len(seed_routes),
             "modes": modes,
+            "tokenizer": tokenizer,
+            "step_scope": step_scope,
             "examples_by_mode_split": summary_counts,
             "total_examples": {mode: sum(summary_counts[mode].values()) for mode in modes},
             "skipped": dict(skipped),
@@ -200,9 +238,18 @@ def _step_reactants(step: dict[str, Any]) -> list[str]:
     return out
 
 
-def _source_line(mode: str, cascade: dict[str, Any], step: dict[str, Any], step_idx: int, product: str, target: str) -> str:
+def _source_line(
+    mode: str,
+    cascade: dict[str, Any],
+    step: dict[str, Any],
+    step_idx: int,
+    product: str,
+    target: str,
+    *,
+    tokenizer: str,
+) -> str:
     if mode == "plain":
-        return _char_tokenize(product)
+        return _tokenize_smiles(product, tokenizer)
     tokens = [
         f"<step_{step_idx + 1}>",
         f"<stage_{_stage_for_step(cascade, step_idx)}>",
@@ -211,9 +258,9 @@ def _source_line(mode: str, cascade: dict[str, Any], step: dict[str, Any], step_
         f"<solv_{_safe_token(_condition_value(step, 'solvent') or 'unknown')}>",
         f"<ec_{_safe_token(_ec_prefix(step))}>",
         "<target>",
-        *_char_tokens(target or product),
+        *_smiles_tokens(target or product, tokenizer),
         "<product>",
-        *_char_tokens(product),
+        *_smiles_tokens(product, tokenizer),
     ]
     return " ".join(tokens)
 
@@ -292,12 +339,41 @@ def _safe_token(value: Any) -> str:
     return text or "unknown"
 
 
+def _tokenize_smiles(text: str, tokenizer: str) -> str:
+    if tokenizer == "char":
+        return _char_tokenize(text)
+    return " ".join(_chem_enzy_smiles_tokens(text))
+
+
+def _smiles_tokens(text: str, tokenizer: str) -> list[str]:
+    if tokenizer == "char":
+        return _char_tokens(text)
+    return _chem_enzy_smiles_tokens(text)
+
+
 def _char_tokenize(text: str) -> str:
     return " ".join(text.replace(" ", ""))
 
 
 def _char_tokens(text: str) -> list[str]:
     return list(text.replace(" ", ""))
+
+
+def _chem_enzy_smiles_tokens(text: str) -> list[str]:
+    pattern = r"(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\|\/|:|~|@|\?|>|\*|\$|\%[0-9]{2}|[0-9])"
+    regex = re.compile(pattern)
+    compact = text.replace(" ", "")
+    tokens = [token for token in regex.findall(compact)]
+    if compact != "".join(tokens):
+        raise ValueError(f"SMILES tokenization failed for {text!r}")
+    return tokens
+
+
+def _is_self_reaction_step(product: str, reactants: list[str]) -> bool:
+    product_key = canonical_smiles(product)
+    if not product_key:
+        return False
+    return any(canonical_smiles(reactant) == product_key for reactant in reactants if reactant)
 
 
 def _write_lines(path: Path, lines: list[str]) -> None:
@@ -341,6 +417,9 @@ def _write_markdown(manifest: dict[str, Any], path: Path) -> None:
         "",
         f"- source_seed_routes: {manifest['summary']['source_seed_routes']}",
         f"- modes: {', '.join(manifest['modes'])}",
+        f"- tokenizer: {manifest['tokenizer']}",
+        f"- step_scope: {manifest.get('step_scope', 'all')}",
+        f"- canonicalize_training_smiles: {manifest.get('canonicalize_training_smiles', False)}",
         f"- output_dir: `{manifest['output_dir']}`",
         "",
         "| mode | train | valid | test | total |",
@@ -374,8 +453,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--mode", choices=["plain", "context", "both"], nargs="+", default=["both"])
+    parser.add_argument("--tokenizer", choices=["char", "smiles_token"], default="char")
+    parser.add_argument("--step-scope", choices=["all", "top_level"], default="all")
     parser.add_argument("--max-routes", type=int)
     parser.add_argument("--no-dedupe", action="store_true")
+    parser.add_argument("--no-canonicalize-training-smiles", action="store_true")
     return parser.parse_args()
 
 

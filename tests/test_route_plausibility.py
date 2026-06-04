@@ -1,7 +1,11 @@
 import unittest
 
 from cascade_planner.baselines.route_contract import RouteCandidate, RouteStepCandidate
-from cascade_planner.baselines.route_plausibility import audit_route_plausibility, split_plausible_routes
+from cascade_planner.baselines.route_plausibility import (
+    audit_first_step_material_gate,
+    audit_route_plausibility,
+    split_plausible_routes,
+)
 
 
 class RoutePlausibilityTest(unittest.TestCase):
@@ -55,6 +59,55 @@ class RoutePlausibilityTest(unittest.TestCase):
         self.assertEqual(len(audits), 2)
         self.assertEqual(len(plausible), 1)
         self.assertIs(plausible[0][0], good)
+
+    def test_first_step_gate_warns_on_boc_transfer_reagent(self):
+        step = _route("NCCO>>CC(C)(C)OC(=O)NCCO").steps[0]
+        step.condition_predictions = [{"Reagent": "Boc2O", "Score": "0.9"}]
+
+        gate = audit_first_step_material_gate(step)
+
+        self.assertEqual(gate["decision"], "warn")
+        self.assertFalse(gate["hard_reject"])
+        self.assertIn("possible_condition_or_transfer_reagent_atom_source", gate["warnings"])
+        self.assertEqual(gate["residual_unexplained_element_gains"], {})
+
+    def test_first_step_gate_warns_on_fmoc_transfer_reagent(self):
+        step = _route("NCCO>>O=C(NCCO)OCC1c2ccccc2-c2ccccc21").steps[0]
+        step.condition_predictions = [{"Reagent": "Fmoc-Cl", "Score": "0.8"}]
+
+        gate = audit_first_step_material_gate(step)
+
+        self.assertEqual(gate["decision"], "warn")
+        self.assertFalse(gate["hard_reject"])
+        self.assertEqual(gate["residual_unexplained_element_gains"], {})
+
+    def test_first_step_gate_warns_on_tms_transfer_reagent(self):
+        step = _route("CCO>>CCO[Si](C)(C)C").steps[0]
+        step.condition_predictions = [{"Reagent": "TMSCl", "Score": "0.8"}]
+
+        gate = audit_first_step_material_gate(step)
+
+        self.assertEqual(gate["decision"], "warn")
+        self.assertFalse(gate["hard_reject"])
+        self.assertEqual(gate["residual_unexplained_element_gains"], {})
+
+    def test_first_step_gate_passes_small_condition_reagent_element_source(self):
+        step = _route("CO>>COCl").steps[0]
+        step.condition_predictions = [{"Reagent": "O=P(Cl)(Cl)Cl", "Score": "0.9"}]
+
+        gate = audit_first_step_material_gate(step)
+
+        self.assertEqual(gate["decision"], "pass")
+        self.assertFalse(gate["hard_reject"])
+
+    def test_first_step_gate_hard_rejects_unexplained_large_scaffold_growth(self):
+        step = _route("CC(=O)C(=O)O>>CC[C@@H](O)C[C@@H](O)CC=O").steps[0]
+
+        gate = audit_first_step_material_gate(step)
+
+        self.assertEqual(gate["decision"], "hard_reject")
+        self.assertTrue(gate["hard_reject"])
+        self.assertIn("large_unexplained_material_growth", gate["hard_reasons"])
 
 
 def _route(rxn: str) -> RouteCandidate:

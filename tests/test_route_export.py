@@ -10,8 +10,10 @@ from cascade_planner.cascadeboard.route_export import (
     route_set_diversity_metrics,
     route_naturalness_metrics,
     route_metrics,
+    route_result_to_dict,
     operation_transition_metrics,
 )
+from cascade_planner.baselines.enzyme_action_status import route_level_enzyme_status
 
 
 class RouteExportCompatibilityTest(unittest.TestCase):
@@ -115,6 +117,133 @@ class RouteExportCompatibilityTest(unittest.TestCase):
         self.assertTrue(dims["sequence"])
         self.assertTrue(dims["literature_precedent"])
         self.assertGreater(metrics["enzyme_evidence_score"], 0.8)
+
+    def test_enzyme_evidence_counts_onmt_sp_accepted_ec_hint(self):
+        board = CascadeBoard.from_n_steps(1, "CC=O")
+        slot = board.slots[0]
+        slot.reaction_smiles = "CCO>>CC=O"
+        slot.main_reactant = "CCO"
+        slot.source = "chem_enzy_onmt"
+        slot.evidence = {
+            "source_gate": {
+                "molecule_flags": {
+                    "bridge_gate_ec_numbers": ["1.1.1.-"],
+                },
+            },
+            "enzyme_sp_verifier_v1": {
+                "accepted": True,
+                "score": 0.9,
+                "threshold": 0.4,
+            },
+        }
+
+        metrics = enzyme_evidence_metrics(board)
+
+        self.assertEqual(metrics["n_enzymatic_steps"], 1)
+        self.assertEqual(metrics["supported_steps"], 1)
+        self.assertEqual(metrics["steps"][0]["ec_hint"], "1.1.1.-")
+        dims = metrics["steps"][0]["evidence_dimensions"]
+        self.assertTrue(dims["candidate_provenance"])
+        self.assertTrue(dims["ec_hint"])
+        self.assertTrue(dims["sp_v1_accepted"])
+
+    def test_route_level_enzyme_status_validates_sp_v1_supported_action(self):
+        board = CascadeBoard.from_n_steps(1, "CC=O")
+        slot = board.slots[0]
+        slot.product = "CC=O"
+        slot.reaction_smiles = "CCO>>CC=O"
+        slot.main_reactant = "CCO"
+        slot.source = "enzyme_precedent"
+        slot.ec = "1.1.1.1"
+        slot.evidence = {
+            "enzyme_sp_verifier_v1": {"accepted": True, "score": 0.91, "threshold": 0.4},
+            "selected_enzyme_precedent": {"source": "brenda", "doi": "10.0000/example"},
+        }
+
+        status = route_level_enzyme_status(board)
+        payload = route_result_to_dict(RouteResult(board=board, score=0.0))
+
+        self.assertEqual(status["route_enzyme_status"], "validated")
+        self.assertEqual(status["validated_enzyme_steps"], 1)
+        action = payload["steps"][0]["structured_enzyme_action"]
+        self.assertEqual(action["schema_version"], "structured_enzyme_action.v1")
+        self.assertEqual(action["validation_status"], "validated")
+        self.assertEqual(action["ec_numbers"], ["1.1.1.1"])
+        self.assertTrue(payload["metrics"]["route_enzyme_status"]["production_solved_allowed"])
+
+    def test_generic_ec_only_route_is_not_validated_enzyme_step(self):
+        board = CascadeBoard.from_n_steps(1, "CC=O")
+        slot = board.slots[0]
+        slot.product = "CC=O"
+        slot.reaction_smiles = "CCO>>CC=O"
+        slot.main_reactant = "CCO"
+        slot.source = "retrochimera"
+        slot.ec = "1.1.1.1"
+
+        status = route_level_enzyme_status(board)
+
+        self.assertEqual(status["route_enzyme_status"], "generic_ec_only")
+        self.assertEqual(status["validated_enzyme_steps"], 0)
+        self.assertEqual(status["generic_ec_only_steps"], 1)
+
+    def test_rejected_enzyme_step_blocks_production_solved_status(self):
+        board = CascadeBoard.from_n_steps(1, "CC=O")
+        slot = board.slots[0]
+        slot.product = "CC=O"
+        slot.reaction_smiles = "CCO>>CC=O"
+        slot.main_reactant = "CCO"
+        slot.source = "enzyme_precedent"
+        slot.ec = "1.1.1.1"
+        slot.evidence = {
+            "enzyme_sp_verifier_v1": {"accepted": False, "score": 0.1, "threshold": 0.4},
+            "enzyme_step_quality_v1": {"decision": "reject", "flags": ["sp_v1_rejected"]},
+        }
+
+        status = route_level_enzyme_status(board)
+
+        self.assertEqual(status["route_enzyme_status"], "rejected")
+        self.assertEqual(status["rejected_enzyme_steps"], 1)
+        self.assertFalse(status["production_solved_allowed"])
+
+    def test_p5_partial_evidence_route_is_not_production_solved(self):
+        board = CascadeBoard.from_n_steps(1, "CC=O")
+        board.set_global_constraint("p5_partial_evidence", True)
+        slot = board.slots[0]
+        slot.product = "CC=O"
+        slot.reaction_smiles = "CCO>>CC=O"
+        slot.main_reactant = "CCO"
+        slot.source = "enzyme_precedent"
+        slot.ec = "1.1.1.1"
+        slot.evidence = {
+            "enzyme_sp_verifier_v1": {"accepted": True, "score": 0.91, "threshold": 0.4},
+        }
+
+        status = route_level_enzyme_status(board)
+
+        self.assertEqual(status["route_enzyme_status"], "validated")
+        self.assertTrue(status["partial_evidence_only"])
+        self.assertFalse(status["production_solved_allowed"])
+
+    def test_route_export_preserves_enzyme_step_quality_payload(self):
+        board = CascadeBoard.from_n_steps(1, "CCCCCCCCCCCC")
+        slot = board.slots[0]
+        slot.reaction_smiles = "C>>CCCCCCCCCCCC"
+        slot.main_reactant = "C"
+        slot.source = "enzyme_precedent"
+        slot.evidence = {
+            "enzyme_step_quality_v1": {
+                "schema_version": "chem_enzy_enzyme_step_quality.v1",
+                "decision": "reject",
+                "flags": ["material_sanity_failed"],
+            }
+        }
+        result = RouteResult(board=board, score=0.0)
+
+        payload = route_result_to_dict(result)
+
+        step = payload["steps"][0]
+        self.assertEqual(step["enzyme_step_quality_v1"]["decision"], "reject")
+        self.assertEqual(step["evidence"]["enzyme_step_quality_v1"]["decision"], "reject")
 
     def test_reaction_interpretation_explains_type_ec_and_atom_change(self):
         board = CascadeBoard.from_n_steps(1, "CCOC(C)=O")

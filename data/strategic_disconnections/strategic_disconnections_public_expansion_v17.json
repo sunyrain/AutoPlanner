@@ -1,0 +1,1192 @@
+{
+  "schema_version": "strategic_disconnections.v17_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Sixteenth expanded public source layer focused on reaction-source provenance and evidence-quality strategy: structured reaction database schema, patent and literature extraction, negative or failed-reaction data, procedure and condition metadata, atom mapping and role assignment, natural-product structure revision, process starting-material and impurity-control boundaries, and CASP route benchmark lineage.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist, informatics, process, regulatory, and provenance review",
+      "explicit source type, extraction method, schema fields, procedure metadata, atom mapping, negative-data context, structural-assignment evidence, process-control rationale, or benchmark manifest before proposal promotion",
+      "separate database-schema, patent/literature-extraction, negative-data, procedure-metadata, atom-map, natural-product-structure, process-control, and benchmark-lineage policy",
+      "route-specific provenance, license, curation status, extraction confidence, role assignment, stereochemical evidence, impurity purge logic, starting-material justification, route feasibility, and benchmark split review",
+      "legal, patent, regulatory, hazardous-procedure, genotoxic-impurity, natural-product-bioactivity, data-license, or reproducibility review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid procedural quantities, operating conditions, and implementation protocols",
+      "v17 records are source-quality and provenance priors only and must not auto-close routes as stock, validated procedures, confirmed patents, or regulatory-ready control strategies"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "structured_reaction_database_schema_provenance",
+      "name": "Structured reaction database schema, identifiers, provenance, and license boundaries",
+      "pattern_keywords": [
+        "Open Reaction Database",
+        "reaction schema",
+        "reaction identifier",
+        "dataset provenance",
+        "reaction data license",
+        "structured reaction data"
+      ],
+      "strategic_principle": "Separate a reaction record from its source schema, curator, license, identifiers, and missing metadata. A database hit is a source candidate, not a validated route, unless provenance and fields support the planning claim."
+    },
+    {
+      "family_id": "patent_literature_reaction_extraction_boundary",
+      "name": "Patent, journal, figure, and text-mined reaction extraction boundaries",
+      "pattern_keywords": [
+        "reaction extraction",
+        "patent reaction",
+        "literature text mining",
+        "reaction scheme extraction",
+        "OCR",
+        "chemical information extraction"
+      ],
+      "strategic_principle": "Separate chemistry precedent from extraction artifacts. Patent or literature-mined records require source section, role assignment, figure/text extraction confidence, and curator review before strategic use."
+    },
+    {
+      "family_id": "negative_failed_reaction_data_policy",
+      "name": "Negative, low-yield, failed, and high-throughput reaction outcome data policy",
+      "pattern_keywords": [
+        "negative reaction data",
+        "failed reactions",
+        "low-yield reaction",
+        "high-throughput experimentation",
+        "data bias",
+        "reaction outcome"
+      ],
+      "strategic_principle": "Separate absence of literature success from explicit negative evidence. Failed or low-yield records are valuable route boundaries only when the attempted substrate, conditions class, analytical endpoint, and publication or ELN context are traceable."
+    },
+    {
+      "family_id": "procedure_condition_metadata_completeness_policy",
+      "name": "Procedure, action-sequence, reagent-role, condition, workup, and scale metadata completeness",
+      "pattern_keywords": [
+        "experimental procedure",
+        "synthesis actions",
+        "reaction conditions",
+        "workup",
+        "scale",
+        "procedure extraction"
+      ],
+      "strategic_principle": "Separate a formal reaction equation from executable procedure context. Missing role labels, order of addition, workup, atmosphere, scale, or analytical endpoint should reduce route trust even when the product/reactant string looks valid."
+    },
+    {
+      "family_id": "atom_mapping_role_assignment_reaction_center_policy",
+      "name": "Atom mapping, reactant/reagent role assignment, reaction-center, and template-lineage policy",
+      "pattern_keywords": [
+        "atom mapping",
+        "reaction center",
+        "reactant reagent role",
+        "template extraction",
+        "RXNMapper",
+        "reaction grammar"
+      ],
+      "strategic_principle": "Separate bond-disconnection logic from atom-map and role-assignment confidence. Strategic templates must carry reaction-center lineage and must not trust noisy maps or reagent/product role confusion blindly."
+    },
+    {
+      "family_id": "natural_product_structure_revision_stereochemical_evidence",
+      "name": "Natural-product structure revision, stereochemical assignment, and spectral-comparison evidence",
+      "pattern_keywords": [
+        "structure revision",
+        "stereochemical assignment",
+        "natural product",
+        "total synthesis",
+        "NMR comparison",
+        "absolute configuration"
+      ],
+      "strategic_principle": "Separate target identity from proposed literature structure. Natural-product route records require structural-assignment evidence, spectral comparison, stereochemical provenance, and revision history before using a target as a planning endpoint."
+    },
+    {
+      "family_id": "process_starting_material_impurity_control_boundary",
+      "name": "Process starting-material justification, impurity purge, control-strategy, and regulatory boundary",
+      "pattern_keywords": [
+        "starting material justification",
+        "impurity purge",
+        "control strategy",
+        "ICH Q11",
+        "drug substance manufacture",
+        "process boundary"
+      ],
+      "strategic_principle": "Separate retrosynthetic convenience from process starting-material acceptance and impurity control. A proposed convergent precursor is not a strategic stock anchor unless material attributes, impurity fate, and control strategy are reviewed."
+    },
+    {
+      "family_id": "route_benchmark_gold_trace_lineage_policy",
+      "name": "CASP route benchmark, gold route, stock set, split, and trace-lineage policy",
+      "pattern_keywords": [
+        "computer-assisted synthesis planning",
+        "retrosynthesis benchmark",
+        "gold route",
+        "stock set",
+        "route split",
+        "CASP evaluation"
+      ],
+      "strategic_principle": "Separate benchmark success from real route quality. A planner trace must carry stock-set, split, route-source, scorer, and feasibility-review lineage before it is used as strategic training or promotion evidence."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "reaction_database_schema_provenance_anchor",
+      "family_id": "structured_reaction_database_schema_provenance",
+      "name": "Structured reaction database anchor with reviewed schema, identifiers, source provenance, curation status, and license",
+      "role": "reaction_database_schema_anchor",
+      "aliases": [
+        "ORD-style reaction record",
+        "structured reaction database hit",
+        "reaction-data manifest"
+      ],
+      "acceptance_policy": "requires_schema_identifiers_source_provenance_license_curation_status_and_missing_field_review"
+    },
+    {
+      "anchor_id": "patent_literature_extraction_confidence_anchor",
+      "family_id": "patent_literature_reaction_extraction_boundary",
+      "name": "Extracted reaction anchor with reviewed patent or literature section, extraction modality, role labels, and curator confidence",
+      "role": "reaction_extraction_confidence_anchor",
+      "aliases": [
+        "patent-mined reaction",
+        "figure-extracted reaction",
+        "text-mined reaction"
+      ],
+      "acceptance_policy": "requires_source_section_extraction_modality_role_assignment_confidence_and_manual_review"
+    },
+    {
+      "anchor_id": "negative_failed_reaction_outcome_anchor",
+      "family_id": "negative_failed_reaction_data_policy",
+      "name": "Negative or failed-reaction anchor with reviewed attempted substrate, conditions class, endpoint, and data-bias context",
+      "role": "negative_reaction_outcome_anchor",
+      "aliases": [
+        "failed reaction",
+        "low-yield HTE result",
+        "negative reaction data"
+      ],
+      "acceptance_policy": "requires_attempted_substrate_condition_class_endpoint_analytical_readout_and_bias_context_review"
+    },
+    {
+      "anchor_id": "procedure_condition_metadata_anchor",
+      "family_id": "procedure_condition_metadata_completeness_policy",
+      "name": "Procedure metadata anchor with reviewed action sequence, reagent roles, order, scale, workup, and analytical endpoint",
+      "role": "procedure_metadata_anchor",
+      "aliases": [
+        "synthesis action sequence",
+        "procedure-derived route",
+        "condition metadata record"
+      ],
+      "acceptance_policy": "requires_reagent_roles_action_sequence_order_scale_workup_endpoint_and_reproducibility_review"
+    },
+    {
+      "anchor_id": "atom_mapping_role_assignment_anchor",
+      "family_id": "atom_mapping_role_assignment_reaction_center_policy",
+      "name": "Atom-map and reaction-center anchor with reviewed map confidence, role assignment, reagent separation, and template lineage",
+      "role": "atom_mapping_template_anchor",
+      "aliases": [
+        "RXNMapper map",
+        "reaction-center template",
+        "mapped reaction rule"
+      ],
+      "acceptance_policy": "requires_atom_map_confidence_reaction_center_role_assignment_balance_stereochemistry_and_template_lineage_review"
+    },
+    {
+      "anchor_id": "natural_product_structure_revision_anchor",
+      "family_id": "natural_product_structure_revision_stereochemical_evidence",
+      "name": "Natural-product target anchor with reviewed structure revision, stereochemical assignment, spectral comparison, and biosynthetic plausibility",
+      "role": "natural_product_structure_evidence_anchor",
+      "aliases": [
+        "structure-revised natural product",
+        "stereochemical assignment route",
+        "spectral comparison target"
+      ],
+      "acceptance_policy": "requires_revision_history_spectral_match_stereochemical_assignment_biosynthetic_context_and_target_identity_review"
+    },
+    {
+      "anchor_id": "process_starting_material_control_anchor",
+      "family_id": "process_starting_material_impurity_control_boundary",
+      "name": "Process starting-material anchor with reviewed impurity fate, purge, material attributes, and control strategy",
+      "role": "process_control_anchor",
+      "aliases": [
+        "ICH Q11 starting material",
+        "impurity purge route",
+        "control-strategy boundary"
+      ],
+      "acceptance_policy": "requires_starting_material_justification_impurity_fate_purge_material_attributes_control_strategy_and_regulatory_review"
+    },
+    {
+      "anchor_id": "route_benchmark_gold_trace_anchor",
+      "family_id": "route_benchmark_gold_trace_lineage_policy",
+      "name": "Benchmark route anchor with reviewed gold trace, source route, stock set, split, scorer, and feasibility lineage",
+      "role": "route_benchmark_lineage_anchor",
+      "aliases": [
+        "CASP benchmark trace",
+        "gold retrosynthesis route",
+        "planner evaluation route"
+      ],
+      "acceptance_policy": "requires_route_source_stock_set_split_manifest_scorer_version_feasibility_review_and_leakage_audit"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "reaction_schema_provenance_record_boundary",
+      "family_id": "structured_reaction_database_schema_provenance",
+      "name": "Reaction record to structured schema plus source, identifier, license, and missing-field provenance policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "database-derived reaction records",
+          "structured reaction corpora",
+          "source-backed proposal caches"
+        ],
+        "target_features": [
+          "reaction schema",
+          "source identifier",
+          "curation or license metadata"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "reaction hit to source-schema boundary",
+          "product/reactant string to provenance boundary"
+        ],
+        "forward_logic": [
+          "separate a database row from the original experimental source",
+          "track identifiers, curator, license, schema version, and missing fields",
+          "flag records where source provenance or role fields are insufficient for route promotion"
+        ],
+        "suggested_precursor_roles": [
+          "reaction database row",
+          "source publication or patent",
+          "schema identifiers",
+          "curation and license metadata"
+        ],
+        "planner_hint": "Reward structured database records only when schema version, source, license, and missing-field status are explicit."
+      },
+      "risks": [
+        "source provenance missing",
+        "license or redistribution unclear",
+        "schema fields incomplete",
+        "database row mistaken for validation"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "The Open Reaction Database describes a schema and infrastructure for structuring and sharing organic reaction data.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34727496/"
+        },
+        {
+          "type": "documentation",
+          "citation": "The ORD schema documentation exposes structured reaction metadata fields including provenance and identifiers.",
+          "url": "https://docs.open-reaction-database.org/en/stable/schema.html"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "reaction_schema_provenance_prior",
+        "rerank_bonus": "moderate for explicit schema version, identifiers, source, license, curator, and missing-field status",
+        "compliance_gate": "reaction_data_license_and_provenance_review_required"
+      }
+    },
+    {
+      "id": "open_reaction_database_missing_metadata_policy",
+      "family_id": "structured_reaction_database_schema_provenance",
+      "name": "Structured reaction corpus to missing metadata, role ambiguity, and dataset-boundary policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "open reaction corpora",
+          "merged reaction datasets",
+          "machine-learning training rows"
+        ],
+        "target_features": [
+          "missing condition field",
+          "ambiguous role label",
+          "dataset merge boundary"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "merged dataset to row-level provenance boundary",
+          "schema completeness to route trust boundary"
+        ],
+        "forward_logic": [
+          "separate harmonized datasets from row-level evidence",
+          "track missing conditions, missing yields, duplicate rows, and source conflicts",
+          "avoid ranking a route highly because it appears in a corpus without completeness checks"
+        ],
+        "suggested_precursor_roles": [
+          "merged corpus",
+          "reaction row",
+          "missing metadata report",
+          "source conflict record"
+        ],
+        "planner_hint": "Use missing-metadata policy when a reaction exists in a corpus but lacks the fields needed for route trust."
+      },
+      "risks": [
+        "merged duplicate",
+        "role-label ambiguity",
+        "yield or endpoint absent",
+        "condition field insufficient"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "A call for public open reaction databases motivates structured reporting of chemical reactions.",
+          "url": "https://pubs.acs.org/doi/10.1021/acs.jcim.1c01140"
+        },
+        {
+          "type": "literature",
+          "citation": "ORDerly discusses datasets and benchmarks for chemical reaction data derived from structured sources.",
+          "url": "https://pubs.acs.org/doi/10.1021/acs.jcim.4c00292"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "reaction_metadata_completeness_prior",
+        "rerank_bonus": "moderate for explicit row completeness, duplicates, source conflicts, and provenance manifest",
+        "compliance_gate": "reaction_dataset_completeness_and_license_review_required"
+      }
+    },
+    {
+      "id": "patent_reaction_extraction_artifact_policy",
+      "family_id": "patent_literature_reaction_extraction_boundary",
+      "name": "Extracted patent reaction to source section, claim/example context, and artifact policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "patent-mined reactions",
+          "claim/example-derived routes",
+          "automatically extracted patent examples"
+        ],
+        "target_features": [
+          "patent example",
+          "claim scope",
+          "NER or event-extraction output"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "patent reaction to example/claim boundary",
+          "extracted event to source text boundary"
+        ],
+        "forward_logic": [
+          "separate patent disclosure from experimentally reliable precedent",
+          "track whether the reaction came from an example, claim, table, or automatically extracted text",
+          "flag patents where role labels, yields, analytical endpoints, or actual examples are unclear"
+        ],
+        "suggested_precursor_roles": [
+          "patent document",
+          "example or claim section",
+          "extracted reaction event",
+          "curation confidence metadata"
+        ],
+        "planner_hint": "Reward patent-derived sources only when example context and extraction confidence are explicit."
+      },
+      "risks": [
+        "claim mistaken for performed example",
+        "OCR or entity-linking artifact",
+        "patent legal scope confused with feasibility",
+        "yield or analytical endpoint missing"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Patent reaction event extraction work describes named-entity and event extraction for chemical reactions in patents.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8312343/"
+        },
+        {
+          "type": "literature",
+          "citation": "Patent chemical-recognition analysis discusses the difficulty of extracting chemical information from patents.",
+          "url": "https://jcheminf.biomedcentral.com/articles/10.1186/s13321-016-0172-0"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "patent_extraction_confidence_prior",
+        "rerank_bonus": "moderate for explicit patent section, example status, extraction confidence, yield, and analytical endpoint",
+        "compliance_gate": "patent_extraction_legal_and_source_context_review_required"
+      }
+    },
+    {
+      "id": "literature_scheme_text_extraction_boundary",
+      "family_id": "patent_literature_reaction_extraction_boundary",
+      "name": "Journal figure or text-mined reaction to OCR, diagram, condition, and role-linking policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "figure-extracted reactions",
+          "journal text-mined reactions",
+          "scheme-derived route cards"
+        ],
+        "target_features": [
+          "reaction scheme image",
+          "OCR label",
+          "diagram-to-condition link"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "reaction scheme to diagram-recognition boundary",
+          "condition text to structure-role boundary"
+        ],
+        "forward_logic": [
+          "separate visually extracted reaction arrows and labels from curated chemistry",
+          "track segmentation, OCR, structure recognition, arrow direction, and condition linking",
+          "require manual review when a route card comes from a scheme image"
+        ],
+        "suggested_precursor_roles": [
+          "journal scheme image",
+          "extracted structures",
+          "condition text",
+          "manual curation record"
+        ],
+        "planner_hint": "Use extraction-boundary records when the source came from a figure or mined text rather than a curated reaction table."
+      },
+      "risks": [
+        "arrow segmentation error",
+        "wrong structure recognition",
+        "condition-to-step mismatch",
+        "multistep scheme merged incorrectly"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "ReactionDataExtractor reports automated extraction of information from chemical reaction schemes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34525303/"
+        },
+        {
+          "type": "literature",
+          "citation": "Automated chemical reaction extraction from scientific literature frames extraction as product extraction plus role labeling.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34115937/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "literature_scheme_extraction_prior",
+        "rerank_bonus": "moderate for explicit extraction modality, OCR/OSR confidence, step segmentation, and curator review",
+        "compliance_gate": "literature_extraction_confidence_and_copyright_review_required"
+      }
+    },
+    {
+      "id": "failed_reaction_negative_boundary_policy",
+      "family_id": "negative_failed_reaction_data_policy",
+      "name": "Blocked disconnection to explicit failed or low-yield reaction evidence plus bias-context policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "low-yield disconnections",
+          "failed methodology scope cases",
+          "unproductive route branches"
+        ],
+        "target_features": [
+          "negative data",
+          "failed experiment",
+          "low yield",
+          "scope limitation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "literature absence to explicit negative-evidence boundary",
+          "failed condition to route-feasibility boundary"
+        ],
+        "forward_logic": [
+          "separate unreported reactions from traceable failed experiments",
+          "track substrate, condition class, endpoint, analytical method, and reason for failure if known",
+          "penalize route branches only when negative data maps to the same substrate or close analogues"
+        ],
+        "suggested_precursor_roles": [
+          "attempted substrate",
+          "failed or low-yield condition class",
+          "analytical endpoint",
+          "negative-data source"
+        ],
+        "planner_hint": "Use negative data to down-rank a disconnection only when attempted substrate and endpoint metadata are explicit."
+      },
+      "risks": [
+        "absence mistaken for failure",
+        "condition mismatch",
+        "negative data not comparable",
+        "publication bias overinterpreted"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Machine-learning reactivity study emphasizes the importance of failed experiments and negative examples.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35512117/"
+        },
+        {
+          "type": "literature",
+          "citation": "Negative-data perspective discusses negative data in datasets for machine-learning training.",
+          "url": "https://pubs.acs.org/doi/10.1021/acs.joc.3c00844"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "failed_reaction_negative_data_prior",
+        "rerank_bonus": "negative for close analogue failures with explicit endpoint, moderate positive for transparent scope-boundary evidence",
+        "compliance_gate": "negative_data_comparability_and_bias_review_required"
+      }
+    },
+    {
+      "id": "hte_outcome_space_route_boundary",
+      "family_id": "negative_failed_reaction_data_policy",
+      "name": "HTE outcome matrix to substrate, condition, success/failure, and robustness-boundary policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "HTE-derived reaction screens",
+          "reaction feasibility models",
+          "robustness prediction datasets"
+        ],
+        "target_features": [
+          "high-throughput experimentation",
+          "screening matrix",
+          "success/failure label",
+          "reaction robustness"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "screening matrix to route-feasibility boundary",
+          "single success to robustness boundary"
+        ],
+        "forward_logic": [
+          "separate an HTE hit from a robust route claim",
+          "track reaction matrix design, replicates, controls, success thresholds, and analytical readout",
+          "prefer routes whose HTE context includes both positives and negatives across related substrates"
+        ],
+        "suggested_precursor_roles": [
+          "HTE substrate set",
+          "condition matrix",
+          "success/failure labels",
+          "robustness or uncertainty metadata"
+        ],
+        "planner_hint": "Reward HTE evidence when outcome matrices expose both productive and unproductive regions."
+      },
+      "risks": [
+        "single-hit overpromotion",
+        "threshold mismatch",
+        "screening scale artifact",
+        "robustness unsupported"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "HTE plus Bayesian deep-learning study discusses feasibility and robustness prediction with high-throughput data.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12081921/"
+        },
+        {
+          "type": "literature",
+          "citation": "High-throughput synthesis study uses reaction attempts to predict reaction success and synthesizability.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37889964/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "hte_outcome_space_prior",
+        "rerank_bonus": "moderate for explicit matrix design, controls, negative labels, endpoint, and uncertainty or robustness estimates",
+        "compliance_gate": "hte_endpoint_and_scale_transfer_review_required"
+      }
+    },
+    {
+      "id": "procedure_action_sequence_metadata_boundary",
+      "family_id": "procedure_condition_metadata_completeness_policy",
+      "name": "Reaction equation to action sequence plus procedure metadata completeness policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "procedure-derived reactions",
+          "automation-ready route cards",
+          "condition-predicted reactions"
+        ],
+        "target_features": [
+          "synthesis actions",
+          "order of operations",
+          "procedure text",
+          "condition metadata"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "reaction SMILES to executable action boundary",
+          "reported equation to procedure completeness boundary"
+        ],
+        "forward_logic": [
+          "separate product/reactant equation from the experimental procedure needed to execute it",
+          "track action sequence, reagent roles, order, workup, isolation, and analytical endpoint",
+          "penalize routes whose reaction records cannot support condition or execution claims"
+        ],
+        "suggested_precursor_roles": [
+          "reaction equation",
+          "procedure text",
+          "action sequence",
+          "workup and endpoint metadata"
+        ],
+        "planner_hint": "Reward procedure-backed records when action sequence and role metadata are explicit and source-linked."
+      },
+      "risks": [
+        "reaction equation not executable",
+        "order-of-addition missing",
+        "implicit workup not represented",
+        "condition prediction treated as procedure"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Automated extraction of chemical synthesis actions converts procedure text into action sequences.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/32681088/"
+        },
+        {
+          "type": "literature",
+          "citation": "Procedure-inference study highlights patent procedure extraction and the impact of data-quality issues.",
+          "url": "https://www.nature.com/articles/s41467-021-22951-1"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "procedure_action_metadata_prior",
+        "rerank_bonus": "moderate for explicit action sequence, role labels, order, workup, endpoint, and source procedure",
+        "compliance_gate": "procedure_metadata_and_safety_review_required"
+      }
+    },
+    {
+      "id": "condition_role_scale_reproducibility_policy",
+      "family_id": "procedure_condition_metadata_completeness_policy",
+      "name": "Conditioned reaction to reagent-role, scale, atmosphere, workup, and reproducibility policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "condition-sensitive reactions",
+          "scale-sensitive procedures",
+          "route cards with incomplete metadata"
+        ],
+        "target_features": [
+          "reagent role ambiguity",
+          "scale transfer",
+          "atmosphere or water sensitivity",
+          "workup dependency"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "condition list to role-assignment boundary",
+          "bench procedure to reproducibility boundary"
+        ],
+        "forward_logic": [
+          "separate named conditions from their operational roles",
+          "track catalyst, base, solvent, atmosphere, concentration, scale, workup, and characterization status",
+          "flag route proposals where missing procedure metadata is likely to change feasibility"
+        ],
+        "suggested_precursor_roles": [
+          "condition-sensitive transformation",
+          "role-labeled reagents",
+          "scale and atmosphere metadata",
+          "reproducibility evidence"
+        ],
+        "planner_hint": "Use metadata completeness as a route-quality feature when feasibility depends on role, scale, or workup details."
+      },
+      "risks": [
+        "reactant/reagent confusion",
+        "scale transfer unsupported",
+        "sensitive condition omitted",
+        "workup controls product identity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Procedure-prediction study reports that quality issues in patent-extracted procedures limit model potential.",
+          "url": "https://www.nature.com/articles/s41467-021-22951-1"
+        },
+        {
+          "type": "literature",
+          "citation": "Organic synthesis automation review notes that synthesis is often incompletely documented.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/30498165/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "condition_role_reproducibility_prior",
+        "rerank_bonus": "moderate for role-labeled conditions, scale, atmosphere, workup, isolation, and characterization evidence",
+        "compliance_gate": "procedure_reproducibility_and_hazard_review_required"
+      }
+    },
+    {
+      "id": "atom_map_reaction_center_template_lineage",
+      "family_id": "atom_mapping_role_assignment_reaction_center_policy",
+      "name": "Mapped reaction to reaction-center template plus atom-map confidence and lineage policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "template-extracted retrosynthesis rules",
+          "mapped reaction datasets",
+          "reaction-center features"
+        ],
+        "target_features": [
+          "atom map",
+          "reaction center",
+          "template lineage",
+          "bond-change set"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "mapped reaction to reaction-center boundary",
+          "template rule to map-confidence boundary"
+        ],
+        "forward_logic": [
+          "separate atom-map output from chemically reviewed disconnection logic",
+          "track mapping confidence, changed atoms, balance, stereochemistry, and template extraction method",
+          "avoid template promotion when map errors or role ambiguity define the apparent bond change"
+        ],
+        "suggested_precursor_roles": [
+          "mapped reaction",
+          "reaction-center atoms",
+          "extracted template",
+          "map-confidence metadata"
+        ],
+        "planner_hint": "Reward atom-mapped templates only when reaction-center lineage and mapping confidence are explicit."
+      },
+      "risks": [
+        "incorrect atom map",
+        "unbalanced reaction",
+        "stereochemistry lost",
+        "template overgeneralized"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "RXNMapper work shows attention-guided atom mapping and reaction-grammar extraction from reaction data.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33827815/"
+        },
+        {
+          "type": "literature",
+          "citation": "Precise atom-to-atom mapping work frames AAM as important for understanding reaction mechanisms.",
+          "url": "https://www.nature.com/articles/s41467-024-46364-y"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "atom_map_template_lineage_prior",
+        "rerank_bonus": "moderate for explicit map confidence, reaction center, balance, stereochemistry, and template extractor version",
+        "compliance_gate": "atom_mapping_template_lineage_review_required"
+      }
+    },
+    {
+      "id": "reactant_reagent_role_assignment_boundary",
+      "family_id": "atom_mapping_role_assignment_reaction_center_policy",
+      "name": "Reaction record to reactant/reagent/product role assignment plus route-center policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "role-labeled reaction records",
+          "condition prediction inputs",
+          "retrosynthetic precursor sets"
+        ],
+        "target_features": [
+          "reactant role",
+          "reagent role",
+          "product role",
+          "role ambiguity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "left-of-arrow molecule list to role-assignment boundary",
+          "precursor set to bond-forming participant boundary"
+        ],
+        "forward_logic": [
+          "separate molecules that contribute atoms from reagents, catalysts, solvents, and bystanders",
+          "track role labeling source, atom contribution, and route-center participation",
+          "penalize disconnections derived from records where role labels or atom contribution are ambiguous"
+        ],
+        "suggested_precursor_roles": [
+          "atom-contributing reactant",
+          "reagent or catalyst",
+          "product",
+          "role-label evidence"
+        ],
+        "planner_hint": "Use role-assignment records to avoid treating reagents or catalysts as strategic precursors."
+      },
+      "risks": [
+        "reagent promoted as precursor",
+        "solvent or catalyst treated as stock branch",
+        "byproduct ignored",
+        "atom contribution not checked"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Automated reaction extraction from literature uses product extraction and reaction role labeling.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34115937/"
+        },
+        {
+          "type": "literature",
+          "citation": "ORD schema documentation includes reaction-input metadata useful for source and role provenance.",
+          "url": "https://docs.open-reaction-database.org/en/stable/schema.html"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "reactant_reagent_role_assignment_prior",
+        "rerank_bonus": "moderate for explicit atom contribution, role labels, catalyst/solvent separation, and product verification",
+        "compliance_gate": "role_assignment_and_precursor_promotion_review_required"
+      }
+    },
+    {
+      "id": "natural_product_structure_revision_route_boundary",
+      "family_id": "natural_product_structure_revision_stereochemical_evidence",
+      "name": "Natural-product target to revised structure plus stereochemical and spectral-comparison policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "complex natural products",
+          "structure-revised targets",
+          "stereochemically dense scaffolds"
+        ],
+        "target_features": [
+          "structure revision",
+          "stereochemical assignment",
+          "spectral mismatch",
+          "total synthesis validation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "target identity to structure-assignment boundary",
+          "proposed structure to spectral-comparison boundary"
+        ],
+        "forward_logic": [
+          "separate a named natural product from its proposed connectivity and stereochemistry",
+          "track revision history, NMR or MS comparison, total synthesis evidence, and biosynthetic plausibility",
+          "avoid optimizing routes to a misassigned or unverified target structure"
+        ],
+        "suggested_precursor_roles": [
+          "named natural product",
+          "proposed or revised structure",
+          "spectral evidence",
+          "stereochemical assignment source"
+        ],
+        "planner_hint": "Require structure-assignment evidence before treating a natural-product target as a fixed endpoint."
+      },
+      "risks": [
+        "misassigned stereochemistry",
+        "wrong connectivity",
+        "spectral data incomplete",
+        "route validates wrong diastereomer"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Marine natural-product structure-revision survey emphasizes synthesis and spectroscopy in correcting assignments.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3205310/"
+        },
+        {
+          "type": "literature",
+          "citation": "Synthetic studies review highlights structural revisions of marine natural products.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2763102/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "natural_product_structure_revision_prior",
+        "rerank_bonus": "moderate for explicit revision history, spectral match, total synthesis, stereochemical source, and biosynthetic rationale",
+        "compliance_gate": "natural_product_structure_identity_review_required"
+      }
+    },
+    {
+      "id": "stereochemical_assignment_target_identity_policy",
+      "family_id": "natural_product_structure_revision_stereochemical_evidence",
+      "name": "Stereochemically ambiguous target to diastereomer set plus assignment-evidence policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "stereochemical assignment targets",
+          "diastereomeric natural products",
+          "macrocycles or peptide natural products"
+        ],
+        "target_features": [
+          "absolute configuration unknown",
+          "diastereomer comparison",
+          "synthetic stereochemical assignment"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "single target to stereoisomer-set boundary",
+          "assignment claim to comparison-evidence boundary"
+        ],
+        "forward_logic": [
+          "represent unresolved stereochemistry as a target set until evidence fixes the endpoint",
+          "track synthesized diastereomers, analytical comparison, and assignment logic",
+          "penalize routes that optimize an arbitrary stereoisomer without assignment support"
+        ],
+        "suggested_precursor_roles": [
+          "stereoisomer candidate set",
+          "synthetic comparator",
+          "natural sample data",
+          "assignment evidence"
+        ],
+        "planner_hint": "Use stereochemical-assignment records when target identity depends on comparing candidate stereoisomers."
+      },
+      "risks": [
+        "wrong enantiomer target",
+        "diastereomer set incomplete",
+        "absolute configuration unsupported",
+        "spectral comparison ambiguous"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Streptide synthesis paper reports stereochemical reassignment by preparing and comparing diastereomers.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31577142/"
+        },
+        {
+          "type": "literature",
+          "citation": "Ushikulide A synthesis paper reports full stereostructure determination by total synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/19775093/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "stereochemical_assignment_prior",
+        "rerank_bonus": "moderate for explicit stereoisomer set, comparator synthesis, analytical match, and assignment provenance",
+        "compliance_gate": "stereochemical_assignment_and_bioactive_target_review_required"
+      }
+    },
+    {
+      "id": "starting_material_justification_nonstock_boundary",
+      "family_id": "process_starting_material_impurity_control_boundary",
+      "name": "Advanced precursor to process starting-material justification plus non-stock boundary policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "API route starting materials",
+          "advanced convergent precursors",
+          "process-route anchors"
+        ],
+        "target_features": [
+          "starting material justification",
+          "advanced intermediate",
+          "GMP boundary",
+          "supplier or stock claim"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "retrosynthetic precursor to process-starting-material boundary",
+          "stock availability to impurity-control boundary"
+        ],
+        "forward_logic": [
+          "separate planner convenience from process-acceptable starting material status",
+          "track supplier/source, synthetic accessibility, impurity fate, purge, and regulatory rationale",
+          "avoid route closure on advanced intermediates without explicit process anchor evidence"
+        ],
+        "suggested_precursor_roles": [
+          "advanced precursor",
+          "candidate starting material",
+          "impurity profile",
+          "control-strategy rationale"
+        ],
+        "planner_hint": "Do not treat an advanced precursor as stock unless starting-material justification and impurity-control evidence are explicit."
+      },
+      "risks": [
+        "advanced intermediate auto-closed as stock",
+        "impurity fate untracked",
+        "supplier status assumed",
+        "regulatory boundary omitted"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "ICH Q11 provides guidance on development and manufacture of drug substances and process control concepts.",
+          "url": "https://database.ich.org/sites/default/files/Q11_Guideline.pdf"
+        },
+        {
+          "type": "regulatory",
+          "citation": "EMA Q11 page describes the guideline for development and manufacture of drug substances.",
+          "url": "https://www.ema.europa.eu/en/ich-q11-development-manufacture-drug-substances-chemical-entities-biotechnological-biological-entities-scientific-guideline"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "starting_material_nonstock_boundary_prior",
+        "rerank_bonus": "moderate for explicit starting-material justification, supplier evidence, impurity profile, purge, and control strategy",
+        "compliance_gate": "regulatory_starting_material_and_impurity_control_review_required"
+      }
+    },
+    {
+      "id": "impurity_purge_route_control_strategy_policy",
+      "family_id": "process_starting_material_impurity_control_boundary",
+      "name": "Process route to impurity formation, purge, material attributes, and control-strategy policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "process routes",
+          "API impurity-control routes",
+          "scale-up route comparisons"
+        ],
+        "target_features": [
+          "impurity purge",
+          "critical material attribute",
+          "control strategy",
+          "process parameter"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "chemical route to impurity-fate boundary",
+          "route score to control-strategy boundary"
+        ],
+        "forward_logic": [
+          "separate chemical feasibility from impurity formation and purge evidence",
+          "track genotoxic or carryover impurity risk, purge points, analytical controls, and process parameters",
+          "down-rank routes whose strategic precursor creates uncontrolled impurity liabilities"
+        ],
+        "suggested_precursor_roles": [
+          "process intermediate",
+          "potential impurity",
+          "purge step",
+          "control strategy"
+        ],
+        "planner_hint": "Use impurity-control records when starting material or route choice changes impurity fate."
+      },
+      "risks": [
+        "genotoxic impurity liability",
+        "purge unsupported",
+        "critical material attribute missing",
+        "process parameter not controlled"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "ICH Q11 includes examples and concepts for control strategies and impurity control in drug substance manufacture.",
+          "url": "https://database.ich.org/sites/default/files/Q11%20Guideline.pdf"
+        },
+        {
+          "type": "regulatory",
+          "citation": "EMA Q11 page describes the guideline for development and manufacture of drug substances.",
+          "url": "https://www.ema.europa.eu/en/ich-q11-development-manufacture-drug-substances-chemical-entities-biotechnological-biological-entities-scientific-guideline"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "impurity_purge_control_strategy_prior",
+        "rerank_bonus": "moderate for explicit impurity formation, purge evidence, analytical controls, material attributes, and process parameters",
+        "compliance_gate": "impurity_purge_genotoxicity_and_process_control_review_required"
+      }
+    },
+    {
+      "id": "casp_benchmark_route_lineage_policy",
+      "family_id": "route_benchmark_gold_trace_lineage_policy",
+      "name": "Benchmark route to gold trace, route source, stock set, split, and leakage-audit policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "retrosynthesis benchmark routes",
+          "route-planning evaluation traces",
+          "training/evaluation gold routes"
+        ],
+        "target_features": [
+          "gold route",
+          "benchmark split",
+          "stock set",
+          "source route lineage"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "benchmark success to route-source boundary",
+          "planner trace to split/leakage boundary"
+        ],
+        "forward_logic": [
+          "separate solved benchmark traces from evidence of practical route quality",
+          "track source route, stock set, train/test split, model version, search budget, and leakage audit",
+          "avoid using benchmark closure as strategic proof when stock or split artifacts explain success"
+        ],
+        "suggested_precursor_roles": [
+          "gold route",
+          "stock set",
+          "benchmark split",
+          "planner trace metadata"
+        ],
+        "planner_hint": "Reward benchmark-derived sources only when route lineage, stock set, split, and leakage status are explicit."
+      },
+      "risks": [
+        "train/test leakage",
+        "unrealistic stock set",
+        "benchmark target too narrow",
+        "route feasibility unreviewed"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Computer-assisted synthetic planning review describes CASP foundations and route-planning challenges.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/27062365/"
+        },
+        {
+          "type": "literature",
+          "citation": "AiZynthFinder paper describes open-source retrosynthesis planning software using MCTS and neural networks.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33292482/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "casp_benchmark_lineage_prior",
+        "rerank_bonus": "moderate for explicit source route, stock set, split, search budget, model version, and leakage audit",
+        "compliance_gate": "benchmark_lineage_leakage_and_feasibility_review_required"
+      }
+    },
+    {
+      "id": "planner_trace_route_quality_boundary",
+      "family_id": "route_benchmark_gold_trace_lineage_policy",
+      "name": "Planner-generated trace to feasibility review, scorer, route diversity, and human-evidence policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "planner-generated routes",
+          "model-reranked traces",
+          "synthetic-planning case studies"
+        ],
+        "target_features": [
+          "model score",
+          "route trace",
+          "human feasibility review",
+          "route diversity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "planner score to evidence-review boundary",
+          "single trace to route-diversity boundary"
+        ],
+        "forward_logic": [
+          "separate model score from chemist-reviewed feasibility",
+          "track scorer version, route diversity, source support, stock policy, and human review labels",
+          "avoid reinforcing planner artifacts as strategic source records without independent evidence"
+        ],
+        "suggested_precursor_roles": [
+          "planner route trace",
+          "model score",
+          "source support",
+          "human review label"
+        ],
+        "planner_hint": "Use planner traces as weak evidence unless scorer lineage and human feasibility review are present."
+      },
+      "risks": [
+        "model score overtrusted",
+        "route diversity collapse",
+        "source support missing",
+        "planner artifact reinforced"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Retrosynthetic crosstalk study evaluates combinations of planning algorithms and single-step models across practical metrics.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40877954/"
+        },
+        {
+          "type": "literature",
+          "citation": "ASKCOS conspectus summarizes open-source data-driven synthesis planning and associated model infrastructure.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40397546/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "planner_trace_route_quality_prior",
+        "rerank_bonus": "moderate for explicit scorer version, source support, route diversity, stock policy, and human review",
+        "compliance_gate": "planner_trace_human_review_and_source_support_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v17 expansion promotes source-provenance and evidence-quality families covering database schema, extraction confidence, negative data, procedure metadata, atom mapping, structure revision, process control, and benchmark lineage."
+    },
+    {
+      "type": "safety_note",
+      "summary": "V17 records are advisory. Promotion requires provenance, curation, source/license, procedure, mapping, structure-assignment, process-control, or benchmark-lineage evidence; extracted records, patents, planner traces, and database hits must not be treated as validated routes by default."
+    }
+  ]
+}

@@ -395,4 +395,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("sample_route_pool_evidence_review_batch")
     main()

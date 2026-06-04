@@ -1,0 +1,1211 @@
+{
+  "schema_version": "strategic_disconnections.v8_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Seventh expanded public source layer focused on organosilicon/boron/phosphorus medicinal motifs, fluorinated lipophiles and macrocycle-relevant fluoro motifs, halogenated marine terpenoids, sugar-nucleotide and glycoconjugate vaccine boundaries, cofactor-mimic redox-active scaffolds, non-ADC covalent bioconjugation, biomimetic natural-product dimerization, and process impurity/metabolite route critique.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template or proposal promotion",
+      "separate element-specific, isotope/electronic, halogenation, glycan, redox, bioconjugation, dimerization, impurity, or metabolite policy",
+      "route-specific stability, stereochemistry, label or heteroatom placement, conjugation site, oxidation state, oligomer topology, and impurity-control review",
+      "metalloid toxicity, fluorinated-lipophile exposure, marine bioactive halometabolite, vaccine/glycan manufacturing, redox-cycling, bioconjugation, genotoxic-impurity, nitrosamine, or process-control review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, and synthesis conditions",
+      "impurity, redox-active, halogenated marine, bioconjugate, vaccine, and metalloid entries are high-level route priors only"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "organosilicon_germanium_boron_phosphorus_medicinal",
+      "name": "Organosilicon, boron, phosphorus, and metalloid medicinal motifs",
+      "pattern_keywords": [
+        "silicon switch",
+        "organosilicon",
+        "organogermanium",
+        "boronic acid",
+        "boronate",
+        "phosphonate",
+        "phosphate prodrug",
+        "metalloid bioisostere"
+      ],
+      "strategic_principle": "Separate carbon-to-silicon or metalloid isostere decisions, boron/phosphorus binding modes, and element-specific stability or toxicity from ordinary carbon scaffold synthesis."
+    },
+    {
+      "family_id": "fluorinated_macrocycle_and_trifluoromethyl_lipophile",
+      "name": "Fluorinated macrocycle-relevant motifs and trifluoromethyl lipophiles",
+      "pattern_keywords": [
+        "trifluoromethyl",
+        "difluoroalkyl",
+        "fluoroalkene",
+        "fluorinated lipophile",
+        "C-F conformational effect",
+        "late-stage fluorination",
+        "perfluoroalkyl",
+        "fluorinated macrocycle"
+      ],
+      "strategic_principle": "Treat fluorine placement as route-defining when it controls conformation, metabolism, pKa, polarity, or lipophilicity. Late-stage fluorination and fluoroalkyl fragment choice are separate strategic boundaries."
+    },
+    {
+      "family_id": "natural_product_halogenated_marine_terpenoid",
+      "name": "Halogenated marine terpenoids and halometabolite natural products",
+      "pattern_keywords": [
+        "halogenated marine natural product",
+        "brominated terpene",
+        "chlorinated terpene",
+        "halometabolite",
+        "halogenase",
+        "marine diterpene",
+        "bromoether",
+        "marine bioactive scaffold"
+      ],
+      "strategic_principle": "Separate terpene or polyketide skeleton assembly from halogen placement, biosynthetic halogenase logic, and marine bioactivity/toxicity context. Halogenated marine motifs are not generic aryl/alkyl halide decorations."
+    },
+    {
+      "family_id": "sugar_nucleotide_glycoconjugate_vaccine",
+      "name": "Sugar-nucleotide donors, bacterial glycans, and glycoconjugate vaccine linkers",
+      "pattern_keywords": [
+        "glycoconjugate vaccine",
+        "capsular polysaccharide",
+        "oligosaccharide antigen",
+        "sugar nucleotide",
+        "dTDP-rhamnose",
+        "carrier protein",
+        "SPAAC conjugation",
+        "bacterial glycan"
+      ],
+      "strategic_principle": "Separate antigenic glycan assembly, sugar-nucleotide donor or chemoenzymatic module, linker/handle installation, and carrier conjugation. Immunogenic epitope identity is strategic metadata."
+    },
+    {
+      "family_id": "cofactor_mimic_redox_active_scaffold",
+      "name": "Cofactor mimics and redox-active medicinal scaffolds",
+      "pattern_keywords": [
+        "flavin mimic",
+        "nicotinamide mimic",
+        "cofactor mimic",
+        "quinone",
+        "anthraquinone",
+        "phenazine",
+        "redox cycling",
+        "electron acceptor"
+      ],
+      "strategic_principle": "Separate scaffold synthesis from redox state, electron-transfer function, nuisance/reactivity liability, and biological target context. Oxidation-state cycling is route-defining metadata."
+    },
+    {
+      "family_id": "covalent_bioconjugation_payload_nonadc",
+      "name": "Non-ADC covalent bioconjugation and payload attachment motifs",
+      "pattern_keywords": [
+        "bioconjugation",
+        "maleimide thiol",
+        "NHS ester lysine",
+        "tetrazine TCO",
+        "native chemical ligation",
+        "protein conjugate",
+        "peptide conjugate",
+        "antibody oligonucleotide conjugate"
+      ],
+      "strategic_principle": "Separate payload synthesis, biomolecule conjugation site, linker chemistry, and bioorthogonal handle compatibility. Conjugation chemistry is strategic only with site, stoichiometry, stability, and biological function metadata."
+    },
+    {
+      "family_id": "natural_product_dimer_oligomer_biomimetic_coupling",
+      "name": "Natural-product dimers, oligomers, and biomimetic oxidative coupling",
+      "pattern_keywords": [
+        "natural product dimer",
+        "biomimetic oxidative coupling",
+        "C-C coupling",
+        "C-O coupling",
+        "alkaloid dimer",
+        "phenolic dimer",
+        "oligomeric natural product",
+        "DDQ oxidative coupling"
+      ],
+      "strategic_principle": "Expose monomer units, coupling topology, oxidation state, regioselectivity, and atropisomer/stereochemical outcome. Dimerization is a route-defining step, not an ordinary late substituent merge."
+    },
+    {
+      "family_id": "process_impurity_metabolite_route_critique",
+      "name": "Process impurities, degradants, metabolites, and route-control critique",
+      "pattern_keywords": [
+        "genotoxic impurity",
+        "nitrosamine",
+        "degradation product",
+        "process-related impurity",
+        "metabolite standard",
+        "forced degradation",
+        "related substances",
+        "ICH M7"
+      ],
+      "strategic_principle": "Separate target route synthesis from impurity formation, degradation pathways, metabolite/reference-standard synthesis, and control strategy. Impurity records are route-critique and risk-control sources, not target stock shortcuts."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "metalloid_medicinal_isostere_anchor",
+      "family_id": "organosilicon_germanium_boron_phosphorus_medicinal",
+      "name": "Element-specific medicinal isostere or binding motif",
+      "role": "metalloid_medicinal_anchor",
+      "aliases": [
+        "silicon switch",
+        "sila-substitution",
+        "boronic acid warhead",
+        "boronate ester",
+        "phosphonate prodrug"
+      ],
+      "acceptance_policy": "requires_element_specific_stability_binding_mode_and_toxicology_review"
+    },
+    {
+      "anchor_id": "fluorinated_lipophile_conformation_anchor",
+      "family_id": "fluorinated_macrocycle_and_trifluoromethyl_lipophile",
+      "name": "Fluorinated motif with conformation, pKa, metabolism, or lipophilicity role",
+      "role": "fluorinated_lipophile_anchor",
+      "aliases": [
+        "trifluoromethyl group",
+        "difluoromethyl group",
+        "fluoroalkene",
+        "C-F conformational lock",
+        "late-stage fluorinated analogue"
+      ],
+      "acceptance_policy": "requires_fluorine_position_metabolic_or_conformational_role_and_exposure_review"
+    },
+    {
+      "anchor_id": "halogenated_marine_terpenoid_anchor",
+      "family_id": "natural_product_halogenated_marine_terpenoid",
+      "name": "Marine terpene or halometabolite skeleton with reviewed halogenation policy",
+      "role": "halogenated_marine_natural_product_anchor",
+      "aliases": [
+        "brominated marine terpene",
+        "chlorinated diterpene",
+        "marine halometabolite",
+        "halogenase-derived motif",
+        "bromoether natural product"
+      ],
+      "acceptance_policy": "requires_halogen_position_biosynthetic_or_late_stage_policy_and_marine_bioactivity_review"
+    },
+    {
+      "anchor_id": "glycoconjugate_vaccine_glycan_linker_anchor",
+      "family_id": "sugar_nucleotide_glycoconjugate_vaccine",
+      "name": "Antigenic glycan, linker handle, sugar donor module, and carrier conjugation boundary",
+      "role": "glycoconjugate_vaccine_anchor",
+      "aliases": [
+        "capsular polysaccharide fragment",
+        "bacterial oligosaccharide antigen",
+        "sugar-nucleotide donor",
+        "carrier protein",
+        "click-linked glycoconjugate"
+      ],
+      "acceptance_policy": "requires_epitope_identity_linker_carrier_and_immunogenicity_review"
+    },
+    {
+      "anchor_id": "cofactor_redox_active_scaffold_anchor",
+      "family_id": "cofactor_mimic_redox_active_scaffold",
+      "name": "Cofactor-like or redox-active scaffold with oxidation-state and electron-transfer metadata",
+      "role": "redox_active_scaffold_anchor",
+      "aliases": [
+        "flavin mimic",
+        "nicotinamide mimic",
+        "quinone/anthraquinone",
+        "phenazine pigment",
+        "artificial electron acceptor"
+      ],
+      "acceptance_policy": "requires_redox_state_target_context_and_reactivity_liability_review"
+    },
+    {
+      "anchor_id": "nonadc_bioconjugation_linker_anchor",
+      "family_id": "covalent_bioconjugation_payload_nonadc",
+      "name": "Payload, biomolecule site, bioorthogonal handle, and linker chemistry",
+      "role": "nonadc_bioconjugation_anchor",
+      "aliases": [
+        "maleimide-thiol conjugate",
+        "NHS-lysine conjugate",
+        "tetrazine/TCO conjugate",
+        "native chemical ligation product",
+        "antibody-oligonucleotide conjugate"
+      ],
+      "acceptance_policy": "requires_conjugation_site_stoichiometry_linker_stability_and_biological_mode_review"
+    },
+    {
+      "anchor_id": "biomimetic_dimer_oligomer_coupling_anchor",
+      "family_id": "natural_product_dimer_oligomer_biomimetic_coupling",
+      "name": "Monomeric natural-product units and biomimetic coupling topology",
+      "role": "natural_product_dimer_coupling_anchor",
+      "aliases": [
+        "alkaloid dimer",
+        "phenolic oxidative dimer",
+        "biaryl natural product",
+        "oligomeric polyketide",
+        "DDQ-mediated coupling"
+      ],
+      "acceptance_policy": "requires_monomer_identity_coupling_topology_regioselectivity_and_stereochemical_review"
+    },
+    {
+      "anchor_id": "process_impurity_metabolite_control_anchor",
+      "family_id": "process_impurity_metabolite_route_critique",
+      "name": "Impurity, degradant, or metabolite formation and control boundary",
+      "role": "process_impurity_metabolite_anchor",
+      "aliases": [
+        "genotoxic impurity",
+        "nitrosamine drug-substance-related impurity",
+        "forced degradation product",
+        "metabolite reference standard",
+        "related substance"
+      ],
+      "acceptance_policy": "requires_impurity_origin_control_strategy_toxicology_and_analytical_traceability_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "silicon_switch_carbon_scaffold_isostere_policy",
+      "family_id": "organosilicon_germanium_boron_phosphorus_medicinal",
+      "name": "Silicon-switch analogue to parent carbon scaffold plus sila-substitution policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "organosilicon medicinal analogues",
+          "silicon-switch drug candidates",
+          "metalloid bioisostere analogues"
+        ],
+        "target_features": [
+          "C/Si replacement",
+          "trimethylsilyl or silacycle motif",
+          "altered lipophilicity, geometry, or metabolic stability"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-Si bond or silacycle boundary traced to parent carbon scaffold and silicon building block"
+        ],
+        "forward_logic": [
+          "identify the parent carbon scaffold and the intended silicon-switch position",
+          "track geometry, lipophilicity, metabolic stability, and silicon-specific liability",
+          "separate silicon motif installation from ordinary alkyl/aryl substitution"
+        ],
+        "suggested_precursor_roles": [
+          "parent carbon scaffold",
+          "organosilicon building block",
+          "silicon-switched analogue",
+          "element-specific property metadata"
+        ],
+        "planner_hint": "Reward routes that explain why silicon replacement is strategic and preserve parent-scaffold mapping."
+      },
+      "risks": [
+        "element-specific metabolism",
+        "lipophilicity shifts",
+        "silicon center stability",
+        "toxicity and off-target profile may differ from carbon analogue"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Organosilicon medicinal chemistry review discusses silicon in drug discovery and silicon-switch concepts.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11484438/"
+        },
+        {
+          "type": "literature",
+          "citation": "Metalloid antimicrobial review discusses medicinal potential and toxicity considerations for metalloids.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13091928/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "silicon_switch_isostere_prior",
+        "rerank_bonus": "moderate for explicit parent-scaffold mapping and silicon-specific property rationale",
+        "compliance_gate": "metalloid_toxicology_review_required"
+      }
+    },
+    {
+      "id": "boron_phosphonate_binding_prodrug_disconnection",
+      "family_id": "organosilicon_germanium_boron_phosphorus_medicinal",
+      "name": "Boron/phosphorus medicinal motif to binding/prodrug handle plus parent scaffold",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "boronic acid drugs",
+          "boronate inhibitors",
+          "phosphonate therapeutics",
+          "phosphate/phosphoramidate prodrugs"
+        ],
+        "target_features": [
+          "boronic acid or boronate ester",
+          "phosphonate or phosphoramidate",
+          "enzyme-binding or prodrug activation role"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-B or C-P medicinal motif boundary",
+          "phosphate/phosphonate prodrug masking boundary"
+        ],
+        "forward_logic": [
+          "separate parent binding scaffold from boron/phosphorus functional motif",
+          "track covalent/reversible binding, pKa, hydrolysis, prodrug activation, and toxicity",
+          "avoid treating boronate/phosphonate as a generic acid bioisostere without mechanism metadata"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "boronic acid/boronate handle",
+          "phosphonate or phosphate prodrug handle",
+          "activation or binding-mode metadata"
+        ],
+        "planner_hint": "Use boron/phosphorus entries only when binding mode or prodrug role is explicit."
+      },
+      "risks": [
+        "hydrolytic stability",
+        "off-target covalent binding",
+        "prodrug activation uncertainty",
+        "element-specific safety review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Boron in medicine review summarizes delivery, detection, and medicinal boron context.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12844735/"
+        },
+        {
+          "type": "literature",
+          "citation": "Phosphonate therapeutics review covers natural and synthetic phosphonate drugs.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12288639/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "boron_phosphonate_medicinal_prior",
+        "rerank_bonus": "moderate for explicit binding/prodrug mechanism and stability metadata",
+        "compliance_gate": "element_specific_safety_and_prodrug_review_required"
+      }
+    },
+    {
+      "id": "trifluoromethyl_difluoroalkyl_late_stage_policy",
+      "family_id": "fluorinated_macrocycle_and_trifluoromethyl_lipophile",
+      "name": "Fluorinated lipophile to parent scaffold plus CF3/difluoroalkyl late-stage policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "fluorinated medicinal lipophiles",
+          "trifluoromethyl drug analogues",
+          "difluoroalkyl substituted scaffolds"
+        ],
+        "target_features": [
+          "CF3, CHF2, fluoroalkyl, or perfluoroalkyl group",
+          "metabolic blocking or lipophilicity tuning",
+          "late-stage fluorination or fluoroalkyl fragment installation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aryl/alkyl-CF3 or difluoroalkyl attachment bond",
+          "late-stage fluorination handle boundary"
+        ],
+        "forward_logic": [
+          "define whether the fluorinated motif is installed early as a building block or late onto the parent scaffold",
+          "track pKa, lipophilicity, metabolism, and exposure changes",
+          "separate fluorine source policy from ordinary alkyl substituent logic"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "fluoroalkyl building block",
+          "late-stage fluorination precursor",
+          "fluorinated analogue"
+        ],
+        "planner_hint": "Reward explicit fluorine-placement rationale and late-stage versus fragment-based policy."
+      },
+      "risks": [
+        "lipophilicity and persistence",
+        "metabolite profile changes",
+        "late-stage selectivity",
+        "fluorinated-reagent hazard review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Review of fluorine-containing approved drugs summarizes significance and synthetic insights for fluorinated medicines.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12983373/"
+        },
+        {
+          "type": "literature",
+          "citation": "Fluorinated terpenoid review illustrates fluorinated derivative design in lipophilic natural-product-like scaffolds.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12869857/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "fluoroalkyl_lipophile_prior",
+        "rerank_bonus": "moderate for explicit fluorination timing and metabolic/lipophilic role",
+        "compliance_gate": "fluorinated_lipophile_exposure_review_required"
+      }
+    },
+    {
+      "id": "c_f_conformational_lock_fluoroalkene_macrocycle_policy",
+      "family_id": "fluorinated_macrocycle_and_trifluoromethyl_lipophile",
+      "name": "C-F conformational lock or fluoroalkene motif to parent geometry policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "fluorinated conformationally biased molecules",
+          "fluoroalkene peptide or macrocycle analogues",
+          "fluorinated heterocycle or macrocycle motifs"
+        ],
+        "target_features": [
+          "strategic C-F bond controlling conformation",
+          "fluoroalkene as amide/alkene mimic",
+          "fluorinated motif in constrained scaffold"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-F-bearing conformational motif boundary",
+          "fluoroalkene fragment union boundary"
+        ],
+        "forward_logic": [
+          "map the parent conformation or bioisostere being mimicked",
+          "separate fluorinated building-block preparation from macrocycle or constrained scaffold closure",
+          "track stereoelectronic and conformational evidence before route scoring"
+        ],
+        "suggested_precursor_roles": [
+          "parent constrained scaffold",
+          "fluorinated conformational motif",
+          "fluoroalkene fragment",
+          "conformational metadata"
+        ],
+        "planner_hint": "Do not score C-F motifs as decoration when conformation or bioisosterism is the strategic reason."
+      },
+      "risks": [
+        "conformational assignment mismatch",
+        "fluoroalkene stereochemistry",
+        "bioavailability shifts",
+        "fluorinated building-block availability"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "C-F conformational tool review discusses exploiting fluorine as a small-molecule folding element.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11973591/"
+        },
+        {
+          "type": "literature",
+          "citation": "Fluorinated heterocycle review summarizes therapeutic uses of fluorinated motifs in medicinal scaffolds.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11503193/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cf_conformational_lock_prior",
+        "rerank_bonus": "moderate only with conformational or bioisostere metadata"
+      }
+    },
+    {
+      "id": "halogenated_marine_terpenoid_halogenase_or_late_halogenation_policy",
+      "family_id": "natural_product_halogenated_marine_terpenoid",
+      "name": "Halogenated marine terpenoid to terpene core plus halogenation policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "brominated marine terpenoids",
+          "chlorinated marine diterpenes",
+          "halogenated algal or sponge metabolites"
+        ],
+        "target_features": [
+          "terpene or meroterpene skeleton",
+          "strategic bromine/chlorine placement",
+          "marine-source bioactive scaffold"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-Br or C-Cl bond traced to halogenation stage",
+          "terpene core/halogenated side-chain boundary"
+        ],
+        "forward_logic": [
+          "separate terpene skeleton assembly from halogenation timing and site policy",
+          "track whether halogen placement is biosynthetic, biomimetic, or late-stage chemical",
+          "keep marine bioactive or toxin-like targets advisory until reviewed"
+        ],
+        "suggested_precursor_roles": [
+          "terpene core",
+          "halogenated terpene intermediate",
+          "halogenase-like site metadata",
+          "marine natural-product analogue"
+        ],
+        "planner_hint": "Reward routes that expose halogen-placement policy rather than treating bromine/chlorine as generic leaving groups."
+      },
+      "risks": [
+        "marine bioactivity/toxicity",
+        "halogenation site selectivity",
+        "labile allylic or polyene halides",
+        "environmental and safety review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Marine-derived diterpene review covers structures, biological activities, synthesis, and applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11857513/"
+        },
+        {
+          "type": "literature",
+          "citation": "Halogenase review describes opportunities for synthetic biology and C-H functionalization.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8407142/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "halogenated_marine_terpenoid_prior",
+        "rerank_bonus": "moderate for explicit terpene core and halogen-placement metadata",
+        "compliance_gate": "marine_bioactive_halometabolite_review_required"
+      }
+    },
+    {
+      "id": "marine_halometabolite_bioactive_scaffold_critique",
+      "family_id": "natural_product_halogenated_marine_terpenoid",
+      "name": "Marine halometabolite to core scaffold plus halogenated bioactivity/toxicity critique",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "marine halometabolites",
+          "halogenated marine fungal metabolites",
+          "halogenated marine actinobacterial metabolites"
+        ],
+        "target_features": [
+          "one or more bromine/chlorine atoms",
+          "marine-source bioactive natural-product scaffold",
+          "halogen-dependent pharmacology or reactivity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "halogenated fragment/scaffold boundary",
+          "late halogenation or dehalogenated precursor boundary"
+        ],
+        "forward_logic": [
+          "separate dehalogenated core route from halogenated analogue policy",
+          "track whether halogen substitution controls activity, toxicity, or recognition",
+          "avoid unreviewed promotion for potent marine bioactive halometabolites"
+        ],
+        "suggested_precursor_roles": [
+          "dehalogenated core",
+          "halogenated fragment",
+          "marine halometabolite",
+          "bioactivity/toxicity metadata"
+        ],
+        "planner_hint": "Use as critique source for halogen-dependent marine bioactivity, not as automatic stock/proposal closure."
+      },
+      "risks": [
+        "potent antimicrobial/cytotoxic activity",
+        "halogenated metabolite environmental profile",
+        "site-selective halogenation",
+        "bioactivity-driven dual-use context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Marine-derived fungal halometabolite review summarizes pharmacological activity of halogenated metabolites.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9576957/"
+        },
+        {
+          "type": "literature",
+          "citation": "Marine actinobacterial halometabolite review covers bioactivities and source context.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6627970/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "marine_halometabolite_critique_prior",
+        "rerank_bonus": "low unless bioactivity/toxicity and halogen role are explicit",
+        "compliance_gate": "marine_halometabolite_toxicology_review_required"
+      }
+    },
+    {
+      "id": "glycoconjugate_vaccine_glycan_linker_carrier_disconnection",
+      "family_id": "sugar_nucleotide_glycoconjugate_vaccine",
+      "name": "Glycoconjugate vaccine to antigenic glycan, linker handle, and carrier boundary",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "bacterial glycoconjugate vaccines",
+          "semisynthetic carbohydrate vaccines",
+          "tumor-associated carbohydrate antigen conjugates"
+        ],
+        "target_features": [
+          "defined glycan epitope",
+          "linker or click handle",
+          "carrier protein or peptide conjugate",
+          "immunogenicity context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "glycan-linker bond",
+          "linker-carrier conjugation boundary"
+        ],
+        "forward_logic": [
+          "define antigenic glycan epitope and reducing-end or handle placement",
+          "separate glycan synthesis from linker installation and carrier conjugation",
+          "track immunogenicity, loading, epitope preservation, and analytical characterization"
+        ],
+        "suggested_precursor_roles": [
+          "defined oligosaccharide antigen",
+          "activated linker handle",
+          "carrier protein or peptide",
+          "glycoconjugate vaccine"
+        ],
+        "planner_hint": "Reward explicit glycan/linker/carrier separation and epitope-preservation metadata."
+      },
+      "risks": [
+        "epitope misassignment",
+        "heterogeneous conjugation",
+        "carrier-dependent immunogenicity",
+        "vaccine manufacturing and regulatory context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Chemoenzymatic glycan synthesis review discusses homogeneous glycans for bacterial glycoconjugate vaccine development.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8473158/"
+        },
+        {
+          "type": "literature",
+          "citation": "Semisynthetic Hib glycoconjugate vaccine study illustrates defined glycan and carrier-conjugation development.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12935054/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "glycoconjugate_vaccine_linker_prior",
+        "rerank_bonus": "moderate for glycan epitope, linker, and carrier metadata",
+        "compliance_gate": "vaccine_glycoconjugate_manufacturing_review_required"
+      }
+    },
+    {
+      "id": "sugar_nucleotide_donor_bacterial_glycan_policy",
+      "family_id": "sugar_nucleotide_glycoconjugate_vaccine",
+      "name": "Bacterial glycan to sugar-nucleotide donor and glycosyltransferase module policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "bacterial oligosaccharide antigens",
+          "capsular polysaccharide fragments",
+          "chemoenzymatic glycans"
+        ],
+        "target_features": [
+          "deoxy sugar or rhamnose-containing motif",
+          "sugar-nucleotide donor boundary",
+          "glycosyltransferase or glycan assembly module"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "glycosidic linkage traced to sugar-nucleotide donor/acceptor pair",
+          "chemoenzymatic module boundary"
+        ],
+        "forward_logic": [
+          "separate monosaccharide donor synthesis or enzymatic generation from glycan assembly",
+          "track donor identity, linkage stereochemistry, and enzyme scope",
+          "connect donor policy to vaccine epitope identity only after review"
+        ],
+        "suggested_precursor_roles": [
+          "sugar-nucleotide donor",
+          "glycosyl acceptor",
+          "glycosyltransferase module",
+          "bacterial glycan antigen"
+        ],
+        "planner_hint": "Use sugar-nucleotide records when donor identity and glycosyltransferase scope are explicit."
+      },
+      "risks": [
+        "linkage stereochemistry",
+        "enzyme substrate scope",
+        "epitope identity shifts",
+        "biological material and manufacturing review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "RmlABCD enzyme study covers efficient synthesis of dTDP-L-rhamnose, a bacterial sugar-nucleotide donor.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13210114/"
+        },
+        {
+          "type": "literature",
+          "citation": "Engineered E. coli carbohydrate-antigen production study illustrates heterologous bacterial glycan production.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12121013/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "sugar_nucleotide_glycan_prior",
+        "rerank_bonus": "moderate for donor/linkage/enzyme-scope metadata",
+        "compliance_gate": "glycan_biomanufacturing_review_required"
+      }
+    },
+    {
+      "id": "cofactor_mimic_nicotinamide_flavin_function_disconnection",
+      "family_id": "cofactor_mimic_redox_active_scaffold",
+      "name": "Cofactor mimic to recognition scaffold plus redox/electron-transfer function",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "functionalized cofactor mimics",
+          "nicotinamide or flavin mimics",
+          "redox probes or enzyme-interactome tools"
+        ],
+        "target_features": [
+          "cofactor-like heterocycle",
+          "electron-transfer or hydride-transfer role",
+          "enzyme recognition or probe handle"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "cofactor-like heterocycle attachment boundary",
+          "probe or recognition handle boundary"
+        ],
+        "forward_logic": [
+          "separate cofactor-recognition scaffold from redox-active group and probe handle",
+          "track oxidation state, electron-transfer function, and enzyme scope",
+          "avoid scoring cofactor mimics as ordinary heteroaryl analogues"
+        ],
+        "suggested_precursor_roles": [
+          "cofactor-like core",
+          "redox-active heterocycle",
+          "probe/affinity handle",
+          "enzyme-recognition metadata"
+        ],
+        "planner_hint": "Reward explicit redox function and enzyme-recognition metadata for cofactor mimics."
+      },
+      "risks": [
+        "redox reactivity and assay interference",
+        "enzyme scope mismatch",
+        "oxidation-state instability",
+        "nuisance compound liability"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Functionalized cofactor mimic review covers cofactor mimics for interactome discovery.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9401033/"
+        },
+        {
+          "type": "literature",
+          "citation": "Complex I review discusses artificial electron acceptors, inhibitors, and medicine-relevant electron transfer.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11677225/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cofactor_mimic_redox_prior",
+        "rerank_bonus": "moderate for cofactor-recognition and redox-function metadata",
+        "compliance_gate": "redox_probe_reactivity_review_required"
+      }
+    },
+    {
+      "id": "quinone_phenazine_redox_cycling_policy",
+      "family_id": "cofactor_mimic_redox_active_scaffold",
+      "name": "Quinone/phenazine scaffold to redox-state and cycling-liability policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "quinone and anthraquinone drugs",
+          "phenazine natural products",
+          "redox-cycling bioactive scaffolds"
+        ],
+        "target_features": [
+          "quinone, hydroquinone, anthraquinone, or phenazine core",
+          "redox cycling or electron-transfer liability",
+          "oxidative stress or complex-I-like target context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "quinone/hydroquinone oxidation-state boundary",
+          "redox-active ring functionalization boundary"
+        ],
+        "forward_logic": [
+          "separate core scaffold synthesis from oxidation-state setting and redox-liability review",
+          "track whether redox activity is desired mechanism, toxicity, or assay interference",
+          "avoid treating quinone/phenazine motifs as ordinary aromatic cores"
+        ],
+        "suggested_precursor_roles": [
+          "hydroquinone or reduced precursor",
+          "quinone/anthraquinone core",
+          "phenazine pigment-like core",
+          "redox-cycling liability metadata"
+        ],
+        "planner_hint": "Score redox-active scaffolds only with oxidation-state and reactivity-liability metadata."
+      },
+      "risks": [
+        "redox cycling toxicity",
+        "assay interference",
+        "oxidative stress",
+        "metabolic activation or deactivation"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Anthraquinone scaffold review discusses translational barriers and redox-active quinone context.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12985997/"
+        },
+        {
+          "type": "literature",
+          "citation": "Bacterial pigment review discusses phenazine-like pigment chemistry and biological applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9544673/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "quinone_phenazine_redox_prior",
+        "rerank_bonus": "moderate only with oxidation-state and redox-liability metadata",
+        "compliance_gate": "redox_cycling_toxicology_review_required"
+      }
+    },
+    {
+      "id": "nonadc_bioconjugation_handle_site_disconnection",
+      "family_id": "covalent_bioconjugation_payload_nonadc",
+      "name": "Bioconjugate to payload, linker, and biomolecule site-selective handle",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "protein and peptide conjugates",
+          "antibody-oligonucleotide conjugates",
+          "small-molecule biomolecule conjugates"
+        ],
+        "target_features": [
+          "maleimide/thiol or NHS/lysine handle",
+          "bioorthogonal click handle",
+          "site-selective conjugation or defined stoichiometry"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "payload-linker bond",
+          "linker-biomolecule conjugation bond"
+        ],
+        "forward_logic": [
+          "separate payload synthesis from biomolecule modification and linker/handle selection",
+          "track conjugation site, stoichiometry, stability, and biological mode",
+          "do not score payload synthesis alone as completion of a bioconjugate route"
+        ],
+        "suggested_precursor_roles": [
+          "payload or small molecule",
+          "functional linker",
+          "site-selective biomolecule handle",
+          "defined bioconjugate"
+        ],
+        "planner_hint": "Reward explicit payload/linker/site separation with conjugation stability metadata."
+      },
+      "risks": [
+        "heterogeneous conjugation",
+        "linker instability",
+        "loss of biomolecule function",
+        "payload bioactivity or immunogenicity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Bioorthogonal ligation review summarizes modern bioconjugation reactions and strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10665463/"
+        },
+        {
+          "type": "literature",
+          "citation": "Antibody-oligonucleotide conjugate SAR study discusses effects of bioconjugation strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11403602/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "nonadc_bioconjugation_site_prior",
+        "rerank_bonus": "moderate for payload/linker/site and stability metadata",
+        "compliance_gate": "bioconjugation_biological_mode_review_required"
+      }
+    },
+    {
+      "id": "native_ligation_dynamic_thiol_bioconjugation_policy",
+      "family_id": "covalent_bioconjugation_payload_nonadc",
+      "name": "Peptide/protein conjugate to ligation or dynamic thiol bioconjugation policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "peptide ligation products",
+          "protein-polymer or protein-small molecule conjugates",
+          "dynamic thiol-based bioconjugates"
+        ],
+        "target_features": [
+          "native chemical ligation or related peptide/protein ligation",
+          "thiol-based dynamic linker",
+          "site-specific protein modification"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "ligation junction",
+          "dynamic thiol or reversible linker boundary"
+        ],
+        "forward_logic": [
+          "define whether the conjugate is made by ligation, thiol exchange, or site-specific residue modification",
+          "track peptide/protein integrity, reversibility, and site selectivity",
+          "separate biomolecule engineering from small-molecule handle synthesis"
+        ],
+        "suggested_precursor_roles": [
+          "peptide/protein fragment",
+          "ligation handle",
+          "thiol-reactive linker",
+          "site-specific conjugate"
+        ],
+        "planner_hint": "Use ligation/thiol records only when site and reversibility metadata are explicit."
+      },
+      "risks": [
+        "protein denaturation or loss of activity",
+        "thiol exchange instability",
+        "site-selectivity drift",
+        "biological handling review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Site-specific peptide/protein modification review covers modern residue-selective conjugation methods.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13094375/"
+        },
+        {
+          "type": "literature",
+          "citation": "Dynamic thiol bioconjugation review covers tunable linkers for thiol-based strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12892336/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "protein_ligation_thiol_conjugation_prior",
+        "rerank_bonus": "moderate for site-specificity and reversibility metadata",
+        "compliance_gate": "protein_bioconjugation_review_required"
+      }
+    },
+    {
+      "id": "natural_product_dimer_monomer_coupling_disconnection",
+      "family_id": "natural_product_dimer_oligomer_biomimetic_coupling",
+      "name": "Natural-product dimer to monomer units plus biomimetic C-C/C-O coupling policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "alkaloid dimers",
+          "phenolic natural-product dimers",
+          "biaryl or diaryl ether natural products"
+        ],
+        "target_features": [
+          "two related monomer units",
+          "C-C or C-O oxidative coupling linkage",
+          "regioselectivity or atropisomeric axis"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "intermonomer C-C or C-O coupling bond"
+        ],
+        "forward_logic": [
+          "identify monomeric units and coupling positions",
+          "define biomimetic oxidative coupling, metal-mediated coupling, or stepwise fragment-union policy",
+          "track regioselectivity, oxidation state, and axial/stereochemical outcome"
+        ],
+        "suggested_precursor_roles": [
+          "monomer natural-product unit",
+          "oxidative coupling precursor",
+          "dimeric scaffold",
+          "atropisomer or regioisomer metadata"
+        ],
+        "planner_hint": "Reward routes that expose monomer and coupling topology rather than treating dimers as one-piece scaffolds."
+      },
+      "risks": [
+        "regioselective dimerization",
+        "overoxidation or oligomer mixtures",
+        "atropisomer control",
+        "bioactive natural-product context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Complanadine A synthesis comparison discusses strategic choices for alkaloid dimer total syntheses.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12581007/"
+        },
+        {
+          "type": "literature",
+          "citation": "Bioinspired total synthesis review discusses biomimetic strategies for natural-product construction.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12522158/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "natural_product_dimer_coupling_prior",
+        "rerank_bonus": "moderate for monomer/coupling topology and stereochemical metadata",
+        "compliance_gate": "bioactive_dimer_natural_product_review_required"
+      }
+    },
+    {
+      "id": "ddq_phenolic_biaryl_oligomerization_policy",
+      "family_id": "natural_product_dimer_oligomer_biomimetic_coupling",
+      "name": "Phenolic/biaryl oligomer to oxidative coupling and oligomer-control policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "phenolic dimers",
+          "biaryl natural products",
+          "oligomeric polyketides or lignan-like scaffolds"
+        ],
+        "target_features": [
+          "phenol-derived C-C or C-O coupling",
+          "biaryl axis or diaryl ether",
+          "controlled dimer/oligomer state"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "phenolic oxidative C-C/C-O coupling bond",
+          "biaryl or diaryl ether dimerization bond"
+        ],
+        "forward_logic": [
+          "separate monomer synthesis from oxidative coupling reagent/catalyst policy",
+          "track dimer versus oligomer distribution and atropisomerism",
+          "avoid promoting routes that ignore overcoupling or redox side products"
+        ],
+        "suggested_precursor_roles": [
+          "phenolic monomer",
+          "biaryl coupling precursor",
+          "oxidative dimer",
+          "oligomer-control metadata"
+        ],
+        "planner_hint": "Require dimer/oligomer control and oxidative-coupling topology for phenolic natural products."
+      },
+      "risks": [
+        "overoxidation",
+        "oligomer mixtures",
+        "atropisomer or regioisomer mixtures",
+        "redox-active byproducts"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "DDQ-mediated C-C bond-formation review covers redox strategies for oxidative coupling.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13051981/"
+        },
+        {
+          "type": "literature",
+          "citation": "Phenol/aryl-boronic acid homocoupling review illustrates biaryl synthesis and coupling control.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11643476/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "phenolic_biaryl_oxidative_coupling_prior",
+        "rerank_bonus": "moderate for oligomer-control and coupling-topology metadata"
+      }
+    },
+    {
+      "id": "genotoxic_nitrosamine_impurity_route_control_policy",
+      "family_id": "process_impurity_metabolite_route_critique",
+      "name": "Mutagenic or nitrosamine impurity to formation route and control-strategy policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "genotoxic impurities",
+          "nitrosamine drug-substance-related impurities",
+          "process-related mutagenic impurities"
+        ],
+        "target_features": [
+          "impurity formed by route reagent, intermediate, degradation, or storage condition",
+          "mutagenic or nitrosamine alert",
+          "control strategy rather than target synthesis"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "impurity formation boundary traced to precursor/reagent/degradation source"
+        ],
+        "forward_logic": [
+          "identify whether the impurity arises from reagent, intermediate, API degradation, or packaging/storage",
+          "separate reference-standard synthesis from target route and control strategy",
+          "track toxicology class, analytical method, and purge/control point"
+        ],
+        "suggested_precursor_roles": [
+          "API or process intermediate",
+          "impurity precursor/reagent source",
+          "nitrosamine or genotoxic impurity standard",
+          "control-strategy metadata"
+        ],
+        "planner_hint": "Use impurity records for route critique and control, never as stock or target-route success."
+      },
+      "risks": [
+        "mutagenic/genotoxic risk",
+        "nitrosamine regulatory concern",
+        "analytical traceability",
+        "process and storage dependence"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Mutagenic impurity guideline review discusses assessment and control of pharmaceutical mutagenic impurities.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12723853/"
+        },
+        {
+          "type": "literature",
+          "citation": "NDSRI study covers nitrosamine drug-substance-related impurities under artificial gastric conditions.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12401632/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "genotoxic_impurity_route_control_prior",
+        "rerank_bonus": "high for identifying impurity origin and control point in route audit",
+        "compliance_gate": "genotoxic_impurity_regulatory_review_required"
+      }
+    },
+    {
+      "id": "degradant_metabolite_reference_standard_disconnection",
+      "family_id": "process_impurity_metabolite_route_critique",
+      "name": "Degradant or metabolite reference standard to API/precursor plus transformation-origin policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "API degradation products",
+          "metabolite standards",
+          "related substances",
+          "forced-degradation products"
+        ],
+        "target_features": [
+          "oxidation, hydrolysis, rearrangement, or conjugation product of API",
+          "reference standard route distinct from API synthesis",
+          "analytical identification and toxicity context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "metabolic or degradation transformation boundary",
+          "reference-standard derivatization boundary"
+        ],
+        "forward_logic": [
+          "map degradant/metabolite to API or process precursor and transformation origin",
+          "separate deliberate reference-standard synthesis from impurity formation in manufacturing",
+          "track analytical assignment, stability, and toxicity metadata"
+        ],
+        "suggested_precursor_roles": [
+          "API or metabolite precursor",
+          "degradant/intermediate",
+          "reference standard",
+          "analytical/toxicology metadata"
+        ],
+        "planner_hint": "Use degradant/metabolite records to explain route risks and standards, not to close target routes."
+      },
+      "risks": [
+        "forced-degradation artifact",
+        "incorrect structural assignment",
+        "toxicity uncertainty",
+        "process versus storage origin mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Resmetirom related-substances study identifies new degradation products and analytical strategy.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13053519/"
+        },
+        {
+          "type": "literature",
+          "citation": "Perampanel degradation-product study combines stability-indicating analysis and toxicity assessment.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13019199/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "degradant_metabolite_route_critique_prior",
+        "rerank_bonus": "moderate for API-origin mapping and analytical/toxicology metadata",
+        "compliance_gate": "impurity_metabolite_toxicology_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v8 expansion promotes the next backlog families for metalloid medicinal motifs, fluorinated lipophiles, halogenated marine natural products, glycoconjugate vaccine boundaries, cofactor-mimic redox scaffolds, non-ADC bioconjugation, biomimetic dimer/oligomer coupling, and impurity/metabolite route critique."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Metalloid, fluorinated-lipophile, marine halometabolite, vaccine/glycan, redox-active, bioconjugation, natural-product dimer, and impurity/metabolite records are advisory. Promotion to proposal generation requires explicit toxicology, regulatory, formulation, biological-mode, manufacturing, or process-control review as applicable."
+    }
+  ]
+}

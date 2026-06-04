@@ -13,6 +13,7 @@ from cascade_planner.baselines.chem_enzy_adapter import (
     DEFAULT_STOCKS,
 )
 from cascade_planner.baselines.route_contract import RouteSearchConfig
+from cascade_planner.legacy_guard import LEGACY_RESEARCH_ENV, legacy_research_enabled
 
 
 SCHEMA_VERSION = "v4_heldout_chem_enzy_route_pool.v1"
@@ -36,6 +37,27 @@ ZERO_COST_TRACE_WEIGHTS = {
 }
 
 
+def _guard_legacy_trace_options(
+    *,
+    collect_expansion_trace: bool,
+    action_value_model: Path | None,
+) -> None:
+    if not collect_expansion_trace and action_value_model is None:
+        return
+    if legacy_research_enabled():
+        return
+    requested = []
+    if collect_expansion_trace:
+        requested.append("collect_expansion_trace")
+    if action_value_model is not None:
+        requested.append("action_value_model")
+    raise ValueError(
+        "v4 heldout ChemEnzy trace/action-value hooks are archived/frozen "
+        f"research options ({', '.join(requested)}). Set "
+        f"{LEGACY_RESEARCH_ENV}=1 only when reproducing old reports."
+    )
+
+
 def run_v4_heldout_chem_enzy_pool(
     *,
     benchmark: Path,
@@ -54,6 +76,10 @@ def run_v4_heldout_chem_enzy_pool(
     action_value_model: Path | None = None,
     action_value_reward: float = 0.35,
 ) -> dict[str, Any]:
+    _guard_legacy_trace_options(
+        collect_expansion_trace=collect_expansion_trace,
+        action_value_model=action_value_model,
+    )
     targets = _read_targets(benchmark)
     if limit is not None and limit > 0:
         targets = targets[: int(limit)]

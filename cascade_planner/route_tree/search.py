@@ -15,6 +15,16 @@ from cascade_planner.cascadeboard import RouteExplanation, RouteResult
 from cascade_planner.cascadeboard.route_export import route_metrics
 from cascade_planner.cascadeboard.route_recovery import canonical_reaction, canonical_smiles
 from cascade_planner.cascadeboard.skeleton_planner import RouteSkeleton
+from cascade_planner.agent.terminal_judge import (
+    JudgePolicy,
+    TerminalJudgeDecision,
+    evaluate_terminal_judge,
+    judge_policy_from_constraints,
+)
+from cascade_planner.route_tree.condition_prior import (
+    brenda_condition_prior_from_env,
+    condition_prediction_from_prior,
+)
 from cascade_planner.route_tree.proposals import ProposalContext, RetroEngineProposalTool
 from cascade_planner.route_tree.cascade_oracle import cascade_oracle_runtime_from_env
 from cascade_planner.route_tree.runtime import RouteTreeEvaluation, RouteTreeRuntime, default_route_tree_runtime, heuristic_action_scores
@@ -26,9 +36,14 @@ from cascade_planner.vnext.schema import BOTTLENECK_LABELS
 
 StockChecker = Callable[[str], bool]
 _AUTO_CONTROLLER = object()
+_AUTO_ENZYME_SP_VERIFIER = object()
+_NEUTRALIZED_SMILES_CACHE: dict[str, str] = {}
+_NORMALIZED_STOCK_CACHE: dict[tuple[str, int], bool] = {}
 DEFAULT_SOURCE_RESERVE_ORDER = (
     "retrochimera",
+    "chem_enzy_graphfp_fusion",
     "chem_enzy_onestep",
+    "chem_enzy_bionav",
     "enzyformer",
     "enzexpand",
     "v3_retrieval",
@@ -62,6 +77,10 @@ class RouteTreeStats:
     ccts_active_calls: int = 0
     ccts_fallbacks: int = 0
     verifier_rejections: int = 0
+    enzyme_sp_verifier_calls: int = 0
+    enzyme_sp_verifier_scored: int = 0
+    enzyme_sp_verifier_rejections: int = 0
+    enzyme_sp_verifier_errors: int = 0
     elapsed_s: float = 0.0
     search_stop_reason: str = ""
     soft_timeout_s: float | None = None
@@ -69,6 +88,7 @@ class RouteTreeStats:
     expanded_leaf_count: int = 0
     skipped_leaf_count: int = 0
     proposal_source_stats: dict[str, dict[str, Any]] = field(default_factory=dict)
+    timeout_frontier_fallbacks: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -95,6 +115,10 @@ class RouteTreeStats:
             "ccts_active_calls": self.ccts_active_calls,
             "ccts_fallbacks": self.ccts_fallbacks,
             "verifier_rejections": self.verifier_rejections,
+            "enzyme_sp_verifier_calls": self.enzyme_sp_verifier_calls,
+            "enzyme_sp_verifier_scored": self.enzyme_sp_verifier_scored,
+            "enzyme_sp_verifier_rejections": self.enzyme_sp_verifier_rejections,
+            "enzyme_sp_verifier_errors": self.enzyme_sp_verifier_errors,
             "elapsed_s": round(float(self.elapsed_s or 0.0), 3),
             "search_stop_reason": self.search_stop_reason,
             "soft_timeout_s": self.soft_timeout_s,
@@ -102,6 +126,7 @@ class RouteTreeStats:
             "expanded_leaf_count": self.expanded_leaf_count,
             "skipped_leaf_count": self.skipped_leaf_count,
             "proposal_source_stats": _proposal_source_stats_payload(self.proposal_source_stats),
+            "timeout_frontier_fallbacks": self.timeout_frontier_fallbacks,
         }
         payload["route_tree_runtime_bottlenecks"] = _runtime_bottleneck_labels(payload)
         return payload
@@ -119,6 +144,7 @@ class NeuralGuidedAOSearch:
         skeletons: list[RouteSkeleton] | None = None,
         constraints: dict[str, Any] | None = None,
         controller: RouteTreeRuntime | None | object = _AUTO_CONTROLLER,
+        enzyme_sp_verifier: Any | None | object = _AUTO_ENZYME_SP_VERIFIER,
         trace_collector: RouteTreeTraceCollector | None = None,
     ):
         self.retro_engine = retro_engine
@@ -135,9 +161,17 @@ class NeuralGuidedAOSearch:
         self.controller = default_route_tree_runtime() if controller is _AUTO_CONTROLLER else controller
         self.proposals = RetroEngineProposalTool(retro_engine)
         self.verifier = RouteVerifier()
+        self.enzyme_sp_verifier = (
+            _enzyme_sp_verifier_v1_from_env()
+            if enzyme_sp_verifier is _AUTO_ENZYME_SP_VERIFIER
+            else enzyme_sp_verifier
+        )
         self.trace_collector = trace_collector
         self.cascade_oracle = cascade_oracle_runtime_from_env()
         self.ccts_scorer = _ccts_runtime_from_env()
+        self.judge_policy: JudgePolicy | None = judge_policy_from_constraints(self.constraints)
+        self._compiled_judge_trace: list[dict[str, Any]] = []
+        self._compiled_judge_trace_keys: set[tuple[str, str, str, str, int]] = set()
         self.stats = RouteTreeStats()
         self.stats.soft_timeout_s = _env_float_or_none("AUTOPLANNER_ROUTE_TREE_SOFT_TIMEOUT_S", 60.0)
         self.stats.hard_timeout_s = _env_float_or_none("AUTOPLANNER_ROUTE_TREE_HARD_TIMEOUT_S", 120.0)
@@ -151,6 +185,7 @@ class NeuralGuidedAOSearch:
         self._evaluation_cache: dict[tuple[str, str, tuple[str, ...]], RouteTreeEvaluation] = {}
         self._proposal_cache: dict[tuple[str, int, str, int, float | None, float | None, int], list[CandidateAction]] = {}
         self._best_transposition_score: dict[tuple[int, tuple[str, ...]], float] = {}
+        self._best_sp_v1_enzyme_solution_score: dict[tuple[int, tuple[str, ...]], float] = {}
         self._search_started_at: float | None = None
 
     def search(self, target: str, *, n_results: int = 5) -> list[RouteResult]:
@@ -164,8 +199,17 @@ class NeuralGuidedAOSearch:
         seen: set[tuple[str, ...]] = set()
         fallback_seen: set[tuple[str, ...]] = set()
         result_pool_target = self._result_pool_target(n_results)
+        enzyme_result_pool_target = self._enzyme_result_pool_target(n_results)
 
-        while queue and self.stats.expansions < self.expansion_budget and len(solved) < result_pool_target:
+        while queue and self.stats.expansions < self.expansion_budget:
+            solved_target = self._solved_collection_target(
+                solved,
+                default_target=result_pool_target,
+                enzyme_target=enzyme_result_pool_target,
+                pending_sp_v1_enzyme=self._queue_has_bridge_supported_sp_v1_enzyme_state(queue),
+            )
+            if len(solved) >= solved_target:
+                break
             if self._hard_time_limit_reached():
                 self.stats.search_stop_reason = "hard_timeout"
                 break
@@ -209,18 +253,30 @@ class NeuralGuidedAOSearch:
             else:
                 self.stats.search_stop_reason = "stopped"
         results = _dedupe_results([*solved, *fallback])
+        selector_diagnostics = _enzyme_result_selector_diagnostics(results, self.stock_checker)
         if _env_truthy("AUTOPLANNER_ROUTE_TREE_QUALITY_RESULT_RERANK"):
             results.sort(key=lambda result: _route_result_sort_key(result, self.stock_checker), reverse=True)
         else:
             results.sort(key=lambda result: _route_result_sort_key(result, self.stock_checker), reverse=True)
+        results = _maybe_promote_sp_v1_enzyme_result(results, self.stock_checker)
         outcome = {
             "solved_routes": len(solved),
             "fallback_routes": len(fallback),
             "requested_results": int(n_results),
             "route_tree_result_pool_target": int(result_pool_target),
+            "route_tree_enzyme_result_pool_target": int(enzyme_result_pool_target),
+            "route_tree_enzyme_result_selector": selector_diagnostics,
             "search_status": "solved" if solved else "partial" if fallback else "failed",
             **self.stats.to_dict(),
         }
+        if not results and queue:
+            self._add_timeout_frontier_fallbacks(fallback, fallback_seen, queue, limit=n_results)
+            results = _dedupe_results([*solved, *fallback])
+            results.sort(key=lambda result: _route_result_sort_key(result, self.stock_checker), reverse=True)
+            results = _maybe_promote_sp_v1_enzyme_result(results, self.stock_checker)
+            outcome["fallback_routes"] = len(fallback)
+            outcome["search_status"] = "partial" if fallback else outcome["search_status"]
+            outcome.update(self.stats.to_dict())
         if self.trace_collector is not None:
             self.trace_collector.annotate_outcome(outcome)
         self._attach_final_diagnostics(results, outcome)
@@ -249,6 +305,13 @@ class NeuralGuidedAOSearch:
             proposal_budget = self._proposal_budget_for_leaf(state, leaf, context)
             self.stats.proposal_budget_total += proposal_budget
             raw_actions = self._propose_actions(leaf, context, top_k=proposal_budget)
+            raw_actions = self._maybe_extend_with_stock_closing_probe(
+                state,
+                leaf,
+                context,
+                raw_actions,
+                base_budget=proposal_budget,
+            )
             proposal_diag = self._last_leaf_proposal_diagnostics(leaf, proposal_budget)
             actions, contract_pruned, invalid_pruned = self._filter_actions(state, leaf, raw_actions, context)
             if not actions:
@@ -485,6 +548,12 @@ class NeuralGuidedAOSearch:
                 break
         enzymatic_only_route = _heavy_atoms(state.target) >= 30 or _oxygen_rich_molecule(state.target)
         carbohydrate_like_route = _carbohydrate_like_molecule(state.target)
+        enzyme_route_continuation = any(_is_enzymatic_action(step.action) for step in state.steps)
+        sp_v1_accepted_enzyme_route = any(
+            _is_enzymatic_action(step.action)
+            and bool((step.action.metadata.get("enzyme_sp_verifier_v1") or {}).get("accepted"))
+            for step in state.steps
+        )
         return ProposalContext(
             depth=state.depth,
             ec1=ec1,
@@ -496,6 +565,8 @@ class NeuralGuidedAOSearch:
                 "state_id": state.canonical_id,
                 "enzymatic_only_route": enzymatic_only_route,
                 "carbohydrate_like_route": carbohydrate_like_route,
+                "enzyme_route_continuation": enzyme_route_continuation,
+                "sp_v1_accepted_enzyme_route": sp_v1_accepted_enzyme_route,
                 "skeleton_context_index": context_index,
                 "skeleton_context_reversed": _reverse_skeleton_context_enabled(),
             },
@@ -543,12 +614,30 @@ class NeuralGuidedAOSearch:
         ec = action.ec
         if not ec and context.ec1 and _is_enzymatic_action(action):
             ec = f"{context.ec1}.x"
+        next_T = action.T if action.T is not None else context.T
+        next_pH = action.pH if action.pH is not None else context.pH
+        if ec and _is_enzymatic_action(action) and (next_T is None or next_pH is None):
+            prior = brenda_condition_prior_from_env(
+                ec=ec,
+                metadata=metadata,
+                fill_T=next_T is None,
+                fill_pH=next_pH is None,
+            )
+            if prior:
+                if next_T is None and prior.get("temperature_c") is not None:
+                    next_T = float(prior["temperature_c"])
+                if next_pH is None and prior.get("ph") is not None:
+                    next_pH = float(prior["ph"])
+                metadata["condition_prior"] = prior
+                predictions = list(metadata.get("condition_predictions") or [])
+                predictions.append(condition_prediction_from_prior(prior))
+                metadata["condition_predictions"] = predictions
         return replace(
             action,
             reaction_type=action.reaction_type or context.reaction_type,
             ec=ec,
-            T=action.T if action.T is not None else context.T,
-            pH=action.pH if action.pH is not None else context.pH,
+            T=next_T,
+            pH=next_pH,
             metadata=metadata,
         )
 
@@ -596,9 +685,172 @@ class NeuralGuidedAOSearch:
             return cached[:top_k]
         self.stats.proposal_calls += 1
         actions = self.proposals.propose(leaf, context, top_k=top_k)
+        actions = self._maybe_extend_with_bridge_ec_context(leaf, context, actions, top_k=top_k)
         self._record_proposal_diagnostics(getattr(self.proposals, "last_diagnostics", {}) or {})
         self._proposal_cache[cache_key] = list(actions)
         return actions
+
+    def _maybe_extend_with_stock_closing_probe(
+        self,
+        state: RouteTreeState,
+        leaf: str,
+        context: ProposalContext,
+        actions: list[CandidateAction],
+        *,
+        base_budget: int,
+    ) -> list[CandidateAction]:
+        if not _env_truthy("AUTOPLANNER_ROUTE_TREE_STOCK_CLOSING_PROBE"):
+            return actions
+        if self.stock_checker is None or self._is_terminal(leaf, state=state, depth=state.depth):
+            return actions
+        remaining_depth = max(0, self.max_depth - state.depth)
+        threshold = max(0, _env_int("AUTOPLANNER_ROUTE_TREE_STOCK_CLOSING_PROBE_REMAINING_DEPTH", 2))
+        if remaining_depth > threshold:
+            return actions
+        child_depth = state.depth + 1
+        if any(self._action_fully_terminal(state, action, depth=child_depth) for action in actions):
+            return actions
+        sources = _stock_closing_probe_sources()
+        if not sources:
+            return actions
+        request_top_k = max(
+            max(1, int(base_budget or 1)),
+            _env_int("AUTOPLANNER_ROUTE_TREE_STOCK_CLOSING_PROBE_TOPK", max(self.branch_factor * 4, 24)),
+        )
+        request_top_k = min(
+            max(1, request_top_k),
+            max(1, _env_int("AUTOPLANNER_ROUTE_TREE_STOCK_CLOSING_PROBE_TOPK_CAP", 75)),
+        )
+        max_added = max(1, _env_int("AUTOPLANNER_ROUTE_TREE_STOCK_CLOSING_PROBE_MAX_ACTIONS", 4))
+        reserve: list[CandidateAction] = []
+        for source in sources:
+            if len(reserve) >= max_added:
+                break
+            engine = (self.retro_engine or {}).get(source)
+            if engine is None:
+                continue
+            started = time.monotonic()
+            try:
+                rows = list(engine.predict(leaf, top_k=request_top_k) or [])
+            except Exception:
+                rows = []
+            elapsed_ms = (time.monotonic() - started) * 1000.0
+            self._record_manual_source_probe(
+                source,
+                requested_k=request_top_k,
+                raw_count=len(rows),
+                elapsed_ms=elapsed_ms,
+            )
+            for rank, row in enumerate(rows, start=1):
+                if not isinstance(row, dict):
+                    continue
+                candidate = dict(row)
+                candidate.setdefault("source", source)
+                candidate.setdefault("rank", rank)
+                action = CandidateAction.from_candidate(
+                    leaf,
+                    candidate,
+                    rank=rank,
+                    source=candidate.get("source") or source,
+                )
+                if not self._action_fully_terminal(state, action, depth=child_depth):
+                    continue
+                metadata = dict(action.metadata)
+                metadata["stock_closing_probe"] = {
+                    "source": source,
+                    "requested_top_k": int(request_top_k),
+                    "rank": int(action.rank or rank),
+                }
+                reserve.append(replace(action, metadata=metadata))
+                if len(reserve) >= max_added:
+                    break
+        if not reserve:
+            return actions
+        return _dedupe_candidate_actions([*actions, *reserve])
+
+    def _action_fully_terminal(self, state: RouteTreeState, action: CandidateAction, *, depth: int) -> bool:
+        return bool(action.reactants) and all(
+            self._is_terminal(smi, state=state, depth=depth)
+            for smi in action.reactants
+        )
+
+    def _record_manual_source_probe(
+        self,
+        source: str,
+        *,
+        requested_k: int,
+        raw_count: int,
+        elapsed_ms: float,
+    ) -> None:
+        row = self.stats.proposal_source_stats.setdefault(
+            str(source),
+            {
+                "calls": 0,
+                "allocated_budget": 0,
+                "requested_k_total": 0,
+                "kept_k_total": 0,
+                "raw_returned": 0,
+                "ranker_kept": 0,
+                "ranker_dropped": 0,
+                "kept_returned": 0,
+                "dedupe_dropped": 0,
+                "invalid_dropped": 0,
+                "final_returned": 0,
+                "latency_ms_total": 0.0,
+                "latency_ms_max": 0.0,
+            },
+        )
+        row["calls"] = int(row.get("calls") or 0) + 1
+        row["requested_k_total"] = int(row.get("requested_k_total") or 0) + int(requested_k or 0)
+        row["raw_returned"] = int(row.get("raw_returned") or 0) + int(raw_count or 0)
+        row["ranker_kept"] = int(row.get("ranker_kept") or 0) + int(raw_count or 0)
+        row["kept_returned"] = int(row.get("kept_returned") or 0) + int(raw_count or 0)
+        row["latency_ms_total"] = round(float(row.get("latency_ms_total") or 0.0) + float(elapsed_ms or 0.0), 3)
+        row["latency_ms_max"] = round(max(float(row.get("latency_ms_max") or 0.0), float(elapsed_ms or 0.0)), 3)
+
+    def _maybe_extend_with_bridge_ec_context(
+        self,
+        leaf: str,
+        context: ProposalContext,
+        actions: list[CandidateAction],
+        *,
+        top_k: int,
+    ) -> list[CandidateAction]:
+        if not _env_truthy_default("AUTOPLANNER_ROUTE_TREE_BRIDGE_EC_CONTEXT_PROPOSALS", True):
+            return actions
+        if int(context.ec1 or 0):
+            return actions
+        diagnostics = getattr(self.proposals, "last_diagnostics", {}) or {}
+        allocation = diagnostics.get("allocation") or {}
+        flags = allocation.get("molecule_flags") or {}
+        ec1s = _bridge_gate_ec1s(flags)
+        if not ec1s:
+            return actions
+        max_contexts = max(0, _env_int("AUTOPLANNER_ROUTE_TREE_BRIDGE_EC_CONTEXT_MAX_EC1S", 2))
+        if max_contexts <= 0:
+            return actions
+        extra_budget = max(1, _env_int("AUTOPLANNER_ROUTE_TREE_BRIDGE_EC_CONTEXT_TOPK", max(2, min(6, top_k))))
+        extra_actions: list[CandidateAction] = []
+        for ec1 in ec1s[:max_contexts]:
+            ec_context = ProposalContext(
+                depth=context.depth,
+                ec1=int(ec1),
+                reaction_type=context.reaction_type,
+                T=context.T,
+                pH=context.pH,
+                objective=context.objective,
+                constraints=dict(context.constraints or {}),
+                route_metadata={
+                    **dict(context.route_metadata or {}),
+                    "bridge_ec_context_injected": True,
+                    "bridge_ec_context_source_leaf": leaf,
+                    "bridge_gate_ec_numbers": tuple(flags.get("bridge_gate_ec_numbers") or ()),
+                },
+            )
+            extra_actions.extend(self.proposals.propose(leaf, ec_context, top_k=extra_budget))
+        if not extra_actions:
+            return actions
+        return _dedupe_candidate_actions([*actions, *extra_actions])
 
     def _last_leaf_proposal_diagnostics(self, leaf: str, proposal_budget: int) -> dict[str, Any]:
         diagnostics = dict(getattr(self.proposals, "last_diagnostics", {}) or {})
@@ -677,10 +929,54 @@ class NeuralGuidedAOSearch:
                 action.metadata = metadata
                 continue
             if self._action_allowed(state, leaf, action):
-                actions.append(action)
+                if self._enzyme_sp_action_allowed(leaf, action):
+                    actions.append(action)
+                else:
+                    invalid_pruned += 1
             else:
                 invalid_pruned += 1
         return actions, contract_pruned, invalid_pruned
+
+    def _enzyme_sp_action_allowed(self, leaf: str, action: CandidateAction) -> bool:
+        if self.enzyme_sp_verifier is None or not _should_apply_enzyme_sp_verifier_v1(action):
+            return True
+        self.stats.enzyme_sp_verifier_calls += 1
+        try:
+            score = self.enzyme_sp_verifier.score_action(product=leaf, action=action)
+            payload = score.to_dict() if hasattr(score, "to_dict") else dict(score)
+        except Exception as exc:
+            self.stats.enzyme_sp_verifier_errors += 1
+            fail_open = _env_truthy_default("AUTOPLANNER_ENZYME_SP_VERIFIER_V1_FAIL_OPEN", True)
+            metadata = dict(action.metadata)
+            metadata["enzyme_sp_verifier_v1"] = {
+                "schema_version": "enzyme_sp_verifier_v1.runtime_score.v1",
+                "accepted": bool(fail_open),
+                "error": f"{type(exc).__name__}: {exc}",
+                "fail_open": bool(fail_open),
+            }
+            action.metadata = metadata
+            return bool(fail_open)
+        self.stats.enzyme_sp_verifier_scored += 1
+        metadata = dict(action.metadata)
+        metadata["enzyme_sp_verifier_v1"] = payload
+        quality_payload = _enzyme_step_material_quality_payload(
+            product=leaf,
+            action=action,
+            sp_payload=payload,
+        )
+        if quality_payload:
+            metadata["enzyme_step_quality_v1"] = quality_payload
+        action.metadata = metadata
+        accepted = bool(payload.get("accepted"))
+        if accepted and _enzyme_sp_material_gate_rejects(action, quality_payload):
+            self.stats.enzyme_sp_verifier_rejections += 1
+            self.stats.verifier_rejections += 1
+            return False
+        if accepted or not _env_truthy_default("AUTOPLANNER_ENZYME_SP_VERIFIER_V1_REJECT_BELOW_THRESHOLD", True):
+            return True
+        self.stats.enzyme_sp_verifier_rejections += 1
+        self.stats.verifier_rejections += 1
+        return False
 
     def _proposal_budget_for_leaf(
         self,
@@ -718,11 +1014,11 @@ class NeuralGuidedAOSearch:
         if self._is_terminal(leaf, state=state, depth=state.depth):
             return 0
         remaining_depth = max(0, self.max_depth - state.depth)
+        if self._stock_rescue_enabled(state, leaf):
+            multiplier = max(1.0, _env_float("AUTOPLANNER_ROUTE_TREE_LATE_STOCK_RESCUE_BUDGET_MULTIPLIER", 2.0))
+            cap = max(base_budget, _env_int("AUTOPLANNER_ROUTE_TREE_LATE_STOCK_RESCUE_BUDGET_CAP", 24))
+            return min(cap, max(base_budget + 1, int(round(base_budget * multiplier)), self.branch_factor))
         if remaining_depth <= 1:
-            if self._stock_rescue_enabled(state, leaf):
-                multiplier = max(1.0, _env_float("AUTOPLANNER_ROUTE_TREE_LATE_STOCK_RESCUE_BUDGET_MULTIPLIER", 2.0))
-                cap = max(base_budget, _env_int("AUTOPLANNER_ROUTE_TREE_LATE_STOCK_RESCUE_BUDGET_CAP", 24))
-                return min(cap, max(base_budget + 1, int(round(base_budget * multiplier)), self.branch_factor))
             return base_budget
         if context.reaction_type or context.ec1:
             return min(_env_int("AUTOPLANNER_ROUTE_TREE_FALLBACK_PROPOSAL_BUDGET_CAP", 16), max(base_budget, self.branch_factor * 2))
@@ -851,11 +1147,22 @@ class NeuralGuidedAOSearch:
         if not state.open_leaves and _env_truthy("AUTOPLANNER_ROUTE_TREE_KEEP_SOLVED_ROUTE_ALTERNATIVES"):
             return True
         key = _transposition_key(state)
+        sp_v1_enzyme_solution = _state_has_bridge_supported_sp_v1_enzyme_step(state) and not state.open_leaves
         best = self._best_transposition_score.get(key)
         if best is not None and best >= state.score:
+            if sp_v1_enzyme_solution and _env_truthy("AUTOPLANNER_ROUTE_TREE_SP_V1_ENZYME_RESULT_SELECTOR"):
+                enzyme_best = self._best_sp_v1_enzyme_solution_score.get(key)
+                if enzyme_best is None or enzyme_best < state.score:
+                    self._best_sp_v1_enzyme_solution_score[key] = state.score
+                    return True
             self.stats.pruned_transposition += 1
             return False
         self._best_transposition_score[key] = state.score
+        if sp_v1_enzyme_solution:
+            self._best_sp_v1_enzyme_solution_score[key] = max(
+                state.score,
+                self._best_sp_v1_enzyme_solution_score.get(key, -math.inf),
+            )
         return True
 
     def _next_open_leaves(self, state: RouteTreeState, leaf: str, action: CandidateAction) -> tuple[str, ...]:
@@ -1026,7 +1333,18 @@ class NeuralGuidedAOSearch:
             for smi in next_open
         )
         feasibility_cost, feasibility_diagnostics = self._action_feasibility_cost(leaf, action)
-        total_cost = reaction_cost + child_value_cost + feasibility_cost
+        bridge_bonus = _bridge_supported_enzyme_bonus(action)
+        enzyme_sp_bonus = _enzyme_sp_verifier_bonus(action)
+        stock_closure_bonus, stock_closure_diagnostics = self._stock_closure_bonus(action)
+        total_cost = max(
+            0.0,
+            reaction_cost
+            + child_value_cost
+            + feasibility_cost
+            - bridge_bonus
+            - enzyme_sp_bonus
+            - stock_closure_bonus,
+        )
         selection_score = -total_cost
         return {
             "action_key": action.canonical_key,
@@ -1042,6 +1360,11 @@ class NeuralGuidedAOSearch:
             "reaction_cost": round(float(reaction_cost), 6),
             "child_value_cost": round(float(child_value_cost), 6),
             "feasibility_cost": round(float(feasibility_cost), 6),
+            "bridge_supported_enzyme_bonus": round(float(bridge_bonus), 6),
+            "enzyme_sp_verifier_bonus": round(float(enzyme_sp_bonus), 6),
+            "stock_closure_bonus": round(float(stock_closure_bonus), 6),
+            "stock_closure_diagnostics": stock_closure_diagnostics,
+            "enzyme_sp_verifier_v1": action.metadata.get("enzyme_sp_verifier_v1"),
             "total_cost": round(float(total_cost), 6),
             "terminal_fraction": round(float(terminal_fraction), 6),
             "feasibility_diagnostics": feasibility_diagnostics,
@@ -1054,16 +1377,97 @@ class NeuralGuidedAOSearch:
         reactant_count = max(len(action.reactants), 1)
         nonstock_small_fraction = self._nonstock_small_reactant_count(action) / reactant_count
         anti_progress = _bounded01(_anti_progress_penalty(leaf, action))
+        no_progress = _bounded01(self._no_progress_single_reactant_penalty(leaf, action))
         invalid_flag = 1.0 if {"product_mismatch", "self_loop"} & set(action.validity_flags or ()) else 0.0
         atom_balance_failure = 0.0 if _candidate_atom_balance_ok(action, leaf) else 1.0
-        risk = max(nonstock_small_fraction, anti_progress, invalid_flag, atom_balance_failure)
+        risk = max(nonstock_small_fraction, anti_progress, no_progress, invalid_flag, atom_balance_failure)
         cost = _negative_log_probability(1.0 - min(risk, 0.999))
         return cost, {
             "risk": round(float(_bounded01(risk)), 6),
             "nonstock_small_fraction": round(float(_bounded01(nonstock_small_fraction)), 6),
             "anti_progress": round(float(anti_progress), 6),
+            "no_progress_single_reactant": round(float(no_progress), 6),
             "invalid_flag": bool(invalid_flag),
             "atom_balance_failure": bool(atom_balance_failure),
+        }
+
+    def _no_progress_single_reactant_penalty(self, leaf: str, action: CandidateAction) -> float:
+        penalty = max(0.0, _env_float("AUTOPLANNER_ROUTE_TREE_NO_PROGRESS_SINGLE_REACTANT_PENALTY", 0.0))
+        if penalty <= 0.0 or len(action.reactants) != 1:
+            return 0.0
+        if _heavy_atoms(leaf) < max(1, _env_int("AUTOPLANNER_ROUTE_TREE_NO_PROGRESS_MIN_HEAVY_ATOMS", 12)):
+            return 0.0
+        reactant = action.reactants[0]
+        if self._is_stock_or_small_terminal(reactant):
+            return 0.0
+        if _progress_delta(leaf, action) > 0.0:
+            return 0.0
+        return min(0.95, penalty)
+
+    def _stock_closure_bonus(self, action: CandidateAction) -> tuple[float, dict[str, Any]]:
+        per_reactant = max(0.0, _env_float("AUTOPLANNER_ROUTE_TREE_EXACT_STOCK_REACTANT_BONUS", 0.0))
+        full_action = max(0.0, _env_float("AUTOPLANNER_ROUTE_TREE_FULL_STOCK_ACTION_BONUS", 0.0))
+        normalized_per_reactant = max(
+            0.0,
+            _env_float("AUTOPLANNER_ROUTE_TREE_NORMALIZED_STOCK_REACTANT_BONUS", 0.0),
+        )
+        normalized_full_action = max(
+            0.0,
+            _env_float("AUTOPLANNER_ROUTE_TREE_NORMALIZED_STOCK_FULL_ACTION_BONUS", 0.0),
+        )
+        cap = max(
+            0.0,
+            _env_float(
+                "AUTOPLANNER_ROUTE_TREE_STOCK_CLOSURE_BONUS_CAP",
+                per_reactant + full_action + normalized_per_reactant + normalized_full_action,
+            ),
+        )
+        if self.stock_checker is None or not action.reactants or (
+            per_reactant <= 0.0
+            and full_action <= 0.0
+            and normalized_per_reactant <= 0.0
+            and normalized_full_action <= 0.0
+        ):
+            return 0.0, {
+                "enabled": False,
+                "exact_stock_reactants": 0,
+                "normalized_stock_reactants": 0,
+                "reactant_count": len(action.reactants),
+                "exact_stock_fraction": 0.0,
+                "normalized_stock_fraction": 0.0,
+            }
+        stock_hits = sum(1 for smi in action.reactants if _stock_check(smi, self.stock_checker))
+        normalized_hits = 0
+        if normalized_per_reactant > 0.0 or normalized_full_action > 0.0:
+            normalized_hits = sum(
+                1
+                for smi in action.reactants
+                if not _stock_check(smi, self.stock_checker)
+                and _normalized_stock_check(smi, self.stock_checker)
+            )
+        fraction = float(stock_hits) / max(len(action.reactants), 1)
+        normalized_fraction = float(normalized_hits) / max(len(action.reactants), 1)
+        bonus = per_reactant * fraction
+        if stock_hits == len(action.reactants):
+            bonus += full_action
+        if normalized_hits:
+            bonus += normalized_per_reactant * normalized_fraction
+        if normalized_hits + stock_hits == len(action.reactants) and normalized_hits > 0:
+            bonus += normalized_full_action
+        if cap > 0.0:
+            bonus = min(cap, bonus)
+        return bonus, {
+            "enabled": True,
+            "exact_stock_reactants": int(stock_hits),
+            "normalized_stock_reactants": int(normalized_hits),
+            "reactant_count": len(action.reactants),
+            "exact_stock_fraction": round(float(fraction), 6),
+            "normalized_stock_fraction": round(float(normalized_fraction), 6),
+            "per_reactant_bonus": round(float(per_reactant), 6),
+            "full_action_bonus": round(float(full_action), 6),
+            "normalized_per_reactant_bonus": round(float(normalized_per_reactant), 6),
+            "normalized_full_action_bonus": round(float(normalized_full_action), 6),
+            "cap": round(float(cap), 6),
         }
 
     def _leaf_synthesis_cost(self, smiles: str, *, state: RouteTreeState, depth: int) -> float:
@@ -1241,6 +1645,41 @@ class NeuralGuidedAOSearch:
         target = max(minimum, int(round(requested * multiplier)))
         return min(maximum, target)
 
+    def _enzyme_result_pool_target(self, n_results: int) -> int:
+        if not _env_truthy("AUTOPLANNER_ROUTE_TREE_SP_V1_ENZYME_RESULT_SELECTOR"):
+            return 0
+        requested = max(1, int(n_results or 1))
+        minimum = max(requested, _env_int("AUTOPLANNER_ROUTE_TREE_ENZYME_RESULT_POOL_MIN", 5))
+        maximum = max(minimum, _env_int("AUTOPLANNER_ROUTE_TREE_ENZYME_RESULT_POOL_MAX", minimum))
+        return min(maximum, minimum)
+
+    def _solved_collection_target(
+        self,
+        solved: list[RouteResult],
+        *,
+        default_target: int,
+        enzyme_target: int,
+        pending_sp_v1_enzyme: bool = False,
+    ) -> int:
+        target = max(1, int(default_target or 1))
+        if enzyme_target <= target or not solved:
+            return target
+        if any(_result_has_bridge_supported_sp_v1_enzyme_step(result) for result in solved):
+            return target
+        if pending_sp_v1_enzyme:
+            return max(target, int(enzyme_target))
+        if not any(_result_has_bridge_supported_context(result) for result in solved):
+            return target
+        return max(target, int(enzyme_target))
+
+    def _queue_has_bridge_supported_sp_v1_enzyme_state(
+        self,
+        queue: list[tuple[float, int, RouteTreeState]],
+    ) -> bool:
+        if not _env_truthy("AUTOPLANNER_ROUTE_TREE_SP_V1_ENZYME_RESULT_SELECTOR"):
+            return False
+        return any(_state_has_bridge_supported_sp_v1_enzyme_step(item[2]) for item in queue)
+
     def _is_terminal(
         self,
         smiles: str,
@@ -1251,6 +1690,15 @@ class NeuralGuidedAOSearch:
         can = canonical_smiles(smiles)
         if not can:
             return False
+        current_depth = int(depth if depth is not None else (state.depth if state is not None else 0))
+        if state is not None and current_depth <= 0 and can == (canonical_smiles(state.target) or state.target):
+            return False
+        judge_decision = self._compiled_terminal_judge_decision(smiles, depth=current_depth)
+        if judge_decision is not None:
+            if judge_decision.decision == "reject":
+                return False
+            if judge_decision.decision == "accept":
+                return True
         if self.allowed_starting_materials and can in self.allowed_starting_materials:
             return True
         small_molecule_terminal = _heavy_atoms(smiles) <= 6
@@ -1262,7 +1710,6 @@ class NeuralGuidedAOSearch:
                 except Exception:
                     return False
             if mode == "late":
-                current_depth = int(depth if depth is not None else (state.depth if state is not None else 0))
                 remaining_depth = max(0, self.max_depth - current_depth)
                 if remaining_depth <= _stock_terminal_remaining_depth():
                     try:
@@ -1313,8 +1760,29 @@ class NeuralGuidedAOSearch:
         seen.add(sig)
         fallback.append(self._state_to_result(state, search_status=search_status))
 
+    def _add_timeout_frontier_fallbacks(
+        self,
+        fallback: list[RouteResult],
+        seen: set[tuple[str, ...]],
+        queue: list[tuple[float, int, RouteTreeState]],
+        *,
+        limit: int,
+    ) -> None:
+        if not _env_truthy_default("AUTOPLANNER_ROUTE_TREE_TIMEOUT_FRONTIER_FALLBACKS", True):
+            return
+        max_count = max(1, _env_int("AUTOPLANNER_ROUTE_TREE_TIMEOUT_FRONTIER_FALLBACK_MAX", max(1, int(limit or 1))))
+        states = sorted((item[2] for item in queue if item[2].steps), key=self._priority, reverse=True)
+        for state in states:
+            before = len(fallback)
+            self._add_fallback_result(fallback, seen, state, search_status="timeout_frontier")
+            if len(fallback) > before:
+                self.stats.timeout_frontier_fallbacks += 1
+            if self.stats.timeout_frontier_fallbacks >= max_count:
+                break
+
     def _state_to_result(self, state: RouteTreeState, *, search_status: str) -> RouteResult:
         board = state.to_board()
+        self._maybe_enrich_selected_enzyme_evidence(board)
         metrics = route_metrics(board, stock_checker=self.stock_checker)
         depth_score = _target_depth_alignment_score(len(state.steps), self.target_depth)
         total_cost = max(0.0, -float(state.score or 0.0))
@@ -1340,6 +1808,7 @@ class NeuralGuidedAOSearch:
                 "route_tree_source_budgets": list(state.search_metadata.get("source_budgets") or []),
                 "route_tree_proposal_recall_diagnostics": list(state.search_metadata.get("proposal_recall_diagnostics") or []),
                 "cascade_oracle_enabled": bool(self.cascade_oracle is not None),
+                **self._compiled_judge_metadata(),
                 **self.stats.to_dict(),
             },
         )
@@ -1357,6 +1826,30 @@ class NeuralGuidedAOSearch:
             constraint_report={"search_mode": "route_tree"},
             explanation=explanation,
         )
+
+    def _maybe_enrich_selected_enzyme_evidence(self, board: Any) -> None:
+        if not _env_truthy("AUTOPLANNER_ROUTE_TREE_SELECTED_ENZYME_EVIDENCE_ENRICHMENT"):
+            return
+        top_k = max(1, _env_int("AUTOPLANNER_ROUTE_TREE_SELECTED_ENZYME_EVIDENCE_TOPK", 3))
+        min_similarity = max(
+            0.0,
+            _env_float("AUTOPLANNER_ROUTE_TREE_SELECTED_ENZYME_EVIDENCE_MIN_SIMILARITY", 0.35),
+        )
+        for slot in getattr(board, "slots", []) or []:
+            if not _slot_needs_selected_enzyme_evidence(slot):
+                continue
+            evidence = dict(getattr(slot, "evidence", {}) or {})
+            if evidence.get("selected_enzyme_precedent"):
+                continue
+            enrichment = _selected_enzyme_evidence_for_slot(
+                slot,
+                top_k=top_k,
+                min_similarity=min_similarity,
+            )
+            if not enrichment:
+                continue
+            evidence.update(enrichment)
+            slot.evidence = evidence
 
     def _elapsed_s(self) -> float:
         if self._search_started_at is None:
@@ -1377,6 +1870,44 @@ class NeuralGuidedAOSearch:
             table = result.explanation.uncertainty_table if result.explanation else {}
             table.update(final_stats)
             table["route_tree_final_outcome"] = dict(outcome)
+            table.update(self._compiled_judge_metadata())
+
+    def _compiled_terminal_judge_decision(self, smiles: str, *, depth: int) -> TerminalJudgeDecision | None:
+        if self.judge_policy is None:
+            return None
+        decision = evaluate_terminal_judge(
+            smiles,
+            self.judge_policy,
+            stock_checker=self.stock_checker,
+        )
+        self._record_compiled_judge_decision(decision, depth=depth)
+        return decision
+
+    def _record_compiled_judge_decision(self, decision: TerminalJudgeDecision, *, depth: int) -> None:
+        key = (
+            decision.policy_id,
+            decision.canonical_smiles,
+            decision.decision,
+            decision.reason,
+            int(depth),
+        )
+        if key in self._compiled_judge_trace_keys:
+            return
+        self._compiled_judge_trace_keys.add(key)
+        row = decision.to_dict()
+        row["depth"] = int(depth)
+        self._compiled_judge_trace.append(row)
+        max_rows = max(1, _env_int("AUTOPLANNER_ROUTE_TREE_COMPILED_JUDGE_TRACE_LIMIT", 200))
+        if len(self._compiled_judge_trace) > max_rows:
+            self._compiled_judge_trace = self._compiled_judge_trace[-max_rows:]
+
+    def _compiled_judge_metadata(self) -> dict[str, Any]:
+        if self.judge_policy is None:
+            return {}
+        return {
+            "route_tree_compiled_judge_policy": self.judge_policy.to_dict(),
+            "route_tree_compiled_judge_trace": list(self._compiled_judge_trace),
+        }
 
 
 def plan_with_route_tree(
@@ -1391,6 +1922,7 @@ def plan_with_route_tree(
     skeletons: list[RouteSkeleton] | None = None,
     constraints: dict[str, Any] | None = None,
     controller: RouteTreeRuntime | None | object = _AUTO_CONTROLLER,
+    enzyme_sp_verifier: Any | None | object = _AUTO_ENZYME_SP_VERIFIER,
     trace_collector: RouteTreeTraceCollector | None = None,
 ) -> list[RouteResult]:
     planner = NeuralGuidedAOSearch(
@@ -1402,6 +1934,7 @@ def plan_with_route_tree(
         skeletons=skeletons,
         constraints=constraints,
         controller=controller,
+        enzyme_sp_verifier=enzyme_sp_verifier,
         trace_collector=trace_collector,
     )
     return planner.search(target, n_results=n_results)
@@ -1421,6 +1954,21 @@ def _ccts_runtime_from_env():
         from cascade_planner.route_tree.ccts_v0 import ccts_v0_runtime_from_env
 
         return ccts_v0_runtime_from_env()
+    except Exception:
+        return None
+
+
+def _enzyme_sp_verifier_v1_from_env():
+    if not _env_truthy("AUTOPLANNER_ENABLE_ENZYME_SP_VERIFIER_V1_GATE"):
+        return None
+    model_path = os.environ.get("AUTOPLANNER_ENZYME_SP_VERIFIER_V1_MODEL") or (
+        "results/shared/enzyme_sp_verifier_v1_20260528/enzyme_sp_verifier_v1_lgbm.joblib"
+    )
+    threshold = _env_float_or_none("AUTOPLANNER_ENZYME_SP_VERIFIER_V1_THRESHOLD", None)
+    try:
+        from cascade_planner.cascade_search.enzyme_sp_verifier_v1 import EnzymeSPVerifierV1Scorer
+
+        return EnzymeSPVerifierV1Scorer(model_path, threshold=threshold)
     except Exception:
         return None
 
@@ -1471,6 +2019,28 @@ def _dedupe_candidate_actions(actions: list[CandidateAction]) -> list[CandidateA
     return out
 
 
+def _bridge_gate_ec1s(flags: dict[str, Any]) -> list[int]:
+    raw = flags.get("bridge_gate_ec1s") or ()
+    out: list[int] = []
+    if isinstance(raw, str):
+        raw = [item.strip() for item in raw.replace(";", ",").split(",") if item.strip()]
+    for item in raw:
+        try:
+            ec1 = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= ec1 <= 7 and ec1 not in out:
+            out.append(ec1)
+    primary = flags.get("bridge_gate_primary_ec1")
+    try:
+        primary_ec1 = int(primary)
+    except (TypeError, ValueError):
+        primary_ec1 = 0
+    if 1 <= primary_ec1 <= 7 and primary_ec1 not in out:
+        out.insert(0, primary_ec1)
+    return out
+
+
 def _target_depth(skeletons: list[RouteSkeleton]) -> int | None:
     depths = [int(skel.n_steps) for skel in skeletons if int(getattr(skel, "n_steps", 0) or 0) > 0]
     return min(depths) if depths else None
@@ -1517,6 +2087,332 @@ def _route_result_cost(result: RouteResult) -> float:
         return max(0.0, -float(result.score or 0.0))
     except (TypeError, ValueError):
         return math.inf
+
+
+def _maybe_promote_sp_v1_enzyme_result(
+    results: list[RouteResult],
+    stock_checker: StockChecker | None = None,
+) -> list[RouteResult]:
+    if not _env_truthy("AUTOPLANNER_ROUTE_TREE_SP_V1_ENZYME_RESULT_SELECTOR"):
+        return results
+    if len(results) <= 1:
+        return results
+    best_result = results[0]
+    best_key = _route_result_sort_key(best_result, stock_checker)
+    candidates: list[tuple[int, RouteResult, str]] = []
+    for idx, result in enumerate(results):
+        if not _result_has_bridge_supported_sp_v1_enzyme_step(result):
+            continue
+        if _route_result_same_solution_tier(result, best_key, stock_checker):
+            candidates.append((idx, result, "same_solution_tier"))
+        elif _sp_v1_enzyme_selector_cost_exception(best_result, result, best_key, stock_checker):
+            candidates.append((idx, result, "cost_exception"))
+    if not candidates:
+        return results
+    max_rank = max(1, _env_int("AUTOPLANNER_ROUTE_TREE_SP_V1_ENZYME_SELECTOR_MAX_RANK", 5))
+    candidates = [(idx, result, reason) for idx, result, reason in candidates if idx < max_rank]
+    if not candidates:
+        return results
+    idx, selected, reason = max(
+        candidates,
+        key=lambda item: (
+            _route_result_enzyme_selector_score(item[1], stock_checker),
+            -item[0],
+        ),
+    )
+    if idx == 0:
+        return results
+    promoted = [selected]
+    promoted.extend(result for j, result in enumerate(results) if j != idx)
+    _annotate_enzyme_result_selector(promoted[0], from_rank=idx + 1, reason=reason)
+    return promoted
+
+
+def _route_result_same_solution_tier(
+    result: RouteResult,
+    best_key: tuple[int, float, float],
+    stock_checker: StockChecker | None,
+) -> bool:
+    key = _route_result_sort_key(result, stock_checker)
+    if key[0] != best_key[0]:
+        return False
+    if not _env_truthy_default("AUTOPLANNER_ROUTE_TREE_SP_V1_ENZYME_SELECTOR_ALLOW_COST_TIES", True):
+        return key[1] >= best_key[1]
+    max_extra_cost = max(0.0, _env_float("AUTOPLANNER_ROUTE_TREE_SP_V1_ENZYME_SELECTOR_MAX_EXTRA_COST", 0.0))
+    best_cost = -float(best_key[1])
+    candidate_cost = -float(key[1])
+    return candidate_cost <= best_cost + max_extra_cost
+
+
+def _sp_v1_enzyme_selector_cost_exception(
+    best_result: RouteResult,
+    candidate: RouteResult,
+    best_key: tuple[int, float, float],
+    stock_checker: StockChecker | None,
+) -> bool:
+    if not _env_truthy("AUTOPLANNER_ROUTE_TREE_SP_V1_ENZYME_SELECTOR_ALLOW_COST_EXCEPTION"):
+        return False
+    if _result_has_bridge_supported_sp_v1_enzyme_step(best_result):
+        return False
+    key = _route_result_sort_key(candidate, stock_checker)
+    if key[0] != best_key[0]:
+        return False
+    max_extra_cost = max(
+        0.0,
+        _env_float("AUTOPLANNER_ROUTE_TREE_SP_V1_ENZYME_SELECTOR_COST_EXCEPTION_MAX_EXTRA_COST", 0.0),
+    )
+    if max_extra_cost <= 0.0:
+        return False
+    best_cost = -float(best_key[1])
+    candidate_cost = -float(key[1])
+    return candidate_cost <= best_cost + max_extra_cost
+
+
+def _route_result_enzyme_selector_score(
+    result: RouteResult,
+    stock_checker: StockChecker | None,
+) -> float:
+    metrics = route_metrics(result.board, stock_checker=stock_checker)
+    enzyme_evidence = metrics.get("enzyme_evidence") or {}
+    evidence_score = _float_or_default(enzyme_evidence.get("enzyme_evidence_score"), 0.0)
+    supported_steps = _float_or_default(enzyme_evidence.get("supported_steps"), 0.0)
+    route_key = _route_result_sort_key(result, stock_checker)
+    return 10.0 * evidence_score + supported_steps + float(route_key[0])
+
+
+def _annotate_enzyme_result_selector(result: RouteResult, *, from_rank: int, reason: str = "same_solution_tier") -> None:
+    if result.explanation is None:
+        return
+    table = dict(result.explanation.uncertainty_table or {})
+    table["sp_v1_enzyme_result_selector"] = {
+        "schema_version": "route_tree.sp_v1_enzyme_result_selector.v1",
+        "promoted": True,
+        "from_rank": int(from_rank),
+        "reason": "bridge_supported_sp_v1_accepted_enzyme_route",
+        "selector_mode": str(reason or "same_solution_tier"),
+    }
+    result.explanation.uncertainty_table = table
+
+
+def _enzyme_result_selector_diagnostics(
+    results: list[RouteResult],
+    stock_checker: StockChecker | None = None,
+) -> dict[str, Any]:
+    if not _env_truthy("AUTOPLANNER_ROUTE_TREE_SP_V1_ENZYME_RESULT_SELECTOR"):
+        return {"enabled": False}
+    bridge_supported = [_result_has_bridge_supported_context(result) for result in results]
+    accepted = [_result_has_bridge_supported_sp_v1_enzyme_step(result) for result in results]
+    return {
+        "enabled": True,
+        "candidate_results": len(results),
+        "bridge_supported_results": sum(int(x) for x in bridge_supported),
+        "bridge_supported_sp_v1_enzyme_results": sum(int(x) for x in accepted),
+        "top_result_bridge_supported_context": bool(bridge_supported[0]) if bridge_supported else False,
+        "top_result_bridge_supported_sp_v1_enzyme": bool(accepted[0]) if accepted else False,
+        "best_solution_tier": _route_result_sort_key(results[0], stock_checker)[0] if results else None,
+    }
+
+
+def _result_has_bridge_supported_sp_v1_enzyme_step(result: RouteResult) -> bool:
+    return any(_slot_is_bridge_supported_sp_v1_enzyme(slot) for slot in getattr(result.board, "slots", []) or [])
+
+
+def _state_has_bridge_supported_sp_v1_enzyme_step(state: RouteTreeState) -> bool:
+    return any(_action_is_bridge_supported_sp_v1_enzyme(step.action) for step in getattr(state, "steps", ()) or ())
+
+
+def _action_is_bridge_supported_sp_v1_enzyme(action: CandidateAction) -> bool:
+    if not _is_enzymatic_action(action) or not _bridge_supported_action(action):
+        return False
+    sp_payload = action.metadata.get("enzyme_sp_verifier_v1") or {}
+    return bool(isinstance(sp_payload, dict) and sp_payload.get("accepted"))
+
+
+def _result_has_bridge_supported_context(result: RouteResult) -> bool:
+    return any(_slot_has_bridge_supported_context(slot) for slot in getattr(result.board, "slots", []) or [])
+
+
+def _slot_is_bridge_supported_sp_v1_enzyme(slot: Any) -> bool:
+    evidence = getattr(slot, "evidence", {}) or {}
+    if not isinstance(evidence, dict):
+        return False
+    sp_payload = evidence.get("enzyme_sp_verifier_v1") or {}
+    if not isinstance(sp_payload, dict) or not bool(sp_payload.get("accepted")):
+        return False
+    source = str(getattr(slot, "source", "") or "").lower()
+    if source not in {
+        "chem_enzy_onmt",
+        "chem_enzy_bionav",
+        "enzyme_precedent",
+        "enzexpand",
+        "enzyformer",
+        "v3_retrieval",
+        "retrorules",
+        "rhea",
+        "rhea_template",
+    } and not getattr(slot, "ec", None):
+        return False
+    return _slot_has_bridge_supported_context(slot)
+
+
+def _slot_has_bridge_supported_context(slot: Any) -> bool:
+    evidence = getattr(slot, "evidence", {}) or {}
+    if not isinstance(evidence, dict):
+        return False
+    source_gate = evidence.get("source_gate") or {}
+    if not isinstance(source_gate, dict):
+        return False
+    reason = str(source_gate.get("policy_reason") or "")
+    if reason == "bridge_gate_hits":
+        return True
+    flags = source_gate.get("molecule_flags") or {}
+    if isinstance(flags, dict):
+        try:
+            return int(flags.get("bridge_gate_hits") or 0) > 0
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
+def _slot_needs_selected_enzyme_evidence(slot: Any) -> bool:
+    if getattr(slot, "ec", None):
+        return True
+    source = str(getattr(slot, "source", "") or "").lower()
+    if source in {
+        "chem_enzy_onmt",
+        "chem_enzy_bionav",
+        "enzyme_precedent",
+        "enzexpand",
+        "enzyformer",
+        "v3_retrieval",
+        "retrorules",
+        "rhea",
+        "rhea_template",
+    }:
+        return True
+    evidence = getattr(slot, "evidence", {}) or {}
+    sp_payload = evidence.get("enzyme_sp_verifier_v1") if isinstance(evidence, dict) else None
+    return bool(isinstance(sp_payload, dict) and sp_payload.get("accepted"))
+
+
+def _selected_enzyme_evidence_for_slot(slot: Any, *, top_k: int, min_similarity: float) -> dict[str, Any]:
+    product = str(getattr(slot, "product", "") or "")
+    main_reactant = str(getattr(slot, "main_reactant", "") or "")
+    if not product or not main_reactant:
+        return {}
+    ec_hint = _slot_bridge_ec_hint(slot)
+    ec_class = _ec_class_from_hint(str(getattr(slot, "ec", "") or ec_hint))
+    try:
+        from cascade_planner.cascadeboard.enzyme_precedent_retrieval import (
+            retrieve_enzyme_precedents,
+            transition_signature,
+        )
+    except Exception:
+        return {}
+    try:
+        precedents = retrieve_enzyme_precedents(
+            product,
+            ec_class=ec_class,
+            top_k=top_k,
+            min_similarity=min_similarity,
+        )
+    except Exception:
+        precedents = []
+    transition = transition_signature(
+        main_reactant,
+        product,
+        substrate_aux=list(getattr(slot, "aux_reactants", []) or []),
+    )
+    selected = _best_selected_enzyme_precedent(precedents)
+    ec_values = _selected_precedent_ec_values(selected)
+    out: dict[str, Any] = {
+        "selected_enzyme_evidence_enrichment": {
+            "schema_version": "route_tree.selected_enzyme_evidence_enrichment.v1",
+            "query_product": product,
+            "query_main_reactant": main_reactant,
+            "ec_filter": ec_class,
+            "top_k": int(top_k),
+            "min_similarity": float(min_similarity),
+            "precedent_count": len(precedents),
+            "transition_signature": transition,
+        },
+        "selected_enzyme_transition_signature": transition,
+    }
+    if selected:
+        out["selected_enzyme_precedent"] = _compact_selected_enzyme_precedent(selected)
+        out["literature_precedent"] = True
+        out["source_db"] = "bridge_pack_v0.enzyme_reaction_pool"
+        if selected.get("rhea_ids"):
+            out["rhea_ids"] = list(selected.get("rhea_ids") or [])
+        if ec_values:
+            out["enzyme_precedent_ec_numbers"] = ec_values
+            if not ec_hint:
+                out["enzyme_precedent_ec_hint"] = ec_values[0]
+    if ec_hint:
+        out["bridge_ec_hint"] = ec_hint
+    return out
+
+
+def _slot_bridge_ec_hint(slot: Any) -> str:
+    evidence = getattr(slot, "evidence", {}) or {}
+    if not isinstance(evidence, dict):
+        return ""
+    source_gate = evidence.get("source_gate") or {}
+    if not isinstance(source_gate, dict):
+        return ""
+    flags = source_gate.get("molecule_flags") or {}
+    if not isinstance(flags, dict):
+        return ""
+    values = flags.get("bridge_gate_ec_numbers") or ()
+    if isinstance(values, str):
+        values = [item.strip() for item in values.replace(";", ",").split(",") if item.strip()]
+    hints = [str(item).strip() for item in values if str(item).strip()]
+    return hints[0] if hints else ""
+
+
+def _ec_class_from_hint(ec: str) -> str:
+    text = str(ec or "").strip()
+    if not text:
+        return ""
+    head = text.split(".", 1)[0]
+    return head if head.isdigit() else ""
+
+
+def _best_selected_enzyme_precedent(precedents: list[dict[str, Any]]) -> dict[str, Any]:
+    if not precedents:
+        return {}
+    return max(
+        (dict(row) for row in precedents if isinstance(row, dict)),
+        key=lambda row: (
+            float(row.get("precedent_product_similarity") or 0.0),
+            float(row.get("precedent_rank_score") or row.get("score") or 0.0),
+        ),
+        default={},
+    )
+
+
+def _selected_precedent_ec_values(precedent: dict[str, Any]) -> list[str]:
+    values = precedent.get("enzyme_ec_numbers") or ((precedent.get("evidence") or {}).get("ec_numbers") if isinstance(precedent.get("evidence"), dict) else [])
+    if isinstance(values, str):
+        values = [item.strip() for item in values.replace(";", ",").split(",") if item.strip()]
+    return [str(item).strip() for item in values or [] if str(item).strip()]
+
+
+def _compact_selected_enzyme_precedent(precedent: dict[str, Any]) -> dict[str, Any]:
+    evidence = precedent.get("evidence") if isinstance(precedent.get("evidence"), dict) else {}
+    return {
+        "source_db": (evidence or {}).get("source_db") or "bridge_pack_v0.enzyme_reaction_pool",
+        "reaction_id": precedent.get("precedent_reaction_id") or (evidence or {}).get("reaction_id") or "",
+        "ec_numbers": _selected_precedent_ec_values(precedent),
+        "rhea_ids": list(precedent.get("rhea_ids") or (evidence or {}).get("rhea_ids") or []),
+        "product_similarity": precedent.get("precedent_product_similarity") or (evidence or {}).get("product_similarity"),
+        "product_full_similarity": precedent.get("precedent_product_full_similarity") or (evidence or {}).get("product_full_similarity"),
+        "rank_score": precedent.get("precedent_rank_score") or (evidence or {}).get("retrieval_rank_score"),
+        "precedent_product_smiles": (evidence or {}).get("precedent_product_smiles") or "",
+        "precedent_reaction_smiles": (evidence or {}).get("precedent_reaction_smiles") or "",
+        "occurrences": (evidence or {}).get("occurrences"),
+        "source_counts": dict((evidence or {}).get("source_counts") or {}),
+    }
 
 
 def _state_signature(state: RouteTreeState) -> tuple[str, ...]:
@@ -1654,6 +2550,9 @@ def _extend_search_diagnostics(
                 "child_value_cost": selection_score.get("child_value_cost"),
                 "feasibility_cost": selection_score.get("feasibility_cost"),
                 "total_cost": selection_score.get("total_cost"),
+                "enzyme_sp_verifier_bonus": selection_score.get("enzyme_sp_verifier_bonus"),
+                "stock_closure_bonus": selection_score.get("stock_closure_bonus"),
+                "stock_closure_diagnostics": selection_score.get("stock_closure_diagnostics"),
                 "selection_score": selection_score.get("total"),
                 "total_before_ccts": selection_score.get("total_before_ccts"),
                 "ccts_active": selection_score.get("ccts_active"),
@@ -1662,6 +2561,7 @@ def _extend_search_diagnostics(
                 "ccts_score": selection_score.get("ccts_score"),
                 "ccts_score_z": selection_score.get("ccts_score_z"),
                 "ccts_bonus": selection_score.get("ccts_bonus"),
+                "enzyme_sp_verifier_v1": selection_score.get("enzyme_sp_verifier_v1"),
                 "source": action.source,
                 "rank": action.rank,
             },
@@ -1734,7 +2634,143 @@ def _runtime_bottleneck_labels(stats: dict[str, Any]) -> list[str]:
 
 def _is_enzymatic_action(action: CandidateAction) -> bool:
     source = str(action.source or "").lower()
-    return bool(action.ec) or source in {"enzyformer", "enzexpand", "retrorules", "rhea_template", "enzymatic"}
+    return bool(action.ec) or source in {
+        "enzyformer",
+        "enzexpand",
+        "retrorules",
+        "rhea",
+        "rhea_template",
+        "rhea_retrorules",
+        "enzyme_precedent",
+        "v3_retrieval",
+        "retrieval",
+        "enzymatic",
+        "chem_enzy_onmt",
+        "chem_enzy_bionav",
+    }
+
+
+def _bridge_supported_action(action: CandidateAction) -> bool:
+    source_gate = action.metadata.get("source_gate") or {}
+    flags = source_gate.get("molecule_flags") or {}
+    try:
+        return int(flags.get("bridge_gate_hits") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _should_apply_enzyme_sp_verifier_v1(action: CandidateAction) -> bool:
+    scope = str(
+        os.environ.get("AUTOPLANNER_ENZYME_SP_VERIFIER_V1_SCOPE")
+        or "enzyme_or_bridge_supported_enzyme"
+    ).lower()
+    if scope in {"all", "all_actions"}:
+        return True
+    if scope in {"bridge", "bridge_supported", "all_bridge_supported"}:
+        return _bridge_supported_action(action)
+    if scope in {"enzyme", "enzymatic", "enzyme_only", "all_enzymatic"}:
+        return _is_enzymatic_action(action)
+    return _is_enzymatic_action(action) or (_bridge_supported_action(action) and _is_enzymatic_action(action))
+
+
+def _enzyme_step_material_quality_payload(
+    *,
+    product: str,
+    action: CandidateAction,
+    sp_payload: dict[str, Any],
+) -> dict[str, Any]:
+    if not _is_enzymatic_action(action):
+        return {}
+    try:
+        from cascade_planner.baselines.chem_enzy_step_quality import (
+            EnzymeStepQualityConfig,
+            evaluate_enzyme_step_quality,
+        )
+    except Exception:
+        return {}
+    try:
+        config = None
+        if _neural_enzyme_source_may_omit_auxiliary_donors(action):
+            config = EnzymeStepQualityConfig(reject_on_material_failure=False)
+        return evaluate_enzyme_step_quality(
+            product_smiles=product,
+            reactants=action.reactants,
+            source_model=action.source,
+            template=action.metadata,
+            sp_payload=sp_payload,
+            ec_numbers=[action.ec] if action.ec else [],
+            config=config,
+        )
+    except Exception as exc:
+        return {
+            "schema_version": "chem_enzy_enzyme_step_quality.v1",
+            "decision": "warn",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def _neural_enzyme_source_may_omit_auxiliary_donors(action: CandidateAction) -> bool:
+    source = str(action.source or "").lower()
+    return source in {"chem_enzy_onmt", "chem_enzy_bionav", "enzyformer", "enzexpand"} or "bionav" in source
+
+
+def _enzyme_sp_material_gate_rejects(action: CandidateAction, quality_payload: dict[str, Any] | None) -> bool:
+    if not _env_truthy("AUTOPLANNER_ENZYME_SP_MATERIAL_GATE"):
+        return False
+    if str((quality_payload or {}).get("decision") or "").lower() != "reject":
+        return False
+    allowed_sources = _env_csv_lower("AUTOPLANNER_ENZYME_SP_MATERIAL_GATE_SOURCES")
+    if not allowed_sources:
+        return True
+    source = str(action.source or "").lower()
+    return source in allowed_sources
+
+
+def _enzyme_sp_verifier_bonus(action: CandidateAction) -> float:
+    """Reward SP-v1 accepted enzyme actions after filtering has attached evidence."""
+
+    if not _is_enzymatic_action(action):
+        return 0.0
+    payload = action.metadata.get("enzyme_sp_verifier_v1") or {}
+    if not isinstance(payload, dict) or not bool(payload.get("accepted")):
+        return 0.0
+    fixed = max(0.0, _env_float("AUTOPLANNER_ROUTE_TREE_ENZYME_SP_ACCEPTED_BONUS", 0.0))
+    score_weight = max(0.0, _env_float("AUTOPLANNER_ROUTE_TREE_ENZYME_SP_SCORE_BONUS", 0.0))
+    if fixed <= 0.0 and score_weight <= 0.0:
+        return 0.0
+    score = _float_or_default(payload.get("score"), 0.0)
+    threshold = _float_or_default(payload.get("threshold"), 0.0)
+    score_signal = max(0.0, score - threshold) if threshold > 0.0 else max(0.0, score)
+    bonus = fixed + score_weight * score_signal
+    cap = max(0.0, _env_float("AUTOPLANNER_ROUTE_TREE_ENZYME_SP_BONUS_CAP", fixed + score_weight))
+    return min(bonus, cap) if cap > 0.0 else bonus
+
+
+def _float_or_default(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _bridge_supported_enzyme_bonus(action: CandidateAction) -> float:
+    bonus = max(0.0, _env_float("AUTOPLANNER_ROUTE_TREE_BRIDGE_ENZYME_BONUS", 0.0))
+    if bonus <= 0.0 or not _is_enzymatic_action(action):
+        return 0.0
+    source_gate = action.metadata.get("source_gate") or {}
+    flags = source_gate.get("molecule_flags") or {}
+    try:
+        hits = int(flags.get("bridge_gate_hits") or 0)
+    except (TypeError, ValueError):
+        hits = 0
+    if hits <= 0:
+        return 0.0
+    if _env_truthy("AUTOPLANNER_ROUTE_TREE_BRIDGE_ENZYME_BONUS_REQUIRE_EC") and not action.ec:
+        return 0.0
+    reason = str(source_gate.get("policy_reason") or "")
+    if reason and not reason.startswith("bridge_gate_hits"):
+        return 0.0
+    return bonus
 
 
 def _reaction_type_compatible(action_type: str, expected_type: str) -> bool:
@@ -1770,9 +2806,24 @@ def _source_reserve_order() -> tuple[str, ...]:
     return tuple(dict.fromkeys(order)) or DEFAULT_SOURCE_RESERVE_ORDER
 
 
+def _stock_closing_probe_sources() -> tuple[str, ...]:
+    raw = os.environ.get("AUTOPLANNER_ROUTE_TREE_STOCK_CLOSING_PROBE_SOURCES") or ""
+    if not raw.strip():
+        raw = "chem_enzy_graphfp_fusion,template_relevance,chemtemplates"
+    sources = tuple(str(item).strip() for item in raw.replace(";", ",").split(",") if item.strip())
+    return tuple(dict.fromkeys(sources))
+
+
 def _action_source_family(source: str | None) -> str:
     text = str(source or "").strip()
-    if text in {"chem_enzy_graphfp", "chem_enzy_onmt"}:
+    if text in {
+        "chem_enzy_graphfp",
+        "autoplanner_dualtower",
+        "autoplanner_dualtower_template",
+        "autoplanner_graphfp_dualtower_fusion",
+    }:
+        return "chem_enzy_graphfp_fusion"
+    if text in {"chem_enzy_onmt", "chem_enzy_bionav"}:
         return "chem_enzy_onestep"
     return text
 
@@ -1912,6 +2963,14 @@ def _env_truthy(name: str) -> bool:
     return str(os.environ.get(name) or "").lower() in {"1", "true", "yes", "on"}
 
 
+def _env_csv_lower(name: str) -> set[str]:
+    return {
+        item.strip().lower()
+        for item in str(os.environ.get(name) or "").replace(";", ",").split(",")
+        if item.strip()
+    }
+
+
 def _ec1(value: str | None) -> str:
     text = str(value or "").strip()
     return text.split(".", 1)[0] if text else ""
@@ -1960,6 +3019,43 @@ def _stock_check(smiles: str, stock_checker: StockChecker | None) -> bool:
         except Exception:
             return False
     return _heavy_atoms(smiles) <= 6
+
+
+def _normalized_stock_check(smiles: str, stock_checker: StockChecker | None) -> bool:
+    if stock_checker is None:
+        return False
+    key = (canonical_smiles(smiles) or str(smiles or ""), id(stock_checker))
+    cached = _NORMALIZED_STOCK_CACHE.get(key)
+    if cached is not None:
+        return cached
+    normalized = _neutralized_smiles(smiles)
+    if not normalized or normalized == key[0]:
+        _NORMALIZED_STOCK_CACHE[key] = False
+        return False
+    out = _stock_check(normalized, stock_checker)
+    _NORMALIZED_STOCK_CACHE[key] = out
+    return out
+
+
+def _neutralized_smiles(smiles: str) -> str:
+    key = canonical_smiles(smiles) or str(smiles or "")
+    cached = _NEUTRALIZED_SMILES_CACHE.get(key)
+    if cached is not None:
+        return cached
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        _NEUTRALIZED_SMILES_CACHE[key] = ""
+        return ""
+    try:
+        from rdkit.Chem.MolStandardize import rdMolStandardize
+
+        neutral = rdMolStandardize.Uncharger().uncharge(mol)
+        out = Chem.MolToSmiles(neutral, isomericSmiles=True)
+    except Exception:
+        out = ""
+    out = canonical_smiles(out) or out
+    _NEUTRALIZED_SMILES_CACHE[key] = out
+    return out
 
 
 def _leaf_has_parent_reaction(state: RouteTreeState, leaf: str) -> bool:

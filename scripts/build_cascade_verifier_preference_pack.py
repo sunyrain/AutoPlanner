@@ -17,6 +17,7 @@ def main() -> None:
         output_jsonl=args.output_jsonl,
         summary_output=args.summary_output,
         max_negatives_per_positive=args.max_negatives_per_positive,
+        require_chosen_seed_verifier_pass=args.require_chosen_seed_verifier_pass,
     )
     print(json.dumps(result["summary"], indent=2))
 
@@ -27,6 +28,7 @@ def build_preference_pack(
     output_jsonl: Path,
     summary_output: Path,
     max_negatives_per_positive: int = 32,
+    require_chosen_seed_verifier_pass: bool = True,
 ) -> dict[str, Any]:
     pack = json.loads(pack_path.read_text(encoding="utf-8"))
     examples = [row for row in pack.get("examples") or [] if isinstance(row, dict)]
@@ -45,10 +47,16 @@ def build_preference_pack(
     pairs = []
     reason_counts: Counter[str] = Counter()
     perturbation_counts: Counter[str] = Counter()
+    skipped_groups_seed_verifier_fail = 0
     for key, rows in groups.items():
-        positives = rows["positive"]
+        positives = [
+            row for row in rows["positive"]
+            if not require_chosen_seed_verifier_pass or row.get("seed_verifier_feasible") is not False
+        ]
         negatives = rows["negative"]
         if not positives or not negatives:
+            if rows["positive"] and negatives:
+                skipped_groups_seed_verifier_fail += 1
             continue
         chosen = positives[0]
         for rank, rejected in enumerate(negatives[: max(0, int(max_negatives_per_positive))]):
@@ -90,6 +98,8 @@ def build_preference_pack(
         "n_groups": len(groups),
         "n_pairs": len(pairs),
         "max_negatives_per_positive": int(max_negatives_per_positive),
+        "require_chosen_seed_verifier_pass": bool(require_chosen_seed_verifier_pass),
+        "skipped_groups_seed_verifier_fail": skipped_groups_seed_verifier_fail,
         "reason_counts": dict(sorted(reason_counts.items(), key=lambda item: (-item[1], item[0]))),
         "perturbation_counts": dict(sorted(perturbation_counts.items(), key=lambda item: (-item[1], item[0]))),
         "contract": "Verifier-derived preference pairs for downstream DPO/reranking; not expert preference labels.",
@@ -105,6 +115,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output-jsonl", type=Path, required=True)
     parser.add_argument("--summary-output", type=Path, required=True)
     parser.add_argument("--max-negatives-per-positive", type=int, default=32)
+    parser.add_argument(
+        "--require-chosen-seed-verifier-pass",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Exclude seed positives marked seed_verifier_feasible=false from chosen cascades. "
+            "Disable only to reproduce older preference packs."
+        ),
+    )
     return parser.parse_args()
 
 

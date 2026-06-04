@@ -517,6 +517,9 @@ def _parse_csv(values: list[str] | None) -> list[str]:
 
 
 def main() -> None:
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("train_route_block_value_model")
     ap = argparse.ArgumentParser(description="Train a route/block value model from route_block_value_pack_v1")
     ap.add_argument("--pack", required=True)
     ap.add_argument("--output-dir", required=True)

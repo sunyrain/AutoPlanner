@@ -1,0 +1,172 @@
+import unittest
+
+from cascade_planner.agent.condition_agent import (
+    ConditionCandidate,
+    audit_conditions,
+    validate_condition_candidate,
+)
+from cascade_planner.agent.route_auditor import (
+    audit_route_package,
+    validate_route_audit_report,
+)
+
+
+class AgentRouteAuditorConditionTest(unittest.TestCase):
+    def test_condition_candidate_validation_and_gap_audit(self):
+        exact = ConditionCandidate(
+            step_id="step_1",
+            source_type="exact",
+            solvent="MeCN",
+            temperature="25 C",
+            evidence_refs=["ev_cond"],
+        )
+        missing = ConditionCandidate(step_id="step_2", source_type="unknown")
+
+        self.assertTrue(validate_condition_candidate(exact)["accepted"])
+        missing_result = validate_condition_candidate(missing)
+        audit = audit_conditions([exact, missing])
+
+        self.assertFalse(missing_result["accepted"])
+        self.assertIn("condition_gap", missing_result["reasons"])
+        self.assertEqual(audit["route_risk"], "gap")
+        self.assertTrue(audit["condition_gap"])
+
+    def test_risky_condition_flags_high_route_risk(self):
+        audit = audit_conditions([
+            ConditionCandidate(
+                step_id="step_1",
+                source_type="model-only",
+                temperature="-80 C",
+                risk_flags=["extreme_temperature"],
+            )
+        ])
+
+        self.assertEqual(audit["route_risk"], "high")
+        self.assertIn("extreme_temperature", audit["risk_flags"])
+
+    def test_exact_condition_source_takes_priority_over_model_prediction(self):
+        audit = audit_conditions([
+            ConditionCandidate(
+                step_id="step_1",
+                source_type="model-only",
+                solvent="predicted solvent",
+            ),
+            ConditionCandidate(
+                step_id="step_1",
+                source_type="exact",
+                solvent="MeCN",
+                evidence_refs=["ev_exact_condition"],
+            ),
+        ])
+
+        self.assertEqual(audit["best_source_type"], "exact")
+        self.assertFalse(audit["condition_gap"])
+
+    def test_partial_anchor_requires_no_solved_claim_without_stock_audit(self):
+        package = _package(route_status="partial_anchor")
+        report = audit_route_package(package, validation={"accepted": True, "route_status": "partial_anchor"})
+
+        self.assertEqual(report.route_status, "partial_anchor")
+        self.assertEqual(report.evidence_status, "anchor_evidence_present")
+        self.assertFalse(report.stock_audit_passed)
+        self.assertIn("anchor_evidence_without_full_stock_closure", report.reasons)
+        self.assertTrue(validate_route_audit_report(report)["accepted"])
+
+    def test_solved_claim_without_stock_audit_is_downgraded_to_unresolved(self):
+        package = _package(route_status="solved")
+        package["literature_candidates"] = []
+        report = audit_route_package(
+            package,
+            validation={"accepted": True, "route_status": "solved"},
+            stock_audit_passed=False,
+            condition_candidates=[{"step_id": "step_1", "source_type": "exact", "solvent": "MeOH", "evidence_refs": ["ev"]}],
+        )
+
+        self.assertEqual(report.route_status, "unresolved")
+        self.assertIn("solved_claim_without_stock_audit", report.reasons)
+        self.assertTrue(validate_route_audit_report(report)["accepted"])
+
+    def test_stock_audit_plus_condition_evidence_can_mark_solved(self):
+        package = _package(route_status="solved")
+        package["literature_candidates"] = []
+        report = audit_route_package(
+            package,
+            validation={"accepted": True, "route_status": "solved"},
+            stock_audit_passed=True,
+            condition_candidates=[{"step_id": "step_1", "source_type": "exact", "solvent": "MeOH", "evidence_refs": ["ev"]}],
+        )
+
+        self.assertEqual(report.route_status, "solved")
+        self.assertTrue(report.stock_audit_passed)
+        self.assertTrue(validate_route_audit_report(report)["accepted"])
+
+    def test_condition_gap_prevents_high_confidence_solved_status(self):
+        package = _package(route_status="solved")
+        package["literature_candidates"] = []
+        report = audit_route_package(
+            package,
+            validation={"accepted": True, "route_status": "solved"},
+            stock_audit_passed=True,
+            condition_candidates=[],
+        )
+
+        self.assertEqual(report.route_status, "unresolved")
+        self.assertEqual(report.condition_status, "condition_gap")
+        self.assertIn("condition_gap", report.reasons)
+
+    def test_invalid_package_generates_fake_closed_rejected_with_terminal_list(self):
+        package = _package(route_status="invalid_package")
+        validation = {
+            "accepted": False,
+            "route_status": "invalid_package",
+            "reasons": ["route_anchor_has_rxn"],
+        }
+
+        report = audit_route_package(package, validation=validation)
+
+        self.assertEqual(report.route_status, "fake_closed_rejected")
+        self.assertTrue(report.fake_closure_rejected)
+        self.assertIn("route_anchor_has_rxn", report.reasons)
+        self.assertTrue(report.rejected_terminal_list)
+        self.assertTrue(validate_route_audit_report(report)["accepted"])
+
+    def test_semisynthesis_closed_requires_anchor_evidence(self):
+        package = _package(route_status="semisynthesis_closed")
+        report = audit_route_package(
+            package,
+            validation={"accepted": True, "route_status": "semisynthesis_closed"},
+            stock_audit_passed=True,
+            condition_candidates=[{"step_id": "step_1", "source_type": "analog", "solvent": "EtOAc"}],
+        )
+        no_anchor = report.to_dict()
+        no_anchor["evidence_status"] = "unknown"
+
+        self.assertEqual(report.route_status, "semisynthesis_closed")
+        self.assertTrue(validate_route_audit_report(report)["accepted"])
+        bad = validate_route_audit_report(no_anchor)
+        self.assertFalse(bad["accepted"])
+        self.assertIn("semisynthesis_closed_without_anchor_evidence", bad["reasons"])
+
+
+def _package(route_status: str) -> dict:
+    return {
+        "case_id": "case",
+        "route_status": route_status,
+        "target": {"smiles": "CCO"},
+        "frontier": {
+            "frontier_smiles": "CCO",
+            "flags": ["advanced_same_scaffold", "no_complexity_drop", "unresolved_core"],
+        },
+        "literature_evidence_refs": ["ev_anchor"],
+        "literature_candidates": [
+            {
+                "candidate_id": "anchor",
+                "candidate_kind": "route_anchor",
+                "evidence_refs": ["ev_anchor"],
+            }
+        ],
+    }
+
+
+if __name__ == "__main__":
+    unittest.main()

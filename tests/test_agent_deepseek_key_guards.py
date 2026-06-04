@@ -68,6 +68,75 @@ class AgentDeepSeekKeyGuardsTest(unittest.TestCase):
         self.assertTrue(payload["fallback"])
         self.assertEqual(payload["resolved_source"], "deterministic")
 
+    def test_agent_cli_case_audit_worker_and_guided_policy_smoke(self):
+        target = "CC(C)CCCC(C)C1CCC2C3CCC4CC(O)CCC4(C)C3CCC12C"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            case_dir = root / "case"
+            run_case = _run_agent_cli([
+                "agent",
+                "run-case",
+                "--target-smiles",
+                target,
+                "--target-name",
+                "bufotalin_cli_case",
+                "--family-hint",
+                "bufotalin, bufadienolide, steroid, pyrone",
+                "--frontier-smiles",
+                target,
+                "--output-dir",
+                str(case_dir),
+                "--query-budget",
+                "4",
+            ])
+            artifacts = run_case["artifacts"]
+
+            inspect = _run_agent_cli(["agent", "inspect-blackboard", "--case-bundle", artifacts["case_bundle"]])
+            audit = _run_agent_cli([
+                "agent",
+                "audit-route",
+                "--package",
+                artifacts["hybrid_route_package"],
+                "--validation",
+                artifacts["validation"],
+            ])
+            task_path = root / "worker_task.json"
+            task_path.write_text(json.dumps({
+                "schema_version": "worker_task.v1",
+                "task_id": "cli_worker",
+                "case_id": run_case["case_id"],
+                "task_type": "stuck_node_research",
+                "required_artifact_type": "ResearchReport",
+                "input_refs": ["frontier_report"],
+                "allowed_tools": ["local_search"],
+                "budget": {"timeout_s": 5, "max_output_bytes": 20000, "max_tool_calls": 2, "max_worker_runs": 1},
+                "dry_run": True,
+            }), encoding="utf-8")
+            worker = _run_agent_cli(["agent", "worker-trace", "--task-json", str(task_path)])
+            policy = _run_agent_cli([
+                "agent",
+                "rerun-with-policy",
+                "--case-bundle",
+                artifacts["case_bundle"],
+                "--target-smiles",
+                target,
+            ])
+
+        self.assertEqual(inspect["route_status"], "partial_anchor")
+        self.assertIn("EvidenceCardList", inspect["artifact_types"])
+        self.assertEqual(audit["route_status"], "partial_anchor")
+        self.assertEqual(worker["status"], "accepted_draft")
+        self.assertIn("chem_enzy_search_policy", policy["guided_config"]["search_flags"])
+        self.assertEqual(policy["rerun_history"]["policy_id"], policy["policy"]["policy_id"])
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _run_agent_cli(argv: list[str]) -> dict:
+    out = StringIO()
+    with patch.object(sys, "argv", argv):
+        with redirect_stdout(out):
+            agent_cli_main()
+    return json.loads(out.getvalue())

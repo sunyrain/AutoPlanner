@@ -102,6 +102,9 @@ def _markdown(result: dict[str, Any]) -> str:
 
 
 def main() -> None:
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("audit_ccts_v0_rank_delta")
     ap = argparse.ArgumentParser(description="Audit CCTS-v0 replay rank deltas")
     ap.add_argument("--replay-jsonl", required=True)
     ap.add_argument("--selected-score", required=True)

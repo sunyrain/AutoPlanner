@@ -83,6 +83,21 @@
           <option value="commercial">Commercial stock · ZINC</option>
         </select>
 
+        <label>路线屏蔽等级</label>
+        <select id="product-audit-filter-mode">
+          <option value="risk_guarded" selected>全部展示 · 仅风险排序/标注</option>
+          <option value="hide_rejects">隐藏严重假路线</option>
+          <option value="hide_risky">严格隐藏高风险路线</option>
+          <option value="off">关闭产品审计</option>
+        </select>
+
+        <label>Proposal gate</label>
+        <select id="proposal-gate-mode">
+          <option value="hard_reject" selected>开启 · 阻止伪单步进入展示</option>
+          <option value="warn">调试 · 展示但标注伪单步</option>
+          <option value="off">关闭 proposal gate</option>
+        </select>
+
         <div class="grid two">
           <div>
             <label>最大深度</label>
@@ -100,6 +115,22 @@
             <label>扩展 top-k</label>
             <input id="chem-enzy-expansion-topk" type="number" min="1" max="500" value="50">
           </div>
+          <div>
+            <label>ONMT tokenizer</label>
+            <select id="chem-enzy-onmt-tokenizer">
+              <option value="char" selected>char</option>
+              <option value="token">SMILES token</option>
+            </select>
+          </div>
+          <div>
+            <label>单步 proposal 模型</label>
+            <select id="one-step-model-mode">
+              <option value="template_available" selected>GraphFP + BioNav + 本地 template relevance</option>
+              <option value="default">GraphFP + BioNav</option>
+              <option value="template_only">仅本地 template relevance</option>
+            </select>
+            <div id="template-relevance-status" class="field-note">template relevance: checking</div>
+          </div>
           <div class="grid two">
             <label class="check-row">
               <input id="enable-condition-prediction" type="checkbox" checked>
@@ -108,6 +139,22 @@
             <label class="check-row">
               <input id="enable-enzyme-assignment" type="checkbox" checked>
               <span>预测酶/EC 注释</span>
+            </label>
+            <label class="check-row">
+              <input id="enable-rule-verifier-gate" type="checkbox">
+              <span>规则级联 hard gate</span>
+            </label>
+            <label class="check-row">
+              <input id="enable-learned-verifier-annotation" type="checkbox">
+              <span>学习 verifier 标注</span>
+            </label>
+            <label class="check-row">
+              <input id="enable-enzyme-coverage-sidecar" type="checkbox">
+              <span>酶覆盖 sidecar</span>
+            </label>
+            <label class="check-row">
+              <input id="enable-chem-enzy-step-strengthening" type="checkbox" checked>
+              <span>ChemEnzy 酶步强化</span>
             </label>
           </div>
           <label>约束 JSON</label>

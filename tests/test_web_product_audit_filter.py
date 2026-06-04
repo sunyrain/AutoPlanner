@@ -4,10 +4,49 @@ import unittest
 from pathlib import Path
 
 import cascade_planner.web.app as web_app
-from cascade_planner.web.app import _apply_product_audit_post_filter
+from cascade_planner.web.app import _apply_product_audit_post_filter, _apply_proposal_gate_post_filter
 
 
 class WebProductAuditFilterTest(unittest.TestCase):
+    def test_proposal_gate_stops_all_routes_at_frontier_before_product_audit(self):
+        target = "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O)C1"
+        output = {
+            "target": target,
+            "routes": [
+                {
+                    "score": 0.1,
+                    "n_steps": 1,
+                    "route_rank": 0,
+                    "metrics": {"route_solved": False},
+                    "steps": [
+                        {
+                            "index": 0,
+                            "product": target,
+                            "main_reactant": "CC(C)(C)OS(C)(=O)=O",
+                            "aux_reactants": ["CC(C)(C)OS(=O)(=O)O"],
+                            "reaction_smiles": f"CC(C)(C)OS(C)(=O)=O.CC(C)(C)OS(=O)(=O)O>>{target}",
+                            "condition_predictions": [{"Reagent": "[Li]CCCC"}],
+                        }
+                    ],
+                }
+            ],
+            "depth_attempts": [{}],
+            "search_status": {},
+            "route_set_metrics": {"diversity": {}},
+            "ui_metadata": {},
+        }
+
+        _apply_proposal_gate_post_filter(output, {"proposal_gate_mode": "hard_reject"})
+
+        self.assertEqual(output["proposal_gate"]["input_routes"], 1)
+        self.assertEqual(output["proposal_gate"]["kept_routes"], 0)
+        self.assertEqual(output["proposal_gate"]["dropped_routes"], 1)
+        self.assertEqual(output["routes"], [])
+        self.assertEqual(output["search_status"]["status"], "frontier")
+        self.assertTrue(output["search_status"]["proposal_gate_removed_all"])
+        self.assertEqual(output["frontiers"][0]["smiles"], target)
+        self.assertIn("proposal_gate_filtered_all", output["failure_diagnosis"])
+
     def test_hides_reject_artifact_and_keeps_reviewable_route(self):
         target = "CC[C@@H](O)C[C@@H](O)CC=O"
         artifact = _native_route(
@@ -115,6 +154,26 @@ class WebProductAuditFilterTest(unittest.TestCase):
         self.assertEqual(len(output["routes"]), 2)
         self.assertNotEqual(output["routes"][0]["product_audit"]["route_class"], "reject_artifact")
         self.assertEqual(output["routes"][1]["product_audit"]["route_class"], "reject_artifact")
+
+    def test_default_mode_shows_all_routes_with_risk_labels(self):
+        target = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+        output = {
+            "target": target,
+            "routes": [
+                _native_route(target=target, reactants=["C"], source="ChemEnzyRetroPlanner", score=0.9),
+                _native_route(target=target, reactants=["CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"], source="ChemEnzyRetroPlanner", score=0.1),
+            ],
+            "depth_attempts": [{}],
+            "search_status": {},
+        }
+
+        _apply_product_audit_post_filter(output, {"target_smiles": target})
+
+        self.assertEqual(output["post_filter"]["mode"], "risk_guarded")
+        self.assertEqual(output["post_filter"]["kept_route_count"], 2)
+        self.assertEqual(output["post_filter"]["removed_route_count"], 0)
+        self.assertEqual(len(output["routes"]), 2)
+        self.assertTrue(all("product_audit" in route for route in output["routes"]))
 
 
 def _native_route(*, target: str, reactants: list[str], source: str, score: float) -> dict:

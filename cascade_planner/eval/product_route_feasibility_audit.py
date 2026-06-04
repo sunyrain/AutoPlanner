@@ -17,7 +17,10 @@ from rdkit import Chem, DataStructs, RDLogger
 from rdkit.Chem import AllChem
 
 from cascade_planner.baselines.route_contract import RouteCandidate, RouteStepCandidate
-from cascade_planner.baselines.route_plausibility import audit_route_plausibility
+from cascade_planner.baselines.route_plausibility import (
+    audit_first_step_material_gate,
+    audit_route_plausibility,
+)
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -278,6 +281,9 @@ def _convert_native_step(step: dict[str, Any], index: int) -> dict[str, Any]:
         "source": source,
         "scores": {"retro": step.get("score"), "confidence": step.get("score")},
         "stock_status": step.get("stock_status") or {},
+        "condition_predictions": list(step.get("condition_predictions") or []),
+        "enzyme_ec_annotations": list(step.get("enzyme_ec_annotations") or []),
+        "catalyst_annotations": list(step.get("catalyst_annotations") or []),
         "reaction_interpretation": {
             "reaction_class": _infer_reaction_class({"source": source, "reaction_smiles": rxn, "reaction_type": "unknown"}),
             "atom_change": _atom_change_from_rxn(rxn),
@@ -368,7 +374,10 @@ def _audit_route(
         issues.append("racemization_artifact")
     if reaction_profile["large_unexplained_atom_gain"]:
         issues.append("large_unexplained_atom_gain")
-    if route_plausibility.get("steps") and not route_plausibility.get("passed"):
+    first_step_material_gate = route_plausibility.get("first_step_material_gate") or {}
+    if route_plausibility.get("steps") and first_step_material_gate.get("decision") == "warn":
+        tags.append("first_step_material_warning")
+    if route_plausibility.get("steps") and first_step_material_gate.get("hard_reject"):
         for reason in route_plausibility.get("reasons") or []:
             issues.append(str(reason))
     if condition_audit.get("route_risk") == "high":
@@ -798,7 +807,9 @@ def _route_plausibility_from_steps(
         solved=bool(solved),
         score=_safe_float(route_score),
     )
-    return audit_route_plausibility(route)
+    audit = audit_route_plausibility(route)
+    audit["first_step_material_gate"] = audit_first_step_material_gate(route_steps[0])
+    return audit
 
 
 def _plausibility_step_parts(step: dict[str, Any]) -> tuple[str, list[str], str]:

@@ -368,6 +368,9 @@ def _parse_param_grid(values: list[str]) -> list[dict[str, Any]] | None:
 
 
 def main() -> None:
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("train_route_pool_lambdarank")
     ap = argparse.ArgumentParser(description="Train same-target route-pool LambdaRank model")
     ap.add_argument("--train-jsonl", required=True)
     ap.add_argument("--val-jsonl", required=True)

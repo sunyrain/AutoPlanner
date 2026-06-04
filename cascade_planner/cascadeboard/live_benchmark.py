@@ -119,9 +119,22 @@ def _build_stock_checker(enabled: bool):
         return None
     try:
         from cascade_planner.cascadeboard.zinc_stock import is_in_zinc_stock
-        return is_in_zinc_stock
+
+        stock_checker = is_in_zinc_stock
     except Exception:
-        return None
+        stock_checker = None
+    if os.environ.get("AUTOPLANNER_DISABLE_COMMON_COMMODITY_STOCK") == "1":
+        common_wrapped = stock_checker
+    else:
+        from cascade_planner.cascadeboard.common_stock import wrap_with_common_commodity_stock
+
+        common_wrapped = wrap_with_common_commodity_stock(stock_checker)
+    if os.environ.get("AUTOPLANNER_DISABLE_CHEMENZY_VENDOR_STOCK") == "1":
+        return common_wrapped
+    from cascade_planner.cascadeboard.vendor_stock import DEFAULT_VENDOR_STOCK_INDEX, wrap_with_vendor_stock
+
+    vendor_index = Path(os.environ.get("AUTOPLANNER_CHEMENZY_VENDOR_STOCK_INDEX") or DEFAULT_VENDOR_STOCK_INDEX)
+    return wrap_with_vendor_stock(common_wrapped, sqlite_path=vendor_index)
 
 
 def _load_benchmark_entries(

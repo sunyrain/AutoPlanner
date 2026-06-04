@@ -273,11 +273,15 @@ class LoadedLearnedVerifierValueModel:
         self.reason_models = dict(artifact.get("reason_models") or {})
         self.reason_labels = list(artifact.get("reason_labels") or [])
         self.training_summary = dict(artifact.get("summary") or {})
+        self.recommended_feasible_threshold = (
+            artifact.get("recommended_feasible_threshold")
+            or ((self.training_summary.get("feasibility") or {}).get("threshold_calibration") or {}).get("recommended_threshold")
+        )
 
     def predict(self, state: CascadeProgramState) -> CascadeValuePrediction:
         # Reuse the exact feature function used for training. This import is
         # intentionally lazy so sklearn is not required for default search.
-        from scripts.train_cascade_verifier_from_pack import _features
+        from cascade_planner.cascade_verifier.features import cascade_verifier_features
 
         base = self.base_model.predict(state)
         route = _route_dict_from_state(state)
@@ -286,7 +290,7 @@ class LoadedLearnedVerifierValueModel:
             "cascade": route,
             "expected_failure_reasons": [],
         }
-        x = self.vectorizer.transform([_features(example)])
+        x = self.vectorizer.transform([cascade_verifier_features(example)])
         feasible_probability = _positive_probability(self.feasible_model, x)
         reason_probabilities = {
             reason: _positive_probability(model, x)
@@ -309,6 +313,12 @@ class LoadedLearnedVerifierValueModel:
                 "learned_verifier": {
                     "model_path": self.model_path,
                     "feasible_probability": round(float(feasible_probability), 6),
+                    "recommended_feasible_threshold": self.recommended_feasible_threshold,
+                    "conservative_feasible": (
+                        bool(feasible_probability >= float(self.recommended_feasible_threshold))
+                        if self.recommended_feasible_threshold not in (None, "")
+                        else None
+                    ),
                     "reason_probabilities": {
                         key: round(float(value), 6)
                         for key, value in sorted(reason_probabilities.items())

@@ -15,6 +15,10 @@ from rdkit.Chem import rdMolDescriptors
 
 from cascade_planner.cascadeboard import CascadeBoard, RouteExplanation, RouteResult, Slot
 from cascade_planner.cascadeboard.route_recovery import canonical_reaction, canonical_side, canonical_smiles
+from cascade_planner.baselines.enzyme_action_status import (
+    route_level_enzyme_status,
+    structured_enzyme_action_from_slot,
+)
 
 
 StockChecker = Callable[[str], bool]
@@ -28,6 +32,19 @@ OXIDANT_TOKENS = {"h2o2", "mcpba", "tempo", "naio4", "kmno4", "o2", "oxygen"}
 REDUCTANT_TOKENS = {"nabh4", "libh4", "lialh4", "h2", "nadh", "nadph", "bh4"}
 COFACTOR_OX = {"nad+", "nadp+", "nad(p)+"}
 COFACTOR_RED = {"nadh", "nadph", "nad(p)h"}
+ENZYMATIC_SOURCE_NAMES = {
+    "enzyformer",
+    "enzexpand",
+    "v3_retrieval",
+    "retrieval",
+    "retrorules",
+    "rhea",
+    "rhea_template",
+    "enzyme_precedent",
+    "enzymatic",
+    "chem_enzy_onmt",
+    "chem_enzy_bionav",
+}
 
 
 def _safe_float(value: Any) -> float | None:
@@ -98,6 +115,13 @@ def _candidate_to_dict(cand: dict[str, Any]) -> dict[str, Any]:
         "biocatalyst_format",
         "engineering_status",
         "source_db",
+        "enzyme_sp_verifier_v1",
+        "enzyme_step_quality_v1",
+        "source_provenance",
+        "source_gate",
+        "route_verifier",
+        "condition_prior",
+        "condition_predictions",
     ):
         value = cand.get(key, evidence.get(key))
         if value not in (None, "", [], {}):
@@ -349,6 +373,11 @@ def slot_to_dict(slot: Slot, stock_checker: StockChecker | None = None) -> dict[
         "pH": _safe_float(slot.pH),
         "solvent": slot.solvent,
         "evidence": _jsonable(slot.evidence),
+        "condition_prior": _jsonable((slot.evidence or {}).get("condition_prior")),
+        "condition_predictions": _jsonable((slot.evidence or {}).get("condition_predictions") or []),
+        "enzyme_sp_verifier_v1": _jsonable((slot.evidence or {}).get("enzyme_sp_verifier_v1")),
+        "enzyme_step_quality_v1": _jsonable((slot.evidence or {}).get("enzyme_step_quality_v1")),
+        "structured_enzyme_action": _jsonable(structured_enzyme_action_from_slot(slot)),
         "source": slot.source or "",
         "scores": {
             "retro": _safe_float(slot.e_retro),
@@ -409,7 +438,7 @@ def condition_window_metrics(
 
 def enzyme_evidence_metrics(board: CascadeBoard) -> dict[str, Any]:
     """Summarize evidence coverage for enzymatic slots."""
-    enzymatic = [s for s in board.slots if s.ec]
+    enzymatic = [s for s in board.slots if _slot_is_enzymatic_candidate(s)]
     if not enzymatic:
         return {
             "n_enzymatic_steps": 0,
@@ -424,7 +453,7 @@ def enzyme_evidence_metrics(board: CascadeBoard) -> dict[str, Any]:
     for s in enzymatic:
         source = s.source or ""
         evidence = s.evidence or {}
-        has_candidate_source = source in {"enzyformer", "v3_retrieval", "enzexpand", "enzymatic"}
+        has_candidate_source = _source_is_enzymatic_candidate(source)
         has_score = (s.e_enzyme is not None and s.e_enzyme > 0) or source == "v3_retrieval"
         uniprot = evidence.get("uniprot_accession") or evidence.get("uniprot_id") or s.enzyme_uid
         organism = evidence.get("organism") or evidence.get("uniprot_lookup_organism")
@@ -439,10 +468,17 @@ def enzyme_evidence_metrics(board: CascadeBoard) -> dict[str, Any]:
         sequence = bool(evidence.get("sequence") or evidence.get("sequence_length"))
         substrate_similarity = evidence.get("substrate_similarity")
         condition_match = evidence.get("condition_match")
-        is_supported = bool(s.ec and (has_candidate_source or has_score or uniprot or precedent))
+        sp_v1 = evidence.get("enzyme_sp_verifier_v1") if isinstance(evidence, dict) else None
+        sp_v1_accepted = bool(isinstance(sp_v1, dict) and sp_v1.get("accepted"))
+        ec_hint = _slot_ec_hint(s)
+        is_supported = bool(
+            (s.ec or ec_hint or sp_v1_accepted)
+            and (has_candidate_source or has_score or uniprot or precedent or sp_v1_accepted)
+        )
         ec_parts = [p for p in (s.ec or "").split(".") if p and p != "x"]
         dimensions = {
             "ec": bool(s.ec),
+            "ec_hint": bool(ec_hint),
             "ec_depth": len(ec_parts),
             "candidate_provenance": bool(has_candidate_source),
             "enzyme_uid": bool(uniprot),
@@ -452,11 +488,13 @@ def enzyme_evidence_metrics(board: CascadeBoard) -> dict[str, Any]:
             "cofactor": bool(cofactor) or _contains_any(_slot_text(s), COFACTOR_OX | COFACTOR_RED),
             "substrate_similarity": substrate_similarity is not None,
             "literature_precedent": precedent,
+            "sp_v1_accepted": sp_v1_accepted,
             "condition_match": condition_match is not None,
             "condition": bool(_safe_float(s.T) is not None and _safe_float(s.pH) is not None),
         }
         score = (
             0.18 * float(dimensions["ec"])
+            + 0.06 * float(dimensions["ec_hint"])
             + 0.10 * min(dimensions["ec_depth"], 4) / 4.0
             + 0.12 * float(dimensions["candidate_provenance"])
             + 0.15 * float(dimensions["uniprot"])
@@ -465,6 +503,7 @@ def enzyme_evidence_metrics(board: CascadeBoard) -> dict[str, Any]:
             + 0.10 * float(dimensions["cofactor"])
             + 0.10 * float(dimensions["substrate_similarity"])
             + 0.10 * float(dimensions["literature_precedent"])
+            + 0.10 * float(dimensions["sp_v1_accepted"])
             + 0.05 * float(dimensions["condition"] or dimensions["condition_match"])
         )
         score = min(1.0, score)
@@ -473,6 +512,7 @@ def enzyme_evidence_metrics(board: CascadeBoard) -> dict[str, Any]:
         rows.append({
             "step": s.index,
             "ec": s.ec,
+            "ec_hint": ec_hint,
             "enzyme_uid": s.enzyme_uid,
             "source": source,
             "e_enzyme": _safe_float(s.e_enzyme),
@@ -976,13 +1016,48 @@ def operation_transition_metrics(board: CascadeBoard) -> dict[str, Any]:
 
 def slot_operation_class(slot: Slot) -> str:
     source = (slot.source or "").lower()
-    if slot.ec or source in {"enzyformer", "enzexpand", "v3_retrieval"}:
+    if _slot_is_enzymatic_candidate(slot):
         return "enzymatic"
-    if source in {"retrochimera", "chemical", "template", "retrosim"}:
+    if source in {
+        "retrochimera",
+        "chemical",
+        "template",
+        "retrosim",
+        "chem_enzy_graphfp",
+        "chem_enzy_graphfp_fusion",
+        "autoplanner_dualtower",
+        "autoplanner_dualtower_template",
+        "autoplanner_graphfp_dualtower_fusion",
+    }:
         return "chemical"
     if slot.catalyst and any(token in (slot.catalyst or "").lower() for token in METAL_TOKENS):
         return "chemical"
     return "unknown"
+
+
+def _slot_is_enzymatic_candidate(slot: Slot) -> bool:
+    return bool(slot.ec or _source_is_enzymatic_candidate(slot.source or ""))
+
+
+def _source_is_enzymatic_candidate(source: str) -> bool:
+    return str(source or "").lower() in ENZYMATIC_SOURCE_NAMES
+
+
+def _slot_ec_hint(slot: Slot) -> str:
+    evidence = slot.evidence or {}
+    if not isinstance(evidence, dict):
+        return ""
+    source_gate = evidence.get("source_gate") or {}
+    if not isinstance(source_gate, dict):
+        return ""
+    flags = source_gate.get("molecule_flags") or {}
+    if not isinstance(flags, dict):
+        return ""
+    values = flags.get("bridge_gate_ec_numbers") or ()
+    if isinstance(values, str):
+        values = [item.strip() for item in values.replace(";", ",").split(",") if item.strip()]
+    hints = [str(item).strip() for item in values if str(item).strip()]
+    return hints[0] if hints else ""
 
 
 def route_candidate_pool_metrics(board: CascadeBoard) -> dict[str, Any]:
@@ -1044,6 +1119,7 @@ def route_metrics(board: CascadeBoard, stock_checker: StockChecker | None = None
 
     cond = condition_window_metrics(board)
     enz = enzyme_evidence_metrics(board)
+    enzyme_status = route_level_enzyme_status(board)
     natural = route_naturalness_metrics(board)
     progress = retrosynthesis_progress_metrics(board, stock_checker=stock_checker)
     compat = cascade_compatibility_metrics(board)
@@ -1078,6 +1154,7 @@ def route_metrics(board: CascadeBoard, stock_checker: StockChecker | None = None
         "stock_override_count": stock_override_hits,
         "condition": cond,
         "enzyme_evidence": enz,
+        "route_enzyme_status": enzyme_status,
         "route_naturalness": natural,
         "retrosynthesis_progress": progress,
         "cascade_compatibility": compat,

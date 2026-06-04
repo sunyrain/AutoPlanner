@@ -1,0 +1,1197 @@
+{
+  "schema_version": "strategic_disconnections.v18_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Seventeenth expanded public source layer focused on route-choice boundaries that are not ordinary templates: stereochemical model transfer and chiral catalyst scope, protecting-group orthogonality and deprotection sequencing, salt resolution and chiral crystallization, solid-phase synthesis impurity lineage, late-stage diversification and SAR source lineage, hazardous-reagent substitution and process safety, feedstock and supply-chain route risk, and analytical identity/reference-standard/stability policy.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist, process, analytical, safety, regulatory, supply-chain, and medicinal-chemistry review",
+      "explicit stereochemical model, protecting-group sequence, resolution/crystallization evidence, solid-phase impurity lineage, SAR comparator series, hazard-substitution rationale, supply-chain provenance, or analytical identity/stability evidence before proposal promotion",
+      "separate stereochemical, protecting-group, chiral-resolution, solid-phase, SAR-library, hazardous-reagent, feedstock, and analytical-reference policy",
+      "route-specific substrate scope, matched/mismatched model evidence, deprotection compatibility, mother-liquor or impurity fate, deletion-sequence/capping evidence, biological-mode or assay lineage, thermal/reactive hazard evidence, supplier/quality traceability, and stability-indicating analytical method review",
+      "safety, toxicology, chiral-purity, bioactive-series, process-hazard, regulatory, supply-chain, analytical-validation, and storage-stability review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operating conditions, hazardous execution instructions, purification recipes, and scale-up protocols",
+      "v18 records are route-choice and source-quality priors only and must not auto-close routes as stock, validated resolution processes, safe substitutions, supply-secure feedstocks, or stability-qualified reference standards"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "stereochemical_model_transfer_and_chiral_catalyst_scope",
+      "name": "Stereochemical model transfer, matched/mismatched chiral control, and chiral catalyst or auxiliary scope",
+      "pattern_keywords": [
+        "stereochemical model",
+        "matched mismatched",
+        "asymmetric catalysis",
+        "chiral auxiliary",
+        "substrate control",
+        "enantioselectivity scope"
+      ],
+      "strategic_principle": "Separate a formal asymmetric disconnection from the stereochemical model that makes it trustworthy. Catalyst, auxiliary, enzyme, or substrate-control records need matched/mismatched evidence and analogue scope before they can guide route ranking."
+    },
+    {
+      "family_id": "protecting_group_orthogonality_deprotection_sequence_policy",
+      "name": "Protecting-group orthogonality, lability, and deprotection-sequence policy",
+      "pattern_keywords": [
+        "protecting group",
+        "orthogonal protection",
+        "deprotection sequence",
+        "global deprotection",
+        "lability",
+        "protecting-group-free synthesis"
+      ],
+      "strategic_principle": "Separate a protected precursor from the sequence logic that installs and removes protection. Route value depends on orthogonality, lability, late-stage compatibility, waste, and deprotection endpoint evidence."
+    },
+    {
+      "family_id": "salt_resolution_crystallization_chiral_purity_boundary",
+      "name": "Diastereomeric salt resolution, crystallization, conglomerate behavior, and chiral-purity boundaries",
+      "pattern_keywords": [
+        "diastereomeric salt",
+        "chiral resolution",
+        "preferential crystallization",
+        "conglomerate",
+        "enantiomeric purity",
+        "mother liquor"
+      ],
+      "strategic_principle": "Separate racemate access from resolution evidence. A salt, cocrystal, or conglomerate route must carry crystallization behavior, yield/purity tradeoff, mother-liquor fate, and chiral analytical support."
+    },
+    {
+      "family_id": "solid_phase_synthesis_deletion_sequence_impurity_policy",
+      "name": "Solid-phase peptide, oligonucleotide, capping, deletion-sequence, cleavage, and impurity-lineage policy",
+      "pattern_keywords": [
+        "solid-phase synthesis",
+        "SPPS",
+        "oligonucleotide synthesis",
+        "deletion sequence",
+        "capping",
+        "cleavage impurity"
+      ],
+      "strategic_principle": "Separate solid-phase route convenience from cycle efficiency and impurity lineage. Deletion sequences, insertions, depurination, capping, cleavage, and purification difficulty are strategic source fields."
+    },
+    {
+      "family_id": "late_stage_diversification_library_sar_source_lineage",
+      "name": "Late-stage diversification, SAR-library source lineage, comparator series, and assay provenance",
+      "pattern_keywords": [
+        "late-stage functionalization",
+        "SAR",
+        "medicinal chemistry library",
+        "DNA-encoded library",
+        "natural product diversification",
+        "assay provenance"
+      ],
+      "strategic_principle": "Separate a diversification handle from evidence that the analogue series is meaningful. SAR-library records need parent series, comparator compounds, site-selectivity, assay lineage, and biological-mode context."
+    },
+    {
+      "family_id": "hazardous_reagent_substitution_process_safety_policy",
+      "name": "Hazardous-reagent substitution, reactive intermediate containment, and process-safety route policy",
+      "pattern_keywords": [
+        "hazardous reagent substitution",
+        "process safety",
+        "thermal hazard",
+        "diazo",
+        "flow chemistry",
+        "safer alternative"
+      ],
+      "strategic_principle": "Separate chemical feasibility from scalable safety. Strategic value can come from replacing or containing hazardous reagents, but promotion requires hazard evaluation, compatibility, and process-safety evidence."
+    },
+    {
+      "family_id": "feedstock_supply_chain_route_risk_boundary",
+      "name": "Feedstock availability, supplier traceability, raw-material quality, and supply-chain route-risk boundary",
+      "pattern_keywords": [
+        "feedstock",
+        "supply chain",
+        "raw material quality",
+        "supplier risk",
+        "API procurement",
+        "traceability"
+      ],
+      "strategic_principle": "Separate a purchasable-looking precursor from a resilient route anchor. Feedstock records need source, quality, supplier, geopolitical/logistic risk, regulatory grade, and change-control provenance."
+    },
+    {
+      "family_id": "analytical_identity_reference_standard_stability_policy",
+      "name": "Analytical identity, reference standard, degradant/metabolite, tautomer/salt, and stability-policy boundaries",
+      "pattern_keywords": [
+        "reference standard",
+        "analytical identity",
+        "degradant",
+        "metabolite",
+        "stability indicating method",
+        "ICH Q1A Q2"
+      ],
+      "strategic_principle": "Separate target or impurity name from analytical identity and stability evidence. Reference-standard, degradant, metabolite, salt, tautomer, and storage records need validated methods and stability-indicating provenance."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "stereochemical_model_scope_anchor",
+      "family_id": "stereochemical_model_transfer_and_chiral_catalyst_scope",
+      "name": "Stereochemical-control anchor with reviewed catalyst/auxiliary/substrate model, matched/mismatched cases, and analogue scope",
+      "role": "stereochemical_model_anchor",
+      "aliases": [
+        "matched chiral catalyst model",
+        "substrate-controlled stereochemical model",
+        "recoverable chiral auxiliary"
+      ],
+      "acceptance_policy": "requires_stereochemical_model_substrate_scope_matched_mismatched_cases_product_configuration_and_scale_or_recovery_review"
+    },
+    {
+      "anchor_id": "protecting_group_sequence_orthogonality_anchor",
+      "family_id": "protecting_group_orthogonality_deprotection_sequence_policy",
+      "name": "Protecting-group sequence anchor with reviewed orthogonality, lability, deprotection order, and endpoint compatibility",
+      "role": "protecting_group_sequence_anchor",
+      "aliases": [
+        "orthogonal protecting-group set",
+        "global deprotection route",
+        "protecting-group-free comparator"
+      ],
+      "acceptance_policy": "requires_protection_role_orthogonality_lability_deprotection_order_endpoint_and_waste_or_yield_review"
+    },
+    {
+      "anchor_id": "salt_resolution_crystallization_chiral_purity_anchor",
+      "family_id": "salt_resolution_crystallization_chiral_purity_boundary",
+      "name": "Resolution/crystallization anchor with reviewed salt/cocrystal behavior, mother-liquor fate, yield/purity tradeoff, and chiral assay",
+      "role": "chiral_resolution_anchor",
+      "aliases": [
+        "diastereomeric salt resolution",
+        "preferential crystallization",
+        "conglomerate crystal resolution"
+      ],
+      "acceptance_policy": "requires_resolution_mode_crystal_behavior_mother_liquor_fate_yield_purity_and_chiral_analytical_method_review"
+    },
+    {
+      "anchor_id": "solid_phase_impurity_lineage_anchor",
+      "family_id": "solid_phase_synthesis_deletion_sequence_impurity_policy",
+      "name": "Solid-phase synthesis anchor with reviewed cycle efficiency, capping, deletion/insertion sequences, cleavage, and impurity lineage",
+      "role": "solid_phase_impurity_anchor",
+      "aliases": [
+        "SPPS impurity lineage",
+        "oligonucleotide deletion sequence",
+        "solid-support cleavage impurity"
+      ],
+      "acceptance_policy": "requires_solid_support_cycle_efficiency_capping_deletion_or_insertion_impurity_cleavage_purification_and_assay_review"
+    },
+    {
+      "anchor_id": "late_stage_sar_library_lineage_anchor",
+      "family_id": "late_stage_diversification_library_sar_source_lineage",
+      "name": "Late-stage diversification/SAR anchor with reviewed parent series, site selectivity, analogue comparator, assay lineage, and biological mode",
+      "role": "sar_library_lineage_anchor",
+      "aliases": [
+        "late-stage functionalization SAR series",
+        "natural-product diversification library",
+        "DNA-encoded library hit lineage"
+      ],
+      "acceptance_policy": "requires_parent_series_site_selectivity_comparator_set_assay_provenance_biological_mode_and_hit_validation_review"
+    },
+    {
+      "anchor_id": "hazardous_reagent_substitution_safety_anchor",
+      "family_id": "hazardous_reagent_substitution_process_safety_policy",
+      "name": "Process-safety anchor with reviewed hazardous reagent or intermediate, safer alternative, containment mode, and scale boundary",
+      "role": "hazard_substitution_anchor",
+      "aliases": [
+        "hazardous reagent substitution",
+        "flow containment of reactive intermediate",
+        "thermal hazard process review"
+      ],
+      "acceptance_policy": "requires_hazard_identity_substitution_rationale_reactivity_or_thermal_screening_containment_mode_and_scale_boundary_review"
+    },
+    {
+      "anchor_id": "feedstock_supply_chain_route_risk_anchor",
+      "family_id": "feedstock_supply_chain_route_risk_boundary",
+      "name": "Feedstock/supply-chain anchor with reviewed supplier, quality grade, source traceability, logistics, and change-control risk",
+      "role": "feedstock_supply_chain_anchor",
+      "aliases": [
+        "API raw-material supply",
+        "commodity feedstock route anchor",
+        "supplier-risk route boundary"
+      ],
+      "acceptance_policy": "requires_supplier_source_quality_grade_traceability_logistics_change_control_and_route_resilience_review"
+    },
+    {
+      "anchor_id": "analytical_identity_reference_stability_anchor",
+      "family_id": "analytical_identity_reference_standard_stability_policy",
+      "name": "Analytical identity/stability anchor with reviewed reference standard, degradant/metabolite identity, validated method, and storage evidence",
+      "role": "analytical_identity_stability_anchor",
+      "aliases": [
+        "reference standard route card",
+        "stability-indicating method",
+        "degradant or metabolite identity"
+      ],
+      "acceptance_policy": "requires_reference_standard_identity_validated_method_degradant_or_metabolite_assignment_storage_and_stability_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "chiral_catalyst_matched_mismatched_scope_policy",
+      "family_id": "stereochemical_model_transfer_and_chiral_catalyst_scope",
+      "name": "Stereodefined product to chiral catalyst/substrate model plus matched/mismatched scope policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "enantioenriched intermediates",
+          "diastereoselective asymmetric catalysis products",
+          "complex target stereocenters"
+        ],
+        "target_features": [
+          "chiral catalyst",
+          "substrate stereocenter",
+          "matched or mismatched control",
+          "enantioselectivity scope"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "stereochemical outcome to model-evidence boundary",
+          "substrate scope to catalyst-transfer boundary"
+        ],
+        "forward_logic": [
+          "separate the bond-forming transformation from the stereochemical model that predicts product configuration",
+          "track catalyst identity, substrate class, matched/mismatched cases, and product stereochemical assignment",
+          "avoid transferring enantioselectivity claims outside the reviewed analogue scope"
+        ],
+        "suggested_precursor_roles": [
+          "prochiral or chiral substrate",
+          "chiral catalyst or ligand",
+          "stereochemical model",
+          "configured product"
+        ],
+        "planner_hint": "Reward asymmetric route sources only when stereochemical model, substrate scope, and matched/mismatched evidence are explicit."
+      },
+      "risks": [
+        "stereochemical model overtransferred",
+        "matched/mismatched reversal",
+        "analogue scope cliff",
+        "product configuration not proven"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Asymmetric catalysis in complex target synthesis discusses catalyst/substrate control and the need for predictable stereochemical performance.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC397387/"
+        },
+        {
+          "type": "literature",
+          "citation": "Stereochemical cooperativity review discusses matched pairings and ligand chirality elements in asymmetric catalyst optimization.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/28419592/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "chiral_catalyst_scope_prior",
+        "rerank_bonus": "moderate for explicit catalyst/substrate model, matched and mismatched examples, analogue scope, and configuration proof",
+        "compliance_gate": "stereochemical_model_transfer_and_scope_review_required"
+      }
+    },
+    {
+      "id": "chiral_auxiliary_install_remove_recovery_boundary",
+      "family_id": "stereochemical_model_transfer_and_chiral_catalyst_scope",
+      "name": "Auxiliary-controlled stereocenter to auxiliary installation, cleavage/recovery, and transferability policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "auxiliary-controlled chiral intermediates",
+          "diastereoselective alkylation or aldol products",
+          "recoverable chiral auxiliary routes"
+        ],
+        "target_features": [
+          "chiral auxiliary",
+          "diastereofacial selectivity",
+          "auxiliary removal",
+          "auxiliary recovery"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "product stereocenter to auxiliary-controlled precursor boundary",
+          "auxiliary cleavage to route-cost boundary"
+        ],
+        "forward_logic": [
+          "separate stereoselective formation from auxiliary installation and removal",
+          "track auxiliary recovery, cleavage compatibility, stereochemical assignment, and mass-balance burden",
+          "penalize routes where auxiliary use hides extra steps or problematic deprotection"
+        ],
+        "suggested_precursor_roles": [
+          "auxiliary-bound substrate",
+          "chiral auxiliary",
+          "cleaved stereodefined product",
+          "auxiliary recovery metadata"
+        ],
+        "planner_hint": "Use auxiliary records when stereochemical reliability must be weighed against installation/removal burden."
+      },
+      "risks": [
+        "auxiliary cleavage incompatibility",
+        "recovery omitted",
+        "stoichiometric chiral material burden",
+        "diastereoselectivity not transferable"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "SuperQuat chiral auxiliary review discusses design, synthetic uses, cleavage, and recovery considerations.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/30633283/"
+        },
+        {
+          "type": "literature",
+          "citation": "Transition-state model review discusses how chiral information is transferred in asymmetric catalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/27101013/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "chiral_auxiliary_route_burden_prior",
+        "rerank_bonus": "moderate for explicit auxiliary installation, stereochemical model, cleavage compatibility, and recovery or waste policy",
+        "compliance_gate": "chiral_auxiliary_cleavage_and_stereochemical_review_required"
+      }
+    },
+    {
+      "id": "orthogonal_protecting_group_sequence_disconnection",
+      "family_id": "protecting_group_orthogonality_deprotection_sequence_policy",
+      "name": "Functionalized target to orthogonally protected precursor plus protection/deprotection order policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "polyfunctional intermediates",
+          "carbohydrates and glycoconjugates",
+          "peptide or oligonucleotide fragments"
+        ],
+        "target_features": [
+          "orthogonal protection",
+          "selective deprotection",
+          "multiple labile groups"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "unmasked functionality to protection-sequence boundary",
+          "selective deprotection to orthogonality boundary"
+        ],
+        "forward_logic": [
+          "separate functional-group masking from the strategic order in which groups are revealed",
+          "track orthogonal removal, lability, downstream compatibility, and endpoint identity",
+          "flag routes where a protecting group solves one step but blocks a later strategic move"
+        ],
+        "suggested_precursor_roles": [
+          "polyfunctional substrate",
+          "orthogonally protected intermediate",
+          "selective deprotection step",
+          "unmasked product"
+        ],
+        "planner_hint": "Reward protecting-group routes only when protection role and deprotection order are explicit."
+      },
+      "risks": [
+        "deprotection order incompatible",
+        "orthogonality overclaimed",
+        "late functional group damaged",
+        "extra steps hidden in route score"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Orthogonality review traces orthogonal protecting-group strategy from solid-phase synthesis into broader chemistry.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/23282586/"
+        },
+        {
+          "type": "literature",
+          "citation": "Oligosaccharide protecting-group review discusses challenges in late-stage functionalization and global deprotection.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36030632/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "protecting_group_orthogonality_prior",
+        "rerank_bonus": "moderate for explicit protection role, orthogonality, deprotection order, endpoint identity, and downstream compatibility",
+        "compliance_gate": "protecting_group_sequence_and_lability_review_required"
+      }
+    },
+    {
+      "id": "late_global_deprotection_lability_policy",
+      "family_id": "protecting_group_orthogonality_deprotection_sequence_policy",
+      "name": "Globally protected route to final target plus lability, waste, and protecting-group-free comparator policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "globally deprotected natural products",
+          "late-stage glycan or peptide endpoints",
+          "protecting-group-intensive routes"
+        ],
+        "target_features": [
+          "global deprotection",
+          "protecting-group burden",
+          "lability or rearrangement risk",
+          "protecting-group-free alternative"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "final target to globally protected precursor boundary",
+          "protecting-group burden to route-efficiency boundary"
+        ],
+        "forward_logic": [
+          "separate formal convergence from the late unmasking operation that determines whether the route survives",
+          "track protecting-group count, deprotection endpoint, waste/step burden, and sensitive functionality",
+          "prefer routes with explicit deprotection evidence or credible protecting-group-free comparators"
+        ],
+        "suggested_precursor_roles": [
+          "globally protected precursor",
+          "sensitive final target",
+          "deprotection endpoint evidence",
+          "protecting-group-free comparator"
+        ],
+        "planner_hint": "Down-rank protection-heavy routes when final deprotection lacks endpoint evidence or damages key functionality."
+      },
+      "risks": [
+        "late-stage decomposition",
+        "protecting-group waste burden",
+        "endpoint not characterized",
+        "global deprotection not transferable"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Protecting-group-free synthesis review frames protection/deprotection as step and waste burden in complex molecule synthesis.",
+          "url": "https://www.nature.com/articles/nchem.216"
+        },
+        {
+          "type": "literature",
+          "citation": "Carbohydrate-building-block review covers protection/deprotection strategy for selectively protected intermediates.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31044205/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "global_deprotection_lability_prior",
+        "rerank_bonus": "moderate for explicit final deprotection evidence, lability assessment, protecting-group count, and comparator route",
+        "compliance_gate": "global_deprotection_endpoint_and_waste_review_required"
+      }
+    },
+    {
+      "id": "diastereomeric_salt_resolution_boundary",
+      "family_id": "salt_resolution_crystallization_chiral_purity_boundary",
+      "name": "Enantiopure product to racemate plus diastereomeric salt/cocrystal resolution and mother-liquor policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "resolved amines or acids",
+          "chiral pharmaceutical intermediates",
+          "racemate-to-single-enantiomer routes"
+        ],
+        "target_features": [
+          "diastereomeric salt",
+          "chiral resolving agent",
+          "mother liquor",
+          "enantiomeric purity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "single enantiomer to racemate boundary",
+          "crystallized salt to chiral-purity boundary"
+        ],
+        "forward_logic": [
+          "separate racemate synthesis from the resolution operation that controls enantiomeric purity",
+          "track resolving agent, salt or cocrystal behavior, mother-liquor recycling, assay method, and yield/purity tradeoff",
+          "avoid treating resolution as a generic purification without mass-balance and chiral analytical evidence"
+        ],
+        "suggested_precursor_roles": [
+          "racemic substrate",
+          "resolving agent",
+          "diastereomeric salt or cocrystal",
+          "single-enantiomer product"
+        ],
+        "planner_hint": "Reward salt-resolution routes only when crystal behavior, mother-liquor fate, and chiral assay are explicit."
+      },
+      "risks": [
+        "half-yield ceiling hidden",
+        "resolving agent recovery omitted",
+        "mother-liquor fate missing",
+        "chiral purity assay absent"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Chiral separation review surveys resolution strategies from racemate to enantiomer including salt and cocrystal approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10631238/"
+        },
+        {
+          "type": "literature",
+          "citation": "Chiral-drugs overview discusses classical chiral resolution by diastereomer formation and crystallization.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3614593/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "diastereomeric_salt_resolution_prior",
+        "rerank_bonus": "moderate for explicit resolving agent, salt/cocrystal behavior, assay, yield/purity tradeoff, and recycle policy",
+        "compliance_gate": "chiral_resolution_purity_and_mass_balance_review_required"
+      }
+    },
+    {
+      "id": "conglomerate_preferential_crystallization_policy",
+      "family_id": "salt_resolution_crystallization_chiral_purity_boundary",
+      "name": "Chiral product to conglomerate or preferential crystallization plus seeding and purity-policy boundary",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "conglomerate-forming racemates",
+          "preferential crystallization candidates",
+          "crystallization-based deracemization routes"
+        ],
+        "target_features": [
+          "conglomerate crystal",
+          "preferential crystallization",
+          "seeding",
+          "solid-form chirality"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "racemate to enantiopure crystal boundary",
+          "solid-form behavior to route-feasibility boundary"
+        ],
+        "forward_logic": [
+          "separate a molecular stereocenter from the solid-form behavior that enables resolution",
+          "track conglomerate evidence, seeding mode, phase behavior, and bulk chiral purity assay",
+          "flag routes where single-crystal information is overinterpreted as bulk enantiopurity"
+        ],
+        "suggested_precursor_roles": [
+          "racemic material",
+          "conglomerate or preferential-crystallization system",
+          "seed or crystallization lineage",
+          "enantiopure solid"
+        ],
+        "planner_hint": "Use crystallization-policy records when solid-form behavior, not a new bond, is the strategic source."
+      },
+      "risks": [
+        "single-crystal chirality overinterpreted",
+        "bulk purity unsupported",
+        "phase behavior unknown",
+        "seed lineage not traceable"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Crystallization-based deracemization review covers chiral resolution of small molecules.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39853954/"
+        },
+        {
+          "type": "literature",
+          "citation": "Hidden conglomerate chiral-pool study discusses manual review of synthetic and crystallographic route evidence.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9597607/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "conglomerate_crystallization_prior",
+        "rerank_bonus": "moderate for explicit conglomerate evidence, phase behavior, seed lineage, and bulk chiral-purity assay",
+        "compliance_gate": "crystallization_chiral_purity_and_solid_form_review_required"
+      }
+    },
+    {
+      "id": "solid_phase_peptide_deletion_capping_policy",
+      "family_id": "solid_phase_synthesis_deletion_sequence_impurity_policy",
+      "name": "Peptide target to SPPS cycle plan plus deletion/insertion, capping, cleavage, and purification policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "synthetic peptides",
+          "solid-phase peptide products",
+          "peptide API or probe intermediates"
+        ],
+        "target_features": [
+          "SPPS",
+          "deletion sequence",
+          "capping",
+          "cleavage",
+          "peptide impurity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "full-length peptide to cycle-efficiency boundary",
+          "support-bound chain to cleavage/purification boundary"
+        ],
+        "forward_logic": [
+          "separate peptide sequence assembly from the impurity lineage produced by each solid-phase cycle",
+          "track deletion and insertion sequences, capping policy, difficult sequence features, cleavage endpoint, and purification assay",
+          "avoid treating SPPS as automatically feasible for long or impurity-prone sequences"
+        ],
+        "suggested_precursor_roles": [
+          "protected amino-acid sequence",
+          "solid support",
+          "capped/deleted sequences",
+          "cleaved target peptide"
+        ],
+        "planner_hint": "Reward SPPS routes only when cycle failure modes and impurity fate are represented."
+      },
+      "risks": [
+        "deletion sequence hidden",
+        "insertion impurity",
+        "capping incomplete",
+        "cleavage or purification bottleneck"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Peptide impurity review identifies SPPS-related deletion and insertion impurities among peptide medicines.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25044089/"
+        },
+        {
+          "type": "literature",
+          "citation": "Fluorous capping reagent paper frames capping as a way to control deletion products in SPPS purification.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/15291542/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "solid_phase_peptide_impurity_prior",
+        "rerank_bonus": "moderate for explicit sequence, cycle efficiency, capping, deletion/insertion profile, cleavage endpoint, and purification assay",
+        "compliance_gate": "solid_phase_peptide_impurity_and_purification_review_required"
+      }
+    },
+    {
+      "id": "oligonucleotide_solid_phase_deletion_depurination_policy",
+      "family_id": "solid_phase_synthesis_deletion_sequence_impurity_policy",
+      "name": "Oligonucleotide product to solid-phase cycle plus deletion, depurination, capping, and degradant policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "synthetic oligonucleotides",
+          "antisense or siRNA strands",
+          "solid-phase nucleic-acid products"
+        ],
+        "target_features": [
+          "nucleotide deletion",
+          "depurination",
+          "capping step",
+          "oligonucleotide impurity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "oligonucleotide sequence to cycle-error boundary",
+          "solid support to cleavage/deprotection boundary"
+        ],
+        "forward_logic": [
+          "separate target sequence from solid-phase synthesis error accumulation",
+          "track deletion frequency, capping chemistry class, depurination/degradant risk, and sequence-verification method",
+          "flag sequences where impurity similarity makes purification or analytical assignment route-defining"
+        ],
+        "suggested_precursor_roles": [
+          "protected nucleoside building blocks",
+          "support-bound oligonucleotide",
+          "deletion/degradation impurity set",
+          "validated sequence product"
+        ],
+        "planner_hint": "Use oligonucleotide solid-phase records when deletion or degradant lineage dominates route trust."
+      },
+      "risks": [
+        "deletion impurities hard to purge",
+        "depurination or degradant formation",
+        "sequence verification insufficient",
+        "capping changes impurity profile"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Oligonucleotide impurity review discusses synthesis-cycle impurities and degradants characterized by mass spectrometry.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31840864/"
+        },
+        {
+          "type": "literature",
+          "citation": "Capping-step study examines how solid-phase phosphoramidite capping conditions affect oligonucleotide synthetic errors.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12786494/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "solid_phase_oligonucleotide_impurity_prior",
+        "rerank_bonus": "moderate for explicit cycle error model, deletion/degradant profile, capping policy, sequence assay, and purification strategy",
+        "compliance_gate": "oligonucleotide_impurity_sequence_and_degradant_review_required"
+      }
+    },
+    {
+      "id": "late_stage_diversification_sar_series_boundary",
+      "family_id": "late_stage_diversification_library_sar_source_lineage",
+      "name": "Lead analogue to parent scaffold plus late-stage diversification and SAR comparator-series policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "medicinal chemistry analogues",
+          "natural-product derivatives",
+          "late-stage functionalization products"
+        ],
+        "target_features": [
+          "late-stage functionalization",
+          "SAR series",
+          "site-selective diversification",
+          "biological assay lineage"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "analogue substituent to parent-scaffold boundary",
+          "SAR claim to comparator-series boundary"
+        ],
+        "forward_logic": [
+          "separate a late-stage functionalization handle from evidence that the analogue series is meaningful",
+          "track parent scaffold, site selectivity, comparator analogues, assay lineage, and biological-mode context",
+          "avoid promoting a single analogue as strategic source without series-level evidence"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "late-stage diversification handle",
+          "analogue series",
+          "assay and SAR metadata"
+        ],
+        "planner_hint": "Reward late-stage diversification records when they expose parent-series and assay lineage, not just a modified product."
+      },
+      "risks": [
+        "single analogue overinterpreted",
+        "site selectivity unsupported",
+        "assay context missing",
+        "biological mode not comparable"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Medicinal-chemistry LSF review frames late-stage functionalization as a strategy for SAR exploration.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/26507237/"
+        },
+        {
+          "type": "literature",
+          "citation": "Natural-product diversification review discusses late-stage transformations for drug discovery and chemical biology.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7256965/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "late_stage_sar_series_prior",
+        "rerank_bonus": "moderate for explicit parent scaffold, site selectivity, comparator series, assay lineage, and biological-mode context",
+        "compliance_gate": "late_stage_sar_series_and_biological_mode_review_required"
+      }
+    },
+    {
+      "id": "encoded_library_hit_lineage_validation_policy",
+      "family_id": "late_stage_diversification_library_sar_source_lineage",
+      "name": "Library hit to encoded-library synthesis lineage plus resynthesis, assay, and validation policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "DNA-encoded library hits",
+          "combinatorial library analogues",
+          "screen-derived medicinal chemistry starts"
+        ],
+        "target_features": [
+          "encoded library",
+          "selection count",
+          "hit validation",
+          "resynthesis"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "screen hit to library-synthesis boundary",
+          "selection signal to validation boundary"
+        ],
+        "forward_logic": [
+          "separate encoded-library selection signal from independently validated chemical matter",
+          "track library synthesis route, DNA-compatible transformation, enrichment context, resynthesis, and orthogonal assay",
+          "down-rank hits without source lineage or validation outside the encoded context"
+        ],
+        "suggested_precursor_roles": [
+          "library building blocks",
+          "encoded library member",
+          "selection signal",
+          "resynthesized validated hit"
+        ],
+        "planner_hint": "Use encoded-library records as weak route sources unless resynthesis and assay validation are explicit."
+      },
+      "risks": [
+        "selection artifact",
+        "DNA-compatibility not transferable",
+        "hit not resynthesized",
+        "assay lineage missing"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "DNA-encoded library review summarizes DEL construction, screening, successes, and future challenges.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34423264/"
+        },
+        {
+          "type": "literature",
+          "citation": "DEL late-stage functionalization review discusses DNA-compatible diversification and limitations.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37129260/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "encoded_library_hit_lineage_prior",
+        "rerank_bonus": "moderate for explicit library synthesis lineage, enrichment context, resynthesis, orthogonal assay, and comparator series",
+        "compliance_gate": "encoded_library_hit_validation_and_assay_lineage_review_required"
+      }
+    },
+    {
+      "id": "hazardous_reagent_substitution_route_boundary",
+      "family_id": "hazardous_reagent_substitution_process_safety_policy",
+      "name": "Target route to hazardous reagent or intermediate plus safer substitution and process-safety boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "hazardous-reagent routes",
+          "process chemistry route comparisons",
+          "scale-sensitive transformations"
+        ],
+        "target_features": [
+          "explosive or toxic reagent",
+          "thermal hazard",
+          "safer alternative",
+          "process safety review"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "hazardous transformation to safer-substitution boundary",
+          "bench feasibility to process-safety boundary"
+        ],
+        "forward_logic": [
+          "separate chemical yield from hazard burden and scale transfer",
+          "track hazardous reagent class, substitution rationale, waste/toxicity tradeoff, and process-safety evidence",
+          "avoid promoting a safer-sounding route without hazard and exposure review"
+        ],
+        "suggested_precursor_roles": [
+          "hazardous reagent route",
+          "safer reagent or process alternative",
+          "hazard evaluation evidence",
+          "scale boundary metadata"
+        ],
+        "planner_hint": "Reward hazard substitutions only when hazard identity, compatibility, and process-safety evidence are explicit."
+      },
+      "risks": [
+        "regrettable substitution",
+        "hazard shifted to workup or waste",
+        "thermal hazard untested",
+        "scale boundary unsupported"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Process-safety review discusses thermal and reaction hazard evaluation in pharmaceutical process development.",
+          "url": "https://pubs.acs.org/doi/10.1021/acs.oprd.0c00226"
+        },
+        {
+          "type": "literature",
+          "citation": "Green-toxicology article discusses avoiding regrettable substitutions during safer chemical design.",
+          "url": "https://pubs.acs.org/doi/10.1021/acssuschemeng.0c09435"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "hazardous_reagent_substitution_prior",
+        "rerank_bonus": "moderate for explicit hazard identity, safer alternative rationale, compatibility, waste/exposure review, and scale boundary",
+        "compliance_gate": "process_safety_hazard_substitution_review_required"
+      }
+    },
+    {
+      "id": "flow_containment_reactive_intermediate_policy",
+      "family_id": "hazardous_reagent_substitution_process_safety_policy",
+      "name": "Reactive intermediate route to continuous-flow containment plus heat/mass-transfer and safety-policy boundary",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "reactive-intermediate routes",
+          "diazo or diazonium process candidates",
+          "flow-enabled hazardous chemistry"
+        ],
+        "target_features": [
+          "continuous flow",
+          "reactive intermediate",
+          "containment",
+          "process intensification"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "reactive intermediate to containment boundary",
+          "batch route to flow-process boundary"
+        ],
+        "forward_logic": [
+          "separate generation of a hazardous intermediate from containment and consumption strategy",
+          "track flow rationale, residence/hold-up concept, heat/mass-transfer advantage, inline monitoring, and downstream compatibility",
+          "flag routes where flow is claimed as safety evidence without process review"
+        ],
+        "suggested_precursor_roles": [
+          "reactive intermediate precursor",
+          "contained intermediate stream",
+          "flow process boundary",
+          "downstream consuming step"
+        ],
+        "planner_hint": "Use flow-containment records when process format is the strategic source of feasibility."
+      },
+      "risks": [
+        "flow claimed without hazard review",
+        "quench/downstream mismatch",
+        "scale-out not proven",
+        "inline monitoring absent"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Diazo/diazonium flow review discusses continuous processing as a way to handle hazardous reactive species.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25404044/"
+        },
+        {
+          "type": "literature",
+          "citation": "Flow-chemistry API review discusses safety, heat/mass-transfer, and process-control advantages for pharmaceutical synthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8867129/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "flow_containment_reactive_intermediate_prior",
+        "rerank_bonus": "moderate for explicit reactive intermediate, containment rationale, inline monitoring, downstream compatibility, and scale boundary",
+        "compliance_gate": "flow_hazard_containment_and_process_review_required"
+      }
+    },
+    {
+      "id": "feedstock_availability_quality_route_risk_policy",
+      "family_id": "feedstock_supply_chain_route_risk_boundary",
+      "name": "Route anchor to feedstock availability, quality grade, supplier diversity, and change-control policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "commodity-feedstock routes",
+          "API raw-material routes",
+          "supply-dependent process routes"
+        ],
+        "target_features": [
+          "feedstock availability",
+          "supplier diversity",
+          "raw material quality",
+          "change control"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "purchasable precursor to supply-chain boundary",
+          "feedstock claim to quality-grade boundary"
+        ],
+        "forward_logic": [
+          "separate market availability from route resilience",
+          "track supplier count, source geography, quality grade, impurity profile, and change-control requirements",
+          "avoid auto-closing routes on feedstocks whose availability or quality provenance is weak"
+        ],
+        "suggested_precursor_roles": [
+          "feedstock precursor",
+          "supplier or source record",
+          "quality-grade metadata",
+          "change-control risk"
+        ],
+        "planner_hint": "Reward feedstock anchors only when supplier, quality, and change-control evidence are explicit."
+      },
+      "risks": [
+        "single-source dependency",
+        "quality grade mismatch",
+        "supply disruption",
+        "change-control impact ignored"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Systematic review of pharmaceutical supply-chain risks identifies supply and supplier issues as major risk categories.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3913399/"
+        },
+        {
+          "type": "guideline",
+          "citation": "ICH Q10 pharmaceutical quality-system guidance includes material acquisition and control concepts.",
+          "url": "https://www.hhs.gov/guidance/sites/default/files/hhs-guidance-documents/FDA/Q10-Pharmaceutical-Quality-System.pdf"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "feedstock_supply_chain_risk_prior",
+        "rerank_bonus": "moderate for explicit supplier/source, quality grade, impurity profile, logistics, and change-control evidence",
+        "compliance_gate": "feedstock_supply_chain_quality_and_change_control_review_required"
+      }
+    },
+    {
+      "id": "api_raw_material_traceability_supplier_boundary",
+      "family_id": "feedstock_supply_chain_route_risk_boundary",
+      "name": "API route precursor to raw-material procurement, traceability, and supplier-control boundary",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "API intermediate routes",
+          "outsourced raw-material routes",
+          "regulated supply routes"
+        ],
+        "target_features": [
+          "raw material procurement",
+          "traceability",
+          "supplier qualification",
+          "API manufacturing"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "raw material to procurement-control boundary",
+          "outsourced source to traceability boundary"
+        ],
+        "forward_logic": [
+          "separate a named raw material from evidence that its source and quality are controlled",
+          "track procurement pathway, manufacturer, traceability, grade, testing, and supplier-change impact",
+          "flag routes where outsourcing or raw-material opacity changes strategic feasibility"
+        ],
+        "suggested_precursor_roles": [
+          "raw material",
+          "supplier/manufacturer record",
+          "quality testing evidence",
+          "traceability metadata"
+        ],
+        "planner_hint": "Use raw-material traceability records when supplier control is route-defining."
+      },
+      "risks": [
+        "opaque API precursor source",
+        "supplier change not controlled",
+        "raw material testing gap",
+        "procurement pathway fragile"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "API procurement/manufacture qualitative study highlights raw-material and API supply-chain steps that are often overlooked.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10201222/"
+        },
+        {
+          "type": "literature",
+          "citation": "Traceability review discusses technologies and critical factors for safer pharmaceutical supply chains.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34842786/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "api_raw_material_traceability_prior",
+        "rerank_bonus": "moderate for explicit supplier qualification, source traceability, raw-material tests, grade, and supplier-change policy",
+        "compliance_gate": "api_raw_material_traceability_and_supplier_control_review_required"
+      }
+    },
+    {
+      "id": "reference_standard_degradant_identity_boundary",
+      "family_id": "analytical_identity_reference_standard_stability_policy",
+      "name": "Impurity, degradant, or metabolite target to reference-standard identity plus validated analytical method policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "impurity reference standards",
+          "degradant or metabolite standards",
+          "analytical route endpoints"
+        ],
+        "target_features": [
+          "reference standard",
+          "degradant identity",
+          "validated analytical method",
+          "impurity qualification"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "named impurity to identity-evidence boundary",
+          "analytical standard to validation boundary"
+        ],
+        "forward_logic": [
+          "separate a proposed impurity or metabolite structure from analytical proof of identity",
+          "track reference standard provenance, purity, structural assignment, validated method, and intended assay use",
+          "avoid treating an unqualified synthetic byproduct as an analytical standard"
+        ],
+        "suggested_precursor_roles": [
+          "impurity or metabolite candidate",
+          "reference standard",
+          "validated analytical method",
+          "identity and purity evidence"
+        ],
+        "planner_hint": "Reward reference-standard routes only when identity, purity, and method validation evidence are explicit."
+      },
+      "risks": [
+        "wrong impurity identity",
+        "reference standard purity unknown",
+        "method not validated for purpose",
+        "degradant/metabolite assignment weak"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "ICH Q2(R2) provides guidance for validation of analytical procedures.",
+          "url": "https://database.ich.org/sites/default/files/ICH_Q2R2_Guideline_2023_1130.pdf"
+        },
+        {
+          "type": "literature",
+          "citation": "Critical impurity review discusses analytical detection of impurities and degradation products in APIs and drug products.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39058576/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "reference_standard_identity_prior",
+        "rerank_bonus": "moderate for explicit identity assignment, purity, reference provenance, validated method, and intended assay use",
+        "compliance_gate": "analytical_reference_standard_identity_and_method_validation_review_required"
+      }
+    },
+    {
+      "id": "stability_indicating_method_storage_policy",
+      "family_id": "analytical_identity_reference_standard_stability_policy",
+      "name": "Analytical target to stability-indicating method plus storage, salt/tautomer, and degradation policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "stability-sensitive standards",
+          "salt or tautomeric analytical targets",
+          "degradation-prone compounds"
+        ],
+        "target_features": [
+          "stability indicating method",
+          "storage condition",
+          "salt or tautomer identity",
+          "degradation profile"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "isolated compound to stability-evidence boundary",
+          "salt/tautomer identity to analytical-method boundary"
+        ],
+        "forward_logic": [
+          "separate successful synthesis from evidence that the analytical target remains the assigned identity over time",
+          "track stability-indicating method, storage state, salt/tautomer assignment, degradation pathways, and retest policy",
+          "flag reference routes where storage or identity drift undermines source reliability"
+        ],
+        "suggested_precursor_roles": [
+          "analytical target",
+          "salt or tautomer form",
+          "stability-indicating method",
+          "storage/retest evidence"
+        ],
+        "planner_hint": "Use stability-policy records when target identity or source trust depends on storage and degradation evidence."
+      },
+      "risks": [
+        "identity drift during storage",
+        "salt/tautomer ambiguity",
+        "stability method not indicating",
+        "retest period unsupported"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "ICH Q1A(R2) defines stability data expectations for new drug substances and products.",
+          "url": "https://database.ich.org/sites/default/files/Q1A%28R2%29%20Guideline.pdf"
+        },
+        {
+          "type": "literature",
+          "citation": "Guidelines and pharmacopoeial standards review discusses pharmaceutical impurity standards and risk assessment.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/22507740/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "stability_indicating_identity_prior",
+        "rerank_bonus": "moderate for explicit stability-indicating method, storage state, salt/tautomer identity, degradant profile, and retest policy",
+        "compliance_gate": "stability_indicating_method_and_storage_identity_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v18 expansion promotes backlog families covering stereochemical source transfer, protecting-group sequence policy, chiral resolution, solid-phase impurity lineage, SAR-library lineage, hazard substitution, supply-chain risk, and analytical identity/stability."
+    },
+    {
+      "type": "safety_note",
+      "summary": "V18 records are advisory. Promotion requires route-specific model, sequence, impurity, assay, process-safety, supply-chain, or analytical evidence; hazardous-reagent, resolution, solid-phase, library, and regulatory records must not be treated as validated procedures by default."
+    }
+  ]
+}

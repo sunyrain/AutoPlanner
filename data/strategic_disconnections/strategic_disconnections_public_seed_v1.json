@@ -1,0 +1,1247 @@
+{
+  "schema_version": "strategic_disconnections.v1_seed",
+  "status": "curated_public_seed",
+  "purpose": "Public-literature and textbook-level strategic disconnection seeds for complex-molecule route critique and proposal-source development.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures",
+      "stock or anchor policy separate from strategy match",
+      "risk tags for regioselectivity, stereoselectivity, and protecting-group burden"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "macrocycle_polyketide",
+      "name": "Macrolides, macrocycles, and polyketide-like polyols",
+      "pattern_keywords": [
+        "macrolide",
+        "macrocycle",
+        "macrolactone",
+        "macrolactam",
+        "polyketide",
+        "seco acid",
+        "aldol",
+        "RCM",
+        "ring-closing metathesis"
+      ],
+      "strategic_principle": "Disconnect macrocycles to linear seco-acid, diene, or amino-acid/peptide-like precursors; disconnect polyketide polyols through stereodefined aldol or crotylation units instead of late product-like protection/deprotection loops.",
+      "negative_signals": [
+        "macrocycle remains intact through only protecting-group changes",
+        "no account of high-dilution or oligomerization risk",
+        "polyketide stereocenters created without stereochemical strategy"
+      ]
+    },
+    {
+      "family_id": "indole_alkaloid",
+      "name": "Indole and monoterpene indole alkaloids",
+      "pattern_keywords": [
+        "indole alkaloid",
+        "tryptamine",
+        "Pictet-Spengler",
+        "strictosidine",
+        "secologanin",
+        "beta-carboline",
+        "sarpagine",
+        "aspidosperma",
+        "iboga"
+      ],
+      "strategic_principle": "Expose tryptamine/indole nucleophile and aldehyde/iminium partners, especially Pictet-Spengler or strictosidine-like biosynthetic anchors, before elaborating oxidation/rearrangement diversity."
+    },
+    {
+      "family_id": "benzylisoquinoline_alkaloid",
+      "name": "Benzylisoquinoline and tetrahydroisoquinoline alkaloids",
+      "pattern_keywords": [
+        "benzylisoquinoline",
+        "tetrahydroisoquinoline",
+        "isoquinoline alkaloid",
+        "Pictet-Spengler",
+        "Bischler-Napieralski",
+        "dopamine",
+        "phenethylamine"
+      ],
+      "strategic_principle": "Disconnect the tetrahydroisoquinoline core to a beta-arylethylamine plus carbonyl/iminium precursor, then handle N-methylation, O-methylation, and oxidative phenol coupling as late-stage diversification."
+    },
+    {
+      "family_id": "glycoside_nucleoside",
+      "name": "Glycosides, oligosaccharides, and nucleosides",
+      "pattern_keywords": [
+        "glycoside",
+        "glycosylation",
+        "aglycone",
+        "sugar donor",
+        "nucleoside",
+        "Vorbruggen",
+        "transglycosylation",
+        "ribose",
+        "nucleobase"
+      ],
+      "strategic_principle": "Disconnect glycosidic bonds to aglycone plus activated/protected sugar donors; for nucleosides, split nucleobase from protected ribose/deoxyribose and track regioselectivity/anomeric selectivity."
+    },
+    {
+      "family_id": "peptide_beta_lactam",
+      "name": "Peptides, depsipeptides, beta-lactams, and antibiotic semisynthesis",
+      "pattern_keywords": [
+        "peptide",
+        "amide",
+        "depsipeptide",
+        "beta-lactam",
+        "penicillin",
+        "cephalosporin",
+        "6-APA",
+        "7-ACA",
+        "macrolactam"
+      ],
+      "strategic_principle": "Prefer amide/depsipeptide/macrolactam disconnections with protected amino-acid or fermentation-derived beta-lactam cores; do not ask the planner to rebuild complex antibiotic cores when 6-APA/7-ACA-like anchors are the strategic route."
+    },
+    {
+      "family_id": "taxane_semisynthesis",
+      "name": "Taxanes and baccatin semisynthesis",
+      "pattern_keywords": [
+        "taxane",
+        "paclitaxel",
+        "docetaxel",
+        "baccatin",
+        "10-deacetylbaccatin",
+        "10-DAB",
+        "Ojima lactam"
+      ],
+      "strategic_principle": "Treat the taxane core as a source-supported advanced natural-product scaffold; disconnect C13 side-chain acylation/carbamate formation and C10 acetylation before considering total synthesis."
+    },
+    {
+      "family_id": "terpene_isoprenoid",
+      "name": "Terpenes and isoprenoid natural products",
+      "pattern_keywords": [
+        "terpene",
+        "terpenoid",
+        "isoprene",
+        "GPP",
+        "FPP",
+        "GGPP",
+        "Wieland-Miescher",
+        "Robinson annulation",
+        "cationic cyclization"
+      ],
+      "strategic_principle": "Use isoprene/prenyl-unit logic, chiral-pool terpene feedstocks, Robinson-annulation scaffolds, or biomimetic cationic/polyene cyclization rather than unstructured ring cleavage."
+    },
+    {
+      "family_id": "artemisinin_sesquiterpene_peroxide",
+      "name": "Artemisinin and sesquiterpene peroxide scaffolds",
+      "pattern_keywords": [
+        "artemisinin",
+        "artemisinic acid",
+        "dihydroartemisinic acid",
+        "sesquiterpene peroxide",
+        "endoperoxide",
+        "photooxidation"
+      ],
+      "strategic_principle": "Disconnect late peroxide formation to dihydroartemisinic-acid-like sesquiterpene precursors; treat the endoperoxide as a late-stage oxidation/cyclization problem."
+    },
+    {
+      "family_id": "biaryl_atropisomer",
+      "name": "Biaryls, diaryl ethers, and atropisomeric natural products",
+      "pattern_keywords": [
+        "biaryl",
+        "atropisomer",
+        "Suzuki",
+        "Ullmann",
+        "oxidative phenol coupling",
+        "diaryl ether",
+        "vancomycin",
+        "peptide antibiotic"
+      ],
+      "strategic_principle": "Expose aryl-aryl or aryl-heteroatom coupling partners and track atropisomerism. For hindered biaryls, coupling order and axial stereocontrol are route-defining, not cosmetic metadata."
+    },
+    {
+      "family_id": "prostaglandin_eicosanoid",
+      "name": "Prostaglandins and eicosanoid-like side-chain architectures",
+      "pattern_keywords": [
+        "prostaglandin",
+        "eicosanoid",
+        "Corey lactone",
+        "cyclopentane",
+        "omega side chain",
+        "alpha side chain"
+      ],
+      "strategic_principle": "Use a cyclopentane/Corey-lactone-like chiral core and disconnect the two side chains by olefination, organocuprate, or carbonyl homologation logic; preserve alkene geometry and alcohol stereochemistry."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "macrocycle_seco_acid_or_diene",
+      "family_id": "macrocycle_polyketide",
+      "name": "Linear seco-acid / diene macrocycle precursor",
+      "role": "macrocyclization_precursor",
+      "aliases": [
+        "seco acid",
+        "omega-hydroxy acid",
+        "diene precursor",
+        "amino acid linear precursor"
+      ],
+      "acceptance_policy": "advisory_anchor_requires_terminal_stock_or_upstream_route",
+      "rationale": "Macrolactonization, macrolactamization, and RCM are common macrocycle-forming strategies."
+    },
+    {
+      "anchor_id": "tryptamine_secologanin_strictosidine",
+      "family_id": "indole_alkaloid",
+      "name": "Tryptamine / secologanin / strictosidine-like anchor",
+      "role": "biosynthetic_or_biomimetic_indole_alkaloid_anchor",
+      "aliases": [
+        "tryptamine",
+        "secologanin",
+        "strictosidine",
+        "beta-carboline precursor"
+      ],
+      "acceptance_policy": "acceptable_if_target_family_and_downstream_rearrangement_are_explicit"
+    },
+    {
+      "anchor_id": "benzylisoquinoline_phenethylamine_carbonyl",
+      "family_id": "benzylisoquinoline_alkaloid",
+      "name": "Beta-arylethylamine plus aldehyde/iminium precursor",
+      "role": "tetrahydroisoquinoline_core_anchor",
+      "aliases": [
+        "dopamine",
+        "phenethylamine",
+        "phenylacetaldehyde",
+        "iminium precursor"
+      ],
+      "acceptance_policy": "advisory_anchor_requires_substituent_mapping"
+    },
+    {
+      "anchor_id": "activated_sugar_donor_aglycone",
+      "family_id": "glycoside_nucleoside",
+      "name": "Activated sugar donor plus aglycone",
+      "role": "glycosidic_bond_anchor",
+      "aliases": [
+        "glycosyl halide",
+        "thioglycoside",
+        "trichloroacetimidate donor",
+        "aglycone acceptor"
+      ],
+      "acceptance_policy": "requires_anomeric_and_protecting_group_metadata"
+    },
+    {
+      "anchor_id": "protected_sugar_nucleobase",
+      "family_id": "glycoside_nucleoside",
+      "name": "Protected sugar plus nucleobase",
+      "role": "nucleoside_glycosylation_anchor",
+      "aliases": [
+        "silylated nucleobase",
+        "protected ribose",
+        "protected deoxyribose",
+        "Vorbruggen substrate"
+      ],
+      "acceptance_policy": "requires_N_regioselectivity_and_anomeric_control"
+    },
+    {
+      "anchor_id": "protected_amino_acid_or_6apa_7aca_core",
+      "family_id": "peptide_beta_lactam",
+      "name": "Protected amino-acid / 6-APA / 7-ACA anchor",
+      "role": "amide_or_beta_lactam_semisynthesis_anchor",
+      "aliases": [
+        "protected amino acid",
+        "6-APA",
+        "7-ACA",
+        "7-aminocephalosporanic acid",
+        "6-aminopenicillanic acid"
+      ],
+      "acceptance_policy": "source_supported_anchor_not_arbitrary_product_like_terminal"
+    },
+    {
+      "anchor_id": "baccatin_10dab_taxane_core",
+      "family_id": "taxane_semisynthesis",
+      "name": "Baccatin III / 10-deacetylbaccatin III taxane core",
+      "role": "taxane_semisynthesis_anchor",
+      "aliases": [
+        "baccatin III",
+        "10-deacetylbaccatin III",
+        "10-DAB",
+        "taxane core"
+      ],
+      "acceptance_policy": "source_supported_semisynthesis_endpoint_with_C13_sidechain_plan"
+    },
+    {
+      "anchor_id": "dihydroartemisinic_acid_precursor",
+      "family_id": "artemisinin_sesquiterpene_peroxide",
+      "name": "Dihydroartemisinic acid / artemisinic acid precursor",
+      "role": "sesquiterpene_peroxide_late_stage_anchor",
+      "aliases": [
+        "dihydroartemisinic acid",
+        "artemisinic acid",
+        "allylic hydroperoxide precursor"
+      ],
+      "acceptance_policy": "requires_late_stage_peroxide_formation_evidence"
+    },
+    {
+      "anchor_id": "prenyl_isoprenoid_chiral_pool",
+      "family_id": "terpene_isoprenoid",
+      "name": "Prenyl/isoprenoid or chiral-pool terpene anchor",
+      "role": "terpene_biosynthetic_or_chiral_pool_anchor",
+      "aliases": [
+        "GPP",
+        "FPP",
+        "GGPP",
+        "geraniol",
+        "farnesol",
+        "carvone",
+        "Wieland-Miescher ketone"
+      ],
+      "acceptance_policy": "advisory_anchor_requires_cyclization_or_annulation_mapping"
+    },
+    {
+      "anchor_id": "biaryl_halide_boronate_or_phenol_pair",
+      "family_id": "biaryl_atropisomer",
+      "name": "Biaryl coupling pair",
+      "role": "aryl_aryl_or_aryl_heteroatom_coupling_anchor",
+      "aliases": [
+        "aryl halide",
+        "aryl boronate",
+        "phenol pair",
+        "diaryl ether precursor",
+        "atropisomeric biaryl precursor"
+      ],
+      "acceptance_policy": "requires_coupling_order_and_atropisomerism_metadata"
+    },
+    {
+      "anchor_id": "corey_lactone_prostaglandin_core",
+      "family_id": "prostaglandin_eicosanoid",
+      "name": "Corey-lactone-like cyclopentane core",
+      "role": "prostaglandin_common_core_anchor",
+      "aliases": [
+        "Corey lactone",
+        "chiral cyclopentane core",
+        "prostaglandin common intermediate"
+      ],
+      "acceptance_policy": "requires_side_chain_geometry_and_stereochemistry_tracking"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "macrocycle_seco_acid_macrolactonization",
+      "family_id": "macrocycle_polyketide",
+      "name": "Macrolactone to seco-acid disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "macrolides",
+          "macrocyclic lactones",
+          "polyketide macrocycles"
+        ],
+        "target_features": [
+          "large lactone ring",
+          "omega-hydroxy acid retron",
+          "polyoxygenated linear backbone"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "macrocyclic ester C-O bond"
+        ],
+        "forward_logic": [
+          "prepare seco acid with correct stereochemistry",
+          "close ring by Yamaguchi, Keck, Mitsunobu, Steglich, or related macrolactonization",
+          "use high dilution or conformational control to reduce oligomerization"
+        ],
+        "suggested_precursor_roles": [
+          "linear seco acid",
+          "omega-hydroxy acid",
+          "protected polyol acid"
+        ],
+        "planner_hint": "Reward routes that open a macrolactone to a linear precursor with retained stereochemical plan; flag intact-ring protecting-group loops."
+      },
+      "risks": [
+        "oligomerization",
+        "protecting-group burden",
+        "seco-acid conformational bias",
+        "site-selective esterification"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Macrocycle synthesis reviews describe macrolactonization, macrolactamization, RCM, and related approaches as common macrocyclization methods.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4374646/"
+        },
+        {
+          "type": "literature",
+          "citation": "Prins-type macrocyclization review summarizes standard macrolactonization conditions such as Yamaguchi, Keck, and Mitsunobu.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3063995/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "macrocyclization_prior",
+        "rerank_bonus": "high for linear seco-acid simplification with stereochemistry retained"
+      }
+    },
+    {
+      "id": "macrocycle_rcm_or_alkene_closing_disconnection",
+      "family_id": "macrocycle_polyketide",
+      "name": "Ring-closing metathesis / alkene-forming macrocyclization",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "alkene-containing macrocycles",
+          "macrolides",
+          "congested macrocyclic natural products"
+        ],
+        "target_features": [
+          "macrocyclic alkene",
+          "diene precursor possible",
+          "E/Z geometry relevant"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "macrocyclic alkene C=C"
+        ],
+        "forward_logic": [
+          "prepare terminal or substituted diene precursor",
+          "close by RCM or by Julia/HWE alkene-forming macrocyclization",
+          "control E/Z geometry and avoid oligomerization"
+        ],
+        "suggested_precursor_roles": [
+          "linear diene",
+          "olefination precursor"
+        ],
+        "planner_hint": "Use RCM as a strategic option when macrolactonization is not the only plausible ring closure."
+      },
+      "risks": [
+        "E/Z mixture",
+        "ring strain",
+        "intermolecular oligomerization",
+        "catalyst compatibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Natural products and ring-closing metathesis review.",
+          "url": "https://pubs.rsc.org/en/content/articlehtml/2018/np/c7np00048k"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "macrocyclization_prior",
+        "rerank_bonus": "moderate when diene precursor substantially simplifies ring closure"
+      }
+    },
+    {
+      "id": "polyketide_stereodefined_aldol_disconnection",
+      "family_id": "macrocycle_polyketide",
+      "name": "Polyketide polyol to stereodefined aldol fragments",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "polyketides",
+          "polypropionate fragments",
+          "polyol natural products"
+        ],
+        "target_features": [
+          "1,3-polyol array",
+          "beta-hydroxy carbonyl retron",
+          "propionate/methyl-branched chain"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-C bond adjacent to beta-hydroxy carbonyl or masked aldol unit"
+        ],
+        "forward_logic": [
+          "use aldol, crotylation, allylation, or ketoreductase logic to set relative stereochemistry",
+          "track syn/anti and anti-Felkin/chelation control",
+          "delay macrocyclization until linear stereochemistry is established"
+        ],
+        "suggested_precursor_roles": [
+          "aldehyde fragment",
+          "ketone/enolate equivalent",
+          "chiral auxiliary or biocatalytic reduction substrate"
+        ],
+        "planner_hint": "Require explicit stereochemical provenance for dense polyketide polyols."
+      },
+      "risks": [
+        "diastereoselectivity",
+        "aldol reversibility",
+        "protecting-group relay",
+        "late-stage oxidation-state mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Macrocycle and polyketide synthesis reviews highlight linear precursor construction before macrocyclization.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4374646/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "stereochemical_fragmentation_prior",
+        "rerank_bonus": "high when aldol fragments reduce complexity and define stereochemistry"
+      }
+    },
+    {
+      "id": "indole_alkaloid_pictet_spengler_disconnection",
+      "family_id": "indole_alkaloid",
+      "name": "Indole alkaloid Pictet-Spengler disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "beta-carbolines",
+          "monoterpene indole alkaloids",
+          "sarpagine/ajmaline-like scaffolds"
+        ],
+        "target_features": [
+          "indole fused to piperidine/tetrahydro-beta-carboline",
+          "tryptamine-derived substructure",
+          "iminium cyclization retron"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-C bond formed by indole attack on iminium"
+        ],
+        "forward_logic": [
+          "condense tryptamine or substituted tryptophan derivative with aldehyde/ketone",
+          "cyclize by chemical or enzymatic Pictet-Spengler reaction",
+          "then elaborate oxidation/rearrangement diversity"
+        ],
+        "suggested_precursor_roles": [
+          "tryptamine",
+          "substituted tryptamine/tryptophan",
+          "aldehyde or secologanin-like partner"
+        ],
+        "planner_hint": "Reward exposure of tryptamine and aldehyde/iminium partners instead of same-core oxidation/protection variants."
+      },
+      "risks": [
+        "C2/C3 indole regioselectivity",
+        "iminium stereocontrol",
+        "oxidation-state cascade after cyclization"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Strictosidine synthase catalyzes a Pictet-Spengler condensation in monoterpene indole alkaloid biosynthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3079323/"
+        },
+        {
+          "type": "literature",
+          "citation": "Sarpagine alkaloid syntheses use asymmetric Pictet-Spengler reactions as key steps.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4864735/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "alkaloid_biosynthetic_prior",
+        "rerank_bonus": "high for tryptamine/aldehyde split with stereochemical plan"
+      }
+    },
+    {
+      "id": "monoterpene_indole_strictosidine_anchor",
+      "family_id": "indole_alkaloid",
+      "name": "Strictosidine-like biosynthetic anchor",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "monoterpene indole alkaloids"
+        ],
+        "target_features": [
+          "tryptamine-derived indole portion",
+          "monoterpene secoiridoid-derived portion",
+          "strictosidine biosynthetic lineage"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "Pictet-Spengler C-C bond before downstream rearrangements"
+        ],
+        "forward_logic": [
+          "form strictosidine-like intermediate from tryptamine and secologanin",
+          "map downstream rearrangements and oxidations separately"
+        ],
+        "suggested_precursor_roles": [
+          "tryptamine",
+          "secologanin",
+          "strictosidine-like intermediate"
+        ],
+        "planner_hint": "Use as biosynthesis-aware anchor, not as a generic stock solve."
+      },
+      "risks": [
+        "downstream rearrangement diversity",
+        "glycoside handling",
+        "enzyme/source availability"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Strictosidine is a central intermediate in monoterpene indole alkaloid biosynthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2749912/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "biosynthetic_anchor_prior",
+        "stock_policy": "not stock unless source-supported"
+      }
+    },
+    {
+      "id": "benzylisoquinoline_pictet_spengler_or_bischler",
+      "family_id": "benzylisoquinoline_alkaloid",
+      "name": "Tetrahydroisoquinoline core disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "benzylisoquinoline alkaloids",
+          "tetrahydroisoquinoline alkaloids"
+        ],
+        "target_features": [
+          "phenethylamine-derived N-heterocycle",
+          "benzylic aryl substituent",
+          "N-methyl/O-methyl phenolic pattern"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-C bond from aromatic attack on iminium or Bischler cyclodehydration precursor"
+        ],
+        "forward_logic": [
+          "condense beta-arylethylamine with aldehyde/ketone or amide precursor",
+          "cyclize to tetrahydroisoquinoline/dihydroisoquinoline",
+          "perform methylation/oxidative coupling downstream"
+        ],
+        "suggested_precursor_roles": [
+          "phenethylamine/dopamine fragment",
+          "benzaldehyde/phenylacetaldehyde fragment",
+          "amide precursor"
+        ],
+        "planner_hint": "Expose amine/carbonyl fragments and phenolic oxidative-coupling opportunities."
+      },
+      "risks": [
+        "regioselectivity on aromatic ring",
+        "N/O methylation order",
+        "oxidative phenol coupling selectivity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Pictet-Spengler reaction forms tetrahydroisoquinoline products from beta-arylethylamine and carbonyl compounds.",
+          "url": "https://www.nature.com/articles/ncomms14883"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "alkaloid_core_prior",
+        "rerank_bonus": "moderate for phenethylamine/carbonyl split"
+      }
+    },
+    {
+      "id": "glycoside_aglycone_sugar_donor_disconnection",
+      "family_id": "glycoside_nucleoside",
+      "name": "Glycosidic bond disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "glycosides",
+          "saponins",
+          "cardiac glycosides",
+          "glycosylated natural products"
+        ],
+        "target_features": [
+          "C-O/C-N/C-S glycosidic bond",
+          "sugar ring with anomeric linkage",
+          "aglycone plus glycon portions"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "anomeric glycosidic bond"
+        ],
+        "forward_logic": [
+          "prepare protected/activated sugar donor",
+          "glycosylate aglycone acceptor chemically or chemoenzymatically",
+          "deprotect and adjust anomeric configuration"
+        ],
+        "suggested_precursor_roles": [
+          "aglycone acceptor",
+          "activated sugar donor",
+          "glycosyltransferase or glycosidase route"
+        ],
+        "planner_hint": "Do not leave the whole glycoside core intact; expose sugar/aglycone split and anomeric control."
+      },
+      "risks": [
+        "anomeric selectivity",
+        "protecting-group pattern",
+        "site-selectivity for polyols",
+        "labile aglycone compatibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Glycosides consist of glycon and aglycon connected through a glycosidic bond formed by glycosylation.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5422579/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "glycosylation_prior",
+        "rerank_bonus": "high when sugar/aglycone split is explicit with anomeric metadata"
+      }
+    },
+    {
+      "id": "nucleoside_base_sugar_vorbruggen_disconnection",
+      "family_id": "glycoside_nucleoside",
+      "name": "Nucleoside base-sugar disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "nucleosides",
+          "nucleoside analogues",
+          "C-nucleosides with caution"
+        ],
+        "target_features": [
+          "nucleobase attached to ribose/deoxyribose",
+          "N-glycosidic bond",
+          "protected sugar retron"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "nucleobase N-C anomeric bond"
+        ],
+        "forward_logic": [
+          "silylate nucleobase and couple with protected electrophilic sugar under Lewis acid conditions",
+          "or use enzymatic transglycosylation for base exchange",
+          "track N-regioselectivity and anomeric outcome"
+        ],
+        "suggested_precursor_roles": [
+          "nucleobase",
+          "protected ribose/deoxyribose",
+          "silylated base",
+          "transglycosylation donor"
+        ],
+        "planner_hint": "Require regioisomer risk tags for purines/pyrimidines and protected sugar compatibility."
+      },
+      "risks": [
+        "N-regioselectivity",
+        "anomeric selectivity",
+        "sugar protecting groups",
+        "C-nucleosides may need C-C bond strategies instead"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Vorbruggen glycosylation is a common route to nucleosides; regioisomers can be a concern.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6413189/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "nucleoside_prior",
+        "rerank_bonus": "high for protected sugar/base split with regioselectivity annotation"
+      }
+    },
+    {
+      "id": "peptide_amide_bond_disconnection",
+      "family_id": "peptide_beta_lactam",
+      "name": "Peptide/depsipeptide amide or ester bond disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "peptides",
+          "depsipeptides",
+          "peptidomimetics",
+          "macrocyclic peptides"
+        ],
+        "target_features": [
+          "amide bonds",
+          "ester linkages between amino/hydroxy acid units",
+          "N/C termini or side-chain protecting groups"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "amide C-N bond",
+          "depsipeptide ester C-O bond",
+          "macrolactam C-N bond when macrocyclic"
+        ],
+        "forward_logic": [
+          "disconnect to protected amino acid or hydroxy acid fragments",
+          "choose coupling order to minimize epimerization and macrocyclization risk",
+          "consider convergent fragment coupling for long peptides"
+        ],
+        "suggested_precursor_roles": [
+          "protected amino acid",
+          "activated acid",
+          "amine fragment",
+          "linear macrocyclization precursor"
+        ],
+        "planner_hint": "Reward chemically conventional peptide fragment splits over arbitrary C-C cleavage."
+      },
+      "risks": [
+        "epimerization",
+        "protecting-group orthogonality",
+        "macrocyclization dilution",
+        "aspartimide or diketopiperazine side reactions"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Macrocycle synthesis reviews include macrolactamization and peptide-like macrocyclization as common approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4374646/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "peptide_fragmentation_prior",
+        "rerank_bonus": "high when amide/ester disconnections map to protected building blocks"
+      }
+    },
+    {
+      "id": "beta_lactam_6apa_7aca_sidechain_semisynthesis",
+      "family_id": "peptide_beta_lactam",
+      "name": "Beta-lactam antibiotic core plus side-chain semisynthesis",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "penicillins",
+          "cephalosporins",
+          "beta-lactam antibiotics"
+        ],
+        "target_features": [
+          "beta-lactam core",
+          "6-APA or 7-ACA-derived nucleus",
+          "acylamino side chain"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "side-chain amide C-N bond on beta-lactam nucleus"
+        ],
+        "forward_logic": [
+          "obtain 6-APA or 7-ACA core from fermentation/semisynthesis",
+          "acylate amino nucleus with selected side-chain acid chloride/activated acid",
+          "preserve beta-lactam integrity"
+        ],
+        "suggested_precursor_roles": [
+          "6-APA",
+          "7-ACA",
+          "side-chain acid chloride",
+          "protected beta-lactam nucleus"
+        ],
+        "planner_hint": "Do not reconstruct beta-lactam antibiotic cores from trivial stock when 6-APA/7-ACA is the strategic anchor."
+      },
+      "risks": [
+        "beta-lactam hydrolysis",
+        "side-chain activation compatibility",
+        "fermentation-derived core availability"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Semisynthesis of beta-lactam antibiotics from 6-APA and 7-ACA opened major antibiotic families.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4536949/"
+        },
+        {
+          "type": "literature",
+          "citation": "Fermentation and organic synthesis are combined industrially for cephalosporins; 7-ACA is a platform core.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5096955/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "antibiotic_semisynthesis_prior",
+        "stock_policy": "source-supported core endpoint only"
+      }
+    },
+    {
+      "id": "taxane_10dab_baccatin_c13_sidechain_acylation",
+      "family_id": "taxane_semisynthesis",
+      "name": "Taxane C13 side-chain semisynthesis",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "paclitaxel",
+          "docetaxel",
+          "taxane analogues"
+        ],
+        "target_features": [
+          "taxane tetracyclic core",
+          "C13 side-chain ester/carbamate",
+          "C10 acetylation state"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C13 ester bond between taxane core and side-chain fragment",
+          "C10 acetyl bond if relevant"
+        ],
+        "forward_logic": [
+          "use baccatin III or 10-deacetylbaccatin III as advanced core",
+          "install C13 side chain with Ojima-lactam-like or activated acid side-chain strategy",
+          "perform site-selective acylation/deprotection"
+        ],
+        "suggested_precursor_roles": [
+          "10-deacetylbaccatin III",
+          "baccatin III",
+          "Ojima lactam or side-chain acid equivalent",
+          "acetylating reagent"
+        ],
+        "planner_hint": "Taxane core is a reviewed semisynthesis anchor, not a generic vendor-stock analogue."
+      },
+      "risks": [
+        "site-selective acylation",
+        "protecting-group choreography",
+        "advanced precursor sourcing",
+        "C13 side-chain stereochemistry"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Paclitaxel semisynthesis commonly uses baccatin III or 10-deacetylbaccatin III precursors.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10673093/"
+        },
+        {
+          "type": "literature",
+          "citation": "10-deacetylbaccatin III is a key natural product for taxol semisynthesis.",
+          "url": "https://www.jstage.jst.go.jp/article/cpb/64/7/64_c16-00037/_article"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "taxane_semisynthesis_prior",
+        "rerank_bonus": "high when baccatin core and side-chain installation are explicit"
+      }
+    },
+    {
+      "id": "artemisinin_dihydroartemisinic_acid_peroxide_formation",
+      "family_id": "artemisinin_sesquiterpene_peroxide",
+      "name": "Artemisinin late-stage peroxide formation disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "artemisinin",
+          "sesquiterpene endoperoxides"
+        ],
+        "target_features": [
+          "1,2,4-trioxane or endoperoxide",
+          "sesquiterpene carbon skeleton",
+          "dihydroartemisinic acid-like precursor"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "peroxide O-O and adjacent oxygenated ring-forming bonds"
+        ],
+        "forward_logic": [
+          "prepare dihydroartemisinic acid or related unsaturated sesquiterpene acid",
+          "form hydroperoxide/endoperoxide by oxygenation/photooxidation/autoxidation sequence",
+          "close peroxide-containing ring late"
+        ],
+        "suggested_precursor_roles": [
+          "dihydroartemisinic acid",
+          "artemisinic acid-derived precursor",
+          "unsaturated keto/acid peroxide precursor"
+        ],
+        "planner_hint": "Classify peroxide construction as a late-stage oxidation/cyclization, not a normal ether disconnection."
+      },
+      "risks": [
+        "peroxide safety",
+        "photooxidation scale-up",
+        "diastereoselectivity",
+        "oxidation-sensitive substrate"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Synthetic peroxide-ring construction reviews highlight dihydroartemisinic acid as a precursor in modern artemisinin production.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6155923/"
+        },
+        {
+          "type": "literature",
+          "citation": "Artemisinic acid has been developed as a semisynthesis platform for artemisinin production.",
+          "url": "https://pubs.rsc.org/en/content/articlehtml/2013/ra/c3ra40525g"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "peroxide_late_stage_prior",
+        "rerank_bonus": "high when route reaches dihydroartemisinic-acid-like precursor"
+      }
+    },
+    {
+      "id": "terpene_isoprene_or_cationic_cyclization_logic",
+      "family_id": "terpene_isoprenoid",
+      "name": "Terpene isoprene-unit and cationic cyclization logic",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "monoterpenes",
+          "sesquiterpenes",
+          "diterpenes",
+          "terpenoid natural products"
+        ],
+        "target_features": [
+          "isoprenoid carbon skeleton",
+          "polycyclic terpene framework",
+          "prenyl-derived branching pattern"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "bonds consistent with prenyl-unit assembly or biomimetic cationic cyclization"
+        ],
+        "forward_logic": [
+          "map carbon skeleton to GPP/FPP/GGPP-like precursor or chiral-pool terpene",
+          "use cationic/polyene cyclization, radical cyclization, or Robinson-annulation/chiral pool routes",
+          "perform oxidation-state installation after core skeleton is set"
+        ],
+        "suggested_precursor_roles": [
+          "geranyl/farnesyl/geranylgeranyl equivalent",
+          "chiral-pool terpene",
+          "Wieland-Miescher-like enone",
+          "polyene cyclization precursor"
+        ],
+        "planner_hint": "Reward biogenetic carbon-skeleton mapping; penalize arbitrary ring cleavage that loses stereochemical logic."
+      },
+      "risks": [
+        "carbocation rearrangement selectivity",
+        "late-stage C-H oxidation",
+        "chiral-pool mismatch",
+        "polycyclization overfitting"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Terpene biosynthesis uses linear isoprene precursors such as GPP, FPP, and GGPP before cyclization.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3263054/"
+        },
+        {
+          "type": "literature",
+          "citation": "Terpenoid synthesis reviews discuss total synthesis and origins of terpenoid derivatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9699253/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "terpene_biogenetic_prior",
+        "rerank_bonus": "moderate for prenyl-unit or chiral-pool mapping"
+      }
+    },
+    {
+      "id": "diels_alder_complexity_generating_disconnection",
+      "family_id": "terpene_isoprenoid",
+      "name": "Diels-Alder complexity-generating disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "cyclohexene-containing natural products",
+          "decalin natural products",
+          "spirotetronate/spirotetramate-like scaffolds",
+          "alkaloids and terpenoids with DA retrons"
+        ],
+        "target_features": [
+          "cyclohexene ring",
+          "bridged or fused [4+2] retron",
+          "diene/dienophile mapping possible"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "two sigma bonds formed in [4+2] cycloaddition"
+        ],
+        "forward_logic": [
+          "map product ring to diene and dienophile partners",
+          "use intramolecular Diels-Alder when tethered precursor simplifies complexity",
+          "track endo/exo and regioselectivity"
+        ],
+        "suggested_precursor_roles": [
+          "diene",
+          "dienophile",
+          "tethered IMDA precursor"
+        ],
+        "planner_hint": "Generate DA retrons only when electronics and geometry are plausible; label speculative DA routes for review."
+      },
+      "risks": [
+        "regioselectivity",
+        "endo/exo selectivity",
+        "strained precursor conformation",
+        "biosynthetic DA mimic may not be chemically feasible"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Diels-Alder reactions are widely used in natural product synthesis and biosynthesis-inspired strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11808662/"
+        },
+        {
+          "type": "literature",
+          "citation": "Natural Diels-Alderase review connects DA reactions to natural product biosynthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8159843/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "pericyclic_prior",
+        "rerank_bonus": "moderate for valid diene/dienophile simplification"
+      }
+    },
+    {
+      "id": "biaryl_cross_coupling_atropisomer_disconnection",
+      "family_id": "biaryl_atropisomer",
+      "name": "Biaryl cross-coupling and atropisomer disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "biaryl natural products",
+          "biaryl peptide antibiotics",
+          "atropisomeric drug candidates"
+        ],
+        "target_features": [
+          "aryl-aryl bond",
+          "ortho substitution around biaryl axis",
+          "diaryl ether or phenol oxidative-coupling motif"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aryl-aryl bond",
+          "aryl-O bond for diaryl ether variants"
+        ],
+        "forward_logic": [
+          "prepare aryl halide/pseudohalide and aryl boronate/stannane/silane or phenol partners",
+          "use Suzuki, Hiyama, Ullmann, oxidative phenol coupling, or enzymatic oxidative coupling",
+          "track axial chirality and coupling order"
+        ],
+        "suggested_precursor_roles": [
+          "aryl halide",
+          "aryl boronate",
+          "phenol pair",
+          "diaryl ether precursor"
+        ],
+        "planner_hint": "Do not treat biaryl formation as a generic aryl substitution; atropisomer metadata can be route-defining."
+      },
+      "risks": [
+        "atropisomer control",
+        "protodeboronation",
+        "hindered coupling",
+        "phenol oxidative homocoupling/cross-coupling selectivity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Hiyama/cross-coupling review notes biaryl scaffolds are common in natural products and pharmaceuticals and can be made by Suzuki, Stille, Negishi, Kumada, Hiyama couplings.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9458230/"
+        },
+        {
+          "type": "literature",
+          "citation": "Biocatalytic atropisomer synthesis review covers oxidative coupling approaches to atropisomeric products.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9730853/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "biaryl_coupling_prior",
+        "rerank_bonus": "high when coupling partners and axial stereochemistry are explicit"
+      }
+    },
+    {
+      "id": "oxidative_phenol_coupling_disconnection",
+      "family_id": "biaryl_atropisomer",
+      "name": "Oxidative phenol coupling disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "phenolic natural products",
+          "bisphenols",
+          "biaryl alkaloids",
+          "vancomycin-like aryl ether/biaryl systems"
+        ],
+        "target_features": [
+          "phenol-derived biaryl",
+          "diaryl ether",
+          "atropisomeric axis"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aryl-aryl or aryl-O bond formed by oxidative coupling"
+        ],
+        "forward_logic": [
+          "prepare phenolic coupling partners",
+          "perform oxidative coupling chemically or enzymatically",
+          "control cross-coupling versus homocoupling and atropselectivity"
+        ],
+        "suggested_precursor_roles": [
+          "phenol monomer",
+          "protected phenol",
+          "oxidase/P450-catalyzed substrate"
+        ],
+        "planner_hint": "Use when phenolic substitution pattern and biosynthetic precedent support oxidative coupling."
+      },
+      "risks": [
+        "homocoupling",
+        "overoxidation",
+        "regioselectivity",
+        "atropisomerism"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Biocatalytic atropisomer synthesis examples include P450 oxidative coupling of phenols.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9730853/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "oxidative_coupling_prior",
+        "rerank_bonus": "moderate for phenol-pair split with selectivity rationale"
+      }
+    },
+    {
+      "id": "prostaglandin_corey_lactone_sidechain_disconnection",
+      "family_id": "prostaglandin_eicosanoid",
+      "name": "Prostaglandin Corey-lactone / cyclopentane core disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "prostaglandins",
+          "prostacyclin analogues",
+          "eicosanoid-like compounds"
+        ],
+        "target_features": [
+          "substituted cyclopentane core",
+          "two aliphatic side chains",
+          "allylic alcohols and E/Z alkene geometry"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "side-chain C-C bonds attached to cyclopentane core"
+        ],
+        "forward_logic": [
+          "use Corey-lactone-like chiral cyclopentane intermediate",
+          "install alpha and omega side chains by olefination, organocuprate addition, or homologation",
+          "track alkene geometry and alcohol stereochemistry"
+        ],
+        "suggested_precursor_roles": [
+          "Corey lactone",
+          "cyclopentane aldehyde/lactone",
+          "phosphonate/ylide side-chain fragment",
+          "organocuprate side-chain fragment"
+        ],
+        "planner_hint": "Reward convergence to a chiral cyclopentane common intermediate instead of arbitrary lipid-chain fragmentation."
+      },
+      "risks": [
+        "alkene geometry",
+        "side-chain oxidation state",
+        "cyclopentane stereochemistry",
+        "lactone opening/closing compatibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Corey-style prostaglandin synthesis is a classic strategic use of a chiral cyclopentane/lactone common intermediate.",
+          "url": "https://en.wikipedia.org/wiki/Elias_James_Corey"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "eicosanoid_common_core_prior",
+        "rerank_bonus": "moderate for Corey-lactone-like core plus side-chain installation"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "CASP_context",
+      "summary": "Commercial strategic systems such as SYNTHIA/Chematica use large expert-coded rule sets, while open-source systems such as ASKCOS and AiZynthFinder are extensible but mostly template/model driven. This seed file is meant to supply a transparent curated strategic layer.",
+      "references": [
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC9893929/",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC12140107/",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC7672904/"
+      ]
+    }
+  ]
+}

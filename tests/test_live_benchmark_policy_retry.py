@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from cascade_planner.cascadeboard.live_benchmark import (
+    _build_stock_checker,
     _retro_gt_types,
     _route_tree_type_metric_order,
     _type_match,
@@ -116,6 +117,53 @@ class LiveBenchmarkPolicyRetryTest(unittest.TestCase):
             ranked = _rank_results([stock_bad, balanced], search_mode="critic_control", stock_checker=lambda _smi: True)
 
         self.assertIs(ranked[0], balanced)
+
+    def test_stock_checker_adds_common_commodity_stock(self):
+        with patch("cascade_planner.cascadeboard.zinc_stock.is_in_zinc_stock", return_value=False):
+            with patch.dict("os.environ", {"AUTOPLANNER_DISABLE_CHEMENZY_VENDOR_STOCK": "1"}, clear=False):
+                checker = _build_stock_checker(True)
+
+        self.assertIsNotNone(checker)
+        self.assertTrue(checker("N"))
+        self.assertFalse(checker("CCOC"))
+
+    def test_stock_checker_can_disable_common_commodity_stock(self):
+        with patch("cascade_planner.cascadeboard.zinc_stock.is_in_zinc_stock", return_value=False):
+            with patch.dict(
+                "os.environ",
+                {
+                    "AUTOPLANNER_DISABLE_COMMON_COMMODITY_STOCK": "1",
+                    "AUTOPLANNER_DISABLE_CHEMENZY_VENDOR_STOCK": "1",
+                },
+                clear=False,
+            ):
+                checker = _build_stock_checker(True)
+
+        self.assertIsNotNone(checker)
+        self.assertFalse(checker("N"))
+
+    def test_stock_checker_adds_vendor_stock(self):
+        from cascade_planner.cascadeboard.vendor_stock import build_vendor_stock_index
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            csv_path = tmp_path / "stock.csv"
+            index_path = tmp_path / "stock.sqlite"
+            csv_path.write_text("smiles\nCC(=O)O\n", encoding="utf-8")
+            build_vendor_stock_index(csv_path=csv_path, sqlite_path=index_path)
+            with patch("cascade_planner.cascadeboard.zinc_stock.is_in_zinc_stock", return_value=False):
+                with patch.dict(
+                    "os.environ",
+                    {"AUTOPLANNER_CHEMENZY_VENDOR_STOCK_INDEX": str(index_path)},
+                    clear=False,
+                ):
+                    checker = _build_stock_checker(True)
+                    hit = checker("CC(=O)[O-]")
+
+        self.assertIsNotNone(checker)
+        self.assertTrue(hit)
 
     def test_control_ranker_prefers_lower_operation_burden_on_tie(self):
         awkward = SimpleNamespace(board="awkward", score=1.0)

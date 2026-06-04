@@ -98,6 +98,9 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def main() -> None:
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("replay_route_pool_pairwise_ranker")
     ap = argparse.ArgumentParser(description="Apply a trained route-pool pairwise ranker")
     ap.add_argument("--pack-jsonl", required=True)
     ap.add_argument("--ranker-pickle", required=True)

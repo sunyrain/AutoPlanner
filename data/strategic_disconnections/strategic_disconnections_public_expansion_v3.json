@@ -1,0 +1,1694 @@
+{
+  "schema_version": "strategic_disconnections.v3_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Second expanded public source layer focused on medicinal heterocycles, multicomponent reaction scaffolds, click/bioorthogonal motifs, organoboron motifs, and compliance-gated diazepine-like privileged scaffolds.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template or proposal promotion",
+      "separate stock or reviewed-anchor decision",
+      "route-specific regioselectivity and chemoselectivity review",
+      "safety, controlled-substance, and biosecurity review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, and synthesis conditions",
+      "regulated sedative, toxic natural-product, and bioactive probe families are high-level route priors only"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "triazole_click_bioorthogonal",
+      "name": "1,2,3-triazoles, click linkers, and bioorthogonal cycloadditions",
+      "pattern_keywords": [
+        "1,2,3-triazole",
+        "click chemistry",
+        "CuAAC",
+        "SPAAC",
+        "azide",
+        "alkyne",
+        "tetrazine",
+        "TCO",
+        "bioorthogonal"
+      ],
+      "strategic_principle": "Disconnect triazole and bioorthogonal ligation products to azide/alkyne or tetrazine/dienophile partners. Treat metal compatibility, live-system compatibility, and labeling kinetics as route metadata rather than generic heterocycle formation."
+    },
+    {
+      "family_id": "benzimidazole_benzoxazole_benzothiazole",
+      "name": "Benzimidazoles, benzoxazoles, and benzothiazoles",
+      "pattern_keywords": [
+        "benzimidazole",
+        "benzoxazole",
+        "benzothiazole",
+        "o-phenylenediamine",
+        "o-aminophenol",
+        "o-aminothiophenol",
+        "cyclodehydration",
+        "condensation"
+      ],
+      "strategic_principle": "Map fused azole rings to ortho-difunctionalized anilines plus carbonyl, carboxylic-acid derivative, nitrile, or related one-carbon/two-carbon partners. Track which heteroatom pair controls ring identity."
+    },
+    {
+      "family_id": "pyrazole_isoxazole_azole",
+      "name": "Pyrazoles, isoxazoles, and related five-membered azoles",
+      "pattern_keywords": [
+        "pyrazole",
+        "isoxazole",
+        "hydrazine",
+        "hydroxylamine",
+        "1,3-dicarbonyl",
+        "nitrile oxide",
+        "dipolar cycloaddition"
+      ],
+      "strategic_principle": "Disconnect pyrazoles/isoxazoles to beta-dicarbonyl or dipolar cycloaddition precursors. Regioisomer control is the main strategic issue for unsymmetrical substrates."
+    },
+    {
+      "family_id": "benzofuran_indole_annulation",
+      "name": "Benzofuran and medicinal indole annulations",
+      "pattern_keywords": [
+        "benzofuran",
+        "indole",
+        "Fischer indole",
+        "Larock indole",
+        "o-iodoaniline",
+        "alkyne",
+        "phenylhydrazone",
+        "heteroannulation"
+      ],
+      "strategic_principle": "Expose benzofuran/indole cores as annulation problems: phenol/alkyne or salicylaldehyde logic for benzofurans, and phenylhydrazone or o-haloaniline/alkyne logic for indoles. Avoid late same-core decoration as a substitute for ring construction."
+    },
+    {
+      "family_id": "quinazoline_kinase_scaffold",
+      "name": "Quinazolines, quinazolinones, and 4-anilinoquinazoline kinase-like scaffolds",
+      "pattern_keywords": [
+        "quinazoline",
+        "quinazolinone",
+        "anthranilic acid",
+        "anthranilamide",
+        "4-chloroquinazoline",
+        "4-anilinoquinazoline",
+        "kinase inhibitor"
+      ],
+      "strategic_principle": "Build the quinazoline/quinazolinone ring from anthranilic-acid, anthranilamide, o-aminobenzamide, or related ortho-amino aryl-carbonyl precursors, then treat C4 anilino/SNAr diversification as late scaffold decoration."
+    },
+    {
+      "family_id": "mcr_ugi_passerini_strecker",
+      "name": "Ugi, Passerini, Strecker, and amino-acid multicomponent scaffolds",
+      "pattern_keywords": [
+        "Ugi",
+        "Passerini",
+        "Strecker",
+        "isocyanide",
+        "aminonitrile",
+        "alpha-amino acid",
+        "multicomponent reaction",
+        "peptidomimetic"
+      ],
+      "strategic_principle": "Recognize alpha-acylamino amides, alpha-acyloxy amides, and aminonitrile/amino-acid motifs as multicomponent-reaction products. Use component-level retrosynthesis but gate hazardous nucleophiles, isocyanides, and stereochemical control."
+    },
+    {
+      "family_id": "hantzsch_biginelli_mcr_heterocycles",
+      "name": "Hantzsch dihydropyridines and Biginelli dihydropyrimidinones",
+      "pattern_keywords": [
+        "Hantzsch",
+        "Biginelli",
+        "1,4-dihydropyridine",
+        "dihydropyrimidinone",
+        "DHPM",
+        "beta-ketoester",
+        "aldehyde",
+        "urea"
+      ],
+      "strategic_principle": "Disconnect Hantzsch/Biginelli heterocycles to aldehyde, beta-ketoester, ammonia/amine, and urea/thiourea component sets. Substitution symmetry and oxidation state determine whether the MCR is strategic or only a late analogue-making shortcut."
+    },
+    {
+      "family_id": "isoindolinone_phthalimide_imide",
+      "name": "Isoindolinones, phthalimides, and imide medicinal scaffolds",
+      "pattern_keywords": [
+        "isoindolinone",
+        "phthalimide",
+        "isoindole-1,3-dione",
+        "imide",
+        "phthalic anhydride",
+        "thalidomide",
+        "C-H activation"
+      ],
+      "strategic_principle": "Map imide and isoindolinone cores to phthalic anhydride/phthalimide anchors, o-acyl benzamide precursors, or intramolecular C-N/C-C annulation precursors. Track imide substitution and stereochemical liabilities explicitly."
+    },
+    {
+      "family_id": "oxindole_spirooxindole_isatin",
+      "name": "Oxindoles, isatins, and spirooxindole natural-product-like scaffolds",
+      "pattern_keywords": [
+        "oxindole",
+        "isatin",
+        "spirooxindole",
+        "indolin-2-one",
+        "azomethine ylide",
+        "1,3-dipolar cycloaddition",
+        "Mannich",
+        "spirocyclic"
+      ],
+      "strategic_principle": "Use isatin/oxindole as a strategic anchor for C3-functionalization, spirocyclization, Mannich, and 1,3-dipolar cycloaddition routes. Spirocenter stereochemistry and dipolarophile choice are route-defining."
+    },
+    {
+      "family_id": "organoboron_medicinal_boronate",
+      "name": "Boronic acids, boronates, benzoxaboroles, and organoboron medicinal motifs",
+      "pattern_keywords": [
+        "boronic acid",
+        "boronate",
+        "Bpin",
+        "MIDA boronate",
+        "benzoxaborole",
+        "boron drug",
+        "Suzuki",
+        "Miyaura borylation"
+      ],
+      "strategic_principle": "Separate organoboron motif installation from downstream cross-coupling or biological warhead use. Choose between carrying a protected boronate, installing boron late, or using boron as a coupling handle, while tracking protodeboronation and purification risk."
+    },
+    {
+      "family_id": "benzodiazepine_diazepine_privileged",
+      "name": "Diazepine and benzodiazepine-like privileged scaffolds",
+      "pattern_keywords": [
+        "benzodiazepine",
+        "diazepine",
+        "1,4-benzodiazepine",
+        "pyrrolobenzodiazepine",
+        "PBD",
+        "anthranilamide",
+        "o-aminobenzophenone"
+      ],
+      "strategic_principle": "Compliance-gated high-level prior only: map diazepine-like rings to ortho-amino aryl carbonyl/amidide tethers or PBD biosynthetic/synthetic anchors, then treat ring closure and N-substitution as reviewed medicinal-chemistry transformations."
+    },
+    {
+      "family_id": "benzofused_lactam_lactone_scaffolds",
+      "name": "Benzofused lactams, lactones, and coumarin-adjacent oxygen/nitrogen heterocycles",
+      "pattern_keywords": [
+        "benzolactam",
+        "benzolactone",
+        "isobenzofuranone",
+        "phthalide",
+        "lactam",
+        "lactone",
+        "o-hydroxy acid",
+        "o-amino acid"
+      ],
+      "strategic_principle": "Disconnect benzofused lactones/lactams to ortho-hydroxy or ortho-amino aryl acid/aldehyde precursors. Ring closure order and oxidation state should be explicit, especially when the target resembles a protected phenol or phthalimide analogue."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "click_azide_alkyne_tetrazine_anchor",
+      "family_id": "triazole_click_bioorthogonal",
+      "name": "Azide/alkyne or tetrazine/dienophile ligation partners",
+      "role": "click_ligation_anchor",
+      "aliases": [
+        "organic azide",
+        "terminal alkyne",
+        "strained alkyne",
+        "tetrazine",
+        "trans-cyclooctene"
+      ],
+      "acceptance_policy": "requires_ligation_context_and_safety_review"
+    },
+    {
+      "anchor_id": "ortho_difunctional_aniline_fused_azole_anchor",
+      "family_id": "benzimidazole_benzoxazole_benzothiazole",
+      "name": "Ortho-difunctional aniline fused-azole precursor",
+      "role": "fused_azole_anchor",
+      "aliases": [
+        "o-phenylenediamine",
+        "o-aminophenol",
+        "o-aminothiophenol",
+        "carboxylic acid derivative",
+        "aldehyde"
+      ],
+      "acceptance_policy": "requires_heteroatom_identity_and_cyclodehydration_plan"
+    },
+    {
+      "anchor_id": "beta_dicarbonyl_hydrazine_hydroxylamine_anchor",
+      "family_id": "pyrazole_isoxazole_azole",
+      "name": "Beta-dicarbonyl plus hydrazine/hydroxylamine azole precursor",
+      "role": "five_membered_azole_anchor",
+      "aliases": [
+        "1,3-diketone",
+        "beta-ketoester",
+        "hydrazine",
+        "hydroxylamine",
+        "nitrile oxide"
+      ],
+      "acceptance_policy": "requires_regioisomer_mapping_for_unsymmetrical_substrates"
+    },
+    {
+      "anchor_id": "benzofuran_indole_annulation_precursor",
+      "family_id": "benzofuran_indole_annulation",
+      "name": "Benzofuran/indole annulation precursor",
+      "role": "heteroannulation_anchor",
+      "aliases": [
+        "o-iodoaniline",
+        "alkyne",
+        "phenylhydrazone",
+        "o-alkynyl phenol",
+        "salicylaldehyde derivative"
+      ],
+      "acceptance_policy": "requires_annulation_mode_and_substitution_mapping"
+    },
+    {
+      "anchor_id": "anthranilic_quinazoline_core_anchor",
+      "family_id": "quinazoline_kinase_scaffold",
+      "name": "Anthranilic-acid/anthranilamide quinazoline core precursor",
+      "role": "quinazoline_annulation_anchor",
+      "aliases": [
+        "anthranilic acid",
+        "anthranilamide",
+        "o-aminobenzamide",
+        "4-chloroquinazoline",
+        "quinazolinone"
+      ],
+      "acceptance_policy": "requires_core_annulation_before_late_C4_diversification"
+    },
+    {
+      "anchor_id": "mcr_component_set_anchor",
+      "family_id": "mcr_ugi_passerini_strecker",
+      "name": "Carbonyl, amine, acid, isocyanide, and cyanide-equivalent component set",
+      "role": "multicomponent_component_anchor",
+      "aliases": [
+        "aldehyde",
+        "ketone",
+        "amine",
+        "carboxylic acid",
+        "isocyanide",
+        "aminonitrile"
+      ],
+      "acceptance_policy": "requires_hazard_and_stereochemistry_review"
+    },
+    {
+      "anchor_id": "hantzsch_biginelli_component_set_anchor",
+      "family_id": "hantzsch_biginelli_mcr_heterocycles",
+      "name": "Aldehyde, beta-ketoester, nitrogen donor, and urea component set",
+      "role": "heterocycle_mcr_anchor",
+      "aliases": [
+        "aldehyde",
+        "beta-ketoester",
+        "ammonia",
+        "amine",
+        "urea",
+        "thiourea"
+      ],
+      "acceptance_policy": "requires_component_mapping_and_oxidation_state"
+    },
+    {
+      "anchor_id": "phthalic_imide_isoindolinone_anchor",
+      "family_id": "isoindolinone_phthalimide_imide",
+      "name": "Phthalic anhydride/phthalimide or o-acyl benzamide precursor",
+      "role": "imide_isoindolinone_anchor",
+      "aliases": [
+        "phthalic anhydride",
+        "phthalimide",
+        "o-acyl benzamide",
+        "benzamide C-H annulation precursor"
+      ],
+      "acceptance_policy": "requires_imide_substitution_and_stereochemical_review"
+    },
+    {
+      "anchor_id": "isatin_oxindole_spiro_anchor",
+      "family_id": "oxindole_spirooxindole_isatin",
+      "name": "Isatin/oxindole spirocyclization anchor",
+      "role": "isatin_C3_anchor",
+      "aliases": [
+        "isatin",
+        "oxindole",
+        "azomethine ylide",
+        "dipolarophile",
+        "C3-functionalized oxindole"
+      ],
+      "acceptance_policy": "requires_C3_stereochemistry_and_dipolarophile_mapping"
+    },
+    {
+      "anchor_id": "organoboron_boronate_handle_anchor",
+      "family_id": "organoboron_medicinal_boronate",
+      "name": "Boronic acid/boronate motif or coupling handle",
+      "role": "organoboron_anchor",
+      "aliases": [
+        "aryl boronic acid",
+        "Bpin",
+        "MIDA boronate",
+        "benzoxaborole",
+        "boronate ester"
+      ],
+      "acceptance_policy": "requires_boron_stability_and_downstream_role"
+    },
+    {
+      "anchor_id": "diazepine_ortho_amino_carbonyl_anchor",
+      "family_id": "benzodiazepine_diazepine_privileged",
+      "name": "Ortho-amino aryl carbonyl or PBD tether precursor",
+      "role": "compliance_gated_diazepine_anchor",
+      "aliases": [
+        "o-amino aryl ketone",
+        "anthranilamide tether",
+        "diazepine cyclization precursor",
+        "pyrrolobenzodiazepine precursor"
+      ],
+      "acceptance_policy": "compliance_review_required_before_proposal_generation"
+    },
+    {
+      "anchor_id": "benzofused_lactam_lactone_ortho_anchor",
+      "family_id": "benzofused_lactam_lactone_scaffolds",
+      "name": "Ortho-hydroxy/ortho-amino aryl acid or aldehyde lactone/lactam precursor",
+      "role": "benzofused_lactone_lactam_anchor",
+      "aliases": [
+        "o-hydroxy acid",
+        "o-amino acid",
+        "phthalide precursor",
+        "isobenzofuranone precursor",
+        "benzolactam precursor"
+      ],
+      "acceptance_policy": "requires_ring_closure_and_oxidation_state_mapping"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "triazole_cuaac_spaac_azide_alkyne_disconnection",
+      "family_id": "triazole_click_bioorthogonal",
+      "name": "1,2,3-triazole azide-alkyne click disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "triazole-linked medicinal hybrids",
+          "bioconjugates",
+          "click-derived linkers"
+        ],
+        "target_features": [
+          "1,2,3-triazole ring",
+          "azide/alkyne retron",
+          "linker between two fragments"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "triazole C-N/C-C bonds corresponding to azide and alkyne partners"
+        ],
+        "forward_logic": [
+          "prepare azide-bearing and alkyne-bearing fragments separately",
+          "choose CuAAC or strain-promoted cycloaddition depending on biological and metal constraints",
+          "track triazole regioisomer and copper compatibility"
+        ],
+        "suggested_precursor_roles": [
+          "organic azide fragment",
+          "terminal alkyne fragment",
+          "strained alkyne fragment",
+          "triazole-linked conjugate"
+        ],
+        "planner_hint": "Reward fragment convergence through a triazole only when azide/alkyne placement and compatibility are explicit."
+      },
+      "risks": [
+        "azide safety and stability",
+        "copper toxicity or residue",
+        "regioisomer control for non-Cu variants",
+        "linker may be SAR decoration rather than core simplification"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "1,2,3-triazole medicinal chemistry overview describes CuAAC and triazole hybrids.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7185471/"
+        },
+        {
+          "type": "literature",
+          "citation": "Triazole synthesis review summarizes Cu-catalyzed azide-alkyne cycloaddition and other methods.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9548580/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "click_triazole_prior",
+        "rerank_bonus": "moderate for true fragment convergence with compatibility metadata"
+      }
+    },
+    {
+      "id": "tetrazine_iedda_bioorthogonal_ligation_disconnection",
+      "family_id": "triazole_click_bioorthogonal",
+      "name": "Tetrazine IEDDA bioorthogonal ligation disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "bioorthogonal probes",
+          "pretargeted imaging constructs",
+          "tetrazine/TCO conjugates"
+        ],
+        "target_features": [
+          "tetrazine-derived ligation product",
+          "strained alkene or alkyne partner",
+          "labeling or release context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "bonds formed by inverse-electron-demand Diels-Alder ligation"
+        ],
+        "forward_logic": [
+          "separate tetrazine and strained dienophile partners",
+          "select TCO, norbornene, strained alkyne, or related handle based on kinetics and stability",
+          "for imaging, keep isotope and biological half-life constraints separate from synthesis"
+        ],
+        "suggested_precursor_roles": [
+          "tetrazine-labeled fragment",
+          "trans-cyclooctene-labeled fragment",
+          "norbornene or strained alkyne partner",
+          "pretargeted imaging payload"
+        ],
+        "planner_hint": "Classify as bioorthogonal ligation strategy; do not treat as ordinary Diels-Alder ring construction without context."
+      },
+      "risks": [
+        "tetrazine stability/reactivity tradeoff",
+        "TCO isomer stability",
+        "biological compatibility",
+        "radiochemistry timing constraints"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Bioorthogonal chemistry primer discusses tetrazine/TCO IEDDA chemistry and applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8469592/"
+        },
+        {
+          "type": "literature",
+          "citation": "Tetrazine bioorthogonal chemistry review summarizes in vivo imaging uses.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9709424/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "bioorthogonal_ligation_prior",
+        "rerank_bonus": "moderate when ligation handles and biological context are explicit"
+      }
+    },
+    {
+      "id": "benzimidazole_ortho_diamine_carbonyl_condensation",
+      "family_id": "benzimidazole_benzoxazole_benzothiazole",
+      "name": "Benzimidazole to o-phenylenediamine plus carbonyl/acid derivative",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "benzimidazoles",
+          "benzimidazole drugs",
+          "benzimidazole ligands"
+        ],
+        "target_features": [
+          "imidazole fused to benzene",
+          "2-substituted benzimidazole",
+          "ortho-diamine retron"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-N bonds formed during benzimidazole cyclocondensation"
+        ],
+        "forward_logic": [
+          "prepare o-phenylenediamine with target aryl substitution pattern",
+          "condense with aldehyde, nitrile, carboxylic acid derivative, or one-carbon equivalent",
+          "oxidize or dehydrate to aromatic benzimidazole as needed"
+        ],
+        "suggested_precursor_roles": [
+          "o-phenylenediamine",
+          "aldehyde",
+          "nitrile",
+          "carboxylic acid derivative"
+        ],
+        "planner_hint": "Reward o-diamine/carbonyl split with correct ring substitution; flag arbitrary N-alkyl edits as late decoration."
+      },
+      "risks": [
+        "regioisomeric substituted o-diamines",
+        "overoxidation",
+        "N-alkylation ambiguity",
+        "acid-sensitive substituents"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Benzimidazole synthesis review categorizes routes from o-phenylenediamine and related partners.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10384041/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "benzimidazole_core_prior",
+        "rerank_bonus": "high for correct o-diamine/carbonyl mapping"
+      }
+    },
+    {
+      "id": "benzoxazole_benzothiazole_ortho_aminophenol_thiophenol_condensation",
+      "family_id": "benzimidazole_benzoxazole_benzothiazole",
+      "name": "Benzoxazole/benzothiazole ortho-aminophenol or aminothiophenol condensation",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "benzoxazoles",
+          "benzothiazoles",
+          "fused azole medicinal scaffolds"
+        ],
+        "target_features": [
+          "benzene-fused oxazole or thiazole",
+          "ortho amino phenol or thiophenol retron",
+          "2-substituted fused azole"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "azole C-N and C-O or C-S bonds"
+        ],
+        "forward_logic": [
+          "prepare o-aminophenol or o-aminothiophenol precursor",
+          "condense with aldehyde, carboxylic acid derivative, nitrile, or related carbon source",
+          "choose oxidative or dehydrative closure depending on oxidation state"
+        ],
+        "suggested_precursor_roles": [
+          "o-aminophenol",
+          "o-aminothiophenol",
+          "aldehyde",
+          "carboxylic acid derivative",
+          "nitrile"
+        ],
+        "planner_hint": "Use the heteroatom identity to select benzoxazole versus benzothiazole precursor; keep oxidation/dehydration risk tags."
+      },
+      "risks": [
+        "thiol oxidation",
+        "phenol/amine chemoselectivity",
+        "cyclodehydration compatibility",
+        "substitution pattern ambiguity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Benzothiazole review covers condensation of o-aminothiophenols with carboxylic acids and derivatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8587170/"
+        },
+        {
+          "type": "literature",
+          "citation": "Benzoxazole synthesis review summarizes routes from 2-aminophenol precursors.",
+          "url": "https://pubs.rsc.org/en/content/articlepdf/2023/ra/d3ra03871h"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "benzoxazole_benzothiazole_core_prior",
+        "rerank_bonus": "high for correct ortho-aminophenol/aminothiophenol mapping"
+      }
+    },
+    {
+      "id": "pyrazole_hydrazine_beta_dicarbonyl_disconnection",
+      "family_id": "pyrazole_isoxazole_azole",
+      "name": "Pyrazole to hydrazine plus beta-dicarbonyl precursor",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "pyrazole drugs",
+          "diaryl pyrazoles",
+          "pyrazole agrochemical scaffolds"
+        ],
+        "target_features": [
+          "five-membered N-N azole",
+          "1,3-dicarbonyl retron",
+          "hydrazine-derived N-N unit"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "pyrazole C-N bonds formed by hydrazine condensation"
+        ],
+        "forward_logic": [
+          "prepare beta-dicarbonyl or equivalent enone/nitrile precursor",
+          "condense with hydrazine or substituted hydrazine",
+          "map regioisomers for unsymmetrical carbonyl partners"
+        ],
+        "suggested_precursor_roles": [
+          "1,3-diketone",
+          "beta-ketoester",
+          "hydrazine",
+          "aryl hydrazine"
+        ],
+        "planner_hint": "Require regioisomer annotation for unsymmetrical pyrazoles and N-substituent order."
+      },
+      "risks": [
+        "regioisomer mixture",
+        "hydrazine safety",
+        "N-alkylation ambiguity",
+        "tautomer handling"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Pyrazole synthesis review describes hydrazine condensation with beta-diketones as a key method.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6017056/"
+        },
+        {
+          "type": "literature",
+          "citation": "Pyrazole anti-angiogenesis overview notes beta-diketone/hydrazine condensation as common backbone construction.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4158875/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "pyrazole_core_prior",
+        "rerank_bonus": "high for beta-dicarbonyl/hydrazine split with regioisomer tracking"
+      }
+    },
+    {
+      "id": "isoxazole_hydroxylamine_or_nitrile_oxide_disconnection",
+      "family_id": "pyrazole_isoxazole_azole",
+      "name": "Isoxazole to hydroxylamine/beta-dicarbonyl or nitrile-oxide cycloaddition precursor",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "isoxazoles",
+          "isoxazolines",
+          "fused isoxazoles"
+        ],
+        "target_features": [
+          "N-O five-membered azole",
+          "hydroxylamine condensation retron",
+          "nitrile oxide cycloaddition retron"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "isoxazole C-N/C-O bonds formed by condensation or 1,3-dipolar cycloaddition"
+        ],
+        "forward_logic": [
+          "choose hydroxylamine plus beta-dicarbonyl equivalent or nitrile oxide plus alkyne/alkene",
+          "track regioselectivity for unsymmetrical dipolarophiles",
+          "distinguish isoxazole from isoxazoline oxidation state"
+        ],
+        "suggested_precursor_roles": [
+          "hydroxylamine",
+          "1,3-dicarbonyl",
+          "nitrile oxide",
+          "alkyne",
+          "alkene"
+        ],
+        "planner_hint": "Generate isoxazole strategies only with regioselectivity and oxidation-state tags."
+      },
+      "risks": [
+        "nitrile oxide dimerization",
+        "regioisomer formation",
+        "N-O bond reduction sensitivity",
+        "tautomer/oxidation-state mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Isoxazole chemistry review highlights cycloadditions, green approaches, and regioselective functionalization.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11912359/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "isoxazole_core_prior",
+        "rerank_bonus": "moderate for mapped hydroxylamine or nitrile-oxide route"
+      }
+    },
+    {
+      "id": "benzofuran_phenol_alkyne_or_carbonyl_annulation",
+      "family_id": "benzofuran_indole_annulation",
+      "name": "Benzofuran phenol/alkyne or carbonyl annulation disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "benzofurans",
+          "benzofuran natural products",
+          "benzofuran medicinal scaffolds"
+        ],
+        "target_features": [
+          "benzene-fused furan",
+          "o-alkynyl phenol retron",
+          "salicylaldehyde or phenoxy-carbonyl retron"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "benzofuran C-O/C-C bonds formed during annulation"
+        ],
+        "forward_logic": [
+          "map to o-alkynyl phenol, salicylaldehyde, phenoxy carbonyl, or related ortho-functionalized precursor",
+          "choose cycloisomerization, oxidative annulation, or condensation based on substitution pattern",
+          "handle phenol protection and aryl substitution before ring closure"
+        ],
+        "suggested_precursor_roles": [
+          "o-alkynyl phenol",
+          "salicylaldehyde derivative",
+          "phenoxy carbonyl precursor",
+          "ortho-functionalized phenol"
+        ],
+        "planner_hint": "Reward ring-opening to a credible ortho-phenol precursor; flag routes that only decorate an intact benzofuran."
+      },
+      "risks": [
+        "phenol protection order",
+        "cycloisomerization regioselectivity",
+        "oxidation-sensitive substituents",
+        "metal catalyst compatibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Benzofuran synthesis review summarizes catalytic strategies and medicinal relevance.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11097366/"
+        },
+        {
+          "type": "literature",
+          "citation": "Benzofuran natural product review summarizes sources, bioactivity, and common chemical synthesis approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9070854/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "benzofuran_annulation_prior",
+        "rerank_bonus": "moderate for credible ortho-phenol annulation precursor"
+      }
+    },
+    {
+      "id": "indole_fischer_larock_annulation_disconnection",
+      "family_id": "benzofuran_indole_annulation",
+      "name": "Medicinal indole Fischer or Larock annulation disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "simple medicinal indoles",
+          "substituted indole scaffolds",
+          "2- or 3-substituted indoles"
+        ],
+        "target_features": [
+          "indole core",
+          "phenylhydrazone retron",
+          "o-haloaniline plus alkyne retron"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "indole C-N/C-C bonds formed by Fischer rearrangement or Larock annulation"
+        ],
+        "forward_logic": [
+          "map Fischer routes to arylhydrazine plus aldehyde/ketone-derived hydrazone",
+          "map Larock routes to o-haloaniline plus alkyne",
+          "choose annulation route based on substitution pattern and functional group tolerance"
+        ],
+        "suggested_precursor_roles": [
+          "phenylhydrazine or arylhydrazone",
+          "aldehyde or ketone",
+          "o-iodoaniline",
+          "alkyne"
+        ],
+        "planner_hint": "Use for medicinal indole core construction; for complex indole alkaloids prefer the separate biosynthetic/Pictet-Spengler family."
+      },
+      "risks": [
+        "hydrazine safety",
+        "acid-sensitive substituents",
+        "Larock regioselectivity",
+        "Pd catalyst compatibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Medicinal indole overview lists Fischer, Bischler-Mohlau, Hemetsberger, and related indole syntheses.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10819683/"
+        },
+        {
+          "type": "literature",
+          "citation": "Larock-type annulation article describes indole construction from o-haloaniline/alkyne partners.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9062883/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "medicinal_indole_annulation_prior",
+        "rerank_bonus": "moderate when annulation mode matches substitution pattern"
+      }
+    },
+    {
+      "id": "quinazolinone_anthranilic_acid_annulation",
+      "family_id": "quinazoline_kinase_scaffold",
+      "name": "Quinazolinone/quinazoline anthranilic-acid annulation",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "quinazolinones",
+          "quinazolines",
+          "fused pyrimidine medicinal scaffolds"
+        ],
+        "target_features": [
+          "benzofused pyrimidine",
+          "anthranilic acid or anthranilamide retron",
+          "4-oxo or 4-halo quinazoline precursor"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "quinazoline pyrimidine ring bonds formed from ortho-amino aryl carbonyl precursor"
+        ],
+        "forward_logic": [
+          "prepare anthranilic acid, anthranilamide, o-aminobenzamide, or related precursor",
+          "build quinazolinone/quinazoline core by cyclocondensation or transition-metal-catalyzed route",
+          "convert core oxidation/halogenation state only after ring identity is set"
+        ],
+        "suggested_precursor_roles": [
+          "anthranilic acid",
+          "anthranilamide",
+          "o-aminobenzamide",
+          "quinazolinone",
+          "4-halo quinazoline"
+        ],
+        "planner_hint": "Reward core annulation before late kinase-hinge substituent decoration."
+      },
+      "risks": [
+        "core tautomer/oxidation state",
+        "harsh dehydrating/halogenating steps",
+        "regioselective substituted anthranilate preparation",
+        "functional group tolerance"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Quinazoline synthesis review covers transition-metal-catalyzed and classical routes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10060649/"
+        },
+        {
+          "type": "literature",
+          "citation": "Quinazoline/quinazolinone chemical characteristics review summarizes synthetic methods and medicinal scaffolds.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4321853/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "quinazoline_core_prior",
+        "rerank_bonus": "high for anthranilic-core annulation with oxidation-state tracking"
+      }
+    },
+    {
+      "id": "quinazoline_c4_anilino_late_snar_diversification",
+      "family_id": "quinazoline_kinase_scaffold",
+      "name": "4-Anilinoquinazoline late C4 substitution disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "4-anilinoquinazolines",
+          "quinazoline kinase inhibitor analogues",
+          "quinazoline SAR series"
+        ],
+        "target_features": [
+          "C4 anilino substituent",
+          "4-halo or 4-activated quinazoline retron",
+          "aniline diversification handle"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C4 quinazoline-N aniline bond"
+        ],
+        "forward_logic": [
+          "prepare activated 4-halo/4-leaving-group quinazoline core",
+          "install aniline or heteroarylamine substituent late",
+          "track competing C2/C4 substitution and solubility/SAR constraints"
+        ],
+        "suggested_precursor_roles": [
+          "4-chloroquinazoline",
+          "aniline",
+          "heteroarylamine",
+          "quinazoline SAR core"
+        ],
+        "planner_hint": "Treat as late diversification after core annulation; do not score as route-solving if core remains product-like."
+      },
+      "risks": [
+        "SNAr regioselectivity",
+        "aniline electronics",
+        "chlorination/dehydration burden",
+        "medicinal SAR may constrain substitution order"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Quinazoline derivatives review discusses synthesis and broad biological activities including kinase-related scaffolds.",
+          "url": "https://bmcchem.biomedcentral.com/articles/10.1186/1752-153X-7-95"
+        },
+        {
+          "type": "literature",
+          "citation": "Chemical insights review summarizes decorated quinazoline frameworks for agrochemical and pharmaceutical uses.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7873916/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "quinazoline_late_diversification_prior",
+        "rerank_bonus": "low_to_moderate and only after core route exists"
+      }
+    },
+    {
+      "id": "ugi_passerini_isocyanide_mcr_disconnection",
+      "family_id": "mcr_ugi_passerini_strecker",
+      "name": "Ugi/Passerini isocyanide multicomponent disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "peptidomimetics",
+          "alpha-acylamino amides",
+          "alpha-acyloxy amides",
+          "MCR-derived API intermediates"
+        ],
+        "target_features": [
+          "amide-rich Ugi product",
+          "alpha-acyloxy amide Passerini product",
+          "isocyanide-derived carbonyl equivalent"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "bonds connecting carbonyl, amine, acid, and isocyanide components"
+        ],
+        "forward_logic": [
+          "map product substituents to aldehyde/ketone, amine, carboxylic acid, and isocyanide components",
+          "for Passerini products, map carbonyl, acid, and isocyanide components",
+          "use post-MCR cyclization only when the downstream ring closure is explicit"
+        ],
+        "suggested_precursor_roles": [
+          "aldehyde or ketone",
+          "amine",
+          "carboxylic acid",
+          "isocyanide",
+          "post-Ugi cyclization precursor"
+        ],
+        "planner_hint": "Reward component-level convergence but require isocyanide availability and stereochemical review."
+      },
+      "risks": [
+        "isocyanide odor/toxicity and availability",
+        "diastereomer mixtures",
+        "functional group compatibility",
+        "MCR product may be analogue-generation rather than strategic simplification"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Multicomponent reactions for API synthesis review covers Ugi and Passerini routes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9416173/"
+        },
+        {
+          "type": "literature",
+          "citation": "Post-Ugi cyclization review covers Ugi adducts as heterocycle precursors.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6256255/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "isocyanide_mcr_prior",
+        "rerank_bonus": "moderate for clear component mapping and post-MCR plan"
+      }
+    },
+    {
+      "id": "strecker_petasis_amino_acid_component_disconnection",
+      "family_id": "mcr_ugi_passerini_strecker",
+      "name": "Strecker/Petasis amino-acid component disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "non-natural amino acids",
+          "aminonitriles",
+          "alpha-amino acid derivatives",
+          "peptidomimetic side chains"
+        ],
+        "target_features": [
+          "alpha-amino acid motif",
+          "aminonitrile precursor possible",
+          "carbonyl-derived side-chain mapping"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-C/C-N bonds formed by imine addition in amino-acid MCR"
+        ],
+        "forward_logic": [
+          "map alpha substituent to aldehyde or ketone component",
+          "choose Strecker-like aminonitrile route or Petasis-like boronic acid route based on chirality and safety",
+          "track hydrolysis/protection and enantiocontrol separately"
+        ],
+        "suggested_precursor_roles": [
+          "aldehyde or ketone",
+          "amine or ammonia equivalent",
+          "cyanide-equivalent nucleophile",
+          "boronic acid component",
+          "aminonitrile"
+        ],
+        "planner_hint": "Hazard-gate cyanide-equivalent routes and require stereochemical plan for non-racemic targets."
+      },
+      "risks": [
+        "cyanide-equivalent hazard",
+        "racemic product without asymmetric control",
+        "aminonitrile hydrolysis compatibility",
+        "protecting-group and salt-form issues"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Petasis versus Strecker review compares amino-acid synthesis strategies and opportunities.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8003338/"
+        },
+        {
+          "type": "literature",
+          "citation": "Strecker-derived methodology article describes aminonitrile library synthesis in medicinal chemistry.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7818620/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "amino_acid_mcr_prior",
+        "rerank_bonus": "moderate when chirality and hazard review are explicit",
+        "compliance_gate": "hazard_review_required_for_cyanide_equivalent_routes"
+      }
+    },
+    {
+      "id": "hantzsch_dihydropyridine_mcr_disconnection",
+      "family_id": "hantzsch_biginelli_mcr_heterocycles",
+      "name": "Hantzsch 1,4-dihydropyridine multicomponent disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "1,4-dihydropyridines",
+          "Hantzsch ester analogues",
+          "calcium-channel-blocker-like scaffolds"
+        ],
+        "target_features": [
+          "1,4-dihydropyridine ring",
+          "two beta-ketoester-derived substituents",
+          "aldehyde-derived C4 substituent"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "dihydropyridine ring bonds formed by Hantzsch condensation"
+        ],
+        "forward_logic": [
+          "map C4 substituent to aldehyde component",
+          "map ester/ketone substituents to beta-ketoester components",
+          "choose ammonia or amine nitrogen donor and track oxidation to pyridine when relevant"
+        ],
+        "suggested_precursor_roles": [
+          "aldehyde",
+          "beta-ketoester",
+          "ammonia or amine donor",
+          "dihydropyridine oxidation precursor"
+        ],
+        "planner_hint": "Reward Hantzsch MCR only when component symmetry and oxidation state match the target."
+      },
+      "risks": [
+        "unsymmetrical component mixtures",
+        "aromatization to pyridine",
+        "substituent electronics",
+        "salt and ester form changes"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Dihydropyridine synthesis review describes Hantzsch MCR and medicinal relevance.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9555063/"
+        },
+        {
+          "type": "literature",
+          "citation": "MCR API review summarizes Hantzsch dihydropyridine synthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9416173/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "hantzsch_mcr_prior",
+        "rerank_bonus": "moderate for clean component mapping"
+      }
+    },
+    {
+      "id": "biginelli_dihydropyrimidinone_mcr_disconnection",
+      "family_id": "hantzsch_biginelli_mcr_heterocycles",
+      "name": "Biginelli dihydropyrimidinone/thione multicomponent disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "dihydropyrimidinones",
+          "dihydropyrimidinethiones",
+          "Biginelli adducts"
+        ],
+        "target_features": [
+          "DHPM/DHPMT ring",
+          "aldehyde-derived C4 substituent",
+          "urea or thiourea-derived heteroatom pattern",
+          "beta-ketoester-derived ester/ketone pattern"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "dihydropyrimidinone ring bonds formed by Biginelli condensation"
+        ],
+        "forward_logic": [
+          "map aryl/alkyl substituent to aldehyde component",
+          "map ester/ketone portion to beta-ketoester or dicarbonyl component",
+          "choose urea or thiourea component and track asymmetric induction if required"
+        ],
+        "suggested_precursor_roles": [
+          "aldehyde",
+          "beta-ketoester",
+          "urea",
+          "thiourea",
+          "DHPM adduct"
+        ],
+        "planner_hint": "Use for Biginelli adducts and DHPM scaffolds; require stereochemical tags for asymmetric targets."
+      },
+      "risks": [
+        "diastereoselectivity/enantiocontrol",
+        "thiourea compatibility",
+        "substituent electronics",
+        "MCR scope limitations"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Asymmetric Biginelli review summarizes DHPM and DHPMT formation strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11357475/"
+        },
+        {
+          "type": "literature",
+          "citation": "Biginelli adduct mini-review discusses pharmacological DHPM examples.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4522545/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "biginelli_mcr_prior",
+        "rerank_bonus": "moderate for correct aldehyde/beta-ketoester/urea mapping"
+      }
+    },
+    {
+      "id": "phthalimide_phthalic_anhydride_imide_disconnection",
+      "family_id": "isoindolinone_phthalimide_imide",
+      "name": "Phthalimide to phthalic anhydride/imide N-functionalization precursor",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "phthalimides",
+          "imide drugs",
+          "N-functionalized isoindole-1,3-diones"
+        ],
+        "target_features": [
+          "isoindole-1,3-dione core",
+          "N-substituted imide",
+          "phthalic anhydride retron"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "imide N-substituent bond",
+          "imide C-N bonds to phthalic anhydride precursor"
+        ],
+        "forward_logic": [
+          "build phthalimide core from phthalic anhydride or related phthalate precursor",
+          "install N-substituent or use NH-phthalimide as masked amine/functional handle",
+          "track imide hydrolysis and stereochemical liabilities for chiral substituents"
+        ],
+        "suggested_precursor_roles": [
+          "phthalic anhydride",
+          "NH-phthalimide",
+          "amine or alkylating partner",
+          "N-functionalized imide"
+        ],
+        "planner_hint": "Reward phthalic anhydride/imide anchor exposure; flag late N-functionalization as decoration if core is unchanged."
+      },
+      "risks": [
+        "imide hydrolysis",
+        "overalkylation",
+        "stereochemical stability of substituent",
+        "toxicity/teratogenicity review for imide drugs"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Phthalimide synthesis and functionalization review covers recent phthalimide chemistry.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11259108/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "phthalimide_anchor_prior",
+        "rerank_bonus": "moderate for core-building or N-functionalization with risk tags"
+      }
+    },
+    {
+      "id": "isoindolinone_o_acyl_benzamide_annulation_disconnection",
+      "family_id": "isoindolinone_phthalimide_imide",
+      "name": "Isoindolinone to o-acyl benzamide or C-H annulation precursor",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "isoindolinones",
+          "benzolactams",
+          "phthalimide-reduced analogues"
+        ],
+        "target_features": [
+          "five-membered benzolactam",
+          "o-acyl benzamide retron",
+          "C-H annulation precursor possible"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "lactam C-N bond",
+          "benzylic C-C or C-N bond formed by annulation"
+        ],
+        "forward_logic": [
+          "map to o-acyl benzamide, imine, or C-H annulation precursor",
+          "choose reductive cyclization, metal-catalyzed C-C formation, or imide reduction route",
+          "track ring oxidation state separately from N-substitution"
+        ],
+        "suggested_precursor_roles": [
+          "o-acyl benzamide",
+          "imine or iminium precursor",
+          "phthalimide/imide precursor",
+          "C-H activation substrate"
+        ],
+        "planner_hint": "Use when isoindolinone core is strategically opened; late N-substituent edits alone are weak evidence."
+      },
+      "risks": [
+        "C-H activation regioselectivity",
+        "imine reduction stereochemistry",
+        "overreduction of imides",
+        "amide conformational effects"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Isoindolinone synthesis review covers one-pot transition-metal-catalyzed C-C bond forming reactions.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8048987/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "isoindolinone_annulation_prior",
+        "rerank_bonus": "moderate for credible o-acyl benzamide or annulation mapping"
+      }
+    },
+    {
+      "id": "isatin_oxindole_c3_functionalization_disconnection",
+      "family_id": "oxindole_spirooxindole_isatin",
+      "name": "Oxindole/isatin C3-functionalization disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "oxindoles",
+          "isatin derivatives",
+          "C3-functionalized indolin-2-ones"
+        ],
+        "target_features": [
+          "oxindole core",
+          "isatin or C3 carbonyl precursor possible",
+          "C3 substituted stereocenter"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C3 substituent bond on oxindole/isatin-derived center"
+        ],
+        "forward_logic": [
+          "use isatin or oxindole as core anchor",
+          "install C3 substituent by addition, Mannich, aldol, alkylation, or cycloaddition logic",
+          "track stereochemistry and tautomer/oxidation state"
+        ],
+        "suggested_precursor_roles": [
+          "isatin",
+          "oxindole",
+          "C3-carbonyl precursor",
+          "nucleophile or imine partner"
+        ],
+        "planner_hint": "Reward explicit isatin/oxindole anchor and C3 stereochemical plan."
+      },
+      "risks": [
+        "C3 stereochemistry",
+        "N-protection order",
+        "tautomerism",
+        "overaddition or ring opening"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Isatin derivatives review describes isatin as a versatile precursor for oxindole-containing derivatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6438150/"
+        },
+        {
+          "type": "literature",
+          "citation": "Isatin anticancer review discusses oxindole and spirooxindole biological relevance.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7889591/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "isatin_C3_prior",
+        "rerank_bonus": "moderate for explicit C3 functionalization route"
+      }
+    },
+    {
+      "id": "spirooxindole_azomethine_ylide_dipolar_cycloaddition",
+      "family_id": "oxindole_spirooxindole_isatin",
+      "name": "Spirooxindole azomethine-ylide 1,3-dipolar cycloaddition",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "spirooxindoles",
+          "pyrrolidinyl spirooxindoles",
+          "spirocyclic natural-product-like scaffolds"
+        ],
+        "target_features": [
+          "spiro-fused oxindole",
+          "azomethine ylide retron",
+          "dipolarophile-derived ring"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "two sigma bonds formed by 1,3-dipolar cycloaddition at oxindole C3"
+        ],
+        "forward_logic": [
+          "generate azomethine ylide from isatin and amino-acid/imine precursor",
+          "select alkene/alkyne dipolarophile matching ring and substituent pattern",
+          "track regioselectivity and spirocenter stereochemistry"
+        ],
+        "suggested_precursor_roles": [
+          "isatin",
+          "amino acid or imine precursor",
+          "azomethine ylide",
+          "dipolarophile"
+        ],
+        "planner_hint": "Use only when spiro ring atoms can be mapped to dipole and dipolarophile components."
+      },
+      "risks": [
+        "diastereoselectivity",
+        "regioselectivity",
+        "dipolarophile electronics",
+        "decarboxylation/ylide generation compatibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Isatin review covers spirooxindole synthesis by multicomponent and 1,3-dipolar cycloaddition routes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6438150/"
+        },
+        {
+          "type": "literature",
+          "citation": "Dipolarophile-controlled spirooxindole article demonstrates divergent 1,3-dipolar cycloaddition access.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9966135/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "spirooxindole_dipolar_prior",
+        "rerank_bonus": "moderate when component mapping and stereochemistry are explicit"
+      }
+    },
+    {
+      "id": "organoboron_boronic_acid_boronate_installation",
+      "family_id": "organoboron_medicinal_boronate",
+      "name": "Organoboron motif installation and protection disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "boronic acid drugs",
+          "boronate esters",
+          "benzoxaboroles",
+          "organoboron intermediates"
+        ],
+        "target_features": [
+          "C-B bond",
+          "boronic acid or ester",
+          "benzoxaborole ring",
+          "boronate as pharmacophore or handle"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-B bond or benzoxaborole C-O/B-O ring closure"
+        ],
+        "forward_logic": [
+          "choose borylation, lithiation/borylation, Miyaura borylation, or protected-boron building block route",
+          "select boronate protection such as pinacol, MIDA, or other stabilizing form when needed",
+          "separate pharmacophore boron from cross-coupling handle boron"
+        ],
+        "suggested_precursor_roles": [
+          "aryl halide or triflate",
+          "Bpin precursor",
+          "MIDA boronate",
+          "boronic acid",
+          "benzoxaborole precursor"
+        ],
+        "planner_hint": "Track whether boron survives to target or is used as a coupling handle; flag protodeboronation/purification risk."
+      },
+      "risks": [
+        "protodeboronation",
+        "boronic acid purification",
+        "oxidation sensitivity",
+        "boron pharmacophore may not tolerate downstream chemistry"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Boronic acids medicinal chemistry review covers synthesis and biological applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7571202/"
+        },
+        {
+          "type": "literature",
+          "citation": "Boron chemicals in drug discovery review covers boronic acids, benzoxaboroles, and boron-containing candidates.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9104566/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "organoboron_installation_prior",
+        "rerank_bonus": "moderate for explicit boron role and stability plan"
+      }
+    },
+    {
+      "id": "organoboron_dynamic_boronic_acid_click_or_recognition",
+      "family_id": "organoboron_medicinal_boronate",
+      "name": "Boronic-acid dynamic covalent recognition disconnection",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "boronic-acid sensors",
+          "dynamic covalent conjugates",
+          "boronate ester recognition motifs"
+        ],
+        "target_features": [
+          "reversible boronate ester",
+          "iminoboronate or salicylhydroxamate-boronate linkage",
+          "sugar or diol recognition motif"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "reversible B-O or iminoboronate linkage"
+        ],
+        "forward_logic": [
+          "separate stable covalent scaffold from reversible boronic-acid recognition partner",
+          "choose boronic acid, benzoxaborole, or dynamic click pair based on pH and target context",
+          "do not mark reversible recognition complex as ordinary isolated product without evidence"
+        ],
+        "suggested_precursor_roles": [
+          "boronic acid",
+          "diol or sugar partner",
+          "salicylhydroxamate partner",
+          "iminoboronate-forming amine/carbonyl pair"
+        ],
+        "planner_hint": "Use as a recognition/conjugation prior; distinguish reversible complexes from isolable synthetic intermediates."
+      },
+      "risks": [
+        "pH dependence",
+        "reversibility",
+        "water compatibility",
+        "off-target diol binding"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Boronic-acid dynamic click chemistry review covers iminoboronate and salicylhydroxamate-boronate systems.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8179052/"
+        },
+        {
+          "type": "literature",
+          "citation": "Boronic-acid molecular recognition review covers chemical biology applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3787204/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "boronic_dynamic_recognition_prior",
+        "rerank_bonus": "low_to_moderate and only with reversible-binding context"
+      }
+    },
+    {
+      "id": "benzodiazepine_diazepine_ring_closure_disconnection",
+      "family_id": "benzodiazepine_diazepine_privileged",
+      "name": "Diazepine ring closure to ortho-amino aryl carbonyl tether",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "diazepine-like medicinal scaffolds",
+          "1,4-benzodiazepine analogues",
+          "benzodiazepine-2-one scaffolds"
+        ],
+        "target_features": [
+          "benzofused seven-membered diazepine ring",
+          "ortho-amino aryl carbonyl retron",
+          "amide/imide tether"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "diazepine C-N or amide ring-closing bond"
+        ],
+        "forward_logic": [
+          "map ring to an ortho-amino aryl carbonyl or anthranilamide-like tether precursor",
+          "treat N-substitution and annelation as late medicinal-chemistry edits after core route exists",
+          "require controlled-substance and toxicology review before proposal generation"
+        ],
+        "suggested_precursor_roles": [
+          "ortho-amino aryl carbonyl precursor",
+          "anthranilamide-like tether",
+          "diazepine cyclization precursor",
+          "late N-substitution partner"
+        ],
+        "planner_hint": "Compliance-gated high-level route critique only; do not emit operational routes for controlled sedative analogues."
+      },
+      "risks": [
+        "controlled-substance or abuse-liability review",
+        "ring closure chemoselectivity",
+        "N-acyl/N-alkyl order",
+        "CNS-active toxicology constraints"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "IntechOpen chapter reviews 1,4-benzodiazepine description, analysis, and organic synthesis at high level.",
+          "url": "https://www.intechopen.com/chapters/63768"
+        },
+        {
+          "type": "literature",
+          "citation": "Open-access benzodiazepine synthesis article describes modern 1,4-benzodiazepine skeleton construction strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12073993/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "compliance_gated_diazepine_prior",
+        "rerank_bonus": "low and compliance-gated",
+        "compliance_gate": "required_for_controlled_or_CNS_active_targets"
+      }
+    },
+    {
+      "id": "pyrrolobenzodiazepine_pbd_biosynthesis_or_tether_anchor",
+      "family_id": "benzodiazepine_diazepine_privileged",
+      "name": "Pyrrolobenzodiazepine biosynthetic/tether anchor",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "pyrrolobenzodiazepines",
+          "PBD natural-product cores",
+          "PBD conjugates"
+        ],
+        "target_features": [
+          "tricyclic PBD core",
+          "diazepine fused to pyrrole/benzene",
+          "DNA-reactive imine/amide risk motifs"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "PBD diazepine ring-closing bonds",
+          "linker bond for conjugates when present"
+        ],
+        "forward_logic": [
+          "recognize PBD core as toxic natural-product-like scaffold requiring review",
+          "separate PBD core assembly from linker/conjugate installation",
+          "use biosynthetic or reviewed synthetic anchor only for critique, not automatic proposal"
+        ],
+        "suggested_precursor_roles": [
+          "PBD core precursor",
+          "anthranilate-derived unit",
+          "pyrroline/pyrrole tether precursor",
+          "linker/conjugation partner"
+        ],
+        "planner_hint": "Compliance- and toxicology-gated; prioritize route critique and evidence tagging over generation."
+      },
+      "risks": [
+        "potent cytotoxicity",
+        "DNA alkylation/reactivity",
+        "biosecurity review",
+        "linker/conjugate handling"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Pyrrolobenzodiazepine synthesis update reviews PBD synthetic approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6273195/"
+        },
+        {
+          "type": "literature",
+          "citation": "PBD biosynthesis/synthesis review covers biological activities and biosynthetic context.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4127195/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "compliance_gated_pbd_prior",
+        "rerank_bonus": "low and compliance-gated",
+        "compliance_gate": "required_for_cytotoxic_or_DNA_reactive_targets"
+      }
+    },
+    {
+      "id": "benzofused_lactone_lactam_ortho_acid_ring_closure",
+      "family_id": "benzofused_lactam_lactone_scaffolds",
+      "name": "Benzofused lactone/lactam ortho-acid ring-closure disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "phthalides",
+          "isobenzofuranones",
+          "benzolactams",
+          "benzofused lactones"
+        ],
+        "target_features": [
+          "benzene-fused five-membered lactone or lactam",
+          "ortho-hydroxy/ortho-amino acid retron",
+          "benzylic alcohol/aldehyde oxidation-state pair"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "lactone C-O bond",
+          "lactam C-N bond",
+          "benzylic C-O bond when phthalide oxidation state is involved"
+        ],
+        "forward_logic": [
+          "map to ortho-hydroxy or ortho-amino aryl acid/aldehyde precursor",
+          "choose lactonization/lactamization or oxidation-state adjustment before ring closure",
+          "separate phenol/amine protection from core-forming ring closure"
+        ],
+        "suggested_precursor_roles": [
+          "o-hydroxy acid",
+          "o-amino acid",
+          "phthalide precursor",
+          "benzylic alcohol or aldehyde"
+        ],
+        "planner_hint": "Reward ortho-functionalized aryl-acid precursor exposure and oxidation-state tracking."
+      },
+      "risks": [
+        "lactone hydrolysis",
+        "amide/lactam cyclization selectivity",
+        "benzylic oxidation overreaction",
+        "phenol/amine protection order"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Phthalimide and related imide review covers phthalic-anhydride-derived heterocycles and functionalization.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11259108/"
+        },
+        {
+          "type": "literature",
+          "citation": "Isatin derivative review includes benzofused heterocycle and lactam/lactone transformations in medicinal contexts.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6438150/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "benzofused_lactone_lactam_prior",
+        "rerank_bonus": "moderate for ortho-functionalized precursor mapping"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v3 expansion adds common medicinal heterocycle and multicomponent-reaction source families that bridge template-level retrosynthesis and strategic route critique."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Diazepine/PBD, cyanide-equivalent Strecker, azide, hydrazine, and bioorthogonal labeling records are advisory only. They require project-level safety, legal, and compliance review before any proposal-source promotion."
+    }
+  ]
+}

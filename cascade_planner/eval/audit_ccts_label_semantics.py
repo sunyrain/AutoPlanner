@@ -449,6 +449,9 @@ def _fmt(value: Any) -> str:
 
 
 def main() -> None:
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("audit_ccts_label_semantics")
     RDLogger.DisableLog("rdApp.*")
     ap = argparse.ArgumentParser(description="Audit CCTS label semantics")
     ap.add_argument("--train-coverage", default="results/shared/cascadebench_strict_20260516/coverage/coverage_train_top100.json")

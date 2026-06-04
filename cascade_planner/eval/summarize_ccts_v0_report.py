@@ -60,6 +60,9 @@ def _fmt(value: Any) -> str:
 
 
 def main() -> None:
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("summarize_ccts_v0_report")
     ap = argparse.ArgumentParser(description="Summarize CCTS-v0 report")
     ap.add_argument("--report", required=True)
     ap.add_argument("--output")

@@ -234,6 +234,13 @@ textarea.constraints {
   min-height: 96px;
 }
 
+.field-note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 4px;
+}
+
 .grid {
   display: grid;
   gap: 8px;

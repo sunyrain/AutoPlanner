@@ -11,17 +11,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Merge native ChemEnzy batch outputs.")
     parser.add_argument("--input", action="append", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--dedupe-target-smiles",
+        action="store_true",
+        help="Drop later rows with duplicate target_smiles. By default, preserve row order for benchmark-aligned shards.",
+    )
     args = parser.parse_args()
 
     targets = []
-    metadata = {"merged_inputs": args.input}
+    metadata = {"merged_inputs": args.input, "dedupe_target_smiles": bool(args.dedupe_target_smiles)}
     seen = set()
     for raw_path in args.input:
         path = Path(raw_path)
         data = json.loads(path.read_text(encoding="utf-8"))
         for target in data.get("targets") or []:
             smiles = str(target.get("target_smiles") or "")
-            if smiles in seen:
+            if args.dedupe_target_smiles and smiles in seen:
                 continue
             seen.add(smiles)
             targets.append(target)

@@ -450,6 +450,9 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def main() -> None:
+    from cascade_planner.legacy_guard import require_legacy_research_enabled
+
+    require_legacy_research_enabled("build_route_block_value_pack")
     ap = argparse.ArgumentParser(description="Build route_block_value_pack_v1 from a RouteSelector JSONL pack")
     ap.add_argument("--input-jsonl", required=True)
     ap.add_argument("--output-jsonl", required=True)

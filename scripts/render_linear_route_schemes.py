@@ -32,6 +32,11 @@ def main() -> None:
     parser.add_argument("--mol-height", type=int, default=165)
     parser.add_argument("--steps-per-row", type=int, default=4)
     parser.add_argument("--aux-mode", choices=["mini", "text", "none"], default="mini")
+    parser.add_argument(
+        "--only-feasible",
+        action="store_true",
+        help="Render only routes accepted by the cascade verifier, keeping source-supported semisynthesis anchors.",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -39,6 +44,8 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     doc = json.loads(input_path.read_text(encoding="utf-8"))
     routes = [route for route in doc.get("routes") or [] if isinstance(route, dict)]
+    if args.only_feasible:
+        routes = [route for route in routes if _renderable_feasible_route(route)]
     target = str(doc.get("target") or doc.get("target_smiles") or "")
     formats = [fmt.strip() for fmt in args.formats.split(",") if fmt.strip()]
     rows = []
@@ -64,6 +71,22 @@ def main() -> None:
     (output_dir / "index.html").write_text(render_index(rows, source=input_path), encoding="utf-8")
     (output_dir / "manifest.json").write_text(json.dumps({"source": str(input_path), "figures": rows}, indent=2), encoding="utf-8")
     print(json.dumps({"output_dir": str(output_dir), "index": str(output_dir / "index.html"), "figures": rows}, indent=2))
+
+
+def _renderable_feasible_route(route: dict[str, Any]) -> bool:
+    metrics = route.get("metrics") or {}
+    verifier = metrics.get("cascade_verifier") or {}
+    if metrics.get("source_supported_semisynthesis"):
+        return True
+    return bool(verifier.get("feasible") and _route_condition_coverage(route) >= 1.0)
+
+
+def _route_condition_coverage(route: dict[str, Any]) -> float:
+    steps = [step for step in route.get("steps") or [] if isinstance(step, dict)]
+    if not steps:
+        return 0.0
+    covered = sum(1 for step in steps if step.get("condition_predictions"))
+    return covered / max(1, len(steps))
 
 
 def render_scheme_svg(
@@ -346,8 +369,9 @@ def _condition_label(text: str, *, context: str = "generic") -> str:
         "C1CCOC1.CO": "THF/MeOH",
         "COCCOC.O": "DME/H2O",
         "Cc1ccccc1": "toluene",
-        "Cc1ccccc1.ClCCl": "toluene/DCE",
-        "ClCCl": "DCE",
+        "Cc1ccccc1.ClCCl": "toluene/DCM",
+        "ClCCl": "DCM",
+        "ClCCCl": "DCE",
         "ClC(Cl)Cl": "CHCl3",
         "ClC1=CC=CC=C1": "chlorobenzene",
         "CC#N": "MeCN",

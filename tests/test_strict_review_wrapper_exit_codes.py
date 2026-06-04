@@ -10,6 +10,19 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class StrictReviewWrapperExitCodesTest(unittest.TestCase):
+    def test_strict_review_wrapper_is_guarded_by_default(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+
+            result = _run_wrapper(
+                root,
+                "scripts/run_strict_model_review_real.sh",
+                allow_legacy=False,
+            )
+
+            self.assertEqual(result.returncode, 4, result.stdout + result.stderr)
+            self.assertIn("archived/fallback research", result.stderr)
+
     def test_after_key_wrapper_exits_nonzero_when_primary_merge_not_ready(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -162,9 +175,19 @@ class StrictReviewWrapperExitCodesTest(unittest.TestCase):
             self.assertIn("No filled expert decision rows found", result.stdout + result.stderr)
 
 
-def _run_wrapper(root: Path, script: str, *, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+def _run_wrapper(
+    root: Path,
+    script: str,
+    *,
+    extra_env: dict[str, str] | None = None,
+    allow_legacy: bool = True,
+) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env["ROOT"] = str(root)
+    if allow_legacy:
+        env["AUTOPLANNER_ALLOW_LEGACY_RESEARCH"] = "1"
+    else:
+        env.pop("AUTOPLANNER_ALLOW_LEGACY_RESEARCH", None)
     if extra_env:
         env.update(extra_env)
     return subprocess.run(

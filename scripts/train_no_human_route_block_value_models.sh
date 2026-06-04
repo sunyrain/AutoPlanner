@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT="${ROOT:-/root/autodl-tmp/AutoPlanner}"
 cd "$ROOT"
 
+if [[ "${AUTOPLANNER_ALLOW_LEGACY_RESEARCH:-}" != "1" ]]; then
+  echo "no-human route/block value training is archived/fallback research; set AUTOPLANNER_ALLOW_LEGACY_RESEARCH=1 to run it." >&2
+  exit 2
+fi
+
 PACK="${PACK:-results/shared/model_strengthening_20260519_route_block_value_runtime_train_provenance/route_block_value_pack.jsonl}"
 PACK_REPORT="${PACK_REPORT:-${PACK%.jsonl}_report.json}"
 OUT_DIR="${OUT_DIR:-results/shared/model_strengthening_20260519_no_human_route_block_value_models}"

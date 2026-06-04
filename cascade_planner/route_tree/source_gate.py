@@ -29,11 +29,21 @@ CHEMICAL_SOURCES = {
     "uspto50k",
     "chem_enzy_onestep",
     "chem_enzy_graphfp",
-    "chem_enzy_onmt",
+    "chem_enzy_graphfp_fusion",
+    "autoplanner_dualtower",
+    "autoplanner_dualtower_template",
+    "autoplanner_graphfp_dualtower_fusion",
+    "template_relevance",
+    "semisynthesis_rescue",
+    "chemical_anchor_rescue",
+    "literature_template_plugin",
+    "autoplanner.literature_template_plugin",
+    "literature_chemical",
+    "literature_biocatalytic",
 }
-ENZYMATIC_SOURCES = {"enzyformer", "enzexpand", "enzymatic", "enzyme"}
+ENZYMATIC_SOURCES = {"enzyformer", "enzexpand", "enzymatic", "enzyme", "chem_enzy_onmt", "chem_enzy_bionav"}
 RHEA_RETRORULES_SOURCES = {"retrorules", "rhea", "rhea_template", "retrorules_template"}
-RETRIEVAL_SOURCES = {"v3_retrieval", "retrieval"}
+RETRIEVAL_SOURCES = {"v3_retrieval", "enzyme_precedent", "retrieval"}
 TEMPLATE_SOURCES = {"chemtemplates", "native_replay", "template", "template_fallback"}
 SOURCE_GROUPS = ("chemical", "enzymatic", "rhea_retrorules", "retrieval", "template", "fallback")
 LEGACY_SOURCE_BUDGET_GROUPS = ("chemical", "enzymatic", "rhea_retrorules", "fallback")
@@ -167,6 +177,174 @@ class SourceGate:
             policy_state_id=_context_state_id(context, product),
             selected_source_group=max(group_probs, key=group_probs.get) if group_probs else "",
         )
+
+
+class BridgeAwareSourceGate(SourceGate):
+    """Gate enzymatic proposal budgets with verifier-backed bridge evidence.
+
+    The bridge retriever is used as a trigger, not as a retrosynthetic action.
+    If a frontier molecule has no verifier-pass bridge candidates, enzyme-side
+    sources are suppressed for that node unless the route context explicitly
+    requests an EC class. If bridge evidence exists, enzymatic sources receive a
+    controlled budget share.
+    """
+
+    def __init__(
+        self,
+        delegate: SourceGate | None = None,
+        *,
+        retriever: Any | None = None,
+        bridge_top_k: int = 8,
+        bridge_enzymatic_fraction: float = 0.55,
+        suppress_without_bridge: bool = True,
+        require_verifier_pass: bool = True,
+    ) -> None:
+        self.delegate = delegate or SourceGate()
+        self.retriever = retriever
+        self.bridge_top_k = max(1, int(bridge_top_k or 1))
+        self.bridge_enzymatic_fraction = min(1.0, max(0.0, float(bridge_enzymatic_fraction)))
+        self.suppress_without_bridge = bool(suppress_without_bridge)
+        self.require_verifier_pass = bool(require_verifier_pass)
+
+    def allocate(
+        self,
+        product: str,
+        *,
+        context: Any | None,
+        available_sources: list[str] | tuple[str, ...],
+        total_budget: int,
+    ) -> SourceAllocation:
+        allocation = self.delegate.allocate(
+            product,
+            context=context,
+            available_sources=available_sources,
+            total_budget=total_budget,
+        )
+        sources = list(available_sources)
+        enzymatic_sources = [
+            source for source in sources if _source_group(source) in {"enzymatic", "rhea_retrorules"}
+        ]
+        if not enzymatic_sources:
+            return allocation
+        ec1 = int(getattr(context, "ec1", 0) or 0) if context is not None else 0
+        if ec1:
+            return _allocation_with_bridge_metadata(
+                allocation,
+                bridge_checked=False,
+                bridge_hits=0,
+                reason="bridge_gate_bypassed_explicit_ec_context",
+            )
+        bridge_hits = self._bridge_hits(product)
+        bridge_metadata = _bridge_context_metadata(bridge_hits)
+        if bridge_hits:
+            budgets = _split_budget(
+                sources=sources,
+                preferred_sources=enzymatic_sources,
+                total_budget=total_budget,
+                preferred_fraction=self.bridge_enzymatic_fraction,
+            )
+            return _replace_allocation_budgets(
+                allocation,
+                budgets=budgets,
+                reason="bridge_gate_hits",
+                bridge_checked=True,
+                bridge_hits=len(bridge_hits),
+                bridge_metadata=bridge_metadata,
+            )
+        if _allow_enzyme_route_continuation(context):
+            budgets = _split_budget(
+                sources=sources,
+                preferred_sources=enzymatic_sources,
+                total_budget=total_budget,
+                preferred_fraction=_enzyme_continuation_fraction(self.bridge_enzymatic_fraction),
+            )
+            return _replace_allocation_budgets(
+                allocation,
+                budgets=budgets,
+                reason="bridge_gate_enzyme_continuation",
+                bridge_checked=True,
+                bridge_hits=0,
+                bridge_metadata=_enzyme_continuation_metadata(context),
+            )
+        if not self.suppress_without_bridge:
+            return _allocation_with_bridge_metadata(
+                allocation,
+                bridge_checked=True,
+                bridge_hits=0,
+                reason="bridge_gate_no_hits_passthrough",
+            )
+        non_enzymatic_sources = [source for source in sources if source not in enzymatic_sources]
+        if not non_enzymatic_sources:
+            return _allocation_with_bridge_metadata(
+                allocation,
+                bridge_checked=True,
+                bridge_hits=0,
+                reason="bridge_gate_no_nonenzymatic_fallback",
+            )
+        budgets = _split_budget(
+            sources=sources,
+            preferred_sources=non_enzymatic_sources,
+            total_budget=total_budget,
+            preferred_fraction=1.0,
+        )
+        return _replace_allocation_budgets(
+            allocation,
+            budgets=budgets,
+            reason="bridge_gate_no_hits_suppress_enzymatic",
+            bridge_checked=True,
+            bridge_hits=0,
+        )
+
+    def observe(
+        self,
+        *,
+        product: str,
+        context: Any | None,
+        allocation: SourceAllocation,
+        diagnostics: dict[str, Any],
+    ) -> None:
+        observer = getattr(self.delegate, "observe", None)
+        if callable(observer):
+            observer(product=product, context=context, allocation=allocation, diagnostics=diagnostics)
+
+    def _bridge_hits(self, product: str) -> list[Any]:
+        if self.retriever is None:
+            return []
+        try:
+            return list(
+                self.retriever.retrieve(
+                    product,
+                    top_k=self.bridge_top_k,
+                    require_verifier_pass=self.require_verifier_pass,
+                )
+                or []
+            )
+        except Exception:
+            return []
+
+
+def _allow_enzyme_route_continuation(context: Any | None) -> bool:
+    if not _env_truthy("AUTOPLANNER_BRIDGE_GATE_ALLOW_ENZYME_CONTINUATION"):
+        return False
+    route_metadata = dict(getattr(context, "route_metadata", {}) or {})
+    if _env_truthy_default("AUTOPLANNER_BRIDGE_GATE_ENZYME_CONTINUATION_REQUIRE_SP", True):
+        return bool(route_metadata.get("sp_v1_accepted_enzyme_route"))
+    return bool(route_metadata.get("enzyme_route_continuation") or route_metadata.get("sp_v1_accepted_enzyme_route"))
+
+
+def _enzyme_continuation_fraction(default: float) -> float:
+    return min(
+        1.0,
+        max(0.0, _env_float("AUTOPLANNER_BRIDGE_GATE_ENZYME_CONTINUATION_FRACTION", float(default))),
+    )
+
+
+def _enzyme_continuation_metadata(context: Any | None) -> dict[str, Any]:
+    route_metadata = dict(getattr(context, "route_metadata", {}) or {})
+    return {
+        "bridge_gate_enzyme_continuation": True,
+        "bridge_gate_enzyme_continuation_sp_v1": bool(route_metadata.get("sp_v1_accepted_enzyme_route")),
+    }
 
 
 class LearnedSourceGate(SourceGate):
@@ -494,9 +672,9 @@ def default_source_gate() -> SourceGate:
 
             gate = UnavailableReservoirSourceGate(f"{type(exc).__name__}:load_failed", fallback_source_gate=delegate)
         _SOURCE_GATE_CACHE[key] = gate
-        return gate
+        return _maybe_bridge_source_gate(gate)
 
-    return _default_source_gate_without_reservoir()
+    return _maybe_bridge_source_gate(_default_source_gate_without_reservoir())
 
 
 def _default_source_gate_without_reservoir() -> SourceGate:
@@ -526,6 +704,197 @@ def _default_source_gate_without_reservoir() -> SourceGate:
         gate = SourceGate()
     _SOURCE_GATE_CACHE[key] = gate
     return gate
+
+
+def _maybe_bridge_source_gate(gate: SourceGate) -> SourceGate:
+    if not _env_truthy("AUTOPLANNER_ENABLE_BRIDGE_SOURCE_GATE"):
+        return gate
+    pack_dir = os.environ.get("AUTOPLANNER_BRIDGE_GATE_PACK_DIR") or "data/bridge_pack_v0"
+    model_path = os.environ.get("AUTOPLANNER_BRIDGE_GATE_MODEL") or "results/shared/bridge_verifier_v0_20260527/bridge_verifier_v0_lgbm.joblib"
+    threshold = _env_float("AUTOPLANNER_BRIDGE_GATE_THRESHOLD", 0.8409896871324669)
+    bridge_top_k = _env_int("AUTOPLANNER_BRIDGE_GATE_TOPK", 8)
+    bridge_fraction = _env_float("AUTOPLANNER_BRIDGE_GATE_ENZYMATIC_FRACTION", 0.55)
+    suppress = _env_truthy_default("AUTOPLANNER_BRIDGE_GATE_SUPPRESS_WITHOUT_HIT", True)
+    require_verifier_pass = _env_truthy_default("AUTOPLANNER_BRIDGE_GATE_REQUIRE_VERIFIER_PASS", True)
+    key = f"bridge:{id(gate)}:{pack_dir}:{model_path}:{threshold}:{bridge_top_k}:{bridge_fraction}:{suppress}:{require_verifier_pass}"
+    cached = _SOURCE_GATE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        from cascade_planner.cascade_search.bridge_retriever_v0 import BridgeRetrieverV0, BridgeVerifierV0Scorer
+
+        scored_cache = Path(pack_dir) / "bridge_candidates_scored.parquet"
+        scorer = (
+            BridgeVerifierV0Scorer(model_path, threshold=threshold)
+            if require_verifier_pass and not scored_cache.exists()
+            else None
+        )
+        retriever = BridgeRetrieverV0(pack_dir, scorer=scorer)
+        wrapped: SourceGate = BridgeAwareSourceGate(
+            gate,
+            retriever=retriever,
+            bridge_top_k=bridge_top_k,
+            bridge_enzymatic_fraction=bridge_fraction,
+            suppress_without_bridge=suppress,
+            require_verifier_pass=require_verifier_pass,
+        )
+    except Exception:
+        wrapped = gate
+    _SOURCE_GATE_CACHE[key] = wrapped
+    return wrapped
+
+
+def _allocation_with_bridge_metadata(
+    allocation: SourceAllocation,
+    *,
+    bridge_checked: bool,
+    bridge_hits: int,
+    reason: str,
+    bridge_metadata: dict[str, Any] | None = None,
+) -> SourceAllocation:
+    flags = dict(allocation.molecule_flags)
+    flags["bridge_gate_checked"] = bool(bridge_checked)
+    flags["bridge_gate_hits"] = int(bridge_hits)
+    flags.update(bridge_metadata or {})
+    return SourceAllocation(
+        source_weights=dict(allocation.source_weights),
+        source_budgets=dict(allocation.source_budgets),
+        fallback_budget=allocation.fallback_budget,
+        molecule_flags=flags,
+        safety_guard=allocation.safety_guard,
+        source_group_probs=dict(allocation.source_group_probs),
+        budget_multiplier=allocation.budget_multiplier,
+        budget_multiplier_label=allocation.budget_multiplier_label,
+        decision=allocation.decision,
+        policy_confidence=allocation.policy_confidence,
+        policy_reason=reason,
+        policy_state_id=allocation.policy_state_id,
+        selected_source_group=allocation.selected_source_group,
+        fallback_reason=allocation.fallback_reason,
+    )
+
+
+def _replace_allocation_budgets(
+    allocation: SourceAllocation,
+    *,
+    budgets: dict[str, int],
+    reason: str,
+    bridge_checked: bool,
+    bridge_hits: int,
+    bridge_metadata: dict[str, Any] | None = None,
+) -> SourceAllocation:
+    total_budget = max(1, sum(max(0, int(value or 0)) for value in budgets.values()))
+    source_weights = {
+        source: max(0.0, float(value or 0) / float(total_budget))
+        for source, value in budgets.items()
+    }
+    group_probs = _source_group_probs(source_weights)
+    flags = dict(allocation.molecule_flags)
+    flags["bridge_gate_checked"] = bool(bridge_checked)
+    flags["bridge_gate_hits"] = int(bridge_hits)
+    flags.update(bridge_metadata or {})
+    selected = max(group_probs, key=group_probs.get) if group_probs else allocation.selected_source_group
+    return SourceAllocation(
+        source_weights=source_weights,
+        source_budgets={source: max(0, int(value or 0)) for source, value in budgets.items()},
+        fallback_budget=allocation.fallback_budget,
+        molecule_flags=flags,
+        safety_guard=allocation.safety_guard,
+        source_group_probs=group_probs,
+        budget_multiplier=allocation.budget_multiplier,
+        budget_multiplier_label=allocation.budget_multiplier_label,
+        decision=allocation.decision,
+        policy_confidence=max(source_weights.values()) if source_weights else allocation.policy_confidence,
+        policy_reason=reason,
+        policy_state_id=allocation.policy_state_id,
+        selected_source_group=selected,
+        fallback_reason=allocation.fallback_reason,
+    )
+
+
+def _split_budget(
+    *,
+    sources: list[str],
+    preferred_sources: list[str],
+    total_budget: int,
+    preferred_fraction: float,
+) -> dict[str, int]:
+    budget = max(1, int(total_budget or 1))
+    sources = list(sources)
+    preferred = [source for source in preferred_sources if source in sources]
+    other = [source for source in sources if source not in preferred]
+    if not preferred:
+        preferred = list(sources)
+        other = []
+    preferred_budget = budget if not other else int(round(budget * min(1.0, max(0.0, preferred_fraction))))
+    if preferred_budget <= 0 and preferred:
+        preferred_budget = min(budget, len(preferred))
+    preferred_budget = min(budget, preferred_budget)
+    other_budget = max(0, budget - preferred_budget)
+    budgets = {source: 0 for source in sources}
+    _round_robin_assign(budgets, preferred, preferred_budget)
+    _round_robin_assign(budgets, other, other_budget)
+    return budgets
+
+
+def _round_robin_assign(budgets: dict[str, int], sources: list[str], budget: int) -> None:
+    if not sources or budget <= 0:
+        return
+    for idx in range(int(budget)):
+        budgets[sources[idx % len(sources)]] = int(budgets.get(sources[idx % len(sources)]) or 0) + 1
+
+
+def _bridge_context_metadata(bridge_hits: list[Any]) -> dict[str, Any]:
+    ecs: list[str] = []
+    ec1s: list[int] = []
+    tiers: list[str] = []
+    sources: list[str] = []
+    for hit in bridge_hits:
+        for ec in getattr(hit, "enzyme_ec_sample", ()) or ():
+            ec_text = str(ec or "").strip()
+            if ec_text and ec_text not in ecs:
+                ecs.append(ec_text)
+            head = ec_text.split(".", 1)[0]
+            if head.isdigit() and 1 <= int(head) <= 7 and int(head) not in ec1s:
+                ec1s.append(int(head))
+        tier = str(getattr(hit, "confidence_tier", "") or "")
+        if tier and tier not in tiers:
+            tiers.append(tier)
+        source = str(getattr(hit, "source", "") or "")
+        if source and source not in sources:
+            sources.append(source)
+    return {
+        "bridge_gate_ec_numbers": tuple(ecs[:16]),
+        "bridge_gate_ec1s": tuple(ec1s[:7]),
+        "bridge_gate_primary_ec1": int(ec1s[0]) if ec1s else 0,
+        "bridge_gate_confidence_tiers": tuple(tiers[:8]),
+        "bridge_gate_sources": tuple(sources[:8]),
+    }
+
+
+def _env_truthy(name: str) -> bool:
+    return str(os.environ.get(name) or "").lower() in {"1", "true", "yes", "on"}
+
+
+def _env_truthy_default(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return float(default)
 
 
 def molecule_class_flags(smiles: str | None) -> dict[str, bool]:

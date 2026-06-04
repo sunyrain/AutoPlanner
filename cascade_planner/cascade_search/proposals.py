@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import pickle
 import subprocess
@@ -11,15 +12,26 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import joblib
 from rdkit import Chem, DataStructs, RDLogger
-from rdkit.Chem import rdFMCS
+from rdkit.Chem import AllChem, rdFMCS
 
-from cascade_planner.baselines.chem_enzy_adapter import ChemEnzyBackendAdapter
+from cascade_planner.baselines.chem_enzy_adapter import (
+    ChemEnzyBackendAdapter,
+    _patch_numpy_legacy_aliases,
+    _vendor_pythonpath,
+)
+from cascade_planner.baselines.chem_enzy_context import build_chem_enzy_context_source
 from cascade_planner.baselines.chem_enzy_onestep import ChemEnzyOneStepProposalProvider
 from cascade_planner.baselines.route_contract import RouteSearchConfig, RouteStepCandidate
-from cascade_planner.cascadeboard.route_recovery import canonical_reaction, canonical_smiles
+from cascade_planner.cascadeboard.route_recovery import canonical_reaction, canonical_side, canonical_smiles
 from cascade_planner.cascade_search.cascade_retrieval_provider import CascadeRetrievalProvider
 from cascade_planner.cascade_search.ids import stable_id
+from cascade_planner.cascade_search.proposal_preference import score_candidate as score_proposal_preference
+from cascade_planner.cascade_search.proposal_validity import (
+    ProposalValidityConfig,
+    filter_reactant_predictions,
+)
 from cascade_planner.cascade_search.state import (
     CascadeAction,
     CascadeActionType,
@@ -137,6 +149,270 @@ class ChemEnzyProposalProvider:
             },
         )
         return actions
+
+
+class ChemEnzyContextONMTProposalProvider:
+    """Experimental context-conditioned ONMT sidecar proposer."""
+
+    provider_name = "chem_enzy_context_onmt"
+
+    def __init__(
+        self,
+        *,
+        model_path: Path | str,
+        vendor_root: Path | str = "vendor/ChemEnzyRetroPlanner",
+        beam_size: int = 5,
+        topk: int = 10,
+        batch_size: int = 16,
+        device: int = -1,
+        min_score: float = 0.0,
+        max_context_step: int | None = None,
+        preference_scorer_path: Path | str | None = None,
+        preference_min_score: float | None = None,
+        preference_rerank: bool = False,
+        filter_invalid_proposals: bool = True,
+        max_reactant_to_product_heavy_ratio: float | None = None,
+        raw_topk_multiplier: int = 3,
+        translator: Any | None = None,
+    ):
+        model_path = Path(model_path).expanduser()
+        if not model_path.is_absolute():
+            model_path = model_path.resolve()
+        self.model_path = model_path
+        self.vendor_root = Path(vendor_root)
+        self.beam_size = int(beam_size)
+        self.topk = int(topk)
+        self.batch_size = int(batch_size)
+        self.device = int(device)
+        self.min_score = max(0.0, float(min_score or 0.0))
+        self.max_context_step = int(max_context_step) if max_context_step is not None else None
+        self.preference_scorer_path = _resolve_optional_path(preference_scorer_path)
+        self.preference_min_score = (
+            max(0.0, min(1.0, float(preference_min_score)))
+            if preference_min_score is not None
+            else None
+        )
+        self.preference_rerank = bool(preference_rerank)
+        self.filter_invalid_proposals = bool(filter_invalid_proposals)
+        self.max_reactant_to_product_heavy_ratio = (
+            float(max_reactant_to_product_heavy_ratio)
+            if max_reactant_to_product_heavy_ratio is not None
+            else None
+        )
+        self.raw_topk_multiplier = max(1, int(raw_topk_multiplier or 1))
+        self.preference_scorer: Any | None = None
+        self.preference_load_error = ""
+        self.translator = translator
+        self.opt: Any | None = None
+        self._loaded = translator is not None
+        self.load_error = ""
+        self.last_diagnostics = ProposalDiagnostics(provider_name=self.provider_name)
+
+    @property
+    def available(self) -> bool:
+        return self.translator is not None or self.model_path.exists()
+
+    def propose(self, request: ProposalRequest | str, *args: Any, **kwargs: Any) -> list[CascadeAction]:
+        if isinstance(request, ProposalRequest):
+            leaf = request.leaf_smiles
+            state = request.state
+            top_k = int(request.top_k or kwargs.get("top_k") or self.topk)
+        else:
+            leaf = str(request or "")
+            state = kwargs.get("state")
+            top_k = int(kwargs.get("top_k") or self.topk)
+        if not leaf:
+            self.last_diagnostics = ProposalDiagnostics(provider_name=self.provider_name, requested=top_k, returned=0)
+            return []
+        step_index = len(getattr(state, "step_annotations", []) or []) if state is not None else 0
+        context_step = step_index + 1
+        if self.max_context_step is not None and context_step > self.max_context_step:
+            self.last_diagnostics = ProposalDiagnostics(
+                provider_name=self.provider_name,
+                requested=top_k,
+                returned=0,
+                metadata={
+                    "model_path": str(self.model_path),
+                    "skipped_reason": "context_step_limit",
+                    "context_step": context_step,
+                    "max_context_step": self.max_context_step,
+                },
+            )
+            return []
+        try:
+            source = build_chem_enzy_context_source(
+                target_smiles=str(getattr(state, "target_smiles", "") or leaf),
+                product_smiles=leaf,
+                state=state,
+                step_index=step_index,
+            )
+            rows = self.predict_pretokenized_source(source, product_smiles=leaf, top_k=top_k)
+            if self.min_score > 0:
+                rows = [row for row in rows if _safe_float(row.get("score")) is not None and float(row["score"]) >= self.min_score]
+            rows = self._score_filter_and_rank_preferences(rows, product_smiles=leaf)
+        except Exception as exc:
+            self.load_error = f"{type(exc).__name__}:{exc}"
+            self.last_diagnostics = ProposalDiagnostics(
+                provider_name=self.provider_name,
+                requested=top_k,
+                returned=0,
+                failures=[{"category": "context_onmt_failed", "message": self.load_error}],
+                metadata={"model_path": str(self.model_path)},
+            )
+            return []
+        actions = [coerce_to_cascade_action(row, target_leaf=leaf, source=self.provider_name) for row in rows[:top_k]]
+        self.last_diagnostics = ProposalDiagnostics(
+            provider_name=self.provider_name,
+            requested=top_k,
+            returned=len(actions),
+            metadata={
+                "model_path": str(self.model_path),
+                "context_source": source,
+                "min_score": self.min_score,
+                "max_context_step": self.max_context_step,
+                "preference_scorer_path": str(self.preference_scorer_path) if self.preference_scorer_path else None,
+                "preference_min_score": self.preference_min_score,
+                "preference_rerank": self.preference_rerank,
+                "preference_load_error": self.preference_load_error,
+                "filter_invalid_proposals": self.filter_invalid_proposals,
+                "max_reactant_to_product_heavy_ratio": self.max_reactant_to_product_heavy_ratio,
+                "raw_topk_multiplier": self.raw_topk_multiplier,
+                "validity_filter_rejected": sum(
+                    int((getattr(action.step, "raw_metadata", {}) or {}).get("validity_filter_rejected_count") or 0)
+                    for action in actions
+                ),
+            },
+        )
+        return actions
+
+    def predict_pretokenized_source(self, source: str, *, product_smiles: str, top_k: int) -> list[dict[str, Any]]:
+        opt, translator = self._ensure_translator()
+        from onmt.bin.translate import translate  # type: ignore
+
+        opt.batch_size = max(1, int(self.batch_size))
+        requested_top_k = max(1, int(top_k or 1))
+        raw_top_k = requested_top_k * self.raw_topk_multiplier if self.filter_invalid_proposals else requested_top_k
+        previous_topk = getattr(opt, "topk", None)
+        previous_beam_size = getattr(opt, "beam_size", None)
+        previous_n_best = getattr(opt, "n_best", None)
+        opt.topk = max(int(getattr(opt, "topk", raw_top_k) or raw_top_k), raw_top_k)
+        opt.beam_size = max(int(getattr(opt, "beam_size", raw_top_k) or raw_top_k), raw_top_k)
+        opt.n_best = max(int(getattr(opt, "n_best", raw_top_k) or raw_top_k), raw_top_k)
+        scores, predictions = translate(translator, opt, [source])
+        if previous_topk is not None:
+            opt.topk = previous_topk
+        if previous_beam_size is not None:
+            opt.beam_size = previous_beam_size
+        if previous_n_best is not None:
+            opt.n_best = previous_n_best
+        pred_list = [str(item).replace(" ", "") for item in (predictions[0] if predictions else [])]
+        score_list = [float(item) for item in (scores[0] if scores else [])]
+        if self.filter_invalid_proposals:
+            validity = filter_reactant_predictions(
+                pred_list,
+                product_smiles=product_smiles,
+                config=ProposalValidityConfig(
+                    max_reactant_to_product_heavy_ratio=self.max_reactant_to_product_heavy_ratio
+                ),
+            )
+            rejected_by_prediction = {str(row["prediction"]): row["reason"] for row in validity.rejected}
+            kept_pairs = _align_kept_predictions_with_scores(pred_list, score_list, validity.kept)
+        else:
+            validity = None
+            rejected_by_prediction = {}
+            kept_pairs = [
+                (prediction, score_list[idx] if idx < len(score_list) else None)
+                for idx, prediction in enumerate(pred_list)
+            ]
+        rows = []
+        for rank, (reactant_text, raw_log_score) in enumerate(kept_pairs[:requested_top_k], 1):
+            reactants = [part for part in reactant_text.split(".") if part]
+            if not reactants:
+                continue
+            if _is_self_reaction(product_smiles, reactants):
+                continue
+            rows.append(
+                {
+                    "product_smiles": product_smiles,
+                    "reactant_smiles": reactants,
+                    "rxn_smiles": ".".join(reactants) + f">>{product_smiles}",
+                    "source": self.provider_name,
+                    "source_model": self.provider_name,
+                    "score": _probability_from_log_score(raw_log_score),
+                    "onmt_log_score": raw_log_score,
+                    "rank": rank,
+                    "proposal_type": self.provider_name,
+                    "main_reactant": _largest_smiles(reactants),
+                    "aux_reactants": _aux_reactants(reactants),
+                    "raw_context_source": source,
+                    "validity_filter_enabled": self.filter_invalid_proposals,
+                    "validity_filter_rejected_count": len(validity.rejected) if validity is not None else 0,
+                    "validity_filter_rejected_reasons": sorted({str(row["reason"]) for row in validity.rejected}) if validity is not None else [],
+                    "validity_filter_rejected_by_prediction": rejected_by_prediction,
+                    "requested_top_k": requested_top_k,
+                    "raw_top_k": raw_top_k,
+                    "raw_topk_multiplier": self.raw_topk_multiplier,
+                }
+            )
+        return rows
+
+    def _score_filter_and_rank_preferences(self, rows: list[dict[str, Any]], *, product_smiles: str) -> list[dict[str, Any]]:
+        artifact = self._ensure_preference_scorer()
+        if artifact is None:
+            return rows
+        scored = []
+        for row in rows:
+            reactants = row.get("reactant_smiles") or []
+            reactant_side = ".".join(str(smi) for smi in reactants if smi)
+            score = _score_preference_artifact(artifact, product=product_smiles, reactants=reactant_side)
+            item = dict(row)
+            item["preference_score"] = score
+            item["preference_scorer"] = str(self.preference_scorer_path) if self.preference_scorer_path else ""
+            if self.preference_min_score is not None and score < self.preference_min_score:
+                continue
+            scored.append(item)
+        if self.preference_rerank:
+            scored.sort(
+                key=lambda item: (
+                    float(item.get("preference_score") or 0.0),
+                    float(item.get("score") or 0.0),
+                ),
+                reverse=True,
+            )
+            for rank, item in enumerate(scored, 1):
+                item["preference_rank"] = rank
+        return scored
+
+    def _ensure_preference_scorer(self) -> Any | None:
+        if self.preference_scorer is not None:
+            return self.preference_scorer
+        if self.preference_scorer_path is None:
+            return None
+        try:
+            self.preference_scorer = joblib.load(self.preference_scorer_path)
+            return self.preference_scorer
+        except Exception as exc:
+            self.preference_load_error = f"{type(exc).__name__}:{exc}"
+            return None
+
+    def _ensure_translator(self) -> tuple[Any, Any]:
+        if self.translator is not None and self.opt is not None:
+            return self.opt, self.translator
+        if self._loaded and self.translator is None:
+            raise RuntimeError(self.load_error or "context ONMT provider failed to load")
+        self._loaded = True
+        with _vendor_pythonpath(self.vendor_root):
+            _patch_numpy_legacy_aliases()
+            from onmt.bin.translate import load_model  # type: ignore
+
+            self.opt, self.translator = load_model(
+                [str(self.model_path)],
+                self.beam_size,
+                self.topk,
+                self.device,
+                "char",
+            )
+        return self.opt, self.translator
 
 
 class RetroChimeraProposalProvider:
@@ -282,6 +558,188 @@ class RetroChimeraProposalProvider:
         return rows
 
 
+class AiZynthFinderONNXProposalProvider:
+    """AiZynthFinder ONNX expansion-policy adapter for fast one-step proposals."""
+
+    provider_name = "aizynth_onnx"
+
+    def __init__(
+        self,
+        *,
+        config_path: Path | str = "workspace/aizdata/config.yml",
+        policy_name: str = "uspto",
+        topk: int = 8,
+        finder: Any | None = None,
+        policy: Any | None = None,
+        tree_molecule_factory: Any | None = None,
+        validity_config: ProposalValidityConfig | None = None,
+    ):
+        self.config_path = Path(config_path)
+        self.policy_name = str(policy_name or "uspto")
+        self.topk = max(1, int(topk or 1))
+        self.finder = finder
+        self.policy = policy
+        self.tree_molecule_factory = tree_molecule_factory
+        self.validity_config = validity_config or ProposalValidityConfig()
+        self._loaded = finder is not None or policy is not None
+        self.load_error = ""
+        self.last_diagnostics = ProposalDiagnostics(provider_name=self.provider_name)
+
+    @property
+    def available(self) -> bool:
+        return self.policy is not None or self.finder is not None or self.config_path.exists()
+
+    def predict(self, product_smiles: str, top_k: int = 10, **_: Any) -> list[dict[str, Any]]:
+        if not product_smiles:
+            return []
+        started = time_monotonic()
+        requested = max(1, int(top_k or self.topk or 1))
+        raw_action_count = 0
+        try:
+            policy = self._ensure_policy()
+            tree_mol = self._tree_molecule(product_smiles)
+            actions, priors = policy.get_actions([tree_mol])
+            actions = list(actions or [])
+            priors = list(priors or [])
+            raw_action_count = len(actions)
+            rows = self._rows_from_actions(
+                product_smiles,
+                actions,
+                priors,
+                top_k=requested,
+            )
+        except Exception as exc:
+            self.load_error = f"{type(exc).__name__}:{exc}"
+            self.last_diagnostics = ProposalDiagnostics(
+                provider_name=self.provider_name,
+                requested=requested,
+                returned=0,
+                failures=[{"category": "aizynth_onnx_failed", "message": self.load_error}],
+                metadata={"config_path": str(self.config_path), "policy_name": self.policy_name},
+            )
+            return []
+        self.last_diagnostics = ProposalDiagnostics(
+            provider_name=self.provider_name,
+            requested=requested,
+            returned=len(rows),
+            metadata={
+                "config_path": str(self.config_path),
+                "policy_name": self.policy_name,
+                "raw_action_count": raw_action_count,
+                "elapsed_s": round(time_monotonic() - started, 3),
+                "validity_filter": asdict(self.validity_config),
+            },
+        )
+        return rows
+
+    def propose(self, request: ProposalRequest | str, *args: Any, **kwargs: Any) -> list[CascadeAction]:
+        if isinstance(request, ProposalRequest):
+            leaf = request.leaf_smiles
+            top_k = int(request.top_k or kwargs.get("top_k") or self.topk)
+        else:
+            leaf = str(request or "")
+            top_k = int(kwargs.get("top_k") or self.topk)
+        rows = self.predict(leaf, top_k=top_k)
+        actions = [coerce_to_cascade_action(row, target_leaf=leaf, source=self.provider_name) for row in rows[:top_k]]
+        if self.last_diagnostics.returned != len(actions):
+            self.last_diagnostics.returned = len(actions)
+        return actions
+
+    def _ensure_policy(self) -> Any:
+        if self.policy is not None:
+            return self.policy
+        if self.finder is not None:
+            self.finder.expansion_policy.select(self.policy_name)
+            self.policy = self.finder.expansion_policy
+            return self.policy
+        if self._loaded:
+            raise RuntimeError(self.load_error or "AiZynthFinder ONNX policy failed to load")
+        self._loaded = True
+        if not self.config_path.exists():
+            raise RuntimeError(f"AiZynthFinder config is missing: {self.config_path}")
+        try:
+            from aizynthfinder.aizynthfinder import AiZynthFinder
+        except ImportError as exc:
+            raise RuntimeError("aizynthfinder is not importable") from exc
+        self.finder = AiZynthFinder(configfile=str(self.config_path))
+        self.finder.expansion_policy.select(self.policy_name)
+        self.policy = self.finder.expansion_policy
+        return self.policy
+
+    def _tree_molecule(self, product_smiles: str) -> Any:
+        if self.tree_molecule_factory is not None:
+            return self.tree_molecule_factory(product_smiles)
+        from aizynthfinder.chem import TreeMolecule
+
+        return TreeMolecule(parent=None, smiles=product_smiles)
+
+    def _rows_from_actions(
+        self,
+        product_smiles: str,
+        actions: list[Any],
+        priors: list[Any],
+        *,
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        seen_sides: set[tuple[str, ...]] = set()
+        for action_rank, action in enumerate(actions, start=1):
+            metadata = dict(getattr(action, "metadata", {}) or {})
+            score = _safe_float(metadata.get("policy_probability"))
+            if score is None and action_rank - 1 < len(priors):
+                score = _safe_float(priors[action_rank - 1])
+            if score is None:
+                score = 1.0 / float(action_rank)
+            try:
+                reactant_options = list(getattr(action, "reactants", []) or [])
+            except Exception:
+                reactant_options = []
+            for option in reactant_options:
+                option_items = list(option) if isinstance(option, (list, tuple)) else [option]
+                reactants = [
+                    canonical_smiles(str(getattr(mol, "smiles", "") or mol)) or str(getattr(mol, "smiles", "") or mol)
+                    for mol in option_items
+                    if str(getattr(mol, "smiles", "") or mol)
+                ]
+                side_text = ".".join(reactants)
+                report = filter_reactant_predictions(
+                    [side_text],
+                    product_smiles=product_smiles,
+                    config=self.validity_config,
+                )
+                if not report.kept:
+                    continue
+                side_key = canonical_side(report.kept[0])
+                if not side_key or side_key in seen_sides:
+                    continue
+                seen_sides.add(side_key)
+                reactants = list(side_key)
+                rxn_smiles = ".".join(reactants) + f">>{product_smiles}"
+                rows.append(
+                    {
+                        "product_smiles": product_smiles,
+                        "reactant_smiles": reactants,
+                        "rxn_smiles": rxn_smiles,
+                        "reaction_smiles": rxn_smiles,
+                        "source": self.provider_name,
+                        "source_model": f"{self.provider_name}.{self.policy_name}",
+                        "proposal_type": "aizynthfinder_onnx_policy",
+                        "type": "aizynthfinder_onnx_template_policy",
+                        "score": float(score),
+                        "rank": len(rows) + 1,
+                        "main_reactant": _largest_smiles(reactants),
+                        "aux_reactants": _aux_reactants(reactants),
+                        "aizynth_policy": self.policy_name,
+                        "aizynth_action_rank": action_rank,
+                        "aizynth_metadata": _jsonable_metadata(metadata),
+                        "contract": "AiZynthFinder ONNX expansion-policy proposal; fast sidecar, not a route-quality claim.",
+                    }
+                )
+                if len(rows) >= top_k:
+                    return rows
+        return rows
+
+
 class TemplateRelevanceProposalProvider:
     """Template-based lightweight expansion sidecar for cascade-native search."""
 
@@ -387,6 +845,112 @@ class TemplateRelevanceProposalProvider:
             item["template_relevance_model_count"] = len(self.models)
             normalized.append(item)
         return normalized
+
+
+class FallbackProposalProvider:
+    """Call a sidecar proposer only when the primary leaf cache is weak."""
+
+    provider_name = "fallback"
+
+    def __init__(
+        self,
+        inner: Any,
+        *,
+        primary: Any,
+        trigger_min_primary: int = 1,
+        max_calls: int | None = None,
+        provider_name: str | None = None,
+    ):
+        self.inner = inner
+        self.primary = primary
+        self.trigger_min_primary = max(0, int(trigger_min_primary or 0))
+        self.max_calls = max(0, int(max_calls)) if max_calls is not None else None
+        self.calls = 0
+        self.provider_name = provider_name or str(getattr(inner, "provider_name", type(inner).__name__))
+        self.last_diagnostics = ProposalDiagnostics(provider_name=self.provider_name)
+        self._cache: dict[tuple[str, int], list[CascadeAction]] = {}
+
+    def propose(self, request: ProposalRequest | str, *args: Any, **kwargs: Any) -> list[CascadeAction]:
+        leaf = request.leaf_smiles if isinstance(request, ProposalRequest) else str(request or "")
+        top_k = int((request.top_k if isinstance(request, ProposalRequest) else kwargs.get("top_k")) or 10)
+        primary_count = self._primary_count(leaf, top_k)
+        metadata = {
+            "trigger_min_primary": self.trigger_min_primary,
+            "primary_provider": str(getattr(self.primary, "provider_name", type(self.primary).__name__)),
+            "primary_returned": primary_count,
+            "max_calls": self.max_calls,
+            "calls": self.calls,
+        }
+        if primary_count >= self.trigger_min_primary:
+            self.last_diagnostics = ProposalDiagnostics(
+                provider_name=self.provider_name,
+                requested=top_k,
+                returned=0,
+                metadata={**metadata, "skipped_reason": "primary_sufficient"},
+            )
+            return []
+        if self.max_calls is not None and self.calls >= self.max_calls:
+            self.last_diagnostics = ProposalDiagnostics(
+                provider_name=self.provider_name,
+                requested=top_k,
+                returned=0,
+                metadata={**metadata, "skipped_reason": "max_calls_reached"},
+            )
+            return []
+        cache_key = (leaf, top_k)
+        if cache_key in self._cache:
+            cached = list(self._cache[cache_key])
+            self.last_diagnostics = ProposalDiagnostics(
+                provider_name=self.provider_name,
+                requested=top_k,
+                returned=len(cached),
+                metadata={**metadata, "cache_hit": True},
+            )
+            return cached
+        self.calls += 1
+        rows = _call_inner_provider(self.inner, request, *args, top_k=top_k, **kwargs)
+        actions = [
+            coerce_to_cascade_action(row, target_leaf=leaf, source=self.provider_name)
+            for row in rows[:top_k]
+        ]
+        self._cache[cache_key] = list(actions)
+        inner_diag = getattr(self.inner, "last_diagnostics", None)
+        inner_payload = inner_diag.to_dict() if hasattr(inner_diag, "to_dict") else inner_diag
+        self.last_diagnostics = ProposalDiagnostics(
+            provider_name=self.provider_name,
+            requested=top_k,
+            returned=len(actions),
+            metadata={
+                **metadata,
+                "cache_hit": False,
+                "calls": self.calls,
+                "inner_provider": str(getattr(self.inner, "provider_name", type(self.inner).__name__)),
+                "inner_diagnostics": inner_payload,
+            },
+        )
+        return actions
+
+    def _primary_count(self, leaf: str, top_k: int) -> int:
+        proposals = getattr(self.primary, "proposals_by_leaf", None)
+        if isinstance(proposals, dict):
+            return len(list(proposals.get(leaf, []))[:top_k])
+        return 0
+
+
+def _call_inner_provider(provider: Any, request: ProposalRequest | str, *args: Any, top_k: int, **kwargs: Any) -> list[Any]:
+    try:
+        if isinstance(request, ProposalRequest):
+            return list(provider.propose(request) or [])
+        return list(provider.propose(request, *args, **kwargs) or [])
+    except TypeError:
+        try:
+            if isinstance(request, ProposalRequest):
+                return list(provider.propose(request.leaf_smiles, request.state, top_k=top_k) or [])
+            return list(provider.propose(request, *args, top_k=top_k) or [])
+        except TypeError:
+            leaf = request.leaf_smiles if isinstance(request, ProposalRequest) else str(request or "")
+            return list(provider.propose(leaf, top_k=top_k) or [])
+
 
 class RouteTreeProposalProvider:
     """Adapt existing route_tree proposal tools into cascade-native actions."""
@@ -991,6 +1555,324 @@ class StaticProposalProvider:
         return actions
 
 
+class LegalCorpusProposalProvider:
+    """Known-legal reaction corpus baseline for proposal-pool coverage audits.
+
+    This is intentionally a constrained proposer: it only emits reactant sides
+    that appear in a canonical reaction corpus. It is not a route retriever or a
+    learned ranker; it measures whether a legal candidate pool can cover the
+    requested product neighborhood.
+    """
+
+    provider_name = "legal_corpus"
+
+    def __init__(
+        self,
+        corpus_paths: list[Path | str] | Path | str,
+        *,
+        max_index_rows: int | None = None,
+        similarity_floor: float = 0.0,
+        candidate_pool_size: int = 256,
+        validity_config: ProposalValidityConfig | None = None,
+        index_cache_path: Path | str | None = None,
+    ):
+        if isinstance(corpus_paths, (str, Path)):
+            corpus_paths = [corpus_paths]
+        self.corpus_paths = [Path(path) for path in corpus_paths]
+        self.max_index_rows = int(max_index_rows) if max_index_rows is not None else None
+        self.similarity_floor = max(0.0, min(1.0, float(similarity_floor)))
+        self.candidate_pool_size = max(1, int(candidate_pool_size or 1))
+        self.validity_config = validity_config or ProposalValidityConfig()
+        self.index_cache_path = _resolve_optional_path(index_cache_path)
+        self._loaded = False
+        self._entries: list[dict[str, Any]] = []
+        self._fps: list[Any] = []
+        self._exact_by_product: dict[str, list[int]] = {}
+        self._loaded_from_cache = False
+        self._cache_status = "disabled" if self.index_cache_path is None else "not_loaded"
+        self.load_error = ""
+        self.last_diagnostics = ProposalDiagnostics(provider_name=self.provider_name)
+
+    @property
+    def available(self) -> bool:
+        return any(path.exists() for path in self.corpus_paths)
+
+    def propose(self, request: ProposalRequest | str, *args: Any, **kwargs: Any) -> list[CascadeAction]:
+        leaf = request.leaf_smiles if isinstance(request, ProposalRequest) else str(request or "")
+        top_k = int((request.top_k if isinstance(request, ProposalRequest) else kwargs.get("top_k")) or 10)
+        if not leaf:
+            self.last_diagnostics = ProposalDiagnostics(
+                provider_name=self.provider_name,
+                requested=top_k,
+                returned=0,
+                metadata={"empty_reason": "missing_leaf"},
+            )
+            return []
+        try:
+            self._ensure_index()
+            rows = self.predict(leaf, top_k=top_k)
+        except Exception as exc:
+            self.load_error = f"{type(exc).__name__}:{exc}"
+            self.last_diagnostics = ProposalDiagnostics(
+                provider_name=self.provider_name,
+                requested=top_k,
+                returned=0,
+                failures=[{"category": "legal_corpus_failed", "message": self.load_error}],
+                metadata={"corpus_paths": [str(path) for path in self.corpus_paths]},
+            )
+            return []
+        actions = [coerce_to_cascade_action(row, target_leaf=leaf, source=self.provider_name) for row in rows[:top_k]]
+        self.last_diagnostics = ProposalDiagnostics(
+            provider_name=self.provider_name,
+            requested=top_k,
+            returned=len(actions),
+            metadata={
+                "corpus_paths": [str(path) for path in self.corpus_paths],
+                "indexed_reactions": len(self._entries),
+                "similarity_floor": self.similarity_floor,
+                "candidate_pool_size": self.candidate_pool_size,
+                "max_index_rows": self.max_index_rows,
+                "index_cache_path": str(self.index_cache_path) if self.index_cache_path else None,
+                "loaded_from_cache": self._loaded_from_cache,
+                "cache_status": self._cache_status,
+                "exact_product_candidates": len(self._exact_by_product.get(canonical_smiles(leaf), [])),
+                "validity_filter": asdict(self.validity_config),
+            },
+        )
+        return actions
+
+    def predict(self, product_smiles: str, *, top_k: int = 10) -> list[dict[str, Any]]:
+        self._ensure_index()
+        product_key = canonical_smiles(product_smiles)
+        if not product_key:
+            return []
+        exact_indices = list(self._exact_by_product.get(product_key, []))
+        candidate_indices: list[tuple[int, float, str]] = [(idx, 1.0, "exact_product") for idx in exact_indices]
+        if len(candidate_indices) < max(1, int(top_k or 1)):
+            candidate_indices.extend(self._nearest_indices(product_key, limit=max(self.candidate_pool_size, int(top_k or 1))))
+
+        rows: list[dict[str, Any]] = []
+        seen_sides: set[tuple[str, ...]] = set()
+        for idx, similarity, match_type in candidate_indices:
+            if idx < 0 or idx >= len(self._entries):
+                continue
+            entry = self._entries[idx]
+            reactants = [str(smi) for smi in entry.get("reactants") or [] if smi]
+            side_text = ".".join(reactants)
+            report = filter_reactant_predictions(
+                [side_text],
+                product_smiles=product_smiles,
+                config=self.validity_config,
+            )
+            if not report.kept:
+                continue
+            side_key = canonical_side(report.kept[0])
+            if not side_key or side_key in seen_sides:
+                continue
+            seen_sides.add(side_key)
+            if similarity < self.similarity_floor:
+                continue
+            reactants = list(side_key)
+            score = float(similarity)
+            rows.append(
+                {
+                    "product_smiles": product_smiles,
+                    "reactant_smiles": reactants,
+                    "rxn_smiles": ".".join(reactants) + f">>{product_smiles}",
+                    "reaction_smiles": ".".join(reactants) + f">>{product_smiles}",
+                    "source": self.provider_name,
+                    "source_model": self.provider_name,
+                    "proposal_type": "known_legal_corpus",
+                    "type": "known_legal_corpus_candidate",
+                    "score": score,
+                    "rank": len(rows) + 1,
+                    "main_reactant": _largest_smiles(reactants),
+                    "aux_reactants": _aux_reactants(reactants),
+                    "corpus_product_smiles": entry.get("product"),
+                    "corpus_reaction_smiles": entry.get("reaction_smiles"),
+                    "corpus_canonical_reaction": entry.get("canonical_reaction"),
+                    "corpus_source": entry.get("source"),
+                    "corpus_source_row_id": entry.get("source_row_id"),
+                    "corpus_path": entry.get("corpus_path"),
+                    "corpus_line_no": entry.get("line_no"),
+                    "product_similarity": round(score, 6),
+                    "match_type": match_type,
+                    "contract": (
+                        "Known-legal corpus proposal baseline; no expert label and no route-quality claim."
+                    ),
+                }
+            )
+            if len(rows) >= max(1, int(top_k or 1)):
+                break
+        return rows
+
+    def _ensure_index(self) -> None:
+        if self._loaded:
+            if self.load_error:
+                raise RuntimeError(self.load_error)
+            return
+        self._loaded = True
+        if self._load_index_cache():
+            return
+        count = 0
+        for path in self.corpus_paths:
+            if not path.exists():
+                continue
+            with path.open("r", encoding="utf-8") as fh:
+                for line_no, line in enumerate(fh, 1):
+                    if self.max_index_rows is not None and count >= self.max_index_rows:
+                        break
+                    try:
+                        raw = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    entry = self._entry_from_metadata(raw, path=path, line_no=line_no)
+                    if entry is None:
+                        continue
+                    fp = _morgan_fp(entry["product"])
+                    if fp is None:
+                        continue
+                    idx = len(self._entries)
+                    self._entries.append(entry)
+                    self._fps.append(fp)
+                    self._exact_by_product.setdefault(entry["product"], []).append(idx)
+                    count += 1
+                if self.max_index_rows is not None and count >= self.max_index_rows:
+                    break
+        if not self._entries:
+            self.load_error = "no valid legal-corpus reactions indexed"
+            raise RuntimeError(self.load_error)
+        self._write_index_cache()
+
+    def _entry_from_metadata(self, raw: dict[str, Any], *, path: Path, line_no: int) -> dict[str, Any] | None:
+        product = canonical_smiles(raw.get("product") or raw.get("product_smiles") or raw.get("target_smiles"))
+        reactants = list(canonical_side(".".join(str(smi) for smi in raw.get("reactants") or raw.get("reactant_smiles") or [])))
+        if not product or not reactants:
+            return None
+        reaction = raw.get("canonical_reaction") or raw.get("reaction_smiles") or (".".join(reactants) + f">>{product}")
+        key = canonical_reaction(reaction) or (".".join(reactants) + f">>{product}")
+        return {
+            "product": product,
+            "reactants": reactants,
+            "reaction_smiles": ".".join(reactants) + f">>{product}",
+            "canonical_reaction": key,
+            "source": raw.get("source"),
+            "source_row_id": raw.get("source_row_id"),
+            "corpus_path": str(path),
+            "line_no": line_no,
+        }
+
+    def _nearest_indices(self, product_key: str, *, limit: int) -> list[tuple[int, float, str]]:
+        qfp = _morgan_fp(product_key)
+        if qfp is None or not self._fps:
+            return []
+        sims = DataStructs.BulkTanimotoSimilarity(qfp, self._fps)
+        order = np.argsort(np.asarray(sims, dtype=float))[-max(1, int(limit)) :][::-1]
+        return [(int(idx), float(sims[int(idx)]), "nearest_product") for idx in order]
+
+    def _load_index_cache(self) -> bool:
+        if self.index_cache_path is None or not self.index_cache_path.exists():
+            self._cache_status = "miss" if self.index_cache_path is not None else "disabled"
+            return False
+        try:
+            with self.index_cache_path.open("rb") as fh:
+                payload = pickle.load(fh)
+            if not isinstance(payload, dict):
+                self._cache_status = "invalid_payload"
+                return False
+            if payload.get("schema_version") != "legal_corpus_index.v1":
+                self._cache_status = "schema_mismatch"
+                return False
+            if payload.get("source_signature") != self._source_signature():
+                self._cache_status = "signature_mismatch"
+                return False
+            entries = payload.get("entries")
+            fps = payload.get("fps")
+            exact = payload.get("exact_by_product")
+            if not isinstance(entries, list) or not isinstance(fps, list) or not isinstance(exact, dict):
+                self._cache_status = "invalid_payload"
+                return False
+            self._entries = entries
+            self._fps = fps
+            self._exact_by_product = {str(k): [int(v) for v in values] for k, values in exact.items()}
+            self._loaded_from_cache = True
+            self._cache_status = "hit"
+            return bool(self._entries and self._fps)
+        except Exception:
+            self._cache_status = "load_failed"
+            return False
+
+    def _write_index_cache(self) -> None:
+        if self.index_cache_path is None:
+            return
+        if self.index_cache_path.exists() and self._cache_status in {
+            "signature_mismatch",
+            "schema_mismatch",
+            "invalid_payload",
+            "load_failed",
+        }:
+            return
+        try:
+            self.index_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "schema_version": "legal_corpus_index.v1",
+                "source_signature": self._source_signature(),
+                "entries": self._entries,
+                "fps": self._fps,
+                "exact_by_product": self._exact_by_product,
+            }
+            with self.index_cache_path.open("wb") as fh:
+                pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
+            self._cache_status = "written"
+        except Exception:
+            self._cache_status = "write_failed"
+            return
+
+    def _source_signature(self) -> list[dict[str, Any]]:
+        signature = []
+        for path in self.corpus_paths:
+            try:
+                stat = path.stat()
+                signature.append(
+                    {
+                        "path": str(path),
+                        "size": int(stat.st_size),
+                        "mtime_ns": int(stat.st_mtime_ns),
+                    }
+                )
+            except OSError:
+                signature.append({"path": str(path), "missing": True})
+        signature.append({"max_index_rows": self.max_index_rows})
+        return signature
+
+
+class RetroKNNProposalProvider(LegalCorpusProposalProvider):
+    """Fast nearest-neighbor proposal provider over known real reactions.
+
+    The implementation intentionally reuses the legal-corpus index contract:
+    every emitted reactant side appears in the supplied reaction corpus. The
+    RetroKNN name marks the retrieval role in diagnostics and downstream
+    proposal-pool audits.
+    """
+
+    provider_name = "retroknn"
+
+    def predict(self, product_smiles: str, *, top_k: int = 10) -> list[dict[str, Any]]:
+        rows = super().predict(product_smiles, top_k=top_k)
+        for row in rows:
+            row["source"] = self.provider_name
+            row["source_model"] = self.provider_name
+            row["proposal_type"] = "retroknn_retrieval"
+            row["type"] = "retroknn_known_reaction_retrieval"
+            row["retrieval_similarity"] = row.get("product_similarity")
+            row["retrieval_match_type"] = row.get("match_type")
+            row["contract"] = (
+                "RetroKNN retrieval proposal over known real reactions; "
+                "nearest-neighbor support only, not a route-quality claim."
+            )
+        return rows
+
+
 def coerce_to_cascade_action(value: CascadeAction | StepAnnotation | dict[str, Any], *, target_leaf: str = "", source: str = "") -> CascadeAction:
     if isinstance(value, CascadeAction):
         return value
@@ -1473,6 +2355,69 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _resolve_optional_path(path: Path | str | None) -> Path | None:
+    if path in (None, ""):
+        return None
+    out = Path(path).expanduser()
+    return out if out.is_absolute() else out.resolve()
+
+
+def _score_preference_artifact(artifact: Any, *, product: str, reactants: str) -> float:
+    if not isinstance(artifact, dict):
+        return 0.0
+    try:
+        return max(0.0, min(1.0, float(score_proposal_preference(artifact, product=product, reactants=reactants))))
+    except Exception:
+        return 0.0
+
+
+def _probability_from_log_score(value: Any) -> float | None:
+    number = _safe_float(value)
+    if number is None:
+        return None
+    try:
+        return max(0.0, min(1.0, math.exp(number)))
+    except OverflowError:
+        return 1.0 if number > 0 else 0.0
+
+
+def _align_kept_predictions_with_scores(
+    predictions: list[str],
+    scores: list[float],
+    kept: list[str],
+) -> list[tuple[str, float | None]]:
+    out: list[tuple[str, float | None]] = []
+    used: set[int] = set()
+    for item in kept:
+        matched_idx = None
+        for idx, prediction in enumerate(predictions):
+            if idx in used:
+                continue
+            if prediction == item:
+                matched_idx = idx
+                break
+        if matched_idx is None:
+            out.append((item, None))
+            continue
+        used.add(matched_idx)
+        out.append((item, scores[matched_idx] if matched_idx < len(scores) else None))
+    return out
+
+
+def _is_self_reaction(product_smiles: str, reactants: list[str]) -> bool:
+    product_key = canonical_smiles(product_smiles)
+    if not product_key:
+        return False
+    return any(canonical_smiles(reactant) == product_key for reactant in reactants if reactant)
+
+
+def _morgan_fp(smiles: str, *, n_bits: int = 2048) -> Any | None:
+    mol = Chem.MolFromSmiles(str(smiles or ""))
+    if mol is None:
+        return None
+    return AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=int(n_bits))
 
 
 def canonical_reaction_or_raw(rxn_smiles: str) -> str:
