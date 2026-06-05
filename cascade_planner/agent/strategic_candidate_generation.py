@@ -68,7 +68,11 @@ def generate_literature_candidates(
 ) -> list[LiteratureCandidate]:
     usable = [
         card for card in evidence_cards
-        if card.target_relation != "analogy_only" and card.validation_status != "draft_only"
+        if (
+            card.target_relation != "analogy_only"
+            and card.validation_status != "draft_only"
+            and _template_promotable_evidence(card)
+        )
     ]
     if not usable:
         return []
@@ -86,6 +90,24 @@ def generate_literature_candidates(
         for card in strategic_cards[:1]:
             candidates.append(_implicit_anchor_candidate(case_id, target_smiles, frontier_smiles, card))
     return [candidate.normalize() for candidate in candidates]
+
+
+def _template_promotable_evidence(card: EvidenceCard) -> bool:
+    """Return whether evidence can seed route candidates/templates.
+
+    Traceable literature leads are useful, but PubMed title/summary hits and
+    other lead-only records need full-text or curator audit before they can
+    become route templates.
+    """
+    limitations = {str(item).lower() for item in card.limitations or []}
+    metadata = dict(card.source_metadata or {})
+    if "pubmed_summary_only" in limitations:
+        return False
+    if "requires_full_text_route_audit" in limitations:
+        return False
+    if str(metadata.get("backend") or "").lower() == "pubmed" and "full_text_route_audited" not in limitations:
+        return False
+    return True
 
 
 def validate_literature_candidate(candidate_or_data: LiteratureCandidate | dict[str, Any]) -> dict[str, Any]:
@@ -306,8 +328,6 @@ def _cut_frontier(smiles: str) -> tuple[list[str], str] | None:
 
 def _reaction_class(card: EvidenceCard) -> str:
     text = json.dumps(card.source_metadata.get("record") or {}, ensure_ascii=False).lower()
-    if "pyrone" in text or "coupling" in text:
-        return "C_C_coupling"
     if "taxane" in card.family_id.lower() or "paclitaxel" in text or "baccatin" in text:
         return "taxane_side_chain_acylation"
     if "artemisinin" in card.family_id.lower() or "peroxide" in text or "photooxidation" in text:
@@ -316,6 +336,8 @@ def _reaction_class(card: EvidenceCard) -> str:
         return "statin_semisynthesis"
     if "synthetic_statin" in card.family_id.lower() or "syn-3,5" in text or "hwe" in text:
         return "statin_side_chain_convergence"
+    if "pyrone" in text or "coupling" in text:
+        return "C_C_coupling"
     if "prostaglandin" in card.family_id.lower() or "corey" in text:
         return "corey_lactone_sidechain_installation"
     if "macrolactonization" in text or "lactone" in text:

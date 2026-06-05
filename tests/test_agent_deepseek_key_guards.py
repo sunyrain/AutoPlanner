@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from cascade_planner.agent.cli import main as agent_cli_main
+from cascade_planner.agent.codex_worker import WorkerRunRecord
 from cascade_planner.agent.prior_generator import deepseek_prior, generate_strategic_prior
 from cascade_planner.cascadeboard.prior_benchmark import run_prior_comparison
 
@@ -68,6 +69,59 @@ class AgentDeepSeekKeyGuardsTest(unittest.TestCase):
         self.assertTrue(payload["fallback"])
         self.assertEqual(payload["resolved_source"], "deterministic")
 
+    def test_agent_cli_check_defaults_to_deterministic(self):
+        out = StringIO()
+        argv = ["agent", "check", "--target", "CCO"]
+        with patch.object(sys, "argv", argv):
+            with redirect_stdout(out):
+                agent_cli_main()
+
+        payload = json.loads(out.getvalue())
+        self.assertEqual(payload["requested_provider"], "deterministic")
+        self.assertEqual(payload["resolved_source"], "deterministic")
+        self.assertFalse(payload["fallback"])
+
+    def test_agent_cli_worker_trace_defaults_to_codex_backend(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            task_path = root / "worker_task.json"
+            task_path.write_text(json.dumps({
+                "schema_version": "worker_task.v1",
+                "task_id": "cli_codex_worker",
+                "case_id": "case",
+                "task_type": "target_research",
+                "required_artifact_type": "ResearchReport",
+                "input_refs": ["target_profile"],
+                "budget": {"timeout_s": 5, "max_output_bytes": 20000, "max_tool_calls": 2, "max_worker_runs": 1},
+                "dry_run": False,
+            }), encoding="utf-8")
+            record = WorkerRunRecord(
+                run_id="cli_codex_worker:run",
+                task_id="cli_codex_worker",
+                case_id="case",
+                status="accepted_draft",
+                backend="codex_cli",
+                command=["codex", "exec", "-"],
+                output_validation={"accepted": True, "reasons": []},
+                output_artifact={
+                    "schema_version": "researchreport.draft.v1",
+                    "artifact_id": "cli_codex_worker:ResearchReport",
+                    "artifact_type": "ResearchReport",
+                    "case_id": "case",
+                    "source": "codex_cli",
+                    "input_refs": ["target_profile"],
+                    "evidence_refs": [],
+                    "validation_status": "draft",
+                },
+            )
+            with patch("cascade_planner.agent.cli.run_codex_worker", return_value=record) as run_worker:
+                worker = _run_agent_cli(["agent", "worker-trace", "--task-json", str(task_path)])
+
+        self.assertEqual(worker["status"], "accepted_draft")
+        self.assertEqual(worker["backend"], "codex_cli")
+        self.assertEqual(worker["command"][:2], ["codex", "exec"])
+        self.assertTrue(run_worker.call_args.kwargs["use_codex_cli"])
+
     def test_agent_cli_case_audit_worker_and_guided_policy_smoke(self):
         target = "CC(C)CCCC(C)C1CCC2C3CCC4CC(O)CCC4(C)C3CCC12C"
         with tempfile.TemporaryDirectory() as tmp:
@@ -88,6 +142,8 @@ class AgentDeepSeekKeyGuardsTest(unittest.TestCase):
                 str(case_dir),
                 "--query-budget",
                 "4",
+                "--literature-backend",
+                "local",
             ])
             artifacts = run_case["artifacts"]
 

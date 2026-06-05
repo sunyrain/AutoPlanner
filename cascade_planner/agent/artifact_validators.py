@@ -11,8 +11,13 @@ from cascade_planner.agent.chem_enzy_policy import (
     validate_chem_enzy_search_policy_payload,
     validate_strategic_operator,
 )
+from cascade_planner.agent.condition_agent import validate_condition_candidate
 from cascade_planner.agent.evidence_cards import validate_evidence_card
 from cascade_planner.agent.evolution_manager import validate_evolution_candidate
+from cascade_planner.agent.literature_segments import (
+    validate_literature_route_segment,
+    validate_segment_step,
+)
 from cascade_planner.agent.strategic_candidate_generation import validate_literature_candidate
 from cascade_planner.agent.terminal_judge import validate_judge_policy
 
@@ -46,6 +51,10 @@ def validate_typed_artifact(
         reasons.extend(_evidence_reasons(payload))
     elif artifact_type == "StrategicDisconnectionCard":
         reasons.extend(_strategic_disconnection_reasons(payload, validated_evidence_refs or set()))
+    elif artifact_type == "LiteratureRouteSegmentCard":
+        reasons.extend(_literature_route_segment_reasons(payload))
+    elif artifact_type == "SegmentStepCandidate":
+        reasons.extend(_segment_step_reasons(payload))
     elif artifact_type == "StrategicOperator":
         reasons.extend(_strategic_operator_reasons(payload, validated_evidence_refs or set(), validated_disconnection_refs or set()))
     elif artifact_type == "ChemEnzySearchPolicy":
@@ -60,6 +69,22 @@ def validate_typed_artifact(
         reasons.extend(_route_status_reasons(payload))
     elif artifact_type == "EvolutionCandidate":
         reasons.extend(_evolution_reasons(payload))
+    elif artifact_type == "StatinPanelSelfEvoReport":
+        reasons.extend(_statin_panel_self_evo_report_reasons(payload))
+    elif artifact_type == "StatinFullflowOverview":
+        reasons.extend(_statin_fullflow_overview_reasons(payload))
+    elif artifact_type == "StatinFullflowDossier":
+        reasons.extend(_statin_fullflow_dossier_reasons(payload))
+    elif artifact_type == "StatinRouteTemplate":
+        reasons.extend(_statin_route_template_reasons(payload))
+    elif artifact_type == "StatinRouteClosureAudit":
+        reasons.extend(_statin_route_closure_audit_reasons(payload))
+    elif artifact_type == "StatinRouteClosureMatrix":
+        reasons.extend(_statin_route_closure_matrix_reasons(payload))
+    elif artifact_type == "StatinClosureLeadCurationPacket":
+        reasons.extend(_statin_closure_lead_curation_packet_reasons(payload))
+    elif artifact_type == "StatinClosureCurationResultSet":
+        reasons.extend(_statin_closure_curation_result_set_reasons(payload))
     elif artifact_type == "FailureDiagnosis":
         reasons.extend(_failure_diagnosis_reasons(payload))
     elif artifact_type == "WorkerRunRecord":
@@ -159,6 +184,16 @@ def _strategic_disconnection_reasons(payload: dict[str, Any], evidence_refs: set
     return reasons
 
 
+def _literature_route_segment_reasons(payload: dict[str, Any]) -> list[str]:
+    result = validate_literature_route_segment(payload)
+    return list(result.get("reasons") or [])
+
+
+def _segment_step_reasons(payload: dict[str, Any]) -> list[str]:
+    result = validate_segment_step(payload)
+    return list(result.get("reasons") or [])
+
+
 def _strategic_operator_reasons(
     payload: dict[str, Any],
     evidence_refs: set[str],
@@ -194,15 +229,8 @@ def _judge_policy_reasons(payload: dict[str, Any]) -> list[str]:
 
 
 def _condition_reasons(payload: dict[str, Any]) -> list[str]:
-    reasons: list[str] = []
-    source_type = str(payload.get("condition_source_type") or payload.get("source_type") or "")
-    if source_type not in {"exact", "analog", "template", "model-only", "unknown"}:
-        reasons.append("invalid_condition_source_type")
-    if not payload.get("condition_status"):
-        reasons.append("condition_gap")
-    if payload.get("hazard_flags") and not isinstance(payload.get("hazard_flags"), list):
-        reasons.append("hazard_flags_not_list")
-    return reasons
+    result = validate_condition_candidate(payload)
+    return list(result.get("reasons") or [])
 
 
 def _route_audit_reasons(payload: dict[str, Any]) -> list[str]:
@@ -234,6 +262,106 @@ def _route_status_reasons(payload: dict[str, Any]) -> list[str]:
 
 def _evolution_reasons(payload: dict[str, Any]) -> list[str]:
     result = validate_evolution_candidate(payload)
+    return list(result.get("reasons") or [])
+
+
+def _statin_panel_self_evo_report_reasons(payload: dict[str, Any]) -> list[str]:
+    from cascade_planner.agent.statin_panel import STATIN_PANEL_REPORT_SCHEMA
+
+    reasons: list[str] = []
+    if payload.get("schema_version") != STATIN_PANEL_REPORT_SCHEMA:
+        reasons.append("invalid_statin_panel_report_schema")
+    if int(payload.get("target_count") or 0) != 9:
+        reasons.append("statin_panel_report_not_all_nine")
+    if int(payload.get("failed") or 0) != 0:
+        reasons.append("statin_panel_report_has_failed_targets")
+    hard_gates = dict(payload.get("hard_gates") or {})
+    if not hard_gates:
+        reasons.append("missing_statin_panel_hard_gates")
+    for key, value in hard_gates.items():
+        if not bool(value):
+            reasons.append(f"statin_panel_hard_gate_failed:{key}")
+    targets = list(payload.get("targets") or [])
+    if len(targets) != 9:
+        reasons.append("statin_panel_target_rows_not_all_nine")
+    for row in targets:
+        safe = str(row.get("safe") or row.get("name") or "unknown")
+        if row.get("route_status") == "solved" or row.get("claims_solved"):
+            reasons.append(f"statin_target_claimed_solved:{safe}")
+        dossier = dict(row.get("fullflow_dossier") or {})
+        if not (dossier.get("validation") or {}).get("accepted"):
+            reasons.append(f"statin_target_dossier_not_validated:{safe}")
+        self_evo = dict(row.get("self_evolution") or {})
+        if self_evo.get("kb_target_layer") != "staging":
+            reasons.append(f"statin_target_self_evo_not_staging:{safe}")
+        if not self_evo.get("production_write_blocked"):
+            reasons.append(f"statin_target_production_write_not_blocked:{safe}")
+    aggregation = dict(payload.get("self_evolution_aggregation") or {})
+    if not aggregation.get("accepted"):
+        reasons.append("statin_self_evo_aggregation_not_accepted")
+    if int(aggregation.get("production_promoted_count") or 0) < 2:
+        reasons.append("statin_self_evo_family_templates_not_promoted")
+    production = set(
+        (payload.get("self_evolution_kb") or {})
+        .get("layers", {})
+        .get("production", {})
+        .keys()
+    )
+    expected_production = {
+        "statin_family_natural_statin_statin_semisynthesis_template",
+        "statin_family_synthetic_statin_statin_side_chain_convergence_template",
+    }
+    if not expected_production.issubset(production):
+        reasons.append("statin_self_evo_missing_family_production_templates")
+    return reasons
+
+
+def _statin_fullflow_dossier_reasons(payload: dict[str, Any]) -> list[str]:
+    from cascade_planner.agent.statin_panel import validate_statin_fullflow_dossier
+
+    result = validate_statin_fullflow_dossier(payload)
+    return list(result.get("reasons") or [])
+
+
+def _statin_fullflow_overview_reasons(payload: dict[str, Any]) -> list[str]:
+    from cascade_planner.agent.statin_panel import validate_statin_fullflow_overview
+
+    result = validate_statin_fullflow_overview(payload)
+    return list(result.get("reasons") or [])
+
+
+def _statin_route_template_reasons(payload: dict[str, Any]) -> list[str]:
+    from cascade_planner.agent.statin_panel import validate_statin_route_template
+
+    result = validate_statin_route_template(payload)
+    return list(result.get("reasons") or [])
+
+
+def _statin_route_closure_audit_reasons(payload: dict[str, Any]) -> list[str]:
+    from cascade_planner.agent.statin_panel import validate_statin_route_closure_audit
+
+    result = validate_statin_route_closure_audit(payload)
+    return list(result.get("reasons") or [])
+
+
+def _statin_route_closure_matrix_reasons(payload: dict[str, Any]) -> list[str]:
+    from cascade_planner.agent.statin_panel import validate_statin_route_closure_matrix
+
+    result = validate_statin_route_closure_matrix(payload)
+    return list(result.get("reasons") or [])
+
+
+def _statin_closure_lead_curation_packet_reasons(payload: dict[str, Any]) -> list[str]:
+    from cascade_planner.agent.statin_panel import validate_statin_closure_lead_curation_packet
+
+    result = validate_statin_closure_lead_curation_packet(payload)
+    return list(result.get("reasons") or [])
+
+
+def _statin_closure_curation_result_set_reasons(payload: dict[str, Any]) -> list[str]:
+    from cascade_planner.agent.statin_panel import validate_statin_closure_curation_result_set
+
+    result = validate_statin_closure_curation_result_set(payload)
     return list(result.get("reasons") or [])
 
 

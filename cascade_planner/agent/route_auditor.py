@@ -150,6 +150,8 @@ def _status_and_reasons(
         return RouteStatus.UNRESOLVED, ["solved_claim_without_stock_audit"]
     if stock_audit_passed and condition_audit.get("route_risk") == "gap":
         return RouteStatus.UNRESOLVED, ["condition_gap"]
+    if stock_audit_passed and condition_audit.get("route_risk") == "high":
+        return RouteStatus.UNRESOLVED, ["condition_high_risk"]
     if _has_anchor_evidence(package):
         if package_status in {"semisynthesis_closed", "ready_for_guided_rerun"} and stock_audit_passed:
             return RouteStatus.SEMISYNTHESIS_CLOSED, []

@@ -101,6 +101,7 @@ def run_p0_benchmark_pack(
     output_root: str | Path,
     cases: list[P0BenchmarkCase] | None = None,
     query_budget: int = 8,
+    literature_backend: str = "local",
 ) -> dict[str, Any]:
     root = Path(output_root)
     root.mkdir(parents=True, exist_ok=True)
@@ -115,6 +116,7 @@ def run_p0_benchmark_pack(
                 frontier_smiles=case.frontier_smiles or case.target_smiles,
                 output_dir=case_dir,
                 query_budget=query_budget,
+                literature_backend=literature_backend,
             )
         )
         rows.append(_evaluate_case(case, result))

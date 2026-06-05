@@ -77,6 +77,16 @@ class StrategicDisconnectionCard(ArtifactBase):
     schema_version = "strategic_disconnection_card.v1"
 
 
+class LiteratureRouteSegmentCard(ArtifactBase):
+    artifact_type = "LiteratureRouteSegmentCard"
+    schema_version = "literature_route_segment_card.v1"
+
+
+class SegmentStepCandidate(ArtifactBase):
+    artifact_type = "SegmentStepCandidate"
+    schema_version = "segment_step_candidate.v1"
+
+
 class LiteratureTemplateCard(ArtifactBase):
     artifact_type = "LiteratureTemplateCard"
     schema_version = "literature_template_card.v1"
@@ -152,6 +162,46 @@ class EvolutionCandidate(ArtifactBase):
     schema_version = "evolution_candidate_artifact.v1"
 
 
+class StatinPanelSelfEvoReport(ArtifactBase):
+    artifact_type = "StatinPanelSelfEvoReport"
+    schema_version = "statin_panel_self_evo_report_artifact.v1"
+
+
+class StatinFullflowOverview(ArtifactBase):
+    artifact_type = "StatinFullflowOverview"
+    schema_version = "statin_fullflow_overview_artifact.v1"
+
+
+class StatinFullflowDossier(ArtifactBase):
+    artifact_type = "StatinFullflowDossier"
+    schema_version = "statin_fullflow_dossier_artifact.v1"
+
+
+class StatinRouteTemplate(ArtifactBase):
+    artifact_type = "StatinRouteTemplate"
+    schema_version = "statin_route_template_artifact.v1"
+
+
+class StatinRouteClosureAudit(ArtifactBase):
+    artifact_type = "StatinRouteClosureAudit"
+    schema_version = "statin_route_closure_audit_artifact.v1"
+
+
+class StatinRouteClosureMatrix(ArtifactBase):
+    artifact_type = "StatinRouteClosureMatrix"
+    schema_version = "statin_route_closure_matrix_artifact.v1"
+
+
+class StatinClosureLeadCurationPacket(ArtifactBase):
+    artifact_type = "StatinClosureLeadCurationPacket"
+    schema_version = "statin_closure_lead_curation_packet_artifact.v1"
+
+
+class StatinClosureCurationResultSet(ArtifactBase):
+    artifact_type = "StatinClosureCurationResultSet"
+    schema_version = "statin_closure_curation_result_set_artifact.v1"
+
+
 class WorkerRunRecord(ArtifactBase):
     artifact_type = "WorkerRunRecord"
     schema_version = "worker_run_record_artifact.v1"
@@ -166,6 +216,8 @@ ARTIFACT_CLASSES: dict[str, type[ArtifactBase]] = {
         ResearchReport,
         EvidenceCard,
         StrategicDisconnectionCard,
+        LiteratureRouteSegmentCard,
+        SegmentStepCandidate,
         LiteratureTemplateCard,
         TemplateApplicabilityReport,
         ExecutableTemplateCandidate,
@@ -181,6 +233,14 @@ ARTIFACT_CLASSES: dict[str, type[ArtifactBase]] = {
         RouteAuditReport,
         RouteStatus,
         EvolutionCandidate,
+        StatinPanelSelfEvoReport,
+        StatinFullflowOverview,
+        StatinFullflowDossier,
+        StatinRouteTemplate,
+        StatinRouteClosureAudit,
+        StatinRouteClosureMatrix,
+        StatinClosureLeadCurationPacket,
+        StatinClosureCurationResultSet,
         WorkerRunRecord,
     )
 }

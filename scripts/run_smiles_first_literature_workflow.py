@@ -29,6 +29,18 @@ def main() -> None:
     parser.add_argument("--evidence-jsonl", default=None)
     parser.add_argument("--db", action="append", default=None, help="Strategic disconnection DB JSON. May be repeated.")
     parser.add_argument("--query-budget", type=int, default=12)
+    parser.add_argument(
+        "--literature-backend",
+        default="api_json",
+        choices=["local", "manual", "pubmed", "local_pubmed", "codex", "api_json"],
+        help=(
+            "Literature backend. api_json reads the retrosynthesis worker key from the repository key.txt file; "
+            "pubmed/local_pubmed use NCBI E-utilities."
+        ),
+    )
+    parser.add_argument("--worker-timeout-s", type=float, default=60.0)
+    parser.add_argument("--worker-max-output-bytes", type=int, default=200_000)
+    parser.add_argument("--worker-max-tool-calls", type=int, default=8)
     args = parser.parse_args()
 
     result = run_smiles_first_workflow(
@@ -43,6 +55,10 @@ def main() -> None:
             evidence_jsonl=args.evidence_jsonl,
             db_paths=args.db,
             query_budget=args.query_budget,
+            literature_backend=args.literature_backend,
+            worker_timeout_s=args.worker_timeout_s,
+            worker_max_output_bytes=args.worker_max_output_bytes,
+            worker_max_tool_calls=args.worker_max_tool_calls,
         )
     )
     print(json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True))

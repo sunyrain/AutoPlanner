@@ -6,6 +6,9 @@ Active repository utilities only.
 |---|---|
 | `audit_strategic_disconnections.py` | Audit curated strategic-disconnection source files for ID uniqueness, family coverage, evidence traceability, source domains, and compliance-gated entries. |
 | `query_strategic_disconnections.py` | Query the merged strategic-disconnection source layer by free-text or `family_id`. |
+| `run_statin_panel_literature_self_evo.py` | Replay all nine statins through the SMILES-first literature workflow and register validated template candidates into the self-evolution candidate/shadow/staging layers; use `--literature-backend local_pubmed` to append PubMed E-utilities evidence, `--execute-all-closure-followups` / `--execute-all-open-gap-searches` for hard-point lead discovery, and `--execute-all-full-text-access-probes` plus `--execute-all-full-text-signal-extractions` for metadata-only PMC signal extraction without storing full text or procedure text. |
+| `run_open_structure_template_agent.py` | Launch the canonical Codex/WellAU open structure-template agent. It defaults to `wire_api = "responses"` plus `codex exec --json` JSONL event streaming; see `docs/CODEX_WELLAU_STREAMING_RUNBOOK_2026-06-05.md`. |
+| `run_literature_template_plugin_benchmark.py` | Run the offline executable literature-template one-step plugin benchmark used by the retained literature-template policy tests. |
 | `download_brenda.py` | Download or refresh BRENDA condition data inputs. |
 | `monitor_autoplanner_web.py` | Poll the local WebUI service, CUDA status, queued jobs, and latest output/rejected artifacts. |
 | `run_autoplanner_web_waitress.py` | Start the Waitress-backed local WebUI service used for collaborator testing. |

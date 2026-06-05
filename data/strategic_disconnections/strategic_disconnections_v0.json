@@ -349,7 +349,8 @@
           "fluvastatin",
           "atorvastatin",
           "rosuvastatin",
-          "pitavastatin"
+          "pitavastatin",
+          "cerivastatin"
         ],
         "target_features": [
           "3,5-dihydroxy heptenoic acid or lactone equivalent",
@@ -412,7 +413,8 @@
           "fluvastatin",
           "rosuvastatin",
           "pitavastatin",
-          "atorvastatin side-chain intermediates"
+          "atorvastatin side-chain intermediates",
+          "cerivastatin side-chain intermediates"
         ],
         "target_features": [
           "syn-3,5-diol",
@@ -740,6 +742,65 @@
           "chiral_resolution",
           "red_al_safety",
           "liquid_ammonia"
+        ]
+      }
+    },
+    {
+      "id": "cerivastatin_pyridine_wittig_side_chain_convergence",
+      "family_id": "synthetic_statin",
+      "name": "Cerivastatin pyridine-core olefination and side-chain convergence",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "cerivastatin",
+          "cerivastatin sodium"
+        ],
+        "target_features": [
+          "substituted pyridine core",
+          "isopropyl and methoxy substituent pattern",
+          "E-heptenoate syn-diol side chain"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "pyridine core to heptenoate side-chain alkene",
+          "late acid/lactone/salt finishing"
+        ],
+        "forward_logic": [
+          "prepare the substituted pyridine aldehyde or activated pyridine core",
+          "install the statin side chain by Wittig/HWE-like olefination with E-geometry tracking",
+          "carry the prebuilt syn-diol side-chain stereochemistry through deprotection and acid/salt finishing"
+        ],
+        "suggested_precursor_roles": [
+          "substituted pyridine aldehyde or halide core",
+          "phosphonium ylide or phosphonate statin side-chain equivalent",
+          "protected syn-3,5-diol ester or lactone",
+          "hydrolysis/salt-formation endpoint"
+        ],
+        "planner_hint": "Reward cerivastatin routes that expose pyridine-core/side-chain convergence and E-alkene plus syn-diol control; do not let the shared fluvastatin-like template hide pyridine-specific evidence gaps."
+      },
+      "risks": [
+        "E/Z olefination control",
+        "pyridine-core regioselectivity and impurity carryover",
+        "acid/lactone/salt endpoint identity",
+        "withdrawn-drug context requires keeping route planning separate from recommendation or use claims"
+      ],
+      "evidence": [
+        {
+          "type": "local_curated",
+          "file": "docs/statins/summary.json",
+          "local_ref": "docs/statins/summary.json:cerivastatin",
+          "summary": "The nine-statin panel contains cerivastatin as a synthetic statin target with multi-step route assets; this record specializes the shared synthetic-statin side-chain convergence policy to a pyridine-core target so the workflow must retrieve a cerivastatin-specific template source."
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cerivastatin_specific_prior",
+        "rerank_bonus": "moderate for pyridine-core/side-chain convergence with explicit E-alkene, syn-diol, and endpoint-state handling",
+        "risk_tags": [
+          "wittig_ez_control",
+          "pyridine_regioselectivity",
+          "endpoint_salt_state",
+          "withdrawn_drug_context"
         ]
       }
     },

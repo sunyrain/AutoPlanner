@@ -889,7 +889,7 @@ class StrategicDisconnectionsTest(unittest.TestCase):
         self.assertEqual(report["issue_count"], 0)
         self.assertEqual(report["totals"]["families"], 186)
         self.assertEqual(report["totals"]["anchors"], 189)
-        self.assertEqual(report["totals"]["disconnections"], 370)
+        self.assertEqual(report["totals"]["disconnections"], 371)
         self.assertEqual(report["coverage_issues"], [])
         self.assertEqual(report["evidence"]["disconnections_without_evidence"], [])
         self.assertGreaterEqual(report["evidence"]["local_refs"], 1)

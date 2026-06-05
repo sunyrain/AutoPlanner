@@ -398,6 +398,103 @@ pytest -q tests/test_chem_enzy_baseline.py tests/test_route_tree_planner.py test
 - [x] validated anchor whitelist 能让 semisynthesis anchor 以 anchor 模式通过。
 - [x] 无 LLM、无 online LLM judge。
 
+### P1d：Codex Condition Adaptation + Route Feasibility
+
+目标：
+
+```text
+充分利用 Codex 的文献理解、trace 诊断和上下文整合能力，为每个关键 route step
+生成可审计的条件候选，并把条件缺口/不兼容风险纳入最终 route audit。
+```
+
+交付物：
+
+- [ ] 定义 `ConditionWorkerTask`：输入 step、reaction class、substrate/product、
+  enzyme/EC、evidence refs、route context 和 query budget。
+- [ ] Codex condition worker 输出结构化 `ConditionCandidate`，只能是 draft，
+  不能直接改变 ChemEnzy route tree 或 final RouteStatus。
+- [ ] 支持四类条件来源：`exact`、`analog`、`template`、`model-only`。
+- [ ] 为化学步抽取/建议 reagent、catalyst、solvent、temperature、atmosphere。
+- [ ] 为酶步抽取/建议 enzyme、EC、cofactor、buffer、pH、temperature、solvent tolerance。
+- [ ] 输出 step-level `condition_candidates.jsonl` 和 route-level
+  `condition_audit_report.json`。
+- [ ] route-level condition audit 检查保护基兼容性、强酸/强碱、极端温度、氧敏、
+  酶/有机溶剂兼容性、pH/buffer/cofactor 缺口。
+- [ ] `condition_gap` 或 high-risk condition 必须降低 route confidence；不能因为
+  ChemEnzy solved 或文献有路线图就忽略条件缺口。
+- [ ] evidence-backed condition 可以提交为 `ConditionCandidate` 类型的
+  `EvolutionCandidate`，但只能进入 candidate/shadow/staging。
+
+建议代码范围：
+
+- `cascade_planner/agent/condition_agent.py`
+- `cascade_planner/agent/codex_worker.py`
+- `cascade_planner/agent/codex_controller.py`
+- `cascade_planner/agent/route_auditor.py`
+- `cascade_planner/eval/select_condition_rich_benchmark.py`
+- 新增 `scripts/run_condition_adaptation_benchmark.py`
+- 新增/扩展 `tests/test_agent_route_auditor_condition.py`
+
+验收：
+
+- [ ] exact 条件优先于 analog/template/model-only。
+- [ ] 无 evidence 的 exact condition 被拒绝。
+- [ ] 条件缺失生成 `condition_gap`，并阻止 high-confidence solved。
+- [ ] risky condition 进入 route audit reasons。
+- [ ] Codex condition worker 不能直接写 production KB。
+- [ ] condition benchmark 报告 exact extraction rate、analog coverage、
+  condition gap rate 和 risky flag precision。
+
+### P1e：Literature Route Segment + Recursive One-Step Expansion
+
+目标：
+
+```text
+文献中连续 2-5 步路线不能被压扁成一个单步模板；需要结构化为 route segment，
+再由外层 segment controller 按 one-step proposal 递归展开并交回 ChemEnzy。
+```
+
+交付物：
+
+- [ ] 定义 `LiteratureRouteSegmentCard` schema：`segment_id`、`evidence_refs`、
+  `relation_type`、`ordered_nodes`、`ordered_steps`、conditions、yields、
+  limitations、endpoint_role、allowed_use。
+- [ ] `relation_type` 至少区分 `exact`、`family`、`analog`。
+- [ ] `allowed_use` 至少区分 `route_anchor_only`、`recursive_one_step_source`、
+  `macro_route_evidence`。
+- [ ] 对连续文献步骤按逆合成方向 lazy unroll，例如
+  `Target <- C <- B <- A`，ChemEnzy 每次只消费当前一步。
+- [ ] 每个 segment edge 必须单独通过 retron match、applicability、fragment cut、
+  forward reconstruction、heavy atom accounting 和 chemical sanity gate。
+- [ ] 中途如果 ChemEnzy 能接管，允许停止递归并回到 native search。
+- [ ] 中途如果 edge mismatch、condition high-risk、budget exhausted 或 audit failed，
+  必须停止递归并输出 unresolved / partial_anchor，不得强行沿完整文献路线闭合。
+- [ ] segment endpoint 必须标注为 `stock`、`semisynthesis_anchor`、
+  `advanced_anchor` 或 `unresolved`。
+- [ ] 整段文献路线只能作为 evidence / route context；不能直接宣称 solved。
+- [ ] 新增 `LiteratureSegmentPlugin` 或 `RecursiveLiteratureOneStepPlugin`，
+  与现有 `LiteratureOneStepPlugin` 兼容。
+
+建议代码范围：
+
+- `cascade_planner/agent/literature_templates.py`
+- `cascade_planner/agent/template_applicability.py`
+- `cascade_planner/agent/executable_template_validation.py`
+- `cascade_planner/baselines/literature_one_step_plugin.py`
+- 新增 `cascade_planner/agent/literature_segments.py`
+- 新增 `scripts/run_literature_segment_plugin_benchmark.py`
+- 新增 `tests/test_literature_route_segments.py`
+
+验收：
+
+- [ ] 三步文献 segment 能按顺序递归展开为三个 one-step candidates。
+- [ ] 每一步都有 evidence refs、applicability report、validation report。
+- [ ] 中途 mismatch 会停止递归，不会继续注入后续步骤。
+- [ ] native solved + audit passed 的 negative control 不触发 segment plugin。
+- [ ] segment route 不因 endpoint anchor 自动变成 solved。
+- [ ] benchmark 覆盖 exact segment、analog segment、mismatch control、
+  native-solved negative control。
+
 ### P2：Enzyme-aware Bridge Integration
 
 目标：
@@ -451,6 +548,35 @@ pytest -q tests/test_enzyme_sp_verifier_gate.py tests/test_enzyme_candidate_qual
 - [x] Worker 不能把 raw reaction 写入 route tree。
 - [x] 只有 validated artifact 可以进入 policy compiler。
 - [x] benchmark 失败阻止 promotion。
+
+### P3b：Self-Evo Offline Promotion Hardening
+
+目标：
+
+```text
+保留 self-evo，但限定为离线、证据门控、可回滚的知识沉淀机制；
+target run 只能沉淀 candidate，不能在线自改 ChemEnzy 或写 production KB。
+```
+
+交付物：
+
+- [ ] 扩展 `EvolutionCandidate` 类型，支持 `RouteSegmentCandidate` 和
+  evidence-backed `ConditionCandidate` 的晋升路径。
+- [ ] target run 产生的 `TemplateCandidate`、`RouteSegmentCandidate`、
+  `ConditionCandidate`、`AnchorCandidate` 只能进入 candidate/shadow。
+- [ ] production promotion 必须来自离线 benchmark gate，且不能由当前 target run 触发。
+- [ ] benchmark gate 增加 route-segment replay、condition-quality、overgeneralization
+  和 fake-closure regression 检查。
+- [ ] self-evo promotion 记录必须包含 source artifacts、benchmark report、rollback id。
+- [ ] rollback 必须能移除坏模板/坏 segment/坏 condition，并保留 audit history。
+
+验收：
+
+- [ ] target run 直接 promote production 被拒绝。
+- [ ] route segment 只有在 replay benchmark 通过后才能进入 staging/production。
+- [ ] condition quality regression 会阻止 promotion。
+- [ ] fake closure rate 上升会阻止 promotion。
+- [ ] rollback 后 production KB 不再消费被撤回 artifact。
 
 ---
 
@@ -506,6 +632,7 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] `literature_tools`：实时文献检索工具入口。
 - [x] `evidence_layer`：Evidence extraction / validation。
 - [x] `strategic_disconnection_miner`：文献战略断键挖掘。
+- [ ] `literature_segments`：连续文献路线段结构化与递归 one-step 展开。
 - [x] `condition_agent`：Condition design / condition audit。
 - [x] `evolution_manager`：candidate / shadow / benchmark gate。
 - [x] `trace_store`：run trace、worker trace、audit trace。
@@ -580,6 +707,9 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] `ChemEnzySearchPolicy`。
 - [x] `JudgePolicy`。
 - [x] `ConditionCandidate`。
+- [ ] `ConditionWorkerTask`。
+- [ ] `LiteratureRouteSegmentCard`。
+- [ ] `SegmentStepCandidate`。
 - [x] `RouteAuditReport`。
 - [x] `RouteStatus`。
 - [x] `EvolutionCandidate`。
@@ -944,6 +1074,8 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] condition extraction。
 - [x] route mode classification。
 - [x] strategic disconnection extraction。
+- [ ] multi-step literature route segment extraction。
+- [ ] segment step condition extraction。
 - [x] confidence。
 
 ### 9.3 Evidence validation
@@ -953,6 +1085,9 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] role assignment checked。
 - [x] reaction center / atom mapping checked。
 - [x] condition normalized。
+- [ ] segment edge order checked。
+- [ ] segment endpoint role checked。
+- [ ] segment cannot claim solved without stock/audit closure。
 - [x] usable_for_search flag。
 
 ### 9.4 测试
@@ -1045,6 +1180,9 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] template / cluster condition。
 - [x] model-predicted condition。
 - [x] condition_unknown。
+- [ ] Codex condition worker exact extraction。
+- [ ] Codex condition worker analog adaptation。
+- [ ] route-segment step condition transfer。
 
 ### 10.2 ConditionCandidate
 
@@ -1058,6 +1196,9 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] evidence refs。
 - [x] risk flags。
 - [x] confidence。
+- [ ] source step / source segment refs。
+- [ ] compatibility scope and limitations。
+- [ ] explicit gap reason when no usable condition is found。
 
 ### 10.3 Route feasibility
 
@@ -1066,6 +1207,9 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] enzyme / chemical transition risk。
 - [x] cofactor gap。
 - [x] safety / incompatibility flags。
+- [ ] protecting-group compatibility risk。
+- [ ] enzyme pH / buffer / solvent compatibility risk。
+- [ ] inter-step condition carryover risk for literature route segments。
 
 ### 10.4 测试
 
@@ -1073,6 +1217,9 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] unknown condition 生成 condition_gap。
 - [x] risky condition 影响 route audit。
 - [x] condition status 出现在 final report。
+- [ ] Codex worker condition draft 不能直接改变 RouteStatus。
+- [ ] segment step condition gap 会停止或降级递归 route segment。
+- [ ] route package condition section 显示 exact / analog / template / model-only 分层。
 
 ---
 
@@ -1087,6 +1234,8 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] ConditionCandidate。
 - [x] AnchorCandidate。
 - [x] ControllerPolicyTrace。
+- [ ] RouteSegmentCandidate。
+- [ ] SegmentStepCandidate。
 
 ### 11.2 Promotion flow
 
@@ -1096,6 +1245,9 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] staging KB。
 - [x] production KB。
 - [x] rollback。
+- [ ] target-run candidates can only enter candidate/shadow。
+- [ ] route segment promotion requires offline replay benchmark。
+- [ ] condition candidate promotion requires condition-quality benchmark。
 
 ### 11.3 Gates
 
@@ -1107,6 +1259,9 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] benchmark true solved rate non-decreasing。
 - [x] fake closure rate non-increasing。
 - [x] condition quality non-decreasing。
+- [ ] route-segment replay passes。
+- [ ] recursive segment mismatch control passes。
+- [ ] no production promotion from current target run。
 
 ### 11.4 测试
 
@@ -1114,6 +1269,8 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] failed benchmark blocks promotion。
 - [x] rollback restores previous KB。
 - [x] fake closure regression blocks promotion。
+- [ ] bad route segment rollback removes it from production consumption。
+- [ ] condition quality regression blocks condition promotion。
 
 ---
 
@@ -1172,6 +1329,11 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] enzyme-assisted targets。
 - [x] condition-known reactions。
 - [x] unresolved / no-route controls。
+- [ ] literature route segment exact controls。
+- [ ] literature route segment analog-transfer controls。
+- [ ] literature route segment mismatch controls。
+- [ ] condition-rich exact / analog / model-only controls。
+- [ ] native-solved negative controls for literature template and segment plugins。
 
 ### 13.2 Metrics
 
@@ -1186,6 +1348,15 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] Codex Worker calls per case。
 - [x] ChemEnzy runtime overhead。
 - [x] benchmark regression count。
+- [ ] literature template plugin step precision。
+- [ ] literature segment recursive step precision。
+- [ ] segment reconstruction pass rate。
+- [ ] segment early-stop correctness on mismatch / audit failure。
+- [ ] exact condition extraction rate。
+- [ ] analog condition coverage。
+- [ ] condition gap rate。
+- [ ] risky condition flag precision。
+- [ ] self-evo promotion / rollback regression count。
 
 ### 13.3 Hard gates
 
@@ -1194,6 +1365,11 @@ P1+ 长期 backlog 和最终架构清单。当前 P0 开发不得跳过前面的
 - [x] Fake closure rate decreases or stays flat。
 - [x] Solved claims require stock audit。
 - [x] Semisynthesis claims require anchor evidence。
+- [ ] Literature route segment cannot directly claim solved。
+- [ ] Segment plugin disabled when native solved + audit passed。
+- [ ] Recursive segment expansion stops on mismatch / unsafe condition / budget exhaustion。
+- [ ] Condition gap prevents high-confidence solved route output。
+- [ ] Self-evo cannot promote target-run artifacts to production。
 
 ---
 

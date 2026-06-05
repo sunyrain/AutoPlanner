@@ -17,6 +17,8 @@ venv/
 .env.*
 !.env.example
 !.env.local.example
+/key.txt
+/psaaword.txt
 .claude/
 config/
 
@@ -43,6 +45,7 @@ backup_from_zip/
 # Legacy migration bundle
 archive/migration_*/autoplanner_full_*.zip
 archive/migration_*/autoplanner_full_*.zip.sha256
+archive/cleanup_*/
 
 # Large datasets at repo root (use archive/ for the v1 snapshots)
 cascade_dataset_v2.json

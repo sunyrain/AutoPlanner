@@ -41,7 +41,7 @@ def main() -> None:
     p_fail.add_argument("--threshold", type=float, default=0.5)
 
     p_check = sub.add_parser("check")
-    p_check.add_argument("--provider", default="deepseek", choices=["deterministic", "deepseek"])
+    p_check.add_argument("--provider", default="deterministic", choices=["deterministic", "deepseek"])
     p_check.add_argument("--target", default="CCO")
     p_check.add_argument("--strict", action="store_true", help="Exit non-zero if requested provider falls back")
 
@@ -56,6 +56,19 @@ def main() -> None:
     p_run_case.add_argument("--evidence-jsonl", default=None)
     p_run_case.add_argument("--db", action="append", default=None)
     p_run_case.add_argument("--query-budget", type=int, default=12)
+    p_run_case.add_argument(
+        "--literature-backend",
+        default="api_json",
+        choices=["local", "manual", "pubmed", "local_pubmed", "codex", "api_json"],
+        help=(
+            "Literature evidence backend. Defaults to api_json, whose retrosynthesis "
+            "worker key is read from the repository key.txt file; local/manual are deterministic; "
+            "pubmed/local_pubmed use NCBI E-utilities."
+        ),
+    )
+    p_run_case.add_argument("--worker-timeout-s", type=float, default=60.0)
+    p_run_case.add_argument("--worker-max-output-bytes", type=int, default=200_000)
+    p_run_case.add_argument("--worker-max-tool-calls", type=int, default=8)
 
     p_audit = sub.add_parser("audit-route", help="Audit a route package and emit RouteStatus")
     p_audit.add_argument("--package", required=True)
@@ -70,9 +83,15 @@ def main() -> None:
     p_inspect.add_argument("--case-bundle", default=None)
     p_inspect.add_argument("--blackboard", default=None)
 
-    p_worker = sub.add_parser("worker-trace", help="Run a controlled mock/dry-run worker task")
+    p_worker = sub.add_parser("worker-trace", help="Run a controlled worker task with backend trace")
     p_worker.add_argument("--task-json", required=True)
     p_worker.add_argument("--mock-output-json", default=None)
+    p_worker.add_argument(
+        "--backend",
+        default=os.environ.get("AUTOPLANNER_CODEX_WORKER_BACKEND") or "codex",
+        choices=["codex", "api_json", "mock"],
+        help="Worker backend for non-dry-run tasks. Defaults to Codex CLI.",
+    )
 
     p_rerun = sub.add_parser("rerun-with-policy", help="Compile a guided ChemEnzy policy from a case bundle")
     p_rerun.add_argument("--case-bundle", required=True)
@@ -121,6 +140,10 @@ def main() -> None:
                 evidence_jsonl=args.evidence_jsonl,
                 db_paths=args.db,
                 query_budget=args.query_budget,
+                literature_backend=args.literature_backend,
+                worker_timeout_s=args.worker_timeout_s,
+                worker_max_output_bytes=args.worker_max_output_bytes,
+                worker_max_tool_calls=args.worker_max_tool_calls,
             )
         )
         print(json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True))
@@ -164,7 +187,14 @@ def main() -> None:
     elif args.cmd == "worker-trace":
         task = worker_task_from_dict(_read_json(args.task_json))
         mock_output = _read_json(args.mock_output_json) if args.mock_output_json else None
-        record = run_codex_worker(task, mock_output=mock_output)
+        use_codex_cli = args.backend == "codex" and mock_output is None and not task.dry_run
+        use_api_json = args.backend == "api_json" and mock_output is None and not task.dry_run
+        record = run_codex_worker(
+            task,
+            mock_output=mock_output,
+            use_codex_cli=use_codex_cli,
+            use_api_json=use_api_json,
+        )
         print(json.dumps(record.to_dict(), indent=2, ensure_ascii=False, sort_keys=True))
     elif args.cmd == "rerun-with-policy":
         bundle = load_case_bundle(args.case_bundle)

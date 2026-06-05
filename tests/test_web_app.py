@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import cascade_planner.web.app as web_app
+from cascade_planner.agent.codex_worker import WorkerRunRecord
 from cascade_planner.web.app import (
     _annotate_route_statuses,
     _normalize_planner_mode,
@@ -42,6 +43,36 @@ class WebAppTest(unittest.TestCase):
         payload = response.get_json()
         self.assertIn("artifacts", payload)
 
+    def test_artifacts_endpoint_filters_worker_traces_and_rejected_artifacts(self):
+        with tempfile.TemporaryDirectory(dir=web_app.RESULTS_DIR) as td:
+            root = Path(td)
+            worker_path = root / "literature_worker_run_record.json"
+            worker_path.write_text(json.dumps({
+                "schema_version": "worker_run_record.v1",
+                "run_id": "worker_run",
+                "task_id": "worker_task",
+                "case_id": "case",
+                "status": "worker_error",
+                "backend": "api_json",
+                "output_validation": {"accepted": False, "reasons": ["worker_error"]},
+            }), encoding="utf-8")
+            accepted_path = root / "accepted_artifact.json"
+            accepted_path.write_text(json.dumps({
+                "schema_version": "case_bundle.v1",
+                "artifacts": [{"artifact_type": "EvidenceCard", "validation_status": "accepted"}],
+            }), encoding="utf-8")
+
+            worker_response = self.app.get("/api/artifacts", query_string={"filter": "worker_traces"})
+            rejected_response = self.app.get("/api/artifacts", query_string={"filter": "rejected"})
+
+        self.assertEqual(worker_response.status_code, 200, worker_response.data)
+        worker_rows = worker_response.get_json()["artifacts"]
+        self.assertTrue(any(row["name"] == "literature_worker_run_record.json" for row in worker_rows))
+        self.assertTrue(all("worker_traces" in row["tags"] for row in worker_rows))
+        rejected_rows = rejected_response.get_json()["artifacts"]
+        self.assertTrue(any(row["name"] == "literature_worker_run_record.json" for row in rejected_rows))
+        self.assertTrue(all("rejected" in row["tags"] for row in rejected_rows))
+
     def test_artifact_path_is_restricted(self):
         response = self.app.get("/api/artifact?path=/etc/passwd")
         self.assertEqual(response.status_code, 400)
@@ -59,6 +90,7 @@ class WebAppTest(unittest.TestCase):
                     "frontier_smiles": target,
                     "output_dir": td,
                     "query_budget": 4,
+                    "literature_backend": "local",
                 },
             )
             self.assertEqual(case_response.status_code, 200, case_response.data)
@@ -124,6 +156,50 @@ class WebAppTest(unittest.TestCase):
             self.assertIn("evidence_refs", report_payload)
             self.assertIn("condition", report_payload)
             self.assertIn("rerun_history", report_payload)
+
+    def test_worker_trace_api_defaults_to_codex_backend(self):
+        record = WorkerRunRecord(
+            run_id="api_codex_worker:run",
+            task_id="api_codex_worker",
+            case_id="case",
+            status="accepted_draft",
+            backend="codex_cli",
+            command=["codex", "exec", "-"],
+            output_validation={"accepted": True, "reasons": []},
+            output_artifact={
+                "schema_version": "researchreport.draft.v1",
+                "artifact_id": "api_codex_worker:ResearchReport",
+                "artifact_type": "ResearchReport",
+                "case_id": "case",
+                "source": "codex_cli",
+                "input_refs": ["target_profile"],
+                "evidence_refs": [],
+                "validation_status": "draft",
+            },
+        )
+        with patch("cascade_planner.web.app.run_codex_worker", return_value=record) as run_worker:
+            response = self.app.post(
+                "/api/worker-trace",
+                json={
+                    "task": {
+                        "schema_version": "worker_task.v1",
+                        "task_id": "api_codex_worker",
+                        "case_id": "case",
+                        "task_type": "target_research",
+                        "required_artifact_type": "ResearchReport",
+                        "input_refs": ["target_profile"],
+                        "budget": {"timeout_s": 5, "max_output_bytes": 20000, "max_tool_calls": 2, "max_worker_runs": 1},
+                        "dry_run": False,
+                    }
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["worker_trace"]["backend"], "codex_cli")
+        self.assertEqual(payload["worker_trace"]["command"][:2], ["codex", "exec"])
+        self.assertTrue(run_worker.call_args.kwargs["use_codex_cli"])
 
     def test_save_native_raw_output_writes_independent_sidecar(self):
         with tempfile.TemporaryDirectory(dir=web_app.ROOT) as td:

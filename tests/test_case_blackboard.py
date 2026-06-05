@@ -96,6 +96,7 @@ class CaseBlackboardTest(unittest.TestCase):
                     frontier_smiles=target,
                     output_dir=tmp,
                     query_budget=4,
+                    literature_backend="local",
                 )
             )
             bundle_path = Path(result["artifacts"]["case_bundle"])

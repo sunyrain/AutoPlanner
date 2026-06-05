@@ -18,6 +18,7 @@ have been absorbed into these documents and archived under `docs/archive/`.
 - [EvoChemEnzy code delivery checklist](EvoChemEnzy_Code_Delivery_Checklist_2026-06-03.md)
 - [EvoChemEnzy plan feasibility audit](EvoChemEnzy_Plan_Feasibility_Audit_2026-06-04.md)
 - [Literature-to-executable template checklist](LITERATURE_TO_EXECUTABLE_TEMPLATE_CHECKLIST_2026-06-04.md)
+- [Codex WellAU streaming runbook](CODEX_WELLAU_STREAMING_RUNBOOK_2026-06-05.md)
 - [Codebase hygiene audit](CODEBASE_HYGIENE_AUDIT_2026-06-04.md)
 
 Start development from the SMILES-first workflow. The code delivery checklist
@@ -37,6 +38,7 @@ P0 engineering checklist: 当前 P0 开发板 + 开发启动交付清单
 Long-term architecture: EvoChemEnzy agentic CASP plan
 Risk/feasibility constraints: plan feasibility audit
 Executable literature-template delivery: Literature-to-executable template checklist
+Codex/WellAU open-agent transport: Codex WellAU streaming runbook
 Repository hygiene boundary: Codebase hygiene audit
 Archived provenance: docs/archive/
 ```

@@ -3,6 +3,9 @@ import unittest
 from cascade_planner.agent.condition_agent import (
     ConditionCandidate,
     audit_conditions,
+    benchmark_condition_candidates,
+    condition_worker_task_from_route_step,
+    condition_worker_task_to_worker_task,
     validate_condition_candidate,
 )
 from cascade_planner.agent.route_auditor import (
@@ -136,7 +139,12 @@ class AgentRouteAuditorConditionTest(unittest.TestCase):
             package,
             validation={"accepted": True, "route_status": "semisynthesis_closed"},
             stock_audit_passed=True,
-            condition_candidates=[{"step_id": "step_1", "source_type": "analog", "solvent": "EtOAc"}],
+            condition_candidates=[{
+                "step_id": "step_1",
+                "source_type": "analog",
+                "solvent": "EtOAc",
+                "scope_gap": "analog substrate; no exact target procedure",
+            }],
         )
         no_anchor = report.to_dict()
         no_anchor["evidence_status"] = "unknown"
@@ -146,6 +154,68 @@ class AgentRouteAuditorConditionTest(unittest.TestCase):
         bad = validate_route_audit_report(no_anchor)
         self.assertFalse(bad["accepted"])
         self.assertIn("semisynthesis_closed_without_anchor_evidence", bad["reasons"])
+
+    def test_high_risk_condition_downgrades_stock_closed_route(self):
+        package = _package(route_status="solved")
+        package["literature_candidates"] = []
+        report = audit_route_package(
+            package,
+            validation={"accepted": True, "route_status": "solved"},
+            stock_audit_passed=True,
+            condition_candidates=[{
+                "step_id": "step_1",
+                "source_type": "exact",
+                "solvent": "THF",
+                "temperature": "-80 C",
+                "evidence_refs": ["ev_cond"],
+                "risk_flags": ["extreme_temperature"],
+            }],
+        )
+
+        self.assertEqual(report.route_status, "unresolved")
+        self.assertEqual(report.condition_status, "condition_high_risk")
+        self.assertIn("condition_high_risk", report.reasons)
+
+    def test_condition_worker_task_mapping_and_benchmark_report(self):
+        task = condition_worker_task_from_route_step(
+            case_id="case",
+            route_step={"step_id": "step_7", "product_smiles": "CCO"},
+            evidence_refs=["ev_cond"],
+        )
+        worker_task = condition_worker_task_to_worker_task(task)
+        report = benchmark_condition_candidates([
+            {
+                "case_id": "exact",
+                "candidates": [{"step_id": "s1", "source_type": "exact", "solvent": "MeCN", "evidence_refs": ["ev"]}],
+            },
+            {
+                "case_id": "analog",
+                "candidates": [{
+                    "step_id": "s2",
+                    "source_type": "analog",
+                    "solvent": "EtOAc",
+                    "scope_gap": "analog substrate",
+                }],
+            },
+            {
+                "case_id": "model",
+                "expected_gap": False,
+                "expected_risky": True,
+                "candidates": [{
+                    "step_id": "s3",
+                    "source_type": "model-only",
+                    "temperature": "-80 C",
+                    "risk_flags": ["extreme_temperature"],
+                }],
+            },
+        ])
+
+        self.assertEqual(task.schema_version, "condition_worker_task.v1")
+        self.assertEqual(worker_task.task_type, "condition_research")
+        self.assertEqual(worker_task.required_artifact_type, "ConditionCandidate")
+        self.assertEqual(report["case_count"], 3)
+        self.assertGreaterEqual(report["audit_downgrade_count"], 1)
+        self.assertEqual(report["risky_flag_precision"], 1.0)
 
 
 def _package(route_status: str) -> dict:

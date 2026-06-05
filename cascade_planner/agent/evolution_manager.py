@@ -8,6 +8,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from cascade_planner.agent.condition_agent import validate_condition_candidate
+from cascade_planner.agent.literature_segments import (
+    validate_literature_route_segment,
+    validate_segment_step,
+)
 
 EVOLUTION_CANDIDATE_SCHEMA = "evolution_candidate.v1"
 EVOLUTION_GATE_REPORT_SCHEMA = "evolution_gate_report.v1"
@@ -17,6 +22,8 @@ ALLOWED_CANDIDATE_TYPES = {
     "ReactionRecordCandidate",
     "TemplateCandidate",
     "ConditionCandidate",
+    "LiteratureRouteSegmentCard",
+    "SegmentStepCandidate",
     "AnchorCandidate",
     "ControllerPolicyTrace",
 }
@@ -133,6 +140,10 @@ def evaluate_benchmark_gate(metrics: dict[str, Any]) -> BenchmarkGateReport:
         reasons.append("condition_quality_regressed")
     if not bool(metrics.get("template_replay_passes", True)):
         reasons.append("template_replay_failed")
+    if not bool(metrics.get("segment_replay_passes", True)):
+        reasons.append("segment_replay_failed")
+    if not bool(metrics.get("condition_quality_passes", True)):
+        reasons.append("condition_quality_failed")
     if not bool(metrics.get("structure_validated", True)):
         reasons.append("structure_not_validated")
     if not bool(metrics.get("evidence_source_credible", True)):
@@ -167,6 +178,7 @@ def validate_evolution_candidate(candidate_or_data: EvolutionCandidate | dict[st
         reasons.append("invalid_validation_status")
     if _contains_raw_reaction_injection(candidate.payload):
         reasons.append("raw_reaction_injection")
+    reasons.extend(_candidate_payload_reasons(candidate))
     return {
         "accepted": not reasons,
         "reasons": sorted(set(reasons)),
@@ -230,3 +242,16 @@ def _contains_raw_reaction_injection(value: Any) -> bool:
     if isinstance(value, str):
         return ">>" in value
     return False
+
+
+def _candidate_payload_reasons(candidate: EvolutionCandidate) -> list[str]:
+    if candidate.candidate_type == "ConditionCandidate":
+        result = validate_condition_candidate(candidate.payload)
+        return [f"condition:{reason}" for reason in result.get("reasons") or []]
+    if candidate.candidate_type == "LiteratureRouteSegmentCard":
+        result = validate_literature_route_segment(candidate.payload)
+        return [f"segment:{reason}" for reason in result.get("reasons") or []]
+    if candidate.candidate_type == "SegmentStepCandidate":
+        result = validate_segment_step(candidate.payload)
+        return [f"segment_step:{reason}" for reason in result.get("reasons") or []]
+    return []

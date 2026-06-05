@@ -58,6 +58,8 @@ STATIN_SHOWCASE_PATH = ROOT / "results" / "shared" / "statin_panel_20260520" / "
 DEFAULT_MODEL = "results/shared/skeleton_inpainter/best.pt"
 MAX_SKELETON_STEPS = 8
 DEFAULT_PLANNER_MODE = "advanced"
+CHEMENZY_NATIVE_BACKENDS = {"chem_enzy", "chem_enzy_native", "chemenzy", "chemenzy_native"}
+CODEX_FULLFLOW_BACKENDS = {"codex", "codex_fullflow", "codex_search", "bufotalin_codex_fullflow"}
 
 _RETRO_ENGINE: dict[str, Any] | None = None
 _MODEL_CACHE: dict[tuple[str, str], Any] = {}
@@ -103,7 +105,7 @@ def create_app() -> Flask:
 
     @app.get("/api/artifacts")
     def artifacts():
-        return jsonify({"artifacts": _list_artifacts()})
+        return jsonify({"artifacts": _list_artifacts(filter_kind=request.args.get("filter"))})
 
     @app.post("/api/cases")
     def create_case_api():
@@ -250,10 +252,17 @@ def create_app() -> Flask:
 
 
 def _run_plan(payload: dict[str, Any], *, job_id: str | None = None) -> dict[str, Any]:
-    backend = str(payload.get("planner_backend") or payload.get("planner_mode") or "chem_enzy_native").strip().lower()
-    if backend not in {"chem_enzy", "chem_enzy_native", "chemenzy", "chemenzy_native"}:
-        abort(400, description="planner_backend must be chem_enzy_native")
+    backend = _planner_backend(payload)
+    if backend in CODEX_FULLFLOW_BACKENDS:
+        return _run_codex_fullflow_plan(payload, job_id=job_id)
     return _run_chem_enzy_native_plan(payload, job_id=job_id)
+
+
+def _planner_backend(payload: dict[str, Any]) -> str:
+    backend = str(payload.get("planner_backend") or payload.get("planner_mode") or "chem_enzy_native").strip().lower()
+    if backend not in CHEMENZY_NATIVE_BACKENDS | CODEX_FULLFLOW_BACKENDS:
+        abort(400, description="planner_backend must be chem_enzy_native or codex_fullflow")
+    return backend
 
 
 def _run_chem_enzy_native_plan(payload: dict[str, Any], *, job_id: str | None = None) -> dict[str, Any]:
@@ -2199,22 +2208,64 @@ def _artifact_summary() -> dict[str, int]:
     return dict(counts)
 
 
-def _list_artifacts(limit: int = 120) -> list[dict[str, Any]]:
+def _list_artifacts(limit: int = 120, *, filter_kind: str | None = None) -> list[dict[str, Any]]:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     rows = []
+    requested_filter = str(filter_kind or "").strip().lower()
     for path in RESULTS_DIR.glob("**/*"):
         if not path.is_file() or path.suffix.lower() not in {".json", ".md", ".csv"}:
             continue
         stat = path.stat()
+        tags = _artifact_browser_tags(path)
+        if requested_filter and requested_filter not in tags:
+            continue
         rows.append({
             "path": _rel(path),
             "name": path.name,
             "suffix": path.suffix.lower(),
             "size_kb": round(stat.st_size / 1024, 1),
             "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+            "tags": sorted(tags),
         })
     rows.sort(key=lambda r: r["mtime"], reverse=True)
     return rows[:limit]
+
+
+def _artifact_browser_tags(path: Path) -> set[str]:
+    tags: set[str] = set()
+    name = path.name.lower()
+    if "worker" in name:
+        tags.add("worker_traces")
+    if "reject" in name or "rejected" in name:
+        tags.add("rejected")
+    if path.suffix.lower() != ".json":
+        return tags
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return tags
+    if not isinstance(data, dict):
+        return tags
+    rows = [data]
+    if isinstance(data.get("worker_trace"), dict):
+        rows.append(dict(data["worker_trace"]))
+    for artifact in data.get("artifacts") or []:
+        if isinstance(artifact, dict):
+            rows.append(artifact)
+    for item in rows:
+        schema = str(item.get("schema_version") or "")
+        artifact_type = str(item.get("artifact_type") or "")
+        status = str(item.get("status") or item.get("validation_status") or "")
+        if schema.startswith("worker_run_record") or artifact_type == "WorkerRunRecord":
+            tags.add("worker_traces")
+        if item.get("backend") and item.get("output_validation") is not None:
+            tags.add("worker_traces")
+        output_validation = item.get("output_validation") or {}
+        if status in {"rejected", "rejected_output", "worker_error", "timeout"}:
+            tags.add("rejected")
+        if isinstance(output_validation, dict) and output_validation.get("accepted") is False:
+            tags.add("rejected")
+    return tags
 
 
 def _cascade_demo_payload() -> dict[str, Any]:
@@ -2548,6 +2599,10 @@ def _api_run_smiles_first_case(payload: dict[str, Any]) -> dict[str, Any]:
             evidence_jsonl=payload.get("evidence_jsonl"),
             db_paths=[str(item) for item in payload.get("db_paths") or []] or None,
             query_budget=_as_int(payload.get("query_budget"), 12, lo=1, hi=100),
+            literature_backend=str(payload.get("literature_backend") or "api_json"),
+            worker_timeout_s=float(payload.get("worker_timeout_s") or 60.0),
+            worker_max_output_bytes=_as_int(payload.get("worker_max_output_bytes"), 200_000, lo=1, hi=2_000_000),
+            worker_max_tool_calls=_as_int(payload.get("worker_max_tool_calls"), 8, lo=0, hi=100),
         )
     )
     return {
@@ -2618,11 +2673,27 @@ def _api_worker_trace(payload: dict[str, Any]) -> dict[str, Any]:
     mock_output = payload.get("mock_output")
     if mock_output is None and payload.get("mock_output_path"):
         mock_output = _read_json_or_empty(_safe_path(str(payload["mock_output_path"]), allowed_roots=[RESULTS_DIR, DATA_DIR]))
-    record = run_codex_worker(worker_task_from_dict(task_payload), mock_output=dict(mock_output) if isinstance(mock_output, dict) else None)
+    task = worker_task_from_dict(task_payload)
+    backend = str(payload.get("backend") or os.environ.get("AUTOPLANNER_CODEX_WORKER_BACKEND") or "codex").lower()
+    mock = dict(mock_output) if isinstance(mock_output, dict) else None
+    use_codex_cli = backend == "codex" and mock is None and not task.dry_run
+    use_api_json = backend == "api_json" and mock is None and not task.dry_run
+    record = run_codex_worker(
+        task,
+        mock_output=mock,
+        use_codex_cli=use_codex_cli,
+        use_api_json=use_api_json,
+    )
+    non_real_backend = record.backend in {"mock_output", "dry_run_mock", "default_mock"}
     return {
         "ok": record.status == "accepted_draft",
         "schema_version": "web_worker_trace_result.v1",
         "worker_trace": record.to_dict(),
+        "non_real_backend_warning": (
+            f"worker backend is {record.backend}; this is not a real Codex/API run"
+            if non_real_backend
+            else ""
+        ),
     }
 
 
