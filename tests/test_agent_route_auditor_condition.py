@@ -103,7 +103,7 @@ class AgentRouteAuditorConditionTest(unittest.TestCase):
         self.assertTrue(report.stock_audit_passed)
         self.assertTrue(validate_route_audit_report(report)["accepted"])
 
-    def test_condition_gap_prevents_high_confidence_solved_status(self):
+    def test_condition_gap_marks_conditions_pending_without_invalidating_stock_closure(self):
         package = _package(route_status="solved")
         package["literature_candidates"] = []
         report = audit_route_package(
@@ -113,9 +113,10 @@ class AgentRouteAuditorConditionTest(unittest.TestCase):
             condition_candidates=[],
         )
 
-        self.assertEqual(report.route_status, "unresolved")
+        self.assertEqual(report.route_status, "solved")
         self.assertEqual(report.condition_status, "condition_gap")
-        self.assertIn("condition_gap", report.reasons)
+        self.assertEqual(report.next_action, "attach_or_retrieve_conditions")
+        self.assertFalse(report.reasons)
 
     def test_invalid_package_generates_fake_closed_rejected_with_terminal_list(self):
         package = _package(route_status="invalid_package")

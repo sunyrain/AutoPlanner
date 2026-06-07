@@ -1,0 +1,3004 @@
+{
+  "artifact_refs": {
+    "chain_tool_probe": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_harness_chain_tool_probe_20260607_terminal_fixed/source_detail_route_chain_audit.json",
+    "chemenzy_smoke_summary": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_tet2025_fullroute_15row_smoke_rerun_20260607/summary.json",
+    "chemenzy_verifier": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_tet2025_fullroute_15row_smoke_rerun_20260607/verifier.json",
+    "compiled_downstream": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_tet2025_pdf_fullroute_to_androstenedione_source_detail_20260607/compiled_downstream_consumables.json",
+    "source_detail_chain_audit": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_tet2025_pdf_fullroute_to_androstenedione_source_detail_20260607/source_detail_route_chain_audit.json",
+    "source_detail_curator_records": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_tet2025_pdf_fullroute_to_androstenedione_source_detail_20260607/source_detail_curator_records.json"
+  },
+  "chemenzy_summary": {
+    "accepted_route_count": 0,
+    "plugin_added_candidates": 4,
+    "plugin_validation_passed": 4,
+    "raw_ok": true,
+    "raw_solved": true,
+    "rejected_route_count": 14,
+    "route_count": 14,
+    "verifier_accepted": false,
+    "verifier_reasons": [
+      "advanced_same_scaffold_terminal",
+      "large_atom_jump",
+      "no_verifier_accepted_stock_closed_route"
+    ]
+  },
+  "compiler_summary": {
+    "agent_followup_actions": [
+      {
+        "reason": "source_detail_one_step_rows_available",
+        "tool_name": "run_guided_chemenzy_rerun"
+      },
+      {
+        "reason": "compiled_child_targets_available",
+        "tool_name": "run_route_expansion_subgoal_search"
+      }
+    ],
+    "maturity_status": "executable_ready",
+    "one_step_rows": 15,
+    "plugin_enabled": true
+  },
+  "compounds": [
+    {
+      "exact_mw": 444.2512,
+      "formula": "C26H36O6",
+      "heavy_atom_count": 32,
+      "label": "bufotalin",
+      "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+    },
+    {
+      "exact_mw": 630.3772,
+      "formula": "C35H58O6Si2",
+      "heavy_atom_count": 43,
+      "label": "33",
+      "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+    },
+    {
+      "exact_mw": 588.3666,
+      "formula": "C33H56O5Si2",
+      "heavy_atom_count": 40,
+      "label": "32",
+      "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+    },
+    {
+      "exact_mw": 586.351,
+      "formula": "C33H54O5Si2",
+      "heavy_atom_count": 40,
+      "label": "31",
+      "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+    },
+    {
+      "exact_mw": 514.3115,
+      "formula": "C30H46O5Si",
+      "heavy_atom_count": 36,
+      "label": "30",
+      "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+    },
+    {
+      "exact_mw": 498.3165,
+      "formula": "C30H46O4Si",
+      "heavy_atom_count": 35,
+      "label": "22",
+      "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+    },
+    {
+      "exact_mw": 530.2077,
+      "formula": "C25H43IO2Si",
+      "heavy_atom_count": 29,
+      "label": "14",
+      "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+    },
+    {
+      "exact_mw": 418.2903,
+      "formula": "C25H42O3Si",
+      "heavy_atom_count": 29,
+      "label": "20",
+      "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+    },
+    {
+      "exact_mw": 402.2954,
+      "formula": "C25H42O2Si",
+      "heavy_atom_count": 28,
+      "label": "19",
+      "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+    },
+    {
+      "exact_mw": 288.2089,
+      "formula": "C19H28O2",
+      "heavy_atom_count": 21,
+      "label": "28",
+      "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+    },
+    {
+      "exact_mw": 332.2351,
+      "formula": "C21H32O3",
+      "heavy_atom_count": 24,
+      "label": "27",
+      "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+    },
+    {
+      "exact_mw": 412.1613,
+      "formula": "C21H33BrO3",
+      "heavy_atom_count": 25,
+      "label": "26",
+      "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+    },
+    {
+      "exact_mw": 334.2508,
+      "formula": "C21H34O3",
+      "heavy_atom_count": 24,
+      "label": "23",
+      "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+    },
+    {
+      "exact_mw": 332.2351,
+      "formula": "C21H32O3",
+      "heavy_atom_count": 24,
+      "label": "25",
+      "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+    },
+    {
+      "exact_mw": 330.2195,
+      "formula": "C21H30O3",
+      "heavy_atom_count": 24,
+      "label": "24",
+      "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+    },
+    {
+      "exact_mw": 286.1933,
+      "formula": "C19H26O2",
+      "heavy_atom_count": 21,
+      "label": "11",
+      "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+    }
+  ],
+  "forward_steps": [
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "2 h",
+        "reagent": "p-TsOH monohydrate; ethylene glycol",
+        "reported_yield": "93%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "ethylene glycol",
+        "source_grounding": "Scheme 3 and experimental entry for compound 24",
+        "source_type": "exact",
+        "temperature": "room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "24",
+      "product_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "11"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 24 is obtained from androstenedione 11 by C17 ketalization.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_11_to_24_c17_ketalization",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "23 h",
+        "reagent": "Pd/C; H2",
+        "reported_yield": "92%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "4-methylpyridine",
+        "source_grounding": "Scheme 3 and experimental entry for compound 25",
+        "source_type": "exact",
+        "temperature": "room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "25",
+      "product_smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "24"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 25 is obtained from 24 by stereoselective hydrogenation.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_24_to_25_hydrogenation",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "10 min then warm",
+        "reagent": "K-selectride",
+        "reported_yield": "72%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "THF",
+        "source_grounding": "Scheme 3 and experimental entry for compound 23",
+        "source_type": "exact",
+        "temperature": "-20 C to -5 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "23",
+      "product_smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "25"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 23 is obtained from 25 by C3 ketone reduction.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_25_to_23_kselectride_reduction",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "2 h",
+        "reagent": "pyridinium perbromide",
+        "reported_yield": "87%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "THF",
+        "source_grounding": "Scheme 3 and experimental entry for compound 26",
+        "source_type": "exact",
+        "temperature": "0 C to room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "26",
+      "product_smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "23"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 26 is obtained from 23 by C16 bromination.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_23_to_26_c16_bromination",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "16 h",
+        "reagent": "t-BuOK",
+        "reported_yield": "73%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "DMSO",
+        "source_grounding": "Scheme 3 and experimental entry for compound 27",
+        "source_type": "exact",
+        "temperature": "70 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "27",
+      "product_smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "26"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 27 is obtained from 26 by elimination to the D-ring olefin.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_26_to_27_elimination",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "1.5 h",
+        "reagent": "p-TsOH monohydrate",
+        "reported_yield": "56%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "acetone",
+        "source_grounding": "Scheme 3 and experimental entry for compound 28",
+        "source_type": "exact",
+        "temperature": "60 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "28",
+      "product_smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "27"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 28 is obtained from 27 by deketalization.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_27_to_28_deketalization",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "16 h",
+        "reagent": "TBSCl; imidazole",
+        "reported_yield": "74%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "DMF",
+        "source_grounding": "Scheme 3 and experimental entry for compound 19",
+        "source_type": "exact",
+        "temperature": "70 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "19",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1",
+      "reactant_names": [
+        "28"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 19 is obtained from 28 by C3 TBS protection.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_28_to_19_tbs_protection",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "16 h",
+        "reagent": "SeO2; formic acid",
+        "reported_yield": "52%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "dioxane/water 4:1",
+        "source_grounding": "Table 1 and experimental entry for compound 20",
+        "source_type": "exact",
+        "temperature": "125 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "20",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1",
+      "reactant_names": [
+        "19"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 20 is obtained from 19 by SeO2 allylic oxidation.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_19_to_20_seo2_allylic_oxidation",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "12 h; 6 h; 1 h",
+        "reagent": "Pd/C, H2; hydrazine monohydrate; triethylamine; I2",
+        "reported_yield": "73% over two steps",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "THF/water; EtOH; THF",
+        "source_grounding": "Scheme 4 and experimental entry for compound 14",
+        "source_type": "exact",
+        "temperature": "room temperature; 50 C; room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "compound 14",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1",
+      "reactant_names": [
+        "compound 20"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 14 is obtained from 20 by hydrogenation followed by hydrazone formation and iodination.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_20_to_14_vinyl_iodide_formation",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "auxiliary_reactant_note": "Compound 21 is the tributylstannyl 2-pyrone coupling partner shown in Scheme 4; only the steroid main reactant is compiled as the upstream child target.",
+        "condition_status": "evidence_backed",
+        "duration": "12 h",
+        "reagent": "compound 21; Pd(PPh3)4; CuI; LiCl",
+        "reported_yield": "62%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "DMSO; THF",
+        "source_grounding": "Scheme 4 and experimental entry for compound 22",
+        "source_type": "exact",
+        "temperature": "60 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "compound 22",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1",
+      "reactant_names": [
+        "compound 14"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 22 is obtained from 14 and compound 21 under Pd/Cu/LiCl coupling conditions.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_14_to_22_pyrone_coupling",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "10 h",
+        "reagent": "m-CPBA; Na2CO3",
+        "reported_yield": "70%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "DCM",
+        "source_grounding": "Scheme 4 and experimental entry for compound 30",
+        "source_type": "exact",
+        "temperature": "-78 C to -20 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "compound 30",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1",
+      "reactant_names": [
+        "compound 22"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 30 is obtained from 22 using m-CPBA and Na2CO3 in DCM.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_22_to_30_mcpba_epoxidation",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "1 h",
+        "reagent": "TMSOTf; 2,6-lutidine",
+        "reported_yield": "68%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "DCM",
+        "source_grounding": "Scheme 4 and experimental entry for compound 31",
+        "source_type": "exact",
+        "temperature": "-78 C to room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "compound 31",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+      "reactant_names": [
+        "compound 30"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 31 is obtained from 30 with TMSOTf and 2,6-lutidine in DCM.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_30_to_31_tmsotf_rearrangement",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "2 h",
+        "reagent": "NaBH4",
+        "reported_yield": "90%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "MeOH; THF",
+        "source_grounding": "Scheme 4 and experimental entry for compound 32",
+        "source_type": "exact",
+        "temperature": "0 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "compound 32",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+      "reactant_names": [
+        "compound 31"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 32 is obtained from 31 with NaBH4 in MeOH/THF at 0 C.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_31_to_32_nabh4_reduction",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "20 h",
+        "reagent": "Ac2O",
+        "reported_yield": "90%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "pyridine",
+        "source_grounding": "Scheme 4 and experimental entry for compound 33",
+        "source_type": "exact",
+        "temperature": "room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "compound 33",
+      "product_smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+      "reactant_names": [
+        "compound 32"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Compound 33 is obtained from 32 with Ac2O in pyridine at room temperature.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_32_to_33_acetylation",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    },
+    {
+      "condition_candidate": {
+        "condition_status": "evidence_backed",
+        "duration": "160 h",
+        "reagent": "HF-pyridine",
+        "reported_yield": "93%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "THF",
+        "source_grounding": "Scheme 4 and experimental entry for bufotalin",
+        "source_type": "exact",
+        "temperature": "room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "product_name": "bufotalin",
+      "product_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+      "reactant_names": [
+        "compound 33"
+      ],
+      "reactant_smiles": [
+        "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+      ],
+      "relation_type": "exact",
+      "segment_id": "tet2025_fullroute_to_androstenedione",
+      "source_excerpt": "Bufotalin is obtained from 33 with HF-pyridine in THF at room temperature.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_33_to_bufotalin_deprotection",
+      "structure_derivation": {
+        "basis": "source_structure_diagram_to_smiles",
+        "confidence": "medium_high",
+        "formula_report": {
+          "11": {
+            "exact_mw": 286.193280072,
+            "formula": "C19H26O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "14": {
+            "exact_mw": 530.207705146,
+            "formula": "C25H43IO2Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+          },
+          "19": {
+            "exact_mw": 402.29540711399994,
+            "formula": "C25H42O2Si",
+            "heavy_atom_count": 28,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+          },
+          "20": {
+            "exact_mw": 418.2903217339999,
+            "formula": "C25H42O3Si",
+            "heavy_atom_count": 29,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+          },
+          "22": {
+            "exact_mw": 498.3165364819999,
+            "formula": "C30H46O4Si",
+            "heavy_atom_count": 35,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+          },
+          "23": {
+            "exact_mw": 334.25079494799996,
+            "formula": "C21H34O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "24": {
+            "exact_mw": 330.21949481999997,
+            "formula": "C21H30O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "25": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "26": {
+            "exact_mw": 412.16130701599997,
+            "formula": "C21H33BrO3",
+            "heavy_atom_count": 25,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "27": {
+            "exact_mw": 332.23514488399996,
+            "formula": "C21H32O3",
+            "heavy_atom_count": 24,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+          },
+          "28": {
+            "exact_mw": 288.208930136,
+            "formula": "C19H28O2",
+            "heavy_atom_count": 21,
+            "smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          "30": {
+            "exact_mw": 514.3114511019999,
+            "formula": "C30H46O5Si",
+            "heavy_atom_count": 36,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+          },
+          "31": {
+            "exact_mw": 586.3509778879999,
+            "formula": "C33H54O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "32": {
+            "exact_mw": 588.3666279519998,
+            "formula": "C33H56O5Si2",
+            "heavy_atom_count": 40,
+            "smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+          },
+          "33": {
+            "exact_mw": 630.377192636,
+            "formula": "C35H58O6Si2",
+            "heavy_atom_count": 43,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          },
+          "bufotalin_1": {
+            "exact_mw": 444.25118887199994,
+            "formula": "C26H36O6",
+            "heavy_atom_count": 32,
+            "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+          }
+        },
+        "source_locator": "local PDF page 3 Schemes 3-4; pages 4-6 experimental entries for compounds 24,25,23,26,27,28,19,20,14,22,30,31,32,33 and bufotalin",
+        "tool_checks": [
+          "RDKit parses all 16 Scheme 3-4 SMILES candidates from androstenedione (11) to bufotalin",
+          "RDKit formulas match reported or HRMS-inferred formulas for 11, 24, 25, 23, 26, 27, 28, 19, 20, 14, 22, 30, 31, 32, 33 and bufotalin",
+          "Scheme 3 functional group sequence matches text: C17 ketalization, C4/C5 hydrogenation, C3 reduction, C16 bromination/elimination, deketalization, TBS protection, C14 allylic oxidation",
+          "Scheme 4 functional group sequence matches text: vinyl iodide formation, 2-pyrone coupling, epoxidation/rearrangement, reduction, acetylation, deprotection"
+        ]
+      }
+    }
+  ],
+  "generated_at_utc": "2026-06-06T17:50:16.346852+00:00",
+  "harness_summary": {
+    "chain_probe_accepted": true,
+    "chain_probe_terminal_reached": true,
+    "compiled_accepted": true,
+    "curator_step_count": 15,
+    "executable_status": "executable_ready",
+    "one_step_row_count": 15,
+    "plugin_max_added": 15,
+    "resolution_gap_count": 0,
+    "route_expansion_child_target_count": 15,
+    "source_detail_route_step_count": 15
+  },
+  "policy": {
+    "chemenzy_exploration_retained": true,
+    "literature_path_high_weight_baseline": true,
+    "literature_path_not_mandatory_replacement": true,
+    "no_solved_claim": true,
+    "production_write_blocked": true,
+    "raw_solved_not_equivalent_to_verified_solved": true
+  },
+  "reverse_steps": [
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "160 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "HF-pyridine",
+        "reported_yield": "93%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "THF",
+        "source_grounding": "Scheme 4 and experimental entry for bufotalin",
+        "source_type": "exact",
+        "step_id": "tet2025_33_to_bufotalin_deprotection",
+        "temperature": "room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 1,
+      "product_name": "bufotalin",
+      "product_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+      "reactant_names": [
+        "compound 33"
+      ],
+      "reactant_smiles": [
+        "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+      ],
+      "retrosynthetic_label": "33 -> bufotalin: global silyl deprotection",
+      "source_excerpt": "Bufotalin is obtained from 33 with HF-pyridine in THF at room temperature.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_33_to_bufotalin_deprotection"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "20 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "Ac2O",
+        "reported_yield": "90%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "pyridine",
+        "source_grounding": "Scheme 4 and experimental entry for compound 33",
+        "source_type": "exact",
+        "step_id": "tet2025_32_to_33_acetylation",
+        "temperature": "room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 2,
+      "product_name": "compound 33",
+      "product_smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+      "reactant_names": [
+        "compound 32"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1"
+      ],
+      "retrosynthetic_label": "32 -> 33: C3 acetylation",
+      "source_excerpt": "Compound 33 is obtained from 32 with Ac2O in pyridine at room temperature.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_32_to_33_acetylation"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "2 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "NaBH4",
+        "reported_yield": "90%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "MeOH; THF",
+        "source_grounding": "Scheme 4 and experimental entry for compound 32",
+        "source_type": "exact",
+        "step_id": "tet2025_31_to_32_nabh4_reduction",
+        "temperature": "0 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 3,
+      "product_name": "compound 32",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+      "reactant_names": [
+        "compound 31"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1"
+      ],
+      "retrosynthetic_label": "31 -> 32: ketone reduction",
+      "source_excerpt": "Compound 32 is obtained from 31 with NaBH4 in MeOH/THF at 0 C.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_31_to_32_nabh4_reduction"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "1 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "TMSOTf; 2,6-lutidine",
+        "reported_yield": "68%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "DCM",
+        "source_grounding": "Scheme 4 and experimental entry for compound 31",
+        "source_type": "exact",
+        "step_id": "tet2025_30_to_31_tmsotf_rearrangement",
+        "temperature": "-78 C to room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 4,
+      "product_name": "compound 31",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+      "reactant_names": [
+        "compound 30"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1"
+      ],
+      "retrosynthetic_label": "30 -> 31: Lewis-acid rearrangement",
+      "source_excerpt": "Compound 31 is obtained from 30 with TMSOTf and 2,6-lutidine in DCM.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_30_to_31_tmsotf_rearrangement"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "10 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "m-CPBA; Na2CO3",
+        "reported_yield": "70%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "DCM",
+        "source_grounding": "Scheme 4 and experimental entry for compound 30",
+        "source_type": "exact",
+        "step_id": "tet2025_22_to_30_mcpba_epoxidation",
+        "temperature": "-78 C to -20 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 5,
+      "product_name": "compound 30",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1",
+      "reactant_names": [
+        "compound 22"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1"
+      ],
+      "retrosynthetic_label": "22 -> 30: epoxidation",
+      "source_excerpt": "Compound 30 is obtained from 22 using m-CPBA and Na2CO3 in DCM.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_22_to_30_mcpba_epoxidation"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "12 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "compound 21; Pd(PPh3)4; CuI; LiCl",
+        "reported_yield": "62%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "DMSO; THF",
+        "source_grounding": "Scheme 4 and experimental entry for compound 22",
+        "source_type": "exact",
+        "step_id": "tet2025_14_to_22_pyrone_coupling",
+        "temperature": "60 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 6,
+      "product_name": "compound 22",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(c4ccc(=O)oc4)=CC[C@]32O)C1",
+      "reactant_names": [
+        "compound 14"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1"
+      ],
+      "retrosynthetic_label": "14 -> 22: C17 2-pyrone coupling",
+      "source_excerpt": "Compound 22 is obtained from 14 and compound 21 under Pd/Cu/LiCl coupling conditions.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_14_to_22_pyrone_coupling"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "12 h; 6 h; 1 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "Pd/C, H2; hydrazine monohydrate; triethylamine; I2",
+        "reported_yield": "73% over two steps",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "THF/water; EtOH; THF",
+        "source_grounding": "Scheme 4 and experimental entry for compound 14",
+        "source_type": "exact",
+        "step_id": "tet2025_20_to_14_vinyl_iodide_formation",
+        "temperature": "room temperature; 50 C; room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 7,
+      "product_name": "compound 14",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(I)=CC[C@]32O)C1",
+      "reactant_names": [
+        "compound 20"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1"
+      ],
+      "retrosynthetic_label": "20 -> 14: vinyl iodide formation",
+      "source_excerpt": "Compound 14 is obtained from 20 by hydrogenation followed by hydrazone formation and iodination.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_20_to_14_vinyl_iodide_formation"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "16 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "SeO2; formic acid",
+        "reported_yield": "52%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "dioxane/water 4:1",
+        "source_grounding": "Table 1 and experimental entry for compound 20",
+        "source_type": "exact",
+        "step_id": "tet2025_19_to_20_seo2_allylic_oxidation",
+        "temperature": "125 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 8,
+      "product_name": "20",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)C=C[C@]32O)C1",
+      "reactant_names": [
+        "19"
+      ],
+      "reactant_smiles": [
+        "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1"
+      ],
+      "retrosynthetic_label": "19 -> 20: C14 allylic oxidation",
+      "source_excerpt": "Compound 20 is obtained from 19 by SeO2 allylic oxidation.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_19_to_20_seo2_allylic_oxidation"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "16 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "TBSCl; imidazole",
+        "reported_yield": "74%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "DMF",
+        "source_grounding": "Scheme 3 and experimental entry for compound 19",
+        "source_type": "exact",
+        "step_id": "tet2025_28_to_19_tbs_protection",
+        "temperature": "70 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 9,
+      "product_name": "19",
+      "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@H]3[C@H]4C=CC(=O)[C@@]4(C)CC[C@@H]32)C1",
+      "reactant_names": [
+        "28"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12"
+      ],
+      "retrosynthetic_label": "28 -> 19: C3 TBS protection",
+      "source_excerpt": "Compound 19 is obtained from 28 by C3 TBS protection.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_28_to_19_tbs_protection"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "1.5 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "p-TsOH monohydrate",
+        "reported_yield": "56%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "acetone",
+        "source_grounding": "Scheme 3 and experimental entry for compound 28",
+        "source_type": "exact",
+        "step_id": "tet2025_27_to_28_deketalization",
+        "temperature": "60 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 10,
+      "product_name": "28",
+      "product_smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC(=O)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "27"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+      ],
+      "retrosynthetic_label": "27 -> 28: C17 deketalization",
+      "source_excerpt": "Compound 28 is obtained from 27 by deketalization.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_27_to_28_deketalization"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "16 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "t-BuOK",
+        "reported_yield": "73%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "DMSO",
+        "source_grounding": "Scheme 3 and experimental entry for compound 27",
+        "source_type": "exact",
+        "step_id": "tet2025_26_to_27_elimination",
+        "temperature": "70 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 11,
+      "product_name": "27",
+      "product_smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3C=CC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "26"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12"
+      ],
+      "retrosynthetic_label": "26 -> 27: elimination",
+      "source_excerpt": "Compound 27 is obtained from 26 by elimination to the D-ring olefin.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_26_to_27_elimination"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "2 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "pyridinium perbromide",
+        "reported_yield": "87%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "THF",
+        "source_grounding": "Scheme 3 and experimental entry for compound 26",
+        "source_type": "exact",
+        "step_id": "tet2025_23_to_26_c16_bromination",
+        "temperature": "0 C to room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 12,
+      "product_name": "26",
+      "product_smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CC(Br)C4(OCCO4)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "23"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+      ],
+      "retrosynthetic_label": "23 -> 26: C16 bromination",
+      "source_excerpt": "Compound 26 is obtained from 23 by C16 bromination.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_23_to_26_c16_bromination"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "10 min then warm",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "K-selectride",
+        "reported_yield": "72%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "THF",
+        "source_grounding": "Scheme 3 and experimental entry for compound 23",
+        "source_type": "exact",
+        "step_id": "tet2025_25_to_23_kselectride_reduction",
+        "temperature": "-20 C to -5 C"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 13,
+      "product_name": "23",
+      "product_smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "25"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+      ],
+      "retrosynthetic_label": "25 -> 23: stereoselective reduction",
+      "source_excerpt": "Compound 23 is obtained from 25 by C3 ketone reduction.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_25_to_23_kselectride_reduction"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "23 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "Pd/C; H2",
+        "reported_yield": "92%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "4-methylpyridine",
+        "source_grounding": "Scheme 3 and experimental entry for compound 25",
+        "source_type": "exact",
+        "step_id": "tet2025_24_to_25_hydrogenation",
+        "temperature": "room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 14,
+      "product_name": "25",
+      "product_smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "24"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12"
+      ],
+      "retrosynthetic_label": "24 -> 25: stereoselective hydrogenation",
+      "source_excerpt": "Compound 25 is obtained from 24 by stereoselective hydrogenation.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_24_to_25_hydrogenation"
+    },
+    {
+      "condition": {
+        "condition_status": "evidence_backed",
+        "duration": "2 h",
+        "evidence_refs": [
+          "doi:10.1016/j.tet.2025.134610",
+          "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+          "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+        ],
+        "reagent": "p-TsOH monohydrate; ethylene glycol",
+        "reported_yield": "93%",
+        "schema_version": "condition_candidate.v1",
+        "solvent": "ethylene glycol",
+        "source_grounding": "Scheme 3 and experimental entry for compound 24",
+        "source_type": "exact",
+        "step_id": "tet2025_11_to_24_c17_ketalization",
+        "temperature": "room temperature"
+      },
+      "evidence_refs": [
+        "doi:10.1016/j.tet.2025.134610",
+        "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+        "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+      ],
+      "index": 15,
+      "product_name": "24",
+      "product_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+      "reactant_names": [
+        "11"
+      ],
+      "reactant_smiles": [
+        "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+      ],
+      "retrosynthetic_label": "11 -> 24: C17 ketalization",
+      "source_excerpt": "Compound 24 is obtained from androstenedione 11 by C17 ketalization.",
+      "source_ref": "doi:10.1016/j.tet.2025.134610",
+      "step_id": "tet2025_11_to_24_c17_ketalization"
+    }
+  ],
+  "route_summary": {
+    "chain_complete_to_literature_start": true,
+    "final_reactant_name": "11",
+    "final_reactant_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+    "final_reactant_stock_policy": {
+      "anchor_name": "androstenedione",
+      "stock_claim": "literature reports 11 as cheap and commercially available; external stock database closure still requires stock resolver",
+      "treated_as_chiral_pool_anchor": true
+    },
+    "step_count": 15
+  },
+  "schema_version": "bufotalin_retrosynthesis_report_data.v1",
+  "source": {
+    "curator_record_id": "tet2025_fullroute_11_to_bufotalin_visual_translation",
+    "evidence_refs": [
+      "doi:10.1016/j.tet.2025.134610",
+      "local_pdf:/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+      "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/page_03_z5.png",
+      "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme3_full_to_20_crop.png",
+      "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_top_broad.png",
+      "local_crop:results/shared/bufotalin_tet2025_pdf_audit_20260606/scheme4_late_stage_crop.png"
+    ],
+    "local_pdf": "/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+    "primary_source_ref": "doi:10.1016/j.tet.2025.134610",
+    "provenance": "codex_source_text_translation",
+    "source_title": "Construction of advanced intermediate sharing C14-beta-OH for the synthesis of bufotalin"
+  },
+  "target": {
+    "exact_mw": 444.2512,
+    "formula": "C26H36O6",
+    "name": "bufotalin",
+    "smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1"
+  },
+  "title": "Bufotalin 逆合成审计报告"
+}

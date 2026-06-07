@@ -108,7 +108,10 @@ class CaseBlackboardTest(unittest.TestCase):
         self.assertGreaterEqual(len(loaded.accepted_artifacts()), 4)
         self.assertIn("HybridRoutePackage", {item.artifact_type for item in loaded.artifacts})
         self.assertIn("EvidenceCardList", {item.artifact_type for item in loaded.artifacts})
-        self.assertTrue(any(event.reason == "unresolved_core" for event in loaded.failure_events))
+        route_package = next(item for item in loaded.artifacts if item.artifact_type == "HybridRoutePackage").payload
+        self.assertEqual(route_package["frontier"]["frontier_role"], "target_as_initial_frontier")
+        self.assertIn("target_as_initial_frontier", route_package["frontier"]["flags"])
+        self.assertFalse(any(event.reason == "unresolved_core" for event in loaded.failure_events))
 
     def test_route_package_audit_result_maps_to_route_status(self):
         self.assertEqual(

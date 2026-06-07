@@ -32,8 +32,10 @@ class LiteratureOneStepPluginConfig:
     score: float = 0.62
     require_validation: bool = True
     respect_source_policy: bool = False
+    use_default_template_cards: bool = True
     trigger_reasons: tuple[str, ...] = ()
     template_cards: tuple[dict[str, Any], ...] = ()
+    one_step_rows: tuple[dict[str, Any], ...] = ()
 
     @classmethod
     def from_raw(cls, raw: Any) -> "LiteratureOneStepPluginConfig":
@@ -44,6 +46,8 @@ class LiteratureOneStepPluginConfig:
         if not isinstance(raw, dict):
             return cls(enabled=bool(raw))
         cards = tuple(dict(item) for item in raw.get("template_cards") or [] if isinstance(item, dict))
+        rows = tuple(dict(item) for item in raw.get("one_step_rows") or [] if isinstance(item, dict))
+        use_default_cards = bool(raw.get("use_default_template_cards", "template_cards" not in raw))
         return cls(
             enabled=bool(raw.get("enabled", True)),
             top_k=_int(raw.get("top_k"), cls.top_k, lo=0),
@@ -51,8 +55,10 @@ class LiteratureOneStepPluginConfig:
             score=max(0.0, min(1.0, _float(raw.get("score"), cls.score))),
             require_validation=bool(raw.get("require_validation", cls.require_validation)),
             respect_source_policy=bool(raw.get("respect_source_policy", cls.respect_source_policy)),
+            use_default_template_cards=use_default_cards,
             trigger_reasons=tuple(str(item) for item in raw.get("trigger_reasons") or []),
             template_cards=cards,
+            one_step_rows=rows,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,8 +69,10 @@ class LiteratureOneStepPluginConfig:
             "score": self.score,
             "require_validation": self.require_validation,
             "respect_source_policy": self.respect_source_policy,
+            "use_default_template_cards": self.use_default_template_cards,
             "trigger_reasons": list(self.trigger_reasons),
             "template_card_count": len(self.template_cards),
+            "one_step_row_count": len(self.one_step_rows),
         }
 
 
@@ -149,10 +157,31 @@ class LiteratureOneStepPlugin:
     def one_step_rows(self, product_smiles: str, *, top_k: int) -> list[dict[str, Any]]:
         if not product_smiles or self.config.max_added <= 0 or int(top_k or 0) <= 0:
             return []
-        cards = [card for card in self.template_cards if direct_consumption_allowed(card)]
-        self.state.candidate_templates += len(cards)
+        limit = min(self.config.max_added, int(top_k or self.config.top_k or 1))
         out: list[dict[str, Any]] = []
         seen: set[str] = set()
+        for row in self.config.one_step_rows:
+            if not _row_matches_product(row, product_smiles):
+                continue
+            normalized = _normalized_compiled_row(row, product_smiles, score=self.config.score)
+            validation = dict(((normalized.get("template") or {}).get("template_validation_report") or {}))
+            if validation.get("allowed_for_one_step_source"):
+                self.state.validation_passed += 1
+            else:
+                self.state.validation_rejected += 1
+                if self.config.require_validation:
+                    continue
+            key = canonical_reaction(f"{normalized.get('reactants', '')}>>{product_smiles}") or f"{normalized.get('reactants', '')}>>{product_smiles}"
+            if key in seen:
+                self.state.duplicate_candidates += 1
+                continue
+            seen.add(key)
+            out.append(normalized)
+            self.state.added_candidates += 1
+            if len(out) >= limit:
+                return out
+        cards = [card for card in self.template_cards if direct_consumption_allowed(card)]
+        self.state.candidate_templates += len(cards)
         for card in cards:
             try:
                 candidate = instantiate_literature_template(product_smiles, card)
@@ -176,13 +205,15 @@ class LiteratureOneStepPlugin:
             vendor_row["candidate"] = candidate
             out.append(vendor_row)
             self.state.added_candidates += 1
-            if len(out) >= min(self.config.max_added, int(top_k or self.config.top_k or 1)):
+            if len(out) >= limit:
                 break
         return out
 
     def _configured_cards(self) -> list[LiteratureTemplateCard]:
         if self.config.template_cards:
             return [template_card_from_dict(item) for item in self.config.template_cards]
+        if not self.config.use_default_template_cards:
+            return []
         return default_literature_template_cards()
 
 
@@ -240,6 +271,52 @@ def literature_plugin_config_from_flags(search_flags: dict[str, Any] | None) -> 
     return LiteratureOneStepPluginConfig.from_raw(raw)
 
 
+def _row_matches_product(row: dict[str, Any], product_smiles: str) -> bool:
+    product_key = canonical_smiles(product_smiles)
+    template = dict(row.get("template") or row.get("templates") or {})
+    applicability = dict(template.get("template_applicability_report") or {})
+    trace = dict(row.get("literature_template_trace") or template.get("literature_template_trace") or {})
+    candidates = [
+        applicability.get("target_smiles"),
+        applicability.get("frontier_smiles"),
+        trace.get("product_smiles"),
+        trace.get("frontier_smiles"),
+    ]
+    if not any(candidates):
+        return True
+    return any(canonical_smiles(str(item or "")) == product_key for item in candidates if item)
+
+
+def _normalized_compiled_row(row: dict[str, Any], product_smiles: str, *, score: float) -> dict[str, Any]:
+    template = dict(row.get("template") or row.get("templates") or {})
+    template.setdefault("source", LITERATURE_TEMPLATE_PLUGIN_SOURCE)
+    template.setdefault("source_model", LITERATURE_TEMPLATE_PLUGIN_SOURCE)
+    template.setdefault("model_full_name", PLUGIN_MODEL_FULL_NAME)
+    template.setdefault("not_lab_procedure", True)
+    template.setdefault("requires_audit", True)
+    template.setdefault("no_solved_claim", True)
+    template.setdefault("source_policy_decision", "enabled_literature_template_plugin")
+    trace = dict(row.get("literature_template_trace") or template.get("literature_template_trace") or {})
+    out = {
+        key: value
+        for key, value in dict(row).items()
+        if key != "candidate"
+    }
+    out["reactants"] = str(out.get("reactants") or "")
+    out["scores"] = float(out.get("scores") if out.get("scores") is not None else score)
+    out["costs"] = out.get("costs")
+    out["template"] = template
+    out["templates"] = dict(row.get("templates") or template)
+    out["model_full_name"] = str(out.get("model_full_name") or PLUGIN_MODEL_FULL_NAME)
+    out["weight"] = float(out.get("weight") if out.get("weight") is not None else 1.0)
+    out.setdefault("reaction_domains", "literature_chemical")
+    out["literature_template_trace"] = trace
+    out["source_policy_decision"] = str(out.get("source_policy_decision") or "enabled_literature_template_plugin")
+    if product_smiles:
+        trace.setdefault("frontier_smiles", product_smiles)
+    return out
+
+
 def reset_literature_plugin_state(planner: Any, target_smiles: str) -> None:
     state = getattr(planner, "_autoplanner_literature_plugin_state", None)
     if isinstance(state, LiteratureOneStepPluginState):
@@ -292,8 +369,11 @@ def _empty_result() -> dict[str, list[Any]]:
 
 def _append_rows(base: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
     out = {key: _as_list(value) for key, value in dict(base or {}).items()}
+    _synchronize_template_aliases(out)
     for key in ("reactants", "scores", "costs", "template", "templates", "model_full_name", "weight"):
         out.setdefault(key, [])
+    _synchronize_template_aliases(out)
+    _pad_plugin_result_fields(out)
     _complete_costs_from_scores(out)
     for row in rows:
         current_len = len(out.get("scores") or out.get("reactants") or [])
@@ -309,7 +389,35 @@ def _append_rows(base: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, 
                 value = _score_to_cost(row.get("scores"))
             out.setdefault(key, [])
             out[key].append(value)
+        _synchronize_template_aliases(out)
+        _pad_plugin_result_fields(out)
     return out
+
+
+def _synchronize_template_aliases(out: dict[str, list[Any]]) -> None:
+    template = out.get("template")
+    templates = out.get("templates")
+    if template and (not templates or len(templates) < len(template)):
+        out["templates"] = list(template)
+        return
+    if templates and (not template or len(template) < len(templates)):
+        out["template"] = list(templates)
+
+
+def _pad_plugin_result_fields(out: dict[str, list[Any]]) -> None:
+    current_len = max(
+        len(out.get("reactants") or []),
+        len(out.get("scores") or []),
+        len(out.get("costs") or []),
+        len(out.get("template") or []),
+        len(out.get("templates") or []),
+        len(out.get("model_full_name") or []),
+        len(out.get("weight") or []),
+    )
+    for key in ("reactants", "scores", "costs", "template", "templates", "model_full_name", "weight"):
+        values = out.setdefault(key, [])
+        while len(values) < current_len:
+            values.append(None)
 
 
 def _complete_costs_from_scores(out: dict[str, list[Any]]) -> None:

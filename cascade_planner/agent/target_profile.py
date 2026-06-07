@@ -101,12 +101,16 @@ def build_frontier_report(
             frontiers.append(_frontier_item(profile, smi, source="baseline_unresolved_leaf"))
 
     reasons = sorted({reason for item in frontiers for reason in item.get("flags", [])})
+    failure_frontiers = [
+        item for item in frontiers
+        if item.get("frontier_role") != "target_as_initial_frontier"
+    ]
     return {
         "schema_version": FRONTIER_REPORT_SCHEMA,
         "case_id": profile.case_id,
         "target_smiles": profile.isomeric_smiles or profile.input_smiles,
         "frontiers": frontiers,
-        "advanced_frontier_found": bool(frontiers),
+        "advanced_frontier_found": bool(failure_frontiers),
         "reasons": reasons,
         "baseline_summary": _baseline_summary(baseline_routes or {}),
     }
@@ -122,26 +126,34 @@ def _frontier_item(profile: TargetProfile, smiles: str, *, source: str) -> dict[
             "flags": ["invalid_frontier_smiles"],
         }
     target_mol = Chem.MolFromSmiles(profile.isomeric_smiles or profile.input_smiles)
+    frontier_canonical = Chem.MolToSmiles(mol, isomericSmiles=True)
+    target_canonical = Chem.MolToSmiles(target_mol, isomericSmiles=True) if target_mol is not None else ""
+    target_as_initial_frontier = bool(source == "manual_frontier" and frontier_canonical == target_canonical)
     similarity = _similarity(target_mol, mol)
     heavy_atoms = int(mol.GetNumHeavyAtoms())
     rings = int(mol.GetRingInfo().NumRings())
     heavy_delta = int(profile.heavy_atoms - heavy_atoms)
     flags: list[str] = []
-    if similarity >= 0.62 and rings >= max(2, profile.rings - 1):
+    if target_as_initial_frontier:
+        flags.append("target_as_initial_frontier")
+    if not target_as_initial_frontier and similarity >= 0.62 and rings >= max(2, profile.rings - 1):
         flags.append("advanced_same_scaffold")
-    if heavy_delta <= 2:
+    if not target_as_initial_frontier and heavy_delta <= 2:
         flags.append("no_complexity_drop")
-    if similarity >= 0.72:
+    if not target_as_initial_frontier and similarity >= 0.72:
         flags.append("high_target_similarity")
-    if similarity >= 0.55 and 0 <= heavy_delta <= 8:
+    if not target_as_initial_frontier and similarity >= 0.55 and 0 <= heavy_delta <= 8:
         flags.append("ordinary_decoration_only")
-    if rings >= 3 or any("steroid" in hint or "macrocycle" in hint for hint in profile.family_hints):
+    if not target_as_initial_frontier and (
+        rings >= 3 or any("steroid" in hint or "macrocycle" in hint for hint in profile.family_hints)
+    ):
         flags.append("unresolved_core")
     if not flags and (rings >= 2 or heavy_atoms >= 20):
         flags.append("advanced_frontier")
     return {
-        "frontier_smiles": Chem.MolToSmiles(mol, isomericSmiles=True),
+        "frontier_smiles": frontier_canonical,
         "source": source,
+        "frontier_role": "target_as_initial_frontier" if target_as_initial_frontier else "route_audit_frontier",
         "valid": True,
         "formula": rdMolDescriptors.CalcMolFormula(mol),
         "heavy_atoms": heavy_atoms,

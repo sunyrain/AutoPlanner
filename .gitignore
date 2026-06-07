@@ -46,6 +46,7 @@ backup_from_zip/
 archive/migration_*/autoplanner_full_*.zip
 archive/migration_*/autoplanner_full_*.zip.sha256
 archive/cleanup_*/
+archive/harness_prep_*/
 
 # Large datasets at repo root (use archive/ for the v1 snapshots)
 cascade_dataset_v2.json

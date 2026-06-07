@@ -14,7 +14,7 @@ from cascade_planner.baselines.route_contract import RouteSearchConfig
 
 
 class SmilesFirstWorkflowTest(unittest.TestCase):
-    def test_target_profile_and_frontier_report_for_advanced_frontier(self):
+    def test_target_as_initial_frontier_does_not_claim_complexity_failure(self):
         target = "CC(C)CCCC(C)C1CCC2C3CCC4CC(O)CCC4(C)C3CCC12C"
         profile = build_target_profile(target, target_name="bufadienolide_like", family_hint="steroid")
         report = build_frontier_report(profile, frontier_smiles=target)
@@ -22,9 +22,10 @@ class SmilesFirstWorkflowTest(unittest.TestCase):
         self.assertTrue(profile.valid)
         self.assertGreaterEqual(profile.rings, 4)
         self.assertIn("polycyclic_or_steroid_like", profile.family_hints)
-        self.assertTrue(report["advanced_frontier_found"])
-        self.assertIn("advanced_same_scaffold", report["frontiers"][0]["flags"])
-        self.assertIn("unresolved_core", report["frontiers"][0]["flags"])
+        self.assertFalse(report["advanced_frontier_found"])
+        self.assertEqual(report["frontiers"][0]["frontier_role"], "target_as_initial_frontier")
+        self.assertIn("target_as_initial_frontier", report["frontiers"][0]["flags"])
+        self.assertNotIn("no_complexity_drop", report["frontiers"][0]["flags"])
 
     def test_full_workflow_writes_required_artifacts_and_guarded_status(self):
         target = "CC(C)CCCC(C)C1CCC2C3CCC4CC(O)CCC4(C)C3CCC12C"
@@ -123,6 +124,8 @@ class SmilesFirstWorkflowTest(unittest.TestCase):
 
         self.assertEqual(saved_baseline["routes"][0]["route_id"], "late_decoration_only")
         self.assertTrue(frontier_report["advanced_frontier_found"])
+        self.assertEqual(frontier_report["frontiers"][0]["frontier_role"], "route_audit_frontier")
+        self.assertIn("no_complexity_drop", frontier_report["frontiers"][0]["flags"])
         self.assertIn("ordinary_decoration_only", frontier_report["frontiers"][0]["flags"])
         self.assertIn("unresolved_core", frontier_report["frontiers"][0]["flags"])
 

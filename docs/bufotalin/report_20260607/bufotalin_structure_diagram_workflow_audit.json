@@ -1,0 +1,12 @@
+{
+  "accepted": true,
+  "chain_probe_accepted": true,
+  "generated_at_utc": "2026-06-07T02:58:00.240538+00:00",
+  "node_count": 16,
+  "one_step_row_count": 15,
+  "retrosynthetic_step_count": 15,
+  "schema_version": "bufotalin_structure_diagram_workflow_audit.v1",
+  "structure_diagram_pdf": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260607/bufotalin_retrosynthesis_structure_route_20260607.pdf",
+  "structure_diagram_png": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260607/bufotalin_retrosynthesis_structure_route_20260607.png",
+  "workflow_markdown": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260607/bufotalin_full_workflow_20260607.md"
+}

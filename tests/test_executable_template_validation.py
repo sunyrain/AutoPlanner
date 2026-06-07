@@ -1,9 +1,11 @@
 from cascade_planner.agent.executable_template_validation import (
     basic_chemical_sanity,
+    executable_candidate_from_segment_step,
     forward_reconstruction_audit,
     instantiate_literature_template,
     validate_template_candidate,
 )
+from cascade_planner.agent.literature_segments import SegmentStepCandidate
 from cascade_planner.agent.literature_templates import default_literature_template_cards
 
 
@@ -70,3 +72,36 @@ def test_reconstruction_failure_rejects_candidate():
     assert report.accepted is False
     assert report.allowed_for_one_step_source is False
     assert "heavy_atom_accounting_mismatch" in report.reasons
+
+
+def test_structured_literature_segment_step_compiles_to_executable_candidate():
+    step = SegmentStepCandidate(
+        step_id="seg_1",
+        product_smiles="CCO",
+        reactant_smiles=["CCO"],
+        evidence_refs=["ev_segment"],
+        source_ref="doi:10.0000/example-si",
+        applicability={
+            "status": "passed",
+            "product_reconstruction_passed": True,
+            "reconstructed_product_smiles": "CCO",
+        },
+        condition_candidate={
+            "step_id": "seg_1",
+            "source_type": "exact",
+            "condition_status": "evidence_backed",
+            "solvent": "MeCN",
+            "temperature": "25 C",
+            "evidence_refs": ["ev_segment"],
+        },
+    )
+
+    candidate = executable_candidate_from_segment_step(step, source_template_id="seg:seg_1")
+    report = validate_template_candidate(candidate)
+
+    assert report.accepted is True
+    assert report.allowed_for_one_step_source is True
+    assert candidate.not_lab_procedure is True
+    assert candidate.requires_audit is True
+    assert candidate.literature_template_trace["structured_segment_step"] is True
+    assert forward_reconstruction_audit(candidate)["passed"] is True

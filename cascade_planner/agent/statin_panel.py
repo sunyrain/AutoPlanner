@@ -33,6 +33,14 @@ STATIN_ROUTE_CLOSURE_AUDIT_SCHEMA = "statin_route_closure_audit.v1"
 STATIN_ROUTE_CLOSURE_MATRIX_SCHEMA = "statin_route_closure_matrix.v1"
 STATIN_CLOSURE_LEAD_CURATION_PACKET_SCHEMA = "statin_closure_lead_curation_packet.v1"
 STATIN_CLOSURE_CURATION_RESULT_SET_SCHEMA = "statin_closure_curation_result_set.v1"
+STATIN_FIELD_RESOLUTION_CANDIDATE_STATUSES = frozenset({
+    "source_required_before_resolution_candidate",
+    "access_probe_queued_pending_curator_extraction",
+    "full_text_access_candidate_ready_for_curator",
+    "doi_or_pubmed_source_ready_for_curator",
+    "full_text_signal_candidate_ready_for_curator",
+    "full_text_signal_no_field_signal_ready_for_curator",
+})
 
 DEFAULT_STATIN_SUMMARY = Path("docs/statins/summary.json")
 NATURAL_STATINS = {"lovastatin", "simvastatin", "pravastatin", "mevastatin"}
@@ -215,6 +223,14 @@ def run_statin_panel_literature_self_evo(
     targets: Iterable[str] | None = None,
     query_budget: int = 6,
     literature_backend: str = "api_json",
+    execute_closure_followups: bool = False,
+    closure_followup_limit: int = 0,
+    execute_open_gap_searches: bool = False,
+    open_gap_search_limit: int = 0,
+    execute_full_text_access_probes: bool = False,
+    full_text_access_probe_limit: int = 0,
+    execute_full_text_signal_extractions: bool = False,
+    full_text_signal_extraction_limit: int = 0,
 ) -> dict[str, Any]:
     root = Path(output_root)
     root.mkdir(parents=True, exist_ok=True)
@@ -247,6 +263,8 @@ def run_statin_panel_literature_self_evo(
             root,
             target,
             row,
+            execute_closure_followups=execute_closure_followups,
+            closure_followup_limit=closure_followup_limit,
         )
         row["fullflow_dossier"] = {
             "json": str(dossier["json_path"]),
@@ -316,15 +334,17 @@ def run_statin_panel_literature_self_evo(
         ),
         "self_evo_aggregation_ready": bool(aggregation.get("accepted") or aggregation.get("skipped")),
         "self_evo_aggregated_templates_promoted": (
-            bool(aggregation.get("production_promoted_count"))
+            bool(aggregation.get("accepted"))
             if not selected and len(panel_targets) == 9
             else bool(aggregation.get("skipped"))
         ),
+        "no_replay_run_writes_production_kb": int(aggregation.get("production_promoted_count") or 0) == 0,
         "fullflow_overview_written": True,
         "typed_artifact_manifest_validated": True,
     }
     report = {
         "schema_version": STATIN_PANEL_REPORT_SCHEMA,
+        "run_semantics": "replay",
         "summary_path": str(summary_path),
         "output_root": str(root),
         "target_count": len(panel_targets),
@@ -340,6 +360,30 @@ def run_statin_panel_literature_self_evo(
     hard_gates["fullflow_overview_written"] = bool(
         fullflow_overview.get("skipped")
         or (fullflow_overview.get("validation") or {}).get("accepted")
+    )
+    route_closure_matrix = _write_route_closure_matrix(root, report, full_panel_run=full_panel_run)
+    report["route_closure_matrix"] = _closure_matrix_summary(route_closure_matrix)
+    closure_lead_curation_packet = _write_closure_lead_curation_packet(
+        root,
+        report,
+        full_panel_run=full_panel_run,
+    )
+    report["closure_lead_curation_packet"] = _closure_lead_curation_packet_summary(
+        closure_lead_curation_packet
+    )
+    closure_curation_result_set = _write_closure_curation_result_set(
+        root,
+        report,
+        full_panel_run=full_panel_run,
+        execute_open_gap_searches=execute_open_gap_searches,
+        open_gap_search_limit=open_gap_search_limit,
+        execute_full_text_access_probes=execute_full_text_access_probes,
+        full_text_access_probe_limit=full_text_access_probe_limit,
+        execute_full_text_signal_extractions=execute_full_text_signal_extractions,
+        full_text_signal_extraction_limit=full_text_signal_extraction_limit,
+    )
+    report["closure_curation_result_set"] = _closure_curation_result_set_summary(
+        closure_curation_result_set
     )
     typed_manifest = _write_typed_artifact_manifest(root, report, full_panel_run=full_panel_run)
     report["typed_artifact_manifest"] = _manifest_summary(typed_manifest)
@@ -643,8 +687,10 @@ def _validate_fullflow_overview(overview: dict[str, Any]) -> dict[str, Any]:
     aggregation = overview.get("self_evolution_aggregation") or {}
     if not aggregation.get("accepted"):
         reasons.append("overview_self_evo_aggregation_not_accepted")
-    if int(aggregation.get("production_promoted_count") or 0) < 2:
-        reasons.append("overview_family_templates_not_promoted")
+    if int(aggregation.get("production_promoted_count") or 0) != 0:
+        reasons.append("overview_replay_promoted_production")
+    if not all((row.get("staging_promoted") and not row.get("production_promoted")) for row in aggregation.get("families") or []):
+        reasons.append("overview_family_templates_not_staging_only")
     return {
         "schema_version": "statin_fullflow_overview_validation.v1",
         "accepted": not reasons,
@@ -4838,7 +4884,7 @@ def _aggregate_self_evolution_templates(
         report["families"].append(family_report)
         if family_report.get("production_promoted"):
             report["production_promoted_count"] += 1
-    report["accepted"] = all(item.get("production_promoted") for item in report["families"])
+    report["accepted"] = all(item.get("staging_promoted") and not item.get("production_promoted") for item in report["families"])
     return report
 
 
@@ -4919,9 +4965,6 @@ def _aggregate_family_template(
         kb.promote(candidate.candidate_id, from_layer="candidate", to_layer="shadow", target_run=False)
         kb.promote(candidate.candidate_id, from_layer="shadow", to_layer="staging", target_run=False)
         staging_promoted = True
-        if gate.accepted and not reasons:
-            kb.promote(candidate.candidate_id, from_layer="staging", to_layer="production", gate_report=gate, target_run=False)
-            production_promoted = True
     return {
         "family_bucket": family_bucket,
         "candidate_id": candidate.candidate_id,
@@ -4931,6 +4974,7 @@ def _aggregate_family_template(
         "benchmark_gate": gate.to_dict(),
         "staging_promoted": staging_promoted,
         "production_promoted": production_promoted,
+        "production_blocked": True,
         "template_source_record_ids": template_sources,
         "evidence_ref_count": len(evidence_refs),
         "reasons": sorted(set(reasons)),
@@ -4941,10 +4985,18 @@ def _write_fullflow_dossier(
     root: Path,
     target: StatinPanelTarget,
     row: dict[str, Any],
+    *,
+    execute_closure_followups: bool,
+    closure_followup_limit: int,
 ) -> dict[str, Any]:
     dossier_dir = root / "fullflow_dossiers"
     dossier_dir.mkdir(parents=True, exist_ok=True)
-    dossier = _build_fullflow_dossier(target, row)
+    dossier = _build_fullflow_dossier(
+        target,
+        row,
+        execute_closure_followups=execute_closure_followups,
+        closure_followup_limit=closure_followup_limit,
+    )
     validation = _validate_fullflow_dossier(dossier)
     dossier["validation"] = validation
     json_path = dossier_dir / f"{target.safe}_fullflow_dossier.json"
@@ -4962,6 +5014,9 @@ def _write_fullflow_dossier(
 def _build_fullflow_dossier(
     target: StatinPanelTarget,
     row: dict[str, Any],
+    *,
+    execute_closure_followups: bool,
+    closure_followup_limit: int,
 ) -> dict[str, Any]:
     package = _read_json(row.get("hybrid_route_package"))
     evidence_refs = [str(ref) for ref in package.get("literature_evidence_refs") or []]
@@ -4990,6 +5045,15 @@ def _build_fullflow_dossier(
         evidence_refs,
         automatic_escalation,
     )
+    route_closure_audit = _route_closure_audit(
+        target,
+        row,
+        stages,
+        route_template,
+        automatic_escalation,
+        execute_followups=execute_closure_followups,
+        followup_limit=closure_followup_limit,
+    )
     return {
         "schema_version": STATIN_FULLFLOW_DOSSIER_SCHEMA,
         "target": target.to_dict(),
@@ -5011,6 +5075,7 @@ def _build_fullflow_dossier(
         "fullflow_blueprint": blueprint,
         "difficulty_escalation": difficulty_escalation,
         "automatic_literature_escalation": automatic_escalation,
+        "route_closure_audit": route_closure_audit,
         "template_quality": {
             "expected_template_hit": bool(row.get("expected_template_hit")),
             "required_candidate_kinds_hit": bool(row.get("required_candidate_kinds_hit")),
@@ -6317,6 +6382,10 @@ def validate_statin_closure_curation_result_set(result_set: dict[str, Any]) -> d
     return _validate_closure_curation_result_set(dict(result_set or {}))
 
 
+def valid_statin_field_resolution_candidate_status(status: str) -> bool:
+    return str(status or "") in STATIN_FIELD_RESOLUTION_CANDIDATE_STATUSES
+
+
 def _validate_route_closure_audit(audit: dict[str, Any]) -> dict[str, Any]:
     reasons: list[str] = []
     if audit.get("schema_version") != STATIN_ROUTE_CLOSURE_AUDIT_SCHEMA:
@@ -7077,12 +7146,9 @@ def _validate_closure_curation_result_set(result_set: dict[str, Any]) -> dict[st
             field_resolution_candidate = review_draft.get("field_resolution_candidate") or {}
             if field_resolution_candidate.get("schema_version") != "statin_open_gap_field_resolution_candidate.v1":
                 reasons.append(f"closure_curation_result_{index}_open_gap_followup_{followup_index}_invalid_field_resolution_candidate")
-            if field_resolution_candidate.get("candidate_status") not in {
-                "source_required_before_resolution_candidate",
-                "access_probe_queued_pending_curator_extraction",
-                "full_text_access_candidate_ready_for_curator",
-                "doi_or_pubmed_source_ready_for_curator",
-            }:
+            if not valid_statin_field_resolution_candidate_status(
+                str(field_resolution_candidate.get("candidate_status") or "")
+            ):
                 reasons.append(f"closure_curation_result_{index}_open_gap_followup_{followup_index}_invalid_field_resolution_candidate_status")
             if field_resolution_candidate.get("candidate_field_resolution") != "still_blocked":
                 reasons.append(f"closure_curation_result_{index}_open_gap_followup_{followup_index}_field_resolution_candidate_resolves_field")

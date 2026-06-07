@@ -271,6 +271,8 @@ def _statin_panel_self_evo_report_reasons(payload: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     if payload.get("schema_version") != STATIN_PANEL_REPORT_SCHEMA:
         reasons.append("invalid_statin_panel_report_schema")
+    if payload.get("run_semantics") != "replay":
+        reasons.append("statin_panel_report_must_be_replay_semantics")
     if int(payload.get("target_count") or 0) != 9:
         reasons.append("statin_panel_report_not_all_nine")
     if int(payload.get("failed") or 0) != 0:
@@ -299,20 +301,18 @@ def _statin_panel_self_evo_report_reasons(payload: dict[str, Any]) -> list[str]:
     aggregation = dict(payload.get("self_evolution_aggregation") or {})
     if not aggregation.get("accepted"):
         reasons.append("statin_self_evo_aggregation_not_accepted")
-    if int(aggregation.get("production_promoted_count") or 0) < 2:
-        reasons.append("statin_self_evo_family_templates_not_promoted")
+    if int(aggregation.get("production_promoted_count") or 0) != 0:
+        reasons.append("statin_replay_promoted_production")
+    if not all((row.get("staging_promoted") and not row.get("production_promoted")) for row in aggregation.get("families") or []):
+        reasons.append("statin_self_evo_family_templates_not_staging_only")
     production = set(
         (payload.get("self_evolution_kb") or {})
         .get("layers", {})
         .get("production", {})
         .keys()
     )
-    expected_production = {
-        "statin_family_natural_statin_statin_semisynthesis_template",
-        "statin_family_synthetic_statin_statin_side_chain_convergence_template",
-    }
-    if not expected_production.issubset(production):
-        reasons.append("statin_self_evo_missing_family_production_templates")
+    if production:
+        reasons.append("statin_self_evo_replay_production_layer_not_empty")
     return reasons
 
 

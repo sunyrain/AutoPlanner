@@ -368,7 +368,8 @@ Literature route may enter ChemEnzy only through deterministic validated artifac
 - [x] `cascade_planner/agent/template_applicability.py`
 - [x] `cascade_planner/agent/executable_template_validation.py`
 - [x] `cascade_planner/baselines/literature_one_step_plugin.py`
-- [x] `scripts/run_literature_template_plugin_benchmark.py`
+- [x] Historical benchmark runner archived locally under
+  `archive/harness_prep_20260605/scripts/run_literature_template_plugin_benchmark.py`.
 
 建议修改模块：
 
@@ -384,7 +385,8 @@ Literature route may enter ChemEnzy only through deterministic validated artifac
 - [x] `tests/test_template_applicability.py`
 - [x] `tests/test_executable_template_validation.py`
 - [x] `tests/test_literature_one_step_plugin.py`
-- [x] `tests/test_literature_template_plugin_benchmark.py`
+- [x] Historical benchmark test archived locally under
+  `archive/harness_prep_20260605/tests/test_literature_template_plugin_benchmark.py`.
 
 ---
 
@@ -435,8 +437,8 @@ MVP 不要求：
   `cascade_planner/agent/strategic_candidate_generation.py`
 - cascade source policy / route-tree source group 支持：
   `cascade_planner/route_tree/source_gate.py`
-- L6 A/B benchmark：
-  `scripts/run_literature_template_plugin_benchmark.py`
+- L6 A/B benchmark was historical evidence and is now archived locally under
+  `archive/harness_prep_20260605/scripts/run_literature_template_plugin_benchmark.py`.
 
 测试证据：
 
@@ -444,15 +446,15 @@ MVP 不要求：
 - `tests/test_template_applicability.py`
 - `tests/test_executable_template_validation.py`
 - `tests/test_literature_one_step_plugin.py`
-- `tests/test_literature_template_plugin_benchmark.py`
+- Historical A/B benchmark test archived locally:
+  `archive/harness_prep_20260605/tests/test_literature_template_plugin_benchmark.py`
 
 已执行验证：
 
 ```bash
-pytest -q tests/test_literature_template_cards.py tests/test_template_applicability.py tests/test_executable_template_validation.py tests/test_literature_one_step_plugin.py tests/test_literature_template_plugin_benchmark.py
-pytest -q tests/test_agent_artifact_contracts.py tests/test_literature_evidence_cards.py tests/test_smiles_first_workflow.py tests/test_chem_enzy_onestep.py tests/test_chem_enzy_native_chemical_plugin.py
-pytest -q tests/test_strategic_candidate_generation.py tests/test_smiles_first_workflow.py tests/test_p0_literature_benchmark_pack.py tests/test_literature_template_cards.py tests/test_template_applicability.py tests/test_executable_template_validation.py tests/test_literature_one_step_plugin.py tests/test_literature_template_plugin_benchmark.py
-python -m py_compile cascade_planner/agent/literature_templates.py cascade_planner/agent/template_applicability.py cascade_planner/agent/executable_template_validation.py cascade_planner/baselines/literature_one_step_plugin.py cascade_planner/baselines/chem_enzy_adapter.py cascade_planner/baselines/chem_enzy_onestep.py cascade_planner/agent/chem_enzy_policy.py cascade_planner/agent/smiles_first.py scripts/run_literature_template_plugin_benchmark.py
+pytest -q tests/test_literature_template_cards.py tests/test_template_applicability.py tests/test_executable_template_validation.py tests/test_literature_one_step_plugin.py
+pytest -q tests/test_agent_artifact_contracts.py tests/test_literature_evidence_cards.py tests/test_smiles_first_workflow.py
+python -m py_compile cascade_planner/agent/literature_templates.py cascade_planner/agent/template_applicability.py cascade_planner/agent/executable_template_validation.py cascade_planner/baselines/literature_one_step_plugin.py cascade_planner/baselines/chem_enzy_adapter.py cascade_planner/baselines/chem_enzy_onestep.py cascade_planner/agent/chem_enzy_policy.py cascade_planner/agent/smiles_first.py
 ```
 
 边界说明：

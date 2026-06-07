@@ -411,6 +411,7 @@ def validate_strategic_operator(operator_or_payload: StrategicOperator | dict[st
     reasons.extend(_budget_reasons(operator.budget))
     reasons.extend(_smiles_list_reasons("terminal_blacklist", operator.terminal_blacklist))
     reasons.extend(_smiles_list_reasons("anchor_whitelist", operator.anchor_whitelist))
+    reasons.extend(_blacklist_anchor_overlap_reasons(operator.terminal_blacklist, operator.anchor_whitelist))
     return {
         "accepted": not reasons,
         "reasons": sorted(set(reasons)),
@@ -442,6 +443,7 @@ def validate_chem_enzy_search_policy(policy_or_payload: ChemEnzySearchPolicy | d
     reasons.extend(_budget_reasons(policy.budget))
     reasons.extend(_smiles_list_reasons("terminal_blacklist", policy.terminal_blacklist))
     reasons.extend(_smiles_list_reasons("anchor_whitelist", policy.anchor_whitelist))
+    reasons.extend(_blacklist_anchor_overlap_reasons(policy.terminal_blacklist, policy.anchor_whitelist))
     return {
         "accepted": not reasons,
         "reasons": sorted(set(reasons)),
@@ -744,6 +746,21 @@ def _smiles_list_reasons(field_name: str, smiles_list: list[str]) -> list[str]:
             reasons.append(f"invalid_{field_name}_smiles")
             break
     return reasons
+
+
+def _blacklist_anchor_overlap_reasons(terminal_blacklist: list[str], anchor_whitelist: list[str]) -> list[str]:
+    blacklist = {_canonical_smiles(smiles) for smiles in terminal_blacklist if _canonical_smiles(smiles)}
+    anchors = {_canonical_smiles(smiles) for smiles in anchor_whitelist if _canonical_smiles(smiles)}
+    if blacklist.intersection(anchors):
+        return ["terminal_blacklist_anchor_whitelist_overlap"]
+    return []
+
+
+def _canonical_smiles(smiles: str) -> str:
+    mol = Chem.MolFromSmiles(str(smiles or ""))
+    if mol is None:
+        return ""
+    return Chem.MolToSmiles(mol, isomericSmiles=True)
 
 
 def _has_raw_reaction_payload(value: Any) -> bool:

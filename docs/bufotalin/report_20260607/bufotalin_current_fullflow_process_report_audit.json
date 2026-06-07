@@ -1,0 +1,14 @@
+{
+  "accepted": true,
+  "data_path": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260607/bufotalin_current_fullflow_process_20260607.json",
+  "final_verdict": "fake_closed_rejected",
+  "generated_at_utc": "2026-06-07T16:31:10.514928+00:00",
+  "markdown_path": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260607/bufotalin_current_fullflow_process_20260607.md",
+  "pdf_path": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260607/bufotalin_current_fullflow_process_20260607.pdf",
+  "pdf_request_count": 3,
+  "planner_reject_dir": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_canonical_real_fullflow_20260607_154236",
+  "run_dir": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_canonical_real_tools_20260607_154411",
+  "schema_version": "bufotalin_current_fullflow_process_report_audit.v1",
+  "solved": false,
+  "tool_call_count": 8
+}

@@ -18,6 +18,11 @@ from cascade_planner.agent.literature_templates import (
     template_card_from_dict,
     validate_executable_template_candidate,
 )
+from cascade_planner.agent.literature_segments import (
+    SegmentStepCandidate,
+    segment_step_from_dict,
+    validate_segment_step,
+)
 from cascade_planner.agent.template_applicability import (
     EXECUTABLE_ALLOWED_USE,
     assess_template_applicability,
@@ -75,6 +80,75 @@ def instantiate_literature_template(
         requires_audit=True,
         condition_source=card.condition_source or "unknown",
         schema_version=EXECUTABLE_TEMPLATE_CANDIDATE_SCHEMA,
+    )
+    validation = validate_template_candidate(candidate)
+    candidate.validation_report = validation.to_dict()
+    return candidate
+
+
+def executable_candidate_from_segment_step(
+    step_or_data: SegmentStepCandidate | dict[str, Any],
+    *,
+    source_template_id: str = "",
+    reaction_class: str = "literature_route_segment_step",
+) -> ExecutableTemplateCandidate:
+    """Compile a validated structured literature step into one-step material.
+
+    This path accepts only structured product/reactant fields from
+    SegmentStepCandidate. It intentionally ignores any raw reaction string in
+    the input payload.
+    """
+    step = step_or_data if isinstance(step_or_data, SegmentStepCandidate) else segment_step_from_dict(step_or_data)
+    step_validation = validate_segment_step(step)
+    template_id = source_template_id or f"segment_step:{step.step_id}"
+    rxn_smiles = ".".join(step.reactant_smiles) + f">>{step.product_smiles}"
+    applicability = {
+        "schema_version": "template_applicability_report.v1",
+        "target_smiles": step.product_smiles,
+        "frontier_smiles": step.product_smiles,
+        "matched_retron_atoms": [],
+        "matched_bonds": [],
+        "match_confidence": "high" if step_validation.get("accepted") else "none",
+        "mismatch_reasons": list(step_validation.get("reasons") or []),
+        "allowed_use": "executable_candidate" if step_validation.get("accepted") else "forbidden",
+        "ambiguity_count": 0,
+        "selected_bond": {"source": "structured_literature_segment_step", "step_id": step.step_id},
+        "cut_fragments": list(step.reactant_smiles),
+        "retron_type": reaction_class,
+        "template_id": template_id,
+    }
+    candidate = ExecutableTemplateCandidate(
+        product_smiles=step.product_smiles,
+        reactant_smiles=list(step.reactant_smiles),
+        rxn_smiles=rxn_smiles,
+        atom_mapping_status="structured_literature_step_unmapped",
+        template_smarts="",
+        source_template_id=template_id,
+        not_lab_procedure=True,
+        proposal_source=LITERATURE_TEMPLATE_PLUGIN_SOURCE,
+        evidence_refs=list(step.evidence_refs),
+        precursor_roles=[
+            {
+                "role": f"segment_reactant_{idx + 1}",
+                "smiles": smiles,
+                "heavy_atoms": _heavy_atoms_without_dummy(smiles),
+            }
+            for idx, smiles in enumerate(step.reactant_smiles)
+        ],
+        applicability_report=applicability,
+        literature_template_trace={
+            "schema_version": "literature_template_trace.v1",
+            "source_model": LITERATURE_TEMPLATE_PLUGIN_MODEL,
+            "source_template_id": template_id,
+            "source_ref": step.source_ref,
+            "evidence_refs": list(step.evidence_refs),
+            "not_lab_procedure": True,
+            "requires_audit": True,
+            "no_solved_claim": True,
+            "structured_segment_step": True,
+        },
+        requires_audit=True,
+        condition_source=step.source_ref or "literature_segment",
     )
     validation = validate_template_candidate(candidate)
     candidate.validation_report = validation.to_dict()
@@ -147,6 +221,8 @@ def forward_reconstruction_audit(candidate_or_data: ExecutableTemplateCandidate 
             "passed": False,
             "reasons": ["invalid_product_smiles"],
         }
+    if (candidate.literature_template_trace or {}).get("structured_segment_step"):
+        return _structured_segment_step_reconstruction_audit(candidate)
     fragments = [Chem.MolFromSmiles(smi) for smi in candidate.reactant_smiles]
     if not fragments or any(mol is None for mol in fragments):
         reasons.append("invalid_reactant_fragment_smiles")
@@ -193,12 +269,14 @@ def basic_chemical_sanity(candidate_or_data: ExecutableTemplateCandidate | dict[
     if not reactants or any(mol is None for mol in reactants):
         reasons.append("invalid_reactant_smiles")
     if candidate.product_smiles in set(candidate.reactant_smiles or []):
-        reasons.append("reactant_equals_product")
+        if not (candidate.literature_template_trace or {}).get("structured_segment_step"):
+            reasons.append("reactant_equals_product")
     product_heavy = _heavy_atoms_without_dummy(candidate.product_smiles)
     largest_reactant_heavy = max([_heavy_atoms_without_dummy(smi) for smi in candidate.reactant_smiles] or [0])
     app = applicability_report_from_dict(candidate.applicability_report or {})
     intramolecular_ring_opening = bool((app.selected_bond or {}).get("bond_in_ring") and sum(_dummy_count(smi) for smi in candidate.reactant_smiles) >= 2)
-    if largest_reactant_heavy >= product_heavy and not intramolecular_ring_opening:
+    structured_step = bool((candidate.literature_template_trace or {}).get("structured_segment_step"))
+    if largest_reactant_heavy >= product_heavy and not intramolecular_ring_opening and not structured_step:
         reasons.append("no_complexity_drop")
     if sum(_heavy_atoms_without_dummy(smi) for smi in candidate.reactant_smiles) > product_heavy + 2:
         reasons.append("unexplained_large_skeleton_growth")
@@ -216,6 +294,35 @@ def basic_chemical_sanity(candidate_or_data: ExecutableTemplateCandidate | dict[
         "intramolecular_ring_opening": intramolecular_ring_opening,
         "not_lab_procedure": bool(candidate.not_lab_procedure),
         "requires_audit": bool(candidate.requires_audit),
+    }
+
+
+def _structured_segment_step_reconstruction_audit(candidate: ExecutableTemplateCandidate) -> dict[str, Any]:
+    reasons: list[str] = []
+    product = Chem.MolFromSmiles(str(candidate.product_smiles or ""))
+    reactants = [Chem.MolFromSmiles(smi) for smi in candidate.reactant_smiles or []]
+    if product is None:
+        reasons.append("invalid_product_smiles")
+    if not reactants or any(mol is None for mol in reactants):
+        reasons.append("invalid_reactant_smiles")
+    product_elements = _element_counts_without_dummy(candidate.product_smiles)
+    reactant_elements = Counter()
+    for smi in candidate.reactant_smiles:
+        reactant_elements.update(_element_counts_without_dummy(smi))
+    for element, count in product_elements.items():
+        if reactant_elements.get(element, 0) < count:
+            reasons.append("segment_step_atom_accounting_failed")
+            break
+    return {
+        "schema_version": "template_forward_reconstruction_audit.v1",
+        "passed": not reasons,
+        "reasons": sorted(set(reasons)),
+        "connectivity_recoverable": not reasons,
+        "selected_bond": dict((candidate.applicability_report or {}).get("selected_bond") or {}),
+        "product_heavy_atoms": _heavy_atoms_without_dummy(candidate.product_smiles),
+        "reactant_heavy_atoms": sum(_heavy_atoms_without_dummy(smi) for smi in candidate.reactant_smiles),
+        "dummy_attachment_count": sum(_dummy_count(smi) for smi in candidate.reactant_smiles),
+        "explanation": "structured literature segment step preserves source-grounded product/reactant accounting",
     }
 
 

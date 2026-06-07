@@ -1360,7 +1360,7 @@ def _start_plan_job(payload: dict[str, Any]) -> dict[str, Any]:
         "target_smiles": target,
         "target_preview": _target_preview(target),
         "search_preset": preset,
-        "stock_mode": str(payload.get("stock_mode") or "commercial"),
+        "stock_mode": str(payload.get("stock_mode") or "building-block"),
         "stock_names": list(payload.get("stock_names") or []),
         "max_depth": _as_int(payload.get("max_steps"), 6, lo=1, hi=20),
         "iterations": _as_int(payload.get("chem_enzy_iterations"), 10, lo=1, hi=500),

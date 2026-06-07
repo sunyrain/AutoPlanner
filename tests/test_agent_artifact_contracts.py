@@ -13,6 +13,7 @@ from cascade_planner.agent.artifact_validators import (
     validate_artifact_list,
     validate_typed_artifact,
 )
+from cascade_planner.agent.statin_panel import valid_statin_field_resolution_candidate_status
 
 
 class AgentArtifactContractsTest(unittest.TestCase):
@@ -142,6 +143,11 @@ class AgentArtifactContractsTest(unittest.TestCase):
         self.assertIn("solved_without_stock_audit", solved_result["reasons"])
         self.assertFalse(semi_result["accepted"])
         self.assertIn("semisynthesis_closed_without_anchor_evidence", semi_result["reasons"])
+
+    def test_statin_field_resolution_statuses_include_full_text_signal_candidates(self):
+        self.assertTrue(valid_statin_field_resolution_candidate_status("full_text_signal_candidate_ready_for_curator"))
+        self.assertTrue(valid_statin_field_resolution_candidate_status("full_text_signal_no_field_signal_ready_for_curator"))
+        self.assertFalse(valid_statin_field_resolution_candidate_status("promotion_allowed"))
 
 
 if __name__ == "__main__":

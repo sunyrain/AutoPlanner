@@ -112,6 +112,9 @@ def _route_config_from_payload(payload: dict[str, Any], gpu: int) -> RouteSearch
     native_enzyme_plugin = _native_enzyme_plugin_from_payload(payload)
     if native_enzyme_plugin:
         search_flags["native_enzyme_plugin"] = native_enzyme_plugin
+    literature_template_plugin = _literature_template_plugin_from_payload(payload)
+    if literature_template_plugin:
+        search_flags["literature_template_plugin"] = literature_template_plugin
     step_strengthening = _chem_enzy_step_strengthening_from_payload(payload)
     if step_strengthening:
         search_flags["chem_enzy_step_strengthening"] = step_strengthening
@@ -179,11 +182,28 @@ def _native_enzyme_plugin_from_payload(payload: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _literature_template_plugin_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    raw = (
+        payload.get("literature_template_plugin")
+        if "literature_template_plugin" in payload
+        else payload.get("autoplanner_literature_template_plugin")
+    )
+    if not raw:
+        return {}
+    if raw is True:
+        return {"enabled": True}
+    if not isinstance(raw, dict):
+        return {"enabled": bool(raw)}
+    out = dict(raw)
+    out.setdefault("enabled", True)
+    return out
+
+
 def _stock_names_from_payload(payload: dict[str, Any]) -> list[str]:
     explicit = payload.get("stock_names")
     if explicit:
         return list(explicit)
-    mode = str(payload.get("stock_mode") or "commercial").strip().lower()
+    mode = str(payload.get("stock_mode") or "building-block").strip().lower()
     if mode in {"commercial", "zinc", "zinc_fix", "zinc-fix"}:
         return ["Zinc_Fix-stock"]
     if mode in {"benchmark-n5", "paroutes-n5", "n5"}:
@@ -284,7 +304,7 @@ def _web_payload_from_result(
             "planner_strategy": "ChemEnzy native multi-step search with AutoPlanner product audit and rule cascade verifier",
             "search_mode": "chem_enzy_native",
             "search_preset": request_payload.get("search_preset", "quick"),
-            "stock_mode": request_payload.get("stock_mode", "commercial"),
+            "stock_mode": request_payload.get("stock_mode", "building-block"),
             "max_depth": config.max_depth,
             "iterations": config.max_iterations,
             "expansion_topk": config.expansion_topk,

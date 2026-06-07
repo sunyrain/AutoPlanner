@@ -148,15 +148,13 @@ def _status_and_reasons(
         return RouteStatus.FAKE_CLOSED_REJECTED, sorted(set(reasons))
     if package_status == "solved" and not stock_audit_passed:
         return RouteStatus.UNRESOLVED, ["solved_claim_without_stock_audit"]
-    if stock_audit_passed and condition_audit.get("route_risk") == "gap":
-        return RouteStatus.UNRESOLVED, ["condition_gap"]
     if stock_audit_passed and condition_audit.get("route_risk") == "high":
         return RouteStatus.UNRESOLVED, ["condition_high_risk"]
     if _has_anchor_evidence(package):
         if package_status in {"semisynthesis_closed", "ready_for_guided_rerun"} and stock_audit_passed:
             return RouteStatus.SEMISYNTHESIS_CLOSED, []
         return RouteStatus.PARTIAL_ANCHOR, ["anchor_evidence_without_full_stock_closure"]
-    if stock_audit_passed and condition_audit.get("route_risk") != "gap":
+    if stock_audit_passed:
         return RouteStatus.SOLVED, []
     if _has_unresolved_core(package):
         return RouteStatus.UNRESOLVED, ["unresolved_core"]
@@ -273,7 +271,9 @@ def _route_mode_explanation(
     condition_audit: dict[str, Any],
 ) -> str:
     if status == RouteStatus.SOLVED:
-        return "stock audit passed and no blocking condition gap was detected"
+        if condition_audit.get("condition_gap"):
+            return "stock audit passed; conditions are pending and can be attached later"
+        return "stock audit passed and no blocking condition risk was detected"
     if status == RouteStatus.PARTIAL_ANCHOR:
         return "literature anchor is present, but full stock closure/audit proof is absent"
     if status == RouteStatus.SEMISYNTHESIS_CLOSED:
@@ -289,6 +289,8 @@ def _route_mode_explanation(
 
 def _next_action(status: RouteStatus, condition_audit: dict[str, Any]) -> str:
     if status == RouteStatus.SOLVED:
+        if condition_audit.get("condition_gap"):
+            return "attach_or_retrieve_conditions"
         return "export_final_report"
     if status == RouteStatus.PARTIAL_ANCHOR:
         return "compile_guided_rerun_or_chemist_review"

@@ -1,0 +1,299 @@
+{
+  "final": {
+    "reasons": [
+      "advanced_same_scaffold_terminal",
+      "downstream_consumables_missing_evidence_refs:route_expansion_tasks:1",
+      "fake_closure_evidence_present",
+      "large_atom_jump",
+      "no_verifier_accepted_stock_closed_route",
+      "open_agent_boundary_violation:context_boundary:large_raw_artifact_dump",
+      "open_structure_research_nonzero_exit",
+      "raw_reaction_injection",
+      "route_verifier_rejected_raw_routes"
+    ],
+    "route_status": "fake_closed_rejected",
+    "solved": false,
+    "stock_audit_passed": false,
+    "verdict": "fake_closed_rejected"
+  },
+  "generated_at_utc": "2026-06-07T16:31:08.928336+00:00",
+  "guided_chemenzy": {
+    "accepted": true,
+    "elapsed_s": 284.494,
+    "reasons": [
+      "advanced_same_scaffold_terminal",
+      "large_atom_jump",
+      "no_verifier_accepted_stock_closed_route"
+    ]
+  },
+  "key_artifacts": {
+    "final_verdict": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_canonical_real_tools_20260607_154411/final_verdict.json",
+    "open_research": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_canonical_real_tools_20260607_154411/open_structure_research",
+    "pdf_queue": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_canonical_real_tools_20260607_154411/open_structure_research/evidence/local_pdf_proxy/pdf_requests.jsonl",
+    "progress_panel": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_canonical_real_tools_20260607_154411/progress_panel.html",
+    "route_verifier": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_canonical_real_tools_20260607_154411/route_verifier_report.json",
+    "tool_calls": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_canonical_real_tools_20260607_154411/tool_calls.jsonl"
+  },
+  "local_pdf": {
+    "exists": true,
+    "path": "/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+    "size_bytes": 878443
+  },
+  "native_chemenzy": {
+    "accepted": true,
+    "accepted_route_count": 0,
+    "depth_attempts": [],
+    "elapsed_s": 288.13,
+    "reasons": [
+      "advanced_same_scaffold_terminal",
+      "large_atom_jump",
+      "no_verifier_accepted_stock_closed_route"
+    ],
+    "rejected_route_count": 179,
+    "route_count": 179,
+    "route_status": "fake_closed_rejected",
+    "verifier_accepted": false
+  },
+  "open_research": {
+    "elapsed_s": 953.627,
+    "evolution_candidates": 6,
+    "excluded_sources": 10,
+    "executable_template_extraction_tasks": 16,
+    "final_status": "partial_handoff_ready",
+    "guided_rerun_requests": 2,
+    "literature_template_cards": 6,
+    "production_kb_promotion": false,
+    "route_expansion_tasks": 2,
+    "search_log": 33,
+    "solved": false,
+    "source_detail_route_steps": 0,
+    "source_relation_counts": {
+      "close_analog": 2,
+      "exact_intermediate": 1,
+      "exact_target": 6,
+      "unusable": 21
+    },
+    "sources": 30,
+    "tool_reasons": [
+      "downstream_consumables_missing_evidence_refs:route_expansion_tasks:1",
+      "open_agent_boundary_violation:context_boundary:large_raw_artifact_dump",
+      "open_structure_research_nonzero_exit"
+    ],
+    "tool_status": "rejected"
+  },
+  "pdf_requests": [
+    {
+      "access_hint": "local_institutional_access",
+      "case_id": "",
+      "content_scope": "article",
+      "content_type_hint": "",
+      "created_at_utc": "2026-06-07T16:00:47.276450+00:00",
+      "doi": "10.1016/j.tet.2025.134610",
+      "evidence_refs": [],
+      "material_type": "",
+      "reason": "agent_access_failed_pdf_needed",
+      "request_id": "pdfreq_10.1016_j.tet.2025.134610_b6a516894f1ecb8d",
+      "requested_by": "local_pdf_proxy_cli",
+      "schema_version": "local_pdf_proxy_request.v1",
+      "source_policy": {
+        "credentials_stored": false,
+        "full_text_content_stored": false,
+        "metadata_pointer_only": true,
+        "not_route_evidence": true
+      },
+      "source_ref": "",
+      "status": "queued",
+      "title": "",
+      "url": "https://doi.org/10.1016/j.tet.2025.134610"
+    },
+    {
+      "access_hint": "local_institutional_access",
+      "case_id": "",
+      "content_scope": "article",
+      "content_type_hint": "",
+      "created_at_utc": "2026-06-07T16:01:13.787856+00:00",
+      "doi": "10.1016/j.steroids.2024.109555",
+      "evidence_refs": [],
+      "material_type": "",
+      "reason": "agent_access_failed_pdf_needed",
+      "request_id": "pdfreq_10.1016_j.steroids.2024.109555_8175f57fdc750d2f",
+      "requested_by": "local_pdf_proxy_cli",
+      "schema_version": "local_pdf_proxy_request.v1",
+      "source_policy": {
+        "credentials_stored": false,
+        "full_text_content_stored": false,
+        "metadata_pointer_only": true,
+        "not_route_evidence": true
+      },
+      "source_ref": "",
+      "status": "queued",
+      "title": "",
+      "url": "https://doi.org/10.1016/j.steroids.2024.109555"
+    },
+    {
+      "access_hint": "local_institutional_access",
+      "case_id": "",
+      "content_scope": "article",
+      "content_type_hint": "",
+      "created_at_utc": "2026-06-07T16:01:13.824243+00:00",
+      "doi": "10.1021/jo00934a013",
+      "evidence_refs": [],
+      "material_type": "",
+      "reason": "agent_access_failed_pdf_needed",
+      "request_id": "pdfreq_10.1021_jo00934a013_8f7ee6c606d0072a",
+      "requested_by": "local_pdf_proxy_cli",
+      "schema_version": "local_pdf_proxy_request.v1",
+      "source_policy": {
+        "credentials_stored": false,
+        "full_text_content_stored": false,
+        "metadata_pointer_only": true,
+        "not_route_evidence": true
+      },
+      "source_ref": "",
+      "status": "queued",
+      "title": "",
+      "url": "https://doi.org/10.1021/jo00934a013"
+    }
+  ],
+  "planner_reject": {
+    "reasons": [
+      "invalid_run_semantics"
+    ],
+    "verdict": "needs_followup"
+  },
+  "planner_reject_dir": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_canonical_real_fullflow_20260607_154236",
+  "route_audit": {
+    "reasons": [
+      "advanced_same_scaffold_terminal",
+      "large_atom_jump",
+      "no_verifier_accepted_stock_closed_route",
+      "route_verifier_rejected_raw_routes"
+    ],
+    "route_status": "fake_closed_rejected",
+    "stock_audit_passed": false
+  },
+  "route_expansion": {
+    "accepted": true,
+    "accepted_subgoal_count": 1,
+    "elapsed_s": 532.595,
+    "rejected_subgoal_count": 1,
+    "solved": true,
+    "status": "solved",
+    "subgoal_count": 2,
+    "subgoals": [
+      {
+        "accepted": false,
+        "name": "advanced_same_scaffold_terminal",
+        "route_count": 137,
+        "route_status": "fake_closed_rejected",
+        "solved": false
+      },
+      {
+        "accepted": true,
+        "name": "Androstenedione",
+        "route_count": 66,
+        "route_status": "solved",
+        "solved": true
+      }
+    ]
+  },
+  "run_dir": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_canonical_real_tools_20260607_154411",
+  "schema_version": "bufotalin_current_fullflow_process_report_data.v1",
+  "self_evo": {
+    "accepted": true,
+    "elapsed_s": 0.007,
+    "reasons": [
+      "production_not_requested",
+      "target_run_production_blocked"
+    ]
+  },
+  "smiles_first": {
+    "accepted": true,
+    "elapsed_s": 0.374,
+    "route_status": "partial_anchor"
+  },
+  "target": {
+    "exact_mw": 444.251189,
+    "formula": "C26H36O6",
+    "heavy_atoms": 32,
+    "inchi_key": "VOZHMAYHYHEWBW-NVOOAVKYSA-N",
+    "input_smiles": "CC(=O)O[C@H]1C[C@@]2([C@@H]3CC[C@@H]4C[C@H](CC[C@@]4([C@H]3CC[C@@]2([C@H]1C5=COC(=O)C=C5)C)C)O)O",
+    "isomeric_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+    "name": "bufotalin",
+    "rings": 5,
+    "risk_flags": [
+      "polycyclic_or_steroid_like"
+    ],
+    "stereocenters": 9
+  },
+  "tool_calls": [
+    {
+      "elapsed_s": 288.13,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "run_chemenzy"
+    },
+    {
+      "elapsed_s": 1.566,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "audit_route_and_extract_frontier"
+    },
+    {
+      "elapsed_s": 0.374,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "run_smiles_first_literature_workflow"
+    },
+    {
+      "elapsed_s": 953.627,
+      "reasons": [
+        "downstream_consumables_missing_evidence_refs:route_expansion_tasks:1",
+        "open_agent_boundary_violation:context_boundary:large_raw_artifact_dump",
+        "open_structure_research_nonzero_exit"
+      ],
+      "status": "rejected",
+      "tool_name": "run_open_structure_research_agent"
+    },
+    {
+      "elapsed_s": 284.494,
+      "reasons": [
+        "advanced_same_scaffold_terminal",
+        "large_atom_jump",
+        "no_verifier_accepted_stock_closed_route"
+      ],
+      "status": "accepted",
+      "tool_name": "run_guided_chemenzy_rerun"
+    },
+    {
+      "elapsed_s": 532.595,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "run_route_expansion_subgoal_search"
+    },
+    {
+      "elapsed_s": 0.007,
+      "reasons": [
+        "production_not_requested",
+        "target_run_production_blocked"
+      ],
+      "status": "accepted",
+      "tool_name": "run_self_evo_replay_gate"
+    },
+    {
+      "elapsed_s": 0.029,
+      "reasons": [
+        "advanced_same_scaffold_terminal",
+        "downstream_consumables_missing_evidence_refs:route_expansion_tasks:1",
+        "fake_closure_evidence_present",
+        "large_atom_jump",
+        "no_verifier_accepted_stock_closed_route",
+        "open_agent_boundary_violation:context_boundary:large_raw_artifact_dump",
+        "open_structure_research_nonzero_exit",
+        "raw_reaction_injection"
+      ],
+      "status": "rejected",
+      "tool_name": "validate_artifact_bundle"
+    }
+  ]
+}
