@@ -1,27 +1,41 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-from cascade_planner.harness.codex_plan import deterministic_workflow_plan
+from cascade_planner.harness.codex_plan import _workflow_plan_normalization_audit, deterministic_workflow_plan
 from cascade_planner.harness.preflight import run_preflight
-from cascade_planner.harness.runner import emit_final_verdict, run_codex_entry_controller
-from cascade_planner.harness.schemas import TargetInput, WORKFLOW_PLAN_SCHEMA, validate_workflow_plan
+from cascade_planner.harness.runner import (
+    _normalize_controller_plan_for_execution,
+    emit_final_verdict,
+    run_codex_entry_controller,
+)
+from cascade_planner.harness.schemas import (
+    CANONICAL_RUN_SEMANTICS,
+    TargetInput,
+    WORKFLOW_PLAN_SCHEMA,
+    validate_workflow_plan,
+    workflow_plan_from_dict,
+)
 from cascade_planner.harness.route_failure_feedback import compile_route_failure_feedback
 from cascade_planner.harness.route_verifier import verify_chemenzy_raw_routes
 from cascade_planner.harness.tools import (
     HarnessBudget,
     ToolExecutionState,
     _compile_open_research_downstream,
+    _target_search_name,
     execute_local_tool,
     run_open_structure_research_agent,
 )
 from cascade_planner.harness.open_research_retrieval import prefetch_open_research_evidence
+from cascade_planner.harness.source_detail_chain_builder import resolve_curator_records_to_source_detail_steps
 from cascade_planner.harness.source_detail_resolution import source_detail_curator_records_path
+from scripts.run_codex_entry_controller import _resolve_cli_targets
 from scripts.run_chem_enzy_plan_for_web import _stock_names_from_payload
 from scripts.run_open_structure_template_agent import _read_or_build_prompt, _validate_open_agent_outputs
 
@@ -38,6 +52,52 @@ ATORVASTATIN_SMILES = (
 
 
 class CodexEntryHarnessContractTest(unittest.TestCase):
+    def test_cli_accepts_positional_smiles_and_creates_batch_run_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/run_codex_entry_controller.py",
+                    "not_a_smiles",
+                    "still_not_a_smiles",
+                    "--output-dir",
+                    tmp,
+                    "--offline-planner",
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            payload = json.loads(proc.stdout)
+            run_dirs = [Path(item["run_dir"]) for item in payload["runs"]]
+
+            self.assertEqual(payload["schema_version"], "codex_entry_controller_cli_batch_result.v1")
+            self.assertEqual(payload["run_count"], 2)
+            self.assertEqual(len(run_dirs), 2)
+            self.assertNotEqual(run_dirs[0], run_dirs[1])
+            for run_dir in run_dirs:
+                self.assertEqual(run_dir.parent, Path(tmp))
+                self.assertTrue((run_dir / "target_input.json").exists())
+                self.assertTrue((run_dir / "final_verdict.json").exists())
+
+    def test_cli_legacy_single_target_keeps_output_dir_as_run_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = Namespace(
+                smiles=[],
+                target_smiles="not_a_smiles",
+                target_name="legacy_case",
+                output_dir=tmp,
+                output_root=str(Path(tmp) / "unused"),
+                run_prefix="codex_entry",
+            )
+            targets = _resolve_cli_targets(args)
+
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].target_name, "legacy_case")
+        self.assertEqual(targets[0].target_smiles, "not_a_smiles")
+        self.assertEqual(targets[0].output_dir, Path(tmp))
+
     def test_invalid_smiles_stops_before_codex_research_and_emits_invalid_input(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = run_codex_entry_controller(
@@ -142,6 +202,30 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
 
         self.assertTrue(validation["accepted"], validation["reasons"])
 
+    def test_live_planner_object_run_semantics_is_normalized_to_canonical(self):
+        raw_plan = _plan(
+            "literature_with_object_semantics",
+            strategy="literature_first",
+            tools=[{"tool_name": "run_smiles_first_literature_workflow", "payload": {}}],
+            planner_decision_reason="steroid_or_polycyclic_core",
+            run_semantics={
+                "codex_role": "workflow_planning_only",
+                "chemistry_solution_allowed": False,
+                "raw_reaction_output_allowed": False,
+                "final_verdict_authority": "deterministic_validators",
+                "literature_reasoning_channel": "run_open_structure_research_agent_only",
+            },
+        )
+
+        plan = workflow_plan_from_dict(raw_plan)
+        validation = validate_workflow_plan(plan, case_id="literature_with_object_semantics")
+        audit = _workflow_plan_normalization_audit(raw_plan, plan)
+
+        self.assertEqual(plan.run_semantics, CANONICAL_RUN_SEMANTICS)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+        self.assertEqual(audit["raw_run_semantics_type"], "dict")
+        self.assertTrue(audit["run_semantics_changed"])
+
     def test_chem_enzy_first_cannot_start_with_literature(self):
         plan = _plan(
             "bad_chem_first",
@@ -169,6 +253,79 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
             validation["reasons"],
         )
 
+    def test_steroid_literature_first_plan_is_normalized_to_keep_chemenzy_baseline(self):
+        target = {
+            "schema_version": "codex_entry_target_input.v1",
+            "case_id": "o_c1cc_c_2_c_c_ccc3c2c",
+            "target_name": "o_c1cc_c_2_c_c_ccc3c2c",
+            "target_smiles": "O=C1CC[C@@]2(C)C(CCC3C2C[C@H](Cl)[C@@]4(C)C3CCC4=O)=C1",
+            "family_hint": "",
+        }
+        preflight = {
+            "schema_version": "codex_entry_preflight.v1",
+            "accepted": True,
+            "case_id": "o_c1cc_c_2_c_c_ccc3c2c",
+            "target_profile": {"heavy_atoms": 22, "formula": "C19H25ClO2"},
+            "initial_risk_flags": ["polycyclic_or_steroid_like", "unassigned_stereochemistry"],
+        }
+        plan = _plan(
+            "o_c1cc_c_2_c_c_ccc3c2c",
+            strategy="literature_first",
+            planner_decision_reason="steroid_or_polycyclic_core",
+            tools=[
+                {"tool_name": "run_smiles_first_literature_workflow", "payload": {}},
+                {"tool_name": "run_open_structure_research_agent", "payload": {}},
+                {"tool_name": "extract_pdf_literature_structures", "payload": {}},
+            ],
+        )
+
+        normalized, audit = _normalize_controller_plan_for_execution(plan, target_data=target, preflight=preflight)
+        tool_names = [row["tool_name"] for row in normalized["planned_tools"]]
+        validation = validate_workflow_plan(normalized, case_id=preflight["case_id"])
+
+        self.assertTrue(audit["changed"], audit)
+        self.assertEqual(normalized["recommended_strategy"], "hybrid")
+        self.assertEqual(tool_names[:2], ["run_chemenzy", "audit_route_and_extract_frontier"])
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_generated_smiles_slug_does_not_become_single_letter_search_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ToolExecutionState(
+                run_dir=Path(tmp),
+                target_input={
+                    "target_name": "o_c1cc_c_2_c_c_ccc3c2c",
+                    "target_smiles": "O=C1CC[C@@]2(C)C(CCC3C2C[C@H](Cl)[C@@]4(C)C3CCC4=O)=C1",
+                    "family_hint": "",
+                },
+                preflight={
+                    "case_id": "o_c1cc_c_2_c_c_ccc3c2c",
+                    "target_profile": {"formula": "C19H25ClO2", "heavy_atoms": 22},
+                    "initial_risk_flags": ["polycyclic_or_steroid_like"],
+                },
+            )
+
+            search_name = _target_search_name(state)
+
+        self.assertNotEqual(search_name, "o")
+        self.assertIn("C19H25ClO2", search_name)
+        self.assertIn("steroid", search_name)
+
+    def test_pdf_and_visual_tools_reject_missing_inputs_without_directory_exception(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ToolExecutionState(
+                run_dir=Path(tmp),
+                target_input={"target_name": "ethanol", "target_smiles": "CCO", "family_hint": ""},
+                preflight={"case_id": "ethanol", "target_profile": {"heavy_atoms": 3}},
+            )
+
+            pdf_record = execute_local_tool("extract_pdf_literature_structures", {}, state)
+            visual_record = execute_local_tool("extract_visual_literature_chain", {"image_paths": ["."]}, state)
+
+        self.assertEqual(pdf_record.status, "rejected")
+        self.assertIn("pdf_or_image_input_missing", pdf_record.reasons)
+        self.assertEqual(visual_record.status, "rejected")
+        self.assertIn("visual_input_images_missing", visual_record.reasons)
+
     def test_literature_visual_chain_tools_are_allowed_and_chain_artifacts_connect(self):
         target = {
             "schema_version": "codex_entry_target_input.v1",
@@ -188,6 +345,7 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
             "visual_chain_case",
             strategy="hybrid",
             tools=[
+                {"tool_name": "extract_visual_literature_chain", "payload": {}},
                 {"tool_name": "validate_literature_intermediate_chain", "payload": {}},
                 {"tool_name": "build_source_detail_curator_records", "payload": {}},
                 {"tool_name": "compile_source_detail_chain_route", "payload": {}},
@@ -221,10 +379,26 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
                 run_dir=Path(tmp),
                 target_input=target,
                 preflight=preflight,
+                mock_tool_results={
+                    "extract_visual_literature_chain": {
+                        "schema_version": "visual_literature_chain_extraction_result.v1",
+                        "accepted": True,
+                        "status": "completed",
+                        "candidate_chain": candidate_chain,
+                        "candidate_step_count": 2,
+                        "extraction_policy": {
+                            "pdf_reuse_allowed": True,
+                            "prior_candidate_chain_reuse_allowed": False,
+                            "prior_source_detail_records_reuse_allowed": False,
+                            "must_derive_from_current_images": True,
+                        },
+                    }
+                },
             )
+            extraction_record = execute_local_tool("extract_visual_literature_chain", {}, state)
             chain_record = execute_local_tool(
                 "validate_literature_intermediate_chain",
-                {"candidate_chain": candidate_chain},
+                {},
                 state,
             )
             curator_record = execute_local_tool("build_source_detail_curator_records", {}, state)
@@ -236,6 +410,8 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
             hybrid_record = execute_local_tool("compile_hybrid_route_set", {}, state)
 
         self.assertTrue(validation["accepted"], validation["reasons"])
+        self.assertEqual(extraction_record.status, "accepted")
+        self.assertIn("visual_structure_candidate_chain", state.artifacts)
         self.assertEqual(chain_record.status, "accepted")
         self.assertEqual(curator_record.status, "accepted")
         self.assertEqual(route_record.status, "accepted")
@@ -243,6 +419,107 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertEqual(curator_record.output["summary"]["one_step_row_count"], 2)
         self.assertTrue(route_record.output["result"]["chain_audit"]["terminal_reached"])
         self.assertEqual(hybrid_record.output["result"]["summary"]["literature_route_count"], 1)
+
+    def test_source_text_condition_repair_preserves_visual_smiles_for_partial_chain(self):
+        target = {
+            "schema_version": "codex_entry_target_input.v1",
+            "case_id": "partial_visual_case",
+            "target_name": "acetaldehyde",
+            "target_smiles": "CC=O",
+            "family_hint": "small molecule",
+        }
+        preflight = {
+            "schema_version": "codex_entry_preflight.v1",
+            "accepted": True,
+            "case_id": "partial_visual_case",
+            "target_profile": {"heavy_atoms": 3},
+            "initial_risk_flags": [],
+        }
+        plan = _plan(
+            "partial_visual_case",
+            strategy="hybrid",
+            tools=[
+                {"tool_name": "apply_source_text_condition_repairs", "payload": {}},
+                {"tool_name": "validate_literature_intermediate_chain", "payload": {}},
+            ],
+        )
+        candidate_chain = {
+            "schema_version": "visual_structure_candidate_chain.v1",
+            "case_id": "partial_visual_case",
+            "target_name": "acetaldehyde",
+            "target_smiles": "",
+            "source_ref": "doi:10.0000/partial-visual",
+            "source_title": "Partial visual source",
+            "route_order": "retro_target_to_start",
+            "steps": [
+                {
+                    "schema_version": "visual_structure_candidate_step.v1",
+                    "step_id": "step_2_from_1",
+                    "segment_id": "visual_literature_chain",
+                    "product_label": "2",
+                    "product_smiles": "CCO",
+                    "reactant_labels": ["1"],
+                    "reactant_smiles": ["CC"],
+                    "main_reactant_smiles": "CC",
+                    "source_ref": "doi:10.0000/partial-visual",
+                    "source_title": "Partial visual source",
+                    "source_locator": "Scheme 1",
+                    "structure_derivation": {
+                        "basis": "current_pdf_image_to_smiles",
+                        "source_locator": "Scheme 1",
+                        "confidence": "medium",
+                        "tool_checks": ["visual extraction performed in this run"],
+                    },
+                }
+            ],
+        }
+
+        validation = validate_workflow_plan(plan, case_id="partial_visual_case")
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ToolExecutionState(
+                run_dir=Path(tmp),
+                target_input=target,
+                preflight=preflight,
+            )
+            state.artifacts["visual_structure_candidate_chain"] = candidate_chain
+            repair_record = execute_local_tool(
+                "apply_source_text_condition_repairs",
+                {
+                    "condition_repairs": [
+                        {
+                            "step_id": "step_2_from_1",
+                            "condition_candidate": {
+                                "schema_version": "condition_candidate.v1",
+                                "source_type": "exact",
+                                "condition_status": "evidence_backed",
+                                "reagent": "NaBH4",
+                                "solvent": "MeOH",
+                                "source_grounding": "Scheme 1 caption",
+                            },
+                            "source_excerpt": "Scheme 1 reports reduction with NaBH4 in MeOH.",
+                            "source_locator": "Scheme 1, arrow 1 to 2",
+                        }
+                    ],
+                },
+                state,
+            )
+            chain_record = execute_local_tool(
+                "validate_literature_intermediate_chain",
+                {
+                    "allow_partial_chain_without_target_match": True,
+                    "require_contiguous": False,
+                },
+                state,
+            )
+
+        repaired = repair_record.output["candidate_chain"]
+        self.assertTrue(validation["accepted"], validation["reasons"])
+        self.assertEqual(repair_record.status, "accepted")
+        self.assertTrue(repaired["condition_repair_audit"]["structure_smiles_unchanged"])
+        self.assertEqual(repaired["steps"][0]["product_smiles"], "CCO")
+        self.assertEqual(repaired["steps"][0]["reactant_smiles"], ["CC"])
+        self.assertEqual(chain_record.status, "accepted")
+        self.assertEqual(chain_record.output["result"]["summary"]["accepted_step_count"], 1)
 
     def test_mock_bufotalin_fake_closure_cannot_become_solved(self):
         plan = _plan(
@@ -1722,6 +1999,389 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertEqual(request["chem_enzy_search_policy"]["policy_id"], "ethanol_policy_1")
         self.assertEqual(request["literature_template_plugin"]["one_step_rows"][0]["reactants"], "CC.O")
 
+    def test_guided_chemenzy_rerun_uses_plugin_only_policy_when_rows_exist(self):
+        def fake_run(cmd, **kwargs):
+            del kwargs
+            request_path = Path(cmd[cmd.index("--input") + 1])
+            output_path = Path(cmd[cmd.index("--output") + 1])
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "chemenzy_web_result.v1",
+                        "ok": True,
+                        "accepted": True,
+                        "request_echo": request,
+                        "routes": [],
+                        "search_status": {"solved": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = ToolExecutionState(
+                run_dir=root,
+                target_input={"target_name": "ethanol", "target_smiles": "CCO", "family_hint": ""},
+                preflight={"case_id": "ethanol"},
+            )
+            state.artifacts["compiled_downstream"] = {
+                "schema_version": "compiled_downstream_consumables.v1",
+                "accepted": True,
+                "guided_chemenzy": {"policy_payloads": []},
+                "literature_template_plugin": {
+                    "plugin_flags": {
+                        "enabled": True,
+                        "top_k": 2,
+                        "max_added": 2,
+                        "template_cards": [],
+                        "one_step_rows": [_plugin_row("CC.O")],
+                        "requires_audit": True,
+                        "not_raw_reaction_injection": True,
+                    }
+                },
+            }
+            with patch("cascade_planner.harness.tools._chem_enzy_python_bin", return_value=Path("/usr/bin/python3")):
+                with patch("cascade_planner.harness.tools.subprocess.run", side_effect=fake_run):
+                    result = execute_local_tool("run_guided_chemenzy_rerun", {}, state)
+            request = json.loads((root / "guided_chemenzy_request.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result.status, "accepted")
+        self.assertEqual(state.guided_chemenzy_runs, 1)
+        self.assertEqual(
+            request["chem_enzy_search_policy"]["rerun_reason"],
+            "compiled_literature_template_plugin_available",
+        )
+        self.assertTrue(request["chem_enzy_search_policy"]["source_budget"]["plugin_only_guided_rerun"])
+        self.assertEqual(request["literature_template_plugin"]["one_step_rows"][0]["reactants"], "CC.O")
+
+    def test_analogical_retrosynthesis_hypotheses_are_advisory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = ToolExecutionState(
+                run_dir=root,
+                target_input={
+                    "target_name": "anthranilate_imide_target",
+                    "target_smiles": "COC(=O)c1ccccc1N1C(=O)CCC1=O",
+                    "family_hint": "alkaloid analogue",
+                },
+                preflight={"case_id": "anthranilate_imide_target"},
+            )
+            state.artifacts["compiled_downstream"] = {
+                "schema_version": "compiled_downstream_consumables.v1",
+                "accepted": True,
+                "literature_template_plugin": {
+                    "plugin_flags": {
+                        "enabled": True,
+                        "one_step_rows": [
+                            _plugin_row_with_trace(
+                                product="CC(C)(C)OC(=O)Nc1cc(O)ccc1C=O",
+                                reactants=["CC(C)(C)OC(=O)Nc1cc(O[Si](C)(C)C(C)(C)C)ccc1C=O"],
+                                template_id="source_detail_exact_step:tbs_deprotection",
+                                reagent="TBAF",
+                            )
+                        ],
+                    }
+                },
+            }
+            record = execute_local_tool("build_analogical_retrosynthesis_hypotheses", {}, state)
+            persisted = json.loads((root / "analogical_retrosynthesis_hypotheses.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(record.status, "accepted")
+        self.assertTrue(persisted["accepted"])
+        self.assertEqual(persisted["mode"], "advisory_inspiration_only")
+        self.assertTrue(persisted["no_solved_claim"])
+        self.assertTrue(persisted["production_write_blocked"])
+        self.assertIn("aryl_ester_or_anthranilate_sidechain", persisted["target"]["handles"])
+        self.assertGreaterEqual(persisted["hypothesis_count"], 1)
+        self.assertTrue(persisted["search_policy_patch"]["require_target_core_retention"])
+        self.assertTrue(
+            any(item["hypothesis_id"] == "target_side_late_stage_aryl_ester_disconnection" for item in persisted["hypotheses"])
+        )
+
+    def test_guided_chemenzy_rerun_merges_analogical_policy_patch(self):
+        def fake_run(cmd, **kwargs):
+            del kwargs
+            request_path = Path(cmd[cmd.index("--input") + 1])
+            output_path = Path(cmd[cmd.index("--output") + 1])
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "chemenzy_web_result.v1",
+                        "ok": True,
+                        "accepted": True,
+                        "request_echo": request,
+                        "routes": [],
+                        "search_status": {"solved": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = ToolExecutionState(
+                run_dir=root,
+                target_input={"target_name": "ethanol", "target_smiles": "CCO", "family_hint": ""},
+                preflight={"case_id": "ethanol"},
+            )
+            state.artifacts["compiled_downstream"] = {
+                "schema_version": "compiled_downstream_consumables.v1",
+                "accepted": True,
+                "guided_chemenzy": {"policy_payloads": [_policy_payload("ethanol_policy_1")]},
+            }
+            state.artifacts["analogical_retrosynthesis_hypotheses"] = {
+                "schema_version": "analogical_retrosynthesis_hypotheses.v1",
+                "accepted": True,
+                "mode": "advisory_inspiration_only",
+                "source_row_count": 1,
+                "hypothesis_count": 1,
+                "search_policy_patch": {
+                    "schema_version": "analogical_search_policy_patch.v1",
+                    "enabled": True,
+                    "preferred_reaction_classes": ["target_side_analogical_disconnection", "n_alkylation"],
+                    "active_failure_modes": ["large_atom_jump"],
+                    "require_target_core_retention": True,
+                    "max_unexplained_heavy_atom_delta": 20,
+                },
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "analogy_1",
+                        "inspiration_type": "reaction_family_transfer",
+                        "reaction_family": "n_alkylation",
+                        "target_side_attempt": {"role": "chemist_advisory_disconnection"},
+                        "required_verification": ["deterministic_route_verifier_must_accept_before_solved_claim"],
+                    }
+                ],
+            }
+            with patch("cascade_planner.harness.tools._chem_enzy_python_bin", return_value=Path("/usr/bin/python3")):
+                with patch("cascade_planner.harness.tools.subprocess.run", side_effect=fake_run):
+                    execute_local_tool("run_guided_chemenzy_rerun", {}, state)
+            request = json.loads((root / "guided_chemenzy_request.json").read_text(encoding="utf-8"))
+
+        policy = request["chem_enzy_search_policy"]
+        self.assertTrue(policy["source_budget"]["analogical_inspiration_enabled"])
+        self.assertTrue(policy["source_budget"]["require_target_core_retention"])
+        self.assertIn("n_alkylation", policy["source_budget"]["preferred_reaction_classes"])
+        self.assertEqual(policy["compiler_metadata"]["analogical_retrosynthesis"]["hypothesis_count"], 1)
+        self.assertEqual(
+            policy["preferred_subgoal"]["analogical_retrosynthesis_hypotheses"][0]["hypothesis_id"],
+            "analogy_1",
+        )
+
+    def test_guided_chemenzy_reports_plugin_enabled_but_not_invoked(self):
+        target = "CCCCCCCCCCCCCCCCCCCCCCCCCC"
+
+        def fake_run(cmd, **kwargs):
+            del kwargs
+            request_path = Path(cmd[cmd.index("--input") + 1])
+            output_path = Path(cmd[cmd.index("--output") + 1])
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "chemenzy_web_result.v1",
+                        "ok": True,
+                        "accepted": True,
+                        "target": request["target_smiles"],
+                        "raw_backend_metadata": {
+                            "literature_template_plugin": {
+                                "schema_version": "literature_one_step_plugin.stats.v1",
+                                "enabled": True,
+                                "calls": 0,
+                                "candidate_templates": 0,
+                                "instantiated_candidates": 0,
+                                "added_candidates": 0,
+                            }
+                        },
+                        "routes": [
+                            {
+                                "route_rank": 0,
+                                "score": 1.0,
+                                "n_steps": 1,
+                                "steps": [
+                                    {
+                                        "index": 0,
+                                        "product": request["target_smiles"],
+                                        "main_reactant": "C",
+                                        "aux_reactants": [],
+                                        "stock_status": {"C": True},
+                                    }
+                                ],
+                                "metrics": {"terminal_reactants": ["C"], "terminal_stock_status": {"C": True}},
+                            }
+                        ],
+                        "search_status": {"solved": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = ToolExecutionState(
+                run_dir=root,
+                target_input={"target_name": "long_alkane", "target_smiles": target, "family_hint": ""},
+                preflight={"case_id": "long_alkane"},
+            )
+            state.artifacts["compiled_downstream"] = {
+                "schema_version": "compiled_downstream_consumables.v1",
+                "accepted": True,
+                "guided_chemenzy": {"policy_payloads": [_policy_payload("long_alkane_policy_1")]},
+                "literature_template_plugin": {
+                    "plugin_flags": {
+                        "enabled": True,
+                        "top_k": 1,
+                        "max_added": 1,
+                        "template_cards": [],
+                        "one_step_rows": [_plugin_row_with_trace(product="CCO", reactants=["CC"], template_id="source_detail_exact_step:ethanol")],
+                        "requires_audit": True,
+                        "not_raw_reaction_injection": True,
+                    }
+                },
+            }
+            with patch("cascade_planner.harness.tools._chem_enzy_python_bin", return_value=Path("/usr/bin/python3")):
+                with patch("cascade_planner.harness.tools.subprocess.run", side_effect=fake_run):
+                    record = execute_local_tool("run_guided_chemenzy_rerun", {}, state)
+
+        result = record.output["result"]
+        self.assertFalse(result["accepted"])
+        self.assertIn("large_atom_jump", result["reasons"])
+        self.assertIn("literature_template_plugin_not_invoked", result["reasons"])
+        self.assertEqual(result["literature_template_plugin_runtime"]["calls"], 0)
+
+    def test_compile_source_detail_chain_route_publishes_compiled_downstream_state(self):
+        step = {
+            "schema_version": "source_detail_route_step.v1",
+            "step_id": "ethanol_step",
+            "segment_id": "ethanol_segment",
+            "source_ref": "doi:test",
+            "evidence_refs": ["ev1"],
+            "product_smiles": "CCO",
+            "reactant_smiles": ["CC"],
+            "relation_type": "exact",
+            "condition_candidate": {
+                "schema_version": "condition_candidate.v1",
+                "step_id": "ethanol_step",
+                "source_type": "exact",
+                "condition_status": "evidence_backed",
+                "reagent": "water",
+                "evidence_refs": ["ev1"],
+            },
+            "applicability": {"status": "passed", "product_reconstruction_passed": True},
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = ToolExecutionState(
+                run_dir=root,
+                target_input={"target_name": "ethanol", "target_smiles": "CCO", "family_hint": ""},
+                preflight={"case_id": "ethanol"},
+            )
+            result = execute_local_tool(
+                "compile_source_detail_chain_route",
+                {
+                    "source_detail_steps": [step],
+                    "terminal_smiles": "CC",
+                    "terminal_name": "ethane",
+                },
+                state,
+            )
+
+        self.assertEqual(result.status, "accepted")
+        compiled = state.artifacts["compiled_downstream"]
+        self.assertEqual(compiled["schema_version"], "compiled_downstream_consumables.v1")
+        self.assertTrue(compiled["literature_template_plugin"]["plugin_flags"]["enabled"])
+        self.assertEqual(
+            state.artifacts["compiled_downstream_payload"]["literature_template_plugin"]["plugin_flags"]["one_step_rows"][0]["reactants"],
+            "CC",
+        )
+
+    def test_exact_codex_curator_record_resolves_and_publishes_one_step_row(self):
+        curator_records = {
+            "schema_version": "source_detail_curator_records.v1",
+            "records": [
+                {
+                    "schema_version": "source_detail_curator_record.v1",
+                    "record_id": "exact_codex_curator_record",
+                    "source_ref": "doi:10.0000/exact-source-text",
+                    "source_title": "Exact source text route step",
+                    "evidence_refs": ["scheme:1"],
+                    "provenance": "codex_source_text_translation",
+                    "source_excerpt": "Compound 3 was converted to ethanol 4.",
+                    "structure_derivation": {
+                        "basis": "codex_source_text_translation",
+                        "source_locator": {
+                            "source_ref": "doi:10.0000/exact-source-text",
+                            "source_title": "Exact source text route step",
+                        },
+                        "confidence": "medium_high_for_structure_and_route",
+                        "tool_checks": {
+                            "rdkit_product_parse": True,
+                            "rdkit_reactant_parse": True,
+                        },
+                    },
+                    "full_text_content_stored": False,
+                    "procedure_text_stored": False,
+                    "steps": [
+                        {
+                            "step_id": "exact_codex_step_1",
+                            "segment_id": "exact_codex_segment",
+                            "product_smiles": "CCO",
+                            "reactant_smiles": ["CC", "O"],
+                            "relation_type": "exact",
+                            "condition_candidate": {
+                                "schema_version": "condition_candidate.v1",
+                                "source_type": "exact",
+                                "condition_status": "evidence_backed",
+                                "reagent": "water",
+                                "evidence_refs": ["scheme:1"],
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resolution = resolve_curator_records_to_source_detail_steps(
+                curator_records,
+                output_dir=root / "open_structure_research",
+                target_name="ethanol",
+                target_smiles="CCO",
+                source_ref="doi:10.0000/exact-source-text",
+            )
+            state = ToolExecutionState(
+                run_dir=root,
+                target_input={"target_name": "ethanol", "target_smiles": "CCO", "family_hint": ""},
+                preflight={"case_id": "ethanol"},
+            )
+            result = execute_local_tool(
+                "compile_source_detail_chain_route",
+                {
+                    "source_detail_steps": resolution["source_detail_route_steps"],
+                    "terminal_smiles": "CC",
+                    "terminal_name": "ethane",
+                },
+                state,
+            )
+
+        self.assertEqual(resolution["summary"]["curator_step_count"], 1)
+        self.assertEqual(resolution["summary"]["gap_count"], 0)
+        self.assertEqual(result.status, "accepted", result.reasons)
+        rows = state.artifacts["compiled_downstream"]["literature_template_plugin"]["one_step_rows"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["reactants"], "CC.O")
+        trace = rows[0]["literature_template_trace"]
+        self.assertEqual(trace["source_template_id"], "source_detail_exact_step:exact_codex_step_1")
+        self.assertEqual(trace["structure_derivation"]["source_locator"]["source_ref"], "doi:10.0000/exact-source-text")
+
     def test_guided_chemenzy_rerun_merges_self_evo_memory_plugin_rows(self):
         def fake_run(cmd, **kwargs):
             del kwargs
@@ -2455,6 +3115,117 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
     def test_chemenzy_runner_defaults_to_strict_building_block_stock_names(self):
         self.assertEqual(_stock_names_from_payload({}), ["PaRotes_n1-stock"])
 
+    def test_stitched_literature_chain_with_verified_subgoal_can_claim_solved(self):
+        literature_terminal = "CCO"
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ToolExecutionState(
+                run_dir=Path(tmp),
+                target_input={"target_name": "ethyl acetate", "target_smiles": "CCOC(C)=O"},
+                preflight={"accepted": True, "case_id": "stitched_case"},
+            )
+            literature_chain = {
+                "schema_version": "source_detail_route_chain_audit.v1",
+                "accepted": True,
+                "case_id": "stitched_case",
+                "target_smiles": "CCOC(C)=O",
+                "terminal_smiles": literature_terminal,
+                "terminal_name": "ethanol",
+                "terminal_reached": True,
+                "step_count": 1,
+                "chain": [{"main_reactant_smiles": literature_terminal}],
+            }
+            subgoal = verify_chemenzy_raw_routes(
+                _accepted_ethanol_chemenzy_result_for_target(literature_terminal),
+                target_smiles=literature_terminal,
+                case_id="stitched_case:ethanol",
+            )
+            record = execute_local_tool(
+                "stitch_literature_chain_with_subgoal_route",
+                {
+                    "literature_chain_audit": literature_chain,
+                    "subgoal_verifier": subgoal,
+                    "subgoal_raw_result": _accepted_ethanol_chemenzy_result_for_target(literature_terminal),
+                },
+                state,
+            )
+            verdict = emit_final_verdict(
+                {
+                    "case_id": "stitched_case",
+                    "target_input": state.target_input,
+                    "preflight": state.preflight,
+                    "workflow_plan": _plan(
+                        "stitched_case",
+                        strategy="hybrid",
+                        tools=[
+                            {"tool_name": "stitch_literature_chain_with_subgoal_route", "payload": {}},
+                            {"tool_name": "emit_final_verdict", "payload": {}},
+                        ],
+                    ),
+                    "artifacts": state.artifacts,
+                    "validations": [],
+                }
+            )
+
+        self.assertEqual(record.status, "accepted")
+        self.assertTrue(record.output["result"]["accepted"])
+        self.assertEqual(verdict.verdict, "solved")
+        self.assertTrue(verdict.solved)
+        self.assertTrue(verdict.stock_audit_passed)
+
+    def test_stitched_route_rejects_solved_subgoal_when_terminal_identity_differs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ToolExecutionState(
+                run_dir=Path(tmp),
+                target_input={"target_name": "ethyl acetate", "target_smiles": "CCOC(C)=O"},
+                preflight={"accepted": True, "case_id": "stitched_mismatch_case"},
+            )
+            literature_chain = {
+                "schema_version": "source_detail_route_chain_audit.v1",
+                "accepted": True,
+                "case_id": "stitched_mismatch_case",
+                "target_smiles": "CCOC(C)=O",
+                "terminal_smiles": "CCN",
+                "terminal_name": "ethylamine",
+                "terminal_reached": True,
+                "step_count": 1,
+                "chain": [{"main_reactant_smiles": "CCN"}],
+            }
+            subgoal = verify_chemenzy_raw_routes(
+                _accepted_ethanol_chemenzy_result_for_target("CCO"),
+                target_smiles="CCO",
+                case_id="stitched_mismatch_case:ethanol",
+            )
+            record = execute_local_tool(
+                "stitch_literature_chain_with_subgoal_route",
+                {
+                    "literature_chain_audit": literature_chain,
+                    "subgoal_verifier": subgoal,
+                    "subgoal_raw_result": _accepted_ethanol_chemenzy_result_for_target("CCO"),
+                },
+                state,
+            )
+            verdict = emit_final_verdict(
+                {
+                    "case_id": "stitched_mismatch_case",
+                    "target_input": state.target_input,
+                    "preflight": state.preflight,
+                    "workflow_plan": _plan(
+                        "stitched_mismatch_case",
+                        strategy="hybrid",
+                        tools=[
+                            {"tool_name": "stitch_literature_chain_with_subgoal_route", "payload": {}},
+                            {"tool_name": "emit_final_verdict", "payload": {}},
+                        ],
+                    ),
+                    "artifacts": state.artifacts,
+                    "validations": [],
+                }
+            )
+
+        self.assertEqual(record.status, "rejected")
+        self.assertIn("literature_terminal_subgoal_target_mismatch", record.reasons)
+        self.assertNotEqual(verdict.verdict, "solved")
+
 
 @unittest.skipUnless(
     os.environ.get("AUTOPLANNER_LIVE_CODEX_ENTRY_SMOKE") == "1",
@@ -2601,6 +3372,59 @@ def _plugin_row(reactants: str) -> dict:
         "templates": {},
         "model_full_name": "autoplanner.literature_template_plugin",
         "weight": 1.0,
+    }
+
+
+def _plugin_row_with_trace(
+    *,
+    product: str,
+    reactants: list[str],
+    template_id: str,
+    reagent: str = "",
+) -> dict:
+    trace = {
+        "schema_version": "literature_template_trace.v1",
+        "source_template_id": template_id,
+        "source_detail_exact_step": True,
+        "source_ref": "doi:test",
+        "evidence_refs": ["ev1"],
+        "product_smiles": product,
+        "frontier_smiles": product,
+        "reactant_smiles": reactants,
+        "condition_candidate": {
+            "schema_version": "condition_candidate.v1",
+            "condition_status": "evidence_backed",
+            "reagent": reagent,
+        },
+        "no_solved_claim": True,
+        "requires_audit": True,
+    }
+    template = {
+        "source": "literature_template_plugin",
+        "source_model": "literature_template_plugin",
+        "requires_audit": True,
+        "not_lab_procedure": True,
+        "no_solved_claim": True,
+        "literature_template_trace": trace,
+        "template_validation_report": {
+            "allowed_for_one_step_source": True,
+            "accepted": True,
+            "reasons": [],
+        },
+        "template_applicability_report": {
+            "target_smiles": product,
+            "frontier_smiles": product,
+        },
+    }
+    return {
+        "reactants": ".".join(reactants),
+        "scores": 0.7,
+        "costs": None,
+        "template": template,
+        "templates": template,
+        "model_full_name": "autoplanner.literature_template_plugin",
+        "weight": 1.0,
+        "literature_template_trace": trace,
     }
 
 

@@ -115,14 +115,7 @@ def resolve_curator_records_to_source_detail_steps(
     pack = {
         "schema_version": "source_detail_extraction_pack.v1",
         "target": {"name": target_name, "smiles": target_smiles},
-        "queue": [
-            {
-                "queue_id": "curator_visual_chain",
-                "source": "curator_record",
-                "source_ref": source_ref,
-                "evidence_refs": [],
-            }
-        ],
+        "queue": [],
     }
     return resolve_source_detail_extraction_pack(
         pack,

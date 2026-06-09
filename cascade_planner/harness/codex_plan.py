@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from cascade_planner.harness.schemas import (
+    CANONICAL_RUN_SEMANTICS,
     WORKFLOW_PLAN_SCHEMA,
     WorkflowPlan,
     append_jsonl,
@@ -130,8 +131,10 @@ def plan_workflow_with_codex(
     record = {
         "schema_version": "codex_entry_planner_run.v1",
         "accepted": bool(validation.get("accepted")),
+        "raw_workflow_plan": payload,
         "workflow_plan": plan.to_dict(),
         "validation": validation,
+        "normalization_audit": _workflow_plan_normalization_audit(payload, plan),
         "command": command,
         "exit_code": int(proc.returncode),
         "event_log_path": str(event_log),
@@ -179,6 +182,7 @@ def deterministic_workflow_plan(*, target_input: dict[str, Any], preflight: dict
             {"tool_name": "audit_route_and_extract_frontier", "payload": {}},
             {"tool_name": "run_smiles_first_literature_workflow", "payload": {"frontier_smiles": target_input.get("target_smiles")}},
             {"tool_name": "run_open_structure_research_agent", "payload": {}},
+            {"tool_name": "build_analogical_retrosynthesis_hypotheses", "payload": {}},
             {"tool_name": "run_guided_chemenzy_rerun", "payload": {}},
             {"tool_name": "run_route_expansion_subgoal_search", "payload": {}},
             {"tool_name": "run_self_evo_replay_gate", "payload": {}},
@@ -225,9 +229,13 @@ def build_planner_prompt(*, target_input: dict[str, Any], preflight: dict[str, A
         "run_smiles_first_literature_workflow",
         "run_open_structure_research_agent",
         "extract_pdf_literature_structures",
+        "extract_visual_literature_chain",
+        "apply_source_text_condition_repairs",
         "validate_literature_intermediate_chain",
         "build_source_detail_curator_records",
+        "build_analogical_retrosynthesis_hypotheses",
         "compile_source_detail_chain_route",
+        "stitch_literature_chain_with_subgoal_route",
         "compile_hybrid_route_set",
         "run_guided_chemenzy_rerun",
         "run_route_expansion_subgoal_search",
@@ -250,7 +258,13 @@ def build_planner_prompt(*, target_input: dict[str, Any], preflight: dict[str, A
         "For chem_enzy_first, the first executable tool must be run_chemenzy. For hybrid, "
         "run_smiles_first_literature_workflow and run_open_structure_research_agent must come after "
         "run_chemenzy and audit_route_and_extract_frontier unless literature_first is selected with an accepted reason.\n"
-        "Codex may reason about literature later only through run_open_structure_research_agent; deterministic validators make the final verdict.\n\n"
+        "Codex may reason about literature later only through run_open_structure_research_agent; deterministic validators make the final verdict.\n"
+        "If route_expansion_subgoal_search is meant to close a source-detail literature chain, include "
+        "stitch_literature_chain_with_subgoal_route after the subgoal search and before validate_artifact_bundle. "
+        "A solved subgoal alone never implies the target natural product is solved.\n"
+        "Use build_analogical_retrosynthesis_hypotheses when exact literature rows are available but may only inspire "
+        "target-side disconnections; it emits advisory hypotheses only and cannot support a solved verdict.\n"
+        f"run_semantics must be exactly the string {json.dumps(CANONICAL_RUN_SEMANTICS)}, not an object.\n\n"
         "Target input JSON:\n"
         f"{json.dumps(target_input, indent=2, ensure_ascii=False, sort_keys=True)}\n\n"
         "Preflight JSON:\n"
@@ -271,6 +285,17 @@ def parse_workflow_plan_json(text: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("planner_output_not_object")
     return data
+
+
+def _workflow_plan_normalization_audit(raw: dict[str, Any], plan: WorkflowPlan) -> dict[str, Any]:
+    raw_run_semantics = raw.get("run_semantics")
+    return {
+        "schema_version": "codex_entry_workflow_plan_normalization_audit.v1",
+        "raw_run_semantics_type": type(raw_run_semantics).__name__,
+        "raw_run_semantics": raw_run_semantics,
+        "normalized_run_semantics": plan.run_semantics,
+        "run_semantics_changed": raw_run_semantics != plan.run_semantics,
+    }
 
 
 def _extract_first_json_object(text: str) -> dict[str, Any]:

@@ -1,0 +1,60 @@
+{
+  "accepted": true,
+  "reasons": [],
+  "result": {
+    "accepted": true,
+    "case_id": "mla_like_alkaloid_case",
+    "no_solved_claim": true,
+    "reasons": [],
+    "schema_version": "literature_scout_report.v1",
+    "source_candidates": [
+      {
+        "candidate_id": "query_1",
+        "expected_scheme_or_compound_labels": [],
+        "extraction_task_recommendations": [
+          "compile_exact_literature_rows",
+          "extract_visual_literature_chain"
+        ],
+        "local_pdf": "",
+        "relevance_rationale": "Find a target-proximal intermediate that explains the large skeleton change.",
+        "schema_version": "literature_source_candidate.v1",
+        "source_ref": "query:MLA-like alkaloid case:target_side",
+        "title": "MLA-like alkaloid case synthesis target_side bridge",
+        "url": ""
+      },
+      {
+        "candidate_id": "query_2",
+        "expected_scheme_or_compound_labels": [],
+        "extraction_task_recommendations": [
+          "compile_exact_literature_rows",
+          "extract_visual_literature_chain"
+        ],
+        "local_pdf": "",
+        "relevance_rationale": "Find a target-side bridge before replaying exact source products.",
+        "schema_version": "literature_source_candidate.v1",
+        "source_ref": "query:MLA-like alkaloid case:target_side",
+        "title": "MLA-like alkaloid case synthesis target_side bridge",
+        "url": ""
+      },
+      {
+        "candidate_id": "query_3",
+        "expected_scheme_or_compound_labels": [],
+        "extraction_task_recommendations": [
+          "compile_exact_literature_rows",
+          "extract_visual_literature_chain"
+        ],
+        "local_pdf": "",
+        "relevance_rationale": "Find upstream synthesis for rejected same-scaffold terminal.",
+        "schema_version": "literature_source_candidate.v1",
+        "source_ref": "query:MLA-like alkaloid case:advanced_same_scaffold_terminal",
+        "title": "MLA-like alkaloid case synthesis advanced_same_scaffold_terminal bridge",
+        "url": ""
+      }
+    ],
+    "source_refs": [
+      "query:MLA-like alkaloid case:target_side",
+      "query:MLA-like alkaloid case:target_side",
+      "query:MLA-like alkaloid case:advanced_same_scaffold_terminal"
+    ]
+  }
+}

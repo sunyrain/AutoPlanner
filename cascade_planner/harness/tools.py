@@ -16,6 +16,7 @@ from cascade_planner.harness.downstream_compiler import (
     compile_downstream_consumables,
     write_compiled_downstream_artifacts,
 )
+from cascade_planner.harness.analogical_retrosynthesis import build_analogical_retrosynthesis_hypotheses
 from cascade_planner.harness.open_research_contract import (
     REQUIRED_OPEN_RESEARCH_ARTIFACTS,
     REQUIRED_OPEN_RESEARCH_JSON_ARTIFACTS,
@@ -28,6 +29,7 @@ from cascade_planner.harness.open_research_experience import (
 from cascade_planner.harness.open_research_retrieval import validate_retrieval_prefetch_consumption
 from cascade_planner.harness.literature_pdf_extraction import extract_literature_pdf_assets
 from cascade_planner.harness.visual_structure_extraction import validate_visual_structure_chain
+from cascade_planner.harness.visual_literature_chain_agent import run_visual_literature_chain_agent
 from cascade_planner.harness.source_detail_chain_builder import (
     build_source_detail_curator_records_from_chain,
     compile_hybrid_route_set as compile_hybrid_route_set_artifact,
@@ -35,6 +37,7 @@ from cascade_planner.harness.source_detail_chain_builder import (
     probe_literature_plugin_chain,
     resolve_curator_records_to_source_detail_steps,
 )
+from cascade_planner.harness.stitched_route import compile_stitched_semisynthesis_route
 from cascade_planner.harness.source_detail_resolution import (
     resolve_source_detail_extraction_pack,
     source_detail_resolution_manifest_entry,
@@ -142,9 +145,13 @@ def execute_local_tool(tool_name: str, payload: dict[str, Any], state: ToolExecu
         "run_smiles_first_literature_workflow": run_smiles_first_literature_workflow_tool,
         "run_open_structure_research_agent": run_open_structure_research_agent,
         "extract_pdf_literature_structures": extract_pdf_literature_structures_tool,
+        "extract_visual_literature_chain": extract_visual_literature_chain_tool,
+        "apply_source_text_condition_repairs": apply_source_text_condition_repairs_tool,
         "validate_literature_intermediate_chain": validate_literature_intermediate_chain_tool,
         "build_source_detail_curator_records": build_source_detail_curator_records_tool,
+        "build_analogical_retrosynthesis_hypotheses": build_analogical_retrosynthesis_hypotheses_tool,
         "compile_source_detail_chain_route": compile_source_detail_chain_route_tool,
+        "stitch_literature_chain_with_subgoal_route": stitch_literature_chain_with_subgoal_route_tool,
         "compile_hybrid_route_set": compile_hybrid_route_set_tool,
         "run_guided_chemenzy_rerun": run_guided_chemenzy_rerun,
         "run_route_expansion_subgoal_search": run_route_expansion_subgoal_search,
@@ -254,6 +261,10 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         return {"accepted": False, "reasons": ["guided_chemenzy_budget_exhausted"]}
     policy = _guided_policy_from_payload_or_artifacts(state, payload)
     if not policy:
+        plugin_flags = _literature_template_plugin_flags_from_artifacts(state)
+        if plugin_flags:
+            policy = _plugin_only_guided_policy(state, plugin_flags=plugin_flags, payload=payload)
+    if not policy:
         result = _skip_result(
             schema_version="guided_chemenzy_rerun_result.v1",
             reasons=["guided_policy_missing"],
@@ -264,6 +275,7 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         write_json(state.run_dir / "guided_chemenzy_result.json", result)
         return {"accepted": True, "result": result, "reasons": result["reasons"]}
     policy = _merge_route_failure_feedback_policy(state, policy, payload)
+    policy = _merge_analogical_retrosynthesis_policy(state, policy, payload)
     state.guided_chemenzy_runs += 1
 
     budget = dict(policy.get("budget") or {})
@@ -293,6 +305,7 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         target_smiles=str(state.target_input.get("target_smiles") or result.get("target") or ""),
         case_id=str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
     ) if (result.get("routes") or (result.get("result") or {}).get("routes")) else {}
+    plugin_runtime = _literature_template_plugin_runtime_diagnostics(result, request)
     out = {
         "schema_version": "guided_chemenzy_rerun_result.v1",
         "accepted": bool(result.get("ok") or result.get("accepted", result.get("exit_code") == 0)),
@@ -300,12 +313,18 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         "request": request,
         "result": result,
         "raw_route_verifier": verifier,
+        "literature_template_plugin_runtime": plugin_runtime,
         "route_status": str(verifier.get("route_status") or ("solved" if (result.get("search_status") or {}).get("solved") else "unresolved")),
         "solved": bool(verifier.get("accepted")),
     }
     if verifier and not verifier.get("accepted"):
         out["accepted"] = False
-        out["reasons"] = [str(item) for item in verifier.get("reasons") or ["route_verifier_rejected_raw_routes"]]
+        out["reasons"] = sorted(
+            set(
+                [str(item) for item in verifier.get("reasons") or ["route_verifier_rejected_raw_routes"]]
+                + [str(item) for item in plugin_runtime.get("reasons") or []]
+            )
+        )
         feedback = compile_route_failure_feedback(
             verifier,
             case_id=str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
@@ -628,12 +647,54 @@ def _target_search_name(state: ToolExecutionState) -> str:
         lower = token.strip().lower()
         if len(lower) > 6 and lower.endswith("statin"):
             return lower
-    name = str(state.target_input.get("target_name") or state.preflight.get("case_id") or "target").strip()
+    name = str(state.target_input.get("target_name") or state.preflight.get("case_id") or "").strip()
     if "_" in name:
         prefix = name.split("_", 1)[0].strip()
-        if prefix:
+        if prefix.isalpha() and len(prefix) > 2 and prefix.lower() not in {"target", "case"}:
             return prefix
-    return name or "target"
+    if _usable_target_search_name(name):
+        return name
+    return _target_search_fallback(state)
+
+
+def _usable_target_search_name(name: str) -> bool:
+    clean = str(name or "").strip()
+    if not clean or clean.lower() in {"target", "case"}:
+        return False
+    if "_" not in clean:
+        return True
+    alpha_tokens = [token for token in clean.replace("-", "_").split("_") if token.isalpha()]
+    return any(len(token) > 2 for token in alpha_tokens)
+
+
+def _target_search_fallback(state: ToolExecutionState) -> str:
+    family = str(state.target_input.get("family_hint") or "").strip()
+    profile = dict(state.preflight.get("target_profile") or {})
+    formula = str(profile.get("formula") or "").strip()
+    flags = {str(item) for item in state.preflight.get("initial_risk_flags") or []}
+    descriptors: list[str] = []
+    if formula:
+        descriptors.append(formula)
+    if family:
+        descriptors.append(family)
+    if any("steroid" in flag or "polycyclic" in flag for flag in flags):
+        descriptors.append("steroid")
+    if descriptors:
+        return " ".join(_dedupe_texts(descriptors)).strip()
+    return "target"
+
+
+def _dedupe_texts(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        clean = str(value or "").strip()
+        key = clean.lower()
+        if not clean or key in seen:
+            continue
+        seen.add(key)
+        out.append(clean)
+    return out
 
 
 def _execute_chemenzy_request(
@@ -943,18 +1004,45 @@ def extract_pdf_literature_structures_tool(state: ToolExecutionState, payload: d
 
     out = _tool_output_dir(state, payload, default_name="literature_pdf_structure_extraction")
     pdf_path = _input_path(state, payload.get("pdf_path")) if payload.get("pdf_path") else None
-    image_paths = [
-        str(_input_path(state, value))
-        for value in payload.get("image_paths") or []
-        if str(value or "").strip()
-    ]
+    raw_image_values = [value for value in payload.get("image_paths") or [] if str(value or "").strip()]
+    scheme_crops = [dict(item) for item in payload.get("scheme_crops") or [] if isinstance(item, dict)]
+    image_paths = [str(_input_path(state, value)) for value in raw_image_values]
+    if pdf_path is None and not image_paths and not scheme_crops:
+        result = {
+            "schema_version": "literature_pdf_structure_evidence.v1",
+            "accepted": False,
+            "status": "input_missing",
+            "source_pdf_path": "",
+            "rendered_pages": [],
+            "indexed_images": [],
+            "scheme_crops": [],
+            "compound_text_snippets": [],
+            "summary": {
+                "rendered_page_count": 0,
+                "indexed_image_count": 0,
+                "scheme_crop_count": 0,
+                "compound_text_snippet_count": 0,
+            },
+            "reasons": ["pdf_or_image_input_missing"],
+        }
+        state.artifacts["literature_pdf_structure_evidence"] = result
+        state.artifacts["literature_pdf_structure_evidence_dir"] = str(out)
+        write_json(state.run_dir / "literature_pdf_structure_evidence.json", result)
+        return {
+            "accepted": False,
+            "result": result,
+            "artifact_refs": {
+                "literature_pdf_structure_evidence": str(out / "literature_pdf_structure_evidence.json"),
+            },
+            "reasons": result["reasons"],
+        }
     result = extract_literature_pdf_assets(
         pdf_path=pdf_path,
         output_dir=out,
         page_numbers=[int(item) for item in payload.get("page_numbers") or []],
         render_zoom=float(payload.get("render_zoom") or 2.0),
         image_paths=image_paths,
-        scheme_crops=[dict(item) for item in payload.get("scheme_crops") or [] if isinstance(item, dict)],
+        scheme_crops=scheme_crops,
         compound_labels=[str(item) for item in payload.get("compound_labels") or [] if str(item).strip()],
     )
     state.artifacts["literature_pdf_structure_evidence"] = result
@@ -968,6 +1056,177 @@ def extract_pdf_literature_structures_tool(state: ToolExecutionState, payload: d
         },
         "reasons": [str(item) for item in result.get("reasons") or []],
     }
+
+
+def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
+    mock = _mock_result(state, "extract_visual_literature_chain", payload)
+    if mock is not None:
+        result = dict(mock)
+        state.artifacts["visual_literature_chain_extraction"] = result
+        if result.get("candidate_chain"):
+            candidate = dict(result.get("candidate_chain") or {})
+            state.artifacts["visual_structure_candidate_chain"] = candidate
+        write_json(state.run_dir / "visual_literature_chain_extraction_result.json", result)
+        return {"accepted": bool(result.get("accepted", True)), "result": result}
+
+    out = _tool_output_dir(state, payload, default_name="visual_literature_chain_extraction")
+    pdf_evidence = _pdf_evidence_from_payload_or_artifacts(state, payload)
+    image_paths = _visual_chain_image_paths(state, payload, pdf_evidence)
+    if not image_paths:
+        result = {
+            "schema_version": "visual_literature_chain_extraction_result.v1",
+            "accepted": False,
+            "status": "failed",
+            "target_name": str(payload.get("target_name") or state.target_input.get("target_name") or state.preflight.get("case_id") or "target"),
+            "target_smiles": str(payload.get("target_smiles") or state.target_input.get("target_smiles") or ""),
+            "image_paths": [],
+            "candidate_chain": {},
+            "candidate_step_count": 0,
+            "reasons": ["visual_input_images_missing"],
+            "extraction_policy": {
+                "pdf_reuse_allowed": True,
+                "prior_candidate_chain_reuse_allowed": False,
+                "prior_source_detail_records_reuse_allowed": False,
+                "must_derive_from_current_images": True,
+                "no_solved_claim": True,
+            },
+        }
+        state.artifacts["visual_literature_chain_extraction"] = result
+        write_json(state.run_dir / "visual_literature_chain_extraction_result.json", result)
+        return {
+            "accepted": False,
+            "result": result,
+            "artifact_refs": {
+                "visual_literature_chain_extraction": str(out / "visual_literature_chain_extraction_result.json"),
+            },
+            "reasons": result["reasons"],
+        }
+    result = run_visual_literature_chain_agent(
+        image_paths=image_paths,
+        output_dir=out,
+        target_name=str(payload.get("target_name") or state.target_input.get("target_name") or state.preflight.get("case_id") or "target"),
+        target_smiles=_literature_tool_target_smiles(state, payload),
+        source_ref=str(payload.get("source_ref") or "doi:10.1016/j.tet.2025.134610"),
+        source_title=str(payload.get("source_title") or ""),
+        expected_labels=[str(item) for item in payload.get("expected_labels") or [] if str(item).strip()],
+        route_sequence_hint=str(payload.get("route_sequence_hint") or ""),
+        text_snippets=[dict(item) for item in (pdf_evidence.get("compound_text_snippets") or []) if isinstance(item, dict)],
+        key_path=state.key_path,
+        base_url=state.base_url,
+        model=state.model,
+        timeout_s=float(payload.get("timeout_s") or 900.0),
+    )
+    candidate_path_value = str(result.get("candidate_chain_path") or "").strip()
+    candidate_path = Path(candidate_path_value) if candidate_path_value else None
+    if candidate_path is not None and candidate_path.is_file():
+        try:
+            candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            candidate = {}
+        if isinstance(candidate, dict):
+            state.artifacts["visual_structure_candidate_chain"] = dict(candidate)
+            state.artifacts["visual_structure_candidate_chain_path"] = str(candidate_path)
+    state.artifacts["visual_literature_chain_extraction"] = result
+    write_json(state.run_dir / "visual_literature_chain_extraction_result.json", result)
+    return {
+        "accepted": bool(result.get("accepted")),
+        "result": result,
+        "artifact_refs": {
+            "visual_literature_chain_extraction": str(out / "visual_literature_chain_extraction_result.json"),
+            **({"visual_structure_candidate_chain": str(candidate_path)} if candidate_path is not None and candidate_path.is_file() else {}),
+        },
+        "reasons": [str(item) for item in result.get("reasons") or []],
+    }
+
+
+def apply_source_text_condition_repairs_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
+    mock = _mock_result(state, "apply_source_text_condition_repairs", payload)
+    if mock is not None:
+        result = dict(mock)
+        if result.get("candidate_chain"):
+            state.artifacts["visual_structure_candidate_chain"] = dict(result.get("candidate_chain") or {})
+        write_json(state.run_dir / "source_text_condition_repairs_result.json", result)
+        return {"accepted": bool(result.get("accepted", True)), "result": result}
+
+    out = _tool_output_dir(state, payload, default_name="source_text_condition_repairs")
+    candidate = _candidate_chain_payload_from_payload_or_artifacts(state, payload)
+    if not candidate:
+        return {"accepted": False, "reasons": ["candidate_chain_missing"]}
+    repairs = _condition_repair_rows(payload.get("condition_repairs") or payload.get("repairs"))
+    if not repairs:
+        return {"accepted": False, "reasons": ["condition_repairs_missing"]}
+
+    by_step_id = {str(row.get("step_id") or ""): row for row in repairs if str(row.get("step_id") or "")}
+    by_product = {str(row.get("product_label") or ""): row for row in repairs if str(row.get("product_label") or "")}
+    steps = [dict(item) for item in candidate.get("steps") or [] if isinstance(item, dict)]
+    applied: list[dict[str, Any]] = []
+    unmatched = set(id(row) for row in repairs)
+    repaired_steps: list[dict[str, Any]] = []
+    for step in steps:
+        repaired = dict(step)
+        repair = by_step_id.get(str(step.get("step_id") or "")) or by_product.get(str(step.get("product_label") or ""))
+        if repair:
+            unmatched.discard(id(repair))
+            repaired = _apply_condition_repair_to_step(repaired, repair)
+            applied.append(
+                {
+                    "step_id": str(step.get("step_id") or ""),
+                    "product_label": str(step.get("product_label") or ""),
+                    "source_locator": str(repair.get("source_locator") or ""),
+                }
+            )
+        repaired_steps.append(repaired)
+    repaired_chain = {
+        **candidate,
+        "steps": repaired_steps,
+        "condition_repair_audit": {
+            "schema_version": "source_text_condition_repair_audit.v1",
+            "repair_scope": "condition_candidate_source_excerpt_locator_only",
+            "structure_smiles_unchanged": _step_smiles_signature(steps) == _step_smiles_signature(repaired_steps),
+            "applied_repair_count": len(applied),
+            "unmatched_repair_count": len(unmatched),
+            "source_ref": str(payload.get("source_ref") or candidate.get("source_ref") or ""),
+            "no_solved_claim": True,
+            "production_write_blocked": True,
+        },
+    }
+    accepted = bool(applied) and bool(repaired_chain["condition_repair_audit"]["structure_smiles_unchanged"])
+    reasons: list[str] = []
+    if not applied:
+        reasons.append("condition_repairs_no_matching_steps")
+    if not repaired_chain["condition_repair_audit"]["structure_smiles_unchanged"]:
+        reasons.append("condition_repair_changed_smiles")
+    path = out / "visual_structure_candidate_chain_condition_repaired.json"
+    path.write_text(json.dumps(repaired_chain, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    result = {
+        "schema_version": "source_text_condition_repairs_result.v1",
+        "accepted": accepted,
+        "status": "completed" if accepted else "failed",
+        "candidate_chain_path": str(path),
+        "candidate_chain": repaired_chain,
+        "applied_repairs": applied,
+        "summary": {
+            "input_step_count": len(steps),
+            "repair_count": len(repairs),
+            "applied_repair_count": len(applied),
+            "unmatched_repair_count": len(unmatched),
+        },
+        "source_policy": {
+            "smiles_mutation_allowed": False,
+            "condition_source_text_repair_allowed": True,
+            "no_solved_claim": True,
+            "production_write_blocked": True,
+        },
+        "artifact_refs": {
+            "visual_structure_candidate_chain": str(path),
+        },
+        "reasons": reasons,
+    }
+    state.artifacts["visual_structure_candidate_chain"] = repaired_chain
+    state.artifacts["visual_structure_candidate_chain_path"] = str(path)
+    state.artifacts["source_text_condition_repairs"] = result
+    write_json(state.run_dir / "source_text_condition_repairs_result.json", result)
+    return result
 
 
 def validate_literature_intermediate_chain_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
@@ -984,12 +1243,16 @@ def validate_literature_intermediate_chain_tool(state: ToolExecutionState, paylo
         candidate_chain = dict(payload.get("candidate_chain") or {})
     elif payload.get("candidate_chain_path"):
         candidate_chain = _input_path(state, payload.get("candidate_chain_path"))
+    elif state.artifacts.get("visual_structure_candidate_chain"):
+        candidate_chain = dict(state.artifacts.get("visual_structure_candidate_chain") or {})
+    elif state.artifacts.get("visual_structure_candidate_chain_path"):
+        candidate_chain = _input_path(state, state.artifacts.get("visual_structure_candidate_chain_path"))
     else:
         return {"accepted": False, "reasons": ["candidate_chain_missing"]}
     result = validate_visual_structure_chain(
         candidate_chain,
         output_dir=out,
-        target_smiles=str(payload.get("target_smiles") or state.target_input.get("target_smiles") or ""),
+        target_smiles=_literature_tool_target_smiles(state, payload),
         require_contiguous=bool(payload.get("require_contiguous", True)),
     )
     state.artifacts["visual_structure_chain_validation"] = result
@@ -1091,6 +1354,33 @@ def build_source_detail_curator_records_tool(state: ToolExecutionState, payload:
     return result
 
 
+def build_analogical_retrosynthesis_hypotheses_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
+    mock = _mock_result(state, "build_analogical_retrosynthesis_hypotheses", payload)
+    if mock is not None:
+        result = dict(mock)
+        state.artifacts["analogical_retrosynthesis_hypotheses"] = result
+        write_json(state.run_dir / "analogical_retrosynthesis_hypotheses.json", result)
+        return {"accepted": bool(result.get("accepted", True)), "result": result}
+
+    compiled = _compiled_downstream_from_state(state)
+    if isinstance(payload.get("compiled_downstream"), dict):
+        compiled = dict(payload.get("compiled_downstream") or {})
+    elif payload.get("compiled_downstream_path"):
+        explicit = _json_payload_or_path(state, payload.get("compiled_downstream_path"))
+        if explicit:
+            compiled = explicit
+    result = build_analogical_retrosynthesis_hypotheses(
+        compiled_downstream=compiled,
+        target_smiles=str(payload.get("target_smiles") or state.target_input.get("target_smiles") or ""),
+        target_name=str(payload.get("target_name") or state.target_input.get("target_name") or ""),
+        case_id=str(payload.get("case_id") or state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
+        max_hypotheses=int(payload.get("max_hypotheses") or 12),
+    )
+    state.artifacts["analogical_retrosynthesis_hypotheses"] = result
+    write_json(state.run_dir / "analogical_retrosynthesis_hypotheses.json", result)
+    return {"accepted": bool(result.get("accepted")), "result": result, "reasons": [str(item) for item in result.get("reasons") or []]}
+
+
 def compile_source_detail_chain_route_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
     mock = _mock_result(state, "compile_source_detail_chain_route", payload)
     if mock is not None:
@@ -1120,7 +1410,57 @@ def compile_source_detail_chain_route_tool(state: ToolExecutionState, payload: d
             output_dir=out,
         )
     state.artifacts["source_detail_chain_route"] = result
+    compiled_downstream = result.get("compiled_downstream")
+    if isinstance(compiled_downstream, dict) and compiled_downstream:
+        state.artifacts["compiled_downstream"] = dict(compiled_downstream)
+        state.artifacts["compiled_downstream_payload"] = dict(compiled_downstream)
     write_json(state.run_dir / "source_detail_chain_route_result.json", result)
+    return {"accepted": bool(result.get("accepted")), "result": result, "reasons": [str(item) for item in result.get("reasons") or []]}
+
+
+def stitch_literature_chain_with_subgoal_route_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
+    mock = _mock_result(state, "stitch_literature_chain_with_subgoal_route", payload)
+    if mock is not None:
+        result = dict(mock)
+        state.artifacts["stitched_semisynthesis_route"] = result
+        write_json(state.run_dir / "stitched_semisynthesis_route_result.json", result)
+        return {"accepted": bool(result.get("accepted", True)), "result": result}
+
+    out = _tool_output_dir(state, payload, default_name="stitched_semisynthesis_route")
+    literature_chain = _json_payload_or_path(
+        state,
+        payload.get("literature_chain_audit") or payload.get("literature_chain_audit_path"),
+    )
+    if not literature_chain:
+        route_result = dict(state.artifacts.get("source_detail_chain_route") or {})
+        literature_chain = dict(route_result.get("chain_audit") or {})
+    route_expansion = _json_payload_or_path(
+        state,
+        payload.get("route_expansion_result") or payload.get("route_expansion_result_path"),
+    )
+    if not route_expansion:
+        route_expansion = dict(state.artifacts.get("route_expansion_subgoal_search") or {})
+    subgoal_verifier = _json_payload_or_path(
+        state,
+        payload.get("subgoal_verifier") or payload.get("subgoal_verifier_path"),
+    )
+    subgoal_raw = _json_payload_or_path(
+        state,
+        payload.get("subgoal_raw_result") or payload.get("subgoal_raw_result_path"),
+    )
+    result = compile_stitched_semisynthesis_route(
+        literature_chain_audit=literature_chain,
+        subgoal_verifier=subgoal_verifier,
+        subgoal_raw_result=subgoal_raw,
+        route_expansion_result=route_expansion,
+        output_dir=out,
+        case_id=str(payload.get("case_id") or state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
+        target_smiles=str(payload.get("target_smiles") or state.target_input.get("target_smiles") or ""),
+        target_name=str(payload.get("target_name") or state.target_input.get("target_name") or ""),
+        subgoal_name=str(payload.get("subgoal_name") or ""),
+    )
+    state.artifacts["stitched_semisynthesis_route"] = result
+    write_json(state.run_dir / "stitched_semisynthesis_route_result.json", result)
     return {"accepted": bool(result.get("accepted")), "result": result, "reasons": [str(item) for item in result.get("reasons") or []]}
 
 
@@ -1336,6 +1676,75 @@ def _guided_policy_from_payload_or_artifacts(state: ToolExecutionState, payload:
     return {}
 
 
+def _plugin_only_guided_policy(
+    state: ToolExecutionState,
+    *,
+    plugin_flags: dict[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    budget = {
+        "max_reruns": 1,
+        "max_iterations": int(payload.get("chem_enzy_iterations") or 50),
+        "max_depth": int(payload.get("max_steps") or 15),
+        "expansion_topk": int(payload.get("chem_enzy_expansion_topk") or 100),
+    }
+    return {
+        "schema_version": "chem_enzy_search_policy.v1",
+        "policy_id": str(payload.get("policy_id") or f"{state.preflight.get('case_id') or state.target_input.get('target_name') or 'case'}_literature_plugin_only"),
+        "operator_id": "literature_template_plugin_only",
+        "case_id": str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
+        "evidence_refs": _plugin_evidence_refs(plugin_flags),
+        "terminal_blacklist": [],
+        "anchor_whitelist": [],
+        "preferred_subgoal": {
+            "target": {
+                "name": state.target_input.get("target_name"),
+                "smiles": state.target_input.get("target_smiles"),
+            },
+            "preferred_subgoals": [],
+            "resolved_advisory_anchor_targets": [],
+            "blocked_advisory_anchor_targets": [],
+        },
+        "source_budget": {
+            "preferred_reaction_classes": ["literature_template_plugin_replay"],
+            "plugin_only_guided_rerun": True,
+        },
+        "rerun_reason": "compiled_literature_template_plugin_available",
+        "budget": budget,
+        "mode": "guided",
+        "compiler_metadata": {
+            "source": "compiled_literature_template_plugin",
+            "one_step_row_count": len(plugin_flags.get("one_step_rows") or []),
+            "template_card_count": len(plugin_flags.get("template_cards") or []),
+            "no_solved_claim": True,
+            "requires_verifier": True,
+        },
+    }
+
+
+def _plugin_evidence_refs(plugin_flags: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for row in plugin_flags.get("one_step_rows") or []:
+        if not isinstance(row, dict):
+            continue
+        trace = dict(row.get("literature_template_trace") or {})
+        refs.extend(str(item) for item in trace.get("evidence_refs") or [])
+        template = row.get("template") if isinstance(row.get("template"), dict) else row.get("templates")
+        if isinstance(template, dict):
+            refs.extend(str(item) for item in template.get("evidence_refs") or [])
+    for card in plugin_flags.get("template_cards") or []:
+        if isinstance(card, dict):
+            refs.extend(str(item) for item in card.get("evidence_refs") or [])
+    seen: set[str] = set()
+    out: list[str] = []
+    for ref in refs:
+        if ref in seen:
+            continue
+        seen.add(ref)
+        out.append(ref)
+    return out
+
+
 def _compiled_downstream_from_state(state: ToolExecutionState) -> dict[str, Any]:
     compiled = _unwrap_compiled_downstream(state.artifacts.get("compiled_downstream_payload"))
     if compiled:
@@ -1393,6 +1802,38 @@ def _tool_output_dir(state: ToolExecutionState, payload: dict[str, Any], *, defa
     return resolved
 
 
+def _pdf_evidence_from_payload_or_artifacts(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(payload.get("pdf_evidence"), dict):
+        return dict(payload.get("pdf_evidence") or {})
+    if payload.get("pdf_evidence_path"):
+        data = _json_payload_or_path(state, payload.get("pdf_evidence_path"))
+        if data:
+            return data
+    artifact = state.artifacts.get("literature_pdf_structure_evidence")
+    return dict(artifact) if isinstance(artifact, dict) else {}
+
+
+def _visual_chain_image_paths(state: ToolExecutionState, payload: dict[str, Any], pdf_evidence: dict[str, Any]) -> list[Path]:
+    raw_paths = [str(item) for item in payload.get("image_paths") or [] if str(item).strip()]
+    if not raw_paths:
+        for row in pdf_evidence.get("scheme_crops") or []:
+            if isinstance(row, dict) and row.get("image_path"):
+                raw_paths.append(str(row["image_path"]))
+        for row in pdf_evidence.get("rendered_pages") or []:
+            if isinstance(row, dict) and row.get("image_path"):
+                raw_paths.append(str(row["image_path"]))
+    paths: list[Path] = []
+    seen: set[str] = set()
+    for raw in raw_paths:
+        path = _input_path(state, raw).resolve()
+        key = str(path)
+        if key in seen or not path.is_file():
+            continue
+        seen.add(key)
+        paths.append(path)
+    return paths
+
+
 def _input_path(state: ToolExecutionState, value: Any) -> Path:
     path = Path(str(value)).expanduser()
     if path.is_absolute():
@@ -1409,7 +1850,7 @@ def _json_payload_or_path(state: ToolExecutionState, value: Any) -> dict[str, An
     if not value:
         return {}
     path = _input_path(state, value)
-    if not path.exists():
+    if not path.is_file():
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -1442,6 +1883,93 @@ def _validation_payload_from_payload_or_artifacts(state: ToolExecutionState, pay
             if isinstance(data, dict):
                 return dict(data)
     return {}
+
+
+def _literature_tool_target_smiles(state: ToolExecutionState, payload: dict[str, Any]) -> str:
+    if "target_smiles" in payload:
+        return str(payload.get("target_smiles") or "")
+    if bool(payload.get("allow_partial_chain_without_target_match")) or payload.get("target_match_required") is False:
+        return ""
+    return str(state.target_input.get("target_smiles") or "")
+
+
+def _candidate_chain_payload_from_payload_or_artifacts(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
+    explicit = payload.get("candidate_chain")
+    if isinstance(explicit, dict):
+        return dict(explicit)
+    path_value = payload.get("candidate_chain_path")
+    if path_value:
+        data = _json_payload_or_path(state, path_value)
+        if data:
+            return data
+    artifact = state.artifacts.get("visual_structure_candidate_chain")
+    if isinstance(artifact, dict):
+        return dict(artifact)
+    path_value = state.artifacts.get("visual_structure_candidate_chain_path")
+    if path_value:
+        data = _json_payload_or_path(state, path_value)
+        if data:
+            return data
+    return {}
+
+
+def _condition_repair_rows(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, dict):
+        if isinstance(value.get("repairs"), list):
+            return [dict(item) for item in value.get("repairs") or [] if isinstance(item, dict)]
+        return [dict(row) for row in value.values() if isinstance(row, dict)]
+    if isinstance(value, list):
+        return [dict(item) for item in value if isinstance(item, dict)]
+    return []
+
+
+def _apply_condition_repair_to_step(step: dict[str, Any], repair: dict[str, Any]) -> dict[str, Any]:
+    condition = repair.get("condition_candidate")
+    if not isinstance(condition, dict):
+        condition = {
+            "schema_version": "condition_candidate.v1",
+            "source_type": "exact",
+            "condition_status": "evidence_backed",
+            "reagent": str(repair.get("reagent") or ""),
+            "solvent": str(repair.get("solvent") or ""),
+            "temperature": str(repair.get("temperature") or ""),
+            "duration": str(repair.get("duration") or repair.get("time") or ""),
+            "reported_yield": str(repair.get("reported_yield") or repair.get("yield") or ""),
+            "source_grounding": str(repair.get("source_grounding") or repair.get("source_excerpt") or ""),
+        }
+        condition = {key: val for key, val in condition.items() if val not in ("", [])}
+    repaired = dict(step)
+    repaired["condition_candidate"] = condition
+    if repair.get("source_locator"):
+        repaired["source_locator"] = str(repair.get("source_locator") or "")
+    if repair.get("source_excerpt"):
+        repaired["source_excerpt"] = str(repair.get("source_excerpt") or "")
+    evidence_refs = [str(item) for item in repair.get("evidence_refs") or [] if str(item).strip()]
+    if evidence_refs:
+        repaired["evidence_refs"] = evidence_refs
+    derivation = dict(repaired.get("structure_derivation") or {})
+    if repair.get("source_locator"):
+        derivation["source_locator"] = str(repair.get("source_locator") or "")
+    derivation.setdefault("basis", "current_pdf_image_to_smiles")
+    derivation.setdefault("confidence", str(repair.get("confidence") or repaired.get("confidence") or "low"))
+    checks = [str(item) for item in derivation.get("tool_checks") or [] if str(item).strip()]
+    if "condition fields repaired from source text manifest" not in checks:
+        checks.append("condition fields repaired from source text manifest")
+    derivation["tool_checks"] = checks
+    repaired["structure_derivation"] = derivation
+    return repaired
+
+
+def _step_smiles_signature(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "step_id": str(step.get("step_id") or ""),
+            "product_smiles": str(step.get("product_smiles") or ""),
+            "reactant_smiles": [str(item) for item in step.get("reactant_smiles") or []],
+            "main_reactant_smiles": str(step.get("main_reactant_smiles") or ""),
+        }
+        for step in steps
+    ]
 
 
 def _compiled_payload_from_payload_or_artifacts(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1699,6 +2227,114 @@ def _merge_route_failure_feedback_policy(
         "source_reasons": list(feedback.get("source_reasons") or []),
     }
     return merged
+
+
+def _merge_analogical_retrosynthesis_policy(
+    state: ToolExecutionState,
+    policy: dict[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    report = _analogical_retrosynthesis_from_payload_or_artifacts(state, payload)
+    if not report or not report.get("accepted"):
+        return policy
+    patch = dict(report.get("search_policy_patch") or {})
+    if not patch.get("enabled"):
+        return policy
+    merged = dict(policy or {})
+    source_budget = dict(merged.get("source_budget") or {})
+    for key in ("preferred_reaction_classes", "active_failure_modes"):
+        existing = [str(item) for item in source_budget.get(key) or []] if isinstance(source_budget.get(key), list) else []
+        for item in patch.get(key) or []:
+            text = str(item or "")
+            if text and text not in existing:
+                existing.append(text)
+        if existing:
+            source_budget[key] = existing
+    source_budget["analogical_inspiration_enabled"] = True
+    source_budget["require_target_core_retention"] = bool(patch.get("require_target_core_retention", True))
+    source_budget["max_unexplained_heavy_atom_delta"] = int(patch.get("max_unexplained_heavy_atom_delta") or 20)
+    source_budget["analogical_hypothesis_count"] = int(report.get("hypothesis_count") or 0)
+    merged["source_budget"] = source_budget
+
+    preferred = dict(merged.get("preferred_subgoal") or {})
+    preferred["analogical_retrosynthesis_hypotheses"] = [
+        {
+            "hypothesis_id": str(item.get("hypothesis_id") or ""),
+            "inspiration_type": str(item.get("inspiration_type") or ""),
+            "reaction_family": str(item.get("reaction_family") or ""),
+            "target_side_attempt": dict(item.get("target_side_attempt") or {}),
+            "required_verification": [str(value) for value in item.get("required_verification") or []],
+        }
+        for item in (report.get("hypotheses") or [])[:6]
+        if isinstance(item, dict)
+    ]
+    merged["preferred_subgoal"] = preferred
+    metadata = dict(merged.get("compiler_metadata") or {})
+    metadata["analogical_retrosynthesis"] = {
+        "enabled": True,
+        "schema_version": report.get("schema_version"),
+        "hypothesis_count": int(report.get("hypothesis_count") or 0),
+        "source_row_count": int(report.get("source_row_count") or 0),
+        "mode": report.get("mode"),
+        "no_solved_claim": True,
+        "requires_verifier": True,
+    }
+    merged["compiler_metadata"] = metadata
+    merged["analogical_retrosynthesis"] = {
+        "enabled": True,
+        "hypothesis_count": int(report.get("hypothesis_count") or 0),
+        "policy_patch_schema_version": patch.get("schema_version"),
+        "not_raw_reaction_injection": True,
+        "no_solved_claim": True,
+    }
+    return merged
+
+
+def _analogical_retrosynthesis_from_payload_or_artifacts(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
+    explicit = payload.get("analogical_retrosynthesis_hypotheses")
+    if isinstance(explicit, dict):
+        return dict(explicit)
+    path_value = payload.get("analogical_retrosynthesis_hypotheses_path")
+    if path_value:
+        data = _json_payload_or_path(state, path_value)
+        if data:
+            return data
+    artifact = state.artifacts.get("analogical_retrosynthesis_hypotheses")
+    if isinstance(artifact, dict):
+        return dict(artifact)
+    path = state.run_dir / "analogical_retrosynthesis_hypotheses.json"
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        return dict(data) if isinstance(data, dict) else {}
+    return {}
+
+
+def _literature_template_plugin_runtime_diagnostics(result: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
+    plugin = dict(request.get("literature_template_plugin") or {})
+    stats = dict(((result.get("raw_backend_metadata") or {}).get("literature_template_plugin") or {}))
+    row_count = len(plugin.get("one_step_rows") or [])
+    enabled = bool(plugin.get("enabled"))
+    reasons: list[str] = []
+    calls = int(stats.get("calls") or 0)
+    added = int(stats.get("added_candidates") or 0)
+    if enabled and row_count and stats and calls == 0:
+        reasons.append("literature_template_plugin_not_invoked")
+    elif enabled and row_count and stats and calls > 0 and added == 0:
+        reasons.append("literature_template_plugin_no_candidates_added")
+    return {
+        "schema_version": "literature_template_plugin_runtime_diagnostics.v1",
+        "enabled_in_request": enabled,
+        "request_one_step_row_count": row_count,
+        "backend_stats_present": bool(stats),
+        "calls": calls,
+        "candidate_templates": int(stats.get("candidate_templates") or 0),
+        "instantiated_candidates": int(stats.get("instantiated_candidates") or 0),
+        "added_candidates": added,
+        "reasons": reasons,
+    }
 
 
 def _route_failure_feedback_from_payload_or_artifacts(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2222,7 +2858,11 @@ def _artifact_tree_contains_raw_reaction(value: Any, *, deterministic_context: b
     if isinstance(value, dict):
         for key, item in value.items():
             key_text = str(key).lower()
-            child_deterministic = deterministic_context or key_text in {"chemenzy", "route_audit"}
+            child_deterministic = deterministic_context or key_text in {
+                "chemenzy",
+                "guided_chemenzy",
+                "route_audit",
+            }
             if not deterministic_context and key_text in {
                 "rxn",
                 "rxn_smiles",

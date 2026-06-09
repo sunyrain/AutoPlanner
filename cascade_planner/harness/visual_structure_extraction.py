@@ -169,7 +169,7 @@ def _normalize_step(raw: dict[str, Any], *, index: int, payload: dict[str, Any])
     reactants = raw.get("reactant_smiles")
     if reactants is None:
         reactants = raw.get("reactants")
-    if reactants is None and raw.get("main_reactant_smiles"):
+    if (reactants is None or reactants == []) and raw.get("main_reactant_smiles"):
         reactants = [raw.get("main_reactant_smiles")]
     if isinstance(reactants, str):
         reactant_values = [item for item in re.split(r"\s*(?:\.|,|;)\s*", reactants) if item]

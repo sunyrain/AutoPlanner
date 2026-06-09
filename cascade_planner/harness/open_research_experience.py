@@ -219,8 +219,11 @@ def audit_open_research_boundary(*, run_dir: str | Path) -> dict[str, Any]:
                 violations.append(violation)
         elif item_type == "web_search":
             action = item.get("action") if isinstance(item.get("action"), dict) else {}
+            action_type = str(action.get("type") or "").strip()
             query = str(item.get("query") or action.get("query") or "").strip()
             queries = [str(row).strip() for row in action.get("queries") or [] if str(row).strip()]
+            if action_type and action_type not in {"search", "query"} and not query and not queries:
+                continue
             if len(query) < 3 and not queries:
                 violations.append({
                     "category": "query_policy",

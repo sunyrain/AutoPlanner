@@ -44,6 +44,8 @@ def run_codex_entry_controller(
     target_smiles: str,
     family_hint: str = "",
     output_dir: str | Path,
+    literature_pdf_path: str | Path = "",
+    literature_pdf_source_ref: str = "",
     timeout_s: float = 1800.0,
     key_path: str | Path = DEFAULT_KEY_PATH,
     base_url: str = DEFAULT_BASE_URL,
@@ -65,7 +67,12 @@ def run_codex_entry_controller(
         family_hint=family_hint,
         case_id="",
     )
-    write_json(run_dir / "target_input.json", target.to_dict())
+    target_data = target.to_dict()
+    if str(literature_pdf_path or "").strip():
+        target_data["literature_pdf_path"] = str(Path(literature_pdf_path).expanduser().resolve())
+    if str(literature_pdf_source_ref or "").strip():
+        target_data["literature_pdf_source_ref"] = str(literature_pdf_source_ref).strip()
+    write_json(run_dir / "target_input.json", target_data)
     write_json(run_dir / "budget.json", budget.to_dict())
     append_jsonl(run_dir / "decision_trace.jsonl", {
         "stage": "start",
@@ -76,6 +83,10 @@ def run_codex_entry_controller(
     preflight = run_preflight(target)
     target.case_id = str(preflight.get("case_id") or target.case_id)
     target_data = target.to_dict()
+    if str(literature_pdf_path or "").strip():
+        target_data["literature_pdf_path"] = str(Path(literature_pdf_path).expanduser().resolve())
+    if str(literature_pdf_source_ref or "").strip():
+        target_data["literature_pdf_source_ref"] = str(literature_pdf_source_ref).strip()
     write_json(run_dir / "target_input.json", target_data)
     write_json(run_dir / "preflight.json", preflight)
     append_jsonl(run_dir / "decision_trace.jsonl", {"stage": "preflight", "preflight": preflight})
@@ -127,6 +138,16 @@ def run_codex_entry_controller(
         planner_runner=planner_runner,
     )
     plan_data = dict(plan_record.get("workflow_plan") or {})
+    normalized_plan_data, controller_plan_audit = _normalize_controller_plan_for_execution(
+        plan_data,
+        target_data=target_data,
+        preflight=preflight,
+    )
+    if controller_plan_audit.get("changed"):
+        plan_data = normalized_plan_data
+        plan_record = dict(plan_record)
+        plan_record["workflow_plan"] = plan_data
+        plan_record["controller_plan_normalization"] = controller_plan_audit
     write_json(run_dir / "codex_workflow_plan.json", plan_data)
     write_json(run_dir / "codex_planner_run_record.json", plan_record)
     append_jsonl(run_dir / "decision_trace.jsonl", {"stage": "codex_plan", "planner_record": plan_record})
@@ -176,6 +197,7 @@ def run_codex_entry_controller(
     for row in plan_data.get("planned_tools") or []:
         tool_name = str(row.get("tool_name") or row.get("name") or "")
         payload = dict(row.get("payload") or row.get("input") or {})
+        _inject_controller_payload_defaults(tool_name=tool_name, payload=payload, target_data=target_data)
         if tool_name == "emit_final_verdict":
             append_jsonl(run_dir / "decision_trace.jsonl", {"stage": "emit_final_verdict_deferred"})
             continue
@@ -209,6 +231,100 @@ def run_codex_entry_controller(
     return _run_result(run_dir, target_data, preflight, plan_data, bundle, verdict, tool_calls)
 
 
+def _inject_controller_payload_defaults(*, tool_name: str, payload: dict[str, Any], target_data: dict[str, Any]) -> None:
+    if tool_name == "extract_pdf_literature_structures":
+        pdf_path = str(target_data.get("literature_pdf_path") or "").strip()
+        if pdf_path and not payload.get("pdf_path"):
+            payload["pdf_path"] = pdf_path
+            payload.setdefault("render_zoom", 2.0)
+    if tool_name == "extract_visual_literature_chain":
+        if not payload.get("source_ref"):
+            source_ref = str(target_data.get("literature_pdf_source_ref") or "").strip()
+            if source_ref:
+                payload["source_ref"] = source_ref
+
+
+def _normalize_controller_plan_for_execution(
+    plan_data: dict[str, Any],
+    *,
+    target_data: dict[str, Any],
+    preflight: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Keep live planner output aligned with deterministic execution guardrails."""
+    plan = dict(plan_data or {})
+    tools = [dict(row) for row in plan.get("planned_tools") or [] if isinstance(row, dict)]
+    audit = {
+        "schema_version": "controller_plan_normalization.v1",
+        "changed": False,
+        "reason": "",
+        "inserted_tools": [],
+    }
+    if not _literature_first_needs_native_baseline(plan, target_data=target_data, preflight=preflight):
+        return plan, audit
+
+    tool_names = [str(row.get("tool_name") or row.get("name") or "") for row in tools]
+    if "run_chemenzy" in tool_names and "audit_route_and_extract_frontier" in tool_names:
+        chemenzy_index = tool_names.index("run_chemenzy")
+        audit_index = tool_names.index("audit_route_and_extract_frontier")
+        first_research_index = min(
+            [
+                idx
+                for idx, name in enumerate(tool_names)
+                if name in {"run_smiles_first_literature_workflow", "run_open_structure_research_agent"}
+            ]
+            or [len(tool_names)]
+        )
+        if chemenzy_index < audit_index < first_research_index:
+            return plan, audit
+
+    deterministic = deterministic_workflow_plan(target_input=target_data, preflight=preflight).to_dict()
+    default_tools = [dict(row) for row in deterministic.get("planned_tools") or [] if isinstance(row, dict)]
+    chemenzy_row = next((dict(row) for row in tools if str(row.get("tool_name") or "") == "run_chemenzy"), None)
+    if chemenzy_row is None:
+        chemenzy_row = next((dict(row) for row in default_tools if str(row.get("tool_name") or "") == "run_chemenzy"), None)
+    audit_row = next((dict(row) for row in tools if str(row.get("tool_name") or "") == "audit_route_and_extract_frontier"), None)
+    if audit_row is None:
+        audit_row = {"tool_name": "audit_route_and_extract_frontier", "payload": {}}
+    baseline_rows = [row for row in [chemenzy_row, audit_row] if row]
+    baseline_names = {str(row.get("tool_name") or row.get("name") or "") for row in baseline_rows}
+    remaining = [
+        row
+        for row in tools
+        if str(row.get("tool_name") or row.get("name") or "") not in baseline_names
+    ]
+    plan["planned_tools"] = [*baseline_rows, *remaining]
+    plan["recommended_strategy"] = "hybrid"
+    plan["controller_normalized_from_strategy"] = str(plan_data.get("recommended_strategy") or "")
+    audit.update(
+        {
+            "changed": True,
+            "reason": "non_glycoside_literature_first_requires_native_chemenzy_baseline",
+            "inserted_tools": [name for name in ["run_chemenzy", "audit_route_and_extract_frontier"] if name not in tool_names],
+            "original_strategy": str(plan_data.get("recommended_strategy") or ""),
+            "normalized_strategy": "hybrid",
+        }
+    )
+    return plan, audit
+
+
+def _literature_first_needs_native_baseline(
+    plan_data: dict[str, Any],
+    *,
+    target_data: dict[str, Any],
+    preflight: dict[str, Any],
+) -> bool:
+    if str(plan_data.get("recommended_strategy") or "") != "literature_first":
+        return False
+    reason = str(plan_data.get("planner_decision_reason") or "")
+    family = str(target_data.get("family_hint") or "").lower()
+    flags = {str(item) for item in preflight.get("initial_risk_flags") or []}
+    if "glycoside" in family or "glycoside_or_o_glycoside_like" in flags or reason == "glycoside_or_o_glycoside_like":
+        return False
+    if reason in {"user_requested_literature", "known_backend_unsuitable"}:
+        return False
+    return reason in {"natural_product_like", "macrocycle_or_steroid_like", "steroid_or_polycyclic_core"} or bool(flags)
+
+
 def emit_final_verdict(bundle_or_data: ArtifactBundle | dict[str, Any]) -> FinalVerdict:
     bundle = bundle_or_data if isinstance(bundle_or_data, ArtifactBundle) else ArtifactBundle(
         case_id=str(bundle_or_data.get("case_id") or "target"),
@@ -229,28 +345,50 @@ def emit_final_verdict(bundle_or_data: ArtifactBundle | dict[str, Any]) -> Final
             route_status="invalid_input",
         )
     artifacts = dict(bundle.artifacts or {})
-    audit = _latest_route_audit(artifacts)
-    route_status = str(audit.get("route_status") or "")
-    reasons = [str(item) for item in audit.get("reasons") or []]
     validation_reasons = [
         str(reason)
         for validation in bundle.validations
         for reason in validation.get("reasons") or []
     ]
+    if _artifact_tree_contains_raw_reaction(artifacts) or "raw_reaction_injection" in validation_reasons:
+        return FinalVerdict(
+            case_id=bundle.case_id,
+            verdict="fake_closed_rejected",
+            reasons=sorted(set(validation_reasons + ["raw_reaction_injection"])),
+            route_status="artifact_rejected",
+            stock_audit_passed=False,
+        )
+    stitched = _stitched_route_audit(artifacts)
+    if stitched.get("accepted") and stitched.get("stock_audit_passed") and stitched.get("solved"):
+        if bundle.run_semantics != CANONICAL_RUN_SEMANTICS:
+            return FinalVerdict(
+                case_id=bundle.case_id,
+                verdict="needs_followup",
+                reasons=sorted(set([str(item) for item in stitched.get("reasons") or []] + ["noncanonical_run_cannot_claim_solved"])),
+                route_status="needs_followup",
+                stock_audit_passed=True,
+                artifact_refs=dict(stitched.get("artifact_refs") or {}),
+                run_semantics=bundle.run_semantics,
+            )
+        return FinalVerdict(
+            case_id=bundle.case_id,
+            verdict="solved",
+            reasons=[],
+            route_status="solved",
+            solved=True,
+            stock_audit_passed=True,
+            artifact_refs=dict(stitched.get("artifact_refs") or {}),
+            run_semantics=bundle.run_semantics,
+        )
+    audit = _latest_route_audit(artifacts)
+    route_status = str(audit.get("route_status") or "")
+    reasons = [str(item) for item in audit.get("reasons") or []]
     if audit.get("fake_closure_rejected") or route_status == "fake_closed_rejected" or "fake_closure_evidence_present" in validation_reasons:
         return FinalVerdict(
             case_id=bundle.case_id,
             verdict="fake_closed_rejected",
             reasons=sorted(set(reasons + validation_reasons + ["fake_closure_evidence_present"])),
             route_status="fake_closed_rejected",
-            stock_audit_passed=bool(audit.get("stock_audit_passed")),
-        )
-    if _artifact_tree_contains_raw_reaction(artifacts) or "raw_reaction_injection" in validation_reasons:
-        return FinalVerdict(
-            case_id=bundle.case_id,
-            verdict="fake_closed_rejected",
-            reasons=sorted(set(validation_reasons + ["raw_reaction_injection"])),
-            route_status=route_status or "artifact_rejected",
             stock_audit_passed=bool(audit.get("stock_audit_passed")),
         )
     if route_status == "solved" and audit.get("stock_audit_passed") and bundle.run_semantics != CANONICAL_RUN_SEMANTICS:
@@ -392,15 +530,38 @@ def _ensure_bundle_validation(bundle: ArtifactBundle) -> dict[str, Any] | None:
 
 
 def _tool_rejection_has_continuation(*, tool_name: str, record: Any, state: ToolExecutionState) -> bool:
-    if tool_name != "run_open_structure_research_agent":
-        return False
     if not isinstance(getattr(record, "output", None), dict):
         return False
-    result = dict(record.output)
-    if not result.get("continuation_available"):
+    if tool_name == "run_open_structure_research_agent":
+        result = dict(record.output)
+        if not result.get("continuation_available"):
+            return False
+        compiled = state.artifacts.get("compiled_downstream")
+        return isinstance(compiled, dict) and bool(compiled.get("accepted"))
+    if tool_name == "extract_pdf_literature_structures":
+        reasons = [str(item) for item in getattr(record, "reasons", []) or []]
+        if "pdf_or_image_input_missing" in reasons:
+            return _compiled_downstream_or_curator_records_available(state)
         return False
+    if tool_name in {
+        "extract_visual_literature_chain",
+        "validate_literature_intermediate_chain",
+        "build_source_detail_curator_records",
+    }:
+        return _compiled_downstream_or_curator_records_available(state)
+    return False
+
+
+def _compiled_downstream_or_curator_records_available(state: ToolExecutionState) -> bool:
     compiled = state.artifacts.get("compiled_downstream")
-    return isinstance(compiled, dict) and bool(compiled.get("accepted"))
+    if isinstance(compiled, dict) and bool(compiled.get("accepted")):
+        return True
+    refs = dict(compiled.get("artifact_refs") or {}) if isinstance(compiled, dict) else {}
+    compiled_path = refs.get("compiled_downstream_consumables")
+    if compiled_path and Path(str(compiled_path)).exists():
+        return True
+    open_dir = state.run_dir / "open_structure_research"
+    return (open_dir / "evidence" / "source_detail_curator_records.json").exists()
 
 
 def _latest_route_audit(artifacts: dict[str, Any]) -> dict[str, Any]:
@@ -458,6 +619,13 @@ def _latest_route_audit(artifacts: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _stitched_route_audit(artifacts: dict[str, Any]) -> dict[str, Any]:
+    stitched = artifacts.get("stitched_semisynthesis_route")
+    if isinstance(stitched, dict):
+        return dict(stitched.get("result") or stitched)
+    return {}
+
+
 def _has_literature_or_template_anchor(artifacts: dict[str, Any]) -> bool:
     smiles_first = artifacts.get("smiles_first")
     if isinstance(smiles_first, dict):
@@ -477,7 +645,11 @@ def _artifact_tree_contains_raw_reaction(value: Any, *, deterministic_context: b
     if isinstance(value, dict):
         for key, item in value.items():
             key_text = str(key).lower()
-            child_deterministic = deterministic_context or key_text in {"chemenzy", "route_audit"}
+            child_deterministic = deterministic_context or key_text in {
+                "chemenzy",
+                "guided_chemenzy",
+                "route_audit",
+            }
             if not deterministic_context and key_text in {
                 "rxn",
                 "rxn_smiles",

@@ -44,9 +44,13 @@ ALLOWED_LOCAL_TOOLS = {
     "run_smiles_first_literature_workflow",
     "run_open_structure_research_agent",
     "extract_pdf_literature_structures",
+    "extract_visual_literature_chain",
+    "apply_source_text_condition_repairs",
     "validate_literature_intermediate_chain",
     "build_source_detail_curator_records",
+    "build_analogical_retrosynthesis_hypotheses",
     "compile_source_detail_chain_route",
+    "stitch_literature_chain_with_subgoal_route",
     "compile_hybrid_route_set",
     "run_guided_chemenzy_rerun",
     "run_route_expansion_subgoal_search",
@@ -172,9 +176,27 @@ def workflow_plan_from_dict(data: dict[str, Any]) -> WorkflowPlan:
         risk_flags=[str(item) for item in data.get("risk_flags") or []],
         expected_verdict_floor=str(data.get("expected_verdict_floor") or "needs_audit"),
         planner_decision_reason=str(data.get("planner_decision_reason") or ""),
-        run_semantics=str(data.get("run_semantics") or CANONICAL_RUN_SEMANTICS),
+        run_semantics=normalize_run_semantics(data.get("run_semantics")),
         schema_version=str(data.get("schema_version") or WORKFLOW_PLAN_SCHEMA),
     )
+
+
+def normalize_run_semantics(value: Any) -> str:
+    if value is None or value == "":
+        return CANONICAL_RUN_SEMANTICS
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        role = str(value.get("codex_role") or "")
+        verdict_authority = str(value.get("final_verdict_authority") or "")
+        if (
+            role == "workflow_planning_only"
+            and value.get("chemistry_solution_allowed") is False
+            and value.get("raw_reaction_output_allowed") is False
+            and verdict_authority == "deterministic_validators"
+        ):
+            return CANONICAL_RUN_SEMANTICS
+    return str(value)
 
 
 def validate_workflow_plan(plan_or_data: WorkflowPlan | dict[str, Any], *, case_id: str = "") -> dict[str, Any]:

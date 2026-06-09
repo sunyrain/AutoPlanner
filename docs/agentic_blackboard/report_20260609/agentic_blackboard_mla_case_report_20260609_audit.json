@@ -1,0 +1,15 @@
+{
+  "accepted": true,
+  "case_run_dir": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run",
+  "decision_count": 6,
+  "final_verdict": "fake_closed_rejected",
+  "generated_at_utc": "2026-06-09T04:38:13.630966+00:00",
+  "json_path": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/agentic_blackboard_mla_case_report_20260609.json",
+  "markdown_path": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/agentic_blackboard_mla_case_report_20260609.md",
+  "page_count": 5,
+  "pdf_path": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/agentic_blackboard_mla_case_report_20260609.pdf",
+  "pdf_size_bytes": 965243,
+  "schema_version": "agentic_blackboard_case_report_audit.v1",
+  "solved": false,
+  "test_summary": "pytest -q: 279 passed, 2 skipped, 7 warnings in 76.17s"
+}

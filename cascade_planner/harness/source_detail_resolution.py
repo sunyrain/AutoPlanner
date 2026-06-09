@@ -712,15 +712,39 @@ def _codex_translation_reasons(record: dict[str, Any], step: dict[str, Any]) -> 
             "source_compound_number_to_smiles",
             "source_table_to_smiles",
             "tool_assisted_source_text_translation",
+            "codex_source_text_translation",
+            "current_pdf_image_to_smiles",
+            "current_image_to_smiles",
+            "visual_pdf_image_to_smiles",
+            "visual_structure_chain_to_smiles",
         }:
             reasons.append("codex_translation_invalid_structure_basis")
-        if not str(derivation.get("source_locator") or "").strip():
+        source_locator = derivation.get("source_locator")
+        if isinstance(source_locator, dict):
+            locator_present = bool(
+                str(source_locator.get("source_ref") or "").strip()
+                or str(source_locator.get("url") or "").strip()
+                or str(source_locator.get("source_title") or "").strip()
+            )
+        else:
+            locator_present = bool(str(source_locator or "").strip())
+        if not locator_present:
             reasons.append("codex_translation_missing_source_locator")
         confidence = str(derivation.get("confidence") or "").strip()
-        if confidence not in {"high", "medium_high", "medium", "low"}:
+        confidence_prefix = confidence.split("_for_", 1)[0]
+        if confidence not in {"high", "medium_high", "medium", "low"} and confidence_prefix not in {
+            "high",
+            "medium_high",
+            "medium",
+            "low",
+        }:
             reasons.append("codex_translation_missing_confidence")
         tool_checks = derivation.get("tool_checks")
-        if not isinstance(tool_checks, list) or not any(str(item).strip() for item in tool_checks):
+        if isinstance(tool_checks, dict):
+            has_tool_checks = bool(tool_checks)
+        else:
+            has_tool_checks = isinstance(tool_checks, list) and any(str(item).strip() for item in tool_checks)
+        if not has_tool_checks:
             reasons.append("codex_translation_missing_tool_checks")
     excerpt = str(step.get("source_excerpt") or record.get("source_excerpt") or "").strip()
     if not excerpt:
@@ -744,21 +768,24 @@ def _curator_condition_candidate(data: Any, *, step_id: str, evidence_refs: list
     row = dict(data) if isinstance(data, dict) else {}
     reagent_candidates = [str(item) for item in row.get("reagent_candidates") or [] if str(item)]
     solvent_candidates = [str(item) for item in row.get("solvent_candidates") or [] if str(item)]
+    reagent = str(row.get("reagent") or row.get("reagent_or_method") or row.get("method") or "; ".join(reagent_candidates))
+    duration = str(row.get("duration") or row.get("time") or row.get("duration_h") or row.get("duration_min") or row.get("hydrolysis_duration_min") or "")
+    reported_yield = str(row.get("reported_yield") or row.get("yield") or "")
     condition = {
         "schema_version": "condition_candidate.v1",
         "step_id": str(row.get("step_id") or step_id),
         "source_type": str(row.get("source_type") or "exact"),
         "condition_status": str(row.get("condition_status") or "evidence_backed"),
-        "reagent": str(row.get("reagent") or "; ".join(reagent_candidates)),
+        "reagent": reagent,
         "reagent_candidates": reagent_candidates,
         "catalyst": str(row.get("catalyst") or ""),
         "enzyme": str(row.get("enzyme") or ""),
         "solvent": str(row.get("solvent") or "; ".join(solvent_candidates)),
         "solvent_candidates": solvent_candidates,
         "temperature": str(row.get("temperature") or row.get("temperature_c") or row.get("temperature_C") or ""),
-        "duration": str(row.get("duration") or row.get("duration_h") or row.get("duration_min") or row.get("hydrolysis_duration_min") or ""),
-        "isolation": str(row.get("isolation") or ""),
-        "reported_yield": str(row.get("reported_yield") or ""),
+        "duration": duration,
+        "isolation": str(row.get("isolation") or row.get("workup_or_isolation") or ""),
+        "reported_yield": reported_yield,
         "reported_purity": str(row.get("reported_purity") or ""),
         "source_grounding": str(row.get("source_grounding") or ""),
         "ph": str(row.get("ph") or row.get("pH") or ""),

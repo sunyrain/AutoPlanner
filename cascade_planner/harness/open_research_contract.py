@@ -355,15 +355,39 @@ def _codex_translation_step_reasons(item: dict[str, Any]) -> list[str]:
             "source_compound_number_to_smiles",
             "source_table_to_smiles",
             "tool_assisted_source_text_translation",
+            "codex_source_text_translation",
+            "current_pdf_image_to_smiles",
+            "current_image_to_smiles",
+            "visual_pdf_image_to_smiles",
+            "visual_structure_chain_to_smiles",
         }:
             reasons.append("codex_translation_invalid_structure_basis")
-        if not str(derivation.get("source_locator") or "").strip():
+        source_locator = derivation.get("source_locator")
+        if isinstance(source_locator, dict):
+            locator_present = bool(
+                str(source_locator.get("source_ref") or "").strip()
+                or str(source_locator.get("url") or "").strip()
+                or str(source_locator.get("source_title") or "").strip()
+            )
+        else:
+            locator_present = bool(str(source_locator or "").strip())
+        if not locator_present:
             reasons.append("codex_translation_missing_source_locator")
         confidence = str(derivation.get("confidence") or "").strip()
-        if confidence not in {"high", "medium_high", "medium", "low"}:
+        confidence_prefix = confidence.split("_for_", 1)[0]
+        if confidence not in {"high", "medium_high", "medium", "low"} and confidence_prefix not in {
+            "high",
+            "medium_high",
+            "medium",
+            "low",
+        }:
             reasons.append("codex_translation_missing_confidence")
         tool_checks = derivation.get("tool_checks")
-        if not isinstance(tool_checks, list) or not any(str(item).strip() for item in tool_checks):
+        if isinstance(tool_checks, dict):
+            has_tool_checks = bool(tool_checks)
+        else:
+            has_tool_checks = isinstance(tool_checks, list) and any(str(item).strip() for item in tool_checks)
+        if not has_tool_checks:
             reasons.append("codex_translation_missing_tool_checks")
     excerpt = str(item.get("source_excerpt") or "").strip()
     if not excerpt:

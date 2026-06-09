@@ -1,0 +1,35 @@
+{
+  "actions": [
+    {
+      "action_id": "case_r1:generate_disconnection_hypotheses",
+      "action_type": "generate_disconnection_hypotheses",
+      "expected_artifact": "target_side_disconnection_hypotheses.v1",
+      "payload": {},
+      "rationale": "Initial MLA-like target needs target-side handles before any rerun.",
+      "schema_version": "agent_action.v1",
+      "success_condition": "Aryl ester, imide, cage, and amine advisory tasks appear."
+    },
+    {
+      "action_id": "case_r1:build_failure_critic_report",
+      "action_type": "build_failure_critic_report",
+      "expected_artifact": "failure_critic_report.v1",
+      "payload": {},
+      "rationale": "Prior route verifier shows large atom jump and advanced terminal; normalize that into bridge tasks.",
+      "schema_version": "agent_action.v1",
+      "success_condition": "Target bridge, terminal blacklist, and next-action bias are recorded."
+    },
+    {
+      "action_id": "case_r1:search_literature",
+      "action_type": "search_literature",
+      "expected_artifact": "literature_scout_report.v1",
+      "payload": {},
+      "rationale": "Bridge tasks need target-proximal source candidates before exact replay.",
+      "schema_version": "agent_action.v1",
+      "success_condition": "Scout emits source candidates and extraction recommendations."
+    }
+  ],
+  "case_id": "mla_like_alkaloid_case",
+  "mode": "deterministic_report_case_planner",
+  "round_index": 1,
+  "schema_version": "agent_action_batch.v1"
+}

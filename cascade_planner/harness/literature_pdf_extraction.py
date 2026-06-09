@@ -43,7 +43,7 @@ def extract_literature_pdf_assets(
     page_texts: list[dict[str, Any]] = []
 
     if source_pdf:
-        if source_pdf.exists():
+        if source_pdf.is_file():
             pdf_result = _render_pdf(
                 source_pdf=source_pdf,
                 pages_dir=pages_dir,
@@ -76,7 +76,7 @@ def extract_literature_pdf_assets(
         "status": "completed" if not reasons else "incomplete",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "source_pdf_path": str(source_pdf) if source_pdf else "",
-        "source_pdf_sha256": _sha256(source_pdf) if source_pdf and source_pdf.exists() else "",
+        "source_pdf_sha256": _sha256(source_pdf) if source_pdf and source_pdf.is_file() else "",
         "fulltext_path": fulltext_path,
         "rendered_pages": rendered_pages,
         "indexed_images": indexed_images,
@@ -168,12 +168,13 @@ def _index_image_paths(paths: list[str | Path]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for idx, raw in enumerate(paths, start=1):
         path = Path(raw).expanduser().resolve()
+        exists = path.is_file()
         rows.append(
             {
                 "image_id": f"provided_image_{idx}",
                 "image_path": str(path),
-                "exists": path.exists(),
-                "sha256": _sha256(path) if path.exists() else "",
+                "exists": exists,
+                "sha256": _sha256(path) if exists else "",
             }
         )
     return rows
@@ -190,11 +191,12 @@ def _extract_scheme_crops(
     page_by_number = {int(row.get("page_number") or 0): row for row in rendered_pages}
     for idx, crop in enumerate(crops, start=1):
         crop_id = _safe_id(str(crop.get("crop_id") or crop.get("scheme_id") or f"crop_{idx}"))
-        source_path = Path(str(crop.get("source_image_path") or "")).expanduser()
-        if not source_path.exists() and crop.get("page_number"):
+        source_raw = str(crop.get("source_image_path") or "").strip()
+        source_path = Path(source_raw).expanduser() if source_raw else Path()
+        if (not source_raw or not source_path.is_file()) and crop.get("page_number"):
             source_path = Path(str((page_by_number.get(int(crop.get("page_number"))) or {}).get("image_path") or ""))
         bbox = crop.get("bbox_px") or crop.get("bbox")
-        if not source_path.exists() or not _valid_bbox(bbox):
+        if not source_path.is_file() or not _valid_bbox(bbox):
             rows.append(
                 {
                     "crop_id": crop_id,

@@ -1339,6 +1339,163 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertTrue(compiled["accepted"], compiled["reasons"])
         self.assertEqual(len(compiled["literature_template_plugin"]["one_step_rows"]), 1)
 
+    def test_source_detail_resolution_accepts_steroid_exact_target_curator_record_shape(self):
+        product = "C[C@]12CCC(=O)C=C1CCC1C2C[C@H](Cl)[C@]2(C)C(=O)CCC12"
+        reactant = "C[C@]12CCC(O)C=C1CCC1C2C[C@H](Cl)[C@]2(C)C(=O)CCC12"
+        pack = {
+            "schema_version": "source_detail_extraction_pack.v1",
+            "target": {
+                "name": "6beta-chloro-5beta-methylestr-9-ene-3,17-dione",
+                "smiles": product,
+            },
+            "queue": [],
+        }
+        curator_records = {
+            "schema_version": "source_detail_curator_records.v1",
+            "records": [
+                {
+                    "record_id": "curator_uyn_2005_exact_target_step_8_to_11",
+                    "source_ref": "doi:10.3184/0308234054213519",
+                    "evidence_refs": ["codex_exact_target_uyn_2005_oxidation_step"],
+                    "provenance": "codex_source_text_translation",
+                    "source_excerpt": "Source names oxidation of the 6beta-chloro precursor to dione 11.",
+                    "product_name": "6beta-chloro-5beta-methylestr-9-ene-3,17-dione (compound 11)",
+                    "reactant_names": ["6beta-chloro-3beta-hydroxy-5beta-methylestr-9-en-17-one (compound 8)"],
+                    "product_smiles": product,
+                    "reactant_smiles": [reactant],
+                    "condition_candidate": {
+                        "schema_version": "condition_candidate.v1",
+                        "reagent_or_method": "chromium trioxide reagent oxidation",
+                        "solvent": "acetone",
+                        "temperature": "room temperature",
+                        "time": "about 30 minutes",
+                        "yield": "60%",
+                    },
+                    "structure_derivation": {
+                        "basis": "codex_source_text_translation",
+                        "source_locator": {
+                            "source_ref": "doi:10.3184/0308234054213519",
+                            "source_title": "The Stereochemistry of Epoxidation of 5beta-methyl-19-norsteroidal 9(10)-alkenes",
+                        },
+                        "confidence": "medium_high_for_product_medium_for_precursor_stereochemistry",
+                        "tool_checks": {
+                            "product": {"valid": True, "formula": "C19H25ClO2"},
+                            "reactant": {"valid": True, "formula": "C19H27ClO2"},
+                        },
+                    },
+                    "validation_status": "draft_requires_curator_audit",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            resolution = resolve_source_detail_extraction_pack(
+                pack,
+                output_dir=Path(tmp),
+                curator_records=curator_records,
+                fetch_json=lambda url, headers, timeout_s: {},
+                fetch_text=lambda url, headers, timeout_s: "",
+            )
+            compiled = compile_downstream_consumables(
+                {
+                    "schema_version": "open_downstream_consumables.v1",
+                    "case_id": "uyn_2005_steroid",
+                    "planner_handoff": {
+                        "next_action": "template_plugin_rerun",
+                        "solved": False,
+                        "production_kb_promotion": False,
+                    },
+                    "guided_rerun_requests": [],
+                    "literature_template_cards": [],
+                    "literature_route_segments": [],
+                    "executable_template_candidates": [],
+                    "source_detail_route_steps": resolution["downstream_patch"]["source_detail_route_steps"],
+                    "route_expansion_tasks": [],
+                    "evolution_candidates": [],
+                    "rejected_consumables": [],
+                },
+                target_smiles=product,
+                case_id="uyn_2005_steroid",
+            )
+
+        self.assertEqual(resolution["summary"]["source_detail_route_step_count"], 1)
+        self.assertEqual(resolution["summary"]["gap_count"], 0)
+        step = resolution["source_detail_route_steps"][0]
+        self.assertEqual(step["condition_candidate"]["reagent"], "chromium trioxide reagent oxidation")
+        self.assertEqual(step["condition_candidate"]["duration"], "about 30 minutes")
+        self.assertEqual(step["condition_candidate"]["reported_yield"], "60%")
+        self.assertTrue(compiled["accepted"], compiled["reasons"])
+        self.assertEqual(len(compiled["literature_template_plugin"]["one_step_rows"]), 1)
+
+    def test_source_detail_resolution_accepts_current_pdf_image_to_smiles_basis(self):
+        pack = {
+            "schema_version": "source_detail_extraction_pack.v1",
+            "target": {"name": "acetaldehyde", "smiles": "CC=O"},
+            "queue": [],
+        }
+        curator_records = {
+            "schema_version": "source_detail_curator_records.v1",
+            "records": [
+                {
+                    "schema_version": "source_detail_route_step.v1",
+                    "step_id": "visual_pdf_step_1",
+                    "segment_id": "visual_pdf_segment",
+                    "source_ref": "doi:10.0000/pdf",
+                    "evidence_refs": ["current_image:1"],
+                    "provenance": "codex_source_text_translation",
+                    "source_excerpt": "PDF image shows compound 1 to compound 2.",
+                    "product_smiles": "CC=O",
+                    "reactant_smiles": ["CCO"],
+                    "relation_type": "exact",
+                    "condition_candidate": {
+                        "schema_version": "condition_candidate.v1",
+                        "source_type": "exact",
+                        "condition_status": "evidence_backed",
+                        "reagent": "oxidant",
+                    },
+                    "structure_derivation": {
+                        "basis": "current_pdf_image_to_smiles",
+                        "source_locator": "current PDF page 1",
+                        "confidence": "medium",
+                        "tool_checks": ["RDKit parsed product and reactant SMILES"],
+                    },
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            resolution = resolve_source_detail_extraction_pack(
+                pack,
+                output_dir=Path(tmp),
+                curator_records=curator_records,
+                fetch_json=lambda url, headers, timeout_s: {},
+                fetch_text=lambda url, headers, timeout_s: "",
+            )
+            compiled = compile_downstream_consumables(
+                {
+                    "schema_version": "open_downstream_consumables.v1",
+                    "case_id": "acetaldehyde",
+                    "planner_handoff": {
+                        "next_action": "template_plugin_rerun",
+                        "solved": False,
+                        "production_kb_promotion": False,
+                    },
+                    "guided_rerun_requests": [],
+                    "literature_template_cards": [],
+                    "literature_route_segments": [],
+                    "executable_template_candidates": [],
+                    "source_detail_route_steps": resolution["downstream_patch"]["source_detail_route_steps"],
+                    "route_expansion_tasks": [],
+                    "evolution_candidates": [],
+                    "rejected_consumables": [],
+                },
+                target_smiles="CC=O",
+                case_id="acetaldehyde",
+            )
+
+        self.assertEqual(resolution["summary"]["source_detail_route_step_count"], 1)
+        self.assertEqual(resolution["summary"]["gap_count"], 0)
+        self.assertTrue(compiled["accepted"], compiled["reasons"])
+        self.assertEqual(len(compiled["literature_template_plugin"]["one_step_rows"]), 1)
+
     def test_visual_literature_chain_builds_source_detail_rows_and_plugin_probe(self):
         candidate_chain = {
             "schema_version": "visual_structure_candidate_chain.v1",
@@ -2017,7 +2174,7 @@ class OpenResearchExperienceTest(unittest.TestCase):
                     "item": {
                         "type": "web_search",
                         "query": "",
-                        "action": {"type": "other"},
+                        "action": {"type": "search"},
                     },
                 },
                 {
@@ -2054,6 +2211,28 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertIn("open_agent_boundary_violation:environment_probe:python_rdkit_capability_probe", reasons)
         self.assertIn("open_agent_boundary_violation:query_policy:empty_or_too_short_web_search_query", reasons)
         self.assertIn("open_agent_boundary_violation:context_boundary:large_raw_artifact_dump", reasons)
+
+    def test_boundary_audit_allows_nonsearch_web_event_without_query(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            events = [
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "web_search",
+                        "query": "",
+                        "action": {"type": "other"},
+                    },
+                }
+            ]
+            (run_dir / "codex_events.jsonl").write_text(
+                "\n".join(json.dumps(event) for event in events) + "\n",
+                encoding="utf-8",
+            )
+
+            audit = audit_open_research_boundary(run_dir=run_dir)
+
+        self.assertTrue(audit["accepted"], audit["reasons"])
 
     def test_downstream_consumables_allow_guided_rerun_and_self_evo_drafts(self):
         payload = {
