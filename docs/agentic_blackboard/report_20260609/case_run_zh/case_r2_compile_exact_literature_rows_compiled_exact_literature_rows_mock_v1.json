@@ -1,0 +1,16 @@
+{
+  "accepted": true,
+  "exact_rows": [
+    {
+      "confidence": "source_detail_validated_mock",
+      "evidence_refs": [
+        "scheme_2_compound_17_to_target"
+      ],
+      "product_smiles": "CN1CC2CCC1CC2OC(=O)c3ccccc3N4C(=O)CCC4=O",
+      "row_id": "mock_exact_aryl_ester_step",
+      "source_ref": "mock:source_detail:mla_sidechain"
+    }
+  ],
+  "no_solved_claim": true,
+  "schema_version": "compiled_exact_literature_rows.mock.v1"
+}
