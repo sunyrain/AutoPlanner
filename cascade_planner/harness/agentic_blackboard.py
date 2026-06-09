@@ -42,6 +42,7 @@ def initialize_agent_blackboard(
         "literature_evidence": {
             "schema_version": "agent_literature_evidence_summary.v1",
             "source_candidates": [],
+            "pdf_structure_evidence": [],
             "visual_chains": [],
             "exact_rows": [],
             "source_refs": [],
@@ -121,7 +122,7 @@ def update_budget_for_action(blackboard: dict[str, Any], action_type: str) -> di
     budget = dict(board.get("budget_state") or {})
     if action_type == "search_literature":
         budget["scout_calls"] = int(budget.get("scout_calls") or 0) + 1
-    if action_type == "extract_visual_literature_chain":
+    if action_type in {"extract_pdf_literature_structures", "extract_visual_literature_chain"}:
         budget["visual_calls"] = int(budget.get("visual_calls") or 0) + 1
     if action_type == "run_guided_chemenzy":
         budget["chemenzy_runs"] = int(budget.get("chemenzy_runs") or 0) + 1
@@ -234,6 +235,15 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
         evidence["confidence"] = "candidate" if evidence.get("source_candidates") else evidence.get("confidence", "none")
         board["literature_evidence"] = evidence
         return bool(payload.get("source_candidates") or payload.get("extraction_task_recommendations"))
+
+    if action_type == "extract_pdf_literature_structures":
+        evidence = dict(board.get("literature_evidence") or {})
+        summary = _pdf_structure_summary(payload, artifact_ref=artifact_ref)
+        _extend_unique(evidence, "pdf_structure_evidence", [summary], unique_key="evidence_id")
+        evidence["confidence"] = "pdf_rendered" if summary.get("accepted") else evidence.get("confidence", "none")
+        board["literature_evidence"] = evidence
+        counts = dict(summary.get("summary") or {})
+        return bool(counts.get("rendered_page_count") or counts.get("indexed_image_count") or counts.get("scheme_crop_count"))
 
     if action_type == "extract_visual_literature_chain":
         evidence = dict(board.get("literature_evidence") or {})
@@ -367,6 +377,28 @@ def _compact_artifact(payload: dict[str, Any], *, artifact_ref: str) -> dict[str
         "accepted": bool(payload.get("accepted", True)),
         "artifact_ref": artifact_ref,
         "reasons": [str(item) for item in payload.get("reasons") or []],
+    }
+
+
+def _pdf_structure_summary(payload: dict[str, Any], *, artifact_ref: str) -> dict[str, Any]:
+    summary = dict(payload.get("summary") or {})
+    if not summary:
+        summary = {
+            "rendered_page_count": len(payload.get("rendered_pages") or []),
+            "indexed_image_count": len(payload.get("indexed_images") or []),
+            "scheme_crop_count": len(payload.get("scheme_crops") or []),
+            "compound_text_snippet_count": len(payload.get("compound_text_snippets") or []),
+        }
+    evidence_id = str(payload.get("evidence_id") or payload.get("source_ref") or payload.get("source_pdf_path") or "pdf_structure_evidence")
+    return {
+        "schema_version": "agent_pdf_structure_evidence_summary.v1",
+        "evidence_id": evidence_id,
+        "accepted": bool(payload.get("accepted", True)),
+        "source_pdf_path": str(payload.get("source_pdf_path") or ""),
+        "artifact_ref": artifact_ref,
+        "summary": summary,
+        "reasons": [str(item) for item in payload.get("reasons") or []],
+        "no_solved_claim": True,
     }
 
 

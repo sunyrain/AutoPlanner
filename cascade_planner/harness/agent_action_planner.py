@@ -14,6 +14,7 @@ ALLOWED_AGENT_ACTIONS = {
     "rank_analogical_hypotheses",
     "build_failure_critic_report",
     "search_literature",
+    "extract_pdf_literature_structures",
     "extract_visual_literature_chain",
     "compile_exact_literature_rows",
     "run_guided_chemenzy",
@@ -90,6 +91,22 @@ def plan_action_batch(
                 "blackboard lacks target-proximal literature/source evidence",
                 "literature_scout_report.v1",
                 "source candidate or extraction recommendation generated",
+            )
+        )
+
+    if (
+        not actions
+        and _source_candidates_available(blackboard)
+        and _source_candidates_include_local_pdf(blackboard)
+        and not _pdf_structure_evidence_available(blackboard)
+    ):
+        actions.append(
+            _action(
+                round_index,
+                "extract_pdf_literature_structures",
+                "local PDF source is available and must be converted into current-run visual evidence",
+                "literature_pdf_structure_evidence.v1",
+                "rendered pages or indexed images are available for visual extraction",
             )
         )
 
@@ -213,7 +230,12 @@ def validate_action_batch(
             chemenzy_count += 1
         if action_type == "expand_child_target":
             child_count += 1
-        if action_type in {"search_literature", "extract_visual_literature_chain", "compile_exact_literature_rows"}:
+        if action_type in {
+            "search_literature",
+            "extract_pdf_literature_structures",
+            "extract_visual_literature_chain",
+            "compile_exact_literature_rows",
+        }:
             payload = dict(action.get("payload") or {})
             source_count += max(1, int(payload.get("max_sources") or 1))
         if _stale_action_repeated(board, action):
@@ -235,6 +257,7 @@ def validate_action_batch(
 
 def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) -> dict[str, Any]:
     """Build a guided rerun payload from blackboard constraints and evidence."""
+    case_id = str(blackboard.get("case_id") or "case")
     terminal_blacklist = [
         str(row.get("canonical_smiles") or row.get("smiles") or "")
         for row in blackboard.get("terminal_blacklist") or []
@@ -252,12 +275,21 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
     ]
     bridge_tasks = [dict(row) for row in blackboard.get("bridge_tasks") or [] if isinstance(row, dict)]
     constraints = dict((blackboard.get("current_belief") or {}).get("constraints") or {})
+    evidence_refs = _guided_evidence_refs(
+        blackboard=blackboard,
+        bridge_tasks=bridge_tasks,
+        exact_rows=exact_rows,
+        selected_analogy_ids=selected_analogy_ids,
+    )
     return {
         "search_policy": {
             "schema_version": "chem_enzy_search_policy.v1",
-            "policy_id": f"{blackboard.get('case_id') or 'case'}_agentic_blackboard_guided",
+            "policy_id": f"{case_id}_agentic_blackboard_guided",
             "operator_id": "agentic_blackboard_controller",
+            "case_id": case_id,
+            "evidence_refs": evidence_refs,
             "terminal_blacklist": _dedupe(terminal_blacklist),
+            "anchor_whitelist": [],
             "active_bridge_tasks": bridge_tasks,
             "accepted_exact_row_ids": _dedupe(exact_rows),
             "selected_analogical_hypothesis_ids": _dedupe(selected_analogy_ids),
@@ -265,10 +297,18 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
                 "require_target_core_retention": bool(constraints.get("target_core_retention_required", True)),
                 "max_unexplained_heavy_atom_jump": int(constraints.get("max_unexplained_heavy_atom_jump") or 15),
                 "analogy_is_advisory_only": True,
+                "preferred_reaction_classes": ["target_proximal_bridge_search"],
             },
             "preferred_subgoal": {
                 "target": dict(blackboard.get("target_profile") or {}),
                 "bridge_tasks": bridge_tasks,
+            },
+            "rerun_reason": "agentic_blackboard_bridge_tasks_available",
+            "budget": {
+                "max_reruns": 1,
+                "max_iterations": 50,
+                "max_depth": 15,
+                "expansion_topk": 100,
             },
             "compiler_metadata": {
                 "source": "agentic_blackboard",
@@ -278,6 +318,32 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
             "mode": "guided",
         }
     }
+
+
+def _guided_evidence_refs(
+    *,
+    blackboard: dict[str, Any],
+    bridge_tasks: list[dict[str, Any]],
+    exact_rows: list[str],
+    selected_analogy_ids: list[str],
+) -> list[str]:
+    evidence = dict(blackboard.get("literature_evidence") or {})
+    refs = [str(item) for item in evidence.get("source_refs") or [] if str(item or "").strip()]
+    refs.extend(str(item) for item in exact_rows if str(item or "").strip())
+    refs.extend(str(item) for item in selected_analogy_ids if str(item or "").strip())
+    refs.extend(str(row.get("task_id") or "") for row in bridge_tasks if str(row.get("task_id") or "").strip())
+    refs.extend(
+        str(row.get("artifact_ref") or row.get("source_pdf_path") or "")
+        for row in evidence.get("pdf_structure_evidence") or []
+        if isinstance(row, dict)
+    )
+    artifact_refs = dict(blackboard.get("artifact_refs") or {})
+    for key, value in artifact_refs.items():
+        if any(token in str(key) for token in ("literature", "disconnection", "analogical")):
+            refs.append(str(value))
+    if not refs:
+        refs.append(f"{blackboard.get('case_id') or 'case'}:agentic_blackboard_state")
+    return _dedupe(refs)
 
 
 def _batch(case_id: str, round_index: int, actions: list[dict[str, Any]], *, mode: str) -> dict[str, Any]:
@@ -328,6 +394,18 @@ def _needs_literature_bridge(blackboard: dict[str, Any]) -> bool:
 
 def _source_candidates_available(blackboard: dict[str, Any]) -> bool:
     return bool((blackboard.get("literature_evidence") or {}).get("source_candidates"))
+
+
+def _source_candidates_include_local_pdf(blackboard: dict[str, Any]) -> bool:
+    return any(
+        bool(str(row.get("local_pdf") or "").strip())
+        for row in (blackboard.get("literature_evidence") or {}).get("source_candidates") or []
+        if isinstance(row, dict)
+    )
+
+
+def _pdf_structure_evidence_available(blackboard: dict[str, Any]) -> bool:
+    return bool((blackboard.get("literature_evidence") or {}).get("pdf_structure_evidence"))
 
 
 def _visual_chain_available(blackboard: dict[str, Any]) -> bool:

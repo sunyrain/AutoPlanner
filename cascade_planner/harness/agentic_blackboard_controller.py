@@ -311,6 +311,11 @@ def _execute_agent_action(
         result = rank_analogical_hypotheses_from_blackboard(blackboard)
         state.artifacts["analogical_hypothesis_ranking"] = result
         return {"accepted": bool(result.get("accepted")), "result": result, "reasons": [str(item) for item in result.get("reasons") or []]}, []
+    if action_type == "extract_pdf_literature_structures":
+        payload = dict(action.get("payload") or {})
+        _inject_pdf_defaults(payload, state.target_input)
+        record = execute_local_tool("extract_pdf_literature_structures", payload, state)
+        return _tool_record_to_action_result(record), [record.to_dict()]
     if action_type == "extract_visual_literature_chain":
         payload = dict(action.get("payload") or {})
         _inject_pdf_defaults(payload, state.target_input)
@@ -452,7 +457,7 @@ def _deterministic_literature_scout(*, blackboard: dict[str, Any], state: ToolEx
                 "local_pdf": pdf_path,
                 "relevance_rationale": "user-provided local PDF for source-detail extraction",
                 "expected_scheme_or_compound_labels": [],
-                "extraction_task_recommendations": ["extract_visual_literature_chain"],
+                "extraction_task_recommendations": ["extract_pdf_literature_structures", "extract_visual_literature_chain"],
             }
         )
     for idx, task in enumerate(tasks[:max_sources], start=1):
@@ -469,7 +474,11 @@ def _deterministic_literature_scout(*, blackboard: dict[str, Any], state: ToolEx
                 "local_pdf": "",
                 "relevance_rationale": str(task.get("required_bridge") or "target-proximal bridge required"),
                 "expected_scheme_or_compound_labels": [],
-                "extraction_task_recommendations": ["compile_exact_literature_rows", "extract_visual_literature_chain"],
+                "extraction_task_recommendations": [
+                    "extract_pdf_literature_structures",
+                    "extract_visual_literature_chain",
+                    "compile_exact_literature_rows",
+                ],
             }
         )
     if not candidates:

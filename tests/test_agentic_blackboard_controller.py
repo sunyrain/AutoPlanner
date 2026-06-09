@@ -3,8 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from cascade_planner.agent.chem_enzy_policy import validate_chem_enzy_search_policy
 from cascade_planner.harness.agent_action_planner import validate_action_batch
-from cascade_planner.harness.agentic_blackboard import initialize_agent_blackboard
+from cascade_planner.harness.agentic_blackboard import build_agentic_guided_payload, initialize_agent_blackboard
 from cascade_planner.harness.agentic_blackboard_controller import run_agentic_blackboard_controller
 from cascade_planner.harness.preflight import run_preflight
 from cascade_planner.harness.schemas import TargetInput
@@ -162,6 +163,89 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
 
         self.assertEqual(result["final_verdict"]["verdict"], "solved")
         self.assertTrue(result["final_verdict"]["solved"])
+
+    def test_pdf_structure_action_updates_blackboard_without_solved_claim(self):
+        def planner(**kwargs):
+            round_index = kwargs["round_index"]
+            return {
+                "schema_version": "agent_action_batch.v1",
+                "case_id": "pdf_case",
+                "round_index": round_index,
+                "actions": [
+                    {
+                        "schema_version": "agent_action.v1",
+                        "action_id": f"pdf:{round_index}",
+                        "action_type": "extract_pdf_literature_structures",
+                        "rationale": "local PDF source should be rendered before visual chain extraction",
+                        "expected_artifact": "literature_pdf_structure_evidence.v1",
+                        "success_condition": "rendered pages are available",
+                        "payload": {},
+                    }
+                ],
+            }
+
+        pdf_result = {
+            "schema_version": "literature_pdf_structure_evidence.v1",
+            "accepted": True,
+            "source_pdf_path": "/tmp/source.pdf",
+            "rendered_pages": [{"page_number": 1, "image_path": "/tmp/page-1.png"}],
+            "indexed_images": [],
+            "scheme_crops": [],
+            "compound_text_snippets": [],
+            "summary": {
+                "rendered_page_count": 1,
+                "indexed_image_count": 0,
+                "scheme_crop_count": 0,
+                "compound_text_snippet_count": 0,
+            },
+            "reasons": [],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_agentic_blackboard_controller(
+                target_name="pdf_case",
+                target_smiles="CCO",
+                output_dir=tmp,
+                max_rounds=1,
+                action_planner=planner,
+                mock_tool_results={"extract_pdf_literature_structures": pdf_result},
+            )
+
+        evidence = result["agent_blackboard"]["literature_evidence"]
+        self.assertEqual(evidence["pdf_structure_evidence"][0]["summary"]["rendered_page_count"], 1)
+        self.assertFalse(result["final_verdict"]["solved"])
+        self.assertNotEqual(result["final_verdict"]["verdict"], "solved")
+
+    def test_agentic_guided_payload_is_valid_chemenzy_policy(self):
+        target = TargetInput(target_name="bufotalin", target_smiles=MLA_LIKE_SMILES)
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["bridge_tasks"] = [
+            {
+                "schema_version": "agent_bridge_task.v1",
+                "task_id": "bridge:polycyclic_core",
+                "task_type": "target_proximal_bridge",
+                "target_handle": "polycyclic_cage_core",
+                "required_bridge": "target-proximal cage intermediate",
+            }
+        ]
+        board["literature_evidence"]["source_refs"] = ["doi:10.0000/source"]
+        board["analogical_hypothesis_ranking"] = {
+            "selected_hypotheses": [
+                {
+                    "hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+                    "no_solved_claim": True,
+                }
+            ]
+        }
+
+        payload = build_agentic_guided_payload(board)
+        validation = validate_chem_enzy_search_policy(payload["search_policy"])
+
+        self.assertTrue(validation["accepted"], validation["reasons"])
+        self.assertEqual(payload["search_policy"]["case_id"], board["case_id"])
+        self.assertIn("doi:10.0000/source", payload["search_policy"]["evidence_refs"])
+        self.assertEqual(payload["search_policy"]["rerun_reason"], "agentic_blackboard_bridge_tasks_available")
 
 
 if __name__ == "__main__":
