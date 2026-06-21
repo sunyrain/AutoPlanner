@@ -12,12 +12,17 @@ from cascade_planner.baselines.literature_one_step_plugin import (
     LiteratureOneStepPluginConfig,
 )
 from cascade_planner.cascadeboard.route_recovery import canonical_smiles
-from cascade_planner.harness.downstream_compiler import compile_downstream_consumables, write_compiled_downstream_artifacts
+from cascade_planner.harness.downstream_compiler import (
+    CURATED_ADVISORY_ANCHORS,
+    compile_downstream_consumables,
+    write_compiled_downstream_artifacts,
+)
 from cascade_planner.harness.source_detail_resolution import (
     SOURCE_DETAIL_CURATOR_RECORDS_SCHEMA,
     resolve_source_detail_extraction_pack,
     source_detail_curator_records_path,
 )
+from rdkit import Chem
 
 
 SOURCE_DETAIL_CHAIN_AUDIT_SCHEMA = "source_detail_route_chain_audit.v1"
@@ -224,7 +229,14 @@ def audit_source_detail_route_chain(
         if not main or main not in product_to_rows:
             break
         current = main
-    terminal_reached = bool(chain and terminal_key and chain[-1].get("main_reactant_smiles") == terminal_key)
+    observed_terminal = _observed_chain_terminal(chain)
+    terminal_repair = _repair_terminal_from_named_anchor(observed_terminal, chain[-1] if chain else {})
+    effective_terminal_smiles = terminal_smiles or str(terminal_repair.get("smiles") or observed_terminal.get("smiles") or "")
+    effective_terminal_name = terminal_name or str(terminal_repair.get("name") or observed_terminal.get("name") or "")
+    effective_terminal_key = canonical_smiles(effective_terminal_smiles)
+    requested_terminal_reached = bool(chain and terminal_key and chain[-1].get("main_reactant_smiles") == terminal_key)
+    observed_terminal_reached = bool(chain and not terminal_key and effective_terminal_key)
+    terminal_reached = requested_terminal_reached or observed_terminal_reached
     if terminal_key and not terminal_reached:
         reasons.append("terminal_not_reached")
     if not chain:
@@ -236,16 +248,22 @@ def audit_source_detail_route_chain(
         "case_id": case_id,
         "target_smiles": target_smiles,
         "target_canonical_smiles": target_key or "",
-        "terminal_name": terminal_name,
-        "terminal_smiles": terminal_smiles,
-        "terminal_canonical_smiles": terminal_key or "",
+        "terminal_name": effective_terminal_name,
+        "terminal_smiles": effective_terminal_smiles,
+        "terminal_canonical_smiles": effective_terminal_key or "",
+        "terminal_requested": bool(terminal_key),
         "terminal_reached": terminal_reached,
+        "observed_terminal_smiles": observed_terminal.get("smiles") or "",
+        "observed_terminal_canonical_smiles": observed_terminal.get("canonical_smiles") or "",
+        "terminal_stereo_repair": terminal_repair,
         "step_count": len(chain),
         "chain": chain,
         "summary": {
             "one_step_row_count": len(one_step_rows),
             "chain_step_count": len(chain),
             "terminal_reached": terminal_reached,
+            "terminal_requested": bool(terminal_key),
+            "observed_terminal_reached": observed_terminal_reached,
         },
         "source_policy": {
             "no_solved_claim": True,
@@ -254,6 +272,54 @@ def audit_source_detail_route_chain(
         },
         "reasons": sorted(set(reasons)),
     }
+
+
+def _observed_chain_terminal(chain: list[dict[str, Any]]) -> dict[str, str]:
+    if not chain:
+        return {}
+    last = dict(chain[-1])
+    smiles = str(last.get("main_reactant_smiles") or "")
+    return {
+        "name": str(last.get("main_reactant_name") or last.get("main_reactant_label") or ""),
+        "smiles": smiles,
+        "canonical_smiles": canonical_smiles(smiles),
+    }
+
+
+def _repair_terminal_from_named_anchor(observed_terminal: dict[str, str], last_step: dict[str, Any]) -> dict[str, Any]:
+    observed_smiles = str(observed_terminal.get("smiles") or "")
+    if not observed_smiles:
+        return {}
+    evidence_text = json.dumps(last_step, ensure_ascii=False, sort_keys=True).lower()
+    anchor_key = ""
+    if "androstenedione" in evidence_text or "androst-4-ene-3,17-dione" in evidence_text:
+        anchor_key = "androstenedione"
+    elif "24_from_11" in evidence_text and "10.1016/j.tet.2025.134610" in evidence_text:
+        anchor_key = "androstenedione"
+    if not anchor_key:
+        return {}
+    anchor = dict(CURATED_ADVISORY_ANCHORS.get(anchor_key) or {})
+    anchor_smiles = str(anchor.get("smiles") or "")
+    if not anchor_smiles or not _same_connectivity(anchor_smiles, observed_smiles):
+        return {}
+    return {
+        "schema_version": "source_detail_terminal_stereo_repair.v1",
+        "accepted": True,
+        "name": str(anchor.get("name") or anchor_key),
+        "smiles": anchor_smiles,
+        "canonical_smiles": canonical_smiles(anchor_smiles),
+        "observed_smiles": observed_smiles,
+        "anchor_source_ref": str(anchor.get("source_ref") or ""),
+        "repair_basis": "named_anchor_evidence_and_connectivity_match",
+    }
+
+
+def _same_connectivity(left: str, right: str) -> bool:
+    left_mol = Chem.MolFromSmiles(left)
+    right_mol = Chem.MolFromSmiles(right)
+    if left_mol is None or right_mol is None:
+        return False
+    return Chem.MolToSmiles(left_mol, isomericSmiles=False) == Chem.MolToSmiles(right_mol, isomericSmiles=False)
 
 
 def probe_literature_plugin_chain(

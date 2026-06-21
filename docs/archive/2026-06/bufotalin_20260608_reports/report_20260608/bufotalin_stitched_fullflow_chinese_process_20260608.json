@@ -1,0 +1,1316 @@
+{
+  "artifact_bundle": {
+    "accepted": false,
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/artifact_bundle_validation.json",
+    "reasons": [
+      "fake_closure_evidence_present",
+      "open_structure_research_timeout"
+    ]
+  },
+  "artifact_refs": {
+    "artifact_bundle_validation": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/artifact_bundle_validation.json",
+    "final_verdict": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/final_verdict.json",
+    "guided_route_verifier": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/guided_route_verifier_report.json",
+    "patched_guided_tool_call": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/guided_chemenzy_patched_tool_call.json",
+    "pdf_evidence": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/literature_pdf_structure_evidence.json",
+    "planner_record": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/codex_planner_run_record.json",
+    "route_expansion_subgoals": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/route_expansion_subgoals",
+    "source_detail_chain_route": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/source_detail_chain_route/source_detail_route_chain_audit.json",
+    "source_detail_curator_records": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/open_structure_research/evidence/source_detail_curator_records.json",
+    "stitched_route": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/stitched_semisynthesis_route/stitched_semisynthesis_route.json",
+    "summary": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/bufotalin_stitched_fullflow_summary.json",
+    "visual_candidate_chain": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/visual_candidate_chain/visual_structure_candidate_chain.json",
+    "visual_chain_validation": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_intermediate_chain_validation/visual_structure_chain_validation.json"
+  },
+  "final": {
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/final_verdict.json",
+    "reasons": [],
+    "route_status": "solved",
+    "solved": true,
+    "stock_audit_passed": true,
+    "verdict": "solved"
+  },
+  "generated_at_utc": "2026-06-08T05:09:27.635806+00:00",
+  "guided_patched": {
+    "elapsed_s": 327.683,
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/guided_chemenzy_patched_tool_call.json",
+    "policy_id": "bufotalin_literature_plugin_only",
+    "record_reasons": [
+      "advanced_same_scaffold_terminal",
+      "large_atom_jump",
+      "no_verifier_accepted_stock_closed_route"
+    ],
+    "rerun_reason": "compiled_literature_template_plugin_available",
+    "result_accepted": false,
+    "route_status": "fake_closed_rejected",
+    "solved": false,
+    "status": "accepted",
+    "verifier": {
+      "accepted": false,
+      "accepted_route_count": 0,
+      "reasons": [
+        "advanced_same_scaffold_terminal",
+        "large_atom_jump",
+        "no_verifier_accepted_stock_closed_route"
+      ],
+      "route_count": 105,
+      "route_status": "fake_closed_rejected"
+    }
+  },
+  "native_chemenzy": {
+    "accepted": false,
+    "accepted_route_count": 0,
+    "elapsed_s": 303.173,
+    "reasons": [
+      "advanced_same_scaffold_terminal",
+      "large_atom_jump",
+      "no_verifier_accepted_stock_closed_route"
+    ],
+    "rejected_route_count": 179,
+    "route_count": 179,
+    "route_status": "fake_closed_rejected"
+  },
+  "open_research": {
+    "elapsed_s": 930.123,
+    "output_dir": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/open_structure_research",
+    "reasons": [
+      "open_structure_research_timeout"
+    ],
+    "status": "timeout"
+  },
+  "pdf_evidence": {
+    "manifest_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_evidence.json",
+    "rendered_pages": [
+      {
+        "height_px": 1985,
+        "image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/pages/page_003_z2p5.png",
+        "page_number": 3,
+        "render_zoom": 2.5,
+        "sha256": "de16f82c1fea84011977be6fae4b1a19f30fe34f6823b5ca409d7daf0f94d9eb",
+        "width_px": 1489
+      },
+      {
+        "height_px": 1985,
+        "image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/pages/page_004_z2p5.png",
+        "page_number": 4,
+        "render_zoom": 2.5,
+        "sha256": "81eb8c15a8f4ad96733da4a162570311c9108aef11f1bc17da92bf5e2ce9ad63",
+        "width_px": 1489
+      },
+      {
+        "height_px": 1985,
+        "image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/pages/page_005_z2p5.png",
+        "page_number": 5,
+        "render_zoom": 2.5,
+        "sha256": "4f5fadc2229b618c64ce5540bcc004fac50601ed5d2bfa6c5b93572cb06499f0",
+        "width_px": 1489
+      },
+      {
+        "height_px": 1985,
+        "image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/pages/page_006_z2p5.png",
+        "page_number": 6,
+        "render_zoom": 2.5,
+        "sha256": "12a8c862180bb2ace36065164fda8ef6ddabe2e530668a7a85ac68e8004a5900",
+        "width_px": 1489
+      }
+    ],
+    "scheme_crops": [
+      {
+        "bbox_px": [
+          330,
+          150,
+          1160,
+          650
+        ],
+        "crop_id": "scheme3_full_to_20",
+        "evidence_refs": [],
+        "image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/crops/scheme3_full_to_20.png",
+        "page_number": 3,
+        "reason": "",
+        "scheme_id": "",
+        "sha256": "89d8d4836e4749d77516ef4bb6914846cb31acc780ab089f6dcd185bd87428fe",
+        "source_image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/pages/page_003_z2p5.png",
+        "status": "created"
+      },
+      {
+        "bbox_px": [
+          330,
+          690,
+          1165,
+          1095
+        ],
+        "crop_id": "scheme4_total_synthesis",
+        "evidence_refs": [],
+        "image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/crops/scheme4_total_synthesis.png",
+        "page_number": 3,
+        "reason": "",
+        "scheme_id": "",
+        "sha256": "75de68e1f7c265efaf2ea495a234ed06ce27182b1a9c48c8bbc11e4c70d17e75",
+        "source_image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/pages/page_003_z2p5.png",
+        "status": "created"
+      },
+      {
+        "bbox_px": [
+          80,
+          1110,
+          725,
+          1640
+        ],
+        "crop_id": "table1_allylic_oxidation",
+        "evidence_refs": [],
+        "image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/crops/table1_allylic_oxidation.png",
+        "page_number": 3,
+        "reason": "",
+        "scheme_id": "",
+        "sha256": "d16922733b7465adea48e76d9c5a59f24efad6ad4628d4d198ad12f28935de67",
+        "source_image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/pages/page_003_z2p5.png",
+        "status": "created"
+      }
+    ],
+    "source_pdf_path": "/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+    "source_pdf_sha256": "d0b3d917171c239927b938788e813bc983842fb32f1eb1760275cb98be20f777",
+    "status": "completed",
+    "summary": {
+      "compound_text_snippet_count": 200,
+      "indexed_image_count": 0,
+      "rendered_page_count": 4,
+      "scheme_crop_count": 3
+    }
+  },
+  "planner": {
+    "accepted": true,
+    "elapsed_s": 42.189,
+    "mode": "live",
+    "planned_tools": [
+      "run_smiles_first_literature_workflow",
+      "run_open_structure_research_agent",
+      "extract_pdf_literature_structures",
+      "validate_literature_intermediate_chain",
+      "build_source_detail_curator_records",
+      "compile_source_detail_chain_route",
+      "audit_route_and_extract_frontier",
+      "run_route_expansion_subgoal_search",
+      "stitch_literature_chain_with_subgoal_route",
+      "validate_artifact_bundle",
+      "emit_final_verdict"
+    ],
+    "raw_run_semantics_type": "str",
+    "record_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/codex_planner_run_record.json",
+    "run_semantics": "canonical_agent_controller",
+    "run_semantics_changed": false
+  },
+  "run_dir": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345",
+  "schema_version": "bufotalin_stitched_fullflow_expert_report_data.v1",
+  "source_detail_chain": {
+    "accepted": true,
+    "first_steps": [
+      {
+        "main_reactant_smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+        "product_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+        "source_ref": "doi:10.1016/j.tet.2025.134610",
+        "step_id": "tet2025_33_to_bufotalin_deprotection",
+        "step_index": 1
+      },
+      {
+        "main_reactant_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+        "product_smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+        "source_ref": "doi:10.1016/j.tet.2025.134610",
+        "step_id": "tet2025_32_to_33_acetylation",
+        "step_index": 2
+      },
+      {
+        "main_reactant_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+        "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+        "source_ref": "doi:10.1016/j.tet.2025.134610",
+        "step_id": "tet2025_31_to_32_nabh4_reduction",
+        "step_index": 3
+      },
+      {
+        "main_reactant_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@]4(c5ccc(=O)oc5)OC4C[C@]32O)C1",
+        "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+        "source_ref": "doi:10.1016/j.tet.2025.134610",
+        "step_id": "tet2025_30_to_31_tmsotf_rearrangement",
+        "step_index": 4
+      }
+    ],
+    "last_steps": [
+      {
+        "main_reactant_smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+        "product_smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)C(Br)C[C@@H]12",
+        "source_ref": "doi:10.1016/j.tet.2025.134610",
+        "step_id": "tet2025_23_to_26_c16_bromination",
+        "step_index": 12
+      },
+      {
+        "main_reactant_smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+        "product_smiles": "C[C@]12CC[C@H](O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+        "source_ref": "doi:10.1016/j.tet.2025.134610",
+        "step_id": "tet2025_25_to_23_kselectride_reduction",
+        "step_index": 13
+      },
+      {
+        "main_reactant_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+        "product_smiles": "C[C@]12CCC(=O)C[C@H]1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+        "source_ref": "doi:10.1016/j.tet.2025.134610",
+        "step_id": "tet2025_24_to_25_hydrogenation",
+        "step_index": 14
+      },
+      {
+        "main_reactant_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+        "product_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+        "source_ref": "doi:10.1016/j.tet.2025.134610",
+        "step_id": "tet2025_11_to_24_c17_ketalization",
+        "step_index": 15
+      }
+    ],
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/source_detail_chain_route/source_detail_route_chain_audit.json",
+    "reasons": [],
+    "step_count": 15,
+    "terminal_name": "compound 11 exact tet2025 terminal",
+    "terminal_reached": true,
+    "terminal_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+  },
+  "stitch": {
+    "accepted": true,
+    "combined_route": {
+      "combined_step_count": 24,
+      "direction": "stock_to_subgoal_terminal_then_literature_to_target",
+      "literature_step_count": 15,
+      "route_type": "stitched_semisynthesis",
+      "segments": [
+        {
+          "best_route_rank": 2,
+          "role": "stock_to_literature_terminal",
+          "segment_id": "subgoal_stock_closure",
+          "status": "verified_solved",
+          "step_count": 9,
+          "target_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+        },
+        {
+          "role": "literature_terminal_to_target",
+          "segment_id": "source_detail_literature_chain",
+          "source_ref": "",
+          "status": "accepted",
+          "step_count": 15,
+          "target_smiles": "CC(=O)O[C@H]1C[C@@]2([C@@H]3CC[C@@H]4C[C@H](CC[C@@]4([C@H]3CC[C@@]2([C@H]1C5=COC(=O)C=C5)C)C)O)O",
+          "terminal_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+        }
+      ],
+      "subgoal_route_step_count": 9
+    },
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/stitched_semisynthesis_route/stitched_semisynthesis_route.json",
+    "reasons": [],
+    "route_status": "solved",
+    "solved": true,
+    "source_policy": {
+      "final_verdict_authority": "deterministic_validators",
+      "literature_segment_requires_source_detail_chain": true,
+      "production_write_blocked": true,
+      "subgoal_segment_requires_route_verifier": true,
+      "subgoal_solved_does_not_imply_target_solved_without_stitch": true,
+      "terminal_identity_match_required": true
+    },
+    "stock_audit_passed": true,
+    "target_identity_audit": {
+      "literature_target": {
+        "canonical_isomeric_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+        "inchikey": "VOZHMAYHYHEWBW-NVOOAVKYSA-N",
+        "input_smiles": "CC(=O)O[C@H]1C[C@@]2([C@@H]3CC[C@@H]4C[C@H](CC[C@@]4([C@H]3CC[C@@]2([C@H]1C5=COC(=O)C=C5)C)C)O)O",
+        "valid": true
+      },
+      "match_basis": "canonical_isomeric_smiles_and_inchikey",
+      "reasons": [],
+      "requested_target": {
+        "canonical_isomeric_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+        "inchikey": "VOZHMAYHYHEWBW-NVOOAVKYSA-N",
+        "input_smiles": "CC(=O)O[C@H]1C[C@@]2([C@@H]3CC[C@@H]4C[C@H](CC[C@@]4([C@H]3CC[C@@]2([C@H]1C5=COC(=O)C=C5)C)C)O)O",
+        "valid": true
+      },
+      "required": true,
+      "schema_version": "stitched_route_target_identity_audit.v1",
+      "target_match": true
+    },
+    "terminal_match_audit": {
+      "accepted": true,
+      "match_basis": "canonical_isomeric_smiles_and_inchikey",
+      "reasons": [],
+      "schema_version": "terminal_subgoal_match_audit.v1",
+      "subgoal_target": {
+        "canonical_isomeric_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+        "inchikey": "AEMFNILZOJDQLW-MGGVOPSTSA-N",
+        "input_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+        "valid": true
+      },
+      "terminal": {
+        "canonical_isomeric_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+        "inchikey": "AEMFNILZOJDQLW-MGGVOPSTSA-N",
+        "input_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+        "valid": true
+      }
+    },
+    "warnings": [
+      "subgoal_verifier:large_atom_jump"
+    ]
+  },
+  "subgoal": {
+    "accepted": true,
+    "accepted_route_count": 20,
+    "best_route_rank": 2,
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/route_expansion_subgoals/01_compound_11_exact_tet2025_terminal_verifier.json",
+    "reasons": [
+      "large_atom_jump"
+    ],
+    "rejected_route_count": 36,
+    "route_count": 56,
+    "route_status": "solved",
+    "target_equivalence_audit": {
+      "backend_canonical_isomeric_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+      "backend_inchikey": "AEMFNILZOJDQLW-MGGVOPSTSA-N",
+      "backend_target_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+      "match_basis": "canonical_isomeric_smiles_and_inchikey",
+      "reasons": [],
+      "request_canonical_isomeric_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+      "request_inchikey": "AEMFNILZOJDQLW-MGGVOPSTSA-N",
+      "request_target_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+      "route_candidate_accepted_count_before_target_match": 20,
+      "route_target_product_audits": [
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 8,
+          "route_rank": 0,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(=O)O[C@H]1CC[C@]2(C)C3=C(CC[C@H]2C1(C)C)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3"
+          ],
+          "product_count": 4,
+          "route_rank": 1,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 9,
+          "route_rank": 2,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 11,
+          "route_rank": 3,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 9,
+          "route_rank": 4,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 6,
+          "route_rank": 5,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 7,
+          "route_rank": 6,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 8,
+          "route_rank": 7,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 9,
+          "route_rank": 8,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 9,
+          "route_rank": 9,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 7,
+          "route_rank": 10,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 9,
+          "route_rank": 11,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 8,
+          "route_rank": 12,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 9,
+          "route_rank": 13,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 6,
+          "route_rank": 14,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 8,
+          "route_rank": 15,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC[C@@H]4[C@@]5(C)CC[C@H](O)C(C)(C)[C@@H]5CC[C@]43C)[C@@H]2C1=O",
+            "CC(=O)O[C@H]1CC[C@]2(C)[C@H]3CC=C4[C@@H]5C(=O)C(C)(C)CC[C@]5(C)CC[C@@]4(C)[C@]3(C)CC[C@H]2C1(C)C"
+          ],
+          "product_count": 4,
+          "route_rank": 16,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC[C@@H]4[C@@]5(C)CC[C@H](O)C(C)(C)[C@@H]5CC[C@]43C)[C@@H]2C1",
+            "CC(=O)O[C@H]1CC[C@]2(C)[C@H]3CC=C4[C@@H]5CC(C)(C)CC[C@]5(C)CC[C@@]4(C)[C@]3(C)CC[C@H]2C1(C)C"
+          ],
+          "product_count": 4,
+          "route_rank": 17,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 7,
+          "route_rank": 18,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC[C@@H]4[C@@]5(C)CC[C@H](O)C(C)(C)[C@@H]5CC[C@]43C)[C@@H]2C1",
+            "CC(=O)O[C@H]1CC[C@]2(C)[C@H]3CC=C4[C@@H]5CC(C)(C)CC[C@]5(C)CC[C@@]4(C)[C@]3(C)CC[C@H]2C1(C)C"
+          ],
+          "product_count": 4,
+          "route_rank": 19,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 8,
+          "route_rank": 20,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 8,
+          "route_rank": 21,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C=C1CC[C@H]2[C@@H]3CC=C4CC(=O)CC[C@]4(C)[C@H]3CC[C@]12C"
+          ],
+          "product_count": 7,
+          "route_rank": 22,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC(=O)C4[C@@]5(C)CC[C@H](O)C(C)(C)C5CC[C@]43C)C2C1",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC[C@@H]4[C@@]5(C)CC[C@H](O)C(C)(C)[C@@H]5CC[C@]43C)[C@@H]2C1",
+            "CC(=O)O[C@H]1CC[C@]2(C)[C@H]3CC=C4[C@@H]5CC(C)(C)CC[C@]5(C)CC[C@@]4(C)[C@]3(C)CC[C@H]2C1(C)C"
+          ],
+          "product_count": 4,
+          "route_rank": 23,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 10,
+          "route_rank": 24,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 10,
+          "route_rank": 25,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 8,
+          "route_rank": 26,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 10,
+          "route_rank": 27,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 6,
+          "route_rank": 28,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 9,
+          "route_rank": 29,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 9,
+          "route_rank": 30,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@H]1[C@H]3CCC4(OCCO4)[C@@]3(C)CC[C@@H]12",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC[C@@H]4[C@@]5(C)CC[C@H](O)C(C)(C)[C@@H]5CC[C@]43C)[C@@H]2C1",
+            "CC(=O)O[C@H]1CC[C@]2(C)[C@H]3CC=C4[C@@H]5CC(C)(C)CC[C@]5(C)CC[C@@]4(C)[C@]3(C)CC[C@H]2C1(C)C"
+          ],
+          "product_count": 5,
+          "route_rank": 31,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C=C1CC[C@H]2[C@@H]3CC=C4CC(=O)CC[C@]4(C)[C@H]3CC[C@]12C"
+          ],
+          "product_count": 7,
+          "route_rank": 32,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 9,
+          "route_rank": 33,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 6,
+          "route_rank": 34,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 9,
+          "route_rank": 35,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 9,
+          "route_rank": 36,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 9,
+          "route_rank": 37,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 11,
+          "route_rank": 38,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C=C1CC[C@H]2[C@@H]3CC=C4CC(=O)CC[C@]4(C)[C@H]3CC[C@]12C"
+          ],
+          "product_count": 7,
+          "route_rank": 39,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 11,
+          "route_rank": 40,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 11,
+          "route_rank": 41,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC(=O)C4[C@@]5(C)CC[C@H](O)C(C)(C)C5CC[C@]43C)[C@@H]2C1",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC(=O)C4[C@@]5(C)CC[C@H](O[Si](C)(C)C(C)(C)C)C(C)(C)C5CC[C@]43C)[C@@H]2C1",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC[C@@H]4[C@@]5(C)CC[C@H](O)C(C)(C)[C@@H]5CC[C@]43C)[C@@H]2C1",
+            "CC(=O)O[C@H]1CC[C@]2(C)[C@H]3CC=C4[C@@H]5CC(C)(C)CC[C@]5(C)CC[C@@]4(C)[C@]3(C)CC[C@H]2C1(C)C"
+          ],
+          "product_count": 5,
+          "route_rank": 42,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 7,
+          "route_rank": 43,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C=C1CC[C@H]2[C@@H]3CC=C4CC(=O)CC[C@]4(C)[C@H]3CC[C@]12C"
+          ],
+          "product_count": 7,
+          "route_rank": 44,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C=C1CC[C@H]2[C@@H]3CC=C4CC(=O)CC[C@]4(C)[C@H]3CC[C@]12C"
+          ],
+          "product_count": 7,
+          "route_rank": 45,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O"
+          ],
+          "product_count": 7,
+          "route_rank": 46,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC(=O)C4[C@@]5(C)CC[C@H](O)C(C)(C)C5CC[C@]43C)C2C1",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC(=O)C4[C@@]5(C)CC[C@H](O[Si](C)(C)C(C)(C)C)C(C)(C)C5CC[C@]43C)C2C1",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC(=O)C4[C@@]5(C)CC[C@H](O)C(C)(C)C5CC[C@]43C)[C@@H]2C1",
+            "CC1(C)CC[C@]2(C)CC[C@]3(C)C(=CC(=O)C4[C@@]5(C)CC[C@H](O[Si](C)(C)C(C)(C)C)C(C)(C)C5CC[C@]43C)[C@@H]2C1"
+          ],
+          "product_count": 7,
+          "route_rank": 47,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CCCCC(=O)C1(C)CC[C@@]2(C)C3=C(CC[C@]12C)[C@@]1(C)CC[C@H](O)C(C)(C)[C@@H]1CC3",
+            "CCCCC(=O)C1(C)CC[C@H]2C3=C(CC[C@@]21C)[C@@]1(C)CC[C@H](O)C(C)(C)[C@@H]1CC3"
+          ],
+          "product_count": 11,
+          "route_rank": 48,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CCCC(=O)C1(C)CC[C@@]2(C)C3=C(CC[C@]12C)[C@@]1(C)CC[C@H](O)C(C)(C)[C@@H]1CC3",
+            "CCCC(=O)C1(C)CC[C@@]2(C)C3=C(CC[C@]12C)[C@@]1(C)CC[C@H](O[Si](C)(C)C(C)(C)C)C(C)(C)[C@@H]1CC3"
+          ],
+          "product_count": 10,
+          "route_rank": 49,
+          "target_match": true
+        }
+      ],
+      "schema_version": "target_equivalence_audit.v1",
+      "target_match": true
+    },
+    "target_match": true
+  },
+  "summary": {
+    "artifact_refs": {
+      "final_verdict": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/final_verdict.json",
+      "pdf_evidence": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/literature_pdf_structure_evidence.json",
+      "planner_record": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/codex_planner_run_record.json",
+      "route_expansion_subgoals": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/route_expansion_subgoals",
+      "source_detail_chain_route": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/source_detail_chain_route/source_detail_route_chain_audit.json",
+      "source_detail_curator_records": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/open_structure_research/evidence/source_detail_curator_records.json",
+      "stitched_route": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/stitched_semisynthesis_route/stitched_semisynthesis_route.json",
+      "visual_candidate_chain": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/visual_candidate_chain/visual_structure_candidate_chain.json",
+      "visual_chain_validation": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_intermediate_chain_validation/visual_structure_chain_validation.json"
+    },
+    "final_verdict": {
+      "artifact_refs": {
+        "subgoal_raw_result_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/route_expansion_subgoals/01_compound_11_exact_tet2025_terminal_raw_result.json",
+        "subgoal_request_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/route_expansion_subgoals/01_compound_11_exact_tet2025_terminal_request.json"
+      },
+      "case_id": "bufotalin",
+      "reasons": [],
+      "route_status": "solved",
+      "run_semantics": "canonical_agent_controller",
+      "schema_version": "codex_entry_final_verdict.v1",
+      "solved": true,
+      "stock_audit_passed": true,
+      "verdict": "solved"
+    },
+    "generated_at_utc": "2026-06-08T04:13:32.150071+00:00",
+    "live_planner": {
+      "accepted": true,
+      "mode": "live",
+      "normalization_audit": {
+        "normalized_run_semantics": "canonical_agent_controller",
+        "raw_run_semantics": "canonical_agent_controller",
+        "raw_run_semantics_type": "str",
+        "run_semantics_changed": false,
+        "schema_version": "codex_entry_workflow_plan_normalization_audit.v1"
+      },
+      "planned_tools": [
+        "run_smiles_first_literature_workflow",
+        "run_open_structure_research_agent",
+        "extract_pdf_literature_structures",
+        "validate_literature_intermediate_chain",
+        "build_source_detail_curator_records",
+        "compile_source_detail_chain_route",
+        "audit_route_and_extract_frontier",
+        "run_route_expansion_subgoal_search",
+        "stitch_literature_chain_with_subgoal_route",
+        "validate_artifact_bundle",
+        "emit_final_verdict"
+      ],
+      "skipped": false
+    },
+    "pdf_evidence_summary": {
+      "compound_text_snippet_count": 200,
+      "indexed_image_count": 0,
+      "rendered_page_count": 4,
+      "scheme_crop_count": 3
+    },
+    "route_expansion_subgoal": {
+      "accepted": true,
+      "accepted_subgoal_count": 1,
+      "status": "solved",
+      "subgoal_count": 1
+    },
+    "run_dir": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345",
+    "schema_version": "bufotalin_stitched_fullflow_summary.v1",
+    "source_detail_chain": {
+      "accepted": true,
+      "reasons": [],
+      "step_count": 15,
+      "terminal_reached": true,
+      "terminal_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+    },
+    "stitched_route": {
+      "accepted": true,
+      "combined_route": {
+        "combined_step_count": 24,
+        "direction": "stock_to_subgoal_terminal_then_literature_to_target",
+        "literature_step_count": 15,
+        "route_type": "stitched_semisynthesis",
+        "segments": [
+          {
+            "best_route_rank": 2,
+            "role": "stock_to_literature_terminal",
+            "segment_id": "subgoal_stock_closure",
+            "status": "verified_solved",
+            "step_count": 9,
+            "target_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          },
+          {
+            "role": "literature_terminal_to_target",
+            "segment_id": "source_detail_literature_chain",
+            "source_ref": "",
+            "status": "accepted",
+            "step_count": 15,
+            "target_smiles": "CC(=O)O[C@H]1C[C@@]2([C@@H]3CC[C@@H]4C[C@H](CC[C@@]4([C@H]3CC[C@@]2([C@H]1C5=COC(=O)C=C5)C)C)O)O",
+            "terminal_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12"
+          }
+        ],
+        "subgoal_route_step_count": 9
+      },
+      "reasons": [],
+      "route_status": "solved",
+      "solved": true,
+      "stock_audit_passed": true,
+      "warnings": [
+        "subgoal_verifier:large_atom_jump"
+      ]
+    },
+    "tool_status": [
+      {
+        "elapsed_s": 303.173,
+        "reasons": [],
+        "status": "accepted",
+        "tool_name": "run_chemenzy"
+      },
+      {
+        "elapsed_s": 1.676,
+        "reasons": [],
+        "status": "accepted",
+        "tool_name": "audit_route_and_extract_frontier"
+      },
+      {
+        "elapsed_s": 0.377,
+        "reasons": [],
+        "status": "accepted",
+        "tool_name": "run_smiles_first_literature_workflow"
+      },
+      {
+        "elapsed_s": 930.123,
+        "reasons": [
+          "open_structure_research_timeout"
+        ],
+        "status": "rejected",
+        "tool_name": "run_open_structure_research_agent"
+      },
+      {
+        "elapsed_s": 0.95,
+        "reasons": [],
+        "status": "accepted",
+        "tool_name": "extract_pdf_literature_structures"
+      },
+      {
+        "elapsed_s": 0.056,
+        "reasons": [],
+        "status": "accepted",
+        "tool_name": "validate_literature_intermediate_chain"
+      },
+      {
+        "elapsed_s": 0.121,
+        "reasons": [],
+        "status": "accepted",
+        "tool_name": "build_source_detail_curator_records"
+      },
+      {
+        "elapsed_s": 0.398,
+        "reasons": [],
+        "status": "accepted",
+        "tool_name": "compile_source_detail_chain_route"
+      },
+      {
+        "elapsed_s": 0.0,
+        "reasons": [
+          "guided_policy_missing"
+        ],
+        "status": "accepted",
+        "tool_name": "run_guided_chemenzy_rerun"
+      },
+      {
+        "elapsed_s": 501.542,
+        "reasons": [],
+        "status": "accepted",
+        "tool_name": "run_route_expansion_subgoal_search"
+      },
+      {
+        "elapsed_s": 0.017,
+        "reasons": [],
+        "status": "accepted",
+        "tool_name": "stitch_literature_chain_with_subgoal_route"
+      },
+      {
+        "elapsed_s": 0.042,
+        "reasons": [
+          "fake_closure_evidence_present",
+          "open_structure_research_timeout"
+        ],
+        "status": "rejected",
+        "tool_name": "validate_artifact_bundle"
+      }
+    ],
+    "visual_chain_summary": {
+      "accepted_step_count": 15,
+      "chain_contiguous": true,
+      "compound_count": 16,
+      "step_count": 15,
+      "target_match": true
+    }
+  },
+  "target": {
+    "exact_mw": 444.251189,
+    "formula": "C26H36O6",
+    "heavy_atoms": 32,
+    "inchi_key": "VOZHMAYHYHEWBW-NVOOAVKYSA-N",
+    "input_smiles": "CC(=O)O[C@H]1C[C@@]2([C@@H]3CC[C@@H]4C[C@H](CC[C@@]4([C@H]3CC[C@@]2([C@H]1C5=COC(=O)C=C5)C)C)O)O",
+    "isomeric_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+    "name": "bufotalin",
+    "rings": 5,
+    "risk_flags": [
+      "polycyclic_or_steroid_like"
+    ],
+    "stereocenters": 9
+  },
+  "tool_status": [
+    {
+      "elapsed_s": 303.173,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "run_chemenzy"
+    },
+    {
+      "elapsed_s": 1.676,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "audit_route_and_extract_frontier"
+    },
+    {
+      "elapsed_s": 0.377,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "run_smiles_first_literature_workflow"
+    },
+    {
+      "elapsed_s": 930.123,
+      "reasons": [
+        "open_structure_research_timeout"
+      ],
+      "status": "rejected",
+      "tool_name": "run_open_structure_research_agent"
+    },
+    {
+      "elapsed_s": 0.95,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "extract_pdf_literature_structures"
+    },
+    {
+      "elapsed_s": 0.056,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "validate_literature_intermediate_chain"
+    },
+    {
+      "elapsed_s": 0.121,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "build_source_detail_curator_records"
+    },
+    {
+      "elapsed_s": 0.398,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "compile_source_detail_chain_route"
+    },
+    {
+      "elapsed_s": 0.0,
+      "reasons": [
+        "guided_policy_missing"
+      ],
+      "status": "accepted",
+      "tool_name": "run_guided_chemenzy_rerun"
+    },
+    {
+      "elapsed_s": 501.542,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "run_route_expansion_subgoal_search"
+    },
+    {
+      "elapsed_s": 0.017,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "stitch_literature_chain_with_subgoal_route"
+    },
+    {
+      "elapsed_s": 0.042,
+      "reasons": [
+        "fake_closure_evidence_present",
+        "open_structure_research_timeout"
+      ],
+      "status": "rejected",
+      "tool_name": "validate_artifact_bundle"
+    }
+  ],
+  "visual_audit": {
+    "accepted": false,
+    "elapsed_s": 31.583,
+    "image_paths": [
+      "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/crops/scheme3_full_to_20.png",
+      "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/crops/scheme4_total_synthesis.png",
+      "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/crops/table1_allylic_oxidation.png"
+    ],
+    "parsed_output": {
+      "accepted": false,
+      "limitations": [
+        "Crops visibly support only the late Scheme 4 segment 31→32→33→bufotalin (2) plus a separate SeO2 optimization/product 19 table region.",
+        "The requested continuous Scheme 3/Scheme 4 sequence from androstenedione (11) through 24,25,23,26,27,28,19,20,14,22,30,31,32,33 to bufotalin is not fully visible in these images.",
+        "Labels 11,24,25,23,26,27,28,20,14,22,30 are absent or not clearly visible in the provided crops."
+      ],
+      "no_solved_claim": true,
+      "schema_version": "1.0",
+      "visible_conditions": [
+        "TMSOTf, 2,6-lutidine, DCM, -78°C to rt, 68%",
+        "NaBH4, MeOH, THF, 0°C, 90%",
+        "Ac2O, pyridine, rt, 90%",
+        "HF-pyridine, pyridine/THF, rt, 93%",
+        "SeO2 (X equiv.), additive, solvent, 125°C; table yields visible: 38,0,30,0,10,52,8,0,22,43,40,35,10%"
+      ],
+      "visible_sequence": [
+        "31",
+        "32",
+        "33",
+        "bufotalin (2)",
+        "19"
+      ]
+    },
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/visual_scheme_audit/visual_scheme_audit.json"
+  },
+  "visual_chain": {
+    "accepted": true,
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/visual_structure_chain_validation.json",
+    "summary": {
+      "accepted_step_count": 15,
+      "chain_contiguous": true,
+      "compound_count": 16,
+      "step_count": 15,
+      "target_match": true
+    }
+  }
+}

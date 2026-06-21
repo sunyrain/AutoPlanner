@@ -36,9 +36,15 @@ def main() -> None:
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     parser.add_argument("--run-prefix", default="agentic_blackboard")
     parser.add_argument("--max-rounds", type=int, default=3)
+    parser.add_argument("--exhaust-round-budget", action="store_true", help="Continue with non-stale alternative actions until max rounds are consumed.")
     parser.add_argument("--timeout-s", type=float, default=1800.0)
     parser.add_argument("--guided-chemenzy-timeout-s", type=float, default=None)
+    parser.add_argument("--max-chem-enzy-runs", type=int, default=None)
+    parser.add_argument("--max-guided-chemenzy-runs", type=int, default=None)
     parser.add_argument("--max-route-expansion-subgoal-runs", type=int, default=None)
+    parser.add_argument("--max-codex-research-runs", type=int, default=None)
+    parser.add_argument("--max-scout-calls", type=int, default=None)
+    parser.add_argument("--max-visual-calls", type=int, default=None)
     parser.add_argument("--key-path", default=str(DEFAULT_KEY_PATH))
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--model", default=DEFAULT_MODEL)
@@ -84,16 +90,27 @@ def _run_one(target: dict[str, str | Path], args: argparse.Namespace) -> dict:
         base_url=args.base_url,
         model=args.model,
         max_rounds=int(args.max_rounds or 3),
+        exhaust_round_budget=bool(args.exhaust_round_budget),
         budget=_budget_from_args(args),
     )
 
 
 def _budget_from_args(args: argparse.Namespace) -> HarnessBudget:
     budget = HarnessBudget(timeout_s=float(args.timeout_s))
+    if args.max_chem_enzy_runs is not None:
+        budget.max_chem_enzy_runs = int(args.max_chem_enzy_runs)
+    if args.max_guided_chemenzy_runs is not None:
+        budget.max_guided_chemenzy_runs = int(args.max_guided_chemenzy_runs)
     if args.guided_chemenzy_timeout_s is not None:
         budget.guided_chemenzy_timeout_s = float(args.guided_chemenzy_timeout_s)
     if args.max_route_expansion_subgoal_runs is not None:
         budget.max_route_expansion_subgoal_runs = int(args.max_route_expansion_subgoal_runs)
+    if args.max_codex_research_runs is not None:
+        budget.max_codex_research_runs = int(args.max_codex_research_runs)
+    if args.max_scout_calls is not None:
+        budget.max_scout_calls = int(args.max_scout_calls)
+    if args.max_visual_calls is not None:
+        budget.max_visual_calls = int(args.max_visual_calls)
     return budget
 
 

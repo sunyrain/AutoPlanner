@@ -37,6 +37,7 @@ ALLOWED_WORKER_TASK_TYPES = {
 ALLOWED_WORKER_ARTIFACT_TYPES = {
     "ResearchReport",
     "EvidenceCard",
+    "LiteratureScoutReport",
     "StrategicDisconnectionCard",
     "LiteratureRouteSegmentCard",
     "SegmentStepCandidate",
@@ -790,6 +791,15 @@ def _artifact_payload_instruction(artifact_type: str) -> str:
             "source_title, target_relation, claim_type, route_role, confidence, url/doi/local_ref, "
             "source_record_id, family_id, route_role_detail, limitations, source_metadata, validation_status."
         )
+    if artifact_type == "LiteratureScoutReport":
+        return (
+            "For payload, include schema_version=literature_scout_report.v1, accepted, case_id, source_candidates, "
+            "source_refs, search_queries, reasons, limitations, and no_solved_claim=true. Each source candidate must include "
+            "schema_version=literature_source_candidate.v1, candidate_id, source_ref, title, doi, url, local_pdf, "
+            "source_type, relevance_rationale, expected_scheme_or_compound_labels, extraction_task_recommendations, "
+            "access_status, and no_solved_claim. Use native web search for real DOI/title/URL evidence when available. "
+            "Do not invent sources, do not mark solved, and do not include reaction SMILES or raw route injections."
+        )
     if artifact_type == "StrategicDisconnectionCard":
         return (
             "For payload, describe the strategic disconnection without raw reaction injection: "
@@ -864,6 +874,8 @@ def _worker_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
     artifact_type = str(task.required_artifact_type or "")
     if artifact_type == "EvidenceCard":
         return _evidence_card_payload_json_schema(task)
+    if artifact_type == "LiteratureScoutReport":
+        return _literature_scout_payload_json_schema(task)
     if artifact_type == "LiteratureRouteSegmentCard":
         return _literature_route_segment_payload_json_schema(task)
     if artifact_type == "SegmentStepCandidate":
@@ -928,6 +940,37 @@ def _evidence_card_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
         "limitations": _string_array_schema(),
         "source_metadata": _source_metadata_json_schema(),
         "validation_status": {"type": "string", "enum": ["draft", "validated"]},
+    })
+
+
+def _literature_scout_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    return _strict_object_schema({
+        "schema_version": {"type": "string", "enum": ["literature_scout_report.v1"]},
+        "accepted": {"type": "boolean"},
+        "case_id": {"type": "string", "enum": [task.case_id]},
+        "source_candidates": {
+            "type": "array",
+            "items": _strict_object_schema({
+                "schema_version": {"type": "string", "enum": ["literature_source_candidate.v1"]},
+                "candidate_id": {"type": "string"},
+                "source_ref": {"type": "string"},
+                "title": {"type": "string"},
+                "doi": {"type": "string"},
+                "url": {"type": "string"},
+                "local_pdf": {"type": "string"},
+                "source_type": {"type": "string"},
+                "relevance_rationale": {"type": "string"},
+                "expected_scheme_or_compound_labels": _string_array_schema(),
+                "extraction_task_recommendations": _string_array_schema(),
+                "access_status": {"type": "string"},
+                "no_solved_claim": {"type": "boolean"},
+            }),
+        },
+        "source_refs": _string_array_schema(),
+        "search_queries": _string_array_schema(),
+        "reasons": _string_array_schema(),
+        "limitations": _string_array_schema(),
+        "no_solved_claim": {"type": "boolean"},
     })
 
 
@@ -1015,6 +1058,7 @@ def _typed_artifact_schema_version(artifact_type: str) -> str:
     return {
         "ResearchReport": "research_report.v1",
         "EvidenceCard": "evidence_card_artifact.v1",
+        "LiteratureScoutReport": "literature_scout_report_artifact.v1",
         "StrategicDisconnectionCard": "strategic_disconnection_card.v1",
         "LiteratureRouteSegmentCard": "literature_route_segment_card.v1",
         "SegmentStepCandidate": "segment_step_candidate.v1",

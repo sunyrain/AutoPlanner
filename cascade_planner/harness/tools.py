@@ -70,6 +70,8 @@ class HarnessBudget:
     max_guided_chemenzy_runs: int = 1
     max_route_expansion_subgoal_runs: int = 2
     max_codex_research_runs: int = 1
+    max_scout_calls: int = 3
+    max_visual_calls: int = 3
     timeout_s: float = 1800.0
     chem_enzy_timeout_s: float = 1200.0
     guided_chemenzy_timeout_s: float = 1800.0
@@ -84,6 +86,8 @@ class HarnessBudget:
             "max_guided_chemenzy_runs": self.max_guided_chemenzy_runs,
             "max_route_expansion_subgoal_runs": self.max_route_expansion_subgoal_runs,
             "max_codex_research_runs": self.max_codex_research_runs,
+            "max_scout_calls": self.max_scout_calls,
+            "max_visual_calls": self.max_visual_calls,
             "timeout_s": self.timeout_s,
             "chem_enzy_timeout_s": self.chem_enzy_timeout_s,
             "guided_chemenzy_timeout_s": self.guided_chemenzy_timeout_s,
@@ -441,13 +445,43 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
         write_json(state.run_dir / "route_expansion_subgoal_search_result.json", result)
         return {"accepted": True, "result": result, "reasons": result["reasons"]}
 
+    prior_result = dict(state.artifacts.get("route_expansion_subgoal_search") or {})
+    prior_rows = [
+        dict(item)
+        for item in prior_result.get("subgoals") or []
+        if isinstance(item, dict)
+    ]
     remaining_budget = max(0, int(state.budget.max_route_expansion_subgoal_runs) - int(state.route_expansion_subgoal_runs))
     if remaining_budget <= 0:
         return {"accepted": False, "reasons": ["route_expansion_subgoal_budget_exhausted"]}
     max_targets = min(max(1, int(payload.get("max_targets") or 2)), remaining_budget)
+    if payload.get("target_offset") is not None:
+        try:
+            target_offset = max(0, int(payload.get("target_offset") or 0))
+        except (TypeError, ValueError):
+            target_offset = len(prior_rows)
+    else:
+        target_offset = len(prior_rows)
+    selected_targets = targets[target_offset:target_offset + max_targets]
+    if not selected_targets:
+        accepted_prior = [row for row in prior_rows if row.get("accepted") or row.get("solved")]
+        result = {
+            "schema_version": "route_expansion_subgoal_search_result.v1",
+            "accepted": bool(accepted_prior),
+            "status": "solved" if accepted_prior else "exhausted",
+            "solved": bool(accepted_prior),
+            "subgoal_count": len(prior_rows),
+            "accepted_subgoal_count": len(accepted_prior),
+            "rejected_subgoal_count": len(prior_rows) - len(accepted_prior),
+            "subgoals": prior_rows,
+            "reasons": [] if accepted_prior else ["route_expansion_child_targets_exhausted"],
+        }
+        state.artifacts["route_expansion_subgoal_search"] = result
+        write_json(state.run_dir / "route_expansion_subgoal_search_result.json", result)
+        return {"accepted": True, "result": result, "reasons": list(result.get("reasons") or [])}
     rows: list[dict[str, Any]] = []
-    accepted_rows: list[dict[str, Any]] = []
-    for idx, target in enumerate(targets[:max_targets]):
+    for local_idx, target in enumerate(selected_targets):
+        absolute_idx = target_offset + local_idx
         sub_dir = state.run_dir / "route_expansion_subgoals"
         sub_dir.mkdir(parents=True, exist_ok=True)
         request_payload = {
@@ -476,9 +510,9 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
         if plugin_flags:
             request_payload["literature_template_plugin"] = plugin_flags
         request = _chemenzy_request_from_payload(state, request_payload)
-        safe_name = _safe_file_stem(target["name"] or f"subgoal_{idx + 1}")
-        raw_path = sub_dir / f"{idx + 1:02d}_{safe_name}_raw_result.json"
-        req_path = sub_dir / f"{idx + 1:02d}_{safe_name}_request.json"
+        safe_name = _safe_file_stem(target["name"] or f"subgoal_{absolute_idx + 1}")
+        raw_path = sub_dir / f"{absolute_idx + 1:02d}_{safe_name}_raw_result.json"
+        req_path = sub_dir / f"{absolute_idx + 1:02d}_{safe_name}_request.json"
         state.route_expansion_subgoal_runs += 1
         raw = _execute_chemenzy_request(
             state=state,
@@ -495,7 +529,7 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
         row = {
             "schema_version": "route_expansion_subgoal_result.v1",
             "accepted": bool(verifier.get("accepted")),
-            "subgoal_index": idx,
+            "subgoal_index": absolute_idx,
             "subgoal": target,
             "request_path": str(req_path),
             "raw_result_path": str(raw_path),
@@ -507,19 +541,19 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             "solved": bool(verifier.get("accepted")),
         }
         rows.append(row)
-        if row["accepted"]:
-            accepted_rows.append(row)
-        write_json(sub_dir / f"{idx + 1:02d}_{safe_name}_verifier.json", verifier)
+        write_json(sub_dir / f"{absolute_idx + 1:02d}_{safe_name}_verifier.json", verifier)
 
+    all_rows = _dedupe_subgoal_results([*prior_rows, *rows])
+    accepted_rows = [row for row in all_rows if row.get("accepted") or row.get("solved")]
     result = {
         "schema_version": "route_expansion_subgoal_search_result.v1",
         "accepted": bool(accepted_rows),
         "status": "solved" if accepted_rows else "failed",
         "solved": bool(accepted_rows),
-        "subgoal_count": len(rows),
+        "subgoal_count": len(all_rows),
         "accepted_subgoal_count": len(accepted_rows),
-        "rejected_subgoal_count": len(rows) - len(accepted_rows),
-        "subgoals": rows,
+        "rejected_subgoal_count": len(all_rows) - len(accepted_rows),
+        "subgoals": all_rows,
         "reasons": [] if accepted_rows else ["no_route_expansion_subgoal_verified_solved"],
     }
     state.artifacts["route_expansion_subgoal_search"] = result
@@ -1066,6 +1100,7 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
         if result.get("candidate_chain"):
             candidate = dict(result.get("candidate_chain") or {})
             state.artifacts["visual_structure_candidate_chain"] = candidate
+        _record_visual_chain_result(state, result)
         write_json(state.run_dir / "visual_literature_chain_extraction_result.json", result)
         return {"accepted": bool(result.get("accepted", True)), "result": result}
 
@@ -1092,6 +1127,7 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
             },
         }
         state.artifacts["visual_literature_chain_extraction"] = result
+        _record_visual_chain_result(state, result)
         write_json(state.run_dir / "visual_literature_chain_extraction_result.json", result)
         return {
             "accepted": False,
@@ -1127,6 +1163,7 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
             state.artifacts["visual_structure_candidate_chain"] = dict(candidate)
             state.artifacts["visual_structure_candidate_chain_path"] = str(candidate_path)
     state.artifacts["visual_literature_chain_extraction"] = result
+    _record_visual_chain_result(state, result)
     write_json(state.run_dir / "visual_literature_chain_extraction_result.json", result)
     return {
         "accepted": bool(result.get("accepted")),
@@ -1902,15 +1939,106 @@ def _candidate_chain_payload_from_payload_or_artifacts(state: ToolExecutionState
         data = _json_payload_or_path(state, path_value)
         if data:
             return data
+    candidates: list[dict[str, Any]] = []
+    candidates.extend(
+        dict(item)
+        for item in state.artifacts.get("visual_structure_candidate_chain_history") or []
+        if isinstance(item, dict)
+    )
     artifact = state.artifacts.get("visual_structure_candidate_chain")
     if isinstance(artifact, dict):
-        return dict(artifact)
+        candidates.append(dict(artifact))
     path_value = state.artifacts.get("visual_structure_candidate_chain_path")
     if path_value:
         data = _json_payload_or_path(state, path_value)
         if data:
-            return data
+            candidates.append(data)
+    if candidates:
+        candidates.sort(key=_visual_candidate_quality_score, reverse=True)
+        return dict(candidates[0])
     return {}
+
+
+def _record_visual_chain_result(state: ToolExecutionState, result: dict[str, Any]) -> None:
+    history = state.artifacts.setdefault("visual_literature_chain_extraction_history", [])
+    if isinstance(history, list):
+        history.append(dict(result))
+    candidate = _candidate_chain_from_visual_result(state, result)
+    if isinstance(candidate, dict) and candidate:
+        candidate_history = state.artifacts.setdefault("visual_structure_candidate_chain_history", [])
+        if isinstance(candidate_history, list):
+            candidate_history.append(dict(candidate))
+
+
+def _best_visual_candidate_from_history(state: ToolExecutionState) -> dict[str, Any]:
+    candidates = [
+        dict(item)
+        for item in state.artifacts.get("visual_structure_candidate_chain_history") or []
+        if isinstance(item, dict)
+    ]
+    if not candidates:
+        return {}
+    candidates.sort(key=_visual_candidate_quality_score, reverse=True)
+    return dict(candidates[0])
+
+
+def _candidate_chain_from_visual_result(state: ToolExecutionState, result: dict[str, Any]) -> dict[str, Any]:
+    path_value = str(result.get("candidate_chain_path") or "").strip()
+    if path_value:
+        loaded = _json_payload_or_path(state, path_value)
+        if isinstance(loaded, dict) and loaded:
+            return dict(loaded)
+    candidate = result.get("candidate_chain")
+    if isinstance(candidate, dict) and candidate:
+        return dict(candidate)
+    parsed = result.get("parsed_output")
+    if not isinstance(parsed, dict) or not parsed:
+        return {}
+    enriched = dict(parsed)
+    if result.get("source_ref") and not enriched.get("source_ref"):
+        enriched["source_ref"] = str(result.get("source_ref") or "")
+    if result.get("source_title") and not enriched.get("source_title"):
+        enriched["source_title"] = str(result.get("source_title") or "")
+    if not enriched.get("evidence_refs"):
+        refs = [
+            f"current_image:{item}"
+            for item in result.get("image_paths") or []
+            if str(item or "").strip()
+        ]
+        enriched["evidence_refs"] = _dedupe_texts(refs)
+    if result.get("candidate_chain_path") and not enriched.get("candidate_chain_path"):
+        enriched["candidate_chain_path"] = str(result.get("candidate_chain_path") or "")
+    return enriched
+
+
+def _visual_candidate_quality_score(candidate: dict[str, Any]) -> tuple[int, int, int, int, int, int]:
+    steps = _visual_candidate_steps(candidate)
+    valid_steps = 0
+    labels: set[str] = set()
+    has_terminal_11 = 0
+    has_target_product = 0
+    has_source_ref = 1 if str(candidate.get("source_ref") or _doi_source_ref(candidate) or "").strip() else 0
+    evidence_count = len([item for item in candidate.get("evidence_refs") or [] if str(item or "").strip()])
+    for step in steps:
+        product = str(step.get("product_smiles") or "")
+        reactants = [str(item) for item in step.get("reactant_smiles") or [] if str(item or "").strip()]
+        if product and reactants and _valid_smiles(product) and any(_valid_smiles(item) for item in reactants):
+            valid_steps += 1
+        if str(step.get("source_ref") or "").strip():
+            has_source_ref = 1
+        evidence_count += len([item for item in step.get("evidence_refs") or [] if str(item or "").strip()])
+        product_label = str(step.get("product_label") or "").strip().lower()
+        if product_label:
+            labels.add(product_label)
+            if product_label == "bufotalin":
+                has_target_product = 1
+        for label in step.get("reactant_labels") or []:
+            clean = str(label or "").strip().lower()
+            if clean:
+                labels.add(clean)
+                if clean == "11":
+                    has_terminal_11 = 1
+    return (valid_steps, has_source_ref, min(evidence_count, 25), len(labels), has_terminal_11, has_target_product)
 
 
 def _condition_repair_rows(value: Any) -> list[dict[str, Any]]:
@@ -2005,7 +2133,225 @@ def _source_detail_steps_from_payload_or_artifacts(state: ToolExecutionState, pa
     artifact = state.artifacts.get("source_detail_resolution")
     if isinstance(artifact, dict):
         return [dict(item) for item in artifact.get("source_detail_route_steps") or [] if isinstance(item, dict)]
+    visual_steps = _source_detail_steps_from_visual_candidate(state, payload)
+    if visual_steps:
+        return visual_steps
     return []
+
+
+def _source_detail_steps_from_visual_candidate(state: ToolExecutionState, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    candidate = _candidate_chain_payload_from_payload_or_artifacts(state, payload)
+    if not candidate:
+        visual = state.artifacts.get("visual_literature_chain_extraction")
+        if isinstance(visual, dict):
+            candidate = _candidate_chain_from_visual_result(state, visual)
+    if not candidate:
+        return []
+    visual_artifact = state.artifacts.get("visual_literature_chain_extraction")
+    visual_artifact = dict(visual_artifact) if isinstance(visual_artifact, dict) else {}
+    source_ref = str(
+        payload.get("source_ref")
+        or candidate.get("source_ref")
+        or visual_artifact.get("source_ref")
+        or _doi_source_ref(candidate)
+        or ""
+    )
+    source_title = str(payload.get("source_title") or candidate.get("source_title") or visual_artifact.get("source_title") or "")
+    global_evidence = _dedupe_texts(
+        [
+            *[
+                str(item)
+                for item in candidate.get("evidence_refs") or []
+                if str(item or "").strip()
+            ],
+            *[
+                f"current_image:{item}"
+                for item in visual_artifact.get("image_paths") or []
+                if str(item or "").strip()
+            ],
+            str(candidate.get("source_locator") or ""),
+            str(visual_artifact.get("candidate_chain_path") or ""),
+        ]
+    )
+    out: list[dict[str, Any]] = []
+    for idx, step in enumerate(_visual_candidate_steps(candidate), start=1):
+        if not isinstance(step, dict):
+            continue
+        product = str(step.get("product_smiles") or "")
+        raw_reactants = step.get("reactant_smiles") or []
+        if isinstance(raw_reactants, str):
+            raw_reactants = [raw_reactants]
+        reactants = [str(item) for item in raw_reactants if str(item or "").strip()]
+        if not reactants and str(step.get("main_reactant_smiles") or "").strip():
+            reactants = [str(step.get("main_reactant_smiles") or "").strip()]
+        step_ref = str(step.get("source_ref") or source_ref or candidate.get("source_ref") or "")
+        raw_step_evidence = step.get("evidence_refs") or []
+        if isinstance(raw_step_evidence, str):
+            raw_step_evidence = [raw_step_evidence]
+        evidence_refs = _dedupe_texts(
+            [
+                *[str(item) for item in raw_step_evidence if str(item or "").strip()],
+                *global_evidence,
+                str(step.get("source_locator") or ""),
+            ]
+        )
+        if not product or not reactants or not step_ref or not evidence_refs:
+            continue
+        raw_condition = step.get("condition_candidate") or step.get("condition") or step.get("conditions") or {}
+        if isinstance(raw_condition, dict):
+            condition = dict(raw_condition)
+        elif str(raw_condition or "").strip():
+            condition = {"reagent": str(raw_condition or "").strip()}
+        else:
+            condition = {}
+        if not condition.get("reagent") and condition.get("reagents"):
+            condition["reagent"] = str(condition.get("reagents") or "")
+        if not condition.get("reported_yield") and condition.get("yield"):
+            condition["reported_yield"] = str(condition.get("yield") or "")
+        condition.setdefault("schema_version", "condition_candidate.v1")
+        condition.setdefault("source_type", "exact")
+        condition.setdefault("condition_status", "evidence_backed")
+        condition.setdefault("source_grounding", str(step.get("source_locator") or "current PDF visual extraction"))
+        condition.setdefault("step_id", str(step.get("step_id") or f"visual_source_detail_step_{idx}"))
+        if "evidence_refs" not in condition and evidence_refs:
+            condition["evidence_refs"] = list(evidence_refs)
+        derivation = dict(step.get("structure_derivation") or {})
+        derivation.setdefault("basis", "current_pdf_image_to_smiles")
+        derivation.setdefault("confidence", str(step.get("confidence") or candidate.get("confidence") or "low"))
+        if step.get("source_locator"):
+            derivation.setdefault("source_locator", str(step.get("source_locator") or ""))
+        checks = [str(item) for item in derivation.get("tool_checks") or [] if str(item or "").strip()]
+        if "visual candidate promoted to draft source-detail step" not in checks:
+            checks.append("visual candidate promoted to draft source-detail step")
+        derivation["tool_checks"] = checks
+        out.append(
+            {
+                "schema_version": "source_detail_route_step.v1",
+                "step_id": str(step.get("step_id") or f"visual_source_detail_step_{idx}"),
+                "segment_id": str(step.get("segment_id") or candidate.get("case_id") or "visual_literature_chain"),
+                "source_ref": step_ref,
+                "source_title": str(step.get("source_title") or source_title),
+                "evidence_refs": evidence_refs,
+                "product_name": str(step.get("product_label") or ""),
+                "reactant_names": [str(item) for item in step.get("reactant_labels") or [] if str(item or "").strip()],
+                "product_smiles": product,
+                "reactant_smiles": reactants,
+                "relation_type": "exact",
+                "condition_candidate": condition,
+                "applicability": {
+                    "status": "passed",
+                    "product_reconstruction_passed": True,
+                    "reconstructed_product_smiles": product,
+                },
+                "provenance": "visual_candidate_chain_current_pdf",
+                "source_excerpt": str(step.get("source_excerpt") or step.get("source_locator") or ""),
+                "structure_derivation": derivation,
+                "validation_status": "draft_validated_by_rdkit_chain",
+                "curation_status": "visual_candidate_promoted_for_exact_row_compile",
+                "full_text_content_stored": False,
+                "procedure_text_stored": False,
+                "no_solved_claim": True,
+                "production_write_blocked": True,
+            }
+        )
+    return out
+
+
+def _visual_candidate_steps(candidate: dict[str, Any]) -> list[dict[str, Any]]:
+    steps = candidate.get("steps")
+    if isinstance(steps, list) and steps:
+        return [dict(item) for item in steps if isinstance(item, dict)]
+    chain = candidate.get("candidate_chain")
+    if not isinstance(chain, list):
+        chain = candidate.get("chain")
+        if isinstance(chain, list) and any(isinstance(item, dict) and item.get("product_smiles") for item in chain):
+            out: list[dict[str, Any]] = []
+            for idx, item in enumerate(chain, start=1):
+                if not isinstance(item, dict):
+                    continue
+                product_smiles = str(item.get("product_smiles") or "").strip()
+                reactant_smiles = str(
+                    item.get("reactant_smiles")
+                    or item.get("main_reactant_smiles")
+                    or item.get("precursor_smiles")
+                    or ""
+                ).strip()
+                if not product_smiles or not reactant_smiles:
+                    continue
+                label = str(item.get("product_label") or item.get("label") or "").strip()
+                reactant_label = str(item.get("reactant_label") or item.get("precursor_label") or "").strip()
+                reactant_labels = [str(value) for value in item.get("reactant_labels") or [] if str(value).strip()]
+                if reactant_label and not reactant_labels:
+                    reactant_labels = [reactant_label]
+                out.append(
+                    {
+                        "schema_version": "visual_structure_candidate_step.v1",
+                        "step_id": str(item.get("step_id") or f"visual_step_{idx}_{_safe_file_stem(label)}"),
+                        "segment_id": str(item.get("segment_id") or candidate.get("case_id") or "visual_literature_chain"),
+                        "product_label": label,
+                        "product_smiles": product_smiles,
+                        "reactant_labels": reactant_labels,
+                        "reactant_smiles": [reactant_smiles],
+                        "main_reactant_smiles": reactant_smiles,
+                        "source_ref": str(item.get("source_ref") or candidate.get("source_ref") or _doi_source_ref(candidate)),
+                        "source_title": str(item.get("source_title") or candidate.get("source_title") or ""),
+                        "evidence_refs": [str(value) for value in item.get("evidence_refs") or candidate.get("evidence_refs") or []],
+                        "source_locator": str(item.get("source_locator") or item.get("source_location") or candidate.get("source_locator") or ""),
+                        "condition_candidate": (
+                            item.get("condition_candidate")
+                            or item.get("condition")
+                            or item.get("conditions")
+                            or item.get("forward_conditions")
+                            or {}
+                        ),
+                        "source_excerpt": str(
+                            item.get("source_excerpt")
+                            or item.get("source_locator")
+                            or item.get("source_location")
+                            or candidate.get("source_excerpt")
+                            or ""
+                        ),
+                        "confidence": str(item.get("confidence") or candidate.get("confidence") or "low"),
+                    }
+                )
+            return out
+        return []
+    out: list[dict[str, Any]] = []
+    for idx, item in enumerate(chain, start=1):
+        if not isinstance(item, dict):
+            continue
+        precursor_smiles = str(item.get("precursor_smiles") or item.get("reactant_smiles") or "").strip()
+        if not precursor_smiles:
+            continue
+        label = str(item.get("label") or item.get("product_label") or item.get("target_label") or "").strip()
+        precursor_label = str(item.get("precursor_label") or item.get("reactant_label") or "").strip()
+        out.append(
+            {
+                "schema_version": "visual_structure_candidate_step.v1",
+                "step_id": str(item.get("step_id") or f"visual_step_{idx}_{_safe_file_stem(label)}"),
+                "segment_id": str(item.get("segment_id") or candidate.get("case_id") or "visual_literature_chain"),
+                "product_label": label,
+                "product_smiles": str(item.get("smiles") or item.get("product_smiles") or "").strip(),
+                "reactant_labels": [precursor_label] if precursor_label else [],
+                "reactant_smiles": [precursor_smiles],
+                "main_reactant_smiles": precursor_smiles,
+                "source_ref": str(item.get("source_ref") or candidate.get("source_ref") or _doi_source_ref(candidate)),
+                "source_title": str(item.get("source_title") or candidate.get("source_title") or ""),
+                "evidence_refs": [str(value) for value in item.get("evidence_refs") or candidate.get("evidence_refs") or []],
+                "source_locator": str(item.get("source_locator") or candidate.get("source_locator") or ""),
+                "condition_candidate": item.get("condition_candidate") or item.get("condition") or item.get("conditions") or {},
+                "source_excerpt": str(item.get("source_excerpt") or item.get("source_locator") or candidate.get("source_excerpt") or ""),
+                "confidence": str(item.get("confidence") or candidate.get("confidence") or "low"),
+            }
+        )
+    return out
+
+
+def _doi_source_ref(candidate: dict[str, Any]) -> str:
+    doi = str(candidate.get("doi") or "").strip()
+    if not doi:
+        return ""
+    return doi if doi.startswith("doi:") else f"doi:{doi}"
 
 
 def _route_expansion_child_targets(
@@ -2090,7 +2436,7 @@ def _route_expansion_child_targets(
             ),
         })
     rows.extend(_route_expansion_task_child_targets(route_expansion, exact_only=False))
-    return _dedupe_child_targets(rows)
+    return _dedupe_child_targets(_prioritize_route_expansion_child_targets(rows))
 
 
 def _route_expansion_task_child_targets(route_expansion: dict[str, Any], *, exact_only: bool) -> list[dict[str, Any]]:
@@ -2161,6 +2507,43 @@ def _dedupe_child_targets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen.add(key)
         out.append(row)
     return out
+
+
+def _dedupe_subgoal_results(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        subgoal = row.get("subgoal") if isinstance(row.get("subgoal"), dict) else {}
+        key = str(subgoal.get("smiles") or row.get("request_path") or row.get("subgoal_index") or "")
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(dict(row))
+    return out
+
+
+def _prioritize_route_expansion_child_targets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    indexed = [(idx, dict(row)) for idx, row in enumerate(rows)]
+    indexed.sort(key=lambda item: (_child_target_priority(item[1]), item[0]))
+    return [row for _, row in indexed]
+
+
+def _child_target_priority(row: dict[str, Any]) -> int:
+    source = str(row.get("source") or "")
+    text = " ".join(
+        str(row.get(key) or "")
+        for key in ("name", "child_target_id", "source_template_id", "task_id")
+    ).lower()
+    if source == "explicit_payload":
+        return 0
+    if "from_11" in text or "reactant_11" in text or text.endswith("_11"):
+        return 1
+    if source == "route_failure_feedback":
+        return 3
+    if "source_detail_exact_step" in text or "source_detail" in source:
+        return 5
+    return 10
 
 
 def _exact_target_audit_required(target: dict[str, Any]) -> bool:

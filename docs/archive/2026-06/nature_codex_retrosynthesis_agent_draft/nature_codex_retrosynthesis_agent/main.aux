@@ -1,0 +1,41 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyperFirstAtBeginDocument{\AtBeginDocument}
+\HyperFirstAtBeginDocument{\ifx\hyper@anchor\@undefined
+\global\let\oldcontentsline\contentsline
+\gdef\contentsline#1#2#3#4{\oldcontentsline{#1}{#2}{#3}}
+\global\let\oldnewlabel\newlabel
+\gdef\newlabel#1#2{\newlabelxx{#1}#2}
+\gdef\newlabelxx#1#2#3#4#5#6{\oldnewlabel{#1}{{#2}{#3}}}
+\AtEndDocument{\ifx\hyper@anchor\@undefined
+\let\contentsline\oldcontentsline
+\let\newlabel\oldnewlabel
+\fi}
+\fi}
+\global\let\hyper@last\relax 
+\gdef\HyperFirstAtBeginDocument#1{#1}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{corey1969retrosynthetic}
+\citation{segler2018planning,schwaller2020molecular,genheden2020aizynthfinder}
+\citation{wang2023scientificdiscovery,boiko2023coscientist}
+\citation{landrum2024rdkit}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {AutoPlanner full-flow architecture.} The system is organized into four lanes. Codex operates in the agency layer, where it chooses a strategy and schedules only approved tools. Tool execution includes target intake, ChemEnzy route proposal, literature/PDF/visual extraction and downstream artifact compilation. Deterministic authority remains in the preflight and validator gates, which check schema compliance, structure validity, stock closure and provenance before a final verdict is emitted. Red policy labels mark forbidden transitions: raw language-model reaction injection, language-model-only solved claims and production knowledge-base writes without validator approval.}}{2}{figure.1}\protected@file@percent }
+\newlabel{fig:architecture}{{1}{2}{\textbf {AutoPlanner full-flow architecture.} The system is organized into four lanes. Codex operates in the agency layer, where it chooses a strategy and schedules only approved tools. Tool execution includes target intake, ChemEnzy route proposal, literature/PDF/visual extraction and downstream artifact compilation. Deterministic authority remains in the preflight and validator gates, which check schema compliance, structure validity, stock closure and provenance before a final verdict is emitted. Red policy labels mark forbidden transitions: raw language-model reaction injection, language-model-only solved claims and production knowledge-base writes without validator approval}{figure.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces \textbf  {End-to-end workflow and decision gates.} The default hard-case sequence writes a target input, preflight record, workflow plan, raw route proposals, route audit, literature extraction artifacts, compiled handoff artifacts and a final verdict. Validation can terminate the run as rejected, partial, needs follow-up or solved. The follow-up loop returns to Codex planning with structured failure feedback rather than free-form hidden state.}}{3}{figure.2}\protected@file@percent }
+\newlabel{fig:workflow}{{2}{3}{\textbf {End-to-end workflow and decision gates.} The default hard-case sequence writes a target input, preflight record, workflow plan, raw route proposals, route audit, literature extraction artifacts, compiled handoff artifacts and a final verdict. Validation can terminate the run as rejected, partial, needs follow-up or solved. The follow-up loop returns to Codex planning with structured failure feedback rather than free-form hidden state}{figure.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces \textbf  {Artifact contracts and validation authority.} Run context, proposal artifacts, evidence artifacts and compiled handoff artifacts are serialized as machine-readable files. Validator gates then check required schema fields, RDKit-valid structures, route closure, source evidence and policy constraints. This contract boundary allows Codex to draft and organize evidence while making every route-affecting claim replayable by deterministic code.}}{4}{figure.3}\protected@file@percent }
+\newlabel{fig:artifacts}{{3}{4}{\textbf {Artifact contracts and validation authority.} Run context, proposal artifacts, evidence artifacts and compiled handoff artifacts are serialized as machine-readable files. Validator gates then check required schema fields, RDKit-valid structures, route closure, source evidence and policy constraints. This contract boundary allows Codex to draft and organize evidence while making every route-affecting claim replayable by deterministic code}{figure.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Representative full-flow outcomes.} Values are taken from local run artifacts generated between 6 and 8 June 2026.}}{5}{table.1}\protected@file@percent }
+\newlabel{tab:cases}{{1}{5}{\textbf {Representative full-flow outcomes.} Values are taken from local run artifacts generated between 6 and 8 June 2026}{table.1}{}}
+\bibstyle{naturemag}
+\bibdata{references}
+\bibcite{corey1969retrosynthetic}{{1}{}{{}}{{}}}
+\bibcite{segler2018planning}{{2}{}{{}}{{}}}
+\bibcite{schwaller2020molecular}{{3}{}{{}}{{}}}
+\bibcite{genheden2020aizynthfinder}{{4}{}{{}}{{}}}
+\bibcite{wang2023scientificdiscovery}{{5}{}{{}}{{}}}
+\bibcite{boiko2023coscientist}{{6}{}{{}}{{}}}
+\bibcite{landrum2024rdkit}{{7}{}{{}}{{}}}
+\providecommand\NAT@force@numbers{}\NAT@force@numbers
+\gdef \@abspage@last{9}

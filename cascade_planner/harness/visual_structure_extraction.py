@@ -139,9 +139,71 @@ def _candidate_steps(payload: dict[str, Any]) -> list[dict[str, Any]]:
     raw_steps = payload.get("steps")
     if isinstance(raw_steps, list) and raw_steps:
         return [dict(item) for item in raw_steps if isinstance(item, dict)]
+    candidate_chain = payload.get("candidate_chain")
+    if isinstance(candidate_chain, list) and candidate_chain:
+        out: list[dict[str, Any]] = []
+        for index, item in enumerate(candidate_chain, start=1):
+            if not isinstance(item, dict):
+                continue
+            precursor_smiles = str(item.get("precursor_smiles") or item.get("reactant_smiles") or "").strip()
+            if not precursor_smiles:
+                continue
+            label = str(item.get("label") or item.get("product_label") or item.get("target_label") or "").strip()
+            precursor_label = str(item.get("precursor_label") or item.get("reactant_label") or "").strip()
+            out.append(
+                {
+                    "step_id": str(item.get("step_id") or f"visual_step_{index}_{_safe_id(label)}"),
+                    "segment_id": str(item.get("segment_id") or payload.get("segment_id") or "visual_literature_chain"),
+                    "product_label": label,
+                    "product_smiles": str(item.get("smiles") or item.get("product_smiles") or "").strip(),
+                    "reactant_labels": [precursor_label] if precursor_label else [],
+                    "reactant_smiles": [precursor_smiles],
+                    "main_reactant_smiles": precursor_smiles,
+                    "source_ref": str(item.get("source_ref") or payload.get("source_ref") or ""),
+                    "source_title": str(item.get("source_title") or payload.get("source_title") or ""),
+                    "evidence_refs": _string_list(item.get("evidence_refs") or payload.get("evidence_refs")),
+                    "source_locator": str(item.get("source_locator") or payload.get("source_locator") or ""),
+                    "condition_candidate": item.get("condition_candidate") or item.get("conditions") or item.get("condition") or {},
+                    "source_excerpt": str(item.get("source_excerpt") or item.get("source_locator") or payload.get("source_excerpt") or ""),
+                    "confidence": str(item.get("confidence") or payload.get("confidence") or "low"),
+                }
+            )
+        return out
     chain = payload.get("chain") or payload.get("nodes")
     if not isinstance(chain, list) or len(chain) < 2:
         return []
+    if any(isinstance(item, dict) and item.get("product_smiles") and item.get("reactant_smiles") for item in chain):
+        out: list[dict[str, Any]] = []
+        for index, item in enumerate(chain, start=1):
+            if not isinstance(item, dict):
+                continue
+            product_smiles = str(item.get("product_smiles") or "").strip()
+            reactant_smiles = str(item.get("reactant_smiles") or item.get("main_reactant_smiles") or "").strip()
+            if not product_smiles or not reactant_smiles:
+                continue
+            reactant_label = str(item.get("reactant_label") or "").strip()
+            reactant_labels = [str(value) for value in item.get("reactant_labels") or [] if str(value).strip()]
+            if reactant_label and not reactant_labels:
+                reactant_labels = [reactant_label]
+            out.append(
+                {
+                    "step_id": str(item.get("step_id") or f"visual_step_{index}_{_safe_id(str(item.get('product_label') or 'step'))}"),
+                    "segment_id": str(item.get("segment_id") or payload.get("segment_id") or "visual_literature_chain"),
+                    "product_label": str(item.get("product_label") or item.get("label") or "").strip(),
+                    "product_smiles": product_smiles,
+                    "reactant_labels": reactant_labels,
+                    "reactant_smiles": [reactant_smiles],
+                    "main_reactant_smiles": reactant_smiles,
+                    "source_ref": str(item.get("source_ref") or payload.get("source_ref") or ""),
+                    "source_title": str(item.get("source_title") or payload.get("source_title") or ""),
+                    "evidence_refs": _string_list(item.get("evidence_refs") or payload.get("evidence_refs")),
+                    "source_locator": str(item.get("source_locator") or payload.get("source_locator") or ""),
+                    "condition_candidate": item.get("condition_candidate") or item.get("conditions") or item.get("condition") or {},
+                    "source_excerpt": str(item.get("source_excerpt") or item.get("source_locator") or payload.get("source_excerpt") or ""),
+                    "confidence": str(item.get("confidence") or payload.get("confidence") or "low"),
+                }
+            )
+        return out
     nodes = [dict(item) for item in chain if isinstance(item, dict)]
     out: list[dict[str, Any]] = []
     route_order = str(payload.get("route_order") or "forward_start_to_target")
@@ -195,7 +257,11 @@ def _normalize_step(raw: dict[str, Any], *, index: int, payload: dict[str, Any])
         "source_title": str(raw.get("source_title") or payload.get("source_title") or ""),
         "evidence_refs": _string_list(raw.get("evidence_refs") or payload.get("evidence_refs")),
         "source_locator": str(raw.get("source_locator") or payload.get("source_locator") or ""),
-        "condition_candidate": raw.get("condition_candidate") or payload.get("default_condition_candidate") or {},
+        "condition_candidate": raw.get("condition_candidate")
+        or raw.get("condition")
+        or raw.get("conditions")
+        or payload.get("default_condition_candidate")
+        or {},
         "structure_derivation": raw.get("structure_derivation") or {},
         "source_excerpt": str(raw.get("source_excerpt") or payload.get("source_excerpt") or ""),
         "confidence": str(raw.get("confidence") or payload.get("confidence") or "medium_high"),
@@ -234,6 +300,17 @@ def _smiles_report(smiles: str) -> dict[str, Any]:
 
 
 def _condition_candidate(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {}
+        return {
+            "schema_version": "condition_candidate.v1",
+            "source_type": "exact",
+            "condition_status": "evidence_backed",
+            "reagent": text,
+            "source_grounding": "current PDF scheme image",
+        }
     row = dict(value) if isinstance(value, dict) else {}
     reagent_candidates = _string_list(row.get("reagent_candidates"))
     solvent_candidates = _string_list(row.get("solvent_candidates"))
@@ -241,7 +318,7 @@ def _condition_candidate(value: Any) -> dict[str, Any]:
         "schema_version": "condition_candidate.v1",
         "source_type": str(row.get("source_type") or "exact"),
         "condition_status": str(row.get("condition_status") or "evidence_backed"),
-        "reagent": str(row.get("reagent") or "; ".join(reagent_candidates)),
+        "reagent": str(row.get("reagent") or row.get("reagents") or "; ".join(reagent_candidates)),
         "reagent_candidates": reagent_candidates,
         "catalyst": str(row.get("catalyst") or ""),
         "enzyme": str(row.get("enzyme") or ""),

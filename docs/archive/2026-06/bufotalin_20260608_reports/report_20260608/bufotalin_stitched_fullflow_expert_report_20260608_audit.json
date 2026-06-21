@@ -1,0 +1,30 @@
+{
+  "accepted": true,
+  "data_path": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260608/bufotalin_stitched_fullflow_expert_report_20260608.json",
+  "final_verdict": "solved",
+  "generated_at_utc": "2026-06-08T04:36:39.484275+00:00",
+  "key_artifacts": {
+    "artifact_bundle_validation": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/artifact_bundle_validation.json",
+    "final_verdict": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/final_verdict.json",
+    "guided_route_verifier": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/guided_route_verifier_report.json",
+    "patched_guided_tool_call": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/guided_chemenzy_patched_tool_call.json",
+    "pdf_evidence": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_pdf_structure_extraction/literature_pdf_structure_evidence.json",
+    "planner_record": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/codex_planner_run_record.json",
+    "route_expansion_subgoals": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/route_expansion_subgoals",
+    "source_detail_chain_route": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/source_detail_chain_route/source_detail_route_chain_audit.json",
+    "source_detail_curator_records": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/open_structure_research/evidence/source_detail_curator_records.json",
+    "stitched_route": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/stitched_semisynthesis_route/stitched_semisynthesis_route.json",
+    "summary": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/bufotalin_stitched_fullflow_summary.json",
+    "visual_candidate_chain": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/visual_candidate_chain/visual_structure_candidate_chain.json",
+    "visual_chain_validation": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345/literature_intermediate_chain_validation/visual_structure_chain_validation.json"
+  },
+  "markdown_path": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260608/bufotalin_stitched_fullflow_expert_report_20260608.md",
+  "pdf_path": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260608/bufotalin_stitched_fullflow_expert_report_20260608.pdf",
+  "pdf_size_bytes": 1147001,
+  "rendered_page_count": 9,
+  "run_dir": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345",
+  "schema_version": "bufotalin_stitched_fullflow_expert_report_audit.v1",
+  "solved": true,
+  "source_pdf_path": "/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+  "stitched_route_status": "solved"
+}

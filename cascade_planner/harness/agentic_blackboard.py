@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from cascade_planner.harness.agent_action_planner import build_guided_chemenzy_payload_from_blackboard
+from cascade_planner.cascadeboard.route_recovery import canonical_smiles
 from cascade_planner.harness.schemas import write_json
 
 
@@ -18,9 +19,22 @@ def initialize_agent_blackboard(
     target_input: dict[str, Any],
     preflight: dict[str, Any],
     max_rounds: int = 3,
+    budget_limits: dict[str, Any] | None = None,
     prior_artifacts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     profile = dict(preflight.get("target_profile") or {})
+    limits = dict(budget_limits or {})
+    max_scout_calls = _positive_int(limits.get("max_scout_calls"), 3)
+    max_visual_calls = _positive_int(limits.get("max_visual_calls"), 3)
+    max_chemenzy_runs = _positive_int(
+        limits.get("max_guided_chemenzy_runs") or limits.get("max_chemenzy_runs"),
+        1,
+    )
+    max_child_target_runs = _positive_int(
+        limits.get("max_route_expansion_subgoal_runs") or limits.get("max_child_target_runs"),
+        2,
+    )
+    max_codex_research_runs = _positive_int(limits.get("max_codex_research_runs"), 1)
     return {
         "schema_version": AGENT_BLACKBOARD_SCHEMA,
         "case_id": str(preflight.get("case_id") or target_input.get("case_id") or "target"),
@@ -45,6 +59,7 @@ def initialize_agent_blackboard(
             "pdf_structure_evidence": [],
             "visual_chains": [],
             "exact_rows": [],
+            "terminal_candidates": [],
             "source_refs": [],
             "confidence": "none",
         },
@@ -58,13 +73,15 @@ def initialize_agent_blackboard(
             "rounds_completed": 0,
             "max_rounds": int(max_rounds or 3),
             "scout_calls": 0,
-            "max_scout_calls": 3,
+            "max_scout_calls": max_scout_calls,
             "visual_calls": 0,
-            "max_visual_calls": 3,
+            "max_visual_calls": max_visual_calls,
             "chemenzy_runs": 0,
-            "max_chemenzy_runs": 1,
+            "max_chemenzy_runs": max_chemenzy_runs,
             "child_target_runs": 0,
-            "max_child_target_runs": 2,
+            "max_child_target_runs": max_child_target_runs,
+            "codex_research_runs": 0,
+            "max_codex_research_runs": max_codex_research_runs,
         },
         "current_belief": {
             "schema_version": "agent_current_belief.v1",
@@ -80,6 +97,14 @@ def initialize_agent_blackboard(
         "artifact_refs": dict((prior_artifacts or {}).get("artifact_refs") or {}),
         "parent_route_proof": {},
     }
+
+
+def _positive_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return max(1, parsed)
 
 
 def update_blackboard_from_action(
@@ -232,9 +257,30 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
         evidence = dict(board.get("literature_evidence") or {})
         _extend_unique(evidence, "source_candidates", payload.get("source_candidates") or [], unique_key="source_ref")
         _extend_unique(evidence, "source_refs", payload.get("source_refs") or [], unique_key=None)
-        evidence["confidence"] = "candidate" if evidence.get("source_candidates") else evidence.get("confidence", "none")
+        real_sources = [
+            dict(row)
+            for row in evidence.get("source_candidates") or []
+            if isinstance(row, dict) and _candidate_has_real_source(row)
+        ]
+        evidence["confidence"] = "candidate" if real_sources else (
+            "placeholder" if evidence.get("source_candidates") else evidence.get("confidence", "none")
+        )
+        evidence["source_discovery_mode"] = str(payload.get("source_discovery_mode") or evidence.get("source_discovery_mode") or "")
+        evidence["fallback_order"] = [str(item) for item in payload.get("fallback_order") or evidence.get("fallback_order") or []]
+        evidence["scout_attempts"] = [
+            dict(item)
+            for item in payload.get("scout_attempts") or evidence.get("scout_attempts") or []
+            if isinstance(item, dict)
+        ]
         board["literature_evidence"] = evidence
-        return bool(payload.get("source_candidates") or payload.get("extraction_task_recommendations"))
+        if payload.get("codex_worker_run_attempted"):
+            budget = dict(board.get("budget_state") or {})
+            budget["codex_research_runs"] = max(
+                int(budget.get("codex_research_runs") or 0),
+                int(payload.get("codex_research_runs") or 0),
+            )
+            board["budget_state"] = budget
+        return bool(real_sources)
 
     if action_type == "extract_pdf_literature_structures":
         evidence = dict(board.get("literature_evidence") or {})
@@ -258,6 +304,10 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
         evidence = dict(board.get("literature_evidence") or {})
         rows = _exact_rows_from_payload(payload)
         _extend_unique(evidence, "exact_rows", rows, unique_key="row_id")
+        terminal = _literature_terminal_candidate_from_payload(payload)
+        if terminal:
+            _extend_unique(evidence, "terminal_candidates", [terminal], unique_key="canonical_smiles")
+            _extend_unique(board, "bridge_tasks", [_literature_terminal_bridge_task(board, terminal)], unique_key="task_id")
         evidence["confidence"] = "exact_rows" if evidence.get("exact_rows") else evidence.get("confidence", "none")
         board["literature_evidence"] = evidence
         return bool(rows)
@@ -327,6 +377,74 @@ def _exact_rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [_row_summary(row, idx) for idx, row in enumerate(rows, start=1) if isinstance(row, dict)]
 
 
+def _literature_terminal_candidate_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    chain = dict(payload.get("chain_audit") or {})
+    if not chain and isinstance(payload.get("result"), dict):
+        chain = dict((payload.get("result") or {}).get("chain_audit") or {})
+    if not chain:
+        return {}
+    smiles = str(
+        chain.get("terminal_smiles")
+        or chain.get("observed_terminal_smiles")
+        or _last_chain_main_reactant(chain.get("chain") or chain.get("steps") or [])
+        or ""
+    ).strip()
+    canonical = str(chain.get("terminal_canonical_smiles") or canonical_smiles(smiles) or "").strip()
+    if not smiles or not canonical:
+        return {}
+    repair = dict(chain.get("terminal_stereo_repair") or {})
+    return {
+        "schema_version": "agent_literature_terminal_candidate.v1",
+        "terminal_id": f"source_detail_terminal:{canonical}",
+        "name": str(chain.get("terminal_name") or repair.get("name") or "source detail literature terminal"),
+        "smiles": smiles,
+        "canonical_smiles": canonical,
+        "source_ref": _chain_source_ref(chain),
+        "source": "source_detail_chain_route",
+        "step_count": int(chain.get("step_count") or len(chain.get("chain") or [])),
+        "terminal_reached": bool(chain.get("terminal_reached")),
+        "terminal_requested": bool(chain.get("terminal_requested")),
+        "stereo_repair": repair,
+        "exact_target_override": True,
+        "target_equivalence_audit_required": True,
+        "no_solved_claim": True,
+    }
+
+
+def _literature_terminal_bridge_task(board: dict[str, Any], terminal: dict[str, Any]) -> dict[str, Any]:
+    target = dict(board.get("target_profile") or {})
+    canonical = str(terminal.get("canonical_smiles") or "")
+    return {
+        "schema_version": "agent_bridge_task.v1",
+        "task_id": f"literature_terminal_child:{canonical}",
+        "task_type": "upstream_terminal_synthesis",
+        "target_name": str(target.get("target_name") or ""),
+        "target_handle": "source_detail_literature_terminal",
+        "required_bridge": "Find upstream synthesis for the exact terminal of the accepted source-detail literature chain.",
+        "required_verification": ["child_target_route_verifier", "parent_bridge_connectivity", "exact_terminal_identity"],
+        "priority": "high",
+        "status": "open",
+        "terminal": dict(terminal),
+    }
+
+
+def _last_chain_main_reactant(steps: Any) -> str:
+    rows = [dict(row) for row in steps or [] if isinstance(row, dict)]
+    if not rows:
+        return ""
+    last = rows[-1]
+    return str(last.get("main_reactant_smiles") or "")
+
+
+def _chain_source_ref(chain: dict[str, Any]) -> str:
+    if chain.get("source_ref"):
+        return str(chain.get("source_ref") or "")
+    for row in chain.get("chain") or []:
+        if isinstance(row, dict) and row.get("source_ref"):
+            return str(row.get("source_ref") or "")
+    return ""
+
+
 def _row_summary(row: dict[str, Any], idx: int) -> dict[str, Any]:
     trace = dict(row.get("literature_template_trace") or {})
     template = row.get("template") if isinstance(row.get("template"), dict) else row.get("templates")
@@ -371,12 +489,45 @@ def _drop_large_fields(value: Any) -> Any:
 
 
 def _compact_artifact(payload: dict[str, Any], *, artifact_ref: str) -> dict[str, Any]:
+    quality = dict(payload.get("candidate_quality") or {})
+    candidate = dict(payload.get("candidate_chain") or payload.get("parsed_output") or {})
+    extraction_gaps = candidate.get("extraction_gaps") or payload.get("extraction_gaps") or []
+    missing_expected = quality.get("missing_expected_labels") or payload.get("missing_expected_labels") or []
+    condition_gap_labels = quality.get("condition_gap_labels") or payload.get("condition_gap_labels") or []
+    gap_labels: list[str] = []
+    warning_gap_labels: list[str] = []
+    for gap in extraction_gaps:
+        if not isinstance(gap, dict):
+            continue
+        raw_labels = gap.get("labels") if isinstance(gap.get("labels"), list) else [gap.get("label")]
+        target = warning_gap_labels if _nonblocking_visual_gap(gap) else gap_labels
+        target.extend(str(item) for item in raw_labels if str(item or "").strip())
+    gap_labels.extend(str(item) for item in condition_gap_labels if str(item or "").strip())
     return {
         "schema_version": "agent_visual_chain_summary.v1",
-        "chain_id": str(payload.get("chain_id") or payload.get("case_id") or "visual_chain"),
+        "chain_id": str(payload.get("chain_id") or payload.get("case_id") or artifact_ref or "visual_chain"),
         "accepted": bool(payload.get("accepted", True)),
         "artifact_ref": artifact_ref,
+        "candidate_step_count": int(payload.get("candidate_step_count") or len(candidate.get("steps") or [])),
+        "missing_expected_labels": [str(item) for item in missing_expected if str(item or "").strip()],
+        "condition_gap_labels": [str(item) for item in condition_gap_labels if str(item or "").strip()],
+        "gap_labels": _dedupe_strings(gap_labels),
+        "warning_gap_labels": _dedupe_strings(warning_gap_labels),
+        "extraction_gaps": _drop_large_fields(extraction_gaps),
         "reasons": [str(item) for item in payload.get("reasons") or []],
+    }
+
+
+def _nonblocking_visual_gap(gap: dict[str, Any]) -> bool:
+    gap_type = str(gap.get("gap_type") or gap.get("type") or "").strip().lower()
+    return gap_type in {
+        "stereochemical_precision",
+        "stereochemistry_precision",
+        "stereo_precision",
+        "stereochemical_ambiguity",
+        "stereochemistry_ambiguity",
+        "stereo_ambiguity",
+        "diastereomeric_ambiguity",
     }
 
 
@@ -437,6 +588,26 @@ def _source_confidence_score(row: dict[str, Any], exact_rows: list[dict[str, Any
 
 def _blackboard_failure_reasons(blackboard: dict[str, Any]) -> set[str]:
     return {str(row.get("reason") or "") for row in blackboard.get("route_failures") or [] if isinstance(row, dict)}
+
+
+def _candidate_has_real_source(row: dict[str, Any]) -> bool:
+    if bool(row.get("placeholder_only")):
+        return False
+    if str(row.get("access_status") or "").strip().lower() == "placeholder_only":
+        return False
+    return bool(str(row.get("doi") or row.get("url") or row.get("local_pdf") or "").strip())
+
+
+def _dedupe_strings(items: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
 
 
 def _action_signature(action: dict[str, Any]) -> str:

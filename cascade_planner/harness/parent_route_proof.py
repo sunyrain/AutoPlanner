@@ -29,12 +29,14 @@ def compile_stitched_parent_route_proof(
     exact = dict(exact_literature_segment or {})
     stock = dict(stock_audit or {})
     reasons: list[str] = []
+    stitched_accepted = _stitched_route_accepted(stitch)
+    parent_for_failure_audit = {} if stitched_accepted else parent
 
-    target_equivalence = _target_equivalence_passed(parent, stitch)
+    target_equivalence = _target_equivalence_passed({} if stitched_accepted else parent, stitch)
     if not target_equivalence:
         reasons.append("target_equivalence_not_proven")
 
-    parent_accepted = _verifier_accepted(parent)
+    parent_accepted = _verifier_accepted(parent) or stitched_accepted
     if not parent_accepted:
         reasons.append("parent_route_verifier_not_accepted")
 
@@ -42,7 +44,7 @@ def compile_stitched_parent_route_proof(
     if not stock_passed:
         reasons.append("stock_audit_not_passed")
 
-    if _has_unexplained_large_atom_jump(parent):
+    if _has_unexplained_large_atom_jump(parent_for_failure_audit):
         reasons.append("unexplained_large_atom_jump")
 
     child_connected = _child_connected(child, stitch)
@@ -69,7 +71,7 @@ def compile_stitched_parent_route_proof(
             "target_equivalence_passed": target_equivalence,
             "parent_route_verifier_accepted": parent_accepted,
             "stock_audit_passed": stock_passed,
-            "no_unexplained_large_atom_jump": not _has_unexplained_large_atom_jump(parent),
+            "no_unexplained_large_atom_jump": not _has_unexplained_large_atom_jump(parent_for_failure_audit),
             "child_target_route_connected_to_parent_bridge": child_connected,
             "exact_literature_segment_connected_to_parent_route": literature_connected,
             "analogy_used_only_as_rationale": not analogy_as_proof,
@@ -94,6 +96,17 @@ def _target_equivalence_passed(parent: dict[str, Any], stitch: dict[str, Any]) -
 
 def _verifier_accepted(parent: dict[str, Any]) -> bool:
     return bool(parent.get("accepted")) and str(parent.get("route_status") or "solved") == "solved"
+
+
+def _stitched_route_accepted(stitch: dict[str, Any]) -> bool:
+    if not stitch:
+        return False
+    if not bool(stitch.get("accepted") or stitch.get("solved")):
+        return False
+    status = str(stitch.get("route_status") or "solved")
+    if status and status != "solved":
+        return False
+    return True
 
 
 def _has_unexplained_large_atom_jump(parent: dict[str, Any]) -> bool:

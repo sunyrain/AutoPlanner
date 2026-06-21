@@ -57,6 +57,32 @@ class ParentRouteProofTest(unittest.TestCase):
         self.assertTrue(proof["proof_clauses"]["analogy_used_only_as_rationale"])
         self.assertEqual(proof["route_status"], "solved")
 
+    def test_accepted_stitch_is_not_blocked_by_prior_failed_guided_route(self):
+        proof = compile_stitched_parent_route_proof(
+            target_smiles="CCOC(C)=O",
+            parent_verifier={
+                "accepted": False,
+                "route_status": "fake_closed_rejected",
+                "target_match": True,
+                "reasons": ["large_atom_jump"],
+                "failure_events": [{"reason": "large_atom_jump"}],
+            },
+            stitched_route={
+                "accepted": True,
+                "solved": True,
+                "route_status": "solved",
+                "stock_audit_passed": True,
+                "target": {"identity_audit": {"required": True, "target_match": True}},
+                "terminal_match_audit": {"accepted": True},
+                "subgoal_closure": {"verifier_accepted": True},
+                "literature_chain": {"chain_accepted": True},
+            },
+            exact_literature_segment={"accepted": True, "parent_route_connected": True},
+        )
+
+        self.assertTrue(proof["accepted"], proof["reasons"])
+        self.assertNotIn("unexplained_large_atom_jump", proof["reasons"])
+
 
 if __name__ == "__main__":
     unittest.main()

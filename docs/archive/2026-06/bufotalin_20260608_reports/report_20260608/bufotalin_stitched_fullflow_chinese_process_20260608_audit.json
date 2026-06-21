@@ -1,0 +1,13 @@
+{
+  "accepted": true,
+  "data_path": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260608/bufotalin_stitched_fullflow_chinese_process_20260608.json",
+  "final_verdict": "solved",
+  "generated_at_utc": "2026-06-08T05:09:30.310134+00:00",
+  "markdown_path": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260608/bufotalin_stitched_fullflow_chinese_process_20260608.md",
+  "page_count": 8,
+  "pdf_path": "/root/autodl-tmp/AutoPlanner/docs/bufotalin/report_20260608/bufotalin_stitched_fullflow_chinese_process_20260608.pdf",
+  "pdf_size_bytes": 1076617,
+  "run_dir": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_stitched_fullflow_existing_pdf_20260608_0345",
+  "schema_version": "bufotalin_stitched_fullflow_chinese_process_audit.v1",
+  "solved": true
+}

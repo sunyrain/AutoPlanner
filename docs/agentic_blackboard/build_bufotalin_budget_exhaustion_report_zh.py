@@ -8,7 +8,7 @@ import sys
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import fitz
 from PIL import Image, ImageDraw, ImageFont, JpegImagePlugin
@@ -23,7 +23,8 @@ from cascade_planner.harness.tools import HarnessBudget
 
 
 OUT_DIR = ROOT / "docs" / "agentic_blackboard" / "report_20260609"
-DEFAULT_RUN_DIR = ROOT / "results" / "shared" / "bufotalin_agentic_blackboard_budget_exhaustion_20260609"
+DEFAULT_RUN_DIR = ROOT / "results" / "shared" / "bufotalin_agentic_blackboard_autonomous_budget_exhaustion_20260609"
+PRIOR_SUCCESS_RUN_DIR = ROOT / "results" / "shared" / "bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053"
 DEFAULT_PDF_PATH = ROOT / "1-s2.0-S0040402025001668-main.pdf"
 DEFAULT_KEY_PATH = ROOT / "key.txt"
 DEFAULT_BASE_URL = "https://api.wellau.com/v1"
@@ -35,8 +36,6 @@ BUFOTALIN_SMILES = (
 )
 BUFOTALIN_FAMILY = "bufotalin, bufadienolide, steroid, C17 2-pyrone"
 SOURCE_REF = "doi:10.1016/j.tet.2025.134610"
-SOURCE_TITLE = "Construction of advanced intermediate sharing C14-beta-OH for the synthesis of bufotalin"
-
 FONT_REGULAR = Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")
 FONT_BOLD = Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc")
 
@@ -102,7 +101,7 @@ def main() -> None:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument(
         "--test-summary",
-        default="python -m pytest tests/test_agentic_blackboard_controller.py -q: 7 passed in 1.61s",
+        default="python -m pytest tests/test_agentic_blackboard_controller.py -q: not run",
     )
     args = parser.parse_args()
 
@@ -130,7 +129,7 @@ def main() -> None:
         },
     )
 
-    stem = "bufotalin_budget_exhaustion_agentic_blackboard_zh_20260609"
+    stem = "bufotalin_autonomous_budget_exhaustion_agentic_blackboard_zh_20260609"
     json_path = output_dir / f"{stem}.json"
     md_path = output_dir / f"{stem}.md"
     pdf_path = output_dir / f"{stem}.pdf"
@@ -148,12 +147,6 @@ def run_budget_exhaustion_case(*, args: argparse.Namespace, run_dir: Path) -> di
     budget = HarnessBudget(timeout_s=float(args.timeout_s))
     budget.guided_chemenzy_timeout_s = float(args.chemenzy_timeout_s)
     budget.max_route_expansion_subgoal_runs = 1
-    planner = make_budget_exhaustion_planner(
-        visual_timeout_s=float(args.visual_timeout_s),
-        chemenzy_timeout_s=float(args.chemenzy_timeout_s),
-        chem_enzy_iterations=int(args.chem_enzy_iterations),
-        chem_enzy_expansion_topk=int(args.chem_enzy_expansion_topk),
-    )
     return run_agentic_blackboard_controller(
         target_name="bufotalin",
         target_smiles=BUFOTALIN_SMILES,
@@ -166,184 +159,9 @@ def run_budget_exhaustion_case(*, args: argparse.Namespace, run_dir: Path) -> di
         base_url=args.base_url,
         model=args.model,
         max_rounds=int(args.max_rounds),
-        action_planner=planner,
+        exhaust_round_budget=True,
         budget=budget,
     )
-
-
-def make_budget_exhaustion_planner(
-    *,
-    visual_timeout_s: float,
-    chemenzy_timeout_s: float,
-    chem_enzy_iterations: int,
-    chem_enzy_expansion_topk: int,
-) -> Callable[..., dict[str, Any]]:
-    def planner(**kwargs: Any) -> dict[str, Any]:
-        round_index = int(kwargs.get("round_index") or 1)
-        blackboard = dict(kwargs.get("blackboard") or {})
-        case_id = str(blackboard.get("case_id") or "bufotalin")
-        if round_index == 1:
-            actions = [
-                action(
-                    round_index,
-                    "generate_disconnection_hypotheses",
-                    "先从 bufotalin 目标本身生成可审计断键/桥接假设，避免直接把远端文献或类比路线当成证明。",
-                    "target_side_disconnection_hypotheses.v1",
-                    "形成 target-proximal bridge tasks，且不输出 reaction SMILES。",
-                ),
-                action(
-                    round_index,
-                    "search_literature",
-                    "blackboard 缺少目标近端文献证据；agent 因此请求文献 scout，本地 PDF 在此时作为候选源提供。",
-                    "literature_scout_report.v1",
-                    "source_candidates 中包含本地 PDF 和后续抽取建议。",
-                    {"max_sources": 3},
-                ),
-            ]
-        elif round_index == 2:
-            actions = [
-                action(
-                    round_index,
-                    "extract_pdf_literature_structures",
-                    "scout 已经把本地 PDF 标为候选源；先把 PDF 渲染/索引为当前 run 的视觉证据。",
-                    "literature_pdf_structure_evidence.v1",
-                    "生成 rendered_pages/indexed_images/scheme_crops，供视觉链工具使用。",
-                    {"render_zoom": 2.0},
-                ),
-                action(
-                    round_index,
-                    "rank_analogical_hypotheses",
-                    "已有目标侧假设，可以先排序类比探索方向；排序只影响策略，不作为 proof。",
-                    "analogical_hypothesis_ranking.v1",
-                    "selected_hypotheses 全部带 no_solved_claim 和 required_verification。",
-                ),
-            ]
-        elif round_index == 3:
-            actions = [
-                action(
-                    round_index,
-                    "extract_visual_literature_chain",
-                    "PDF 结构证据已产生；尝试用真实视觉链 agent 从当前 PDF 图片抽取 source-detail 结构序列。",
-                    "visual_literature_chain_extraction_result.v1",
-                    "获得候选 source-detail chain，或记录真实失败原因。",
-                    {
-                        "source_ref": SOURCE_REF,
-                        "source_title": SOURCE_TITLE,
-                        "target_name": "bufotalin",
-                        "target_smiles": BUFOTALIN_SMILES,
-                        "expected_labels": [
-                            "11",
-                            "24",
-                            "25",
-                            "23",
-                            "26",
-                            "27",
-                            "28",
-                            "19",
-                            "20",
-                            "14",
-                            "22",
-                            "30",
-                            "31",
-                            "32",
-                            "33",
-                            "bufotalin",
-                        ],
-                        "route_sequence_hint": (
-                            "Extract only source-visible Scheme 3/Scheme 4 relationships. "
-                            "Do not claim a route solved; output a candidate chain only when structures are visible."
-                        ),
-                        "timeout_s": visual_timeout_s,
-                    },
-                ),
-                action(
-                    round_index,
-                    "compile_exact_literature_rows",
-                    "视觉链若可用，则把 source-detail validated steps 编译为 exact rows；不可用时保留失败证据。",
-                    "compiled exact literature rows",
-                    "exact_rows 进入 literature_evidence，或写明为什么无法编译。",
-                    {"target_smiles": BUFOTALIN_SMILES, "case_id": case_id},
-                ),
-            ]
-        elif round_index == 4:
-            actions = [
-                action(
-                    round_index,
-                    "run_guided_chemenzy",
-                    "已有 bridge tasks、类比排序和可能的 exact rows；执行一次真实 guided ChemEnzy，但结果仍必须过 verifier。",
-                    "guided_chemenzy_result.v1",
-                    "verifier 接受路线，或把失败反馈写回 blackboard。",
-                    {
-                        "search_preset": "focused",
-                        "max_steps": 12,
-                        "chem_enzy_iterations": chem_enzy_iterations,
-                        "chem_enzy_expansion_topk": chem_enzy_expansion_topk,
-                        "timeout_s": chemenzy_timeout_s,
-                        "device": "cpu",
-                    },
-                ),
-                action(
-                    round_index,
-                    "expand_child_target",
-                    "若 failure critic 或 exact rows 暗示高级终端/桥接子目标，则尝试上游子目标搜索；子目标 solved 不能升级父目标。",
-                    "route_expansion_subgoal_search_result.v1",
-                    "记录子目标 verifier 结果，或记录没有可扩展子目标。",
-                    {
-                        "max_targets": 1,
-                        "search_preset": "focused",
-                        "max_steps": 10,
-                        "chem_enzy_iterations": max(5, int(chem_enzy_iterations / 2)),
-                        "chem_enzy_expansion_topk": max(20, int(chem_enzy_expansion_topk / 2)),
-                        "timeout_s": chemenzy_timeout_s,
-                        "device": "cpu",
-                    },
-                ),
-            ]
-        else:
-            actions = [
-                action(
-                    round_index,
-                    "stitch_parent_route",
-                    "最后一轮尝试 deterministic parent-route proof；没有连通 proof 时只能保持 unresolved/partial。",
-                    "stitched_parent_route_proof.v1",
-                    "证明目标等价、父路线 verifier、stock audit、child/文献连通性，或明确拒绝。",
-                ),
-                action(
-                    round_index,
-                    "build_failure_critic_report",
-                    "预算耗尽前整理 guided/插件/verifier 失败，把原因转成下一轮可读 blackboard 状态。",
-                    "failure_critic_report.v1",
-                    "产生 route_failures、blocked_directions、bridge_tasks 或 no_failure_evidence。",
-                ),
-            ]
-        return {
-            "schema_version": "agent_action_batch.v1",
-            "case_id": case_id,
-            "round_index": round_index,
-            "mode": "bufotalin_budget_exhaustion_planner",
-            "actions": actions[:3],
-        }
-
-    return planner
-
-
-def action(
-    round_index: int,
-    action_type: str,
-    rationale: str,
-    expected_artifact: str,
-    success_condition: str,
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return {
-        "schema_version": "agent_action.v1",
-        "action_id": f"bufotalin_budget_r{int(round_index)}:{action_type}",
-        "action_type": action_type,
-        "rationale": rationale,
-        "expected_artifact": expected_artifact,
-        "success_condition": success_condition,
-        "payload": dict(payload or {}),
-    }
 
 
 def build_report_data(*, run_dir: Path, pdf_path: Path, test_summary: str, run_config: dict[str, Any]) -> dict[str, Any]:
@@ -385,6 +203,14 @@ def build_report_data(*, run_dir: Path, pdf_path: Path, test_summary: str, run_c
         "budget_state": budget_state,
         "termination": termination,
         "final_verdict": final,
+        "planner_semantics": {
+            "action_selection": "default_agent_action_planner.v1",
+            "round_policy": "blackboard_state_driven",
+            "exhaust_round_budget": True,
+            "scripted_round_index_planner": False,
+            "script_injected_action_payloads": False,
+        },
+        "prior_success_comparison": load_prior_success_comparison(PRIOR_SUCCESS_RUN_DIR),
         "artifact_refs": blackboard.get("artifact_refs") or {},
         "artifact_bundle_summary": {
             "artifact_keys": sorted(artifacts),
@@ -398,6 +224,57 @@ def build_report_data(*, run_dir: Path, pdf_path: Path, test_summary: str, run_c
             "guided_chemenzy": summarize_artifact(artifacts.get("guided_chemenzy")),
             "route_expansion": summarize_artifact(artifacts.get("route_expansion_subgoal_search")),
             "stitched_route": summarize_artifact(artifacts.get("stitched_semisynthesis_route")),
+        },
+    }
+
+
+def load_prior_success_comparison(run_dir: Path) -> dict[str, Any]:
+    clean_final = read_json_optional(run_dir / "final_verdict_strict_visual_clean.json")
+    clean_summary = read_json_optional(run_dir / "bufotalin_strict_visual_continuation_clean_summary.json")
+    source_audit = read_json_optional(run_dir / "source_detail_chain_route_strict_visual" / "source_detail_route_chain_audit.json")
+    visual = read_json_optional(run_dir / "visual_literature_chain_extraction_strict_visual" / "visual_literature_chain_extraction_result.json")
+    stitched = read_json_optional(run_dir / "stitched_semisynthesis_route_strict_visual" / "stitched_semisynthesis_route.json")
+    route_expansion = read_json_optional(run_dir / "route_expansion_subgoal_search_result.json")
+    labels = []
+    for row in source_audit.get("chain") or []:
+        if isinstance(row, dict):
+            labels.append(str(row.get("product_label") or row.get("label") or row.get("step_id") or ""))
+    return {
+        "schema_version": "bufotalin_prior_success_comparison.v1",
+        "run_dir": str(run_dir),
+        "exists": run_dir.is_dir(),
+        "final_verdict": {
+            "verdict": clean_final.get("verdict"),
+            "route_status": clean_final.get("route_status"),
+            "solved": bool(clean_final.get("solved")),
+            "reasons": [str(item) for item in clean_final.get("reasons") or []],
+        },
+        "strict_visual_chain": {
+            "accepted": bool(visual.get("accepted")),
+            "status": str(visual.get("status") or ""),
+            "candidate_step_count": int(visual.get("candidate_step_count") or 0),
+            "terminal": dict(visual.get("strict_visual_terminal") or (clean_summary.get("strict_visual_terminal") or {})),
+        },
+        "source_detail_chain": {
+            "accepted": bool(source_audit.get("accepted")),
+            "step_count": int(source_audit.get("step_count") or ((source_audit.get("summary") or {}).get("chain_step_count") or 0)),
+            "one_step_row_count": int((source_audit.get("summary") or {}).get("one_step_row_count") or 0),
+            "terminal_reached": bool(source_audit.get("terminal_reached")),
+            "terminal_name": str(source_audit.get("terminal_name") or "strict visual terminal 11"),
+            "labels": [item for item in labels if item],
+        },
+        "child_route": {
+            "accepted": bool(route_expansion.get("accepted")),
+            "solved": bool(route_expansion.get("solved")),
+            "status": str(route_expansion.get("status") or ""),
+        },
+        "stitched_route": {
+            "accepted": bool(stitched.get("accepted")),
+            "solved": bool(stitched.get("solved")),
+            "route_status": str(stitched.get("route_status") or ""),
+            "stock_audit_passed": bool(stitched.get("stock_audit_passed")),
+            "combined_route": dict(stitched.get("combined_route") or (clean_summary.get("stitched_route") or {}).get("combined_route") or {}),
+            "warnings": [str(item) for item in stitched.get("warnings") or []],
         },
     }
 
@@ -523,19 +400,21 @@ def summarize_artifact(value: Any) -> dict[str, Any]:
 def render_markdown(data: dict[str, Any]) -> str:
     final = data["final_verdict"]
     term = data["termination"]
+    prior = data.get("prior_success_comparison") or {}
     lines = [
-        "# Bufotalin Agentic Blackboard 预算耗尽中文报告",
+        "# Bufotalin Agentic Blackboard 自主预算耗尽中文报告",
         "",
         f"- 生成时间：{data['generated_at_utc']}",
         f"- run 目录：`{data['case_run_dir']}`",
         f"- 本地 PDF：`{data['local_pdf_path']}`，exists={data['local_pdf_exists']}，size={data['local_pdf_size_bytes']} bytes",
         f"- 最终结论：`{final.get('verdict')}` / route_status `{final.get('route_status')}` / solved `{final.get('solved')}`",
         f"- 停止原因：`{term.get('reason')}`，rounds `{term.get('rounds_completed')}/{term.get('max_rounds')}`",
+        "- action 选择：默认 `agent_action_planner.v1` 依据 blackboard 状态自主选择；未传入按轮次写死的 action planner。",
         f"- 测试摘要：{data['test_summary']}",
         "",
         "## 为什么这一轮没有直接停止",
         "",
-        "本次使用的是预算耗尽演示 planner。它没有选择 `stop_unresolved`，而是按 blackboard 状态持续探索：目标侧断键、文献 scout、PDF 渲染、视觉链抽取、exact rows 编译、类比排序、guided ChemEnzy、子目标扩展和父路线拼接。最终停止来自 `max_round_budget_exhausted`，不是 agent 过早放弃。",
+        "本次使用 controller 的 `exhaust_round_budget=True`，action batch 仍由默认 blackboard planner 动态选择。该模式只改变停止策略：当普通策略会因连续无新 artifact 而停下时，planner 必须先尝试 blackboard 中仍未耗尽、未 stale 的替代方向；只有父路线 proof 接受或轮次预算耗尽才收口。",
         "",
         "## Action 执行轨迹",
         "",
@@ -554,6 +433,16 @@ def render_markdown(data: dict[str, Any]) -> str:
         )
     lines.extend(
         [
+            "## 为什么这次失败，而之前 bufotalin 成功",
+            "",
+            f"- 之前成功 run：`{prior.get('run_dir', '')}`。",
+            f"- 之前 clean verdict：`{(prior.get('final_verdict') or {}).get('verdict')}` / solved `{(prior.get('final_verdict') or {}).get('solved')}`。",
+            f"- 之前 strict visual chain：accepted `{(prior.get('strict_visual_chain') or {}).get('accepted')}`，steps `{(prior.get('strict_visual_chain') or {}).get('candidate_step_count')}`，terminal `{((prior.get('strict_visual_chain') or {}).get('terminal') or {}).get('name', '')}`。",
+            f"- 之前 source-detail exact chain：accepted `{(prior.get('source_detail_chain') or {}).get('accepted')}`，one_step_rows `{(prior.get('source_detail_chain') or {}).get('one_step_row_count')}`，terminal_reached `{(prior.get('source_detail_chain') or {}).get('terminal_reached')}`。",
+            f"- 之前 stitched route：accepted `{(prior.get('stitched_route') or {}).get('accepted')}`，stock_audit `{(prior.get('stitched_route') or {}).get('stock_audit_passed')}`。",
+            "",
+            "反思：之前的 solved 不是 ChemEnzy 对 bufotalin 原生闭合，而是 `stock -> compound 11 -> bufotalin` 的拼接半合成证明：strict visual/source-detail 文献链把 bufotalin 连到 terminal 11，子目标搜索再把 terminal 11 从库存闭合，最后 stitch proof 通过。本轮自主 blackboard 运行没有重新生成 accepted exact literature chain，`compile_exact_literature_rows` 因缺少可用 source-detail rows 得到 0 行；后续 guided ChemEnzy/child expansion 即使产生候选，也缺少和父目标相连的 exact 文献段，因此 parent proof 不能通过。",
+            "",
             "## Blackboard 和最终门禁",
             "",
             f"- bridge_tasks：{len(data['bridge_tasks'])}",
@@ -574,6 +463,7 @@ def render_pdf(data: dict[str, Any], pdf_path: Path) -> None:
         page_decision_timeline(data),
         page_literature_pdf(data),
         page_tool_results(data),
+        page_prior_success_comparison(data),
         page_blackboard_and_gate(data),
         page_artifacts_and_tests(data),
     ]
@@ -594,8 +484,8 @@ def page_cover(data: dict[str, Any]) -> Image.Image:
     term = data["termination"]
     target = data["target"]
     y = 92
-    y = draw_text(draw, "Bufotalin 预算耗尽版 Agentic Blackboard 报告", MARGIN, y, 43, bold=True, color=TEXT, max_width=PAGE_W - 2 * MARGIN)
-    y = draw_text(draw, "真实运行：本地 PDF 只在 scout 选中后进入流程，其余 action 全部走 controller/tool 链", MARGIN, y + 8, 24, bold=True, color=ACCENT, max_width=PAGE_W - 2 * MARGIN)
+    y = draw_text(draw, "Bufotalin 自主预算耗尽版 Agentic Blackboard 报告", MARGIN, y, 43, bold=True, color=TEXT, max_width=PAGE_W - 2 * MARGIN)
+    y = draw_text(draw, "真实运行：action 由默认 blackboard planner 选择；本地 PDF 只在 scout 选中后进入流程", MARGIN, y + 8, 24, bold=True, color=ACCENT, max_width=PAGE_W - 2 * MARGIN)
     y += 30
     metrics = [
         ("目标", str(target.get("target_name") or "bufotalin")),
@@ -623,13 +513,13 @@ def page_cover(data: dict[str, Any]) -> Image.Image:
 
 def page_stop_reason(data: dict[str, Any]) -> Image.Image:
     img, draw = new_page()
-    y = page_title(draw, "为什么这一轮不是直接停止", "本次 planner 被配置为预算耗尽演示，除 proof 接受外不主动 stop")
+    y = page_title(draw, "为什么这一轮不是直接停止", "默认 blackboard planner 自主选 action；预算耗尽模式只改变停止策略")
     bullets = [
         f"实际停止原因：{data['termination']['reason']}。",
         f"轮次预算：{data['termination']['rounds_completed']}/{data['termination']['max_rounds']}，budget_exhausted={data['termination']['budget_exhausted']}。",
         "action batch 每轮仍经过 schema、预算和 raw reaction 注入校验；planner 不能直接宣称 solved。",
         "本地 PDF 没有预先塞给视觉工具；只有 `search_literature` 选择它以后，下一轮才执行 PDF 渲染。",
-        "最后一轮尝试 parent proof/stitch。proof 不满足时，final verdict 保持 non-solved。",
+        "当普通策略会早停时，exhaust 模式先改走未耗尽的替代 action；没有 parent proof 时 final verdict 仍保持 non-solved。",
     ]
     for idx, item in enumerate(bullets, start=1):
         y = panel(draw, MARGIN, y, PAGE_W - 2 * MARGIN, 124, f"{idx}. {item}", color=ACCENT if idx <= 2 else TEXT)
@@ -707,6 +597,33 @@ def page_tool_results(data: dict[str, Any]) -> Image.Image:
     return img
 
 
+def page_prior_success_comparison(data: dict[str, Any]) -> Image.Image:
+    img, draw = new_page()
+    y = page_title(draw, "与之前 bufotalin 成功版对比", "之前的 solved 来自 strict visual chain + compound 11 子目标 + stitch proof")
+    prior = data.get("prior_success_comparison") or {}
+    current_exact = len((data.get("literature_evidence") or {}).get("exact_rows") or [])
+    current_proof = data.get("parent_route_proof") or {}
+    prior_final = prior.get("final_verdict") or {}
+    prior_visual = prior.get("strict_visual_chain") or {}
+    prior_source = prior.get("source_detail_chain") or {}
+    prior_stitch = prior.get("stitched_route") or {}
+    rows = [
+        f"旧成功 clean verdict: verdict={prior_final.get('verdict')}, solved={prior_final.get('solved')}",
+        f"旧成功 strict visual chain: accepted={prior_visual.get('accepted')}, steps={prior_visual.get('candidate_step_count')}, terminal={((prior_visual.get('terminal') or {}).get('name') or '')}",
+        f"旧成功 source-detail exact: accepted={prior_source.get('accepted')}, one_step_rows={prior_source.get('one_step_row_count')}, terminal_reached={prior_source.get('terminal_reached')}",
+        f"旧成功 stitch: accepted={prior_stitch.get('accepted')}, stock_audit={prior_stitch.get('stock_audit_passed')}, status={prior_stitch.get('route_status')}",
+        f"本轮自主 run: final={data['final_verdict'].get('verdict')}, exact_rows={current_exact}, proof_status={current_proof.get('route_status', 'missing')}",
+    ]
+    y = section(draw, "关键事实", rows, y, max_items=6)
+    reflection = [
+        "旧成功不是 ChemEnzy 原生直接闭合 bufotalin，而是 stock -> compound 11 -> bufotalin 的拼接半合成证明。",
+        "本轮自主 run 没有重新得到 accepted 的 15 步 strict visual/source-detail chain；compile exact rows 因此没有可用行。",
+        "没有 exact 文献段连到父路线时，guided ChemEnzy 或 child target 的候选只能作为探索反馈，不能作为 parent solved proof。",
+    ]
+    section(draw, "失败反思", reflection, y, max_items=4)
+    return img
+
+
 def page_blackboard_and_gate(data: dict[str, Any]) -> Image.Image:
     img, draw = new_page()
     y = page_title(draw, "Blackboard 与最终门禁", "失败、类比和 exact evidence 都只能进入状态；solved 需要 parent proof")
@@ -747,7 +664,7 @@ def build_audit(data: dict[str, Any], *, json_path: Path, md_path: Path, pdf_pat
     return {
         "schema_version": "bufotalin_budget_exhaustion_agentic_blackboard_report_audit.v1",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "accepted": pdf_path.exists() and pdf_path.stat().st_size > 20_000 and page_count >= 7,
+        "accepted": pdf_path.exists() and pdf_path.stat().st_size > 20_000 and page_count >= 8,
         "json_path": str(json_path),
         "markdown_path": str(md_path),
         "pdf_path": str(pdf_path),
@@ -766,6 +683,12 @@ def build_audit(data: dict[str, Any], *, json_path: Path, md_path: Path, pdf_pat
 
 def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def read_json_optional(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    return read_json(path)
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
