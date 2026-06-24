@@ -72,6 +72,8 @@ class HarnessBudget:
     max_codex_research_runs: int = 1
     max_scout_calls: int = 3
     max_visual_calls: int = 3
+    max_template_application_actions: int = 3
+    max_template_applications_per_round: int = 5
     timeout_s: float = 1800.0
     chem_enzy_timeout_s: float = 1200.0
     guided_chemenzy_timeout_s: float = 1800.0
@@ -88,6 +90,8 @@ class HarnessBudget:
             "max_codex_research_runs": self.max_codex_research_runs,
             "max_scout_calls": self.max_scout_calls,
             "max_visual_calls": self.max_visual_calls,
+            "max_template_application_actions": self.max_template_application_actions,
+            "max_template_applications_per_round": self.max_template_applications_per_round,
             "timeout_s": self.timeout_s,
             "chem_enzy_timeout_s": self.chem_enzy_timeout_s,
             "guided_chemenzy_timeout_s": self.guided_chemenzy_timeout_s,
@@ -150,6 +154,7 @@ def execute_local_tool(tool_name: str, payload: dict[str, Any], state: ToolExecu
         "run_open_structure_research_agent": run_open_structure_research_agent,
         "extract_pdf_literature_structures": extract_pdf_literature_structures_tool,
         "extract_visual_literature_chain": extract_visual_literature_chain_tool,
+        "resolve_literature_structure_task": resolve_literature_structure_task_tool,
         "apply_source_text_condition_repairs": apply_source_text_condition_repairs_tool,
         "validate_literature_intermediate_chain": validate_literature_intermediate_chain_tool,
         "build_source_detail_curator_records": build_source_detail_curator_records_tool,
@@ -310,27 +315,36 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         case_id=str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
     ) if (result.get("routes") or (result.get("result") or {}).get("routes")) else {}
     plugin_runtime = _literature_template_plugin_runtime_diagnostics(result, request)
+    proof_blockers = _guided_route_proof_blockers(verifier, plugin_runtime)
+    verifier_for_output = _guided_hardened_verifier(verifier, proof_blockers=proof_blockers)
+    verifier_accepted = bool(verifier_for_output.get("accepted"))
     out = {
         "schema_version": "guided_chemenzy_rerun_result.v1",
-        "accepted": bool(result.get("ok") or result.get("accepted", result.get("exit_code") == 0)),
+        "accepted": bool(result.get("ok") or result.get("accepted", result.get("exit_code") == 0)) and (verifier_accepted if verifier else True),
         "policy": policy,
         "request": request,
         "result": result,
-        "raw_route_verifier": verifier,
+        "raw_route_verifier": verifier_for_output,
         "literature_template_plugin_runtime": plugin_runtime,
-        "route_status": str(verifier.get("route_status") or ("solved" if (result.get("search_status") or {}).get("solved") else "unresolved")),
-        "solved": bool(verifier.get("accepted")),
+        "route_status": str(
+            verifier_for_output.get("route_status")
+            or ("solved" if (result.get("search_status") or {}).get("solved") and verifier_accepted else "unresolved")
+        ),
+        "solved": verifier_accepted,
     }
-    if verifier and not verifier.get("accepted"):
+    if proof_blockers:
+        out["backend_raw_route_verifier"] = verifier
+        out["route_proof_blockers"] = proof_blockers
+    if verifier and not verifier_for_output.get("accepted"):
         out["accepted"] = False
         out["reasons"] = sorted(
             set(
-                [str(item) for item in verifier.get("reasons") or ["route_verifier_rejected_raw_routes"]]
+                [str(item) for item in verifier_for_output.get("reasons") or ["route_verifier_rejected_raw_routes"]]
                 + [str(item) for item in plugin_runtime.get("reasons") or []]
             )
         )
         feedback = compile_route_failure_feedback(
-            verifier,
+            verifier_for_output,
             case_id=str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
             target_name=str(state.target_input.get("target_name") or ""),
         )
@@ -346,12 +360,51 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
     state.artifacts["guided_chemenzy"] = out
     write_json(state.run_dir / "guided_chemenzy_result.json", out)
     if verifier:
-        write_json(state.run_dir / "guided_route_verifier_report.json", verifier)
+        write_json(state.run_dir / "guided_route_verifier_report.json", verifier_for_output)
     # A verifier rejection is chemistry feedback, not a harness execution
     # failure; runtime/transport failures without verifier evidence still
     # reject the tool call.
     tool_accepted = bool(out.get("accepted")) or bool(verifier)
     return {"accepted": tool_accepted, "result": out, "reasons": [str(item) for item in out.get("reasons") or []]}
+
+
+def _guided_route_proof_blockers(verifier: dict[str, Any], plugin_runtime: dict[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    if not verifier:
+        return blockers
+    reason_text = json.dumps(
+        {
+            "reasons": verifier.get("reasons") or [],
+            "failure_events": verifier.get("failure_events") or [],
+            "rejected_terminal_list": verifier.get("rejected_terminal_list") or [],
+        },
+        sort_keys=True,
+        default=str,
+    )
+    if "large_atom_jump" in reason_text:
+        blockers.extend(["large_atom_jump", "guided_route_verifier_rejected_large_atom_jump"])
+    runtime_reasons = {str(item) for item in plugin_runtime.get("reasons") or [] if str(item or "").strip()}
+    if "literature_template_plugin_not_invoked" in runtime_reasons:
+        blockers.append("literature_template_plugin_not_invoked")
+    return sorted(set(blockers))
+
+
+def _guided_hardened_verifier(verifier: dict[str, Any], *, proof_blockers: list[str]) -> dict[str, Any]:
+    if not verifier or not proof_blockers:
+        return dict(verifier or {})
+    out = dict(verifier)
+    reasons = [str(item) for item in out.get("reasons") or [] if str(item or "").strip()]
+    reasons.extend(str(item) for item in proof_blockers if str(item or "").strip())
+    out["accepted"] = False
+    if "large_atom_jump" in proof_blockers:
+        out["route_status"] = "fake_closed_rejected"
+    elif "literature_template_plugin_not_invoked" in proof_blockers:
+        out["route_status"] = "partial_anchor_only_not_solved"
+    else:
+        out["route_status"] = str(out.get("route_status") or "unresolved")
+    out["reasons"] = sorted(set(reasons or ["route_proof_blocked"]))
+    out["route_proof_blocked"] = True
+    return out
 
 
 def run_self_evo_replay_gate_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
@@ -463,6 +516,8 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
     else:
         target_offset = len(prior_rows)
     selected_targets = targets[target_offset:target_offset + max_targets]
+    explicit_target_payload = bool(payload.get("child_targets") or payload.get("subgoal_targets"))
+    result_offset = len(prior_rows) if explicit_target_payload else target_offset
     if not selected_targets:
         accepted_prior = [row for row in prior_rows if row.get("accepted") or row.get("solved")]
         result = {
@@ -481,7 +536,7 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
         return {"accepted": True, "result": result, "reasons": list(result.get("reasons") or [])}
     rows: list[dict[str, Any]] = []
     for local_idx, target in enumerate(selected_targets):
-        absolute_idx = target_offset + local_idx
+        absolute_idx = result_offset + local_idx
         sub_dir = state.run_dir / "route_expansion_subgoals"
         sub_dir.mkdir(parents=True, exist_ok=True)
         request_payload = {
@@ -765,25 +820,32 @@ def _execute_chemenzy_request(
     ]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    stdout_path = output_path.with_suffix(output_path.suffix + ".stdout.log")
+    stderr_path = output_path.with_suffix(output_path.suffix + ".stderr.log")
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            timeout=float(timeout_s),
-            check=False,
-            env=env,
-        )
+        with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(ROOT),
+                stdout=stdout,
+                stderr=stderr,
+                text=True,
+                timeout=float(timeout_s),
+                check=False,
+                env=env,
+                start_new_session=True,
+            )
+            returncode = int(proc.returncode)
     except subprocess.TimeoutExpired as exc:
+        del exc
         return {
             "schema_version": "chemenzy_run_result.v1",
             "accepted": False,
             "status": "timeout",
             "reasons": ["chem_enzy_timeout"],
             "command": cmd,
-            "stdout": _timeout_stream(exc.stdout),
-            "stderr": _timeout_stream(exc.stderr),
+            "stdout": stdout_path.read_text(encoding="utf-8", errors="replace") if stdout_path.exists() else "",
+            "stderr": stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else "",
         }
 
     if output_path.exists():
@@ -795,11 +857,13 @@ def _execute_chemenzy_request(
         result = {"accepted": False, "status": "missing_output", "reasons": ["chemenzy_missing_output"]}
     result.setdefault("schema_version", "chemenzy_web_result.v1")
     result.setdefault("command", cmd)
-    result.setdefault("exit_code", int(proc.returncode))
-    if proc.returncode != 0:
+    result.setdefault("stdout_path", str(stdout_path))
+    result.setdefault("stderr_path", str(stderr_path))
+    result.setdefault("exit_code", int(returncode))
+    if returncode != 0:
         result.setdefault("accepted", False)
         result.setdefault("reasons", []).append("chemenzy_nonzero_exit")
-        result["stderr"] = proc.stderr
+        result["stderr"] = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
     return result
 
 
@@ -1032,7 +1096,8 @@ def extract_pdf_literature_structures_tool(state: ToolExecutionState, payload: d
     mock = _mock_result(state, "extract_pdf_literature_structures", payload)
     if mock is not None:
         result = dict(mock)
-        state.artifacts["literature_pdf_structure_evidence"] = result
+        _attach_literature_source_metadata(result, payload)
+        _record_pdf_structure_evidence(state, result)
         write_json(state.run_dir / "literature_pdf_structure_evidence.json", result)
         return {"accepted": bool(result.get("accepted", True)), "result": result}
 
@@ -1046,6 +1111,8 @@ def extract_pdf_literature_structures_tool(state: ToolExecutionState, payload: d
             "schema_version": "literature_pdf_structure_evidence.v1",
             "accepted": False,
             "status": "input_missing",
+            "source_ref": str(payload.get("source_ref") or ""),
+            "source_title": str(payload.get("source_title") or ""),
             "source_pdf_path": "",
             "rendered_pages": [],
             "indexed_images": [],
@@ -1059,8 +1126,7 @@ def extract_pdf_literature_structures_tool(state: ToolExecutionState, payload: d
             },
             "reasons": ["pdf_or_image_input_missing"],
         }
-        state.artifacts["literature_pdf_structure_evidence"] = result
-        state.artifacts["literature_pdf_structure_evidence_dir"] = str(out)
+        _record_pdf_structure_evidence(state, result, output_dir=out)
         write_json(state.run_dir / "literature_pdf_structure_evidence.json", result)
         return {
             "accepted": False,
@@ -1079,8 +1145,8 @@ def extract_pdf_literature_structures_tool(state: ToolExecutionState, payload: d
         scheme_crops=scheme_crops,
         compound_labels=[str(item) for item in payload.get("compound_labels") or [] if str(item).strip()],
     )
-    state.artifacts["literature_pdf_structure_evidence"] = result
-    state.artifacts["literature_pdf_structure_evidence_dir"] = str(out)
+    _attach_literature_source_metadata(result, payload)
+    _record_pdf_structure_evidence(state, result, output_dir=out)
     write_json(state.run_dir / "literature_pdf_structure_evidence.json", result)
     return {
         "accepted": bool(result.get("accepted")),
@@ -1090,6 +1156,37 @@ def extract_pdf_literature_structures_tool(state: ToolExecutionState, payload: d
         },
         "reasons": [str(item) for item in result.get("reasons") or []],
     }
+
+
+def _attach_literature_source_metadata(result: dict[str, Any], payload: dict[str, Any]) -> None:
+    if str(payload.get("source_ref") or "").strip():
+        result["source_ref"] = str(payload.get("source_ref") or "").strip()
+    if str(payload.get("source_title") or "").strip():
+        result["source_title"] = str(payload.get("source_title") or "").strip()
+    if str(payload.get("pdf_path") or "").strip() and not str(result.get("source_pdf_path") or "").strip():
+        result["source_pdf_path"] = str(payload.get("pdf_path") or "").strip()
+
+
+def _record_pdf_structure_evidence(state: ToolExecutionState, result: dict[str, Any], *, output_dir: Path | None = None) -> None:
+    state.artifacts["literature_pdf_structure_evidence"] = result
+    if output_dir is not None:
+        state.artifacts["literature_pdf_structure_evidence_dir"] = str(output_dir)
+
+    history = state.artifacts.setdefault("literature_pdf_structure_evidence_history", [])
+    if isinstance(history, list):
+        key = _pdf_evidence_key(result)
+        if key:
+            history[:] = [
+                dict(row)
+                for row in history
+                if isinstance(row, dict) and _pdf_evidence_key(row) != key
+            ]
+        history.append(dict(result))
+
+    by_source = state.artifacts.setdefault("literature_pdf_structure_evidence_by_source", {})
+    if isinstance(by_source, dict):
+        for key in _pdf_evidence_keys(result):
+            by_source[key] = dict(result)
 
 
 def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1150,8 +1247,15 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
         key_path=state.key_path,
         base_url=state.base_url,
         model=state.model,
-        timeout_s=float(payload.get("timeout_s") or 900.0),
+        timeout_s=_visual_literature_timeout_s(state, payload),
+        allow_repair=not bool(payload.get("focused_gap_repair")) and _visual_literature_repair_enabled(payload),
     )
+    if str(payload.get("source_ref") or "").strip():
+        result["source_ref"] = str(payload.get("source_ref") or "").strip()
+    if str(payload.get("source_title") or "").strip():
+        result["source_title"] = str(payload.get("source_title") or "").strip()
+    if str(payload.get("pdf_path") or "").strip():
+        result["source_pdf_path"] = str(payload.get("pdf_path") or "").strip()
     candidate_path_value = str(result.get("candidate_chain_path") or "").strip()
     candidate_path = Path(candidate_path_value) if candidate_path_value else None
     if candidate_path is not None and candidate_path.is_file():
@@ -1174,6 +1278,319 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
         },
         "reasons": [str(item) for item in result.get("reasons") or []],
     }
+
+
+def _visual_literature_timeout_s(state: ToolExecutionState, payload: dict[str, Any]) -> float:
+    explicit = payload.get("timeout_s")
+    if explicit is None:
+        explicit = os.environ.get("AUTOPLANNER_VISUAL_TIMEOUT_S")
+    if explicit is not None:
+        return max(10.0, float(explicit))
+    return min(float(state.budget.open_research_timeout_s or 240.0), 240.0)
+
+
+def _visual_literature_repair_enabled(payload: dict[str, Any]) -> bool:
+    raw = payload.get("allow_repair")
+    if raw is None:
+        raw = os.environ.get("AUTOPLANNER_VISUAL_ALLOW_REPAIR")
+    if raw is None:
+        return True
+    if isinstance(raw, str):
+        return raw.strip().lower() not in {"0", "false", "off", "no", "disabled"}
+    return bool(raw)
+
+
+def resolve_literature_structure_task_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
+    mock = _mock_result(state, "resolve_literature_structure_task", payload)
+    if mock is not None:
+        result = dict(mock)
+        _record_structure_resolution_result(state, result)
+        write_json(state.run_dir / "literature_structure_resolution_result.json", result)
+        return result
+
+    out = _tool_output_dir(state, payload, default_name="literature_structure_resolution")
+    task_id = str(payload.get("task_id") or "").strip()
+    label = str(payload.get("label") or payload.get("compound_label") or "").strip()
+    source_ref = str(payload.get("source_ref") or "").strip()
+    source_title = str(payload.get("source_title") or payload.get("title") or "").strip()
+    reasons: list[str] = []
+    if not task_id:
+        reasons.append("structure_resolution_task_id_missing")
+    if not label:
+        reasons.append("structure_resolution_label_missing")
+
+    pdf_evidence = _pdf_evidence_from_payload_or_artifacts(state, payload)
+    image_paths = _visual_chain_image_paths(state, payload, pdf_evidence) if label else []
+    candidate_rows = _structure_resolution_candidate_rows_from_payload(
+        payload,
+        task_id=task_id,
+        label=label,
+        source_ref=source_ref,
+        source_title=source_title,
+    )
+    visual_attempt: dict[str, Any] = {}
+    if not any(row.get("accepted") for row in candidate_rows) and label and _structure_resolution_visual_enabled(payload):
+        visual_attempt = run_visual_literature_chain_agent(
+            image_paths=image_paths,
+            output_dir=out,
+            target_name=str(payload.get("target_name") or label),
+            target_smiles=str(payload.get("target_smiles") or state.target_input.get("target_smiles") or ""),
+            source_ref=source_ref or "structure_resolution_source",
+            source_title=source_title,
+            expected_labels=[label],
+            route_sequence_hint=_structure_resolution_visual_prompt_hint(label=label, payload=payload),
+            text_snippets=[dict(item) for item in (pdf_evidence.get("compound_text_snippets") or []) if isinstance(item, dict)],
+            key_path=state.key_path,
+            base_url=state.base_url,
+            model=state.model,
+            timeout_s=_structure_resolution_timeout_s(state, payload),
+            allow_repair=False,
+        )
+        candidate_rows.extend(
+            _structure_resolution_candidate_rows_from_visual_attempt(
+                visual_attempt,
+                task_id=task_id,
+                label=label,
+                source_ref=source_ref,
+                source_title=source_title,
+            )
+        )
+    if _structure_resolution_visual_enabled(payload) and not image_paths and not any(row.get("accepted") for row in candidate_rows):
+        reasons.append("structure_resolution_visual_images_missing")
+
+    accepted_candidates = [row for row in candidate_rows if row.get("accepted")]
+    unresolved = []
+    if not accepted_candidates:
+        unresolved.append(
+            {
+                "schema_version": "literature_structure_unresolved_task.v1",
+                "task_id": task_id,
+                "label": label,
+                "source_ref": source_ref,
+                "source_title": source_title,
+                "status": "unresolved",
+                "reason": "no_rdkit_valid_source_grounded_structure_candidate",
+                "next_actions": [
+                    "search_supplementary_information_for_label",
+                    "crop_higher_resolution_scheme_region",
+                    "ask_user_for_source_detail_or_structure",
+                ],
+                "no_solved_claim": True,
+            }
+        )
+        reasons.append("no_rdkit_valid_structure_candidate")
+
+    result = {
+        "schema_version": "literature_structure_resolution_result.v1",
+        "accepted": bool(accepted_candidates),
+        "status": "resolved" if accepted_candidates else "unresolved",
+        "task_id": task_id,
+        "label": label,
+        "source_ref": source_ref,
+        "source_title": source_title,
+        "resolved_structures": accepted_candidates,
+        "rejected_candidates": [row for row in candidate_rows if not row.get("accepted")],
+        "unresolved_tasks": unresolved,
+        "selected_image_paths": [str(path) for path in image_paths],
+        "visual_attempt": visual_attempt,
+        "artifact_refs": {
+            "literature_structure_resolution": str(out / "literature_structure_resolution_result.json"),
+        },
+        "source_policy": {
+            "structure_candidates_require_rdkit_valid_smiles": True,
+            "source_grounding_required": True,
+            "no_solved_claim": True,
+            "production_write_blocked": True,
+            "does_not_emit_exact_literature_rows": True,
+        },
+        "reasons": sorted(set(reasons)),
+        "no_solved_claim": True,
+    }
+    _record_structure_resolution_result(state, result)
+    write_json(out / "literature_structure_resolution_result.json", result)
+    write_json(state.run_dir / "literature_structure_resolution_result.json", result)
+    return result
+
+
+def _record_structure_resolution_result(state: ToolExecutionState, result: dict[str, Any]) -> None:
+    state.artifacts["literature_structure_resolution"] = dict(result)
+    history = state.artifacts.setdefault("literature_structure_resolution_history", [])
+    if isinstance(history, list):
+        history.append(dict(result))
+
+
+def _structure_resolution_visual_enabled(payload: dict[str, Any]) -> bool:
+    raw = payload.get("run_visual")
+    if raw is None:
+        raw = payload.get("use_visual")
+    if raw is None:
+        raw = os.environ.get("AUTOPLANNER_STRUCTURE_RESOLUTION_VISUAL", "1")
+    if isinstance(raw, str):
+        return raw.strip().lower() not in {"0", "false", "off", "no", "disabled"}
+    return bool(raw)
+
+
+def _structure_resolution_timeout_s(state: ToolExecutionState, payload: dict[str, Any]) -> float:
+    explicit = payload.get("timeout_s") or os.environ.get("AUTOPLANNER_STRUCTURE_RESOLUTION_TIMEOUT_S")
+    if explicit is not None:
+        return max(10.0, float(explicit))
+    return min(float(state.budget.open_research_timeout_s or 180.0), 180.0)
+
+
+def _structure_resolution_visual_prompt_hint(*, label: str, payload: dict[str, Any]) -> str:
+    source_locator = str(payload.get("source_locator") or "")
+    hint = str(payload.get("route_sequence_hint") or "")
+    parts = [
+        f"Resolve only compound label {label}.",
+        "Return a visual_structure_candidate_chain JSON with one step when the drawn structure can be converted to RDKit-valid SMILES.",
+        "If stereochemistry is not fully legible but atom connectivity/protecting groups are visible, return an achiral/connectivity-only SMILES and mark it as not_exact_literature_segment=true, stereochemistry_status=unspecified_or_partial, allowed_use=exploratory_template_and_guided_hint_only.",
+        "If protecting groups or atom connectivity are not legible even at connectivity-only level, omit the step and add an extraction_gaps row.",
+        "Do not infer a route, do not invent a reaction, and do not claim solved.",
+    ]
+    if source_locator:
+        parts.append(f"Prior source locator: {source_locator}.")
+    if hint:
+        parts.append(hint)
+    return " ".join(parts)
+
+
+def _structure_resolution_candidate_rows_from_payload(
+    payload: dict[str, Any],
+    *,
+    task_id: str,
+    label: str,
+    source_ref: str,
+    source_title: str,
+) -> list[dict[str, Any]]:
+    raw_candidates: list[Any] = []
+    if payload.get("candidate_smiles"):
+        raw_candidates.append({"smiles": payload.get("candidate_smiles"), "source_locator": payload.get("source_locator")})
+    raw_candidates.extend(payload.get("candidate_structures") or [])
+    rows: list[dict[str, Any]] = []
+    for idx, raw in enumerate(raw_candidates, start=1):
+        if isinstance(raw, str):
+            candidate = {"smiles": raw}
+        elif isinstance(raw, dict):
+            candidate = dict(raw)
+        else:
+            continue
+        rows.append(
+            _structure_resolution_candidate_row(
+                candidate,
+                task_id=task_id,
+                label=label,
+                source_ref=source_ref,
+                source_title=source_title,
+                candidate_index=idx,
+                derivation_mode="payload_candidate",
+            )
+        )
+    return rows
+
+
+def _structure_resolution_candidate_rows_from_visual_attempt(
+    visual_attempt: dict[str, Any],
+    *,
+    task_id: str,
+    label: str,
+    source_ref: str,
+    source_title: str,
+) -> list[dict[str, Any]]:
+    chain = _load_visual_candidate_chain_from_result(visual_attempt)
+    rows: list[dict[str, Any]] = []
+    for idx, step in enumerate(chain.get("steps") or [], start=1):
+        if not isinstance(step, dict):
+            continue
+        product_label = str(step.get("product_label") or step.get("label") or "").strip()
+        if product_label and not _structure_label_matches(product_label, label):
+            continue
+        rows.append(
+            _structure_resolution_candidate_row(
+                {
+                    "smiles": step.get("product_smiles"),
+                    "source_locator": step.get("source_locator") or (step.get("structure_derivation") or {}).get("source_locator"),
+                    "evidence_refs": step.get("evidence_refs"),
+                    "confidence": (step.get("structure_derivation") or {}).get("confidence") or step.get("confidence"),
+                },
+                task_id=task_id,
+                label=label,
+                source_ref=source_ref,
+                source_title=source_title,
+                candidate_index=idx,
+                derivation_mode="focused_visual_structure_resolution",
+            )
+        )
+    return rows
+
+
+def _load_visual_candidate_chain_from_result(result: dict[str, Any]) -> dict[str, Any]:
+    path_value = str(result.get("candidate_chain_path") or "").strip()
+    if path_value:
+        path = Path(path_value)
+        if path.is_file():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                data = {}
+            if isinstance(data, dict):
+                return data
+    candidate = result.get("candidate_chain")
+    if isinstance(candidate, dict):
+        return dict(candidate)
+    parsed = result.get("parsed_output")
+    if isinstance(parsed, dict):
+        return dict(parsed)
+    return {}
+
+
+def _structure_resolution_candidate_row(
+    candidate: dict[str, Any],
+    *,
+    task_id: str,
+    label: str,
+    source_ref: str,
+    source_title: str,
+    candidate_index: int,
+    derivation_mode: str,
+) -> dict[str, Any]:
+    smiles = str(candidate.get("smiles") or candidate.get("product_smiles") or "").strip()
+    valid = _valid_smiles(smiles)
+    source_locator = str(candidate.get("source_locator") or candidate.get("locator") or "").strip()
+    reasons: list[str] = []
+    if not smiles:
+        reasons.append("candidate_smiles_missing")
+    elif not valid:
+        reasons.append("candidate_smiles_invalid")
+    if not source_locator:
+        reasons.append("source_locator_missing")
+    return {
+        "schema_version": "literature_resolved_structure_candidate.v1",
+        "structure_id": f"{_resolution_safe_id(task_id or label)}:{candidate_index}",
+        "task_id": task_id,
+        "label": label,
+        "smiles": smiles,
+        "source_ref": source_ref,
+        "source_title": source_title,
+        "source_locator": source_locator,
+        "evidence_refs": [str(item) for item in candidate.get("evidence_refs") or [] if str(item or "").strip()],
+        "confidence": str(candidate.get("confidence") or "low"),
+        "derivation_mode": derivation_mode,
+        "rdkit_valid": bool(valid),
+        "accepted": bool(valid and source_locator),
+        "reasons": reasons,
+        "no_solved_claim": True,
+    }
+
+
+def _structure_label_matches(observed: str, expected: str) -> bool:
+    observed_text = " ".join(str(observed or "").lower().split())
+    expected_text = " ".join(str(expected or "").lower().split())
+    return bool(observed_text and expected_text and (observed_text == expected_text or expected_text in observed_text or observed_text in expected_text))
+
+
+def _resolution_safe_id(value: str) -> str:
+    safe = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(value or "structure"))
+    return "_".join(part for part in safe.split("_") if part)[:100] or "structure"
 
 
 def apply_source_text_condition_repairs_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1846,19 +2263,92 @@ def _pdf_evidence_from_payload_or_artifacts(state: ToolExecutionState, payload: 
         data = _json_payload_or_path(state, payload.get("pdf_evidence_path"))
         if data:
             return data
+    for row in _pdf_evidence_candidates_from_artifacts(state):
+        if _pdf_evidence_matches_payload(row, payload):
+            return dict(row)
     artifact = state.artifacts.get("literature_pdf_structure_evidence")
     return dict(artifact) if isinstance(artifact, dict) else {}
+
+
+def _pdf_evidence_candidates_from_artifacts(state: ToolExecutionState) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    history = state.artifacts.get("literature_pdf_structure_evidence_history")
+    if isinstance(history, list):
+        candidates.extend(dict(row) for row in history if isinstance(row, dict))
+    by_source = state.artifacts.get("literature_pdf_structure_evidence_by_source")
+    if isinstance(by_source, dict):
+        candidates.extend(dict(row) for row in by_source.values() if isinstance(row, dict))
+    latest = state.artifacts.get("literature_pdf_structure_evidence")
+    if isinstance(latest, dict):
+        candidates.append(dict(latest))
+
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in candidates:
+        key = _pdf_evidence_key(row) or str(id(row))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+def _pdf_evidence_matches_payload(evidence: dict[str, Any], payload: dict[str, Any]) -> bool:
+    source_ref = str(payload.get("source_ref") or "").strip().lower()
+    if source_ref and source_ref == str(evidence.get("source_ref") or "").strip().lower():
+        return True
+    pdf_path = _normalized_path_key(payload.get("pdf_path"))
+    evidence_pdf = _normalized_path_key(evidence.get("source_pdf_path") or evidence.get("pdf_path"))
+    if pdf_path and evidence_pdf and pdf_path == evidence_pdf:
+        return True
+    source_title = _text_key(payload.get("source_title"))
+    evidence_title = _text_key(evidence.get("source_title"))
+    return bool(source_title and evidence_title and source_title == evidence_title)
+
+
+def _pdf_evidence_key(evidence: dict[str, Any]) -> str:
+    keys = _pdf_evidence_keys(evidence)
+    return keys[0] if keys else ""
+
+
+def _pdf_evidence_keys(evidence: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    source_ref = str(evidence.get("source_ref") or "").strip().lower()
+    if source_ref:
+        keys.append(f"ref:{source_ref}")
+    pdf_key = _normalized_path_key(evidence.get("source_pdf_path") or evidence.get("pdf_path"))
+    if pdf_key:
+        keys.append(f"pdf:{pdf_key}")
+    title = _text_key(evidence.get("source_title"))
+    if title:
+        keys.append(f"title:{title}")
+    return keys
+
+
+def _normalized_path_key(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return str(Path(text).expanduser().resolve()).lower()
+
+
+def _text_key(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().split())
 
 
 def _visual_chain_image_paths(state: ToolExecutionState, payload: dict[str, Any], pdf_evidence: dict[str, Any]) -> list[Path]:
     raw_paths = [str(item) for item in payload.get("image_paths") or [] if str(item).strip()]
     if not raw_paths:
+        page_filter = _visual_page_filter(payload)
         for row in pdf_evidence.get("scheme_crops") or []:
             if isinstance(row, dict) and row.get("image_path"):
                 raw_paths.append(str(row["image_path"]))
         for row in pdf_evidence.get("rendered_pages") or []:
-            if isinstance(row, dict) and row.get("image_path"):
-                raw_paths.append(str(row["image_path"]))
+            if not isinstance(row, dict) or not row.get("image_path"):
+                continue
+            if page_filter and int(row.get("page_number") or 0) not in page_filter:
+                continue
+            raw_paths.append(str(row["image_path"]))
     paths: list[Path] = []
     seen: set[str] = set()
     for raw in raw_paths:
@@ -1868,7 +2358,86 @@ def _visual_chain_image_paths(state: ToolExecutionState, payload: dict[str, Any]
             continue
         seen.add(key)
         paths.append(path)
-    return paths
+    max_images = _visual_max_images(payload)
+    if max_images > 0:
+        paths = paths[:max_images]
+    return _prepared_visual_image_paths(state, paths, payload)
+
+
+def _visual_page_filter(payload: dict[str, Any]) -> set[int]:
+    values = payload.get("page_numbers") or payload.get("visual_page_numbers") or []
+    out: set[int] = set()
+    for value in values:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            out.add(number)
+    return out
+
+
+def _visual_max_images(payload: dict[str, Any]) -> int:
+    raw = payload.get("max_images")
+    if raw is None:
+        raw = os.environ.get("AUTOPLANNER_VISUAL_MAX_IMAGES", "6")
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 6
+
+
+def _prepared_visual_image_paths(state: ToolExecutionState, paths: list[Path], payload: dict[str, Any]) -> list[Path]:
+    if not _visual_image_compression_enabled(payload):
+        return paths
+    try:
+        from PIL import Image
+    except Exception:
+        return paths
+    out_dir = state.run_dir / "_visual_prepared_images"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    max_side = _visual_max_side_px(payload)
+    quality = _visual_jpeg_quality(payload)
+    prepared: list[Path] = []
+    for idx, path in enumerate(paths, start=1):
+        try:
+            with Image.open(path) as image:
+                image = image.convert("RGB")
+                width, height = image.size
+                scale = min(1.0, float(max_side) / float(max(width, height))) if max_side > 0 else 1.0
+                if scale < 1.0:
+                    image = image.resize((max(1, int(width * scale)), max(1, int(height * scale))))
+                target = out_dir / f"{path.stem}_vinput_{idx}.jpg"
+                image.save(target, format="JPEG", quality=quality, optimize=True)
+                prepared.append(target.resolve())
+        except Exception:
+            prepared.append(path)
+    return prepared
+
+
+def _visual_image_compression_enabled(payload: dict[str, Any]) -> bool:
+    raw = payload.get("compress_images")
+    if raw is None:
+        raw = os.environ.get("AUTOPLANNER_VISUAL_COMPRESS_IMAGES", "1")
+    if isinstance(raw, str):
+        return raw.strip().lower() not in {"0", "false", "off", "no", "disabled"}
+    return bool(raw)
+
+
+def _visual_max_side_px(payload: dict[str, Any]) -> int:
+    raw = payload.get("visual_max_side_px") or os.environ.get("AUTOPLANNER_VISUAL_MAX_SIDE_PX", "1400")
+    try:
+        return max(256, int(raw))
+    except (TypeError, ValueError):
+        return 1400
+
+
+def _visual_jpeg_quality(payload: dict[str, Any]) -> int:
+    raw = payload.get("visual_jpeg_quality") or os.environ.get("AUTOPLANNER_VISUAL_JPEG_QUALITY", "70")
+    try:
+        return min(95, max(35, int(raw)))
+    except (TypeError, ValueError):
+        return 70
 
 
 def _input_path(state: ToolExecutionState, value: Any) -> Path:
@@ -2224,6 +2793,7 @@ def _source_detail_steps_from_visual_candidate(state: ToolExecutionState, payloa
         if "visual candidate promoted to draft source-detail step" not in checks:
             checks.append("visual candidate promoted to draft source-detail step")
         derivation["tool_checks"] = checks
+        not_exact_visual = _visual_step_is_exploratory(step, derivation)
         out.append(
             {
                 "schema_version": "source_detail_route_step.v1",
@@ -2236,18 +2806,20 @@ def _source_detail_steps_from_visual_candidate(state: ToolExecutionState, payloa
                 "reactant_names": [str(item) for item in step.get("reactant_labels") or [] if str(item or "").strip()],
                 "product_smiles": product,
                 "reactant_smiles": reactants,
-                "relation_type": "exact",
+                "relation_type": "visual_connectivity_approximation" if not_exact_visual else "exact",
                 "condition_candidate": condition,
                 "applicability": {
-                    "status": "passed",
-                    "product_reconstruction_passed": True,
+                    "status": "hypothesis_only" if not_exact_visual else "passed",
+                    "product_reconstruction_passed": not not_exact_visual,
                     "reconstructed_product_smiles": product,
                 },
                 "provenance": "visual_candidate_chain_current_pdf",
                 "source_excerpt": str(step.get("source_excerpt") or step.get("source_locator") or ""),
                 "structure_derivation": derivation,
-                "validation_status": "draft_validated_by_rdkit_chain",
-                "curation_status": "visual_candidate_promoted_for_exact_row_compile",
+                "validation_status": "draft_rdkit_valid_visual_approximation" if not_exact_visual else "draft_validated_by_rdkit_chain",
+                "curation_status": "visual_candidate_for_exploratory_template_hint" if not_exact_visual else "visual_candidate_promoted_for_exact_row_compile",
+                "not_exact_literature_segment": bool(not_exact_visual),
+                "allowed_use": "exploratory_template_and_guided_hint_only" if not_exact_visual else "exact_candidate",
                 "full_text_content_stored": False,
                 "procedure_text_stored": False,
                 "no_solved_claim": True,
@@ -2257,10 +2829,38 @@ def _source_detail_steps_from_visual_candidate(state: ToolExecutionState, payloa
     return out
 
 
+def _visual_step_is_exploratory(step: dict[str, Any], derivation: dict[str, Any] | None = None) -> bool:
+    derivation = dict(derivation or step.get("structure_derivation") or {})
+    text = " ".join(
+        [
+            str(step.get("allowed_use") or ""),
+            str(step.get("stereochemistry_status") or ""),
+            str(derivation.get("basis") or ""),
+            str(derivation.get("allowed_use") or ""),
+            str(derivation.get("stereochemistry_status") or ""),
+            " ".join(str(item) for item in step.get("risk_flags") or []),
+            " ".join(str(item) for item in derivation.get("risk_flags") or []),
+        ]
+    ).lower()
+    return bool(
+        step.get("not_exact_literature_segment")
+        or derivation.get("not_exact_literature_segment")
+        or derivation.get("approximate_structure")
+        or "exploratory" in text
+        or "achiral" in text
+        or "connectivity" in text
+        or "unspecified" in text
+        or "partial" in text
+    )
+
+
 def _visual_candidate_steps(candidate: dict[str, Any]) -> list[dict[str, Any]]:
     steps = candidate.get("steps")
     if isinstance(steps, list) and steps:
         return [dict(item) for item in steps if isinstance(item, dict)]
+    candidate_steps = candidate.get("candidate_steps")
+    if isinstance(candidate_steps, list) and candidate_steps:
+        return [dict(item) for item in candidate_steps if isinstance(item, dict)]
     chain = candidate.get("candidate_chain")
     if not isinstance(chain, list):
         chain = candidate.get("chain")
@@ -2371,7 +2971,15 @@ def _route_expansion_child_targets(
                 "schema_version": "route_expansion_child_target.v1",
                 "name": str(item.get("name") or item.get("target_name") or f"subgoal_{len(rows) + 1}"),
                 "smiles": smiles,
-                "source": "explicit_payload",
+                "source": str(item.get("source") or "explicit_payload"),
+                "explicit_payload": True,
+                "hypothesis_only_not_solved": bool(item.get("hypothesis_only_not_solved")),
+                "recursive_hypothesis_task_id": str(item.get("recursive_hypothesis_task_id") or ""),
+                "recursive_depth": int(item.get("recursive_depth") or 0),
+                "parent_smiles": str(item.get("parent_smiles") or ""),
+                "parent_candidate_id": str(item.get("parent_candidate_id") or ""),
+                "template_id": str(item.get("template_id") or ""),
+                "application_id": str(item.get("application_id") or ""),
                 "policy": dict(item.get("chem_enzy_search_policy") or item.get("policy") or {}),
                 "exact_target_override": bool(
                     item.get("exact_target_override")
@@ -2535,7 +3143,7 @@ def _child_target_priority(row: dict[str, Any]) -> int:
         str(row.get(key) or "")
         for key in ("name", "child_target_id", "source_template_id", "task_id")
     ).lower()
-    if source == "explicit_payload":
+    if row.get("explicit_payload") or source == "explicit_payload":
         return 0
     if "from_11" in text or "reactant_11" in text or text.endswith("_11"):
         return 1

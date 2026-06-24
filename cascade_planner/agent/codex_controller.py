@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
 from cascade_planner.agent.artifact_validators import validate_typed_artifact
+from cascade_planner.agent.action_contracts import contains_raw_reaction_payload
 from cascade_planner.agent.case_trace import ArtifactRecord, CaseBundle, RouteStatus
 from cascade_planner.agent.codex_worker import WorkerBudget, WorkerTask, run_codex_worker
 from cascade_planner.agent.evolution_manager import EvolutionCandidate, LayeredKnowledgeBase
@@ -898,14 +899,4 @@ def _final_status_for_action(action_type: str) -> str:
 
 
 def _contains_raw_reaction(value: Any) -> bool:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if str(key).lower() in {"rxn", "rxn_smiles", "reaction_smiles", "raw_reaction", "reaction_candidates"}:
-                return True
-            if _contains_raw_reaction(item):
-                return True
-    if isinstance(value, list):
-        return any(_contains_raw_reaction(item) for item in value)
-    if isinstance(value, str):
-        return ">>" in value
-    return False
+    return contains_raw_reaction_payload(value)

@@ -35,6 +35,7 @@ from cascade_planner.harness.tools import (
 from cascade_planner.harness.open_research_retrieval import prefetch_open_research_evidence
 from cascade_planner.harness.source_detail_chain_builder import resolve_curator_records_to_source_detail_steps
 from cascade_planner.harness.source_detail_resolution import source_detail_curator_records_path
+from scripts.run_codex_entry_agentic_blackboard import _codex_action_planner_env_overrides
 from scripts.run_codex_entry_controller import _resolve_cli_targets
 from scripts.run_chem_enzy_plan_for_web import _stock_names_from_payload
 from scripts.run_open_structure_template_agent import _read_or_build_prompt, _validate_open_agent_outputs
@@ -97,6 +98,20 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertEqual(targets[0].target_name, "legacy_case")
         self.assertEqual(targets[0].target_smiles, "not_a_smiles")
         self.assertEqual(targets[0].output_dir, Path(tmp))
+
+    def test_agentic_blackboard_cli_maps_codex_planner_tool_budget_env(self):
+        args = Namespace(
+            codex_action_planner_tools="web_search,browser,literature_search",
+            codex_action_planner_max_tool_calls=6,
+        )
+
+        overrides = _codex_action_planner_env_overrides(args)
+
+        self.assertEqual(
+            overrides["AUTOPLANNER_CODEX_ACTION_PLANNER_ALLOWED_TOOLS"],
+            "web_search,browser,literature_search",
+        )
+        self.assertEqual(overrides["AUTOPLANNER_CODEX_ACTION_PLANNER_MAX_TOOL_CALLS"], "6")
 
     def test_invalid_smiles_stops_before_codex_research_and_emits_invalid_input(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from cascade_planner.agent.action_contracts import contains_raw_reaction_payload
 from cascade_planner.agent.condition_agent import validate_condition_candidate
 from cascade_planner.agent.literature_segments import (
     validate_literature_route_segment,
@@ -231,17 +232,7 @@ def _float(value: Any, default: float) -> float:
 
 
 def _contains_raw_reaction_injection(value: Any) -> bool:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if str(key).lower() in {"rxn", "rxn_smiles", "reaction_smiles", "raw_reaction", "reaction_candidates"}:
-                return True
-            if _contains_raw_reaction_injection(item):
-                return True
-    if isinstance(value, list):
-        return any(_contains_raw_reaction_injection(item) for item in value)
-    if isinstance(value, str):
-        return ">>" in value
-    return False
+    return contains_raw_reaction_payload(value)
 
 
 def _candidate_payload_reasons(candidate: EvolutionCandidate) -> list[str]:

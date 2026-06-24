@@ -428,12 +428,34 @@ def emit_final_verdict(bundle_or_data: ArtifactBundle | dict[str, Any]) -> Final
             stock_audit_passed=bool(audit.get("stock_audit_passed")),
         )
     if _has_literature_or_template_anchor(artifacts) or route_status in {"partial_anchor", "semisynthesis_closed"}:
+        hypothesis_report = _hypothesis_route_report(artifacts)
+        if hypothesis_report:
+            return FinalVerdict(
+                case_id=bundle.case_id,
+                verdict="hypothesis_route_proposed",
+                reasons=sorted(set(reasons + ["hypothesis_only_retrosynthesis_available"])),
+                route_status=_hypothesis_route_status(artifacts) or "hypothesis_route_proposed",
+                solved=False,
+                stock_audit_passed=bool(audit.get("stock_audit_passed")),
+                artifact_refs=dict(hypothesis_report.get("artifact_refs") or {}),
+            )
         return FinalVerdict(
             case_id=bundle.case_id,
             verdict="partial_anchor_only_not_solved",
             reasons=sorted(set(reasons + ["literature_anchor_without_executable_stock_closure"])),
             route_status=route_status or "partial_anchor",
             stock_audit_passed=bool(audit.get("stock_audit_passed")),
+        )
+    hypothesis_report = _hypothesis_route_report(artifacts)
+    if hypothesis_report:
+        return FinalVerdict(
+            case_id=bundle.case_id,
+            verdict="hypothesis_route_proposed",
+            reasons=sorted(set(reasons + validation_reasons + ["hypothesis_only_retrosynthesis_available"])),
+            route_status=_hypothesis_route_status(artifacts) or "hypothesis_route_proposed",
+            solved=False,
+            stock_audit_passed=bool(audit.get("stock_audit_passed")),
+            artifact_refs=dict(hypothesis_report.get("artifact_refs") or {}),
         )
     return FinalVerdict(
         case_id=bundle.case_id,
@@ -442,6 +464,30 @@ def emit_final_verdict(bundle_or_data: ArtifactBundle | dict[str, Any]) -> Final
         route_status=route_status or "unresolved",
         stock_audit_passed=bool(audit.get("stock_audit_passed")),
     )
+
+
+def _hypothesis_route_report(artifacts: dict[str, Any]) -> dict[str, Any]:
+    report = artifacts.get("hypothesis_only_retrosynthesis_report")
+    if not isinstance(report, dict):
+        return {}
+    payload = dict(report.get("payload") or report)
+    if not (
+        payload.get("accepted")
+        and int(payload.get("candidate_precursor_count") or 0) > 0
+        and payload.get("no_solved_claim") is True
+    ):
+        return {}
+    return dict(report)
+
+
+def _hypothesis_route_status(artifacts: dict[str, Any]) -> str:
+    execution = artifacts.get("hypothesis_execution_report")
+    if isinstance(execution, dict):
+        payload = dict(execution.get("payload") or execution)
+        status = str(payload.get("route_status") or "")
+        if status and status != "no_hypothesis_candidates":
+            return status
+    return ""
 
 
 def _obtain_plan(

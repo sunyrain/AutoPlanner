@@ -62,9 +62,54 @@ class TargetTriage(ArtifactBase):
     schema_version = "target_triage.v1"
 
 
+class AgentActionBatch(ArtifactBase):
+    artifact_type = "AgentActionBatch"
+    schema_version = "agent_action_batch_artifact.v1"
+
+
+class AgentActionBatchValidation(ArtifactBase):
+    artifact_type = "AgentActionBatchValidation"
+    schema_version = "agent_action_batch_validation_artifact.v1"
+
+
+class AgentBlackboardSnapshot(ArtifactBase):
+    artifact_type = "AgentBlackboardSnapshot"
+    schema_version = "agent_blackboard_snapshot_artifact.v1"
+
+
+class AgenticRunAudit(ArtifactBase):
+    artifact_type = "AgenticRunAudit"
+    schema_version = "agentic_run_audit_artifact.v1"
+
+
+class AgenticCapabilityAudit(ArtifactBase):
+    artifact_type = "AgenticCapabilityAudit"
+    schema_version = "agentic_capability_audit_artifact.v1"
+
+
+class AgenticFinalVerdictValidation(ArtifactBase):
+    artifact_type = "AgenticFinalVerdictValidation"
+    schema_version = "agentic_final_verdict_validation_artifact.v1"
+
+
+class HypothesisOnlyRetrosynthesisReport(ArtifactBase):
+    artifact_type = "HypothesisOnlyRetrosynthesisReport"
+    schema_version = "hypothesis_only_retrosynthesis_report_artifact.v1"
+
+
+class HypothesisExecutionReport(ArtifactBase):
+    artifact_type = "HypothesisExecutionReport"
+    schema_version = "hypothesis_execution_report_artifact.v1"
+
+
 class ResearchReport(ArtifactBase):
     artifact_type = "ResearchReport"
     schema_version = "research_report.v1"
+
+
+class LiteratureScoutReport(ArtifactBase):
+    artifact_type = "LiteratureScoutReport"
+    schema_version = "literature_scout_report_artifact.v1"
 
 
 class EvidenceCard(ArtifactBase):
@@ -105,6 +150,26 @@ class ExecutableTemplateCandidate(ArtifactBase):
 class TemplateValidationReport(ArtifactBase):
     artifact_type = "TemplateValidationReport"
     schema_version = "template_validation_report.v1"
+
+
+class AnalogicalReactionTemplateReport(ArtifactBase):
+    artifact_type = "AnalogicalReactionTemplateReport"
+    schema_version = "analogical_reaction_template_report.v1"
+
+
+class AnalogicalReactionTemplateRanking(ArtifactBase):
+    artifact_type = "AnalogicalReactionTemplateRanking"
+    schema_version = "analogical_reaction_template_ranking_artifact.v1"
+
+
+class AnalogicalTemplateApplicationReport(ArtifactBase):
+    artifact_type = "AnalogicalTemplateApplicationReport"
+    schema_version = "analogical_template_application_report_artifact.v1"
+
+
+class AnalogicalTemplateApplicationValidation(ArtifactBase):
+    artifact_type = "AnalogicalTemplateApplicationValidation"
+    schema_version = "analogical_template_application_validation_artifact.v1"
 
 
 class LiteratureTriggerReport(ArtifactBase):
@@ -213,7 +278,16 @@ ARTIFACT_CLASSES: dict[str, type[ArtifactBase]] = {
         TargetResolution,
         StructureProfile,
         TargetTriage,
+        AgentActionBatch,
+        AgentActionBatchValidation,
+        AgentBlackboardSnapshot,
+        AgenticRunAudit,
+        AgenticCapabilityAudit,
+        AgenticFinalVerdictValidation,
+        HypothesisOnlyRetrosynthesisReport,
+        HypothesisExecutionReport,
         ResearchReport,
+        LiteratureScoutReport,
         EvidenceCard,
         StrategicDisconnectionCard,
         LiteratureRouteSegmentCard,
@@ -222,6 +296,10 @@ ARTIFACT_CLASSES: dict[str, type[ArtifactBase]] = {
         TemplateApplicabilityReport,
         ExecutableTemplateCandidate,
         TemplateValidationReport,
+        AnalogicalReactionTemplateReport,
+        AnalogicalReactionTemplateRanking,
+        AnalogicalTemplateApplicationReport,
+        AnalogicalTemplateApplicationValidation,
         LiteratureTriggerReport,
         RouteAnchorExpansionTask,
         FailureEvent,

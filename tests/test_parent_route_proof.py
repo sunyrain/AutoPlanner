@@ -15,6 +15,27 @@ class ParentRouteProofTest(unittest.TestCase):
         self.assertIn("parent_route_verifier_not_accepted", proof["reasons"])
         self.assertIn("child_target_route_not_connected_to_parent_bridge", proof["reasons"])
 
+    def test_unsolved_child_does_not_report_child_solved_parent_unresolved(self):
+        proof = compile_stitched_parent_route_proof(
+            target_smiles="CCOC(C)=O",
+            parent_verifier={
+                "accepted": False,
+                "route_status": "fake_closed_rejected",
+                "target_match": True,
+                "target_equivalence_audit": {"target_match": True},
+                "reasons": ["large_atom_jump"],
+                "failure_events": [{"reason": "large_atom_jump"}],
+            },
+            child_route={"accepted": False, "solved": False, "accepted_subgoal_count": 0},
+            exact_literature_segment={"accepted": False, "row_count": 0},
+            stock_audit={"stock_audit_passed": False},
+        )
+
+        self.assertFalse(proof["accepted"])
+        self.assertEqual(proof["route_status"], "fake_closed_rejected")
+        self.assertNotEqual(proof["route_status"], "child_solved_parent_unresolved")
+        self.assertIn("child_target_route_not_connected_to_parent_bridge", proof["reasons"])
+
     def test_disconnected_exact_row_does_not_pass(self):
         proof = compile_stitched_parent_route_proof(
             target_smiles="CCOC(C)=O",

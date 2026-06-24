@@ -151,7 +151,7 @@ bufadienolide analogue was treated as stock and the route closed before any real
 skeleton strategy was proposed.
 
 For a new user-provided SMILES with no target-specific local data, use the
-SMILES-first literature fallback workflow:
+agentic blackboard workflow:
 
 1. parse the SMILES and identify scaffold/family/candidate strategic bonds;
 2. let ordinary ChemEnzy/template planning handle routine steps first;
@@ -163,7 +163,7 @@ SMILES-first literature fallback workflow:
 
 Detailed runbook:
 
-- `docs/SMILES_FIRST_LITERATURE_STRATEGIC_WORKFLOW_2026-06-03.md`
+- `docs/AGENTIC_BLACKBOARD_MAINLINE_2026-06-24.md`
 
 Do not collapse these candidate kinds into one solved route. A
 `forward_surrogate` is planning material, not a lab procedure. A `route_anchor`

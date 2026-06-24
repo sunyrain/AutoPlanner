@@ -59,6 +59,9 @@ def compile_stitched_parent_route_proof(
     if analogy_as_proof:
         reasons.append("analogy_cannot_be_parent_route_proof")
 
+    child_solved = _child_route_solved(child, stitch)
+    exact_anchor_present = _exact_anchor_present(exact, stitch)
+
     accepted = not sorted(set(reasons))
     return {
         "schema_version": PARENT_ROUTE_PROOF_SCHEMA,
@@ -66,7 +69,13 @@ def compile_stitched_parent_route_proof(
         "solved": accepted,
         "case_id": case_id or str(parent.get("case_id") or stitch.get("case_id") or ""),
         "target": {"name": target_name, "smiles": target_smiles},
-        "route_status": "solved" if accepted else _failure_status(reasons),
+        "route_status": "solved"
+        if accepted
+        else _failure_status(
+            reasons,
+            child_solved=child_solved,
+            exact_anchor_present=exact_anchor_present,
+        ),
         "proof_clauses": {
             "target_equivalence_passed": target_equivalence,
             "parent_route_verifier_accepted": parent_accepted,
@@ -130,6 +139,21 @@ def _child_connected(child: dict[str, Any], stitch: dict[str, Any]) -> bool:
     return bool(child.get("parent_bridge_connected") and (child.get("accepted") or child.get("solved")))
 
 
+def _child_route_solved(child: dict[str, Any], stitch: dict[str, Any]) -> bool:
+    if stitch:
+        subgoal = dict(stitch.get("subgoal_closure") or {})
+        if bool(subgoal.get("accepted") or subgoal.get("solved") or subgoal.get("verifier_accepted")):
+            return True
+    if not child:
+        return False
+    if bool(child.get("accepted") or child.get("solved")):
+        return True
+    try:
+        return int(child.get("accepted_subgoal_count") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def _literature_connected(exact: dict[str, Any], stitch: dict[str, Any]) -> bool:
     if stitch:
         literature = dict(stitch.get("literature_chain") or {})
@@ -141,11 +165,38 @@ def _literature_connected(exact: dict[str, Any], stitch: dict[str, Any]) -> bool
     return bool(exact.get("accepted") and exact.get("parent_route_connected"))
 
 
-def _failure_status(reasons: list[str]) -> str:
+def _exact_anchor_present(exact: dict[str, Any], stitch: dict[str, Any]) -> bool:
+    if stitch:
+        literature = dict(stitch.get("literature_chain") or {})
+        if bool(literature.get("chain_accepted")):
+            return True
+        try:
+            if int(literature.get("step_count") or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            pass
+        if literature.get("source_ref") or literature.get("terminal"):
+            return True
+    if not exact:
+        return False
+    if bool(exact.get("accepted")):
+        return True
+    try:
+        return int(exact.get("row_count") or exact.get("accepted_row_count") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _failure_status(
+    reasons: list[str],
+    *,
+    child_solved: bool = False,
+    exact_anchor_present: bool = False,
+) -> str:
     reason_set = set(reasons)
-    if "child_target_route_not_connected_to_parent_bridge" in reason_set and "parent_route_verifier_not_accepted" in reason_set:
+    if child_solved and "child_target_route_not_connected_to_parent_bridge" in reason_set:
         return "child_solved_parent_unresolved"
-    if "exact_literature_segment_not_connected_to_parent_route" in reason_set:
+    if exact_anchor_present and "exact_literature_segment_not_connected_to_parent_route" in reason_set:
         return "partial_anchor_only_not_solved"
     if "unexplained_large_atom_jump" in reason_set:
         return "fake_closed_rejected"

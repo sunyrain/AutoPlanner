@@ -98,6 +98,25 @@ def test_executable_template_card_and_artifacts_are_registered():
     assert validation["direct_consumption_allowed"] is True
     assert "TemplateApplicabilityReport" in ARTIFACT_CLASSES
     assert "ExecutableTemplateCandidate" in ARTIFACT_CLASSES
+    assert "AnalogicalReactionTemplateReport" in ARTIFACT_CLASSES
+    assert artifact_json_round_trip(artifact).to_dict() == artifact.to_dict()
+
+
+def test_analogical_reaction_template_report_artifact_round_trips():
+    artifact = ARTIFACT_CLASSES["AnalogicalReactionTemplateReport"](
+        artifact_id="analog_tpl_report",
+        case_id="case",
+        source="unit",
+        evidence_refs=["doi:analog"],
+        validation_status="draft",
+        payload={
+            "schema_version": "analogical_reaction_template_report.v1",
+            "accepted": True,
+            "templates": [],
+            "no_solved_claim": True,
+        },
+    )
+
     assert artifact_json_round_trip(artifact).to_dict() == artifact.to_dict()
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import signal
 import shutil
 import socket
 import subprocess
@@ -19,6 +20,13 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+
+from cascade_planner.agent.action_contracts import (
+    ALLOWED_AGENT_ACTIONS as WORKER_AGENT_ACTION_TYPES,
+    FORBIDDEN_RAW_REACTION_KEYS,
+    PLANNER_SOURCE_HINT_SCHEMA,
+    contains_raw_reaction_payload,
+)
 
 
 WORKER_TASK_SCHEMA = "worker_task.v1"
@@ -35,9 +43,11 @@ ALLOWED_WORKER_TASK_TYPES = {
     "evolution_candidate_research",
 }
 ALLOWED_WORKER_ARTIFACT_TYPES = {
+    "AgentActionBatch",
     "ResearchReport",
     "EvidenceCard",
     "LiteratureScoutReport",
+    "AnalogicalReactionTemplateReport",
     "StrategicDisconnectionCard",
     "LiteratureRouteSegmentCard",
     "SegmentStepCandidate",
@@ -46,18 +56,6 @@ ALLOWED_WORKER_ARTIFACT_TYPES = {
     "ConditionCandidate",
     "AuditReport",
     "EvolutionCandidate",
-}
-FORBIDDEN_RAW_REACTION_KEYS = {
-    "rxn",
-    "rxn_smiles",
-    "rxn_smiles_list",
-    "reaction_smiles",
-    "raw_reaction",
-    "raw_reactions",
-    "raw_reaction_candidates",
-    "reaction_candidates",
-    "route_tree_actions",
-    "candidate_actions",
 }
 FORBIDDEN_PRODUCTION_KEYS = {
     "production_kb_write",
@@ -360,13 +358,10 @@ def worker_task_from_dict(data: dict[str, Any]) -> WorkerTask:
 
 def _run_subprocess_worker(task: WorkerTask, command: list[str]) -> WorkerProcessResult:
     try:
-        proc = subprocess.run(
+        returncode, stdout, stderr = _run_worker_command(
             command,
-            cwd=str(Path(task.allowed_workdir).resolve()),
-            capture_output=True,
-            text=True,
-            timeout=float(task.budget.timeout_s),
-            check=False,
+            cwd=Path(task.allowed_workdir).resolve(),
+            timeout_s=float(task.budget.timeout_s),
         )
     except subprocess.TimeoutExpired as exc:
         raise WorkerTimeoutError(
@@ -375,9 +370,9 @@ def _run_subprocess_worker(task: WorkerTask, command: list[str]) -> WorkerProces
             command=command,
         ) from exc
     return WorkerProcessResult(
-        stdout=proc.stdout,
-        stderr=proc.stderr,
-        exit_code=int(proc.returncode),
+        stdout=stdout,
+        stderr=stderr,
+        exit_code=int(returncode),
         backend="subprocess_command",
         command=list(command),
     )
@@ -396,21 +391,21 @@ def _run_codex_cli_worker(task: WorkerTask) -> WorkerProcessResult:
         output_path = tmp_path / "last_message.json"
         schema_path = tmp_path / "worker_output_schema.json"
         schema_path.write_text(json.dumps(_worker_output_json_schema(task), indent=2), encoding="utf-8")
+        env, metadata = _codex_cli_runtime_environment(tmp_path, workdir, task)
         command = _codex_cli_command(
             executable=executable,
             workdir=workdir,
             output_path=output_path,
             schema_path=schema_path,
+            search_enabled=_task_allows_cli_search(task),
         )
         try:
-            proc = subprocess.run(
+            returncode, stdout, stderr = _run_worker_command(
                 command,
-                cwd=str(workdir),
-                input=prompt,
-                capture_output=True,
-                text=True,
-                timeout=float(task.budget.timeout_s),
-                check=False,
+                cwd=workdir,
+                input_text=prompt,
+                env=env,
+                timeout_s=float(task.budget.timeout_s),
             )
         except subprocess.TimeoutExpired as exc:
             raise WorkerTimeoutError(
@@ -418,18 +413,90 @@ def _run_codex_cli_worker(task: WorkerTask) -> WorkerProcessResult:
                 backend="codex_cli",
                 command=command,
             ) from exc
-        final = output_path.read_text(encoding="utf-8", errors="replace") if output_path.exists() else proc.stdout
-        stderr = proc.stderr or ""
-        if proc.stdout and final != proc.stdout:
-            stderr = (stderr + "\n" if stderr else "") + "codex_cli_stdout:\n" + proc.stdout
+        final = output_path.read_text(encoding="utf-8", errors="replace") if output_path.exists() else stdout
+        stderr = stderr or ""
+        if stdout and final != stdout:
+            stderr = (stderr + "\n" if stderr else "") + "codex_cli_stdout:\n" + stdout
         return WorkerProcessResult(
             stdout=final,
             stderr=stderr,
-            exit_code=int(proc.returncode),
+            exit_code=int(returncode),
             backend="codex_cli",
             command=list(command),
-            metadata={},
+            metadata=metadata,
         )
+
+
+def _run_worker_command(
+    command: list[str],
+    *,
+    cwd: Path,
+    timeout_s: float,
+    input_text: str | None = None,
+    env: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
+    proc = subprocess.Popen(
+        command,
+        cwd=str(cwd),
+        stdin=subprocess.PIPE if input_text is not None else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(input=input_text, timeout=float(timeout_s))
+        return int(proc.returncode), stdout or "", stderr or ""
+    except subprocess.TimeoutExpired:
+        _terminate_worker_process_group(proc)
+        stdout, stderr = proc.communicate()
+        exc = subprocess.TimeoutExpired(command, timeout_s, output=stdout, stderr=stderr)
+        raise exc
+    except BaseException:
+        _terminate_worker_process_group(proc)
+        raise
+
+
+def _terminate_worker_process_group(proc: subprocess.Popen[str]) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except Exception:
+        proc.kill()
+        return
+    try:
+        proc.wait(timeout=5.0)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except Exception:
+        proc.kill()
+
+
+def _codex_cli_runtime_environment(
+    tmp_path: Path,
+    workdir: Path,
+    task: WorkerTask,
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """Build the subprocess environment used by Codex CLI workers."""
+    try:
+        config = _api_json_config(task)
+    except RuntimeError:
+        env = os.environ.copy()
+        return env, {
+            "provider": "ambient_codex_cli",
+            "base_url_fingerprint": "",
+            "model": os.environ.get("AUTOPLANNER_CODEX_WORKER_MODEL") or os.environ.get("OPENAI_MODEL") or "",
+            "auth_source": "ambient_codex_cli",
+            "codex_home": "ambient",
+        }
+    return _codex_cli_worker_environment(tmp_path, workdir, config)
 
 
 def _codex_cli_worker_environment(
@@ -710,9 +777,13 @@ def _codex_cli_command(
     workdir: Path,
     output_path: Path,
     schema_path: Path,
+    search_enabled: bool | None = None,
 ) -> list[str]:
     command = [executable]
-    if _env_flag("AUTOPLANNER_CODEX_WORKER_SEARCH", default=True):
+    search_allowed = _env_flag("AUTOPLANNER_CODEX_WORKER_SEARCH", default=True)
+    if search_enabled is not None:
+        search_allowed = bool(search_enabled) and search_allowed
+    if search_allowed:
         command.append("--search")
     command.extend([
         "--ask-for-approval",
@@ -722,8 +793,13 @@ def _codex_cli_command(
         "exec",
         "--cd",
         str(workdir),
-        "--sandbox",
-        os.environ.get("AUTOPLANNER_CODEX_WORKER_SANDBOX") or "read-only",
+    ])
+    sandbox = _codex_worker_sandbox_mode()
+    if sandbox == "bypassed":
+        command.append("--dangerously-bypass-approvals-and-sandbox")
+    else:
+        command.extend(["--sandbox", sandbox])
+    command.extend([
         "--ephemeral",
         "--color",
         "never",
@@ -745,6 +821,27 @@ def _codex_cli_command(
             command.extend(["--local-provider", provider])
     command.append("-")
     return command
+
+
+def _codex_worker_sandbox_mode() -> str:
+    raw = (
+        os.environ.get("AUTOPLANNER_CODEX_WORKER_SANDBOX")
+        or os.environ.get("AUTOPLANNER_CODEX_SANDBOX")
+        or "read-only"
+    )
+    value = str(raw or "").strip().lower().replace("_", "-")
+    if value in {"bypass", "bypassed", "none", "off", "no-sandbox", "dangerously-bypass-approvals-and-sandbox"}:
+        return "bypassed"
+    if value in {"read-only", "workspace-write", "danger-full-access"}:
+        return value
+    return "read-only"
+
+
+def _task_allows_cli_search(task: WorkerTask) -> bool:
+    if int(task.budget.max_tool_calls or 0) <= 0:
+        return False
+    allowed_tools = {str(item).strip().lower() for item in task.allowed_tools or []}
+    return bool(allowed_tools & {"web_search", "browser", "literature_search"})
 
 
 def _codex_worker_prompt(task: WorkerTask) -> str:
@@ -785,6 +882,20 @@ def _codex_worker_prompt(task: WorkerTask) -> str:
 
 
 def _artifact_payload_instruction(artifact_type: str) -> str:
+    if artifact_type == "AgentActionBatch":
+        return (
+            "For payload, return schema_version=agent_action_batch.v1, case_id, round_index, mode, semantics, and actions. "
+            "Select at most 3 actions from the allowed action list in this task. Each action must include "
+            "schema_version=agent_action.v1, action_id, action_type, rationale, expected_artifact, success_condition, and payload. "
+            "If you used allowed planner tools and discovered DOI/title/URL/local-PDF metadata that should guide later source acquisition, "
+            "optionally include top-level planner_source_hints. Each hint must use schema_version=planner_source_hint.v1, "
+            "evidence_class=planner_source_hint, allowed_use=source_acquisition_hint_only, no_solved_claim=true, and source metadata only. "
+            "Allowed action types are: "
+            f"{', '.join(sorted(WORKER_AGENT_ACTION_TYPES))}. "
+            "This artifact is only an action-selection plan. Do not claim solved, do not include route_status/status=solved, "
+            "do not include reaction SMILES or strings containing '>>', and do not include raw route mutations. "
+            "If recent rounds produced no useful artifact, either change exploration direction or choose stop_unresolved."
+        )
     if artifact_type == "EvidenceCard":
         return (
             "For payload, use the EvidenceCard fields: schema_version, evidence_id, case_id, source_type, "
@@ -799,6 +910,16 @@ def _artifact_payload_instruction(artifact_type: str) -> str:
             "source_type, relevance_rationale, expected_scheme_or_compound_labels, extraction_task_recommendations, "
             "access_status, and no_solved_claim. Use native web search for real DOI/title/URL evidence when available. "
             "Do not invent sources, do not mark solved, and do not include reaction SMILES or raw route injections."
+        )
+    if artifact_type == "AnalogicalReactionTemplateReport":
+        return (
+            "For payload, include schema_version=analogical_reaction_template_report.v1, accepted, case_id, "
+            "templates, source_refs, reasons, and no_solved_claim=true. Each template must include "
+            "schema_version=analogical_reaction_template.v1, template_id, relation_type, reaction_class, "
+            "mechanistic_class, reaction_center.product_retron_type, template_radius, scope_gap, risk_flags, "
+            "required_verification, confidence, no_solved_claim=true, and not_raw_reaction_injection=true. "
+            "Analog templates may describe reaction centers and mechanisms, but must not include reaction SMILES, "
+            "raw routes, executable route actions, or solved claims."
         )
     if artifact_type == "StrategicDisconnectionCard":
         return (
@@ -872,10 +993,14 @@ def _worker_output_json_schema(task: WorkerTask) -> dict[str, Any]:
 
 def _worker_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
     artifact_type = str(task.required_artifact_type or "")
+    if artifact_type == "AgentActionBatch":
+        return _agent_action_batch_payload_json_schema(task)
     if artifact_type == "EvidenceCard":
         return _evidence_card_payload_json_schema(task)
     if artifact_type == "LiteratureScoutReport":
         return _literature_scout_payload_json_schema(task)
+    if artifact_type == "AnalogicalReactionTemplateReport":
+        return _analogical_template_report_payload_json_schema(task)
     if artifact_type == "LiteratureRouteSegmentCard":
         return _literature_route_segment_payload_json_schema(task)
     if artifact_type == "SegmentStepCandidate":
@@ -912,6 +1037,98 @@ def _generic_payload_json_schema() -> dict[str, Any]:
         "recommended_next_actions": _string_array_schema(),
         "validation_status": {"type": "string", "enum": ["draft", "draft_only"]},
     })
+
+
+def _agent_action_batch_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    hint_schema = _strict_object_schema(
+        {
+            "schema_version": {"type": "string", "enum": [PLANNER_SOURCE_HINT_SCHEMA]},
+            "hint_id": {"type": "string"},
+            "source_ref": {"type": "string"},
+            "title": {"type": "string"},
+            "doi": {"type": "string"},
+            "pii": {"type": "string"},
+            "url": {"type": "string"},
+            "local_pdf": {"type": "string"},
+            "local_ref": {"type": "string"},
+            "source_type": {"type": "string"},
+            "relevance_rationale": {"type": "string"},
+            "expected_scheme_or_compound_labels": _string_array_schema(),
+            "extraction_task_recommendations": _string_array_schema(),
+            "evidence_class": {"type": "string", "enum": ["planner_source_hint"]},
+            "allowed_use": {"type": "string", "enum": ["source_acquisition_hint_only"]},
+            "no_solved_claim": {"type": "boolean"},
+        },
+        required=[
+            "schema_version",
+            "hint_id",
+            "source_ref",
+            "title",
+            "doi",
+            "pii",
+            "url",
+            "local_pdf",
+            "local_ref",
+            "source_type",
+            "relevance_rationale",
+            "expected_scheme_or_compound_labels",
+            "extraction_task_recommendations",
+            "evidence_class",
+            "allowed_use",
+            "no_solved_claim",
+        ],
+    )
+    action_schema = _strict_object_schema(
+        {
+            "schema_version": {"type": "string", "enum": ["agent_action.v1"]},
+            "action_id": {"type": "string"},
+            "action_type": {"type": "string", "enum": sorted(WORKER_AGENT_ACTION_TYPES)},
+            "rationale": {"type": "string", "maxLength": 360},
+            "expected_artifact": {"type": "string", "maxLength": 180},
+            "success_condition": {"type": "string", "maxLength": 220},
+            "payload": {"type": "object", "additionalProperties": True, "maxProperties": 16},
+        },
+        required=[
+            "schema_version",
+            "action_id",
+            "action_type",
+            "rationale",
+            "expected_artifact",
+            "success_condition",
+            "payload",
+        ],
+    )
+    return _strict_object_schema(
+        {
+            "schema_version": {"type": "string", "enum": ["agent_action_batch.v1"]},
+            "case_id": {"type": "string", "enum": [task.case_id]},
+            "round_index": {"type": "integer"},
+            "mode": {"type": "string"},
+            "actions": {
+                "type": "array",
+                "maxItems": 3,
+                "items": action_schema,
+            },
+            "planner_source_hints": {
+                "type": "array",
+                "maxItems": 8,
+                "items": hint_schema,
+            },
+            "semantics": _strict_object_schema(
+                {
+                    "planner_can_emit_solved": {"type": "boolean"},
+                    "raw_reaction_output_allowed": {"type": "boolean"},
+                    "deterministic_validator_required": {"type": "boolean"},
+                },
+                required=[
+                    "planner_can_emit_solved",
+                    "raw_reaction_output_allowed",
+                    "deterministic_validator_required",
+                ],
+            ),
+        },
+        required=["schema_version", "case_id", "round_index", "mode", "actions", "semantics"],
+    )
 
 
 def _evidence_card_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
@@ -970,6 +1187,41 @@ def _literature_scout_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
         "search_queries": _string_array_schema(),
         "reasons": _string_array_schema(),
         "limitations": _string_array_schema(),
+        "no_solved_claim": {"type": "boolean"},
+    })
+
+
+def _analogical_template_report_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    return _strict_object_schema({
+        "schema_version": {"type": "string", "enum": ["analogical_reaction_template_report.v1"]},
+        "accepted": {"type": "boolean"},
+        "case_id": {"type": "string", "enum": [task.case_id]},
+        "templates": {
+            "type": "array",
+            "items": _strict_object_schema({
+                "schema_version": {"type": "string", "enum": ["analogical_reaction_template.v1"]},
+                "template_id": {"type": "string"},
+                "relation_type": {"type": "string", "enum": ["analog", "family_precedent", "mechanistic_hint"]},
+                "reaction_class": {"type": "string"},
+                "mechanistic_class": {"type": "string"},
+                "reaction_center": _strict_object_schema({
+                    "product_retron_type": {"type": "string"},
+                    "template_radius": {"type": "string"},
+                    "local_environment": {"type": "string"},
+                    "not_raw_reaction_injection": {"type": "boolean"},
+                }),
+                "template_radius": {"type": "string"},
+                "scope_gap": {"type": "string"},
+                "risk_flags": _string_array_schema(),
+                "required_verification": _string_array_schema(),
+                "confidence": {"type": "string", "enum": ["low", "medium", "medium_high", "high"]},
+                "source_refs": _string_array_schema(),
+                "no_solved_claim": {"type": "boolean"},
+                "not_raw_reaction_injection": {"type": "boolean"},
+            }),
+        },
+        "source_refs": _string_array_schema(),
+        "reasons": _string_array_schema(),
         "no_solved_claim": {"type": "boolean"},
     })
 
@@ -1056,6 +1308,7 @@ def _condition_candidate_json_schema() -> dict[str, Any]:
 
 def _typed_artifact_schema_version(artifact_type: str) -> str:
     return {
+        "AgentActionBatch": "agent_action_batch_artifact.v1",
         "ResearchReport": "research_report.v1",
         "EvidenceCard": "evidence_card_artifact.v1",
         "LiteratureScoutReport": "literature_scout_report_artifact.v1",
@@ -1173,14 +1426,4 @@ def _contains_route_tree_mutation(value: Any) -> bool:
 
 
 def _contains_raw_reaction_injection(value: Any) -> bool:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if str(key).lower() in FORBIDDEN_RAW_REACTION_KEYS:
-                return True
-            if _contains_raw_reaction_injection(item):
-                return True
-    if isinstance(value, list):
-        return any(_contains_raw_reaction_injection(item) for item in value)
-    if isinstance(value, str):
-        return ">>" in value
-    return False
+    return contains_raw_reaction_payload(value)

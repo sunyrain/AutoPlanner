@@ -31,6 +31,7 @@ from cascade_planner.agent.codex_worker import (
     _api_json_config,
     _codex_cli_worker_environment,
     _codex_cli_command,
+    _task_allows_cli_search,
     run_codex_worker,
 )
 from cascade_planner.agent.evolution_manager import (
@@ -184,6 +185,20 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             output_path=Path("/tmp/autoplanner-worker/last_message.json"),
             schema_path=Path("/tmp/autoplanner-worker/schema.json"),
         )
+        no_search_command = _codex_cli_command(
+            executable="codex",
+            workdir=Path("/tmp/autoplanner-case"),
+            output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+            schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+            search_enabled=False,
+        )
+        search_command = _codex_cli_command(
+            executable="codex",
+            workdir=Path("/tmp/autoplanner-case"),
+            output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+            schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+            search_enabled=True,
+        )
 
         self.assertEqual(command[0], "codex")
         self.assertIn("exec", command)
@@ -192,6 +207,60 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertLess(approval_index, exec_index)
         self.assertEqual(command[approval_index + 1], "never")
         self.assertGreater(command.index("--sandbox"), exec_index)
+        self.assertNotIn("--search", no_search_command)
+        self.assertIn("--search", search_command)
+        self.assertLess(search_command.index("--search"), search_command.index("exec"))
+
+    def test_codex_cli_command_allows_unsandboxed_worker_modes(self):
+        with patch.dict("os.environ", {"AUTOPLANNER_CODEX_WORKER_SANDBOX": "danger-full-access"}, clear=False):
+            danger_command = _codex_cli_command(
+                executable="codex",
+                workdir=Path("/tmp/autoplanner-case"),
+                output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+                schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+            )
+        with patch.dict("os.environ", {"AUTOPLANNER_CODEX_WORKER_SANDBOX": "bypassed"}, clear=False):
+            bypass_command = _codex_cli_command(
+                executable="codex",
+                workdir=Path("/tmp/autoplanner-case"),
+                output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+                schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+            )
+
+        self.assertIn("--sandbox", danger_command)
+        self.assertEqual(danger_command[danger_command.index("--sandbox") + 1], "danger-full-access")
+        self.assertIn("--dangerously-bypass-approvals-and-sandbox", bypass_command)
+        self.assertNotIn("--sandbox", bypass_command)
+
+    def test_codex_cli_search_is_task_gated(self):
+        planner_task = WorkerTask(
+            task_id="planner",
+            case_id="case",
+            task_type="strategic_disconnection_mining",
+            required_artifact_type="AgentActionBatch",
+            allowed_tools=[],
+            budget=WorkerBudget(max_tool_calls=0),
+        )
+        local_only_task = WorkerTask(
+            task_id="local_only",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            allowed_tools=["local_search"],
+            budget=WorkerBudget(max_tool_calls=3),
+        )
+        literature_task = WorkerTask(
+            task_id="literature",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="LiteratureScoutReport",
+            allowed_tools=["web_search", "browser", "local_search"],
+            budget=WorkerBudget(max_tool_calls=3),
+        )
+
+        self.assertFalse(_task_allows_cli_search(planner_task))
+        self.assertFalse(_task_allows_cli_search(local_only_task))
+        self.assertTrue(_task_allows_cli_search(literature_task))
 
     def test_codex_cli_worker_uses_retrosynthesis_key_file_in_ephemeral_home(self):
         task = WorkerTask(
@@ -233,6 +302,78 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
                     self.assertEqual(metadata["auth_source"], str(key_path))
                     self.assertEqual(metadata["codex_home"], "ephemeral")
                     self.assertNotIn("file-worker-key", json.dumps(metadata))
+
+    def test_codex_cli_worker_passes_ephemeral_home_to_subprocess(self):
+        task = WorkerTask(
+            task_id="codex_cli_worker_subprocess_env",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            input_refs=["target_profile"],
+            dry_run=False,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            key_path = root / "key.txt"
+            key_path.write_text("subprocess-worker-key\n", encoding="utf-8")
+            fake_codex = root / "fake_codex.py"
+            fake_codex.write_text(
+                "\n".join(
+                    [
+                        "#!/usr/bin/env python3",
+                        "import json, os, pathlib, sys",
+                        "out = pathlib.Path(sys.argv[sys.argv.index('--output-last-message') + 1])",
+                        "home = pathlib.Path(os.environ.get('CODEX_HOME', ''))",
+                        "capture = {",
+                        "  'codex_home': str(home),",
+                        "  'auth': json.loads((home / 'auth.json').read_text()) if home else {},",
+                        "  'config': (home / 'config.toml').read_text() if home else '',",
+                        "  'argv': sys.argv,",
+                        "}",
+                        "pathlib.Path(os.environ['CAPTURE_CODEX_WORKER_ENV']).write_text(json.dumps(capture), encoding='utf-8')",
+                        "artifact = {",
+                        "  'schema_version': 'research_report.v1',",
+                        "  'artifact_id': 'codex_cli_worker_subprocess_env:ResearchReport',",
+                        "  'artifact_type': 'ResearchReport',",
+                        "  'case_id': 'case',",
+                        "  'source': 'codex_cli',",
+                        "  'input_refs': ['target_profile'],",
+                        "  'evidence_refs': [],",
+                        "  'validation_status': 'draft',",
+                        "  'summary': 'ok',",
+                        "  'payload': {'schema_version': 'research_report_payload.v1', 'no_solved_claim': True},",
+                        "}",
+                        "out.write_text(json.dumps(artifact), encoding='utf-8')",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            fake_codex.chmod(0o755)
+            with patch("cascade_planner.agent.codex_worker.DEFAULT_RETROSYNTHESIS_KEY_FILE", key_path):
+                with patch.dict(
+                    "os.environ",
+                    {
+                        "AUTOPLANNER_CODEX_CLI_BIN": str(fake_codex),
+                        "AUTOPLANNER_WORKER_API_BASE_URL": "https://api.example.test/v1",
+                        "AUTOPLANNER_WORKER_API_MODEL": "test-model",
+                        "AUTOPLANNER_WORKER_API_PROVIDER": "test-provider",
+                        "CAPTURE_CODEX_WORKER_ENV": str(root / "captured_codex_worker_env.json"),
+                    },
+                    clear=False,
+                ):
+                    record = run_codex_worker(task, use_codex_cli=True)
+
+            captured = json.loads((root / "captured_codex_worker_env.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(record.status, "accepted_draft", record.output_validation)
+        self.assertEqual(record.backend, "codex_cli")
+        self.assertEqual(record.metadata["codex_home"], "ephemeral")
+        self.assertEqual(record.metadata["auth_source"], str(key_path))
+        self.assertEqual(captured["auth"]["OPENAI_API_KEY"], "subprocess-worker-key")
+        self.assertIn('openai_base_url = "https://api.example.test/v1"', captured["config"])
+        self.assertIn('model = "test-model"', captured["config"])
+        self.assertNotIn("--search", captured["argv"])
+        self.assertNotIn("subprocess-worker-key", json.dumps(record.metadata))
 
     def test_worker_timeout_preserves_backend_and_command(self):
         task = WorkerTask(

@@ -2,11 +2,11 @@
 
 The first version is advisory data. The safest integration path is incremental:
 
-## 0. SMILES-First Literature Fallback
+## 0. Agentic Blackboard Literature Strategy
 
 When a user provides a new SMILES and no local target-specific data exists, use
-the SMILES-first literature workflow rather than forcing ordinary templates to
-solve every advanced natural-product core.
+the agentic blackboard workflow rather than forcing ordinary templates to solve
+every advanced natural-product core.
 
 Canonical workflow:
 
@@ -22,7 +22,7 @@ Canonical workflow:
 
 Detailed runbook:
 
-- `docs/SMILES_FIRST_LITERATURE_STRATEGIC_WORKFLOW_2026-06-03.md`
+- `docs/AGENTIC_BLACKBOARD_MAINLINE_2026-06-24.md`
 
 Important boundary: a `forward_surrogate` is model-facing planning material, not
 an extracted experimental procedure. A `route_anchor` is not ordinary stock and

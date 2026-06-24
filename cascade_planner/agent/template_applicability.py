@@ -66,6 +66,7 @@ def assess_template_applicability(
         "taxane_c13_side_chain": _match_taxane_side_chain,
         "bufadienolide_c17_pyrone": _match_bufadienolide_c17_pyrone,
         "corey_lactone_side_chain": _match_corey_lactone_side_chain,
+        "aryl_ester_acyl_oxygen": _match_aryl_ester_acyl_oxygen,
     }
     matcher = matchers.get(retron_type)
     if matcher is None:
@@ -253,6 +254,28 @@ def _match_corey_lactone_side_chain(mol: Chem.Mol) -> list[dict[str, Any]]:
             ring_atom = a if a.IsInRing() else b
             side_atom = b if a.IsInRing() else a
             matches.append(_match_payload(mol, bond, "corey_lactone_side_chain", [ring_atom.GetIdx(), side_atom.GetIdx()]))
+    return matches
+
+
+def _match_aryl_ester_acyl_oxygen(mol: Chem.Mol) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.SINGLE or bond.IsInRing():
+            continue
+        a, b = bond.GetBeginAtom(), bond.GetEndAtom()
+        carbonyl, oxygen = _carbonyl_oxygen_pair(a, b)
+        if carbonyl is None or oxygen is None:
+            continue
+        acyl_neighbors = [
+            nbr
+            for nbr in carbonyl.GetNeighbors()
+            if nbr.GetIdx() != oxygen.GetIdx() and nbr.GetAtomicNum() == 6
+        ]
+        if not any(nbr.GetIsAromatic() for nbr in acyl_neighbors):
+            continue
+        if not any(nbr.GetIdx() != carbonyl.GetIdx() and nbr.GetAtomicNum() == 6 for nbr in oxygen.GetNeighbors()):
+            continue
+        matches.append(_match_payload(mol, bond, "aryl_ester_acyl_oxygen", [carbonyl.GetIdx(), oxygen.GetIdx()]))
     return matches
 
 

@@ -6,6 +6,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from cascade_planner.agent.action_contracts import (
+    FORBIDDEN_RAW_REACTION_KEYS,
+    contains_raw_reaction_payload as _shared_contains_raw_reaction_payload,
+)
+
 
 TARGET_INPUT_SCHEMA = "codex_entry_target_input.v1"
 WORKFLOW_PLAN_SCHEMA = "codex_entry_workflow_plan.v1"
@@ -45,6 +50,7 @@ ALLOWED_LOCAL_TOOLS = {
     "run_open_structure_research_agent",
     "extract_pdf_literature_structures",
     "extract_visual_literature_chain",
+    "resolve_literature_structure_task",
     "apply_source_text_condition_repairs",
     "validate_literature_intermediate_chain",
     "build_source_detail_curator_records",
@@ -61,26 +67,13 @@ ALLOWED_LOCAL_TOOLS = {
 
 FINAL_VERDICTS = {
     "solved",
+    "hypothesis_route_proposed",
     "partial_anchor_only_not_solved",
     "unresolved",
     "fake_closed_rejected",
     "invalid_input",
     "needs_followup",
 }
-
-FORBIDDEN_RAW_REACTION_KEYS = {
-    "rxn",
-    "rxn_smiles",
-    "rxn_smiles_list",
-    "reaction_smiles",
-    "raw_reaction",
-    "raw_reactions",
-    "raw_reaction_candidates",
-    "reaction_candidates",
-    "route_tree_actions",
-    "candidate_actions",
-}
-
 
 @dataclass
 class TargetInput:
@@ -268,15 +261,7 @@ def validate_tool_payload(tool_name: str, payload: dict[str, Any]) -> dict[str, 
 
 
 def _contains_raw_reaction_payload(value: Any) -> bool:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if str(key).lower() in FORBIDDEN_RAW_REACTION_KEYS:
-                return True
-            if _contains_raw_reaction_payload(item):
-                return True
-    if isinstance(value, list):
-        return any(_contains_raw_reaction_payload(item) for item in value)
-    return False
+    return _shared_contains_raw_reaction_payload(value)
 
 
 def write_json(path: str | Path, data: dict[str, Any]) -> None:

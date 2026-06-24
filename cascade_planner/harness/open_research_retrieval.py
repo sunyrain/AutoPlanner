@@ -720,7 +720,7 @@ def _lookup_crossref(
     )
     if error:
         rejected.append(_rejected_query("crossref", query, error, raw_ref=cache_path))
-        return []
+        return [_crossref_metadata_placeholder_record(query, raw_ref=cache_path, reason=error)]
     items = (payload.get("message") or {}).get("items") or []
     out: list[dict[str, Any]] = []
     for item in items[:max_results]:
@@ -748,7 +748,30 @@ def _lookup_crossref(
         )
     if not out:
         rejected.append(_rejected_query("crossref", query, "no_crossref_records", raw_ref=cache_path))
+        return [_crossref_metadata_placeholder_record(query, raw_ref=cache_path, reason="no_crossref_records")]
     return out
+
+
+def _crossref_metadata_placeholder_record(query: str, *, raw_ref: str = "", reason: str = "") -> dict[str, Any]:
+    return {
+        "schema_version": "typed_retrieval_record.v1",
+        "source": "crossref",
+        "query": query,
+        "intent": "crossref_query_placeholder_after_connector_gap",
+        "expected_relation": "unknown_until_doi_or_source_validated",
+        "record_id": _stable_id("crossref_placeholder", query),
+        "doi": "",
+        "title": query,
+        "container_title": "",
+        "published": "",
+        "url": "https://search.crossref.org/?" + urlencode({"q": query}),
+        "score": None,
+        "status": "metadata_placeholder_requires_followup",
+        "evidence_level": "query_placeholder_not_source_evidence",
+        "gap_reason": reason,
+        "raw_ref": raw_ref,
+        "not_route_evidence_until_extracted": True,
+    }
 
 
 def _lookup_pubmed(
