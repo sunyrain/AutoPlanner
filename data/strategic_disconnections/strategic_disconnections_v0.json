@@ -1,0 +1,918 @@
+{
+  "schema_version": "strategic_disconnections.v0",
+  "status": "curated_seed",
+  "purpose": "Curated strategic retrosynthesis knowledge that should be reviewed before being promoted to a proposal source, stock wrapper, or reranking signal.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "allowed_uses": [
+      "target-family triage",
+      "route critique",
+      "proposal-source seed generation after manual review",
+      "positive/negative reranking feature",
+      "chemist-facing route explanation"
+    ],
+    "disallowed_uses_without_review": [
+      "marking advanced precursors as solved stock",
+      "training on proprietary route outputs as if they were open reaction data",
+      "hard-coding opaque commercial rules"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "bufadienolide_steroid",
+      "name": "Bufadienolide / steroidal cardiac glycoside aglycones",
+      "pattern_keywords": [
+        "bufadienolide",
+        "bufalin",
+        "bufotalin",
+        "bufogenin",
+        "resibufogenin",
+        "cinobufagin",
+        "marinobufagin",
+        "steroid",
+        "C17-pyrone",
+        "2-pyrone"
+      ],
+      "strategic_principle": "Do not force de novo steroid tetracycle disconnection as the first productive move. Treat the tetracyclic steroid core as a chiral-pool/semisynthetic scaffold and prioritize C17-pyrone installation plus late-stage C14/C16 oxygenation control.",
+      "negative_signals": [
+        "same 5-ring steroid terminal with only acetyl/protecting-group/oxidation-state changes",
+        "terminal heavy atom count comparable to or larger than target without a named chiral-pool anchor",
+        "vendor-stock closure on product-like bufadienolide analogues"
+      ],
+      "preferred_anchor_policy": "Accept steroid chiral-pool anchors only when the route explains the C17-pyrone installation and key oxidation-state adjustments."
+    },
+    {
+      "family_id": "synthetic_statin",
+      "name": "Synthetic statins with syn-3,5-dihydroxy acid side chain",
+      "pattern_keywords": [
+        "fluvastatin",
+        "atorvastatin",
+        "rosuvastatin",
+        "pitavastatin",
+        "statin",
+        "HMG-CoA",
+        "syn-1,3-diol",
+        "3,5-dihydroxy acid",
+        "Paal-Knorr",
+        "Wittig",
+        "HWE"
+      ],
+      "strategic_principle": "Use convergent assembly: split the heteroaryl/aromatic pharmacophore from the chiral syn-3,5-dihydroxy acid side chain, then build or install the side chain with stereocontrolled reduction/biocatalysis/coupling.",
+      "negative_signals": [
+        "late-stage product-like terminal without side-chain convergence",
+        "routes that create the syn-diol only after many unstable intermediates without stereochemical rationale",
+        "uncontrolled E/Z olefination for the heptenoate side chain"
+      ],
+      "preferred_anchor_policy": "Prefer common chiral side-chain building blocks, enzymatic ketoreduction intermediates, or literature/patent key intermediates over product-like statin terminals."
+    },
+    {
+      "family_id": "natural_statin_semisynthesis",
+      "name": "Natural and semisynthetic statins from fermentation cores",
+      "pattern_keywords": [
+        "lovastatin",
+        "mevastatin",
+        "compactin",
+        "pravastatin",
+        "simvastatin",
+        "monacolin",
+        "deacylated statin",
+        "fermentation"
+      ],
+      "strategic_principle": "Treat the decalin lactone core as a fermentation/biocatalytic semisynthesis anchor. Prioritize acylation, hydroxylation, methylation, and lactone/acid interconversion over de novo decalin construction unless the target explicitly asks for total synthesis.",
+      "negative_signals": [
+        "de novo decalin skeleton proposal without stereochemical evidence",
+        "vendor-stock closure on product-like natural statin analogues without fermentation/source support"
+      ],
+      "preferred_anchor_policy": "Allow source-supported natural statin cores as semisynthesis endpoints, but keep upstream biosynthesis/fermentation status explicit."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "steroid_chiral_pool_androstenedione",
+      "family_id": "bufadienolide_steroid",
+      "name": "Androstenedione",
+      "role": "steroid_chiral_pool_starting_material",
+      "aliases": [
+        "androst-4-ene-3,17-dione"
+      ],
+      "acceptance_policy": "acceptable_strategic_anchor_not_stock_solve_by_itself",
+      "rationale": "SOTA bufadienolide syntheses often start from inexpensive steroid chiral-pool material such as androstenedione and elaborate C14/C17/C16 functionality.",
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Protecting-group-free/scalable bufalin and resibufogenin synthesis from androstenedione using C14 hydroxylation and C17 coupling.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39496285/"
+        },
+        {
+          "type": "literature",
+          "citation": "Bufotalin-oriented synthesis from androstenedione using C14 beta hydroxylation, C16 manipulation, and C17 pyrone installation.",
+          "url": "https://www.sciencedirect.com/science/article/abs/pii/S0040402025001668"
+        }
+      ]
+    },
+    {
+      "anchor_id": "steroid_chiral_pool_dhea_pregnenolone",
+      "family_id": "bufadienolide_steroid",
+      "name": "DHEA / pregnenolone-like steroid chiral pool",
+      "role": "alternative_steroid_chiral_pool_starting_material",
+      "aliases": [
+        "dehydroepiandrosterone",
+        "pregnenolone",
+        "3beta-hydroxy steroid",
+        "17-ketosteroid"
+      ],
+      "acceptance_policy": "acceptable_if_route_explains_D_ring_and_C17_pyrone_conversion",
+      "rationale": "These materials preserve the steroid stereochemical framework and are more realistic upstream anchors than product-like bufadienolide vendor hits."
+    },
+    {
+      "anchor_id": "two_pyrone_coupling_partner",
+      "family_id": "bufadienolide_steroid",
+      "name": "2-pyrone C17 coupling partner",
+      "role": "side_chain_fragment",
+      "aliases": [
+        "2-pyrone boronate",
+        "2-pyrone Bpin",
+        "5-stannyl-2-pyrone",
+        "pyrone organometallic"
+      ],
+      "acceptance_policy": "fragment_anchor_requires_steroid_partner",
+      "rationale": "C17-pyrone installation is the strategic disconnection for bufadienolides; the pyrone fragment should appear as a small coupling partner rather than hidden inside a product-like steroid terminal."
+    },
+    {
+      "anchor_id": "statin_syn_diol_side_chain_common_intermediate",
+      "family_id": "synthetic_statin",
+      "name": "Common syn-3,5-dihydroxy acid side-chain intermediate",
+      "role": "statin_common_side_chain_anchor",
+      "aliases": [
+        "tert-butyl acetoacetate-derived side chain",
+        "dihydroxy heptenoate",
+        "HMG side-chain equivalent",
+        "chiral beta-hydroxy ketone",
+        "syn-1,3-diol side chain"
+      ],
+      "acceptance_policy": "acceptable_common_intermediate_if_chirality_and_E_geometry_are_tracked",
+      "rationale": "The PPTX emphasizes convergent statin synthesis around common key intermediates and the controlled construction of the syn-diol side chain."
+    },
+    {
+      "anchor_id": "natural_statin_fermentation_core",
+      "family_id": "natural_statin_semisynthesis",
+      "name": "Fermentation-derived natural statin core",
+      "role": "semisynthesis_anchor",
+      "aliases": [
+        "lovastatin core",
+        "mevastatin core",
+        "compactin core",
+        "monacolin core",
+        "deacylated statin core"
+      ],
+      "acceptance_policy": "source_supported_semisynthesis_endpoint",
+      "rationale": "For natural and semisynthetic statins, industrial routes commonly rely on fermentation cores followed by acylation, hydroxylation, or methylation."
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "bufadienolide_c17_pyrone_installation",
+      "family_id": "bufadienolide_steroid",
+      "name": "C17-pyrone strategic disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "bufadienolide aglycones",
+          "bufalin-like scaffolds",
+          "bufotalin/bufogenin B analogues"
+        ],
+        "target_features": [
+          "steroid tetracycle",
+          "C17 beta-oriented 2-pyrone or butenolide-like unsaturated lactone",
+          "C14 or C16 oxygenated steroid D ring"
+        ],
+        "not_applicable_when": [
+          "target lacks a steroidal C17 pyrone/lactone motif",
+          "the route objective is explicitly de novo steroid total synthesis"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C17 steroid carbon to 2-pyrone substituent"
+        ],
+        "forward_logic": [
+          "cross-coupling or organometallic addition/installation of a 2-pyrone fragment",
+          "stereochemical correction at C17 by epoxidation/rearrangement or hydroxyl-directed control"
+        ],
+        "suggested_precursor_roles": [
+          "steroidal C17 enol triflate/vinyl halide/ketone-derived partner",
+          "2-pyrone boronate or stannane partner"
+        ],
+        "planner_hint": "Generate candidate actions that expose the steroid partner and pyrone fragment as separate reactants; do not reward same-core acetylated bufadienolide terminals."
+      },
+      "risks": [
+        "C17 stereochemistry must be controlled",
+        "2-pyrone partner can be sensitive",
+        "cross-coupling conditions and protecting groups require chemist review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Unified Total Synthesis of Five Bufadienolides, Org. Lett. 2020.",
+          "url": "https://pubs.acs.org/doi/10.1021/acs.orglett.0c03251"
+        },
+        {
+          "type": "literature",
+          "citation": "Bufotalin-oriented synthesis using C17 beta pyrone installation from androstenedione, Tetrahedron 2025.",
+          "url": "https://www.sciencedirect.com/science/article/abs/pii/S0040402025001668"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "candidate_seed_after_substructure_match",
+        "rerank_bonus": "high when C17-pyrone disconnection lowers product-like terminal similarity and exposes steroid/pyrone fragments",
+        "hard_reject_counterexamples": [
+          "same 5-ring bufadienolide terminal with only O-acyl/TBS/oxidation-state changes"
+        ]
+      }
+    },
+    {
+      "id": "bufadienolide_c14_c16_late_stage_oxygenation",
+      "family_id": "bufadienolide_steroid",
+      "name": "C14/C16 late-stage oxygenation and oxidation-state adjustment",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "bufotalin",
+          "bufogenin B",
+          "resibufogenin",
+          "cinobufagin-like oxidized bufadienolides"
+        ],
+        "target_features": [
+          "C14 hydroxylated steroid",
+          "C16 hydroxy/acetoxy/ketone/alkene variants",
+          "oxidized D-ring bufadienolide"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [],
+        "forward_logic": [
+          "C14 hydroxylation or oxidation before/after C17-pyrone installation",
+          "C16 hydroxy/acetoxy installation through ketone, alkene, epoxide, or allylic oxidation manifold",
+          "late-stage acetylation/deacetylation only after a credible core route is present"
+        ],
+        "suggested_precursor_roles": [
+          "C16-keto bufadienolide",
+          "Delta16 bufadienolide",
+          "C14-hydroxylated steroid intermediate",
+          "bufalin-like scaffold"
+        ],
+        "planner_hint": "Classify this as oxidation-state adjustment, not as a route-solving skeleton disconnection."
+      },
+      "risks": [
+        "late-stage oxygenation can be site-selectivity limited",
+        "protecting-group routes can grow terminal complexity without real progress",
+        "condition predictions do not validate C-H oxidation selectivity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "P450-enabled C14 hydroxylation and bufadienolide diversification routes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39496285/"
+        },
+        {
+          "type": "literature",
+          "citation": "Singlet oxygen oxidation and late-stage modification approach to oxidized bufadienolides.",
+          "url": "https://chemrxiv.org/engage/chemrxiv/article-details/691e0f4bef936fb4a272c646"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "late_stage_adjustment_only",
+        "rerank_bonus": "moderate when preceded by C17-pyrone/steroid anchor disconnection",
+        "hard_reject_counterexamples": [
+          "route solved solely by a larger same-core acetylated/TBS-protected terminal"
+        ]
+      }
+    },
+    {
+      "id": "bufadienolide_steroid_chiral_pool_anchor",
+      "family_id": "bufadienolide_steroid",
+      "name": "Steroid chiral-pool anchor instead of de novo tetracycle disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "steroidal natural products",
+          "bufadienolide aglycones"
+        ],
+        "target_features": [
+          "preserved steroid ABCD tetracycle",
+          "multiple contiguous stereocenters"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "none at the steroid ring system in first-pass route planning"
+        ],
+        "forward_logic": [
+          "start from androstenedione/DHEA/pregnenolone-like material",
+          "install C14/C17/C16 functionality using known steroid chemistry or biocatalysis"
+        ],
+        "suggested_precursor_roles": [
+          "androstenedione",
+          "DHEA",
+          "pregnenolone",
+          "C14-hydroxylated steroid",
+          "17-ketosteroid"
+        ],
+        "planner_hint": "Use as an anchor/rerank feature; do not mark arbitrary product-like steroid analogues as stock."
+      },
+      "risks": [
+        "anchor choice must match oxidation state and stereochemical series",
+        "can mask missing D-ring elaboration if used too early as stock"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "SOTA bufadienolide syntheses use steroid chiral-pool material rather than de novo steroid ring construction.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39496285/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "anchor_suggestion",
+        "rerank_bonus": "high when route explicitly connects target to named steroid anchor through C17-pyrone installation",
+        "stock_policy": "not stock unless configured as reviewed chiral-pool anchor"
+      }
+    },
+    {
+      "id": "synthetic_statin_convergent_side_chain_split",
+      "family_id": "synthetic_statin",
+      "name": "Convergent split to heteroaryl/aromatic core plus syn-dihydroxy acid side chain",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "fluvastatin",
+          "atorvastatin",
+          "rosuvastatin",
+          "pitavastatin",
+          "cerivastatin"
+        ],
+        "target_features": [
+          "3,5-dihydroxy heptenoic acid or lactone equivalent",
+          "aromatic/heteroaryl hydrophobic pharmacophore",
+          "E-alkene side chain in many synthetic statins"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aryl/heteroaryl core to side-chain alkene or carbonyl-derived linker",
+          "late ester/lactone/acid salt interconversion handled after side-chain assembly"
+        ],
+        "forward_logic": [
+          "prepare the heteroaryl/aromatic core and chiral side-chain fragment separately",
+          "join by Wittig/HWE, Paal-Knorr, Suzuki, hydroboration-coupling, or related convergent coupling depending on statin class",
+          "perform stereocontrolled carbonyl reduction or biocatalytic reduction to set syn-3,5-diol"
+        ],
+        "suggested_precursor_roles": [
+          "heteroaryl aldehyde/halide/core electrophile",
+          "chiral beta-hydroxy ketone or protected syn-diol side-chain equivalent",
+          "phosphonate/ylide/boronate/alkyne side-chain coupling partner"
+        ],
+        "planner_hint": "Prefer routes that expose a reusable statin side-chain intermediate rather than product-like statin terminals."
+      },
+      "risks": [
+        "E/Z control in olefination",
+        "syn-diol stereocontrol",
+        "TBS/protecting-group step count",
+        "low-temperature organoboron/borohydride conditions"
+      ],
+      "evidence": [
+        {
+          "type": "pptx",
+          "file": "合作课题.pptx",
+          "slides": [
+            19,
+            20,
+            21,
+            24,
+            48
+          ],
+          "summary": "PPTX emphasizes convergent synthesis, key intermediates, AI knowledge-base construction around common intermediates, and enzymatic construction of common intermediates."
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "family_level_route_prior",
+        "rerank_bonus": "high for routes that converge side chain and core with tracked stereochemistry",
+        "hard_reject_counterexamples": [
+          "routes that solve by advanced statin terminal without exposing side-chain construction"
+        ]
+      }
+    },
+    {
+      "id": "statin_syn_diol_biocatalytic_or_stereocontrolled_reduction",
+      "family_id": "synthetic_statin",
+      "name": "Stereocontrolled syn-diol side-chain construction",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "fluvastatin",
+          "rosuvastatin",
+          "pitavastatin",
+          "atorvastatin side-chain intermediates",
+          "cerivastatin side-chain intermediates"
+        ],
+        "target_features": [
+          "syn-3,5-diol",
+          "beta-hydroxy ketone or diketone precursor",
+          "protected dihydroxy ester/lactone"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [],
+        "forward_logic": [
+          "set one or both alcohol stereocenters by ketoreductase, asymmetric hydrogenation, Brown/Narasaka-Prasad-type reduction, or substrate-controlled reduction",
+          "avoid isolating unstable aldol/Wittig intermediates when a one-pot process is available"
+        ],
+        "suggested_precursor_roles": [
+          "beta-keto ester side-chain precursor",
+          "tert-butyl acetoacetate-derived intermediate",
+          "enzymatic ketoreduction substrate",
+          "protected syn-diol ester"
+        ],
+        "planner_hint": "Treat stereochemical evidence as required route metadata; condition prediction alone is not enough."
+      },
+      "risks": [
+        "Et3B/NaBH4 or Et2BOMe/NaBH4 can require -78 C",
+        "borane/borohydride systems can be water/oxygen sensitive",
+        "intermediates can lactonize/isomerize or degrade",
+        "enzyme substrate loading and product isolation can control process viability"
+      ],
+      "evidence": [
+        {
+          "type": "pptx",
+          "file": "合作课题.pptx",
+          "slides": [
+            5,
+            6,
+            52,
+            53,
+            58,
+            62,
+            63,
+            77,
+            80,
+            81
+          ],
+          "summary": "PPTX highlights -78 C reduction, Et3B/NaBH4 or EtBOMe/NaBH4 stereocontrol, unstable intermediates, one-pot handling, and integrated biocatalysis for rosuvastatin key building blocks."
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "stereo_side_chain_prior",
+        "rerank_bonus": "high when route gives a credible stereocontrolled reduction or biocatalytic construction of the statin side chain",
+        "risk_tags": [
+          "cryogenic_reduction",
+          "borane_sensitive",
+          "unstable_intermediate",
+          "enzyme_process_window"
+        ]
+      }
+    },
+    {
+      "id": "atorvastatin_paal_knorr_convergent_assembly",
+      "family_id": "synthetic_statin",
+      "name": "Atorvastatin Paal-Knorr / pyrrole core convergent assembly",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "atorvastatin",
+          "atorvastatin calcium"
+        ],
+        "target_features": [
+          "substituted pyrrole core",
+          "fluorophenyl and phenylamide substituents",
+          "statin syn-diol side chain"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "pyrrole core formation disconnection",
+          "side-chain to pyrrole assembly disconnection"
+        ],
+        "forward_logic": [
+          "assemble pyrrole core by Hantzsch/Paal-Knorr-like condensation",
+          "attach prebuilt statin side chain and finish by hydrolysis/salt formation",
+          "consider safer substitutes for benzene/bromine-heavy steps"
+        ],
+        "suggested_precursor_roles": [
+          "1,4-dicarbonyl or beta-ketoamide pyrrole precursor",
+          "4-fluorophenyl-containing aryl fragment",
+          "prebuilt syn-diol side-chain fragment"
+        ],
+        "planner_hint": "Reward convergent pyrrole-core construction and side-chain preassembly; penalize routes that rely on toxic benzene/bromine without alternatives."
+      },
+      "risks": [
+        "benzene and bromine safety/environmental burden",
+        "post-treatment complexity",
+        "catalyst cost in alternative boronation route",
+        "protecting-group-heavy academic routes may be nonindustrial"
+      ],
+      "evidence": [
+        {
+          "type": "pptx",
+          "file": "合作课题.pptx",
+          "slides": [
+            8,
+            9,
+            10,
+            37,
+            38,
+            41,
+            47,
+            48
+          ],
+          "summary": "PPTX records atorvastatin patent/literature routes, Hantzsch/Paal-Knorr-like pyrrole assembly, D-aspartic-acid/oxidative bromocyclization route, copper 1,6-borylation route, and associated process risks."
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "atorvastatin_specific_prior",
+        "rerank_bonus": "moderate for Paal-Knorr/convergent pyrrole assembly with a credible side-chain precursor",
+        "risk_tags": [
+          "toxic_bromination",
+          "protecting_group_heavy",
+          "expensive_chiral_ligand",
+          "workup_complexity"
+        ]
+      }
+    },
+    {
+      "id": "fluvastatin_aldol_wittig_reduction_process_window",
+      "family_id": "synthetic_statin",
+      "name": "Fluvastatin side-chain assembly and cryogenic reduction process window",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "fluvastatin",
+          "fluvastatin sodium"
+        ],
+        "target_features": [
+          "indole-containing synthetic statin",
+          "dihydroxy heptenoate side chain"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "indole core to heptenoate side chain"
+        ],
+        "forward_logic": [
+          "construct side-chain carbon framework by condensation/olefination",
+          "control syn-diol stereochemistry by low-temperature borohydride/borane reduction or improved biocatalytic/asymmetric alternative",
+          "avoid isolation of unstable intermediate when one-pot operation is possible"
+        ],
+        "suggested_precursor_roles": [
+          "indole aldehyde/core",
+          "tert-butyl acetoacetate-derived side-chain precursor",
+          "dihydroxy ester/lactone equivalent"
+        ],
+        "planner_hint": "Flag cryogenic reduction and unstable intermediate handling as process risks, not as chemistry impossibilities."
+      },
+      "risks": [
+        "-78 C reduction equipment and energy burden",
+        "Et3B/NaBH4 or related boron reagent moisture/oxygen sensitivity",
+        "POCl3/Vilsmeier acidic phosphorus waste",
+        "intermediate lactonization/isomerization/degradation"
+      ],
+      "evidence": [
+        {
+          "type": "pptx",
+          "file": "合作课题.pptx",
+          "slides": [
+            4,
+            5,
+            6,
+            51,
+            52,
+            53,
+            56,
+            58,
+            61,
+            62,
+            63
+          ],
+          "summary": "PPTX records fluvastatin routes and process risks: cryogenic stereoselective reduction, Et3B/NaBH4 sensitivity, POCl3 waste, unstable intermediate, tert-butyl acetoacetate benefits, and one-pot mitigation."
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "fluvastatin_specific_prior",
+        "rerank_bonus": "moderate for side-chain convergence with controlled reduction and process-window handling",
+        "risk_tags": [
+          "cryogenic_reduction",
+          "boron_reagent_sensitive",
+          "vilsmeier_waste",
+          "unstable_intermediate"
+        ]
+      }
+    },
+    {
+      "id": "rosuvastatin_pyrimidine_wittig_biocatalytic_side_chain",
+      "family_id": "synthetic_statin",
+      "name": "Rosuvastatin pyrimidine-core olefination and biocatalytic side-chain strategy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "rosuvastatin",
+          "rosuvastatin calcium"
+        ],
+        "target_features": [
+          "pyrimidine sulfonamide core",
+          "E-heptenoate syn-diol side chain"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "pyrimidine aldehyde/core to heptenoate side-chain alkene"
+        ],
+        "forward_logic": [
+          "prepare pyrimidine aldehyde/core",
+          "install side chain by Wittig or related olefination with E-control",
+          "set syn-diol by EtBOMe/NaBH4 or integrated biocatalytic ketoreduction route",
+          "use TBS or alternative protection only when needed"
+        ],
+        "suggested_precursor_roles": [
+          "pyrimidine aldehyde",
+          "phosphonium ylide or phosphonate side-chain equivalent",
+          "enzymatic ketoreduction substrate",
+          "protected dihydroxy ester"
+        ],
+        "planner_hint": "Reward routes that make the pyrimidine aldehyde and side-chain equivalent explicit; flag TBS and cryogenic steps."
+      },
+      "risks": [
+        "Wittig E/Z selectivity",
+        "pyrimidine aldehyde oxidation/impurity formation",
+        "TBS protection/deprotection adds steps",
+        "n-BuLi/DIBAL-H/TPAP process burden in some routes"
+      ],
+      "evidence": [
+        {
+          "type": "pptx",
+          "file": "合作课题.pptx",
+          "slides": [
+            12,
+            13,
+            14,
+            71,
+            75,
+            77,
+            80,
+            81
+          ],
+          "summary": "PPTX records Shionogi patent route, EP0521471B1, Wittig E-control, TBS strategy, TPAP/NMO aldehyde oxidation, and integrated biocatalysis for rosuvastatin key building block."
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "rosuvastatin_specific_prior",
+        "rerank_bonus": "moderate for pyrimidine-core/side-chain convergence with E-geometry and syn-diol evidence",
+        "risk_tags": [
+          "wittig_ez_control",
+          "tbs_step_count",
+          "cryogenic_reduction",
+          "pyrimidine_aldehyde_stability"
+        ]
+      }
+    },
+    {
+      "id": "pitavastatin_quinoline_side_chain_coupling",
+      "family_id": "synthetic_statin",
+      "name": "Pitavastatin quinoline-core side-chain coupling",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "pitavastatin",
+          "pitavastatin calcium"
+        ],
+        "target_features": [
+          "quinoline core",
+          "cyclopropyl substituent",
+          "E-alkene statin side chain"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "quinoline core to side-chain alkene/coupling partner"
+        ],
+        "forward_logic": [
+          "prepare quinoline core and chiral side-chain precursor separately",
+          "use Suzuki, hydroboration-coupling, alkynyl coupling/Red-Al reduction, or HWE depending on precursor class",
+          "preserve preinstalled side-chain stereocenters through coupling"
+        ],
+        "suggested_precursor_roles": [
+          "quinoline halide/triflate core",
+          "chiral alkynyl ester or boronate side-chain precursor",
+          "9-BBN or organoboron coupling intermediate",
+          "protected beta-hydroxy ketone side-chain precursor"
+        ],
+        "planner_hint": "Reward side-chain/cyclopropyl-quinoline convergence and explicit E-alkene control; penalize routes relying on unresolved chiral salts without recovery logic."
+      },
+      "risks": [
+        "Pd catalyst cost and residual metal",
+        "organoboron moisture/oxygen sensitivity",
+        "chemical resolution inefficiency for chiral starting material",
+        "liquid ammonia/low-temperature alkynyl coupling or Red-Al safety in some routes",
+        "E/Z isomerization risk"
+      ],
+      "evidence": [
+        {
+          "type": "pptx",
+          "file": "合作课题.pptx",
+          "slides": [
+            16,
+            17,
+            18,
+            84,
+            85,
+            86,
+            94,
+            98,
+            101,
+            102
+          ],
+          "summary": "PPTX records pitavastatin literature/patent routes: Suzuki coupling, hydroboration-coupling, chiral diol/TBS route, alkynyl sodium plus Red-Al route, Pd/9-BBN risks, and E-geometry control."
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "pitavastatin_specific_prior",
+        "rerank_bonus": "moderate for quinoline-core/side-chain convergence with E-alkene and stereochemistry evidence",
+        "risk_tags": [
+          "pd_residue",
+          "organoboron_sensitive",
+          "chiral_resolution",
+          "red_al_safety",
+          "liquid_ammonia"
+        ]
+      }
+    },
+    {
+      "id": "cerivastatin_pyridine_wittig_side_chain_convergence",
+      "family_id": "synthetic_statin",
+      "name": "Cerivastatin pyridine-core olefination and side-chain convergence",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "cerivastatin",
+          "cerivastatin sodium"
+        ],
+        "target_features": [
+          "substituted pyridine core",
+          "isopropyl and methoxy substituent pattern",
+          "E-heptenoate syn-diol side chain"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "pyridine core to heptenoate side-chain alkene",
+          "late acid/lactone/salt finishing"
+        ],
+        "forward_logic": [
+          "prepare the substituted pyridine aldehyde or activated pyridine core",
+          "install the statin side chain by Wittig/HWE-like olefination with E-geometry tracking",
+          "carry the prebuilt syn-diol side-chain stereochemistry through deprotection and acid/salt finishing"
+        ],
+        "suggested_precursor_roles": [
+          "substituted pyridine aldehyde or halide core",
+          "phosphonium ylide or phosphonate statin side-chain equivalent",
+          "protected syn-3,5-diol ester or lactone",
+          "hydrolysis/salt-formation endpoint"
+        ],
+        "planner_hint": "Reward cerivastatin routes that expose pyridine-core/side-chain convergence and E-alkene plus syn-diol control; do not let the shared fluvastatin-like template hide pyridine-specific evidence gaps."
+      },
+      "risks": [
+        "E/Z olefination control",
+        "pyridine-core regioselectivity and impurity carryover",
+        "acid/lactone/salt endpoint identity",
+        "withdrawn-drug context requires keeping route planning separate from recommendation or use claims"
+      ],
+      "evidence": [
+        {
+          "type": "local_curated",
+          "file": "docs/statins/summary.json",
+          "local_ref": "docs/statins/summary.json:cerivastatin",
+          "summary": "The nine-statin panel contains cerivastatin as a synthetic statin target with multi-step route assets; this record specializes the shared synthetic-statin side-chain convergence policy to a pyridine-core target so the workflow must retrieve a cerivastatin-specific template source."
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cerivastatin_specific_prior",
+        "rerank_bonus": "moderate for pyridine-core/side-chain convergence with explicit E-alkene, syn-diol, and endpoint-state handling",
+        "risk_tags": [
+          "wittig_ez_control",
+          "pyridine_regioselectivity",
+          "endpoint_salt_state",
+          "withdrawn_drug_context"
+        ]
+      }
+    },
+    {
+      "id": "natural_statin_fermentation_semisynthesis",
+      "family_id": "natural_statin_semisynthesis",
+      "name": "Natural statin fermentation core plus late-stage semisynthesis",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "lovastatin",
+          "simvastatin",
+          "pravastatin",
+          "mevastatin",
+          "compactin"
+        ],
+        "target_features": [
+          "decalin lactone natural product core",
+          "side-chain acylation or methylation",
+          "hydroxylation differences among natural statins"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "late-stage acyl ester or side-chain derivatization",
+          "lactone/acid form interconversion"
+        ],
+        "forward_logic": [
+          "obtain core by fermentation or source-supported natural precursor",
+          "use acylation, hydroxylation, methylation, or hydrolysis/lactonization for semisynthetic diversification"
+        ],
+        "suggested_precursor_roles": [
+          "lovastatin/mevastatin/compactin fermentation core",
+          "deacylated natural statin core",
+          "acyl donor or methylating equivalent",
+          "hydroxylation biocatalyst"
+        ],
+        "planner_hint": "Treat fermentation cores as semisynthesis anchors with explicit source support, not as ordinary vendor stock."
+      },
+      "risks": [
+        "availability depends on fermentation/isolation",
+        "biocatalytic hydroxylation selectivity and yield require evidence",
+        "do not confuse semisynthesis endpoint with total synthesis"
+      ],
+      "evidence": [
+        {
+          "type": "pptx",
+          "file": "合作课题.pptx",
+          "slides": [
+            2,
+            19,
+            24
+          ],
+          "summary": "PPTX separates natural-product fermentation statins from synthetic/semisynthetic derivatives and emphasizes convergent/intermediate knowledge-base construction."
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "semisynthesis_prior",
+        "rerank_bonus": "high when source-supported fermentation core plus late-stage derivatization is explicit",
+        "stock_policy": "source-supported semisynthesis endpoint only"
+      }
+    }
+  ],
+  "pptx_sources": [
+    {
+      "file": "合作课题.pptx",
+      "slide_count": 104,
+      "extraction_note": "Text and table content were extracted with python-pptx. Many chemical schemes are embedded OLE objects or images; those slides are recorded as evidence but exact structures require manual/OLE extraction before conversion to reaction SMARTS or SMILES.",
+      "route_scheme_slides_requiring_manual_structure_extraction": [
+        4,
+        8,
+        12,
+        16,
+        20,
+        21,
+        24,
+        37,
+        41,
+        51,
+        56,
+        61,
+        71,
+        80,
+        84,
+        94,
+        98
+      ],
+      "table_or_text_slides_used": [
+        5,
+        6,
+        9,
+        10,
+        13,
+        14,
+        17,
+        18,
+        38,
+        47,
+        48,
+        52,
+        53,
+        58,
+        62,
+        63,
+        67,
+        77,
+        81,
+        85,
+        86,
+        101,
+        102
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "accepted": true,
+  "generated_at_utc": "2026-06-09T12:35:14.848279+00:00",
+  "json_path": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/bufotalin_intuitive_route_blackboard_zh_20260609.json",
+  "markdown_path": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/bufotalin_intuitive_route_blackboard_zh_20260609.md",
+  "pdf_path": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/bufotalin_intuitive_route_blackboard_zh_20260609.pdf",
+  "pdf_size_bytes": 1003417,
+  "schema_version": "bufotalin_intuitive_report_audit.v1",
+  "tests": "python -m pytest tests/test_agentic_blackboard_controller.py tests/test_failure_critic.py tests/test_parent_route_proof.py tests/test_open_research_experience.py tests/test_codex_entry_harness_contract.py -q -> 153 passed, 2 skipped",
+  "v7_final": "unresolved",
+  "v7_solved": false
+}

@@ -1,0 +1,338 @@
+[
+  {
+    "doi": "10.1021/acs.joc.4c01764",
+    "cascade_id": "cascade_1",
+    "target_smiles": "C#CC1=CC(C=O)C(C(=O)OC)C1",
+    "route_domain": "all_chemical",
+    "operation_mode": "one_pot_sequential_addition",
+    "depth": 2,
+    "gt_route": [
+      {
+        "rxn_smiles": "CC#CC1=NC(=O)OC1C.O=C/C=C/c1ccccc1>>C#CN1C(=O)OC(c2ccc(C=O)cc2)C1=O",
+        "ec_number": null,
+        "transformation": "C_C_coupling",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "C#CN1C(=O)OC(c2ccc(C=O)cc2)C1=O>>C#CC1=CC(C=O)C(C(=O)OC)C1",
+        "ec_number": null,
+        "transformation": "hydrolysis",
+        "step_role": "productive_transformation"
+      }
+    ],
+    "_pairwise_stress_selection": {
+      "source_trace": "results/shared/dataset_v4_release/action_value_v4_l100_pairwise_benchmark_l20_trace.jsonl",
+      "prior_trace_events": 12,
+      "prior_trace_max_depth": 4,
+      "prior_trace_candidate_actions": 41,
+      "selection_version": "pairwise_stress_20260510_v1",
+      "criteria": "prior ChemEnzy-backed trace had at least one non-root expansion; ranked by max_depth/events/actions"
+    }
+  },
+  {
+    "doi": "10.1021/co400015w",
+    "cascade_id": "cascade_1",
+    "target_smiles": "COC(=O)C1(c2ccccc2[N+](=O)[O-])ON=C1c1ccc(F)cc1",
+    "route_domain": "all_chemical",
+    "operation_mode": "one_pot_sequential_addition",
+    "depth": 3,
+    "gt_route": [
+      {
+        "rxn_smiles": "O=Cc1ccc(F)cc1.Cl.NO>>N=Cc1ccc(F)cc1",
+        "ec_number": null,
+        "transformation": "amination",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "COC(=O)Cc1ccccc1[N+](=O)[O-].C=O>>C=C(C(=O)OC)c1ccccc1[N+](=O)[O-]",
+        "ec_number": null,
+        "transformation": "C_C_coupling",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "N=Cc1ccc(F)cc1.C=C(C(=O)OC)c1ccccc1[N+](=O)[O-]>>COC(=O)C1(c2ccccc2[N+](=O)[O-])ON=C1c1ccc(F)cc1",
+        "ec_number": null,
+        "transformation": "C_C_coupling",
+        "step_role": "productive_transformation"
+      }
+    ],
+    "_pairwise_stress_selection": {
+      "source_trace": "results/shared/dataset_v4_release/action_value_v4_l100_pairwise_benchmark_l20_trace.jsonl",
+      "prior_trace_events": 9,
+      "prior_trace_max_depth": 4,
+      "prior_trace_candidate_actions": 80,
+      "selection_version": "pairwise_stress_20260510_v1",
+      "criteria": "prior ChemEnzy-backed trace had at least one non-root expansion; ranked by max_depth/events/actions"
+    }
+  },
+  {
+    "doi": "10.1021/acsami.5c16753",
+    "cascade_id": "cascade_1",
+    "target_smiles": "Cc1ccc(C2CC2C(=O)O)cc1",
+    "route_domain": "hybrid_mimetic",
+    "operation_mode": "one_pot_simultaneous",
+    "depth": 2,
+    "gt_route": [
+      {
+        "rxn_smiles": "C=Cc1ccc(C)cc1.[N-]=[N+]=CC(=O)ONc1ccc([N+](=O)[O-])cc1>>Cc1ccc(C2CC2C(=O)ONc2ccc([N+](=O)[O-])cc2)cc1.Cc1ccc(C2CC2C(=O)ONc2ccc([N+](=O)[O-])cc2)cc1",
+        "ec_number": null,
+        "transformation": "C_C_coupling",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "Cc1ccc(C2CC2C(=O)ONc2ccc([N+](=O)[O-])cc2)cc1.Cc1ccc(C2CC2C(=O)ONc2ccc([N+](=O)[O-])cc2)cc1>>Cc1ccc(C2CC2C(=O)O)cc1.O=[N+]([O-])c1ccc(O)cc1",
+        "ec_number": null,
+        "transformation": "hydrolysis",
+        "step_role": "productive_transformation"
+      }
+    ],
+    "_pairwise_stress_selection": {
+      "source_trace": "results/shared/dataset_v4_release/action_value_v4_l100_pairwise_benchmark_l20_trace.jsonl",
+      "prior_trace_events": 5,
+      "prior_trace_max_depth": 3,
+      "prior_trace_candidate_actions": 23,
+      "selection_version": "pairwise_stress_20260510_v1",
+      "criteria": "prior ChemEnzy-backed trace had at least one non-root expansion; ranked by max_depth/events/actions"
+    }
+  },
+  {
+    "doi": "10.1002/anie.202209159",
+    "cascade_id": "cascade_1",
+    "target_smiles": "CC(=O)C(Cc1ccccc1)[N+](=O)[O-]",
+    "route_domain": "chemoenzymatic",
+    "operation_mode": "telescoped_no_isolation",
+    "depth": 2,
+    "gt_route": [
+      {
+        "rxn_smiles": "O=Cc1ccccc1>>CC(=O)C=Cc1ccccc1",
+        "ec_number": null,
+        "transformation": "C_C_coupling",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "CC(=O)C=Cc1ccccc1.C[N+](=O)[O-]>>CC(=O)C(Cc1ccccc1)[N+](=O)[O-]",
+        "ec_number": null,
+        "transformation": "C_C_coupling",
+        "step_role": "productive_transformation"
+      }
+    ],
+    "_pairwise_stress_selection": {
+      "source_trace": "results/shared/dataset_v4_release/action_value_v4_l100_pairwise_benchmark_l20_trace.jsonl",
+      "prior_trace_events": 5,
+      "prior_trace_max_depth": 3,
+      "prior_trace_candidate_actions": 20,
+      "selection_version": "pairwise_stress_20260510_v1",
+      "criteria": "prior ChemEnzy-backed trace had at least one non-root expansion; ranked by max_depth/events/actions"
+    }
+  },
+  {
+    "doi": "10.1039/D4CC06522K",
+    "cascade_id": "cascade_1",
+    "target_smiles": "CO/N=C(\\C(=O)O)c1ccco1",
+    "route_domain": "chemoenzymatic",
+    "operation_mode": "one_pot_sequential_addition",
+    "depth": 3,
+    "gt_route": [
+      {
+        "rxn_smiles": "O=Cc1ccco1.C=O>>O=C(c1ccco1)C(O)CO",
+        "ec_number": "4.1.1.1",
+        "transformation": "C_C_coupling",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "O=C(c1ccco1)C(O)CO>>O=C(O)C(=O)c1ccco1",
+        "ec_number": "1.10.3.2",
+        "transformation": "oxidation",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "O=C(O)C(=O)c1ccco1.CON.Cl>>CO/N=C(\\C(=O)O)c1ccco1",
+        "ec_number": null,
+        "transformation": "amination",
+        "step_role": "productive_transformation"
+      }
+    ],
+    "_pairwise_stress_selection": {
+      "source_trace": "results/shared/dataset_v4_release/action_value_v4_l100_pairwise_benchmark_l20_trace.jsonl",
+      "prior_trace_events": 4,
+      "prior_trace_max_depth": 3,
+      "prior_trace_candidate_actions": 31,
+      "selection_version": "pairwise_stress_20260510_v1",
+      "criteria": "prior ChemEnzy-backed trace had at least one non-root expansion; ranked by max_depth/events/actions"
+    }
+  },
+  {
+    "doi": "10.1007/s10529-017-2427-x",
+    "cascade_id": "cascade_1",
+    "target_smiles": "Nc1ncnc2c1ncn2C1OC(COP(=O)(O)OP(=O)(O)OP(=O)(O)O)C(O)C1O",
+    "route_domain": "all_enzymatic",
+    "operation_mode": "one_pot_simultaneous",
+    "depth": 3,
+    "gt_route": [
+      {
+        "rxn_smiles": "Nc1cnc(O)nc1OC1OC(COP(=O)(O)O)C(O)C1O.Nc1ncnc2c1ncn2C1OC(COP(=O)(O)OP(=O)(O)OP(=O)(O)O)C(O)C1O>>Nc1cnc(O)nc1OC1OC(COP(=O)(O)OP(=O)(O)O)C(O)C1O.Nc1ncnc2c1ncn2C1OC(COP(=O)(O)OP(=O)(O)O)C(O)C1O",
+        "ec_number": "2.7.4.14",
+        "transformation": "phosphorylation",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "Nc1cnc(O)nc1OC1OC(COP(=O)(O)OP(=O)(O)O)C(O)C1O.Nc1ncnc2c1ncn2C1OC(COP(=O)(O)OP(=O)(O)OP(=O)(O)O)C(O)C1O>>Nc1cnc(O)nc1OC1OC(COP(=O)(O)OP(=O)(O)OP(=O)(O)O)C(O)C1O.Nc1ncnc2c1ncn2C1OC(COP(=O)(O)OP(=O)(O)O)C(O)C1O",
+        "ec_number": "2.7.4.6",
+        "transformation": "phosphorylation",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "Nc1ncnc2c1ncn2C1OC(COP(=O)(O)OP(=O)(O)O)C(O)C1O>>Nc1ncnc2c1ncn2C1OC(COP(=O)(O)OP(=O)(O)OP(=O)(O)O)C(O)C1O",
+        "ec_number": "2.7.4.1",
+        "transformation": "phosphorylation",
+        "step_role": "cofactor_regeneration"
+      }
+    ],
+    "_pairwise_stress_selection": {
+      "source_trace": "results/shared/dataset_v4_release/action_value_v4_l100_pairwise_benchmark_l20_trace.jsonl",
+      "prior_trace_events": 6,
+      "prior_trace_max_depth": 2,
+      "prior_trace_candidate_actions": 25,
+      "selection_version": "pairwise_stress_20260510_v1",
+      "criteria": "prior ChemEnzy-backed trace had at least one non-root expansion; ranked by max_depth/events/actions"
+    }
+  },
+  {
+    "doi": "10.1007/s13205-021-03037-7",
+    "cascade_id": "cascade_1",
+    "target_smiles": "C[C@@H](NC(CP(=O)(O)O)C(=O)O)C(=O)O",
+    "route_domain": "whole_cell_biocatalytic",
+    "operation_mode": "one_pot_sequential_addition",
+    "depth": 2,
+    "gt_route": [
+      {
+        "rxn_smiles": "C[C@H](NC(CP(=O)(O)O)C(=O)O)C(=O)O>>CC(=O)C(CP(=O)(O)O)C(=O)O",
+        "ec_number": "1.4.3.3",
+        "transformation": "oxidation",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "CC(=O)C(CP(=O)(O)O)C(=O)O>>C[C@@H](NC(CP(=O)(O)O)C(=O)O)C(=O)O",
+        "ec_number": "1.4.1.3",
+        "transformation": "amination",
+        "step_role": "productive_transformation"
+      }
+    ],
+    "_pairwise_stress_selection": {
+      "source_trace": "results/shared/dataset_v4_release/action_value_v4_l100_pairwise_benchmark_l20_trace.jsonl",
+      "prior_trace_events": 5,
+      "prior_trace_max_depth": 2,
+      "prior_trace_candidate_actions": 42,
+      "selection_version": "pairwise_stress_20260510_v1",
+      "criteria": "prior ChemEnzy-backed trace had at least one non-root expansion; ranked by max_depth/events/actions"
+    }
+  },
+  {
+    "doi": "10.1016/j.enzmictec.2023.110225",
+    "cascade_id": "cascade_1",
+    "target_smiles": "N[C@@H](CCCP(=O)(O)O)C(=O)O",
+    "route_domain": "all_enzymatic",
+    "operation_mode": "one_pot_sequential_addition",
+    "depth": 2,
+    "gt_route": [
+      {
+        "rxn_smiles": "O=CO>>O=C=O",
+        "ec_number": "1.2.1.2",
+        "transformation": "oxidation",
+        "step_role": "cofactor_regeneration"
+      },
+      {
+        "rxn_smiles": "O=C(O)C(=O)CCCP(=O)(O)O>>N[C@@H](CCCP(=O)(O)O)C(=O)O",
+        "ec_number": "1.4.1.9",
+        "transformation": "amination",
+        "step_role": "productive_transformation"
+      }
+    ],
+    "_pairwise_stress_selection": {
+      "source_trace": "results/shared/dataset_v4_release/action_value_v4_l100_pairwise_benchmark_l20_trace.jsonl",
+      "prior_trace_events": 4,
+      "prior_trace_max_depth": 2,
+      "prior_trace_candidate_actions": 41,
+      "selection_version": "pairwise_stress_20260510_v1",
+      "criteria": "prior ChemEnzy-backed trace had at least one non-root expansion; ranked by max_depth/events/actions"
+    }
+  },
+  {
+    "doi": "10.1039/D4CC00356J",
+    "cascade_id": "cascade_1",
+    "target_smiles": "CC(O)CCc1ccccc1",
+    "route_domain": "all_chemical",
+    "operation_mode": "one_pot_simultaneous",
+    "depth": 3,
+    "gt_route": [
+      {
+        "rxn_smiles": "CC(=O)C=Cc1ccccc1>>CC(O)C=Cc1ccccc1",
+        "ec_number": null,
+        "transformation": "reduction",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "CC(O)C=Cc1ccccc1>>CC(=O)CCc1ccccc1",
+        "ec_number": null,
+        "transformation": "isomerization",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "CC(=O)CCc1ccccc1>>CC(O)CCc1ccccc1",
+        "ec_number": null,
+        "transformation": "reduction",
+        "step_role": "productive_transformation"
+      }
+    ],
+    "_pairwise_stress_selection": {
+      "source_trace": "results/shared/dataset_v4_release/action_value_v4_l100_pairwise_benchmark_l20_trace.jsonl",
+      "prior_trace_events": 3,
+      "prior_trace_max_depth": 2,
+      "prior_trace_candidate_actions": 61,
+      "selection_version": "pairwise_stress_20260510_v1",
+      "criteria": "prior ChemEnzy-backed trace had at least one non-root expansion; ranked by max_depth/events/actions"
+    }
+  },
+  {
+    "doi": "10.1039/C2CC32417B",
+    "cascade_id": "cascade_1",
+    "target_smiles": "C=CC(=O)OC",
+    "route_domain": "all_chemical",
+    "operation_mode": "telescoped_no_isolation",
+    "depth": 4,
+    "gt_route": [
+      {
+        "rxn_smiles": "OCCCO>>C[Si](C)(C)OCCCO",
+        "ec_number": null,
+        "transformation": "functional_group_interconversion",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "C[Si](C)(C)OCCCO>>CC=C[C@@H](O)[C@@H](O)CO[Si](C)(C)C",
+        "ec_number": null,
+        "transformation": "C_C_coupling",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "CC=C[C@@H](O)[C@@H](O)CO[Si](C)(C)C>>CC=C[C@@H](O)[C@@H](O)CO",
+        "ec_number": null,
+        "transformation": "functional_group_interconversion",
+        "step_role": "productive_transformation"
+      },
+      {
+        "rxn_smiles": "CC=C[C@@H](O)[C@@H](O)CO>>C=CC(=O)OC",
+        "ec_number": null,
+        "transformation": "oxidation",
+        "step_role": "productive_transformation"
+      }
+    ],
+    "_pairwise_stress_selection": {
+      "source_trace": "results/shared/dataset_v4_release/action_value_v4_l100_pairwise_benchmark_l20_trace.jsonl",
+      "prior_trace_events": 2,
+      "prior_trace_max_depth": 1,
+      "prior_trace_candidate_actions": 46,
+      "selection_version": "pairwise_stress_20260510_v1",
+      "criteria": "prior ChemEnzy-backed trace had at least one non-root expansion; ranked by max_depth/events/actions"
+    }
+  }
+]

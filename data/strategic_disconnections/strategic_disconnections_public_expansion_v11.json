@@ -1,0 +1,1189 @@
+{
+  "schema_version": "strategic_disconnections.v11_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Tenth expanded public source layer focused on photocleavable and photoactive protecting-group probes, hypoxia-activated and redox prodrugs, CNS blood-brain-barrier route motifs, PNA/PMO/LNA/XNA oligomer backbones, BNCT and radiometal theranostic payloads, caged covalent and activity-based probes, polycyclic cage natural-product topology, and crystallization/salt/polymorph process endpoints.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template or proposal promotion",
+      "separate photocage, redox-prodrug, CNS/BBB, xeno-oligomer, BNCT/radiometal, activity-based-probe, cage-natural-product, or solid-form process policy",
+      "route-specific wavelength, activation mode, BBB transporter or efflux risk, backbone monomer identity, isotope/radionuclide or boron payload, probe reactivity, cage topology, counterion, cocrystal former, polymorph, and crystallization endpoint review",
+      "photochemistry, toxicology, oncology-mode, CNS safety, oligonucleotide manufacturing, radiochemical, chemical-probe, natural-product bioactivity, regulatory, or process-control review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, and synthesis conditions",
+      "photochemical, hypoxia-activated, CNS-active, oligonucleotide, radiochemical, covalent-probe, cage-natural-product, and solid-form process entries are high-level route priors only"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "photocleavable_photoactive_protecting_group_probe",
+      "name": "Photocleavable protecting groups, photocages, and photoactive probe handles",
+      "pattern_keywords": [
+        "photocage",
+        "photoremovable protecting group",
+        "caged ligand",
+        "photoactivation",
+        "coumarin cage",
+        "BODIPY photocage"
+      ],
+      "strategic_principle": "Separate active parent ligand, photolabile cage or chromophore, release wavelength, and biological context. Light-triggered release is route metadata, not an ordinary protecting group."
+    },
+    {
+      "family_id": "redox_prodrug_hypoxia_activated_motif",
+      "name": "Hypoxia-activated, bioreductive, and redox-sensitive prodrug motifs",
+      "pattern_keywords": [
+        "hypoxia-activated prodrug",
+        "bioreductive trigger",
+        "quinone prodrug",
+        "redox-sensitive linker",
+        "theragnostic prodrug",
+        "tumor-selective activation"
+      ],
+      "strategic_principle": "Expose payload, trigger, reductive activation mode, and tissue or tumor context. Redox activation logic is compliance-gated route policy rather than generic linker cleavage."
+    },
+    {
+      "family_id": "cns_privileged_scaffold_transporter_motif",
+      "name": "CNS privileged scaffolds, BBB transporter motifs, and brain-delivery prodrug handles",
+      "pattern_keywords": [
+        "blood-brain barrier",
+        "CNS drug design",
+        "transporter-conscious design",
+        "brain delivery",
+        "prodrug masking",
+        "efflux liability"
+      ],
+      "strategic_principle": "Separate CNS-active scaffold, polarity or prodrug masking, transporter engagement, and efflux risk. BBB policy changes route critique and precursor acceptance."
+    },
+    {
+      "family_id": "peptide_nucleic_acid_morpholino_xeno_oligomer",
+      "name": "Peptide nucleic acids, morpholinos, locked nucleic acids, and xeno-oligomer backbones",
+      "pattern_keywords": [
+        "peptide nucleic acid",
+        "phosphorodiamidate morpholino",
+        "locked nucleic acid",
+        "xeno nucleic acid",
+        "antisense oligomer",
+        "oligonucleotide therapeutic"
+      ],
+      "strategic_principle": "Separate base sequence from backbone chemistry, monomer identity, protecting group or solid-phase boundary, and conjugation handle. Xeno-oligomer backbones are strategic, not ordinary substituent changes."
+    },
+    {
+      "family_id": "boron_neutron_capture_and_metal_radiotherapeutic",
+      "name": "Boron neutron-capture and radiometal therapeutic payload-route motifs",
+      "pattern_keywords": [
+        "boron neutron capture therapy",
+        "boron cluster",
+        "carborane",
+        "radiometal chelator",
+        "theranostic radiopharmaceutical",
+        "bifunctional chelator"
+      ],
+      "strategic_principle": "Separate targeting vector, boron or radionuclide payload, chelator or cluster, linker, and dosimetry or isotope policy. Payload identity is route-defining and radiochemical compliance-gated."
+    },
+    {
+      "family_id": "caged_covalent_activity_based_probe",
+      "name": "Caged covalent probes, photoaffinity handles, and activity-based-probe route motifs",
+      "pattern_keywords": [
+        "activity-based probe",
+        "covalent probe",
+        "photoaffinity probe",
+        "chemical proteomics",
+        "reporter handle",
+        "caged electrophile"
+      ],
+      "strategic_principle": "Separate recognition fragment, reactive warhead, reporter or enrichment tag, linker, and activation mode. Probe reactivity and biological labeling context must gate route promotion."
+    },
+    {
+      "family_id": "natural_product_polycyclic_cage_scaffold",
+      "name": "Polycyclic cage-like natural products, bridged topologies, and rearrangement networks",
+      "pattern_keywords": [
+        "polycyclic cage",
+        "bridged polycycle",
+        "cage-like natural product",
+        "benzobicyclo core",
+        "sarpagine alkaloid",
+        "rearrangement cascade"
+      ],
+      "strategic_principle": "Expose cage topology, bridgehead connectivity, ring-fusion order, and rearrangement or cascade logic. Topology dominates template matching and must be route metadata."
+    },
+    {
+      "family_id": "process_crystallization_salt_polymorph_route_control",
+      "name": "Process salt, cocrystal, polymorph, and crystallization endpoint route control",
+      "pattern_keywords": [
+        "salt selection",
+        "cocrystal",
+        "polymorph",
+        "solid form",
+        "crystallization",
+        "process endpoint"
+      ],
+      "strategic_principle": "Separate chemical synthesis from salt/cocrystal former, polymorph risk, crystallization handle, and regulatory endpoint. Solid form is process route metadata and not equivalent to stock closure."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "photocage_photoactivation_handle_anchor",
+      "family_id": "photocleavable_photoactive_protecting_group_probe",
+      "name": "Photocaged parent ligand or probe with reviewed chromophore, release wavelength, and biological context",
+      "role": "photocage_probe_anchor",
+      "aliases": [
+        "photoremovable protecting group",
+        "caged ligand",
+        "coumarin photocage",
+        "BODIPY photocage"
+      ],
+      "acceptance_policy": "requires_parent_ligand_photocage_wavelength_release_and_phototoxicity_review"
+    },
+    {
+      "anchor_id": "hypoxia_redox_prodrug_trigger_anchor",
+      "family_id": "redox_prodrug_hypoxia_activated_motif",
+      "name": "Hypoxia-activated or redox-sensitive prodrug with reviewed trigger, payload, and activation context",
+      "role": "redox_prodrug_anchor",
+      "aliases": [
+        "hypoxia-activated prodrug",
+        "bioreductive trigger",
+        "quinone prodrug",
+        "redox-sensitive linker"
+      ],
+      "acceptance_policy": "requires_payload_trigger_activation_mode_tissue_context_and_oncology_safety_review"
+    },
+    {
+      "anchor_id": "cns_bbb_transporter_scaffold_anchor",
+      "family_id": "cns_privileged_scaffold_transporter_motif",
+      "name": "CNS-active scaffold or prodrug with BBB transporter, polarity, and efflux metadata",
+      "role": "cns_bbb_route_anchor",
+      "aliases": [
+        "BBB-penetrant scaffold",
+        "transporter-conscious prodrug",
+        "CNS privileged motif",
+        "brain-delivery masking group"
+      ],
+      "acceptance_policy": "requires_cns_target_bbb_transport_polarity_efflux_and_neurotoxicity_review"
+    },
+    {
+      "anchor_id": "xeno_oligomer_backbone_anchor",
+      "family_id": "peptide_nucleic_acid_morpholino_xeno_oligomer",
+      "name": "PNA, PMO, LNA, or XNA oligomer with reviewed sequence, backbone, monomer, and conjugation policy",
+      "role": "xeno_oligomer_anchor",
+      "aliases": [
+        "peptide nucleic acid",
+        "phosphorodiamidate morpholino oligomer",
+        "locked nucleic acid",
+        "xeno nucleic acid"
+      ],
+      "acceptance_policy": "requires_sequence_backbone_monomer_protecting_group_conjugation_and_manufacturing_review"
+    },
+    {
+      "anchor_id": "bnct_radiometal_payload_anchor",
+      "family_id": "boron_neutron_capture_and_metal_radiotherapeutic",
+      "name": "BNCT boron cluster or radiometal theranostic payload with targeting-vector and isotope policy",
+      "role": "radiotherapeutic_payload_anchor",
+      "aliases": [
+        "boron cluster",
+        "carborane payload",
+        "radiometal chelator",
+        "theranostic radiopharmaceutical"
+      ],
+      "acceptance_policy": "requires_targeting_vector_payload_chelator_or_cluster_linker_isotope_and_radiochemical_review"
+    },
+    {
+      "anchor_id": "caged_activity_probe_reactivity_anchor",
+      "family_id": "caged_covalent_activity_based_probe",
+      "name": "Activity-based, covalent, or photoaffinity probe with reviewed warhead, reporter, and activation context",
+      "role": "activity_probe_anchor",
+      "aliases": [
+        "activity-based probe",
+        "photoaffinity probe",
+        "covalent chemical proteomics probe",
+        "caged electrophile"
+      ],
+      "acceptance_policy": "requires_target_class_warhead_reporter_linker_activation_and_biological_labeling_review"
+    },
+    {
+      "anchor_id": "polycyclic_cage_topology_anchor",
+      "family_id": "natural_product_polycyclic_cage_scaffold",
+      "name": "Polycyclic cage-like natural product with reviewed bridge topology and rearrangement logic",
+      "role": "polycyclic_cage_topology_anchor",
+      "aliases": [
+        "bridged polycycle",
+        "cage-like natural product",
+        "sarpagine-ajmaline alkaloid",
+        "benzobicyclo natural product core"
+      ],
+      "acceptance_policy": "requires_cage_topology_bridgehead_ring_fusion_rearrangement_and_bioactivity_review"
+    },
+    {
+      "anchor_id": "solid_form_process_endpoint_anchor",
+      "family_id": "process_crystallization_salt_polymorph_route_control",
+      "name": "Process endpoint with reviewed salt, cocrystal, polymorph, or crystallization control metadata",
+      "role": "solid_form_process_anchor",
+      "aliases": [
+        "salt form",
+        "pharmaceutical cocrystal",
+        "polymorph",
+        "crystallization endpoint"
+      ],
+      "acceptance_policy": "requires_counterion_or_coformer_polymorph_crystallization_regulatory_and_process_control_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "photocage_chromophore_release_handle_disconnection",
+      "family_id": "photocleavable_photoactive_protecting_group_probe",
+      "name": "Photocaged ligand to active parent plus chromophore and release-handle policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "photocaged ligands",
+          "photoremovable protecting-group probes",
+          "caged bioactive molecules"
+        ],
+        "target_features": [
+          "photolabile cage",
+          "active parent ligand",
+          "wavelength-dependent release"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "photocage to parent ligand boundary",
+          "release handle to chromophore boundary"
+        ],
+        "forward_logic": [
+          "separate active ligand synthesis from cage or chromophore installation",
+          "track wavelength, release byproducts, and biological exposure context",
+          "avoid treating the photocage as an ordinary protecting group when route acceptance depends on light activation"
+        ],
+        "suggested_precursor_roles": [
+          "active parent ligand",
+          "photocage chromophore",
+          "release linker",
+          "wavelength and exposure metadata"
+        ],
+        "planner_hint": "Reward routes that expose the active parent and cage separately and carry wavelength/release metadata through scoring."
+      },
+      "risks": [
+        "phototoxicity",
+        "incomplete release",
+        "release byproduct liability",
+        "biological exposure mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Long-wavelength photoremovable protecting-group review discusses in vivo-oriented photocage design.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31890141/"
+        },
+        {
+          "type": "literature",
+          "citation": "pHP and coumarin photoremovable protecting-group review provides public photocage context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/22344608/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "photocage_parent_ligand_prior",
+        "rerank_bonus": "high for explicit parent ligand, cage chromophore, release wavelength, and byproduct metadata",
+        "compliance_gate": "photochemistry_phototoxicity_review_required"
+      }
+    },
+    {
+      "id": "photoactive_probe_wavelength_context_policy",
+      "family_id": "photocleavable_photoactive_protecting_group_probe",
+      "name": "Photoactive probe to parent motif plus wavelength, cell-context, and activation policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "photoactive probes",
+          "caged signaling molecules",
+          "visible-light caged ligands"
+        ],
+        "target_features": [
+          "photoactivation event",
+          "controlled biological response",
+          "chromophore-tuned wavelength"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "photoactive handle to parent motif boundary",
+          "chromophore tuning substituent boundary"
+        ],
+        "forward_logic": [
+          "track whether the route is making a chemical probe, caged agonist, or release-controlled reagent",
+          "separate chromophore tuning from parent-motif SAR",
+          "require biological-mode metadata before accepting photoactive probe proposals"
+        ],
+        "suggested_precursor_roles": [
+          "parent motif",
+          "photoactive chromophore",
+          "tuning substituent",
+          "biological activation metadata"
+        ],
+        "planner_hint": "Use photoactive entries as route-policy records when wavelength and biological activation context are explicit."
+      },
+      "risks": [
+        "photolysis condition mismatch",
+        "off-target photoactivation",
+        "chromophore-driven SAR distortion",
+        "probe-mode review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Caged phytohormone review links chemical inactivation to controlled physiological response.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34610745/"
+        },
+        {
+          "type": "literature",
+          "citation": "BODIPY photocage review covers mechanisms, properties, and applications of meso-methyl BODIPY photocages.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37535757/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "photoactive_probe_wavelength_prior",
+        "rerank_bonus": "moderate for explicit parent motif, chromophore tuning, and activation context",
+        "compliance_gate": "photoactive_probe_biological_mode_review_required"
+      }
+    },
+    {
+      "id": "hypoxia_activated_prodrug_trigger_payload_split",
+      "family_id": "redox_prodrug_hypoxia_activated_motif",
+      "name": "Hypoxia-activated prodrug to payload plus reductive trigger and tumor-context policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "hypoxia-activated prodrugs",
+          "bioreductive prodrugs",
+          "hypoxia-activated theragnostic prodrugs"
+        ],
+        "target_features": [
+          "reductive trigger",
+          "masked cytotoxic or imaging payload",
+          "hypoxia-selective activation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "trigger to payload boundary",
+          "prodrug masking group to active payload boundary"
+        ],
+        "forward_logic": [
+          "separate active payload from trigger or masking chemistry",
+          "track hypoxia, theragnostic, or radiation-combination context before route promotion",
+          "treat activation selectivity as strategic metadata"
+        ],
+        "suggested_precursor_roles": [
+          "active payload",
+          "hypoxia-activated trigger",
+          "prodrug linker",
+          "activation-context metadata"
+        ],
+        "planner_hint": "Reward routes that expose trigger/payload separation and carry hypoxia-activation metadata instead of generic prodrug cleavage."
+      },
+      "risks": [
+        "cytotoxic payload exposure",
+        "activation selectivity overclaim",
+        "oncology-mode review",
+        "theragnostic or radiation-context mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Hypoxia-activated prodrug review discusses cancer-therapy context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34395270/"
+        },
+        {
+          "type": "literature",
+          "citation": "Hypoxia-activated theragnostic prodrug review summarizes current state and perspectives.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/38675218/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "hypoxia_trigger_payload_prior",
+        "rerank_bonus": "high for explicit trigger, payload, activation mode, and tumor-context metadata",
+        "compliance_gate": "hypoxia_activated_cytotoxic_or_theragnostic_review_required"
+      }
+    },
+    {
+      "id": "quinone_bioreductive_redox_linker_policy",
+      "family_id": "redox_prodrug_hypoxia_activated_motif",
+      "name": "Quinone or redox-sensitive motif to bioreductive trigger plus release policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "quinone bioreductive prodrugs",
+          "redox-sensitive linkers",
+          "tumor-selective activation motifs"
+        ],
+        "target_features": [
+          "quinone or nitro-like redox trigger",
+          "masked active motif",
+          "redox-dependent release"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "redox trigger to payload boundary",
+          "redox linker to carrier scaffold boundary"
+        ],
+        "forward_logic": [
+          "separate redox trigger installation from payload or carrier synthesis",
+          "track reduction pathway and release logic as route metadata",
+          "flag quinone and bioreductive entries for toxicology and activation review"
+        ],
+        "suggested_precursor_roles": [
+          "payload or carrier",
+          "redox trigger",
+          "quinone or bioreductive motif",
+          "activation-pathway metadata"
+        ],
+        "planner_hint": "Use redox-linker records for route critique and activation-policy scoring, not automatic proposal generation."
+      },
+      "risks": [
+        "redox cycling",
+        "off-target activation",
+        "toxicology liability",
+        "mechanistic ambiguity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Quinone bioreductive prodrug review covers delivery-agent context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/16305396/"
+        },
+        {
+          "type": "literature",
+          "citation": "Clinical review discusses hypoxia-activated prodrugs with radiation-therapy combinations.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/28721903/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "redox_bioreductive_linker_prior",
+        "rerank_bonus": "moderate for explicit redox trigger, release pathway, and activation selectivity",
+        "compliance_gate": "redox_prodrug_toxicology_activation_review_required"
+      }
+    },
+    {
+      "id": "bbb_transporter_prodrug_masking_disconnection",
+      "family_id": "cns_privileged_scaffold_transporter_motif",
+      "name": "CNS route to active scaffold plus BBB transporter or prodrug-masking motif",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "CNS-active small molecules",
+          "brain-delivery prodrugs",
+          "transporter-targeted CNS motifs"
+        ],
+        "target_features": [
+          "BBB penetration requirement",
+          "transporter or masking motif",
+          "polar or ionized active scaffold"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "prodrug masking group to active scaffold boundary",
+          "transporter-recognition motif to payload boundary"
+        ],
+        "forward_logic": [
+          "separate active CNS scaffold from BBB-enabling motif",
+          "track transporter rationale, polarity, and efflux risk before route acceptance",
+          "avoid stock-closing advanced masked CNS analogues without delivery metadata"
+        ],
+        "suggested_precursor_roles": [
+          "active CNS scaffold",
+          "prodrug masking group",
+          "transporter-recognition motif",
+          "BBB and efflux metadata"
+        ],
+        "planner_hint": "Reward routes that explicitly separate CNS pharmacophore from BBB delivery or masking strategy."
+      },
+      "risks": [
+        "CNS toxicity",
+        "transporter overclaim",
+        "efflux liability",
+        "active/metabolite mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Transporter-conscious drug-design review discusses beneficial aspects of transporter-aware design.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/26138194/"
+        },
+        {
+          "type": "literature",
+          "citation": "BBB transporter review frames endogenous transporters as therapeutic targets for small-molecule CNS discovery.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25936389/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cns_bbb_transporter_prior",
+        "rerank_bonus": "moderate for explicit active scaffold, masking or transporter motif, and BBB metadata",
+        "compliance_gate": "cns_delivery_and_neurotoxicity_review_required"
+      }
+    },
+    {
+      "id": "cns_privileged_scaffold_polarity_efflux_policy",
+      "family_id": "cns_privileged_scaffold_transporter_motif",
+      "name": "CNS privileged scaffold to polarity, efflux, and brain-penetration route policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "CNS privileged scaffolds",
+          "BBB-penetrant medicinal scaffolds",
+          "brain-targeted therapeutics"
+        ],
+        "target_features": [
+          "brain-penetration design constraint",
+          "polar surface area or ionization constraint",
+          "efflux or metabolic liability"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "polarity-tuning substituent boundary",
+          "efflux or metabolic-liability handle boundary"
+        ],
+        "forward_logic": [
+          "separate scaffold assembly from CNS exposure tuning",
+          "track whether substituent changes serve potency, BBB penetration, or efflux avoidance",
+          "flag CNS-active route proposals for biological-mode review"
+        ],
+        "suggested_precursor_roles": [
+          "CNS scaffold",
+          "polarity-tuning substituent",
+          "efflux-liability handle",
+          "brain-penetration metadata"
+        ],
+        "planner_hint": "Use CNS entries to critique substituent strategy and exposure policy, not to infer stock status from BBB-optimized analogues."
+      },
+      "risks": [
+        "CNS activity overgeneralization",
+        "off-target neuropharmacology",
+        "property-driven false positives",
+        "species or assay transfer mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Review covers structural modification strategies to improve blood-brain-barrier penetration.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34505508/"
+        },
+        {
+          "type": "literature",
+          "citation": "Medicinal-chemistry review discusses strategies for drug delivery to the brain.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/19200004/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cns_scaffold_exposure_prior",
+        "rerank_bonus": "moderate for explicit exposure-tuning role and efflux or polarity metadata",
+        "compliance_gate": "cns_biological_mode_review_required"
+      }
+    },
+    {
+      "id": "pna_morpholino_backbone_monomer_disconnection",
+      "family_id": "peptide_nucleic_acid_morpholino_xeno_oligomer",
+      "name": "PNA or morpholino oligomer to base sequence plus non-natural backbone monomer policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "peptide nucleic acids",
+          "phosphorodiamidate morpholino oligomers",
+          "antisense xeno-oligomers"
+        ],
+        "target_features": [
+          "base sequence",
+          "non-natural oligomer backbone",
+          "monomer or solid-phase assembly boundary"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "oligomer backbone repeat boundary",
+          "base to backbone monomer boundary"
+        ],
+        "forward_logic": [
+          "separate sequence design from backbone monomer synthesis and oligomer assembly",
+          "track PNA, PMO, LNA, or XNA identity before scoring route feasibility",
+          "avoid treating modified oligomers as ordinary peptide or nucleotide fragments"
+        ],
+        "suggested_precursor_roles": [
+          "base sequence",
+          "backbone monomer",
+          "oligomer assembly precursor",
+          "manufacturing boundary metadata"
+        ],
+        "planner_hint": "Reward explicit backbone-class and monomer-boundary metadata for xeno-oligomer targets."
+      },
+      "risks": [
+        "sequence/backbone mismatch",
+        "solid-phase manufacturing overreach",
+        "protecting-group incompatibility",
+        "therapeutic oligonucleotide review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "PNA synthesis review discusses challenges of peptide nucleic acid synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37010921/"
+        },
+        {
+          "type": "literature",
+          "citation": "Morpholino antisense review covers phosphorodiamidate morpholino oligomers as antiviral compounds.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/29731743/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "xeno_oligomer_backbone_prior",
+        "rerank_bonus": "high for explicit sequence, backbone, monomer, and assembly-boundary metadata",
+        "compliance_gate": "oligonucleotide_manufacturing_and_biological_mode_review_required"
+      }
+    },
+    {
+      "id": "xeno_oligomer_conjugate_backbone_policy",
+      "family_id": "peptide_nucleic_acid_morpholino_xeno_oligomer",
+      "name": "LNA/XNA or peptide-oligonucleotide conjugate to backbone class plus conjugation policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "locked nucleic acids",
+          "xeno nucleic acids",
+          "peptide-oligonucleotide conjugates"
+        ],
+        "target_features": [
+          "modified sugar or backbone",
+          "conjugation handle",
+          "diagnostic or therapeutic oligomer role"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "conjugation handle to oligomer boundary",
+          "modified backbone monomer boundary"
+        ],
+        "forward_logic": [
+          "separate oligomer synthesis from postsynthetic conjugation or monomer modification",
+          "track backbone class and application mode before proposal promotion",
+          "carry manufacturing, analytical, and biological-mode metadata"
+        ],
+        "suggested_precursor_roles": [
+          "modified oligomer",
+          "conjugation partner",
+          "backbone monomer",
+          "application-mode metadata"
+        ],
+        "planner_hint": "Use XNA/LNA entries when backbone class and conjugation role are explicit, not as generic nucleoside analogues."
+      },
+      "risks": [
+        "backbone-class ambiguity",
+        "conjugation-site mismatch",
+        "therapeutic-modality overclaim",
+        "manufacturing and analytical review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Approved oligonucleotide therapeutics review discusses chemistry, structure, and function.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36881759/"
+        },
+        {
+          "type": "literature",
+          "citation": "Xeno nucleic acid review covers advances in synthesis, diagnostics, and therapeutics.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/42160832/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "xeno_oligomer_conjugate_prior",
+        "rerank_bonus": "moderate for explicit backbone class, conjugation site, and modality metadata",
+        "compliance_gate": "xeno_oligomer_modality_review_required"
+      }
+    },
+    {
+      "id": "bnct_boron_cluster_targeting_vector_split",
+      "family_id": "boron_neutron_capture_and_metal_radiotherapeutic",
+      "name": "BNCT agent to targeting vector plus boron cluster or boron-rich payload policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "BNCT agents",
+          "boron cluster conjugates",
+          "carborane medicinal motifs"
+        ],
+        "target_features": [
+          "boron-rich payload",
+          "targeting vector",
+          "therapy or imaging context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "boron cluster to targeting vector boundary",
+          "linker to boron-rich payload boundary"
+        ],
+        "forward_logic": [
+          "separate targeting-vector synthesis from boron payload installation",
+          "track boron content, localization rationale, and BNCT modality context",
+          "keep boron therapeutic records radiochemical and oncology-mode gated"
+        ],
+        "suggested_precursor_roles": [
+          "targeting vector",
+          "boron cluster or carborane payload",
+          "linker",
+          "BNCT modality metadata"
+        ],
+        "planner_hint": "Reward routes that expose boron payload, linker, and targeting-vector roles instead of generic boron substituent logic."
+      },
+      "risks": [
+        "radiotherapeutic modality context",
+        "boron payload exposure",
+        "targeting overclaim",
+        "dosimetry and oncology review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "BNCT boron-cluster review summarizes state-of-the-art boron clusters for therapy.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41328345/"
+        },
+        {
+          "type": "literature",
+          "citation": "Boron chemistry review covers medical applications of boron chemistry.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/32070043/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "bnct_boron_cluster_prior",
+        "rerank_bonus": "high for explicit targeting vector, boron payload, linker, and modality metadata",
+        "compliance_gate": "bnct_radiotherapeutic_oncology_review_required"
+      }
+    },
+    {
+      "id": "radiometal_theranostic_chelator_linker_policy",
+      "family_id": "boron_neutron_capture_and_metal_radiotherapeutic",
+      "name": "Radiometal theranostic to targeting vector plus chelator, linker, and isotope policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "radiometal theranostics",
+          "radiopharmaceutical chelator conjugates",
+          "radioimmunotherapy linkers"
+        ],
+        "target_features": [
+          "bifunctional chelator",
+          "targeting vector",
+          "radionuclide or isotope policy"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "chelator to linker boundary",
+          "linker to targeting vector boundary"
+        ],
+        "forward_logic": [
+          "separate targeting vector, linker, chelator, and radionuclide roles",
+          "track isotope compatibility and pharmacokinetic linker rationale",
+          "require radiochemical policy before proposal-source promotion"
+        ],
+        "suggested_precursor_roles": [
+          "targeting vector",
+          "bifunctional chelator",
+          "pharmacokinetic linker",
+          "radionuclide metadata"
+        ],
+        "planner_hint": "Use radiometal records to critique linker/chelator/isotope strategy and avoid accepting unlabeled precursors as complete routes."
+      },
+      "risks": [
+        "radiochemical handling",
+        "metal-chelator mismatch",
+        "isotope half-life mismatch",
+        "biological-targeting overclaim"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Theranostic radiopharmaceutical review frames radionuclide, bifunctional chelator, and pharmacokinetics-modifying linker as scaffold components.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35630536/"
+        },
+        {
+          "type": "literature",
+          "citation": "AAZTA-derived chelator review covers chelator design for theranostic radiopharmaceuticals.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35215346/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "radiometal_chelator_linker_prior",
+        "rerank_bonus": "high for explicit targeting vector, chelator, linker, and isotope metadata",
+        "compliance_gate": "radiochemical_theranostic_review_required"
+      }
+    },
+    {
+      "id": "activity_based_probe_warhead_reporter_split",
+      "family_id": "caged_covalent_activity_based_probe",
+      "name": "Activity-based probe to recognition element plus warhead, linker, and reporter policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "activity-based probes",
+          "covalent chemical proteomics probes",
+          "enzyme-class probes"
+        ],
+        "target_features": [
+          "reactive warhead",
+          "recognition element",
+          "reporter or enrichment handle"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "warhead to recognition element boundary",
+          "reporter linker to probe scaffold boundary"
+        ],
+        "forward_logic": [
+          "separate recognition fragment, electrophile, linker, and reporter or enrichment tag",
+          "track target class, selectivity, and labeling mode before proposal promotion",
+          "avoid generic covalent-inhibitor logic when reporter context defines the molecule"
+        ],
+        "suggested_precursor_roles": [
+          "recognition element",
+          "reactive warhead",
+          "reporter or enrichment tag",
+          "target-class metadata"
+        ],
+        "planner_hint": "Reward routes that expose probe architecture and selectivity metadata instead of treating probes as ordinary covalent inhibitors."
+      },
+      "risks": [
+        "off-target labeling",
+        "warhead overreactivity",
+        "reporter perturbation",
+        "chemical-proteomics mode review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Activity-based chemical-probe review discusses selectivity aspects of probes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34728376/"
+        },
+        {
+          "type": "literature",
+          "citation": "Activity-based protein-profiling review provides oxidoreductase ABPP context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/32881211/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "activity_probe_architecture_prior",
+        "rerank_bonus": "high for explicit recognition element, warhead, reporter, and target-class metadata",
+        "compliance_gate": "activity_based_probe_reactivity_review_required"
+      }
+    },
+    {
+      "id": "caged_photoaffinity_probe_activation_policy",
+      "family_id": "caged_covalent_activity_based_probe",
+      "name": "Photoaffinity or caged covalent probe to parent ligand plus activation, linker, and reporter policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "photoaffinity probes",
+          "caged covalent probes",
+          "oligonucleotide-based photoaffinity probes"
+        ],
+        "target_features": [
+          "photoactivatable crosslinker",
+          "parent ligand or recognition sequence",
+          "reporter or releasable linker"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "photoaffinity handle to ligand boundary",
+          "reporter or releasable linker boundary"
+        ],
+        "forward_logic": [
+          "separate recognition motif from photoactivatable or caged reactive handle",
+          "track activation wavelength, crosslinking mode, and reporter strategy",
+          "flag photoaffinity and caged-probe entries for photochemistry and biological-mode review"
+        ],
+        "suggested_precursor_roles": [
+          "recognition motif",
+          "photoaffinity handle",
+          "releasable linker or reporter",
+          "activation metadata"
+        ],
+        "planner_hint": "Use caged/photoaffinity records only when activation mode and probe-readout architecture are explicit."
+      },
+      "risks": [
+        "photochemical off-targets",
+        "crosslinker promiscuity",
+        "reporter or linker instability",
+        "biological labeling review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Oligonucleotide photoaffinity-probe review covers chemical tools for protein labeling.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/38703401/"
+        },
+        {
+          "type": "literature",
+          "citation": "Photoaffinity-probe ABPP review discusses releasable-linker applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31707121/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "photoaffinity_caged_probe_prior",
+        "rerank_bonus": "moderate for explicit recognition motif, activation mode, linker, and reporter strategy",
+        "compliance_gate": "photoaffinity_probe_photochemistry_review_required"
+      }
+    },
+    {
+      "id": "polycyclic_cage_core_topology_disconnection",
+      "family_id": "natural_product_polycyclic_cage_scaffold",
+      "name": "Polycyclic cage natural product to bridgehead core plus ring-fusion topology policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "polycyclic cage natural products",
+          "bridged alkaloids",
+          "benzobicyclo natural-product cores"
+        ],
+        "target_features": [
+          "bridgehead connectivity",
+          "fused or bridged ring network",
+          "topology-defining stereochemistry"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "bridgehead-forming bond",
+          "ring-fusion topology boundary"
+        ],
+        "forward_logic": [
+          "map cage topology and bridgehead connectivity before template scoring",
+          "separate scaffold construction from peripheral oxidation or SAR edits",
+          "track rearrangement or cascade logic where it defines the skeleton"
+        ],
+        "suggested_precursor_roles": [
+          "cage core precursor",
+          "bridgehead-forming intermediate",
+          "peripheral edit precursor",
+          "topology metadata"
+        ],
+        "planner_hint": "Reward routes that expose bridge topology and cage-core formation rather than flattening the target into ordinary ring annulations."
+      },
+      "risks": [
+        "topology misassignment",
+        "stereochemical drift",
+        "rearrangement overreach",
+        "bioactive natural-product review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Benzobicyclo construction review discusses strategies for a bridged natural-product core.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/38345999/"
+        },
+        {
+          "type": "literature",
+          "citation": "Sarpagine-ajmaline alkaloid review provides public context for complex polycyclic alkaloid synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39384254/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "polycyclic_cage_topology_prior",
+        "rerank_bonus": "high for explicit bridgehead, ring-fusion, and topology-forming step metadata",
+        "compliance_gate": "bioactive_polycyclic_natural_product_review_required"
+      }
+    },
+    {
+      "id": "bridged_rearrangement_or_cascade_topology_policy",
+      "family_id": "natural_product_polycyclic_cage_scaffold",
+      "name": "Bridged or cage scaffold to rearrangement/cascade precursor plus topology-risk policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "rearranged cage-like natural products",
+          "bridged sesquiterpenes",
+          "polycyclic dimer or oligomer scaffolds"
+        ],
+        "target_features": [
+          "skeletal rearrangement",
+          "cascade-formed ring network",
+          "strain-rich topology"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "cascade-forming bond network",
+          "rearrangement precursor boundary"
+        ],
+        "forward_logic": [
+          "separate topology-forming cascade or rearrangement from late functionalization",
+          "track strain, bridgehead, and biosynthetic analogy as advisory metadata",
+          "avoid over-crediting generic cyclizations that do not form the cage topology"
+        ],
+        "suggested_precursor_roles": [
+          "rearrangement precursor",
+          "cascade precursor",
+          "bridged scaffold",
+          "strain and topology metadata"
+        ],
+        "planner_hint": "Use bridged-cascade records to penalize routes that never address the topology-forming event."
+      },
+      "risks": [
+        "cascade feasibility overclaim",
+        "strain-driven failure",
+        "biosynthetic analogy overfit",
+        "natural-product source ambiguity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Aplydactone synthesis review provides marine bridged sesquiterpene natural-product context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31961356/"
+        },
+        {
+          "type": "literature",
+          "citation": "Dimeric naphthylisoquinoline alkaloid review covers complex bioactive natural-product topology.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31134266/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "bridged_rearrangement_cascade_prior",
+        "rerank_bonus": "moderate for explicit topology-forming cascade, rearrangement precursor, and strain metadata",
+        "compliance_gate": "cage_natural_product_topology_review_required"
+      }
+    },
+    {
+      "id": "salt_cocrystal_counterion_solid_form_disconnection",
+      "family_id": "process_crystallization_salt_polymorph_route_control",
+      "name": "Process endpoint to neutral/API form plus counterion, cocrystal former, or solid-form policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "pharmaceutical salts",
+          "cocrystals",
+          "solid-form endpoints"
+        ],
+        "target_features": [
+          "counterion or coformer",
+          "solid-form selection",
+          "solubility or developability rationale"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "counterion or coformer association boundary",
+          "API to solid-form endpoint boundary"
+        ],
+        "forward_logic": [
+          "separate API synthesis from salt or cocrystal selection",
+          "track counterion, coformer, solubility, and developability rationale",
+          "avoid treating a salt or cocrystal endpoint as a chemical stock equivalent"
+        ],
+        "suggested_precursor_roles": [
+          "neutral or parent API",
+          "counterion or coformer",
+          "solid-form endpoint",
+          "developability metadata"
+        ],
+        "planner_hint": "Use solid-form entries to keep process endpoints distinct from chemical disconnection success."
+      },
+      "risks": [
+        "solid-form misclassification",
+        "regulatory mismatch",
+        "solubility overclaim",
+        "coformer or counterion suitability review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Solubility strategy review discusses development approaches relevant to salt and solid-form selection.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/23383426/"
+        },
+        {
+          "type": "guidance",
+          "citation": "FDA guidance page provides regulatory classification context for pharmaceutical co-crystals.",
+          "url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/regulatory-classification-pharmaceutical-co-crystals"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "solid_form_counterion_coformer_prior",
+        "rerank_bonus": "high for explicit parent API, counterion or coformer, and solid-form rationale",
+        "compliance_gate": "solid_form_regulatory_process_review_required"
+      }
+    },
+    {
+      "id": "polymorph_crystallization_process_endpoint_policy",
+      "family_id": "process_crystallization_salt_polymorph_route_control",
+      "name": "Polymorph or crystallization endpoint to chemical route plus solid-form transformation policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "polymorphic drug substances",
+          "crystallization endpoints",
+          "solid-form process routes"
+        ],
+        "target_features": [
+          "polymorph control",
+          "crystallization handle",
+          "solid-form transformation risk"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "chemical synthesis to crystallization endpoint boundary",
+          "solid-form transformation risk boundary"
+        ],
+        "forward_logic": [
+          "separate chemical-route closure from crystallization and polymorph control",
+          "track solid-form transformation, analytical characterization, and process endpoint",
+          "require regulatory/process metadata before accepting a route as complete"
+        ],
+        "suggested_precursor_roles": [
+          "chemical API precursor",
+          "crystallization endpoint",
+          "polymorph or hydrate/solvate state",
+          "process-control metadata"
+        ],
+        "planner_hint": "Penalize routes that close at the right connectivity but ignore polymorph, crystallization, or process endpoint requirements."
+      },
+      "risks": [
+        "polymorph transformation",
+        "scale-up mismatch",
+        "analytical characterization gap",
+        "regulatory endpoint mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Solid-form transformation risk review discusses managing drug-product solid-form risk.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36513146/"
+        },
+        {
+          "type": "guidance",
+          "citation": "ICH Q6A guideline provides public specification decision-tree context including polymorphic forms.",
+          "url": "https://database.ich.org/sites/default/files/Q6A%20Guideline.pdf"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "polymorph_crystallization_endpoint_prior",
+        "rerank_bonus": "moderate for explicit polymorph, crystallization, and process-control metadata",
+        "compliance_gate": "polymorph_process_control_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v11 expansion promotes the backlog families for photocage/photoactive probes, hypoxia/redox prodrugs, CNS/BBB route motifs, PNA/PMO/LNA/XNA oligomer backbones, BNCT/radiometal payloads, caged activity-based probes, polycyclic cage topology, and solid-form process endpoints."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Photochemical, hypoxia-activated, CNS-active, oligonucleotide, radiochemical, covalent-probe, bioactive cage-natural-product, and solid-form process records are advisory. Promotion to proposal generation requires explicit safety, biological-mode, radiochemical, regulatory, process, or manufacturing review as applicable."
+    }
+  ]
+}

@@ -1,0 +1,1189 @@
+{
+  "schema_version": "strategic_disconnections.v10_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Ninth expanded public source layer focused on cyclic depsipeptides and lipopeptides, prenylated meroterpenoid tailoring, polyamine and DNA-crosslinker critique, lipidated peptide and glycolipid immunomodulators, enediyne/polyene chromophores, halogen/chalcogen bonding motifs, reversible covalent fragment probes, and stable-isotope metabolomics standards.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template or proposal promotion",
+      "separate depsipeptide, lipopeptide, prenylation, cytotoxic-crosslinker, glycolipid, polyene, halogen/chalcogen, covalent-fragment, or isotope-label policy",
+      "route-specific macrocycle topology, ester/amide pattern, lipid tail, prenylation site, DNA-reactive motif, amphiphile geometry, chromophore geometry, noncovalent-interaction geometry, warhead reversibility, and label-position review",
+      "toxicology, antimicrobial, immunology, cytotoxicity, genotoxicity, photostability, element-specific, covalent-inhibitor, isotope-handling, or analytical-method review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, and synthesis conditions",
+      "cytotoxic, DNA-reactive, immunomodulatory, covalent-fragment, chalcogen/halogen, and isotope-label entries are high-level route priors only"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "depsipeptide_lipopeptide_cyclic_ester_peptide",
+      "name": "Cyclic depsipeptides, lipopeptides, and ester-rich peptide natural products",
+      "pattern_keywords": [
+        "cyclic depsipeptide",
+        "lipopeptide",
+        "peptide-polyketide hybrid",
+        "ester-rich peptide",
+        "lipid tail",
+        "macrocyclic natural product"
+      ],
+      "strategic_principle": "Separate peptide sequence, ester/amide pattern, lipid tail, and macrocycle closure from ordinary peptide coupling. Depsipeptide and lipopeptide topology is route-defining metadata."
+    },
+    {
+      "family_id": "prenylated_terpene_meroterpenoid_tailoring",
+      "name": "Prenylated terpenes, meroterpenoids, and late oxidative tailoring",
+      "pattern_keywords": [
+        "prenylated phenol",
+        "meroterpenoid",
+        "prenyltransferase",
+        "terpene cyclization",
+        "late oxidative tailoring",
+        "biosynthetic branch"
+      ],
+      "strategic_principle": "Expose prenylation site, terpene or aromatic partner, cyclization branch, and oxidative tailoring order. Prenyl groups are strategic handles when they define biosynthetic lineage or skeletal topology."
+    },
+    {
+      "family_id": "polyamine_alkylator_crosslinker_cytotoxic_scaffold",
+      "name": "Polyamine conjugates, alkylators, and DNA-crosslinking cytotoxic scaffold critique",
+      "pattern_keywords": [
+        "polyamine conjugate",
+        "DNA alkylating agent",
+        "nitrogen mustard",
+        "DNA crosslinker",
+        "platinum chemotherapeutic",
+        "cytotoxic scaffold"
+      ],
+      "strategic_principle": "Separate delivery or transport polyamine motifs, DNA-reactive groups, prodrug activation, and crosslinking mechanism from ordinary amine/alkyl substituent logic. These records are compliance-gated critique sources only."
+    },
+    {
+      "family_id": "lipidated_peptide_glycolipid_immunomodulator",
+      "name": "Lipidated peptides, glycolipid antigens, and immunomodulatory amphiphiles",
+      "pattern_keywords": [
+        "lipidated peptide",
+        "lipopeptide vaccine",
+        "glycolipid antigen",
+        "alpha-galactosylceramide",
+        "iNKT agonist",
+        "TLR2 lipopeptide"
+      ],
+      "strategic_principle": "Separate polar headgroup, peptide or glycan epitope, lipid tail geometry, and innate-immunity mode. Amphiphile topology and biological recognition are route metadata."
+    },
+    {
+      "family_id": "natural_product_polyene_ene_yne_chromophore",
+      "name": "Polyene, enediyne, carotenoid, and conjugated natural-product chromophores",
+      "pattern_keywords": [
+        "enediyne",
+        "polyene",
+        "carotenoid",
+        "retinoid",
+        "conjugated chromophore",
+        "photostability"
+      ],
+      "strategic_principle": "Treat conjugation geometry, ene-yne topology, redox sensitivity, photostability, and chromophore biosynthesis as strategic. Polyene geometry is not an ordinary alkene count."
+    },
+    {
+      "family_id": "halogen_bonding_and_chalcogen_bonding_medicinal_motif",
+      "name": "Halogen-bond and chalcogen-bond medicinal motifs",
+      "pattern_keywords": [
+        "halogen bond donor",
+        "CF2X motif",
+        "chalcogen bond",
+        "organosulfur motif",
+        "organoselenium motif",
+        "noncovalent interaction geometry"
+      ],
+      "strategic_principle": "Separate atom placement for directional noncovalent interactions from generic halogen or sulfur substitution. Interaction geometry and element-specific liability are route metadata."
+    },
+    {
+      "family_id": "fragment_linking_covalent_reversible_probe",
+      "name": "Fragment linking, reversible covalent probes, and reactivity-tuned inhibitor motifs",
+      "pattern_keywords": [
+        "fragment linking",
+        "reversible covalent inhibitor",
+        "targeted covalent inhibitor",
+        "warhead",
+        "probe handle",
+        "SAR lineage"
+      ],
+      "strategic_principle": "Separate fragment lineage, linker growth, reversible warhead tuning, and target residue context. Covalent or semi-permanent probe handles must not be promoted without reactivity and biological-mode review."
+    },
+    {
+      "family_id": "stable_isotope_metabolomics_internal_standard",
+      "name": "Stable-isotope labels, metabolomics standards, and isotope-coded analytical handles",
+      "pattern_keywords": [
+        "stable isotope label",
+        "deuterated internal standard",
+        "13C label",
+        "15N label",
+        "metabolomics standard",
+        "isotope-coded derivatization"
+      ],
+      "strategic_principle": "Separate target analyte synthesis from isotope placement, isotopic purity, derivatization tag, and analytical method. Label position is strategic metadata, not a decorative atom substitution."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "depsipeptide_lipopeptide_topology_anchor",
+      "family_id": "depsipeptide_lipopeptide_cyclic_ester_peptide",
+      "name": "Peptide natural-product topology with reviewed ester/amide pattern, lipid tail, and macrocycle closure",
+      "role": "depsipeptide_lipopeptide_anchor",
+      "aliases": [
+        "cyclic depsipeptide",
+        "lipopeptide surfactant",
+        "peptide-polyketide hybrid",
+        "macrocyclic ester peptide"
+      ],
+      "acceptance_policy": "requires_sequence_ester_pattern_lipid_tail_macrocycle_topology_and_biological_context_review"
+    },
+    {
+      "anchor_id": "prenylated_meroterpenoid_tailoring_anchor",
+      "family_id": "prenylated_terpene_meroterpenoid_tailoring",
+      "name": "Prenylated or meroterpenoid scaffold with reviewed prenylation site and tailoring branch",
+      "role": "prenylated_meroterpenoid_anchor",
+      "aliases": [
+        "prenylated phenol",
+        "fungal meroterpenoid",
+        "prenyltransferase product",
+        "terpene-polyketide hybrid"
+      ],
+      "acceptance_policy": "requires_prenylation_site_core_partner_tailoring_order_and_biosynthetic_branch_review"
+    },
+    {
+      "anchor_id": "polyamine_crosslinker_cytotoxic_anchor",
+      "family_id": "polyamine_alkylator_crosslinker_cytotoxic_scaffold",
+      "name": "Polyamine, alkylator, or crosslinker motif with reviewed transport, activation, and cytotoxic mechanism",
+      "role": "cytotoxic_crosslinker_anchor",
+      "aliases": [
+        "polyamine conjugate",
+        "nitrogen mustard prodrug",
+        "DNA crosslinking agent",
+        "platinum DNA-targeting scaffold"
+      ],
+      "acceptance_policy": "requires_cytotoxicity_genotoxicity_legal_and_biological_mode_review"
+    },
+    {
+      "anchor_id": "lipidated_glycolipid_immunomodulator_anchor",
+      "family_id": "lipidated_peptide_glycolipid_immunomodulator",
+      "name": "Lipidated peptide or glycolipid antigen with headgroup, tail, and immune-mode metadata",
+      "role": "immunomodulatory_amphiphile_anchor",
+      "aliases": [
+        "alpha-galactosylceramide analogue",
+        "iNKT lipid antigen",
+        "lipopeptide vaccine adjuvant",
+        "TLR2 lipopeptide"
+      ],
+      "acceptance_policy": "requires_headgroup_lipid_tail_epitope_and_immunology_review"
+    },
+    {
+      "anchor_id": "polyene_enediyne_chromophore_anchor",
+      "family_id": "natural_product_polyene_ene_yne_chromophore",
+      "name": "Conjugated polyene, enediyne, or carotenoid chromophore with geometry and stability metadata",
+      "role": "conjugated_chromophore_anchor",
+      "aliases": [
+        "enediyne antibiotic",
+        "anthraquinone-fused enediyne",
+        "carotenoid",
+        "retinoid polyene"
+      ],
+      "acceptance_policy": "requires_geometry_redox_photostability_and_cytotoxic_or_biological_context_review"
+    },
+    {
+      "anchor_id": "halogen_chalcogen_bonding_geometry_anchor",
+      "family_id": "halogen_bonding_and_chalcogen_bonding_medicinal_motif",
+      "name": "Halogen or chalcogen motif with directional noncovalent interaction geometry",
+      "role": "directional_non_covalent_anchor",
+      "aliases": [
+        "halogen bond donor",
+        "CF2X motif",
+        "chalcogen bond scaffold",
+        "organosulfur noncovalent motif"
+      ],
+      "acceptance_policy": "requires_interaction_geometry_binding_context_and_element_specific_toxicology_review"
+    },
+    {
+      "anchor_id": "fragment_reversible_covalent_probe_anchor",
+      "family_id": "fragment_linking_covalent_reversible_probe",
+      "name": "Fragment-linked or reversible covalent probe with target residue and warhead tuning metadata",
+      "role": "covalent_fragment_probe_anchor",
+      "aliases": [
+        "reversible covalent inhibitor",
+        "targeted covalent inhibitor",
+        "fragment-linked probe",
+        "semi-permanent covalent inhibitor"
+      ],
+      "acceptance_policy": "requires_fragment_lineage_target_residue_reactivity_and_biological_mode_review"
+    },
+    {
+      "anchor_id": "stable_isotope_label_standard_anchor",
+      "family_id": "stable_isotope_metabolomics_internal_standard",
+      "name": "Stable-isotope-labeled analyte or internal standard with label position and method metadata",
+      "role": "isotope_label_standard_anchor",
+      "aliases": [
+        "deuterated standard",
+        "13C internal standard",
+        "15N labeled analyte",
+        "isotope-coded derivatization reagent"
+      ],
+      "acceptance_policy": "requires_label_position_isotopic_purity_analyte_mapping_and_analytical_method_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "depsipeptide_macrocycle_ester_amide_pattern_disconnection",
+      "family_id": "depsipeptide_lipopeptide_cyclic_ester_peptide",
+      "name": "Cyclic depsipeptide to linear precursor plus ester/amide pattern and macrocycle closure policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "cyclic depsipeptides",
+          "ester-rich peptide natural products",
+          "macrocyclic peptide-polyketide hybrids"
+        ],
+        "target_features": [
+          "defined ester/amide sequence",
+          "macrocycle closure",
+          "stereochemically dense peptide natural product"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "macrocycle closure bond",
+          "ester/amide pattern boundary"
+        ],
+        "forward_logic": [
+          "map the linear sequence and ester/amide pattern before scoring closure",
+          "separate fragment assembly from macrocyclization and late chirality control",
+          "track biological class and stereochemical topology"
+        ],
+        "suggested_precursor_roles": [
+          "linear depsipeptide precursor",
+          "hydroxy acid or amino acid fragment",
+          "macrocycle closure precursor",
+          "topology metadata"
+        ],
+        "planner_hint": "Reward routes that expose ester/amide order and macrocycle topology instead of treating the target as a generic peptide."
+      },
+      "risks": [
+        "macrocycle closure overreach",
+        "ester/amide register mismatch",
+        "stereochemistry drift",
+        "bioactive natural-product review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Cyclic depsipeptide review links molecular architecture to antibacterial functions.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/42179840/"
+        },
+        {
+          "type": "literature",
+          "citation": "Macrocyclic natural-product synthesis review discusses late-stage chirality generation strategies.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41925626/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "depsipeptide_topology_prior",
+        "rerank_bonus": "high for explicit ester/amide pattern and macrocycle topology",
+        "compliance_gate": "bioactive_depsipeptide_review_required"
+      }
+    },
+    {
+      "id": "lipopeptide_tail_macrocycle_or_surfactant_policy",
+      "family_id": "depsipeptide_lipopeptide_cyclic_ester_peptide",
+      "name": "Lipopeptide to peptide core plus lipid-tail and surfactant or antimicrobial policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "lipopeptides",
+          "lipopeptide surfactants",
+          "antimicrobial peptide-lipid natural products"
+        ],
+        "target_features": [
+          "lipid tail",
+          "peptide or depsipeptide headgroup",
+          "surfactant, membrane-active, or antimicrobial context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "lipid tail to peptide core boundary",
+          "peptide headgroup to macrocycle or acyl-tail boundary"
+        ],
+        "forward_logic": [
+          "separate peptide core assembly from lipid-tail installation",
+          "track membrane-active, surfactant, or antimicrobial role before proposal promotion",
+          "avoid treating long-chain acylated peptides as ordinary amides"
+        ],
+        "suggested_precursor_roles": [
+          "peptide core",
+          "lipid tail",
+          "lipopeptide amphiphile",
+          "biological-mode metadata"
+        ],
+        "planner_hint": "Use lipopeptide entries only when lipid-tail topology and biological role are explicit."
+      },
+      "risks": [
+        "membrane-active toxicity",
+        "antimicrobial stewardship context",
+        "tail-length mismatch",
+        "natural-mixture overgeneralization"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Fusaricidin review provides public lipopeptide natural-product context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/42101669/"
+        },
+        {
+          "type": "literature",
+          "citation": "Microbe-derived surfactant review discusses anti-biofilm surfactant molecules including lipopeptide-like contexts.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41661391/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "lipopeptide_amphiphile_prior",
+        "rerank_bonus": "moderate for explicit peptide core, lipid tail, and membrane or antimicrobial context",
+        "compliance_gate": "lipopeptide_bioactivity_stewardship_review_required"
+      }
+    },
+    {
+      "id": "prenylated_meroterpenoid_site_and_core_disconnection",
+      "family_id": "prenylated_terpene_meroterpenoid_tailoring",
+      "name": "Prenylated meroterpenoid to aromatic/polyketide core plus prenyl donor and site policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "prenylated phenols",
+          "fungal meroterpenoids",
+          "terpene-polyketide hybrids"
+        ],
+        "target_features": [
+          "prenylated aromatic or polyketide core",
+          "specific prenylation site",
+          "late oxidative tailoring"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "prenyl group to aromatic or polyketide core boundary",
+          "terpene fragment to non-terpene core boundary"
+        ],
+        "forward_logic": [
+          "map prenylation site and core partner before route scoring",
+          "separate core assembly from prenyl installation and oxidative tailoring",
+          "track biosynthetic branch where it changes scaffold topology"
+        ],
+        "suggested_precursor_roles": [
+          "aromatic or polyketide core",
+          "prenyl donor or terpene fragment",
+          "prenylated meroterpenoid",
+          "tailoring-order metadata"
+        ],
+        "planner_hint": "Reward explicit prenyl-site and core-partner mapping rather than generic alkyl substitution."
+      },
+      "risks": [
+        "prenyl-site ambiguity",
+        "biosynthetic analogy overreach",
+        "oxidation-order mismatch",
+        "bioactive meroterpenoid review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Bisabosqual study provides public context for fungal triprenyl phenol meroterpenoids and synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41626859/"
+        },
+        {
+          "type": "literature",
+          "citation": "Plant prenyltransferase review covers diversity and production of prenylated natural products.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40765501/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "prenylated_meroterpenoid_prior",
+        "rerank_bonus": "high for explicit prenylation site, core partner, and tailoring order",
+        "compliance_gate": "bioactive_prenylated_natural_product_review_required"
+      }
+    },
+    {
+      "id": "terpene_tailoring_biosynthetic_branch_policy",
+      "family_id": "prenylated_terpene_meroterpenoid_tailoring",
+      "name": "Terpene or prenylated scaffold to cyclization branch plus late tailoring policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "terpene-derived natural products",
+          "prenylated peptides or amino-acid derivatives",
+          "meroterpenoid tailoring products"
+        ],
+        "target_features": [
+          "terpene cyclization branch",
+          "prenyltransferase-derived connection",
+          "late oxidative or rearrangement tailoring"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "terpene cyclization branch boundary",
+          "late oxidative tailoring boundary"
+        ],
+        "forward_logic": [
+          "separate prenyltransferase or terpene branch choice from downstream editing",
+          "track whether late oxidation, rearrangement, or peptide prenylation defines the target family",
+          "keep biosynthetic branch metadata advisory until structures are explicit"
+        ],
+        "suggested_precursor_roles": [
+          "terpene or prenylated precursor",
+          "tailored scaffold",
+          "oxidative edit precursor",
+          "biosynthetic branch metadata"
+        ],
+        "planner_hint": "Use biosynthetic tailoring entries to critique route order, not to accept advanced natural-product analogues as stock."
+      },
+      "risks": [
+        "branch misassignment",
+        "overfitted biosynthetic logic",
+        "tailoring order uncertainty",
+        "natural-product source ambiguity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Amino acid and peptide prenyltransferase review discusses discovery, engineering, and applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41480986/"
+        },
+        {
+          "type": "literature",
+          "citation": "Meroterpenoid biosynthesis search result provides public context for meroterpenoid tailoring families.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41831729/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "terpene_tailoring_branch_prior",
+        "rerank_bonus": "moderate for explicit branch and tailoring-order metadata",
+        "compliance_gate": "bioactive_terpene_tailoring_review_required"
+      }
+    },
+    {
+      "id": "polyamine_transport_conjugate_scaffold_disconnection",
+      "family_id": "polyamine_alkylator_crosslinker_cytotoxic_scaffold",
+      "name": "Polyamine conjugate to payload scaffold plus transport or uptake policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "polyamine conjugates",
+          "polyamine transporter-targeted payloads",
+          "polyamine metabolism modulators"
+        ],
+        "target_features": [
+          "polyamine chain",
+          "payload or imaging/cytotoxic scaffold",
+          "transport or metabolism rationale"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "polyamine chain to payload boundary",
+          "transport-targeting linker boundary"
+        ],
+        "forward_logic": [
+          "separate polyamine transporter or metabolism motif from the payload scaffold",
+          "track uptake, immune, ferroptosis, or therapy-resistance context",
+          "flag cytotoxic or oncology use before proposal promotion"
+        ],
+        "suggested_precursor_roles": [
+          "polyamine chain",
+          "payload scaffold",
+          "linker",
+          "transport or metabolism metadata"
+        ],
+        "planner_hint": "Treat polyamine conjugates as advisory unless transport role and payload identity are explicit."
+      },
+      "risks": [
+        "cytotoxicity",
+        "off-target uptake",
+        "polyamine metabolism perturbation",
+        "oncology-mode review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Naphthalimide polyamine conjugate review discusses polyamine conjugates in cancer treatment context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41548735/"
+        },
+        {
+          "type": "literature",
+          "citation": "Polyamine metabolism review discusses cancer immune evasion, ferroptosis, and therapy resistance.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41233302/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "polyamine_transport_conjugate_prior",
+        "rerank_bonus": "moderate for explicit transporter/metabolism rationale and payload mapping",
+        "compliance_gate": "polyamine_cytotoxicity_review_required"
+      }
+    },
+    {
+      "id": "dna_alkylator_crosslinker_activation_policy",
+      "family_id": "polyamine_alkylator_crosslinker_cytotoxic_scaffold",
+      "name": "DNA alkylator or crosslinker to activation/prodrug motif plus DNA-reactive scaffold policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "nitrogen mustard prodrugs",
+          "DNA alkylating agents",
+          "platinum or crosslinking chemotherapeutics"
+        ],
+        "target_features": [
+          "DNA-reactive motif",
+          "activation or prodrug trigger",
+          "crosslinking or adduct-forming mechanism"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "prodrug trigger to cytotoxic motif boundary",
+          "DNA-reactive handle to carrier scaffold boundary"
+        ],
+        "forward_logic": [
+          "separate cytotoxic pharmacophore from activation, delivery, or masking motif",
+          "track DNA adduct/crosslink mechanism and tumor-selective activation rationale",
+          "keep all entries compliance-gated and advisory only"
+        ],
+        "suggested_precursor_roles": [
+          "DNA-reactive scaffold",
+          "activation trigger",
+          "prodrug or masking group",
+          "cytotoxic mechanism metadata"
+        ],
+        "planner_hint": "Use crosslinker records for route-risk critique, not operational proposal generation."
+      },
+      "risks": [
+        "genotoxicity",
+        "cytotoxic payload handling",
+        "legal and safety review",
+        "biosecurity and oncology-mode context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Nitrogen mustard prodrug review discusses tumor-selective and chemical activation strategies.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41574478/"
+        },
+        {
+          "type": "literature",
+          "citation": "DNA adduct review covers DNA adducts in cancer chemotherapy.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/38552031/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "dna_crosslinker_route_critique_prior",
+        "rerank_bonus": "high for explicit activation, DNA-reactive motif, and route-risk control metadata",
+        "compliance_gate": "cytotoxic_genotoxic_crosslinker_review_required"
+      }
+    },
+    {
+      "id": "glycolipid_antigen_headgroup_tail_disconnection",
+      "family_id": "lipidated_peptide_glycolipid_immunomodulator",
+      "name": "Glycolipid antigen to polar headgroup plus lipid-tail geometry and immune-recognition policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "alpha-galactosylceramide analogues",
+          "glycolipid antigens",
+          "iNKT agonists"
+        ],
+        "target_features": [
+          "glycan or polar headgroup",
+          "ceramide or lipid tail",
+          "immune-recognition geometry"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "glycan headgroup to lipid aglycone boundary",
+          "lipid tail geometry boundary"
+        ],
+        "forward_logic": [
+          "separate headgroup identity from lipid-tail and stereochemical geometry",
+          "track antigen presentation, iNKT recognition, and immunomodulatory context",
+          "avoid generic glycoside or lipid-stock closure"
+        ],
+        "suggested_precursor_roles": [
+          "glycan headgroup",
+          "lipid aglycone",
+          "tail-modified glycolipid",
+          "immune-recognition metadata"
+        ],
+        "planner_hint": "Reward routes that preserve headgroup/tail geometry and immune-recognition context."
+      },
+      "risks": [
+        "immune-mode uncertainty",
+        "lipid-tail stereochemistry",
+        "formulation dependence",
+        "immunology review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "iNKT immunotherapy review discusses lipid-based modulation and translational advances.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41898393/"
+        },
+        {
+          "type": "literature",
+          "citation": "iNKT agonist review discusses vaccine adjuvant applications for infectious disease.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35240551/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "glycolipid_antigen_geometry_prior",
+        "rerank_bonus": "high for explicit headgroup, tail geometry, and immune-recognition metadata",
+        "compliance_gate": "glycolipid_immunology_review_required"
+      }
+    },
+    {
+      "id": "lipidated_peptide_adjuvant_amphiphile_policy",
+      "family_id": "lipidated_peptide_glycolipid_immunomodulator",
+      "name": "Lipidated peptide adjuvant to peptide epitope plus lipid amphiphile policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "lipidated peptide vaccines",
+          "lipopeptide immunomodulators",
+          "TLR2-targeted amphiphiles"
+        ],
+        "target_features": [
+          "peptide epitope",
+          "lipid tail or lipoamino acid",
+          "innate immune receptor rationale"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "lipid tail to peptide epitope boundary",
+          "adjuvant handle to antigen boundary"
+        ],
+        "forward_logic": [
+          "separate peptide epitope synthesis from lipidation and adjuvant role",
+          "track innate-immunity receptor or delivery mechanism",
+          "flag vaccine/adjuvant review before proposal-source promotion"
+        ],
+        "suggested_precursor_roles": [
+          "peptide epitope",
+          "lipid tail",
+          "lipopeptide adjuvant",
+          "immune-mode metadata"
+        ],
+        "planner_hint": "Use lipidated peptide entries only when epitope, lipid tail, and immune-mode role are explicit."
+      },
+      "risks": [
+        "immune activation uncertainty",
+        "aggregation/formulation dependence",
+        "tail length mismatch",
+        "vaccine adjuvant review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Peptide vaccine delivery review discusses lipids as activators of innate immunity.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/30362416/"
+        },
+        {
+          "type": "literature",
+          "citation": "TLR2 vaccine review provides public context for lipopeptide-like immune targeting.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25057505/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "lipidated_peptide_adjuvant_prior",
+        "rerank_bonus": "moderate for explicit peptide/lipid boundary and immune-mode metadata",
+        "compliance_gate": "lipidated_peptide_vaccine_adjuvant_review_required"
+      }
+    },
+    {
+      "id": "enediyne_polyene_chromophore_scaffold_boundary",
+      "family_id": "natural_product_polyene_ene_yne_chromophore",
+      "name": "Enediyne or polyene chromophore to scaffold plus conjugation and activation policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "enediyne antibiotics",
+          "polyene natural products",
+          "conjugated cytotoxic chromophores"
+        ],
+        "target_features": [
+          "ene-yne or conjugated polyene system",
+          "redox or radical activation context",
+          "geometry-sensitive chromophore"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "chromophore to carrier scaffold boundary",
+          "ene-yne or polyene assembly boundary"
+        ],
+        "forward_logic": [
+          "define chromophore geometry and attachment to carrier scaffold",
+          "separate conjugated system construction from glycoside, polyketide, or carrier fragments",
+          "track redox, photostability, and cytotoxicity context"
+        ],
+        "suggested_precursor_roles": [
+          "carrier scaffold",
+          "enediyne or polyene fragment",
+          "chromophore-coupled target",
+          "geometry and stability metadata"
+        ],
+        "planner_hint": "Reward routes that preserve chromophore geometry and activation context rather than generic alkyne/alkene edits."
+      },
+      "risks": [
+        "cytotoxicity",
+        "redox instability",
+        "photodegradation",
+        "geometry assignment mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Enediyne antibiotic genome-mining review supports enediyne motifs as distinct natural-product source families.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/38917732/"
+        },
+        {
+          "type": "literature",
+          "citation": "Anthraquinone-fused enediyne review discusses discovery, biosynthesis, and development.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34672308/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "enediyne_polyene_chromophore_prior",
+        "rerank_bonus": "high for explicit chromophore geometry, carrier boundary, and activation/stability context",
+        "compliance_gate": "cytotoxic_chromophore_safety_review_required"
+      }
+    },
+    {
+      "id": "carotenoid_retinoid_polyene_geometry_policy",
+      "family_id": "natural_product_polyene_ene_yne_chromophore",
+      "name": "Carotenoid or retinoid-like polyene to terminal groups plus conjugation-geometry policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "carotenoids",
+          "retinoid-like polyenes",
+          "conjugated lipid chromophores"
+        ],
+        "target_features": [
+          "extended conjugated polyene",
+          "E/Z geometry",
+          "photostability, redox, or delivery context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "polyene chain to terminal group boundary",
+          "conjugated building-block union boundary"
+        ],
+        "forward_logic": [
+          "separate terminal groups from conjugated chain and geometry control",
+          "track stability, bioavailability, and photochemical liabilities",
+          "avoid scoring any polyene assembly without geometry metadata"
+        ],
+        "suggested_precursor_roles": [
+          "terminal group fragment",
+          "polyene chain fragment",
+          "geometry-defined chromophore",
+          "stability metadata"
+        ],
+        "planner_hint": "Use carotenoid/retinoid-like entries only when polyene geometry and stability role are explicit."
+      },
+      "risks": [
+        "E/Z isomerization",
+        "oxidation",
+        "photostability",
+        "formulation and exposure review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Carotenoid stability review discusses physicochemical stability and delivery concerns.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39252190/"
+        },
+        {
+          "type": "literature",
+          "citation": "Retinoid biology review links quantum chemistry and retinoid biological function.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36854887/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "carotenoid_retinoid_polyene_prior",
+        "rerank_bonus": "moderate for explicit chain geometry, terminal groups, and stability metadata",
+        "compliance_gate": "polyene_photostability_exposure_review_required"
+      }
+    },
+    {
+      "id": "halogen_bond_donor_motif_position_policy",
+      "family_id": "halogen_bonding_and_chalcogen_bonding_medicinal_motif",
+      "name": "Halogen-bond donor motif to parent scaffold plus directional interaction policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "halogen-bonding medicinal motifs",
+          "CF2X-containing ligands",
+          "directional noncovalent interaction analogues"
+        ],
+        "target_features": [
+          "halogen-bond donor",
+          "binding-site directional interaction",
+          "fluorinated or halogenated motif with geometry rationale"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "halogen-bond donor motif to parent scaffold boundary",
+          "CF2X or halogenated interaction group boundary"
+        ],
+        "forward_logic": [
+          "define parent scaffold and the intended halogen-bond geometry",
+          "separate interaction-motif installation from generic halogenation",
+          "track binding-site evidence and element-specific exposure context"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "halogen-bond donor motif",
+          "directional-interaction analogue",
+          "binding geometry metadata"
+        ],
+        "planner_hint": "Reward halogenated motifs only when directional interaction geometry is explicit."
+      },
+      "risks": [
+        "binding-geometry overclaim",
+        "lipophilicity shifts",
+        "element-specific exposure",
+        "noncovalent interaction evidence gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "CF2X halogen-bond donor review discusses applications in medicinal chemistry, chemical biology, and drug discovery.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37487500/"
+        },
+        {
+          "type": "literature",
+          "citation": "Charge-density analysis review provides public context for evaluating noncovalent interactions in molecular crystals.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35744821/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "halogen_bond_donor_prior",
+        "rerank_bonus": "moderate for explicit interaction geometry and parent-scaffold mapping",
+        "compliance_gate": "halogen_bonding_element_exposure_review_required"
+      }
+    },
+    {
+      "id": "chalcogen_bond_element_specific_scaffold_policy",
+      "family_id": "halogen_bonding_and_chalcogen_bonding_medicinal_motif",
+      "name": "Chalcogen-bond or organosulfur/selenium motif to parent scaffold plus element-specific policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "chalcogen-bonding ligands",
+          "organosulfur medicinal motifs",
+          "organoselenium analogues"
+        ],
+        "target_features": [
+          "directional chalcogen interaction",
+          "sulfur, selenium, or tellurium motif",
+          "element-specific binding or toxicity rationale"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "chalcogen motif to parent scaffold boundary",
+          "organosulfur or organoselenium interaction group boundary"
+        ],
+        "forward_logic": [
+          "separate element-specific motif synthesis from parent scaffold assembly",
+          "track whether the motif is a binding interaction, redox liability, or metabolism handle",
+          "require toxicology and biological-mode review before promotion"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "chalcogen interaction motif",
+          "element-specific analogue",
+          "binding/toxicity metadata"
+        ],
+        "planner_hint": "Use chalcogen motifs as advisory priors unless interaction geometry and element-specific liability are explicit."
+      },
+      "risks": [
+        "element-specific toxicity",
+        "redox instability",
+        "binding-geometry uncertainty",
+        "metabolism mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Chalcogen bond scaffold study discusses chalcogen bond-assisted syn-locked scaffolds and biological implications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36455359/"
+        },
+        {
+          "type": "literature",
+          "citation": "Sulfur-containing molecule review provides public medicinal context for sulfur motif strategy.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40763663/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "chalcogen_bond_element_prior",
+        "rerank_bonus": "moderate only with element-specific binding and toxicity metadata",
+        "compliance_gate": "chalcogen_element_toxicology_review_required"
+      }
+    },
+    {
+      "id": "reversible_covalent_fragment_warhead_split",
+      "family_id": "fragment_linking_covalent_reversible_probe",
+      "name": "Reversible covalent inhibitor to recognition fragment plus tuned warhead and target-residue policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "reversible covalent inhibitors",
+          "targeted covalent inhibitors",
+          "reactivity-tuned probes"
+        ],
+        "target_features": [
+          "recognition fragment",
+          "tuned covalent warhead",
+          "target residue or binding-site context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "warhead to recognition fragment boundary",
+          "linker or electrophile attachment boundary"
+        ],
+        "forward_logic": [
+          "separate recognition fragment from warhead and linker",
+          "track target residue, reversibility, reactivity, and selectivity evidence",
+          "gate all covalent-fragment entries before proposal promotion"
+        ],
+        "suggested_precursor_roles": [
+          "recognition fragment",
+          "reversible warhead",
+          "linker",
+          "target-residue metadata"
+        ],
+        "planner_hint": "Reward covalent-fragment routes only when target residue and reactivity tuning are explicit."
+      },
+      "risks": [
+        "off-target covalent binding",
+        "reactivity overclaim",
+        "target-residue mismatch",
+        "bioactive probe review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Covalent inhibitor review discusses progress on covalent inhibitors targeting alkaline amino acids.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40716160/"
+        },
+        {
+          "type": "literature",
+          "citation": "bioTCI review discusses middle-to-macro biomolecular targeted covalent inhibitors.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36834935/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "reversible_covalent_fragment_prior",
+        "rerank_bonus": "high for explicit fragment lineage, target residue, and reactivity tuning",
+        "compliance_gate": "covalent_probe_reactivity_review_required"
+      }
+    },
+    {
+      "id": "fragment_linking_probe_handle_lineage_policy",
+      "family_id": "fragment_linking_covalent_reversible_probe",
+      "name": "Fragment-linked probe to fragment lineage plus linker and handle policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "fragment-linked probes",
+          "probe-handle analogues",
+          "SAR-derived covalent or noncovalent probes"
+        ],
+        "target_features": [
+          "fragment lineage",
+          "linker growth or merging",
+          "probe handle or SAR-tracking substituent"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "fragment-to-linker boundary",
+          "probe handle to recognition scaffold boundary"
+        ],
+        "forward_logic": [
+          "map each fragment to SAR lineage before scoring the linked target",
+          "separate probe handle from recognition scaffold and linker",
+          "track whether covalent action is intended, reversible, or avoided"
+        ],
+        "suggested_precursor_roles": [
+          "fragment A",
+          "fragment B or probe handle",
+          "linker",
+          "SAR lineage metadata"
+        ],
+        "planner_hint": "Use fragment-linking records to preserve SAR lineage and avoid treating probe handles as target-stock shortcuts."
+      },
+      "risks": [
+        "fragment lineage ambiguity",
+        "probe-handle liability",
+        "large-molecule developability",
+        "biological-mode uncertainty"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Targeted covalent inhibitor review provides public context for covalent probe design and specificity.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36834935/"
+        },
+        {
+          "type": "literature",
+          "citation": "Covalent inhibitor review supports reactivity and target-residue metadata as route-relevant policy.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40716160/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "fragment_linking_probe_lineage_prior",
+        "rerank_bonus": "moderate for explicit fragment lineage, linker topology, and probe-handle role",
+        "compliance_gate": "bioactive_probe_lineage_review_required"
+      }
+    },
+    {
+      "id": "stable_isotope_label_position_disconnection",
+      "family_id": "stable_isotope_metabolomics_internal_standard",
+      "name": "Stable-isotope-labeled analyte to unlabeled analyte plus label-position policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "deuterated internal standards",
+          "13C or 15N labeled metabolites",
+          "stable-isotope-labeled analytes"
+        ],
+        "target_features": [
+          "explicit label position",
+          "isotopic purity requirement",
+          "analytical quantitation role"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "isotope-labeled fragment to analyte scaffold boundary",
+          "label-position installation boundary"
+        ],
+        "forward_logic": [
+          "map labeled atoms to the unlabeled analyte before route scoring",
+          "separate analyte synthesis from isotope source and label-position policy",
+          "track isotopic purity and analytical method"
+        ],
+        "suggested_precursor_roles": [
+          "unlabeled analyte",
+          "isotope-labeled precursor",
+          "internal standard",
+          "label-position metadata"
+        ],
+        "planner_hint": "Reward labeled-standard routes only when label position, isotopic purity, and analyte mapping are explicit."
+      },
+      "risks": [
+        "label scrambling",
+        "isotopic purity mismatch",
+        "analytical-method dependence",
+        "cost and availability assumptions"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Quantitative metabolomics review discusses challenges and advances in mass-spectrometry-based metabolomics.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/38948317/"
+        },
+        {
+          "type": "literature",
+          "citation": "Multiple-isotope fluxomics review discusses use of isotopes in metabolic analysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/32304936/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "stable_isotope_label_position_prior",
+        "rerank_bonus": "high for explicit label-position and analyte-mapping metadata",
+        "compliance_gate": "isotope_label_analytical_review_required"
+      }
+    },
+    {
+      "id": "metabolomics_internal_standard_derivatization_policy",
+      "family_id": "stable_isotope_metabolomics_internal_standard",
+      "name": "Metabolomics standard to analyte plus isotope-coded derivatization or internal-standard policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "isotope-coded derivatization reagents",
+          "metabolomics internal standards",
+          "LC-MS quantitation standards"
+        ],
+        "target_features": [
+          "isotope-coded tag",
+          "derivatization handle",
+          "quantitative analytical role"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "isotope-coded derivatization tag boundary",
+          "internal-standard analyte/tag boundary"
+        ],
+        "forward_logic": [
+          "separate analyte-specific synthesis from derivatization-tag installation",
+          "track whether isotope coding is internal standard, derivatization, or flux analysis",
+          "avoid treating labeled standards as ordinary stock unless analytical metadata is present"
+        ],
+        "suggested_precursor_roles": [
+          "target analyte",
+          "isotope-coded derivatization tag",
+          "internal standard",
+          "LC-MS method metadata"
+        ],
+        "planner_hint": "Use isotope-coded standard entries for analytical route policy and label traceability, not generic synthetic closure."
+      },
+      "risks": [
+        "derivatization bias",
+        "matrix effects",
+        "label or tag instability",
+        "method-transfer mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Isotope-coded derivatization review discusses LC-MS biomedical applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31755123/"
+        },
+        {
+          "type": "literature",
+          "citation": "Acyl-CoA analytical review discusses internal standards and mass-spectrometry quantitation context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39492074/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "metabolomics_internal_standard_prior",
+        "rerank_bonus": "moderate for explicit derivatization, label, and analytical-method metadata",
+        "compliance_gate": "analytical_standard_traceability_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v10 expansion promotes the refreshed backlog families for depsipeptide/lipopeptide topology, prenylated meroterpenoid tailoring, polyamine and cytotoxic crosslinker critique, lipidated immunomodulators, polyene/enediyne chromophores, halogen/chalcogen bonding motifs, reversible covalent fragment probes, and stable-isotope metabolomics standards."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Cytotoxic, genotoxic, immunomodulatory, antimicrobial, covalent-probe, chalcogen/halogen, chromophore, and isotope-label records are advisory. Promotion to proposal generation requires explicit safety, biological-mode, toxicology, immunology, analytical-method, or element-specific review as applicable."
+    }
+  ]
+}

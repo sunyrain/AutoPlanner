@@ -1,0 +1,1219 @@
+{
+  "schema_version": "strategic_disconnections.v5_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Fourth expanded public source layer focused on antibiotic semisynthesis families, covalent-warhead installation, therapeutic oligonucleotide and conjugate boundaries, ionizable lipid delivery motifs, and medicinal metal-complex scaffolds.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template or proposal promotion",
+      "separate fermentation-core, reviewed-anchor, conjugation, or formulation policy",
+      "route-specific regioselectivity, stereoselectivity, protecting-group, and release-mechanism review",
+      "antimicrobial stewardship, covalent-inhibitor safety, oligonucleotide manufacturing, formulation, and metal-complex toxicology review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, and synthesis conditions",
+      "antibiotic, covalent-warhead, oligonucleotide, LNP, and metal-complex entries are high-level route priors only"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "macrolide_ketolide_antibiotic",
+      "name": "Macrolide and ketolide antibiotic semisynthesis",
+      "pattern_keywords": [
+        "macrolide",
+        "ketolide",
+        "erythromycin",
+        "azithromycin",
+        "clarithromycin",
+        "telithromycin",
+        "solithromycin",
+        "desosamine",
+        "cladinose"
+      ],
+      "strategic_principle": "Treat erythromycin-like macrolactone cores as fermentation/semisynthesis anchors unless a reviewed fully synthetic platform is selected. Strategic work is sugar editing, ketolide C3 oxidation, macrolactone side-chain installation, and acid-stability/resistance-aware modification."
+    },
+    {
+      "family_id": "glycopeptide_lipopeptide_antibiotic",
+      "name": "Glycopeptide, lipoglycopeptide, and cyclic lipopeptide antibiotics",
+      "pattern_keywords": [
+        "glycopeptide",
+        "lipoglycopeptide",
+        "vancomycin",
+        "teicoplanin",
+        "dalbavancin",
+        "oritavancin",
+        "telavancin",
+        "daptomycin",
+        "lipopeptide"
+      ],
+      "strategic_principle": "Use fermentation-derived glycopeptide or lipopeptide cores as reviewed anchors. Strategic disconnections are peptide macrocycle/crosslink logic, sugar/lipid tailoring, semisynthetic side-chain installation, and stewardship-gated analogue generation."
+    },
+    {
+      "family_id": "oxazolidinone_antibacterial_scaffold",
+      "name": "Oxazolidinone antibacterial scaffolds",
+      "pattern_keywords": [
+        "oxazolidinone",
+        "linezolid",
+        "tedizolid",
+        "sutezolid",
+        "eperezolid",
+        "morpholine",
+        "aryl fluoride",
+        "C5 acetamide"
+      ],
+      "strategic_principle": "Build or select the chiral oxazolidinone core with C5 stereochemistry tracked, then treat aryl/heteroaryl substitution and morpholine/side-chain edits as late antibacterial SAR under stewardship review."
+    },
+    {
+      "family_id": "covalent_warhead_electrophile",
+      "name": "Covalent inhibitor electrophilic warheads",
+      "pattern_keywords": [
+        "covalent inhibitor",
+        "electrophilic warhead",
+        "acrylamide",
+        "chloroacetamide",
+        "sulfonyl fluoride",
+        "vinyl sulfonamide",
+        "nitrile",
+        "epoxide",
+        "cysteine"
+      ],
+      "strategic_principle": "Separate reversible binding scaffold construction from electrophilic warhead installation. Warhead type, attachment vector, target residue, intrinsic reactivity, and off-target liability are required strategic metadata."
+    },
+    {
+      "family_id": "peptide_oligonucleotide_conjugate",
+      "name": "Peptide-oligonucleotide and lipid-oligonucleotide conjugates",
+      "pattern_keywords": [
+        "peptide-oligonucleotide conjugate",
+        "POC",
+        "PNA",
+        "PMO",
+        "cell-penetrating peptide",
+        "oligonucleotide conjugate",
+        "click conjugation",
+        "solid-phase synthesis"
+      ],
+      "strategic_principle": "Separate oligonucleotide assembly, peptide/lipid module assembly, and post-synthetic conjugation or stepwise solid-phase synthesis. Linkage chemistry, terminal handle placement, purification, and delivery role are strategic metadata."
+    },
+    {
+      "family_id": "rnai_antisense_phosphorothioate",
+      "name": "Antisense, RNAi, phosphorothioate, and 2-prime-modified oligonucleotide therapeutics",
+      "pattern_keywords": [
+        "antisense oligonucleotide",
+        "ASO",
+        "siRNA",
+        "RNAi",
+        "phosphorothioate",
+        "2'-O-methyl",
+        "2'-fluoro",
+        "LNA",
+        "gapmer"
+      ],
+      "strategic_principle": "Treat therapeutic oligonucleotides as sequence/backbone manufacturing objects: separate phosphoramidite monomer preparation, solid-phase chain assembly, backbone/sugar/base modification policy, and conjugation/delivery motifs."
+    },
+    {
+      "family_id": "lipid_nanoparticle_ionizable_lipid",
+      "name": "Ionizable lipids and lipid-nanoparticle delivery motifs",
+      "pattern_keywords": [
+        "ionizable lipid",
+        "LNP",
+        "lipid nanoparticle",
+        "mRNA delivery",
+        "siRNA delivery",
+        "tertiary amine",
+        "PEG lipid",
+        "biodegradable linker",
+        "lipid tail"
+      ],
+      "strategic_principle": "Separate ionizable headgroup, linker, hydrophobic tails, PEG-lipid, helper lipid, and formulation context. Synthesis of a lipid component is not enough; pKa, biodegradability, cargo type, and formulation role must be explicit."
+    },
+    {
+      "family_id": "metal_complex_medicinal_scaffold",
+      "name": "Medicinal metal complexes and coordination-scaffold drugs",
+      "pattern_keywords": [
+        "metal complex",
+        "metallodrug",
+        "cisplatin",
+        "platinum",
+        "ruthenium",
+        "gallium",
+        "coordination complex",
+        "ligand exchange",
+        "Pt(IV) prodrug"
+      ],
+      "strategic_principle": "Treat metal center, oxidation state, leaving groups, chelating ligand set, geometry, and activation mechanism as route-defining. Organic ligand synthesis and metalation/complexation must remain separate reviewed stages."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "macrolide_erythromycin_semisynthesis_anchor",
+      "family_id": "macrolide_ketolide_antibiotic",
+      "name": "Erythromycin-like fermentation macrolactone core",
+      "role": "macrolide_semisynthesis_anchor",
+      "aliases": [
+        "erythromycin A",
+        "clarithromycin precursor",
+        "azithromycin precursor",
+        "ketolide precursor",
+        "desosamine/cladinose macrolactone"
+      ],
+      "acceptance_policy": "antibiotic_stewardship_and_fermentation_core_review_required"
+    },
+    {
+      "anchor_id": "glycopeptide_lipopeptide_fermentation_core_anchor",
+      "family_id": "glycopeptide_lipopeptide_antibiotic",
+      "name": "Fermentation-derived glycopeptide/lipopeptide antibiotic core",
+      "role": "glycopeptide_lipopeptide_semisynthesis_anchor",
+      "aliases": [
+        "vancomycin",
+        "teicoplanin",
+        "A40926",
+        "A21978C",
+        "daptomycin core",
+        "lipoglycopeptide core"
+      ],
+      "acceptance_policy": "source_supported_antibiotic_core_with_stewardship_review"
+    },
+    {
+      "anchor_id": "oxazolidinone_chiral_core_anchor",
+      "family_id": "oxazolidinone_antibacterial_scaffold",
+      "name": "Chiral oxazolidinone core and aryl side-chain precursor",
+      "role": "oxazolidinone_core_anchor",
+      "aliases": [
+        "oxazolidin-2-one",
+        "chiral amino alcohol",
+        "linezolid core",
+        "tedizolid phosphate precursor",
+        "aryl fluoride morpholine precursor"
+      ],
+      "acceptance_policy": "requires_C5_stereochemistry_and_antibiotic_stewardship_review"
+    },
+    {
+      "anchor_id": "covalent_warhead_binding_scaffold_anchor",
+      "family_id": "covalent_warhead_electrophile",
+      "name": "Noncovalent binding scaffold plus electrophilic warhead",
+      "role": "covalent_inhibitor_anchor",
+      "aliases": [
+        "acrylamide",
+        "chloroacetamide",
+        "sulfonyl fluoride",
+        "vinyl sulfonamide",
+        "nitrile",
+        "reversible covalent warhead"
+      ],
+      "acceptance_policy": "requires_target_residue_reactivity_and_safety_review"
+    },
+    {
+      "anchor_id": "peptide_oligonucleotide_conjugation_anchor",
+      "family_id": "peptide_oligonucleotide_conjugate",
+      "name": "Oligonucleotide module, peptide/lipid module, and conjugation handle",
+      "role": "oligonucleotide_conjugate_anchor",
+      "aliases": [
+        "oligonucleotide handle",
+        "cell-penetrating peptide",
+        "lipid conjugate",
+        "azide/alkyne handle",
+        "maleimide/thiol handle"
+      ],
+      "acceptance_policy": "requires_solid_phase_boundary_and_conjugation_handle_metadata"
+    },
+    {
+      "anchor_id": "aso_sirna_phosphoramidite_backbone_anchor",
+      "family_id": "rnai_antisense_phosphorothioate",
+      "name": "Modified phosphoramidite monomers and solid-supported oligonucleotide backbone",
+      "role": "therapeutic_oligonucleotide_manufacturing_anchor",
+      "aliases": [
+        "phosphoramidite monomer",
+        "phosphorothioate backbone",
+        "2'-O-methyl monomer",
+        "2'-fluoro monomer",
+        "LNA monomer",
+        "solid support"
+      ],
+      "acceptance_policy": "requires_sequence_backbone_and_manufacturing_boundary_metadata"
+    },
+    {
+      "anchor_id": "ionizable_lipid_head_linker_tail_anchor",
+      "family_id": "lipid_nanoparticle_ionizable_lipid",
+      "name": "Ionizable headgroup, biodegradable linker, lipid tails, and formulation-role anchor",
+      "role": "lnp_ionizable_lipid_anchor",
+      "aliases": [
+        "tertiary amine headgroup",
+        "ester/amide/urea linker",
+        "hydrophobic lipid tail",
+        "PEG lipid",
+        "helper lipid"
+      ],
+      "acceptance_policy": "requires_pKa_biodegradability_and_formulation_role_metadata"
+    },
+    {
+      "anchor_id": "metal_complex_ligand_set_anchor",
+      "family_id": "metal_complex_medicinal_scaffold",
+      "name": "Metal center, ligand set, oxidation state, and leaving-group coordination anchor",
+      "role": "medicinal_metal_complex_anchor",
+      "aliases": [
+        "Pt(II) complex",
+        "Pt(IV) prodrug",
+        "ruthenium arene complex",
+        "gallium complex",
+        "chelating ligand"
+      ],
+      "acceptance_policy": "requires_metal_identity_geometry_oxidation_state_and_toxicology_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "macrolide_fermentation_core_semisynthesis",
+      "family_id": "macrolide_ketolide_antibiotic",
+      "name": "Macrolide fermentation core plus semisynthetic sugar/side-chain editing",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "macrolide antibiotics",
+          "erythromycin derivatives",
+          "azalides",
+          "semisynthetic macrolides"
+        ],
+        "target_features": [
+          "12- to 16-membered macrolactone",
+          "desosamine/cladinose or related sugars",
+          "erythromycin-like fermentation core"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "late sugar/side-chain derivatization bonds",
+          "do not cleave the macrolactone core in first-pass semisynthesis"
+        ],
+        "forward_logic": [
+          "select an erythromycin-like fermentation core or reviewed macrolide core",
+          "plan sugar editing, acid-stability modification, or side-chain installation with site policy",
+          "track resistance and antibiotic-stewardship context"
+        ],
+        "suggested_precursor_roles": [
+          "erythromycin-like fermentation core",
+          "protected macrolide intermediate",
+          "sugar-edited macrolide",
+          "late aryl/alkyl side-chain partner"
+        ],
+        "planner_hint": "Treat common macrolide cores as semisynthesis anchors unless a reviewed total-synthesis platform is explicitly chosen."
+      },
+      "risks": [
+        "site-selective modification of dense macrolactone",
+        "acid instability",
+        "antibiotic resistance context",
+        "macrolactone/sugar degradation"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Macrolide platform article notes semisynthesis from erythromycin fermentation products and convergent alternatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6526944/"
+        },
+        {
+          "type": "literature",
+          "citation": "Macrolide renaissance review summarizes second-generation semisynthetic macrolide derivatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5573421/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "macrolide_semisynthesis_prior",
+        "rerank_bonus": "high when reviewed fermentation core and site-specific edit are explicit",
+        "compliance_gate": "antimicrobial_stewardship_review_required"
+      }
+    },
+    {
+      "id": "ketolide_c3_cladinose_to_keto_sidechain_policy",
+      "family_id": "macrolide_ketolide_antibiotic",
+      "name": "Ketolide C3 cladinose-to-keto and extended side-chain disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "ketolides",
+          "telithromycin-like macrolides",
+          "solithromycin-like macrolides"
+        ],
+        "target_features": [
+          "C3 keto macrolide",
+          "desosamine retained",
+          "extended alkyl-aryl side chain"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C3 sugar-derived bond or oxidation-state link",
+          "extended aryl/alkyl side-chain attachment bond"
+        ],
+        "forward_logic": [
+          "map ketolide target to macrolide core with C3 sugar removal/oxidation-state policy",
+          "install extended side chain only after attachment vector is defined",
+          "separate ribosome-binding design metadata from chemical route feasibility"
+        ],
+        "suggested_precursor_roles": [
+          "erythromycin-derived ketolide precursor",
+          "C3 keto macrolactone",
+          "extended aryl/alkyl side-chain partner",
+          "protected macrolide intermediate"
+        ],
+        "planner_hint": "Do not treat ketolide sugar removal as ordinary deprotection; it is a resistance-aware scaffold transformation."
+      },
+      "risks": [
+        "macrolactone instability",
+        "site-selective sugar editing",
+        "side-chain attachment vector",
+        "antibiotic stewardship and safety history"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Macrolide mechanism review explains ketolide C3 keto substitution and extended side-chain importance.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6108949/"
+        },
+        {
+          "type": "literature",
+          "citation": "Erythromycin-to-azithromycin review covers semisynthetic macrolide development and ketolide/macrolone context.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5039525/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "ketolide_transformation_prior",
+        "rerank_bonus": "moderate for explicit C3 ketolide and side-chain vector policy",
+        "compliance_gate": "antimicrobial_stewardship_review_required"
+      }
+    },
+    {
+      "id": "glycopeptide_core_tailoring_semisynthesis",
+      "family_id": "glycopeptide_lipopeptide_antibiotic",
+      "name": "Glycopeptide core plus sugar/lipid/side-chain semisynthesis",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "glycopeptide antibiotics",
+          "lipoglycopeptides",
+          "vancomycin/teicoplanin analogues"
+        ],
+        "target_features": [
+          "crosslinked heptapeptide core",
+          "glycosylation",
+          "lipidated side chain",
+          "vancomycin or teicoplanin family"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "late sugar, lipid, or side-chain modification bonds",
+          "do not cleave crosslinked peptide core unless total synthesis is explicitly selected"
+        ],
+        "forward_logic": [
+          "select vancomycin/teicoplanin/A40926-like source-supported core",
+          "plan glycosylation, lipidation, halogenation, or side-chain edit as semisynthesis/tailoring",
+          "track antimicrobial-stewardship and resistance context"
+        ],
+        "suggested_precursor_roles": [
+          "vancomycin-like core",
+          "teicoplanin/A40926-like core",
+          "lipid side-chain partner",
+          "glycosylated tailoring intermediate"
+        ],
+        "planner_hint": "Use glycopeptide core as reviewed semisynthesis anchor; ordinary peptide disconnection is too weak."
+      },
+      "risks": [
+        "dense crosslinked peptide core",
+        "site-selective glycosylation/lipidation",
+        "antimicrobial stewardship",
+        "polar purification"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Semisynthetic glycopeptide antibiotic review covers 2014-2022 developments.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9379927/"
+        },
+        {
+          "type": "literature",
+          "citation": "Glycopeptide modification review covers biological, chemical, and chemoenzymatic strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6901329/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "glycopeptide_semisynthesis_prior",
+        "rerank_bonus": "high when reviewed core and tailoring site are explicit",
+        "compliance_gate": "antimicrobial_stewardship_review_required"
+      }
+    },
+    {
+      "id": "lipopeptide_daptomycin_acyl_tail_and_macrocycle_policy",
+      "family_id": "glycopeptide_lipopeptide_antibiotic",
+      "name": "Cyclic lipopeptide acyl-tail and macrocycle semisynthesis policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "daptomycin analogues",
+          "calcium-dependent lipopeptides",
+          "cyclic lipopeptide antibiotics"
+        ],
+        "target_features": [
+          "cyclic peptide/lactone core",
+          "lipid acyl tail",
+          "calcium-binding acidic motif"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "lipid acyl-tail bond",
+          "macrocyclization bond only under reviewed peptide/lipopeptide route"
+        ],
+        "forward_logic": [
+          "separate lipopeptide core, acyl tail, and macrocyclization/tailoring policy",
+          "for daptomycin-like cores, use fermentation/deacylation/reacylation or chemoenzymatic anchor when supported",
+          "track membrane activity and antimicrobial-stewardship context"
+        ],
+        "suggested_precursor_roles": [
+          "deacylated lipopeptide core",
+          "fatty acyl side-chain partner",
+          "linear peptide thioester-like precursor",
+          "macrocyclization substrate"
+        ],
+        "planner_hint": "Treat acyl-tail exchange and macrocycle closure as distinct strategic operations."
+      },
+      "risks": [
+        "acyl-tail controls toxicity and potency",
+        "macrocyclization selectivity",
+        "calcium-dependent binding context",
+        "antibiotic stewardship"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Daptomycin minireview describes semisynthetic modifications, acyl-tail exchange, and chemoenzymatic synthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2934615/"
+        },
+        {
+          "type": "literature",
+          "citation": "Calcium-dependent lipopeptide review discusses structure, mechanism, and medicinal chemistry.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6533798/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "lipopeptide_semisynthesis_prior",
+        "rerank_bonus": "moderate for explicit core/acyl-tail/macrocycle split",
+        "compliance_gate": "antimicrobial_stewardship_review_required"
+      }
+    },
+    {
+      "id": "oxazolidinone_chiral_core_and_aryl_sidechain_split",
+      "family_id": "oxazolidinone_antibacterial_scaffold",
+      "name": "Oxazolidinone chiral core and aryl side-chain disconnection",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "oxazolidinone antibiotics",
+          "linezolid analogues",
+          "tedizolid analogues"
+        ],
+        "target_features": [
+          "oxazolidin-2-one ring",
+          "C5 stereocenter",
+          "aryl/heteroaryl substituent",
+          "C5 acetamide-like side chain"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-N/C-O bonds forming oxazolidinone ring",
+          "aryl-core bond or late amide/side-chain bond"
+        ],
+        "forward_logic": [
+          "set C5 stereochemistry by chiral amino alcohol or reviewed asymmetric route",
+          "build oxazolidinone core before late aryl/morpholine/SAR decoration",
+          "track antibacterial stewardship and mitochondrial/toxicity considerations"
+        ],
+        "suggested_precursor_roles": [
+          "chiral amino alcohol",
+          "oxazolidinone core",
+          "aryl fluoride or heteroaryl partner",
+          "C5 acetamide precursor"
+        ],
+        "planner_hint": "C5 stereochemistry is mandatory metadata; late aryl substitution alone is not core construction."
+      },
+      "risks": [
+        "C5 stereochemistry",
+        "antibacterial stewardship",
+        "aryl fluoride/morpholine substitution order",
+        "toxicity and resistance context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Oxazolidinone antibiotics review covers chemical, biological, and analytical aspects including C5 stereochemistry.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8305375/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "oxazolidinone_core_prior",
+        "rerank_bonus": "moderate for chiral core plus aryl side-chain strategy",
+        "compliance_gate": "antimicrobial_stewardship_review_required"
+      }
+    },
+    {
+      "id": "oxazolidinone_phosphate_prodrug_or_late_sar_policy",
+      "family_id": "oxazolidinone_antibacterial_scaffold",
+      "name": "Oxazolidinone phosphate prodrug or late SAR substitution policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "tedizolid phosphate-like prodrugs",
+          "oxazolidinone SAR analogues",
+          "antibacterial phosphate prodrugs"
+        ],
+        "target_features": [
+          "phosphate or masked alcohol",
+          "same oxazolidinone core",
+          "late solubility or SAR modification"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "phosphate ester/prodrug bond",
+          "late aryl/morpholine/SAR substituent bonds"
+        ],
+        "forward_logic": [
+          "solve oxazolidinone antibacterial core first",
+          "install phosphate/prodrug or late SAR appendage after core stereochemistry is fixed",
+          "do not treat prodrug masking as core route progress"
+        ],
+        "suggested_precursor_roles": [
+          "oxazolidinone alcohol precursor",
+          "phosphate prodrug mask",
+          "late aryl/heteroaryl SAR partner",
+          "solubility-enhancing substituent"
+        ],
+        "planner_hint": "Classify phosphate/prodrug edits separately from core construction."
+      },
+      "risks": [
+        "prodrug activation",
+        "phosphate ester stability",
+        "antibacterial stewardship",
+        "late substitution may alter ribosome binding"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Oxazolidinone antibiotics review includes linezolid, tedizolid, tedizolid phosphate, and related derivatives.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8305375/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "oxazolidinone_late_sar_prior",
+        "rerank_bonus": "low_to_moderate and only after core route exists",
+        "compliance_gate": "antimicrobial_stewardship_review_required"
+      }
+    },
+    {
+      "id": "covalent_warhead_late_installation_disconnection",
+      "family_id": "covalent_warhead_electrophile",
+      "name": "Covalent inhibitor late electrophilic-warhead installation",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "targeted covalent inhibitors",
+          "cysteine-directed inhibitors",
+          "irreversible kinase inhibitors"
+        ],
+        "target_features": [
+          "acrylamide or Michael acceptor",
+          "chloroacetamide or alkylating handle",
+          "sulfur(VI) fluoride or related electrophile"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "warhead attachment bond to noncovalent scaffold"
+        ],
+        "forward_logic": [
+          "build reversible binding scaffold first",
+          "install electrophilic warhead late at a reviewed attachment vector",
+          "track target residue, intrinsic reactivity, and off-target safety"
+        ],
+        "suggested_precursor_roles": [
+          "binding scaffold with exit vector",
+          "acrylamide/alkylating warhead precursor",
+          "sulfonyl fluoride precursor",
+          "covalent inhibitor final analogue"
+        ],
+        "planner_hint": "Warhead installation is compliance-gated; synthesis does not validate target selectivity."
+      },
+      "risks": [
+        "off-target covalent binding",
+        "warhead overreactivity",
+        "metabolic liability",
+        "bioactivity/safety review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Targeted covalent drug review describes electrophilic warheads such as acrylamide and vinyl sulfonamide.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9749957/"
+        },
+        {
+          "type": "literature",
+          "citation": "Covalent inhibitor review discusses electrophilic functional groups, sulfur(VI) motifs, strain-release motifs, and other warheads.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8292994/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "compliance_gated_covalent_warhead_prior",
+        "rerank_bonus": "low_to_moderate only with target-residue metadata",
+        "compliance_gate": "covalent_inhibitor_safety_review_required"
+      }
+    },
+    {
+      "id": "covalent_warhead_reactivity_tuning_policy",
+      "family_id": "covalent_warhead_electrophile",
+      "name": "Covalent-warhead reactivity tuning and residue-selectivity policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "cysteine covalent inhibitors",
+          "lysine/tyrosine covalent probes",
+          "reversible covalent inhibitors"
+        ],
+        "target_features": [
+          "warhead class varied across SAR",
+          "same binding scaffold",
+          "target residue controls design"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "warhead module bond to scaffold",
+          "reversible covalent linkage when product is a conjugate/probe"
+        ],
+        "forward_logic": [
+          "separate warhead choice from binding scaffold synthesis",
+          "compare acrylamide, chloroacetamide, sulfonyl fluoride, nitrile, epoxide, or reversible covalent motif by target residue and reactivity",
+          "keep probe/conjugate adducts distinct from isolable small-molecule targets"
+        ],
+        "suggested_precursor_roles": [
+          "binding scaffold",
+          "warhead library precursor",
+          "target-residue-matched electrophile",
+          "reversible covalent motif"
+        ],
+        "planner_hint": "Use as SAR/probe critique; do not promote route solely because an electrophile can be appended."
+      },
+      "risks": [
+        "warhead mismatch to target residue",
+        "off-target proteome labeling",
+        "chemical instability",
+        "assay context required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Cysteine-warhead review compares nucleophilic substitution, Michael addition, and non-Michael addition warheads.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9694382/"
+        },
+        {
+          "type": "literature",
+          "citation": "Covalent allosteric modulation review discusses electrophilic warheads including sulfonyl halides.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9948676/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "compliance_gated_covalent_reactivity_prior",
+        "rerank_bonus": "low unless residue/reactivity metadata is present",
+        "compliance_gate": "covalent_inhibitor_safety_review_required"
+      }
+    },
+    {
+      "id": "peptide_oligonucleotide_stepwise_vs_postsynthetic_conjugation",
+      "family_id": "peptide_oligonucleotide_conjugate",
+      "name": "Peptide-oligonucleotide stepwise synthesis versus postsynthetic conjugation split",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "peptide-oligonucleotide conjugates",
+          "cell-penetrating peptide oligo conjugates",
+          "PMO/PNA peptide conjugates"
+        ],
+        "target_features": [
+          "covalent peptide-oligonucleotide linkage",
+          "solid-phase boundary",
+          "terminal conjugation handle"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "peptide-oligonucleotide conjugation bond"
+        ],
+        "forward_logic": [
+          "choose stepwise solid-phase synthesis or postsynthetic conjugation",
+          "prepare oligonucleotide and peptide/lipid modules separately when compatibility demands",
+          "track handle placement, protecting groups, and purification strategy"
+        ],
+        "suggested_precursor_roles": [
+          "functionalized oligonucleotide",
+          "peptide with conjugation handle",
+          "click/thiol/maleimide handle",
+          "solid-supported intermediate"
+        ],
+        "planner_hint": "Separate module synthesis from conjugation; a single generic amide/click split is incomplete without solid-phase boundary metadata."
+      },
+      "risks": [
+        "oligonucleotide degradation",
+        "solid-phase compatibility",
+        "purification of highly polar conjugates",
+        "delivery function not implied by synthesis"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Peptide-oligonucleotide conjugate review compares stepwise solid-phase synthesis and postsynthetic conjugation.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8434111/"
+        },
+        {
+          "type": "literature",
+          "citation": "Oligonucleotide conjugate review discusses solid phase synthesis and solution conjugation boundaries.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3374910/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "oligonucleotide_conjugate_prior",
+        "rerank_bonus": "moderate for explicit module/conjugation-boundary mapping",
+        "compliance_gate": "oligonucleotide_manufacturing_review_required"
+      }
+    },
+    {
+      "id": "lipid_oligonucleotide_conjugate_delivery_module_policy",
+      "family_id": "peptide_oligonucleotide_conjugate",
+      "name": "Lipid- or peptide-oligonucleotide delivery-module conjugation policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "lipid-oligonucleotide conjugates",
+          "peptide-siRNA conjugates",
+          "GalNAc/lipid/peptide oligo conjugates"
+        ],
+        "target_features": [
+          "delivery ligand attached to oligonucleotide",
+          "terminal or internal modification",
+          "conjugation handle"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "delivery module to oligonucleotide linker bond"
+        ],
+        "forward_logic": [
+          "separate oligonucleotide sequence/backbone manufacture from delivery module synthesis",
+          "install delivery module through terminal handle or postsynthetic conjugation",
+          "track tissue targeting, cell uptake, and linker stability metadata"
+        ],
+        "suggested_precursor_roles": [
+          "modified oligonucleotide",
+          "lipid/peptide/GalNAc delivery module",
+          "linker handle",
+          "postsynthetic conjugation intermediate"
+        ],
+        "planner_hint": "Delivery conjugation is not ordinary linker chemistry; target tissue and handle position matter."
+      },
+      "risks": [
+        "delivery module can alter biodistribution",
+        "conjugate purification",
+        "linker stability",
+        "sequence-specific manufacturing constraints"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Lipid and peptide-oligonucleotide conjugate review covers therapeutic uses and conjugate assembly.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9959333/"
+        },
+        {
+          "type": "literature",
+          "citation": "Peptide-oligonucleotide conjugate chemistry review emphasizes delivery and synthetic boundaries.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8434111/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "oligonucleotide_delivery_conjugate_prior",
+        "rerank_bonus": "moderate for explicit delivery module and handle placement",
+        "compliance_gate": "oligonucleotide_manufacturing_review_required"
+      }
+    },
+    {
+      "id": "aso_sirna_phosphorothioate_backbone_modification_policy",
+      "family_id": "rnai_antisense_phosphorothioate",
+      "name": "ASO/siRNA phosphorothioate and 2-prime modification policy",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "antisense oligonucleotides",
+          "siRNA duplexes",
+          "gapmers",
+          "modified oligonucleotide therapeutics"
+        ],
+        "target_features": [
+          "phosphorothioate backbone",
+          "2'-O-methyl or 2'-fluoro sugar modifications",
+          "LNA or other conformational modification",
+          "sequence-defined polymer"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "internucleotide phosphodiester/phosphorothioate linkages as manufacturing repeat units"
+        ],
+        "forward_logic": [
+          "treat target as sequence-defined solid-phase manufacturing object",
+          "select modified phosphoramidite monomers and sulfurization/backbone policy",
+          "track stereochemistry/diastereomer mixture and sequence position of modifications"
+        ],
+        "suggested_precursor_roles": [
+          "modified phosphoramidite monomer",
+          "solid support",
+          "phosphorothioate backbone segment",
+          "2'-modified nucleotide monomer"
+        ],
+        "planner_hint": "Do not convert each internucleotide bond into generic phosphate chemistry; keep sequence/backbone specification intact."
+      },
+      "risks": [
+        "diastereomer mixtures at phosphorothioates",
+        "sequence-specific impurities",
+        "solid-phase coupling efficiency",
+        "biological activity depends on modification pattern"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Antisense and duplex RNA review discusses phosphorothioate and sugar modifications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5829639/"
+        },
+        {
+          "type": "literature",
+          "citation": "Antisense technology review summarizes backbone and 2-prime modifications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8005817/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "therapeutic_oligonucleotide_backbone_prior",
+        "rerank_bonus": "moderate for sequence/backbone/manufacturing-boundary metadata",
+        "compliance_gate": "oligonucleotide_manufacturing_review_required"
+      }
+    },
+    {
+      "id": "oligonucleotide_solid_phase_boundary_and_conjugation_split",
+      "family_id": "rnai_antisense_phosphorothioate",
+      "name": "Oligonucleotide solid-phase boundary and terminal-conjugation split",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "ASO conjugates",
+          "siRNA conjugates",
+          "terminally modified oligonucleotides"
+        ],
+        "target_features": [
+          "terminal linker",
+          "delivery ligand",
+          "solid support boundary",
+          "sequence-defined oligonucleotide"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "terminal linker/conjugate bond",
+          "solid-support cleavage boundary"
+        ],
+        "forward_logic": [
+          "separate oligonucleotide chain assembly from terminal linker or ligand conjugation",
+          "choose preloaded solid support, modified phosphoramidite, or postsynthetic handle strategy",
+          "track purification and salt/exchange form"
+        ],
+        "suggested_precursor_roles": [
+          "solid-supported oligonucleotide",
+          "terminally functionalized oligonucleotide",
+          "delivery ligand/linker partner",
+          "modified solid support"
+        ],
+        "planner_hint": "Terminal conjugation should be scored as manufacturing/linker boundary, not ordinary small-molecule coupling."
+      },
+      "risks": [
+        "low coupling yield on long sequences",
+        "deprotection compatibility",
+        "purification and desalting",
+        "sequence-specific analytics"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Oligonucleotide conjugate review discusses solid phase synthesis and terminal conjugation strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3374910/"
+        },
+        {
+          "type": "literature",
+          "citation": "Lipid and peptide oligonucleotide conjugate review covers postsynthetic conjugation approaches.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9959333/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "oligonucleotide_terminal_conjugation_prior",
+        "rerank_bonus": "moderate for correct solid-phase/conjugation boundary",
+        "compliance_gate": "oligonucleotide_manufacturing_review_required"
+      }
+    },
+    {
+      "id": "ionizable_lipid_head_linker_tail_disconnection",
+      "family_id": "lipid_nanoparticle_ionizable_lipid",
+      "name": "Ionizable lipid headgroup-linker-tail strategic disconnection",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "ionizable lipids",
+          "LNP lipid components",
+          "mRNA/siRNA delivery lipids"
+        ],
+        "target_features": [
+          "tertiary amine or ionizable headgroup",
+          "biodegradable linker",
+          "hydrophobic tails",
+          "formulation-specific lipid role"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "headgroup-linker bond",
+          "linker-tail ester/amide/urea bonds"
+        ],
+        "forward_logic": [
+          "separate ionizable headgroup, linker, and hydrophobic tail modules",
+          "track pKa, biodegradability, branching, and cargo/formulation context",
+          "do not infer LNP performance from synthetic accessibility alone"
+        ],
+        "suggested_precursor_roles": [
+          "ionizable amine headgroup",
+          "biodegradable linker",
+          "lipid tail acid/alcohol/amine partner",
+          "PEG/helper lipid when relevant"
+        ],
+        "planner_hint": "Score ionizable lipids with formulation metadata; head/tail synthesis alone is incomplete."
+      },
+      "risks": [
+        "formulation-dependent activity",
+        "pKa mismatch",
+        "ester/amide hydrolysis stability",
+        "cargo and tissue specificity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "mRNA LNP review describes ionizable lipids and other LNP building blocks.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10059764/"
+        },
+        {
+          "type": "literature",
+          "citation": "siRNA LNP review discusses SAR-guided synthesis and screening of ionizable lipids.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3836621/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "ionizable_lipid_modular_prior",
+        "rerank_bonus": "moderate for head/linker/tail split with pKa/formulation metadata",
+        "compliance_gate": "formulation_and_delivery_review_required"
+      }
+    },
+    {
+      "id": "lnp_formulation_component_boundary_policy",
+      "family_id": "lipid_nanoparticle_ionizable_lipid",
+      "name": "LNP formulation component boundary policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "LNP formulations",
+          "mRNA LNPs",
+          "siRNA LNPs",
+          "SORT or organ-targeted LNPs"
+        ],
+        "target_features": [
+          "ionizable lipid plus helper lipid/cholesterol/PEG lipid",
+          "formulation-level target rather than single molecule",
+          "organ-targeting lipid component"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "not a single molecule disconnection; decompose into formulation components"
+        ],
+        "forward_logic": [
+          "classify target as formulation or individual lipid component",
+          "separate ionizable lipid synthesis from helper lipid, PEG lipid, cholesterol/sitosterol, and cargo",
+          "track formulation ratios and organ-targeting role outside organic route synthesis"
+        ],
+        "suggested_precursor_roles": [
+          "ionizable lipid",
+          "helper lipid",
+          "cholesterol/sitosterol",
+          "PEG lipid",
+          "RNA cargo"
+        ],
+        "planner_hint": "Do not mark formulation component decomposition as solved stock; formulation metadata is required."
+      },
+      "risks": [
+        "formulation performance not implied by component synthesis",
+        "RNA cargo compatibility",
+        "immunogenicity and toxicity",
+        "organ targeting depends on composition"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "RNA LNP review describes ionizable amino lipids, helper lipids, cholesterol, and PEG-lipid composition.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9691360/"
+        },
+        {
+          "type": "literature",
+          "citation": "LNP design review discusses ionizable lipid pKa, headgroup, ester/linker, and tail structure effects.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10144967/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "lnp_formulation_boundary_prior",
+        "rerank_bonus": "low_to_moderate; formulation targets need non-route metadata",
+        "compliance_gate": "formulation_and_delivery_review_required"
+      }
+    },
+    {
+      "id": "metal_complex_ligand_set_and_metalation_disconnection",
+      "family_id": "metal_complex_medicinal_scaffold",
+      "name": "Medicinal metal complex to ligand set plus metalation/coordination stage",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "platinum anticancer complexes",
+          "ruthenium arene complexes",
+          "gallium complexes",
+          "metal-based medicinal scaffolds"
+        ],
+        "target_features": [
+          "metal center",
+          "defined ligand set",
+          "coordination geometry",
+          "leaving group or activation ligand"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "metal-ligand coordination bonds treated as metalation stage",
+          "organic ligand synthesis handled separately"
+        ],
+        "forward_logic": [
+          "synthesize organic ligands separately from complexation",
+          "select metal identity, oxidation state, leaving groups, and geometry as reviewed coordination stage",
+          "track activation mechanism and toxicology"
+        ],
+        "suggested_precursor_roles": [
+          "chelating ligand",
+          "metal precursor",
+          "leaving-group ligand",
+          "final metal complex"
+        ],
+        "planner_hint": "Organic retrosynthesis is incomplete without metal center, geometry, and activation metadata."
+      },
+      "risks": [
+        "metal toxicity",
+        "ligand exchange",
+        "stereochemistry/geometric isomers",
+        "biological activation mechanism"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Bioinorganic anticancer drug review covers platinum, ruthenium, gallium, and other metal-based drugs.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2933823/"
+        },
+        {
+          "type": "literature",
+          "citation": "Metallo-drug review discusses platinum drugs and other metal complexes in cancer therapy.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9572156/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "medicinal_metal_complex_prior",
+        "rerank_bonus": "moderate for ligand/metalation split with geometry metadata",
+        "compliance_gate": "metal_complex_toxicology_review_required"
+      }
+    },
+    {
+      "id": "ptiv_prodrug_axial_ligand_activation_policy",
+      "family_id": "metal_complex_medicinal_scaffold",
+      "name": "Pt(IV) prodrug axial ligand and activation policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "Pt(IV) prodrugs",
+          "platinum anticancer prodrugs",
+          "metal-complex conjugates"
+        ],
+        "target_features": [
+          "octahedral Pt(IV) center",
+          "axial ligands",
+          "Pt(II) activation product",
+          "organic targeting/conjugation ligand"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "axial ligand coordination bonds",
+          "organic axial ligand linker bond when present"
+        ],
+        "forward_logic": [
+          "separate Pt(II)/Pt(IV) core, axial ligand synthesis, and prodrug activation logic",
+          "track reduction activation, ligand release, and coordination geometry",
+          "treat organic conjugate route separately from metal-complex assembly"
+        ],
+        "suggested_precursor_roles": [
+          "Pt(IV) core",
+          "axial carboxylate/ligand partner",
+          "targeting linker ligand",
+          "activated Pt(II) species metadata"
+        ],
+        "planner_hint": "Pt(IV) prodrug scoring requires activation and axial-ligand policy, not only ligand synthesis."
+      },
+      "risks": [
+        "reduction potential",
+        "axial ligand release",
+        "metal-complex toxicity",
+        "geometric and stereochemical isomers"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Metallo-drugs review covers platinum-based drugs and prodrug concepts.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9572156/"
+        },
+        {
+          "type": "literature",
+          "citation": "Metal-based drug classification review includes radiometal and non-radiometal medicinal complexes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7451962/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "ptiv_prodrug_activation_prior",
+        "rerank_bonus": "moderate only with activation and axial-ligand metadata",
+        "compliance_gate": "metal_complex_toxicology_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v5 expansion promotes several backlog candidates: macrolide/ketolide semisynthesis, glycopeptide/lipopeptide antibiotics, oxazolidinones, covalent-warhead electrophiles, peptide/oligonucleotide conjugates, ASO/RNAi backbone manufacturing, ionizable lipid/LNP motifs, and medicinal metal complexes."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Antibiotic, covalent-warhead, oligonucleotide, LNP, and metal-complex records are advisory. Promotion to proposal generation requires antimicrobial-stewardship, covalent-inhibitor safety, oligonucleotide manufacturing, formulation/delivery, or metal-complex toxicology review as applicable."
+    }
+  ]
+}

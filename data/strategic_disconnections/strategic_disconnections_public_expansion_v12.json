@@ -1,0 +1,1189 @@
+{
+  "schema_version": "strategic_disconnections.v12_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Eleventh expanded public source layer focused on enzyme cofactor-recycling cascades, late-stage site-selective C-H functionalization, carbohydrate protecting-group and glycosylation strategy, atropisomer and conformational-lock route policy, reactive-metabolite safety critique, prodrug and biologics conjugate linker boundaries, cryo-EM/fragment target-engagement probes, and continuous-flow photochemical/electrochemical process boundaries.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template or proposal promotion",
+      "separate enzyme-cofactor, site-selective C-H functionalization, carbohydrate-protection, atropisomer, reactive-metabolite, conjugate-linker, target-engagement-probe, or flow-process policy",
+      "route-specific cofactor balance, site-selectivity, protecting-group register, anomeric donor class, rotational barrier, metabolite soft spot, linker release mechanism, protein or assay tag, reactor boundary, and process endpoint review",
+      "biocatalysis, late-stage-functionalization, glycan-manufacturing, stereochemical, toxicology, biological-mode, conjugate, probe-validation, photochemical, electrochemical, or process-safety review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, and synthesis conditions",
+      "enzyme, C-H functionalization, glycan, atropisomer, reactive-metabolite, conjugate-linker, probe, and flow-process entries are high-level route priors only"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "enzyme_cascade_redox_cofactor_recycling",
+      "name": "Enzyme cascades, redox balance, and cofactor-recycling route motifs",
+      "pattern_keywords": [
+        "enzyme cascade",
+        "cofactor recycling",
+        "NADH",
+        "NADPH",
+        "flavin",
+        "cell-free biomanufacturing"
+      ],
+      "strategic_principle": "Separate product-forming transformation from cofactor regeneration, redox balance, and enzyme-cascade order. Cofactor recycling is route-defining metadata, not a reagent footnote."
+    },
+    {
+      "family_id": "site_selective_c_h_borylation_halogenation_late_stage",
+      "name": "Late-stage site-selective C-H borylation, halogenation, and functionalization handles",
+      "pattern_keywords": [
+        "late-stage C-H functionalization",
+        "C-H borylation",
+        "C-H halogenation",
+        "site-selective functionalization",
+        "N-heteroarene",
+        "natural-product diversification"
+      ],
+      "strategic_principle": "Expose the target C-H site, directing logic, diversification handle, and evidence for site-selectivity. Late-stage functionalization is advisory unless the route records why that position is accessible."
+    },
+    {
+      "family_id": "carbohydrate_protecting_group_regioselective_glycosylation",
+      "name": "Carbohydrate protecting-group, donor reactivity, and regioselective glycosylation strategy",
+      "pattern_keywords": [
+        "oligosaccharide synthesis",
+        "protecting group",
+        "regioselective glycosylation",
+        "armed-disarmed donor",
+        "one-pot glycosylation",
+        "anomeric leaving group"
+      ],
+      "strategic_principle": "Separate monosaccharide identity from protecting-group register, donor reactivity, acceptor position, and glycosylation order. Glycan route logic is register-sensitive metadata."
+    },
+    {
+      "family_id": "atropisomeric_chiral_axis_and_conformational_lock",
+      "name": "Atropisomeric axes, chiral conformers, and conformational-lock medicinal scaffolds",
+      "pattern_keywords": [
+        "atropisomer",
+        "chiral axis",
+        "rotational barrier",
+        "conformational lock",
+        "axial chirality",
+        "restricted rotation"
+      ],
+      "strategic_principle": "Separate scaffold construction from chiral-axis creation, conformational locking, rotational-barrier control, and stereochemical resolution. Atropisomerism is a route objective, not a passive stereochemical annotation."
+    },
+    {
+      "family_id": "drug_metabolite_reactive_intermediate_safety_critique",
+      "name": "Drug metabolite, reactive-intermediate, and soft-spot safety route critique",
+      "pattern_keywords": [
+        "reactive metabolite",
+        "bioactivation",
+        "glutathione trapping",
+        "soft spot",
+        "structural alert",
+        "idiosyncratic toxicity"
+      ],
+      "strategic_principle": "Expose metabolic soft spots, bioactivation risks, trapping evidence, and mitigation edits. Metabolite-oriented synthesis supports safety interpretation and must not be scored as ordinary analogue enumeration."
+    },
+    {
+      "family_id": "prodrug_conjugate_cleavable_linker_biologics_boundary",
+      "name": "Prodrug conjugates, cleavable linkers, and biologics-carrier route boundaries",
+      "pattern_keywords": [
+        "drug conjugate",
+        "cleavable linker",
+        "peptide-drug conjugate",
+        "protein drug conjugate",
+        "disulfide prodrug",
+        "release mechanism"
+      ],
+      "strategic_principle": "Separate payload, carrier or biologic boundary, linker chemistry, and release mechanism. Conjugate routes are not complete until release policy and carrier identity are explicit."
+    },
+    {
+      "family_id": "cryo_em_fragment_probe_and_target_engagement_tag",
+      "name": "Cryo-EM fragments, target-engagement probes, affinity tags, and assay-defining handles",
+      "pattern_keywords": [
+        "cryo-EM fragment screening",
+        "fragment-based drug discovery",
+        "target engagement",
+        "labelled chemical probe",
+        "affinity-based probe",
+        "assay tag"
+      ],
+      "strategic_principle": "Separate binding fragment, elaboration vector, target-engagement tag, and structural or assay readout. Probe and assay architecture changes precursor acceptance."
+    },
+    {
+      "family_id": "continuous_flow_photochemical_electrochemical_process_boundary",
+      "name": "Continuous-flow photochemical and electrochemical route/process boundaries",
+      "pattern_keywords": [
+        "continuous flow photochemistry",
+        "flow electrochemistry",
+        "API process",
+        "scale-up",
+        "photochemical reactor",
+        "electrochemical reactor"
+      ],
+      "strategic_principle": "Separate chemical disconnection from reactor/process boundary, irradiation or electrochemical handle, and scale-up endpoint. Flow photochemistry and electrochemistry are route metadata, not generic conditions."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "enzyme_cascade_cofactor_balance_anchor",
+      "family_id": "enzyme_cascade_redox_cofactor_recycling",
+      "name": "Biocatalytic cascade with reviewed product-forming enzyme, cofactor loop, and redox balance",
+      "role": "enzyme_cascade_cofactor_anchor",
+      "aliases": [
+        "cofactor recycling",
+        "NAD(P)H regeneration",
+        "enzyme cascade",
+        "cell-free biomanufacturing"
+      ],
+      "acceptance_policy": "requires_product_enzyme_cofactor_loop_redox_balance_and_biocatalysis_review"
+    },
+    {
+      "anchor_id": "late_stage_site_selective_c_h_anchor",
+      "family_id": "site_selective_c_h_borylation_halogenation_late_stage",
+      "name": "Late-stage C-H functionalization handle with reviewed site, substrate class, and selectivity rationale",
+      "role": "site_selective_c_h_anchor",
+      "aliases": [
+        "late-stage C-H borylation",
+        "site-selective halogenation",
+        "C-H functionalization handle",
+        "natural-product diversification"
+      ],
+      "acceptance_policy": "requires_site_selectivity_substrate_class_diversification_handle_and_safety_review"
+    },
+    {
+      "anchor_id": "carbohydrate_protection_glycosylation_anchor",
+      "family_id": "carbohydrate_protecting_group_regioselective_glycosylation",
+      "name": "Carbohydrate route with reviewed protecting-group register, donor reactivity, and glycosylation order",
+      "role": "glycan_route_strategy_anchor",
+      "aliases": [
+        "orthogonal protecting group",
+        "armed-disarmed donor",
+        "one-pot glycosylation",
+        "regioselective carbohydrate protection"
+      ],
+      "acceptance_policy": "requires_monosaccharide_register_donor_acceptor_glycosylation_order_and_glycan_review"
+    },
+    {
+      "anchor_id": "atropisomer_chiral_axis_lock_anchor",
+      "family_id": "atropisomeric_chiral_axis_and_conformational_lock",
+      "name": "Atropisomeric or conformationally locked scaffold with reviewed axis, barrier, and stereochemical policy",
+      "role": "atropisomer_conformational_anchor",
+      "aliases": [
+        "atropisomer",
+        "chiral axis",
+        "rotational barrier",
+        "conformational lock"
+      ],
+      "acceptance_policy": "requires_axis_barrier_resolution_or_asymmetric_route_and_stereochemical_review"
+    },
+    {
+      "anchor_id": "reactive_metabolite_soft_spot_anchor",
+      "family_id": "drug_metabolite_reactive_intermediate_safety_critique",
+      "name": "Metabolite or reactive-intermediate critique with reviewed soft spot, trapping evidence, and mitigation edit",
+      "role": "reactive_metabolite_safety_anchor",
+      "aliases": [
+        "reactive metabolite",
+        "bioactivation soft spot",
+        "glutathione trapping",
+        "structural alert"
+      ],
+      "acceptance_policy": "requires_metabolite_evidence_reactive_intermediate_risk_mitigation_and_toxicology_review"
+    },
+    {
+      "anchor_id": "conjugate_linker_release_boundary_anchor",
+      "family_id": "prodrug_conjugate_cleavable_linker_biologics_boundary",
+      "name": "Prodrug or conjugate with reviewed payload, carrier boundary, linker, and release mechanism",
+      "role": "conjugate_linker_policy_anchor",
+      "aliases": [
+        "cleavable linker",
+        "peptide-drug conjugate",
+        "protein drug conjugate",
+        "disulfide prodrug"
+      ],
+      "acceptance_policy": "requires_payload_carrier_linker_release_mechanism_and_biological_mode_review"
+    },
+    {
+      "anchor_id": "fragment_probe_target_engagement_anchor",
+      "family_id": "cryo_em_fragment_probe_and_target_engagement_tag",
+      "name": "Fragment or probe series with reviewed binding vector, structural readout, and target-engagement tag",
+      "role": "fragment_probe_assay_anchor",
+      "aliases": [
+        "cryo-EM fragment",
+        "target-engagement probe",
+        "affinity-based probe",
+        "labelled chemical probe"
+      ],
+      "acceptance_policy": "requires_binding_fragment_elaboration_vector_probe_tag_and_assay_validation_review"
+    },
+    {
+      "anchor_id": "flow_photoelectro_process_boundary_anchor",
+      "family_id": "continuous_flow_photochemical_electrochemical_process_boundary",
+      "name": "Flow photochemical or electrochemical route with reviewed reactor boundary and process endpoint",
+      "role": "flow_process_boundary_anchor",
+      "aliases": [
+        "continuous-flow photochemistry",
+        "flow electrochemistry",
+        "API flow process",
+        "photochemical reactor"
+      ],
+      "acceptance_policy": "requires_reactor_boundary_energy_input_scale_up_endpoint_and_process_safety_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "enzyme_redox_product_step_cofactor_loop_split",
+      "family_id": "enzyme_cascade_redox_cofactor_recycling",
+      "name": "Biocatalytic redox step to product enzyme plus NAD(P)H cofactor-regeneration loop",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "chiral alcohols",
+          "biocatalytic redox products",
+          "enzyme-cascade intermediates"
+        ],
+        "target_features": [
+          "redox enzyme step",
+          "NADH or NADPH requirement",
+          "cofactor regeneration"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "product-forming redox step to cofactor-regeneration boundary",
+          "enzyme cascade redox-balance boundary"
+        ],
+        "forward_logic": [
+          "separate product-forming enzyme choice from cofactor loop design",
+          "track redox balance, cofactor identity, and regeneration mode",
+          "avoid treating a biocatalytic route as complete without cofactor policy"
+        ],
+        "suggested_precursor_roles": [
+          "substrate for product enzyme",
+          "redox enzyme",
+          "cofactor-regeneration module",
+          "redox-balance metadata"
+        ],
+        "planner_hint": "Reward enzyme routes that expose cofactor identity and regeneration logic rather than hiding it as a reagent condition."
+      },
+      "risks": [
+        "cofactor imbalance",
+        "enzyme compatibility mismatch",
+        "redox side reactions",
+        "biocatalysis review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "NAD(P)+ regeneration review discusses NAD(P)H oxidase cofactor regeneration for value-added chemicals.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40958825/"
+        },
+        {
+          "type": "literature",
+          "citation": "Alcohol dehydrogenase review covers asymmetric synthesis applications relevant to redox biocatalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/38050738/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "enzyme_redox_cofactor_loop_prior",
+        "rerank_bonus": "high for explicit enzyme, cofactor, regeneration, and redox-balance metadata",
+        "compliance_gate": "biocatalysis_cofactor_balance_review_required"
+      }
+    },
+    {
+      "id": "cell_free_cascade_coa_platform_policy",
+      "family_id": "enzyme_cascade_redox_cofactor_recycling",
+      "name": "Cell-free enzyme cascade to platform intermediate plus cofactor and thioester policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "cell-free biomanufacturing intermediates",
+          "CoA thioester platform molecules",
+          "multi-enzyme cascade products"
+        ],
+        "target_features": [
+          "enzyme cascade",
+          "CoA thioester or activated intermediate",
+          "cofactor coupling"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "platform intermediate to cascade module boundary",
+          "activated thioester to downstream product boundary"
+        ],
+        "forward_logic": [
+          "separate platform intermediate generation from downstream tailoring",
+          "track cofactor, enzyme order, and activated-intermediate stability",
+          "keep enzyme cascade records advisory until substrates and enzymes are explicit"
+        ],
+        "suggested_precursor_roles": [
+          "platform thioester",
+          "cascade substrate",
+          "cofactor-coupled enzyme module",
+          "cell-free process metadata"
+        ],
+        "planner_hint": "Use cascade entries to critique module order and activated-intermediate policy, not to mark pathway intermediates as stock."
+      },
+      "risks": [
+        "activated intermediate instability",
+        "enzyme-order overfit",
+        "cofactor depletion",
+        "cell-free process transfer risk"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Coenzyme A thioester review discusses platform molecules in cell-free chemical biomanufacturing.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37994376/"
+        },
+        {
+          "type": "literature",
+          "citation": "NAD(P)+ regeneration review provides cofactor-loop context for enzyme cascades.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40958825/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cell_free_cascade_cofactor_prior",
+        "rerank_bonus": "moderate for explicit enzyme order, cofactor loop, and platform-intermediate metadata",
+        "compliance_gate": "enzyme_cascade_process_review_required"
+      }
+    },
+    {
+      "id": "late_stage_c_h_borylation_diversification_site_policy",
+      "family_id": "site_selective_c_h_borylation_halogenation_late_stage",
+      "name": "Late-stage C-H functionalization to scaffold plus site-selective borylation/diversification handle",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "medicinal scaffolds",
+          "N-heteroarenes",
+          "late-stage diversified analogues"
+        ],
+        "target_features": [
+          "unactivated or heteroarene C-H site",
+          "diversification handle",
+          "site-selectivity claim"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "late-stage diversification handle boundary",
+          "C-H site functionalization boundary"
+        ],
+        "forward_logic": [
+          "map the functionalized C-H site before scoring retrosynthetic disconnection",
+          "separate scaffold synthesis from late-stage handle installation",
+          "require site-selectivity rationale before proposal promotion"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "late-stage C-H handle",
+          "diversified analogue",
+          "site-selectivity metadata"
+        ],
+        "planner_hint": "Reward routes that explain why the selected C-H site is addressable and useful as a diversification handle."
+      },
+      "risks": [
+        "site-selectivity overclaim",
+        "functional group incompatibility",
+        "late-stage substrate mismatch",
+        "C-H functionalization safety review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Medicinal chemistry review discusses the emergence of C-H functionalization in drug discovery.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34596175/"
+        },
+        {
+          "type": "literature",
+          "citation": "N-heteroarene C-H functionalization review covers recent catalytic advances relevant to medicinal scaffolds.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34874036/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "late_stage_c_h_functionalization_prior",
+        "rerank_bonus": "high for explicit C-H site, scaffold class, and selectivity evidence",
+        "compliance_gate": "late_stage_c_h_site_selectivity_review_required"
+      }
+    },
+    {
+      "id": "site_selective_halogenation_natural_product_edit_policy",
+      "family_id": "site_selective_c_h_borylation_halogenation_late_stage",
+      "name": "Natural-product or complex scaffold to site-selective halogenation/functionalization edit policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "natural-product analogues",
+          "late-stage halogenated scaffolds",
+          "complex molecule diversification products"
+        ],
+        "target_features": [
+          "late halogen or functional handle",
+          "complex scaffold",
+          "site-selective edit"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "late halogen or edit handle boundary",
+          "parent natural-product scaffold boundary"
+        ],
+        "forward_logic": [
+          "separate parent scaffold access from late-stage edit",
+          "track catalyst or method class only as high-level selectivity metadata",
+          "avoid accepting advanced natural-product analogues as stock"
+        ],
+        "suggested_precursor_roles": [
+          "parent natural-product-like scaffold",
+          "late-stage edited analogue",
+          "site-selective handle",
+          "diversification-policy metadata"
+        ],
+        "planner_hint": "Use late-stage edit records for route critique when a parent scaffold and target site are explicit."
+      },
+      "risks": [
+        "overgeneralized catalyst scope",
+        "complex-scaffold degradation",
+        "bioactive analogue review",
+        "selectivity evidence gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Review discusses nonenzymatic catalysts for alteration of natural products.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/28580785/"
+        },
+        {
+          "type": "literature",
+          "citation": "Medicinal chemistry C-H functionalization review provides late-stage drug-discovery context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34596175/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "site_selective_late_stage_edit_prior",
+        "rerank_bonus": "moderate for explicit parent scaffold, edited site, and selectivity rationale",
+        "compliance_gate": "late_stage_bioactive_scaffold_edit_review_required"
+      }
+    },
+    {
+      "id": "carbohydrate_protecting_group_register_disconnection",
+      "family_id": "carbohydrate_protecting_group_regioselective_glycosylation",
+      "name": "Protected carbohydrate to monosaccharide core plus protecting-group register policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "protected monosaccharides",
+          "oligosaccharide building blocks",
+          "glycoconjugate intermediates"
+        ],
+        "target_features": [
+          "multiple hydroxyl positions",
+          "orthogonal protecting groups",
+          "regioselective acceptor exposure"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "protecting group to hydroxyl register boundary",
+          "acceptor-position exposure boundary"
+        ],
+        "forward_logic": [
+          "map hydroxyl register before scoring protecting-group changes",
+          "separate monosaccharide identity from orthogonal protection plan",
+          "track whether a protected sugar is a route anchor or merely an advanced intermediate"
+        ],
+        "suggested_precursor_roles": [
+          "monosaccharide core",
+          "orthogonally protected acceptor",
+          "donor precursor",
+          "protecting-group register metadata"
+        ],
+        "planner_hint": "Reward glycan routes that preserve protecting-group register and acceptor-position logic."
+      },
+      "risks": [
+        "protecting-group register mismatch",
+        "acceptor-site ambiguity",
+        "anomeric configuration drift",
+        "glycan manufacturing review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Oligosaccharide protecting-group review discusses advances in protecting groups for oligosaccharide synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31895493/"
+        },
+        {
+          "type": "literature",
+          "citation": "Regioselective carbohydrate protection review covers one-pot protection and protection-glycosylation.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/21469446/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "carbohydrate_protecting_group_register_prior",
+        "rerank_bonus": "high for explicit hydroxyl register, donor/acceptor role, and protecting-group plan",
+        "compliance_gate": "glycan_protection_strategy_review_required"
+      }
+    },
+    {
+      "id": "armed_disarmed_glycosylation_order_policy",
+      "family_id": "carbohydrate_protecting_group_regioselective_glycosylation",
+      "name": "Oligosaccharide to donor/acceptor sequence plus armed-disarmed and one-pot glycosylation policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "oligosaccharides",
+          "glycan fragments",
+          "glycoconjugate carbohydrate domains"
+        ],
+        "target_features": [
+          "glycosidic linkage sequence",
+          "donor reactivity hierarchy",
+          "armed-disarmed or one-pot plan"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "glycosidic linkage boundary",
+          "donor-reactivity sequence boundary"
+        ],
+        "forward_logic": [
+          "separate linkage order from donor and acceptor preparation",
+          "track armed-disarmed donor logic and anomeric leaving-group policy",
+          "avoid generic glycoside splitting when donor reactivity controls feasibility"
+        ],
+        "suggested_precursor_roles": [
+          "glycosyl donor",
+          "glycosyl acceptor",
+          "oligosaccharide fragment",
+          "reactivity-order metadata"
+        ],
+        "planner_hint": "Use armed-disarmed metadata to rank glycosylation order and reject register-blind glycan routes."
+      },
+      "risks": [
+        "anomeric selectivity mismatch",
+        "donor-reactivity inversion",
+        "one-pot overgeneralization",
+        "glycan stereochemistry review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Armed-disarmed review covers history, synthesis, and mechanistic studies in carbohydrate chemistry.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/21120714/"
+        },
+        {
+          "type": "literature",
+          "citation": "Programmable one-pot glycosylation review provides public context for glycosylation sequencing.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/21290217/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "glycosylation_reactivity_order_prior",
+        "rerank_bonus": "high for explicit donor/acceptor sequence, anomeric policy, and reactivity hierarchy",
+        "compliance_gate": "glycosylation_order_stereochemistry_review_required"
+      }
+    },
+    {
+      "id": "atropisomer_axis_creation_resolution_disconnection",
+      "family_id": "atropisomeric_chiral_axis_and_conformational_lock",
+      "name": "Atropisomeric scaffold to biaryl/axis precursor plus axis-creation or resolution policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "atropisomeric drugs",
+          "biaryl chiral-axis scaffolds",
+          "restricted-rotation medicinal scaffolds"
+        ],
+        "target_features": [
+          "chiral axis",
+          "rotational barrier",
+          "stereochemical route requirement"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "chiral axis forming bond",
+          "resolution or asymmetric-axis control boundary"
+        ],
+        "forward_logic": [
+          "separate scaffold connectivity from axis creation and configurational stability",
+          "track whether route uses asymmetric construction, resolution, or barrier tuning",
+          "avoid treating atropisomeric targets as achiral biaryl analogues"
+        ],
+        "suggested_precursor_roles": [
+          "axis precursor",
+          "atropisomeric product",
+          "resolution or asymmetric-control step",
+          "rotational-barrier metadata"
+        ],
+        "planner_hint": "Reward routes that make chiral-axis control explicit rather than scoring only connectivity."
+      },
+      "risks": [
+        "racemization",
+        "barrier underestimation",
+        "resolution overclaim",
+        "stereochemical assay mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Atropisomerism review discusses medicinal-chemistry perspective in drug discovery.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36069734/"
+        },
+        {
+          "type": "literature",
+          "citation": "Drug-discovery review discusses recent encounters with atropisomerism.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/29223590/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "atropisomer_axis_control_prior",
+        "rerank_bonus": "high for explicit axis-forming step, barrier, and stereochemical-control metadata",
+        "compliance_gate": "atropisomer_stereochemical_review_required"
+      }
+    },
+    {
+      "id": "conformational_lock_rotational_barrier_policy",
+      "family_id": "atropisomeric_chiral_axis_and_conformational_lock",
+      "name": "Conformationally locked scaffold to flexible parent plus rotational-barrier and SAR policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "conformationally restricted medicinal scaffolds",
+          "macrocyclic or bridged locked analogues",
+          "axially chiral conformers"
+        ],
+        "target_features": [
+          "conformational lock",
+          "restricted rotation",
+          "SAR-defining geometry"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "conformational-locking bond",
+          "barrier-tuning substituent boundary"
+        ],
+        "forward_logic": [
+          "separate parent pharmacophore from conformational-lock installation",
+          "track whether the lock controls potency, selectivity, or stereochemical stability",
+          "carry rotational-barrier metadata through route ranking"
+        ],
+        "suggested_precursor_roles": [
+          "flexible parent scaffold",
+          "locking linker or substituent",
+          "conformationally locked analogue",
+          "SAR geometry metadata"
+        ],
+        "planner_hint": "Use conformational-lock records when geometry and barrier are route objectives, not afterthought annotations."
+      },
+      "risks": [
+        "geometry overconstraint",
+        "barrier transfer mismatch",
+        "SAR attribution ambiguity",
+        "bioactive scaffold review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Atropisomeric drug-discovery review frames rotational barriers and chiral conformers as medicinal design concerns.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36069734/"
+        },
+        {
+          "type": "literature",
+          "citation": "Atropisomerism review provides broader drug-discovery context for restricted-rotation scaffolds.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/29223590/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "conformational_lock_barrier_prior",
+        "rerank_bonus": "moderate for explicit lock, parent scaffold, rotational barrier, and SAR role",
+        "compliance_gate": "conformational_lock_biological_mode_review_required"
+      }
+    },
+    {
+      "id": "reactive_metabolite_soft_spot_mitigation_disconnection",
+      "family_id": "drug_metabolite_reactive_intermediate_safety_critique",
+      "name": "Reactive-metabolite liability to parent scaffold plus soft-spot blocking or mitigation edit",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "drug safety analogues",
+          "metabolite reference standards",
+          "soft-spot mitigated scaffolds"
+        ],
+        "target_features": [
+          "reactive metabolite concern",
+          "bioactivation soft spot",
+          "structural-alert mitigation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "soft-spot mitigation substituent boundary",
+          "reactive-metabolite reference boundary"
+        ],
+        "forward_logic": [
+          "separate parent scaffold synthesis from safety-mitigation edits",
+          "track structural alert, reactive-intermediate hypothesis, and metabolite evidence",
+          "avoid treating safety analogues as ordinary SAR enumeration"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "soft-spot blocked analogue",
+          "metabolite or trapping reference",
+          "toxicity-risk metadata"
+        ],
+        "planner_hint": "Reward routes that link analogue changes to explicit reactive-metabolite or soft-spot evidence."
+      },
+      "risks": [
+        "idiosyncratic toxicity",
+        "bioactivation overclaim",
+        "metabolite-reference mismatch",
+        "toxicology review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Reactive-metabolite review discusses managing chemically reactive metabolites in drug development.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/21455238/"
+        },
+        {
+          "type": "literature",
+          "citation": "Medicinal-chemistry perspective discusses structural alerts and reactive metabolites for toxicity-risk mitigation.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/21702456/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "reactive_metabolite_soft_spot_prior",
+        "rerank_bonus": "high for explicit soft spot, metabolite evidence, and mitigation rationale",
+        "compliance_gate": "reactive_metabolite_toxicology_review_required"
+      }
+    },
+    {
+      "id": "glutathione_trapping_reference_standard_policy",
+      "family_id": "drug_metabolite_reactive_intermediate_safety_critique",
+      "name": "Reactive-intermediate study to trapping adduct/reference standard plus safety-interpretation policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "glutathione adduct references",
+          "reactive metabolite standards",
+          "bioactivation study compounds"
+        ],
+        "target_features": [
+          "trapping adduct",
+          "metabolite identification",
+          "safety interpretation role"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "trapping adduct boundary",
+          "metabolite-reference standard boundary"
+        ],
+        "forward_logic": [
+          "separate analytical reference synthesis from parent drug route",
+          "track trapping reagent role and reactive-intermediate hypothesis",
+          "flag all records as safety-critique sources, not proposal generators"
+        ],
+        "suggested_precursor_roles": [
+          "parent or metabolite precursor",
+          "trapping adduct",
+          "analytical reference",
+          "safety-interpretation metadata"
+        ],
+        "planner_hint": "Use reactive-adduct entries to support safety critique and reference-standard planning, not to expand synthesis automatically."
+      },
+      "risks": [
+        "reactive intermediate handling",
+        "adduct assignment ambiguity",
+        "analytical-method mismatch",
+        "safety interpretation overreach"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Reactive-metabolite detection review discusses reducing potential drug toxicity.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/26005795/"
+        },
+        {
+          "type": "literature",
+          "citation": "Early-discovery review covers practical approaches to resolving reactive-metabolite liabilities.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25410913/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "reactive_metabolite_reference_standard_prior",
+        "rerank_bonus": "moderate for explicit trapping-adduct, reference-standard, and safety-study metadata",
+        "compliance_gate": "reactive_intermediate_reference_safety_review_required"
+      }
+    },
+    {
+      "id": "conjugate_payload_linker_release_split",
+      "family_id": "prodrug_conjugate_cleavable_linker_biologics_boundary",
+      "name": "Drug conjugate to payload plus cleavable linker, carrier, and release mechanism",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "peptide-drug conjugates",
+          "drug conjugates",
+          "cleavable linker prodrugs"
+        ],
+        "target_features": [
+          "payload",
+          "cleavable linker",
+          "carrier or targeting module"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "payload to linker boundary",
+          "linker to carrier boundary"
+        ],
+        "forward_logic": [
+          "separate payload synthesis from linker and carrier installation",
+          "track release mechanism, biological carrier, and payload exposure policy",
+          "avoid generic amide/ester disconnection when release mechanism defines the target"
+        ],
+        "suggested_precursor_roles": [
+          "payload",
+          "cleavable linker",
+          "carrier or targeting module",
+          "release-mechanism metadata"
+        ],
+        "planner_hint": "Reward conjugate routes that explicitly model payload-linker-carrier roles and release policy."
+      },
+      "risks": [
+        "payload toxicity",
+        "release-mechanism mismatch",
+        "carrier biology overclaim",
+        "conjugate safety review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Peptide-drug conjugate review discusses research advances in peptide-drug conjugates.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37719380/"
+        },
+        {
+          "type": "literature",
+          "citation": "Drug-conjugate linker review summarizes recent advances in linkers of drug conjugates.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39289930/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "conjugate_linker_release_prior",
+        "rerank_bonus": "high for explicit payload, linker, carrier, and release mechanism",
+        "compliance_gate": "drug_conjugate_linker_biological_mode_review_required"
+      }
+    },
+    {
+      "id": "biologics_boundary_disulfide_or_protein_conjugate_policy",
+      "family_id": "prodrug_conjugate_cleavable_linker_biologics_boundary",
+      "name": "Biologics or disulfide prodrug boundary to payload, protein/peptide carrier, and reducible-release policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "protein drug conjugates",
+          "disulfide prodrugs",
+          "biologics-linked payloads"
+        ],
+        "target_features": [
+          "biologics or peptide boundary",
+          "reducible linker",
+          "payload release"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "biologic carrier to linker boundary",
+          "reducible linker to payload boundary"
+        ],
+        "forward_logic": [
+          "separate small-molecule payload route from biologic or peptide conjugation boundary",
+          "track reducible release, carrier identity, and conjugation site",
+          "flag biologics boundary entries for modality review"
+        ],
+        "suggested_precursor_roles": [
+          "small-molecule payload",
+          "protein or peptide carrier",
+          "reducible linker",
+          "conjugation-site metadata"
+        ],
+        "planner_hint": "Use biologics-boundary records when the route depends on carrier identity and release mechanism."
+      },
+      "risks": [
+        "biologics handling boundary",
+        "payload release ambiguity",
+        "conjugation-site heterogeneity",
+        "modality-specific review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Disulfide prodrug review covers reducible prodrug linkers in cancer-therapy context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/35516223/"
+        },
+        {
+          "type": "literature",
+          "citation": "ADC linker-chemistry review provides public conjugation and linker context relevant to biologics boundaries.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/27743348/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "biologics_conjugate_boundary_prior",
+        "rerank_bonus": "moderate for explicit payload, carrier boundary, reducible linker, and conjugation site",
+        "compliance_gate": "biologics_conjugate_modality_review_required"
+      }
+    },
+    {
+      "id": "cryo_em_fragment_elaboration_vector_policy",
+      "family_id": "cryo_em_fragment_probe_and_target_engagement_tag",
+      "name": "Cryo-EM fragment hit to binding fragment plus elaboration vector and structural-readout policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "cryo-EM fragment hits",
+          "fragment-based drug-discovery series",
+          "structure-guided probe analogues"
+        ],
+        "target_features": [
+          "fragment binding pose",
+          "elaboration vector",
+          "structural readout"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "fragment elaboration vector boundary",
+          "probe or tag growth boundary"
+        ],
+        "forward_logic": [
+          "separate fragment core synthesis from vector growth and assay tag installation",
+          "track structural evidence and target-engagement readout",
+          "avoid ranking tagged probes as ordinary SAR analogues"
+        ],
+        "suggested_precursor_roles": [
+          "binding fragment",
+          "elaboration vector",
+          "probe analogue",
+          "structural-readout metadata"
+        ],
+        "planner_hint": "Reward fragment routes that preserve the binding vector and structural evidence used to justify elaboration."
+      },
+      "risks": [
+        "binding-pose overfit",
+        "tag-driven binding perturbation",
+        "assay transfer mismatch",
+        "probe validation review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Fragment-based drug-discovery review discusses using cryo-EM for fragment discovery.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31877353/"
+        },
+        {
+          "type": "literature",
+          "citation": "Cryo-EM drug-discovery review covers applications and prospects in drug discovery.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36872349/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cryo_em_fragment_vector_prior",
+        "rerank_bonus": "moderate for explicit fragment, vector, and structural-readout metadata",
+        "compliance_gate": "fragment_probe_structural_validation_review_required"
+      }
+    },
+    {
+      "id": "target_engagement_affinity_tag_probe_split",
+      "family_id": "cryo_em_fragment_probe_and_target_engagement_tag",
+      "name": "Target-engagement probe to parent ligand plus labelled or affinity tag and validation policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "labelled chemical probes",
+          "affinity-based probes",
+          "target-engagement reagents"
+        ],
+        "target_features": [
+          "parent ligand",
+          "label or affinity tag",
+          "direct target-engagement validation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "label or affinity tag boundary",
+          "probe linker to parent ligand boundary"
+        ],
+        "forward_logic": [
+          "separate parent ligand SAR from tag and linker installation",
+          "track target-engagement assay role before route acceptance",
+          "flag labelled probes for validation and biological-mode review"
+        ],
+        "suggested_precursor_roles": [
+          "parent ligand",
+          "affinity or labelled tag",
+          "probe linker",
+          "target-engagement assay metadata"
+        ],
+        "planner_hint": "Use target-engagement records only when the tag and assay role are explicit."
+      },
+      "risks": [
+        "tag perturbation",
+        "false target engagement",
+        "label instability",
+        "assay validation gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Labelled chemical-probe review discusses demonstrating direct target engagement in living systems.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31280668/"
+        },
+        {
+          "type": "literature",
+          "citation": "Affinity-based probe review discusses target identification in drug discovery.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40359656/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "target_engagement_probe_tag_prior",
+        "rerank_bonus": "high for explicit parent ligand, tag, linker, and target-engagement validation metadata",
+        "compliance_gate": "target_engagement_probe_validation_review_required"
+      }
+    },
+    {
+      "id": "continuous_flow_photochemistry_reactor_boundary_policy",
+      "family_id": "continuous_flow_photochemical_electrochemical_process_boundary",
+      "name": "Photochemical route to substrate/product pair plus continuous-flow reactor and irradiation boundary",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "flow photochemical products",
+          "photochemical API intermediates",
+          "light-driven process routes"
+        ],
+        "target_features": [
+          "photochemical transformation",
+          "continuous-flow reactor",
+          "scale-up or process endpoint"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "photochemical transformation boundary",
+          "reactor/process endpoint boundary"
+        ],
+        "forward_logic": [
+          "separate molecular disconnection from reactor and irradiation constraints",
+          "track whether continuous flow changes feasibility, selectivity, or scale-up",
+          "avoid treating photochemical flow as a generic condition"
+        ],
+        "suggested_precursor_roles": [
+          "photochemical substrate",
+          "photoproduct",
+          "flow reactor boundary",
+          "irradiation and scale-up metadata"
+        ],
+        "planner_hint": "Reward routes that preserve reactor boundary and photochemical endpoint metadata for process-aware ranking."
+      },
+      "risks": [
+        "photochemical scale-up mismatch",
+        "reactor transfer gap",
+        "photostability issues",
+        "process-safety review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Continuous-flow photochemistry review covers applications in organic synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/26935706/"
+        },
+        {
+          "type": "literature",
+          "citation": "Flow photochemistry review discusses flow photochemistry as a tool in organic synthesis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/32427387/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "flow_photochemistry_process_prior",
+        "rerank_bonus": "moderate for explicit photochemical step, reactor boundary, and process endpoint",
+        "compliance_gate": "flow_photochemistry_process_safety_review_required"
+      }
+    },
+    {
+      "id": "flow_electrochemistry_api_process_boundary_policy",
+      "family_id": "continuous_flow_photochemical_electrochemical_process_boundary",
+      "name": "Electrochemical or API flow route to substrate/product pair plus cell/reactor process boundary",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "flow electrochemical products",
+          "API flow intermediates",
+          "electrochemical process routes"
+        ],
+        "target_features": [
+          "electrochemical transformation",
+          "continuous-flow reactor or cell",
+          "API or fine-chemical process context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "electrochemical redox transformation boundary",
+          "flow cell or process endpoint boundary"
+        ],
+        "forward_logic": [
+          "separate molecular redox disconnection from electrochemical cell and flow-process design",
+          "track whether the step is route-defining for sustainability, selectivity, or scale-up",
+          "flag electrochemical entries for process and electrical-safety review"
+        ],
+        "suggested_precursor_roles": [
+          "electrochemical substrate",
+          "redox product",
+          "flow cell or reactor",
+          "API process metadata"
+        ],
+        "planner_hint": "Use flow-electrochemistry entries to distinguish process-enabling routes from ordinary redox reactions."
+      },
+      "risks": [
+        "electrochemical scale-up mismatch",
+        "cell design dependence",
+        "overgeneralized process benefit",
+        "electrical and process safety review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Flow electrochemistry review discusses bridging laboratory and industry.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/33205027/"
+        },
+        {
+          "type": "literature",
+          "citation": "API electrochemistry review discusses synthesis of active pharmaceutical ingredients using electrochemical methods.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34951414/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "flow_electrochemistry_process_prior",
+        "rerank_bonus": "moderate for explicit electrochemical step, cell/reactor boundary, and API process endpoint",
+        "compliance_gate": "flow_electrochemistry_process_safety_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v12 expansion promotes backlog families for cofactor-recycling enzyme cascades, late-stage C-H functionalization, carbohydrate glycosylation strategy, atropisomer/conformational-lock policy, reactive-metabolite safety critique, conjugate linker boundaries, cryo-EM/target-engagement probes, and continuous-flow photochemical/electrochemical process metadata."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Biocatalytic, late-stage-functionalization, glycan, atropisomeric, reactive-metabolite, conjugate-linker, target-engagement-probe, and flow-process records are advisory. Promotion to proposal generation requires explicit chemical, biological, toxicology, process, or validation review as applicable."
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "name": "Bufotalin",
+  "target_smiles": "CC(=O)O[C@H]1C[C@@]2([C@@H]3CC[C@@H]4C[C@H](CC[C@@]4([C@H]3CC[C@@]2([C@H]1C5=COC(=O)C=C5)C)C)O)O",
+  "source_root": "results/shared/bufotalin_repair_fresh_smoke_20260526_050824",
+  "generated_at": "2026-05-26T05:23:38.029958+00:00",
+  "selected_count": 2,
+  "high_confidence_count": 1,
+  "stitched_review_only_count": 1,
+  "native_review_only_count": 0,
+  "excluded_route_count": 17,
+  "routes": [
+    {
+      "source_cycle": "anchor",
+      "source_route_index": 1,
+      "confidence_tier": "high_confidence_source_supported",
+      "presentation_ready": true,
+      "n_steps": 1,
+      "score": 0.9,
+      "warnings": [],
+      "source_record": {
+        "name": "Deacetylbufotalin",
+        "synonyms": [
+          "Bufogenin B",
+          "desacetylbufotalin",
+          "3beta,14,16beta-trihydroxy-5beta-bufa-20,22-dienolide"
+        ],
+        "cas": "465-19-0",
+        "formula": "C24H34O5",
+        "source_note": "Reported natural product/advanced precursor; listed in public compound databases and commercial catalogue aggregators.",
+        "references": [
+          "https://www.drugfuture.com/chemdata/bufogenin-b.html",
+          "https://pubchem.ncbi.nlm.nih.gov/compound/Desacetylbufotalin",
+          "https://amp.chemicalbook.com/ChemicalProductProperty_EN_CB62078771.htm"
+        ]
+      },
+      "route_class_hint": "source_supported_semisynthesis"
+    },
+    {
+      "source_cycle": "cycle_001_upstream_first_d16_i200_k100_upstream_mainline_zinc",
+      "source_route_index": 4,
+      "confidence_tier": "stitched_semisynthesis_upstream_review_only",
+      "presentation_ready": false,
+      "n_steps": 4,
+      "score": 0.008362,
+      "warnings": [
+        "low_condition_prediction_score",
+        "rcr_condition_prediction_only"
+      ],
+      "source_record": {},
+      "route_class_hint": "stitched_semisynthesis_upstream"
+    }
+  ]
+}

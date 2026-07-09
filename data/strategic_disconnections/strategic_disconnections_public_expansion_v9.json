@@ -1,0 +1,1215 @@
+{
+  "schema_version": "strategic_disconnections.v9_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Eighth expanded public source layer focused on stapled peptides and peptidomimetic macrocycles, sulfated glycosaminoglycan and heparin mimetics, saponin glycosides, strained-ring bioactive motifs, sulfur-rich natural products, metal chelators and ionophores, macrocyclic kinase or bifunctional ligands, and photoredox/electrochemical route handles.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template or proposal promotion",
+      "separate peptide, glycan, adjuvant, strained-ring, sulfur, metal-homeostasis, macrocycle, bifunctional-ligand, radical, photochemical, or electrochemical policy",
+      "route-specific stereochemistry, sequence, sulfation pattern, glycan topology, aglycone site, ring strain, sulfur oxidation state, metal selectivity, linker topology, redox handle, and activation-mode review",
+      "toxicology, immunology, anticoagulant, adjuvant, bioactive peptide, electrophile, antimicrobial, metal-homeostasis, kinase-inhibitor, photochemical, electrochemical, or radical-safety review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, and synthesis conditions",
+      "bioactive peptide, anticoagulant-like, vaccine-adjuvant, strained electrophile, sulfur bioactivation, ionophore, kinase-inhibitor, photoredox, and electrochemical entries are high-level route priors only"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "stapled_peptide_peptidomimetic_macrocycle",
+      "name": "Stapled peptides, peptidomimetics, and constrained peptide macrocycles",
+      "pattern_keywords": [
+        "hydrocarbon-stapled peptide",
+        "peptide macrocycle",
+        "peptidomimetic",
+        "cell-penetrating peptide",
+        "beta-peptide",
+        "peptoid",
+        "constrained turn",
+        "sequence-defined macrocycle"
+      ],
+      "strategic_principle": "Separate sequence, residue modification, macrocyclization or staple position, and delivery or target-engagement metadata from ordinary amide coupling. Macrocyclization is route-defining only when the biological topology and sequence context are explicit."
+    },
+    {
+      "family_id": "glycosaminoglycan_sulfated_carbohydrate_mimetic",
+      "name": "Glycosaminoglycan, heparin-like, and sulfated carbohydrate mimetics",
+      "pattern_keywords": [
+        "glycosaminoglycan",
+        "heparin mimetic",
+        "heparan sulfate",
+        "sulfated oligosaccharide",
+        "sulfated alginate",
+        "SPGG",
+        "polysulfate",
+        "anticoagulant glycan"
+      ],
+      "strategic_principle": "Expose chain length, sulfation pattern, uronic-acid or hexosamine identity, and protein-binding mode. Sulfated glycans and mimetics are not generic protected sugar routes."
+    },
+    {
+      "family_id": "saponin_triterpenoid_steroidal_glycoside",
+      "name": "Saponin, triterpenoid, steroidal glycoside, and adjuvant-like glycan arrays",
+      "pattern_keywords": [
+        "saponin",
+        "triterpenoid glycoside",
+        "steroidal glycoside",
+        "QS-21",
+        "Quillaja saponin",
+        "cardiac glycoside",
+        "amphiphilic glycan",
+        "aglycone glycosylation"
+      ],
+      "strategic_principle": "Separate aglycone preparation, glycan-array assembly, acyl chain or side-chain editing, and immunological or membrane-active context. Saponin glycosides require aglycone/site/glycan policy rather than blind glycosylation templates."
+    },
+    {
+      "family_id": "strained_ring_bioactive_epoxide_aziridine",
+      "name": "Bioactive strained rings: epoxides, aziridines, cyclopropanes, and azabicycles",
+      "pattern_keywords": [
+        "epoxide",
+        "aziridine",
+        "cyclopropane",
+        "azabicyclohexane",
+        "strained ring",
+        "ring-opening warhead",
+        "bioactive electrophile",
+        "natural-product cyclopropane"
+      ],
+      "strategic_principle": "Treat ring strain, stereochemistry, ring-opening liability, and covalent or biosynthetic role as strategic metadata. Small strained rings are not interchangeable alkyl decorations."
+    },
+    {
+      "family_id": "sulfur_natural_product_isothiocyanate_thioether",
+      "name": "Sulfur-rich natural products, isothiocyanates, thioethers, and sulfoxides",
+      "pattern_keywords": [
+        "organosulfur natural product",
+        "isothiocyanate",
+        "glucosinolate",
+        "thioether",
+        "sulfoxide",
+        "polysulfide",
+        "Allium sulfur",
+        "marine sulfur metabolite"
+      ],
+      "strategic_principle": "Separate carbon skeleton assembly from sulfur incorporation, oxidation state, bioactivation, odor/reactivity liability, and biosynthetic origin. Sulfur state and release chemistry are route-defining."
+    },
+    {
+      "family_id": "metal_chelator_antidote_and_ionophore",
+      "name": "Metal chelators, antidotes, ionophores, and metal-homeostasis modulators",
+      "pattern_keywords": [
+        "metal chelator",
+        "ionophore",
+        "copper homeostasis",
+        "iron chelator",
+        "cuproptosis",
+        "ferroptosis",
+        "antidote chelation",
+        "metal transport"
+      ],
+      "strategic_principle": "Separate ligand denticity, metal selectivity, ion transport, chelation or delivery role, and toxicology from ordinary heteroatom scaffold synthesis."
+    },
+    {
+      "family_id": "macrocyclic_kinase_inhibitor_and_bifunctional_ligand",
+      "name": "Macrocyclic kinase inhibitors, bivalent ligands, and topology-constrained binders",
+      "pattern_keywords": [
+        "macrocyclic kinase inhibitor",
+        "macrocyclic CDK inhibitor",
+        "bivalent ligand",
+        "allosteric tether",
+        "bifunctional inhibitor",
+        "linker topology",
+        "binding vector",
+        "constrained kinase ligand"
+      ],
+      "strategic_principle": "Separate binding-vector selection, linker topology, macrocyclization timing, and target biology from generic macrocycle closure. A macrocycle or bivalent linker is strategic only with binding topology metadata."
+    },
+    {
+      "family_id": "photoredox_electrochemical_route_handle",
+      "name": "Photoredox, electrochemical, and radical late-stage route handles",
+      "pattern_keywords": [
+        "photoredox",
+        "electrochemical late-stage functionalization",
+        "radical precursor",
+        "redox-active ester",
+        "Minisci",
+        "C-H functionalization",
+        "photoelectrochemical",
+        "late-stage functionalization"
+      ],
+      "strategic_principle": "Separate target structure from temporary redox handles, radical precursors, activation mode, site-selectivity evidence, and functional-group tolerance. Redox handles are route strategy metadata, not target fragments."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "stapled_peptide_sequence_macrocycle_anchor",
+      "family_id": "stapled_peptide_peptidomimetic_macrocycle",
+      "name": "Sequence-defined peptide with reviewed staple, macrocycle, or peptidomimetic constraint",
+      "role": "peptide_macrocycle_anchor",
+      "aliases": [
+        "hydrocarbon-stapled peptide",
+        "peptide macrocycle",
+        "peptidomimetic residue set",
+        "cell-penetrating constrained peptide"
+      ],
+      "acceptance_policy": "requires_sequence_staple_position_macrocycle_topology_and_delivery_or_target_context_review"
+    },
+    {
+      "anchor_id": "sulfated_gag_pattern_anchor",
+      "family_id": "glycosaminoglycan_sulfated_carbohydrate_mimetic",
+      "name": "Sulfated glycan or mimetic with explicit chain length and sulfation pattern",
+      "role": "sulfated_glycan_anchor",
+      "aliases": [
+        "heparin mimetic",
+        "heparan sulfate fragment",
+        "sulfated oligosaccharide",
+        "SPGG",
+        "sulfated alginate"
+      ],
+      "acceptance_policy": "requires_sulfation_pattern_chain_length_binding_mode_and_anticoagulant_or_biological_context_review"
+    },
+    {
+      "anchor_id": "saponin_aglycone_glycan_array_anchor",
+      "family_id": "saponin_triterpenoid_steroidal_glycoside",
+      "name": "Triterpenoid or steroidal aglycone with reviewed glycan array and acyl/side-chain policy",
+      "role": "saponin_glycoside_anchor",
+      "aliases": [
+        "QS-21-like saponin",
+        "Quillaja saponin",
+        "triterpenoid glycoside",
+        "steroidal saponin",
+        "cardiac glycoside"
+      ],
+      "acceptance_policy": "requires_aglycone_identity_glycosylation_sites_glycan_sequence_and_immunology_or_toxicology_review"
+    },
+    {
+      "anchor_id": "strained_ring_bioactive_anchor",
+      "family_id": "strained_ring_bioactive_epoxide_aziridine",
+      "name": "Strained epoxide, aziridine, cyclopropane, or azabicycle with stereochemical and reactivity policy",
+      "role": "strained_ring_anchor",
+      "aliases": [
+        "bioactive epoxide",
+        "aziridine warhead",
+        "cyclopropane natural product",
+        "3-azabicyclo[3.1.0]hexane",
+        "ring-opening electrophile"
+      ],
+      "acceptance_policy": "requires_ring_strain_stereochemistry_reactivity_and_safety_review"
+    },
+    {
+      "anchor_id": "sulfur_natural_product_oxidation_anchor",
+      "family_id": "sulfur_natural_product_isothiocyanate_thioether",
+      "name": "Sulfur-rich motif with oxidation-state, bioactivation, or biosynthetic-origin metadata",
+      "role": "sulfur_natural_product_anchor",
+      "aliases": [
+        "glucosinolate",
+        "isothiocyanate",
+        "thioether natural product",
+        "sulfoxide",
+        "polysulfide metabolite"
+      ],
+      "acceptance_policy": "requires_sulfur_oxidation_state_bioactivation_reactivity_and_safety_or_stewardship_review"
+    },
+    {
+      "anchor_id": "metal_chelator_ionophore_homeostasis_anchor",
+      "family_id": "metal_chelator_antidote_and_ionophore",
+      "name": "Chelator or ionophore with reviewed metal selectivity and homeostasis role",
+      "role": "metal_homeostasis_anchor",
+      "aliases": [
+        "iron chelator",
+        "copper chelator",
+        "metal ionophore",
+        "chelating antidote",
+        "metal-transport scaffold"
+      ],
+      "acceptance_policy": "requires_metal_selectivity_denticity_transport_or_chelation_role_and_toxicology_review"
+    },
+    {
+      "anchor_id": "macrocyclic_bivalent_ligand_topology_anchor",
+      "family_id": "macrocyclic_kinase_inhibitor_and_bifunctional_ligand",
+      "name": "Macrocyclic or bivalent ligand with binding vectors, linker topology, and target context",
+      "role": "topology_constrained_ligand_anchor",
+      "aliases": [
+        "macrocyclic CDK inhibitor",
+        "macrocyclic kinase ligand",
+        "bivalent inhibitor",
+        "allosteric tether",
+        "bifunctional ligand"
+      ],
+      "acceptance_policy": "requires_target_context_binding_vectors_linker_topology_macrocycle_closure_and_biology_review"
+    },
+    {
+      "anchor_id": "redox_photochemical_electrochemical_handle_anchor",
+      "family_id": "photoredox_electrochemical_route_handle",
+      "name": "Temporary redox, photochemical, or electrochemical handle with activation-mode and selectivity policy",
+      "role": "redox_route_handle_anchor",
+      "aliases": [
+        "redox-active ester",
+        "photoredox radical precursor",
+        "electrochemical C-H functionalization handle",
+        "Minisci precursor",
+        "late-stage functionalization handle"
+      ],
+      "acceptance_policy": "requires_activation_mode_site_selectivity_functional_group_tolerance_and_radical_or_electrochemical_safety_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "stapled_peptide_macrocyclization_sequence_split",
+      "family_id": "stapled_peptide_peptidomimetic_macrocycle",
+      "name": "Stapled peptide to linear sequence plus macrocyclization or staple-position policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "hydrocarbon-stapled peptides",
+          "sequence-defined peptide macrocycles",
+          "constrained peptide therapeutics"
+        ],
+        "target_features": [
+          "defined peptide sequence",
+          "staple or macrocycle closure",
+          "alpha-helix or constrained-turn stabilization"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "macrocycle or staple closure boundary",
+          "modified residue pair to linear sequence boundary"
+        ],
+        "forward_logic": [
+          "identify the parent peptide sequence and residues that define the staple or macrocycle",
+          "separate linear sequence assembly from conformational constraint installation",
+          "track biological target, cell-penetration or stability rationale, and sequence fidelity"
+        ],
+        "suggested_precursor_roles": [
+          "linear peptide sequence",
+          "staple-bearing residues",
+          "macrocycle-constrained peptide",
+          "target-engagement metadata"
+        ],
+        "planner_hint": "Reward routes that preserve sequence identity and explain the staple or macrocycle topology rather than treating the closure as generic alkene or amide formation."
+      },
+      "risks": [
+        "sequence or stereochemistry drift",
+        "macrocycle topology mismatch",
+        "cell-penetration assumptions",
+        "bioactive peptide review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Hydrocarbon-stapled peptide review covers principles, practice, and progress for stapled peptide design.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/24601557/"
+        },
+        {
+          "type": "literature",
+          "citation": "Peptide macrocyclization review discusses transition-metal-enabled peptide macrocyclization as a strategic constraint approach.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/32142086/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "stapled_peptide_macrocycle_prior",
+        "rerank_bonus": "moderate for explicit sequence, staple position, and macrocycle topology",
+        "compliance_gate": "bioactive_peptide_delivery_review_required"
+      }
+    },
+    {
+      "id": "peptidomimetic_residue_and_delivery_policy",
+      "family_id": "stapled_peptide_peptidomimetic_macrocycle",
+      "name": "Peptidomimetic residue set to parent sequence plus delivery or stability policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "peptidomimetics",
+          "beta-peptide or peptoid analogues",
+          "cell-penetrating constrained peptides"
+        ],
+        "target_features": [
+          "noncanonical residue",
+          "backbone modification",
+          "delivery or proteolytic-stability rationale"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "noncanonical residue insertion boundary",
+          "peptidomimetic backbone or side-chain modification boundary"
+        ],
+        "forward_logic": [
+          "map modified residues to the parent sequence or pharmacophore",
+          "separate residue synthesis from sequence assembly and delivery/stability rationale",
+          "avoid scoring protected peptide intermediates as strategic completion without biological context"
+        ],
+        "suggested_precursor_roles": [
+          "parent peptide sequence",
+          "noncanonical residue",
+          "peptidomimetic segment",
+          "delivery or stability metadata"
+        ],
+        "planner_hint": "Use peptidomimetic entries only when residue identity and biological or delivery role are explicit."
+      },
+      "risks": [
+        "loss of parent pharmacophore mapping",
+        "incorrect residue stereochemistry",
+        "delivery mechanism uncertainty",
+        "bioactive peptide review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Hydrocarbon-stapled peptide review links conformational constraint to peptide therapeutic strategy.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/24601557/"
+        },
+        {
+          "type": "literature",
+          "citation": "Peptide macrocyclization review illustrates macrocycle formation as a route-defining peptide modification.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/32142086/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "peptidomimetic_residue_prior",
+        "rerank_bonus": "moderate only with parent-sequence mapping and delivery or stability rationale",
+        "compliance_gate": "bioactive_peptidomimetic_review_required"
+      }
+    },
+    {
+      "id": "gag_sulfation_pattern_chain_boundary_disconnection",
+      "family_id": "glycosaminoglycan_sulfated_carbohydrate_mimetic",
+      "name": "Sulfated glycosaminoglycan to chain-length, monosaccharide, and sulfation-pattern policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "heparin-like fragments",
+          "heparan sulfate mimetics",
+          "sulfated oligosaccharides"
+        ],
+        "target_features": [
+          "defined sulfation pattern",
+          "uronic acid or amino sugar sequence",
+          "anticoagulant or protein-binding glycan role"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "glycosidic chain boundary",
+          "sulfation-pattern installation boundary"
+        ],
+        "forward_logic": [
+          "define chain length, residue order, and sulfation sites before route scoring",
+          "separate protected glycan assembly from late sulfation or mimetic installation",
+          "track protein-binding or anticoagulant-like context and avoid generic sugar-stock closure"
+        ],
+        "suggested_precursor_roles": [
+          "protected oligosaccharide chain",
+          "sulfation pattern precursor",
+          "heparin-like mimetic",
+          "binding-mode metadata"
+        ],
+        "planner_hint": "Reward routes that preserve sulfation topology and chain identity, not merely any sulfated carbohydrate."
+      },
+      "risks": [
+        "sulfation site ambiguity",
+        "chain-length mismatch",
+        "anticoagulant liability",
+        "glycan analytical traceability"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Heparin and heparin-mimetic review discusses heparin-like molecules and mimetics in biological context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40723905/"
+        },
+        {
+          "type": "literature",
+          "citation": "Sulfated alginate review discusses sulfated polysaccharides for biomedical applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39078625/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "sulfated_gag_pattern_prior",
+        "rerank_bonus": "high for explicit sulfation pattern, chain length, and binding-mode metadata",
+        "compliance_gate": "anticoagulant_or_glycan_biology_review_required"
+      }
+    },
+    {
+      "id": "heparin_mimetic_small_molecule_sulfate_policy",
+      "family_id": "glycosaminoglycan_sulfated_carbohydrate_mimetic",
+      "name": "Small-molecule or polymeric heparin mimetic to sulfate pharmacophore plus scaffold policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "small-molecule glycosaminoglycan mimetics",
+          "sulfated polyphenol or polysulfate mimetics",
+          "heparin-like biomedical polymers"
+        ],
+        "target_features": [
+          "multiple sulfate or sulfonate groups",
+          "protein-binding glycan mimicry",
+          "non-glycan scaffold mimicking sulfated GAG charge pattern"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "sulfate/sulfonate pharmacophore installation boundary",
+          "mimetic scaffold to charge-pattern boundary"
+        ],
+        "forward_logic": [
+          "separate scaffold synthesis from sulfate pharmacophore installation",
+          "track whether the motif mimics glycan topology, charge density, or protein-binding presentation",
+          "flag anticoagulant and promiscuous-binding context before proposal promotion"
+        ],
+        "suggested_precursor_roles": [
+          "mimetic scaffold",
+          "sulfate or sulfonate pharmacophore",
+          "heparin-like charge-pattern analogue",
+          "protein-binding metadata"
+        ],
+        "planner_hint": "Treat sulfate-rich mimetics as advisory unless the target protein-binding role and charge pattern are known."
+      },
+      "risks": [
+        "promiscuous protein binding",
+        "anticoagulant or complement liabilities",
+        "desulfation or analytical complexity",
+        "polyanion exposure review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "SPGG review discusses a sulfated small-molecule glycosaminoglycan mimetic and pharmacological effects.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39528449/"
+        },
+        {
+          "type": "literature",
+          "citation": "Heparin-mimetic review frames heparin-like molecules and mimetics as biologically distinct from ordinary carbohydrates.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40723905/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "heparin_mimetic_sulfate_prior",
+        "rerank_bonus": "moderate for explicit charge-pattern and protein-binding rationale",
+        "compliance_gate": "polyanion_anticoagulant_review_required"
+      }
+    },
+    {
+      "id": "saponin_aglycone_glycan_array_disconnection",
+      "family_id": "saponin_triterpenoid_steroidal_glycoside",
+      "name": "Saponin glycoside to aglycone plus glycan-array and acyl-side-chain policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "triterpenoid saponins",
+          "steroidal saponins",
+          "Quillaja or QS-like saponins",
+          "cardiac glycosides outside bufadienolide seed scope"
+        ],
+        "target_features": [
+          "amphiphilic aglycone",
+          "one or more glycan chains",
+          "acyl chain or side-chain contribution to biological activity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aglycone-glycan glycosidic boundary",
+          "glycan-array branch or acyl-side-chain boundary"
+        ],
+        "forward_logic": [
+          "define aglycone identity and glycosylation sites before route scoring",
+          "separate glycan-array assembly from aglycone synthesis or semisynthesis",
+          "track adjuvant, membrane-active, cardiotonic, or toxicity context"
+        ],
+        "suggested_precursor_roles": [
+          "triterpenoid or steroidal aglycone",
+          "glycan donor sequence",
+          "acyl side-chain fragment",
+          "immunology or toxicology metadata"
+        ],
+        "planner_hint": "Reward routes that expose aglycone/glycan/site boundaries and do not collapse complex saponins into generic glycosides."
+      },
+      "risks": [
+        "glycan sequence ambiguity",
+        "adjuvant or membrane-active toxicity",
+        "aglycone stereochemistry",
+        "semisynthetic supply assumptions"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "QS saponin biosynthesis review discusses heterologous biosynthesis and saponin structural complexity.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/42192394/"
+        },
+        {
+          "type": "literature",
+          "citation": "Quillaja saponin supply review discusses QS-21 scalability and supply context for adjuvanted vaccines.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/42079571/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "saponin_aglycone_glycan_prior",
+        "rerank_bonus": "high for explicit aglycone, glycan-array, acyl-chain, and biological-context metadata",
+        "compliance_gate": "saponin_adjuvant_or_toxicology_review_required"
+      }
+    },
+    {
+      "id": "qs_saponin_adjuvant_supply_semisynthesis_policy",
+      "family_id": "saponin_triterpenoid_steroidal_glycoside",
+      "name": "QS-like saponin to semisynthetic, biosynthetic, or supply-chain route policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "QS-21-like saponin adjuvants",
+          "Quillaja saponin analogues",
+          "adjuvant glycosides"
+        ],
+        "target_features": [
+          "adjuvant-like amphiphilic glycoside",
+          "supply-constrained natural product",
+          "biosynthetic or semisynthetic source decision"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "natural-source aglycone or glycoside pool boundary",
+          "semisynthetic side-chain or glycan-edit boundary"
+        ],
+        "forward_logic": [
+          "separate total synthesis, semisynthesis, and biosynthetic-source strategies",
+          "track supply-chain, scalability, and immunology constraints without operational details",
+          "avoid treating natural saponin mixtures or advanced analogues as generic stock"
+        ],
+        "suggested_precursor_roles": [
+          "reviewed natural saponin source",
+          "semisynthetic aglycone/glycoside intermediate",
+          "adjuvant analogue",
+          "supply and immunology metadata"
+        ],
+        "planner_hint": "Use QS-like saponin entries for source and route-policy critique, not automatic stock closure."
+      },
+      "risks": [
+        "adjuvant potency and reactogenicity",
+        "natural mixture heterogeneity",
+        "supply scalability",
+        "immunology review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "QS saponin biosynthesis review provides public context for biosynthetic source strategies.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/42192394/"
+        },
+        {
+          "type": "literature",
+          "citation": "Quillaja saponin supply review highlights scalability and supply constraints for QS-21 demand.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/42079571/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "qs_saponin_supply_policy_prior",
+        "rerank_bonus": "moderate for explicit biosynthetic, semisynthetic, or supply-chain route rationale",
+        "compliance_gate": "vaccine_adjuvant_immunology_review_required"
+      }
+    },
+    {
+      "id": "strained_ring_epoxide_aziridine_warhead_policy",
+      "family_id": "strained_ring_bioactive_epoxide_aziridine",
+      "name": "Epoxide or aziridine bioactive motif to strained-ring installation and ring-opening policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "bioactive epoxides",
+          "aziridine-containing natural products",
+          "strained-ring covalent probes"
+        ],
+        "target_features": [
+          "small strained heterocycle",
+          "ring-opening electrophile",
+          "defined stereochemistry and biological context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "strained C-O or C-N ring closure boundary",
+          "ring-opening electrophile to parent scaffold boundary"
+        ],
+        "forward_logic": [
+          "define whether the strained ring is a biosynthetic motif, warhead, or stereochemical handle",
+          "separate parent scaffold assembly from strained-ring installation",
+          "track stereochemistry, reactivity, and safety review before promotion"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "strained-ring precursor",
+          "epoxide or aziridine motif",
+          "reactivity and stereochemistry metadata"
+        ],
+        "planner_hint": "Do not reward strained-ring routes unless ring strain, stereochemistry, and bioactive role are explicit."
+      },
+      "risks": [
+        "uncontrolled ring opening",
+        "alkylating or sensitizing liability",
+        "stereochemical mismatch",
+        "covalent warhead safety review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Cyclopropane natural-product biosynthesis review illustrates that strained rings can be biosynthetically and strategically distinct motifs.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34860231/"
+        },
+        {
+          "type": "literature",
+          "citation": "Azabicyclohexane synthesis review provides public context for constrained nitrogen-containing strained-ring scaffolds.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37269044/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "strained_ring_warhead_prior",
+        "rerank_bonus": "moderate for explicit strained-ring role, stereochemistry, and reactivity policy",
+        "compliance_gate": "strained_electrophile_safety_review_required"
+      }
+    },
+    {
+      "id": "cyclopropane_azabicyclo_bioactive_ring_disconnection",
+      "family_id": "strained_ring_bioactive_epoxide_aziridine",
+      "name": "Cyclopropane or azabicyclic motif to parent skeleton plus strain/topology policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "cyclopropane natural products",
+          "azabicyclohexane medicinal scaffolds",
+          "strained carbocycle or heterocycle analogues"
+        ],
+        "target_features": [
+          "cyclopropane or fused strained ring",
+          "topology or conformation role",
+          "biosynthetic or medicinal strain motif"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "cyclopropane-forming bond boundary",
+          "azabicyclic ring fusion boundary"
+        ],
+        "forward_logic": [
+          "map the strained ring to the parent scaffold and conformational role",
+          "separate strained-ring construction from side-chain or substituent decoration",
+          "track stereochemistry, ring fusion, and natural-product or medicinal context"
+        ],
+        "suggested_precursor_roles": [
+          "parent skeleton",
+          "strained-ring precursor",
+          "cyclopropane or azabicyclic motif",
+          "topology metadata"
+        ],
+        "planner_hint": "Prefer routes that expose strain-building logic and topology instead of treating cyclopropanes as ordinary alkyl branches."
+      },
+      "risks": [
+        "ring-fusion stereochemistry",
+        "strain-release reactivity",
+        "biosynthetic analogy overreach",
+        "availability of constrained building blocks"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Cyclopropane natural-product biosynthesis review supports treating cyclopropanes as source-backed strategic motifs.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34860231/"
+        },
+        {
+          "type": "literature",
+          "citation": "Azabicyclohexane synthesis review covers a constrained bioactive ring family relevant to route critique.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37269044/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cyclopropane_azabicycle_strain_prior",
+        "rerank_bonus": "moderate for explicit strained-ring topology and stereochemical mapping",
+        "compliance_gate": "strained_ring_topology_review_required"
+      }
+    },
+    {
+      "id": "sulfur_natural_product_oxidation_state_policy",
+      "family_id": "sulfur_natural_product_isothiocyanate_thioether",
+      "name": "Sulfur-rich natural product to sulfur incorporation and oxidation-state policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "organosulfur natural products",
+          "marine sulfur metabolites",
+          "Allium sulfur compounds",
+          "thioether or sulfoxide natural products"
+        ],
+        "target_features": [
+          "defined sulfur oxidation state",
+          "thioether, sulfoxide, sulfide, or polysulfide motif",
+          "odor, redox, or bioactivation context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-S bond or sulfur insertion boundary",
+          "sulfoxide/sulfide oxidation-state boundary"
+        ],
+        "forward_logic": [
+          "define sulfur oxidation state and connectivity before route scoring",
+          "separate carbon skeleton synthesis from sulfur incorporation or oxidation-state adjustment",
+          "track biosynthetic origin, reactivity, odor, and biological context"
+        ],
+        "suggested_precursor_roles": [
+          "carbon skeleton",
+          "sulfur donor or sulfur-containing fragment",
+          "oxidation-state-adjusted sulfur motif",
+          "biosynthetic or bioactivation metadata"
+        ],
+        "planner_hint": "Reward routes that preserve sulfur oxidation-state logic and do not flatten thioethers, sulfoxides, and isothiocyanates into generic heteroatom substituents."
+      },
+      "risks": [
+        "oxidation-state mismatch",
+        "odor or volatility",
+        "redox and bioactivation liabilities",
+        "sulfur-reagent hazard review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Marine sulfur natural-product review discusses chemistry and biology of sulfur-containing natural products.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37073258/"
+        },
+        {
+          "type": "literature",
+          "citation": "Allium sulfur chemistry review discusses sulfur-compound chemistry relevant to natural-product route critique.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31694287/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "sulfur_oxidation_state_prior",
+        "rerank_bonus": "moderate for explicit sulfur state, incorporation timing, and biological context",
+        "compliance_gate": "sulfur_reactivity_and_toxicology_review_required"
+      }
+    },
+    {
+      "id": "glucosinolate_isothiocyanate_bioactivation_disconnection",
+      "family_id": "sulfur_natural_product_isothiocyanate_thioether",
+      "name": "Glucosinolate or isothiocyanate motif to bioactivation and release-chemistry policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "glucosinolate-derived motifs",
+          "isothiocyanate natural products",
+          "bioactivated sulfur electrophiles"
+        ],
+        "target_features": [
+          "isothiocyanate or glucosinolate-like sulfur/nitrogen motif",
+          "release or bioactivation pathway",
+          "food, botanical, or bioactive sulfur context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "isothiocyanate or thioglucoside release boundary",
+          "bioactivation precursor to active sulfur motif boundary"
+        ],
+        "forward_logic": [
+          "separate stable precursor, release handle, and active sulfur motif",
+          "track biological context and avoid treating bioactivated sulfur groups as inert substituents",
+          "flag electrophile and stewardship review before proposal promotion"
+        ],
+        "suggested_precursor_roles": [
+          "bioactivation precursor",
+          "sulfur electrophile motif",
+          "release or conjugation handle",
+          "biological-mode metadata"
+        ],
+        "planner_hint": "Use glucosinolate/isothiocyanate entries for release-policy critique, not generic C-S disconnection."
+      },
+      "risks": [
+        "bioactivation uncertainty",
+        "electrophile reactivity",
+        "food or botanical matrix overgeneralization",
+        "toxicology review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Sulfur-compound aroma review provides public context for volatile sulfur metabolites in vegetables and mushrooms.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36144849/"
+        },
+        {
+          "type": "literature",
+          "citation": "Marine sulfur natural-product review supports sulfur bioactivity and reactivity as route-relevant metadata.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37073258/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "glucosinolate_isothiocyanate_prior",
+        "rerank_bonus": "moderate only with explicit precursor, release, or bioactivation metadata",
+        "compliance_gate": "bioactivated_sulfur_electrophile_review_required"
+      }
+    },
+    {
+      "id": "metal_chelator_ligand_denticity_disconnection",
+      "family_id": "metal_chelator_antidote_and_ionophore",
+      "name": "Metal chelator to ligand arms, denticity, and metal-selectivity policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "iron or copper chelators",
+          "chelating antidotes",
+          "metal-homeostasis modulators"
+        ],
+        "target_features": [
+          "multidentate ligand",
+          "metal selectivity",
+          "chelation or homeostasis modulation role"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "chelating arm to central scaffold boundary",
+          "metal-binding donor-set assembly boundary"
+        ],
+        "forward_logic": [
+          "define donor atoms, denticity, and target metal before route scoring",
+          "separate ligand scaffold construction from metal-binding arm installation",
+          "track chelation, antidote, ferroptosis, cuproptosis, or homeostasis context"
+        ],
+        "suggested_precursor_roles": [
+          "ligand scaffold",
+          "chelating arm",
+          "metal-binding donor set",
+          "metal-selectivity metadata"
+        ],
+        "planner_hint": "Reward chelator routes only when denticity, metal selectivity, and biological role are explicit."
+      },
+      "risks": [
+        "off-target metal depletion",
+        "redox-active metal complexes",
+        "homeostasis disruption",
+        "toxicology review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Iron and copper chelator review discusses modulation of ferroptosis and cuproptosis by chelators and related agents.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41897286/"
+        },
+        {
+          "type": "literature",
+          "citation": "Copper-homeostasis review discusses copper homeostasis and cuproptosis as therapeutic targets.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41072834/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "metal_chelator_denticity_prior",
+        "rerank_bonus": "high for explicit donor set, metal selectivity, and homeostasis context",
+        "compliance_gate": "metal_homeostasis_toxicology_review_required"
+      }
+    },
+    {
+      "id": "ionophore_metal_transport_scaffold_policy",
+      "family_id": "metal_chelator_antidote_and_ionophore",
+      "name": "Ionophore or metal-transport scaffold to binding cavity plus transport policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "metal ionophores",
+          "metal-transport natural products",
+          "homeostasis-modulating ligands"
+        ],
+        "target_features": [
+          "metal-binding cavity",
+          "lipophilic transport scaffold",
+          "metal delivery or redistribution role"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "ion-binding cavity to lipophilic scaffold boundary",
+          "metal-binding donor array boundary"
+        ],
+        "forward_logic": [
+          "separate ion-binding topology from hydrophobic transport scaffold",
+          "track target metal, transport role, and membrane or homeostasis context",
+          "avoid promoting ionophores as ordinary macrocycles or ligands without toxicology review"
+        ],
+        "suggested_precursor_roles": [
+          "transport scaffold",
+          "metal-binding donor array",
+          "ionophore motif",
+          "homeostasis and toxicity metadata"
+        ],
+        "planner_hint": "Treat ionophore routes as advisory unless binding cavity, metal selectivity, and transport role are reviewed."
+      },
+      "risks": [
+        "broad ion transport",
+        "mitochondrial or membrane toxicity",
+        "metal-homeostasis disruption",
+        "selectivity uncertainty"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Copper-homeostasis review frames metal transport and homeostasis as therapeutic intervention context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41072834/"
+        },
+        {
+          "type": "literature",
+          "citation": "Copper homeostasis and cuproptosis atherosclerosis review provides public context for metal-homeostasis intervention strategy.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40691390/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "ionophore_transport_prior",
+        "rerank_bonus": "moderate for explicit metal-binding topology and transport policy",
+        "compliance_gate": "ionophore_metal_transport_toxicology_review_required"
+      }
+    },
+    {
+      "id": "macrocyclic_kinase_inhibitor_closure_vector_policy",
+      "family_id": "macrocyclic_kinase_inhibitor_and_bifunctional_ligand",
+      "name": "Macrocyclic kinase inhibitor to binding vectors plus macrocycle-closure policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "macrocyclic kinase inhibitors",
+          "macrocyclic CDK inhibitors",
+          "constrained ATP-site or allosteric ligands"
+        ],
+        "target_features": [
+          "kinase-binding pharmacophore",
+          "macrocycle linking vectors",
+          "conformational constraint tied to potency or selectivity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "macrocycle closure bond between binding vectors",
+          "kinase pharmacophore to linker boundary"
+        ],
+        "forward_logic": [
+          "identify kinase-binding core and the vectors used for macrocyclization",
+          "separate pharmacophore synthesis from macrocycle closure and conformational tuning",
+          "track target biology, selectivity, and resistance or allosteric rationale"
+        ],
+        "suggested_precursor_roles": [
+          "kinase-binding core",
+          "macrocycle linker",
+          "closure precursor",
+          "target and selectivity metadata"
+        ],
+        "planner_hint": "Reward macrocyclic kinase routes only when binding vectors and conformational rationale are explicit."
+      },
+      "risks": [
+        "incorrect binding-vector assignment",
+        "macrocycle closure feasibility overreach",
+        "kinase selectivity assumptions",
+        "bioactive inhibitor review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Macrocyclic CDK inhibitor review discusses recent advances in macrocyclic kinase-inhibitor design.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41363208/"
+        },
+        {
+          "type": "literature",
+          "citation": "Dual ALK inhibitor strategy review provides public context for scaffold and resistance strategy in kinase inhibitor design.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41825145/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "macrocyclic_kinase_vector_prior",
+        "rerank_bonus": "high for explicit binding vectors, macrocycle topology, and target-selectivity rationale",
+        "compliance_gate": "bioactive_kinase_inhibitor_review_required"
+      }
+    },
+    {
+      "id": "bifunctional_ligand_linker_topology_disconnection",
+      "family_id": "macrocyclic_kinase_inhibitor_and_bifunctional_ligand",
+      "name": "Bivalent or bifunctional ligand to two binding modules plus linker-topology policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "bivalent ligands",
+          "bifunctional inhibitors",
+          "allosteric tethered ligands",
+          "topology-constrained binders"
+        ],
+        "target_features": [
+          "two binding modules",
+          "defined linker length or exit vectors",
+          "target topology or proximity-driven mechanism"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "binding module to linker boundary",
+          "second binding module to linker boundary"
+        ],
+        "forward_logic": [
+          "separate each binding module from the linker and topology constraint",
+          "track linker length, exit vectors, target proximity, and biological mechanism",
+          "avoid scoring bivalent molecules as generic linked fragments without target-context metadata"
+        ],
+        "suggested_precursor_roles": [
+          "first binding module",
+          "second binding module",
+          "linker or tether",
+          "topology and target-context metadata"
+        ],
+        "planner_hint": "Use bivalent-ligand entries only when both binding modules and linker topology are explicitly mapped."
+      },
+      "risks": [
+        "linker-length overfitting",
+        "target-context mismatch",
+        "large-molecule developability",
+        "bioactive bifunctional-ligand review required"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Hsp70-Bim disruptor review includes small-molecule and peptidic disruptor context for topology-aware binding design.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41386671/"
+        },
+        {
+          "type": "literature",
+          "citation": "Macrocyclic CDK inhibitor review supports topology-constrained ligand design as route-relevant medicinal chemistry context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41363208/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "bifunctional_ligand_linker_prior",
+        "rerank_bonus": "moderate for explicit module identity, linker topology, and biological mechanism",
+        "compliance_gate": "bifunctional_bioactive_ligand_review_required"
+      }
+    },
+    {
+      "id": "photoredox_late_stage_functionalization_handle_policy",
+      "family_id": "photoredox_electrochemical_route_handle",
+      "name": "Photoredox late-stage functionalization to parent scaffold plus temporary radical handle",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "late-stage functionalized drugs",
+          "photoredox-enabled analogues",
+          "radical C-H or Minisci functionalization targets"
+        ],
+        "target_features": [
+          "temporary redox-active handle or radical precursor",
+          "late-stage site-selective edit",
+          "functional-group tolerance as route rationale"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "late-stage C-C, C-N, C-S, or C-heteroatom bond traced to radical precursor",
+          "temporary redox handle boundary"
+        ],
+        "forward_logic": [
+          "separate parent scaffold from the late-stage functionalization handle",
+          "track activation mode, site-selectivity evidence, and functional-group tolerance",
+          "remove temporary redox handles from target-stock reasoning"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "radical precursor or redox-active handle",
+          "late-stage analogue",
+          "activation-mode and selectivity metadata"
+        ],
+        "planner_hint": "Reward late-stage photoredox routes only when the temporary handle and site-selectivity rationale are explicit."
+      },
+      "risks": [
+        "site-selectivity overclaim",
+        "radical side reactions",
+        "photochemical safety",
+        "functional-group tolerance mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Heterogeneous photocatalysis review discusses late-stage functionalization of complex molecules.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41540603/"
+        },
+        {
+          "type": "literature",
+          "citation": "Late-stage functionalization update discusses LSF in current drug-discovery context.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37114995/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "photoredox_lsf_handle_prior",
+        "rerank_bonus": "high for explicit parent scaffold, temporary handle, activation mode, and site-selectivity evidence",
+        "compliance_gate": "photoredox_radical_safety_review_required"
+      }
+    },
+    {
+      "id": "electrochemical_redox_handle_route_boundary_policy",
+      "family_id": "photoredox_electrochemical_route_handle",
+      "name": "Electrochemical or redox-handle route to parent scaffold plus activation-mode policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "electrochemical late-stage analogues",
+          "redox-active ester routes",
+          "photoelectrochemical functionalization targets"
+        ],
+        "target_features": [
+          "electrochemical activation",
+          "redox-active leaving group or precursor",
+          "site-selective late-stage edit"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "redox-active precursor to product bond boundary",
+          "electrochemical activation handle boundary"
+        ],
+        "forward_logic": [
+          "identify which group is a temporary redox handle and which atoms remain in the target",
+          "separate electrochemical activation strategy from structural target features",
+          "track oxidation/reduction window, selectivity, and scale/safety review at a high level"
+        ],
+        "suggested_precursor_roles": [
+          "parent scaffold",
+          "redox-active precursor",
+          "electrochemical activation handle",
+          "site-selectivity metadata"
+        ],
+        "planner_hint": "Use electrochemical entries for route-boundary critique and prevent redox handles from being treated as target fragments."
+      },
+      "risks": [
+        "redox-window mismatch",
+        "functional-group incompatibility",
+        "scale and electrochemical setup assumptions",
+        "radical/electrochemical safety review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Late-stage functionalization overview discusses LSF strategies in drug discovery.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31411499/"
+        },
+        {
+          "type": "literature",
+          "citation": "Late-stage functionalization update provides public context for modern LSF route strategy.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/37114995/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "electrochemical_redox_handle_prior",
+        "rerank_bonus": "moderate for explicit redox handle, activation mode, and site-selectivity metadata",
+        "compliance_gate": "electrochemical_radical_route_safety_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v9 expansion promotes the next backlog families for stapled peptides, sulfated glycan mimetics, saponins, strained-ring bioactive motifs, sulfur-rich natural products, metal chelators and ionophores, macrocyclic/bifunctional ligands, and photoredox/electrochemical route handles."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Bioactive peptide, anticoagulant-like, vaccine-adjuvant, electrophilic strained-ring, organosulfur bioactivation, metal-homeostasis, kinase-inhibitor, bifunctional-ligand, radical, photochemical, and electrochemical records are advisory. Promotion to proposal generation requires explicit biological-mode, toxicology, immunology, stewardship, metal-homeostasis, photochemical, electrochemical, or radical-safety review as applicable."
+    }
+  ]
+}

@@ -1,0 +1,1058 @@
+{
+  "artifact_refs": {
+    "artifact_bundle": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/artifact_bundle_strict_visual.json",
+    "clean_artifact_bundle": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/artifact_bundle_strict_visual_clean.json",
+    "clean_artifact_bundle_validation": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/artifact_bundle_validation_strict_visual_clean.json",
+    "clean_final_verdict": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/final_verdict_strict_visual_clean.json",
+    "clean_summary": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/bufotalin_strict_visual_continuation_clean_summary.json",
+    "final_verdict": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/final_verdict_strict_visual.json",
+    "route_expansion_subgoals": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/route_expansion_subgoals",
+    "source_detail_chain_route": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/source_detail_chain_route_strict_visual/source_detail_route_chain_audit.json",
+    "source_detail_curator_records": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/open_structure_research_strict_visual/evidence/source_detail_curator_records.json",
+    "stitched_route": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/stitched_semisynthesis_route_strict_visual/stitched_semisynthesis_route.json",
+    "strict_visual_candidate_chain": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/visual_literature_chain_extraction_strict_visual/visual_structure_candidate_chain.json",
+    "strict_visual_clean_bundle": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/artifact_bundle_strict_visual_clean.json",
+    "strict_visual_clean_verdict": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/final_verdict_strict_visual_clean.json",
+    "strict_visual_subgoal_verifier": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/route_expansion_subgoals/01_strict_visual_terminal_11_verifier.json",
+    "strict_visual_terminal_audit": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/visual_literature_chain_extraction_strict_visual/strict_visual_terminal_audit.json",
+    "visual_chain_validation": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/literature_intermediate_chain_validation_strict_visual/visual_structure_chain_validation.json"
+  },
+  "clean_final": {
+    "artifact_refs": {
+      "subgoal_raw_result_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/route_expansion_subgoals/01_strict_visual_terminal_11_raw_result.json",
+      "subgoal_request_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/route_expansion_subgoals/01_strict_visual_terminal_11_request.json"
+    },
+    "case_id": "bufotalin",
+    "reasons": [],
+    "route_status": "solved",
+    "run_semantics": "canonical_agent_controller",
+    "schema_version": "codex_entry_final_verdict.v1",
+    "solved": true,
+    "stock_audit_passed": true,
+    "verdict": "solved"
+  },
+  "clean_validation": {
+    "accepted": true,
+    "artifact_keys": [
+      "route_expansion_subgoal_search",
+      "source_detail_chain_route",
+      "stitched_semisynthesis_route",
+      "strict_visual_continuation_summary",
+      "strict_visual_terminal_audit",
+      "visual_literature_chain_extraction",
+      "visual_structure_chain_validation"
+    ],
+    "generated_at_utc": "2026-06-08T08:23:54.153876+00:00",
+    "reasons": [],
+    "schema_version": "codex_entry_artifact_bundle_validation.v1",
+    "validation_scope": "strict_visual_clean_bundle"
+  },
+  "generated_at_utc": "2026-06-08T08:43:37.806979+00:00",
+  "negative_controls": {
+    "guided_reasons": [
+      "advanced_same_scaffold_terminal",
+      "large_atom_jump",
+      "no_verifier_accepted_stock_closed_route"
+    ],
+    "guided_route_status": "fake_closed_rejected",
+    "native_accepted_route_count": 0,
+    "native_reasons": [
+      "advanced_same_scaffold_terminal",
+      "large_atom_jump",
+      "no_verifier_accepted_stock_closed_route"
+    ],
+    "native_route_status": "fake_closed_rejected",
+    "stale_final_reasons": [
+      "advanced_same_scaffold_terminal",
+      "fake_closure_evidence_present",
+      "large_atom_jump",
+      "no_verifier_accepted_stock_closed_route",
+      "open_structure_research_timeout",
+      "raw_reaction_injection"
+    ]
+  },
+  "pdf_evidence": {
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/literature_pdf_structure_evidence.json",
+    "scheme_crops": [
+      {
+        "bbox_px": [
+          0,
+          0,
+          2977,
+          2500
+        ],
+        "crop_id": "scheme3_full_to_20",
+        "evidence_refs": [],
+        "image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/literature_pdf_structure_extraction/crops/scheme3_full_to_20.png",
+        "page_number": 3,
+        "reason": "",
+        "scheme_id": "",
+        "sha256": "b355edb8d208992f6f24ffe2da03c07285c68bc3cad9bf4c3d75b973ab2dabd3",
+        "source_image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/literature_pdf_structure_extraction/pages/page_003_z5.png",
+        "status": "created"
+      },
+      {
+        "bbox_px": [
+          0,
+          1550,
+          2977,
+          3050
+        ],
+        "crop_id": "scheme4_total_synthesis",
+        "evidence_refs": [],
+        "image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/literature_pdf_structure_extraction/crops/scheme4_total_synthesis.png",
+        "page_number": 3,
+        "reason": "",
+        "scheme_id": "",
+        "sha256": "92253d4d24f9c899d458a83f73731a50fd5b3989f13a308fe22cf1c8762ce26d",
+        "source_image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/literature_pdf_structure_extraction/pages/page_003_z5.png",
+        "status": "created"
+      },
+      {
+        "bbox_px": [
+          0,
+          2800,
+          1500,
+          3969
+        ],
+        "crop_id": "table1_allylic_oxidation",
+        "evidence_refs": [],
+        "image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/literature_pdf_structure_extraction/crops/table1_allylic_oxidation.png",
+        "page_number": 3,
+        "reason": "",
+        "scheme_id": "",
+        "sha256": "722fa1ea78744b901ea8f686874656adf910e06e8d2792e5d57ae4796247712a",
+        "source_image_path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/literature_pdf_structure_extraction/pages/page_003_z5.png",
+        "status": "created"
+      }
+    ],
+    "source_pdf_path": "/root/autodl-tmp/AutoPlanner/1-s2.0-S0040402025001668-main.pdf",
+    "summary": {
+      "compound_text_snippet_count": 200,
+      "indexed_image_count": 0,
+      "rendered_page_count": 4,
+      "scheme_crop_count": 3
+    }
+  },
+  "run_dir": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053",
+  "schema_version": "bufotalin_strict_visual_final_corrected_report_data.v1",
+  "source_chain": {
+    "accepted": true,
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/source_detail_chain_route_strict_visual/source_detail_route_chain_audit.json",
+    "reasons": [],
+    "step_count": 15,
+    "terminal_canonical_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+    "terminal_name": "strict visual terminal 11",
+    "terminal_reached": true,
+    "terminal_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12"
+  },
+  "stale_final": {
+    "artifact_refs": {},
+    "case_id": "bufotalin",
+    "reasons": [
+      "advanced_same_scaffold_terminal",
+      "fake_closure_evidence_present",
+      "large_atom_jump",
+      "no_verifier_accepted_stock_closed_route",
+      "open_structure_research_timeout",
+      "raw_reaction_injection"
+    ],
+    "route_status": "artifact_rejected",
+    "run_semantics": "canonical_agent_controller",
+    "schema_version": "codex_entry_final_verdict.v1",
+    "solved": false,
+    "stock_audit_passed": false,
+    "verdict": "fake_closed_rejected"
+  },
+  "stitched": {
+    "accepted": true,
+    "combined_route": {
+      "combined_step_count": 23,
+      "direction": "stock_to_subgoal_terminal_then_literature_to_target",
+      "literature_step_count": 15,
+      "route_type": "stitched_semisynthesis",
+      "segments": [
+        {
+          "best_route_rank": 2,
+          "role": "stock_to_literature_terminal",
+          "segment_id": "subgoal_stock_closure",
+          "status": "verified_solved",
+          "step_count": 8,
+          "target_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12"
+        },
+        {
+          "role": "literature_terminal_to_target",
+          "segment_id": "source_detail_literature_chain",
+          "source_ref": "",
+          "status": "accepted",
+          "step_count": 15,
+          "target_smiles": "CC(=O)O[C@H]1C[C@@]2([C@@H]3CC[C@@H]4C[C@H](CC[C@@]4([C@H]3CC[C@@]2([C@H]1C5=COC(=O)C=C5)C)C)O)O",
+          "terminal_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12"
+        }
+      ],
+      "subgoal_route_step_count": 8
+    },
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/stitched_semisynthesis_route_strict_visual/stitched_semisynthesis_route.json",
+    "reasons": [],
+    "route_status": "solved",
+    "solved": true,
+    "stock_audit_passed": true,
+    "terminal_match_audit": {
+      "accepted": true,
+      "match_basis": "canonical_isomeric_smiles_and_inchikey",
+      "reasons": [],
+      "schema_version": "terminal_subgoal_match_audit.v1",
+      "subgoal_target": {
+        "canonical_isomeric_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+        "inchikey": "AEMFNILZOJDQLW-QAGGRKNESA-N",
+        "input_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+        "valid": true
+      },
+      "terminal": {
+        "canonical_isomeric_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+        "inchikey": "AEMFNILZOJDQLW-QAGGRKNESA-N",
+        "input_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+        "valid": true
+      }
+    },
+    "warnings": [
+      "subgoal_verifier:large_atom_jump"
+    ]
+  },
+  "subgoal": {
+    "accepted": true,
+    "accepted_route_count": 23,
+    "best_route_rank": 2,
+    "best_route_step_count": 8,
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/route_expansion_subgoals/01_strict_visual_terminal_11_verifier.json",
+    "reasons": [
+      "large_atom_jump"
+    ],
+    "route_count": 61,
+    "route_status": "solved",
+    "target_equivalence_audit": {
+      "backend_canonical_isomeric_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+      "backend_inchikey": "AEMFNILZOJDQLW-QAGGRKNESA-N",
+      "backend_target_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+      "match_basis": "canonical_isomeric_smiles_and_inchikey",
+      "reasons": [],
+      "request_canonical_isomeric_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+      "request_inchikey": "AEMFNILZOJDQLW-QAGGRKNESA-N",
+      "request_target_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+      "route_candidate_accepted_count_before_target_match": 23,
+      "route_target_product_audits": [
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 7,
+          "route_rank": 0,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(=O)O[C@H]1CC[C@]2(C)C3=C(CC[C@H]2C1(C)C)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3"
+          ],
+          "product_count": 3,
+          "route_rank": 1,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC3(CC1=CC=CC2=O)OCCO3"
+          ],
+          "product_count": 8,
+          "route_rank": 2,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 10,
+          "route_rank": 3,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 10,
+          "route_rank": 4,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 8,
+          "route_rank": 5,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC(=O)C=C1CC=CC2=O"
+          ],
+          "product_count": 5,
+          "route_rank": 6,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 6,
+          "route_rank": 7,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC3(CC1=CC=CC2=O)OCCO3"
+          ],
+          "product_count": 7,
+          "route_rank": 8,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC3(CC1=CC=CC2=O)OCCO3"
+          ],
+          "product_count": 8,
+          "route_rank": 9,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC3(CC1=CC=CC2=O)OCCO3"
+          ],
+          "product_count": 8,
+          "route_rank": 10,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 6,
+          "route_rank": 11,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 8,
+          "route_rank": 12,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC(=O)CC1=CC=CC2O"
+          ],
+          "product_count": 7,
+          "route_rank": 13,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)([O-])OP(=O)([O-])[O-]"
+          ],
+          "product_count": 7,
+          "route_rank": 14,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 8,
+          "route_rank": 15,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC(=O)C=C1CC=CC2=O"
+          ],
+          "product_count": 5,
+          "route_rank": 16,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)([O-])OP(=O)([O-])[O-]"
+          ],
+          "product_count": 7,
+          "route_rank": 17,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 11,
+          "route_rank": 18,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 10,
+          "route_rank": 19,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 11,
+          "route_rank": 20,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC(=O)C=C1CC=CC2=O"
+          ],
+          "product_count": 6,
+          "route_rank": 21,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 7,
+          "route_rank": 22,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 7,
+          "route_rank": 23,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C=C1CC[C@@]2(C)C(=CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]32)C1",
+            "C=C1CCOC1"
+          ],
+          "product_count": 5,
+          "route_rank": 24,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "CCOP(=O)(OC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(\\C)CC/C=C(\\C)CCC=C(C)C)OP(=O)(O)O"
+          ],
+          "product_count": 7,
+          "route_rank": 25,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C=C1CC[C@@]2(C)C(=CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]32)C1",
+            "C=C1CCOC1"
+          ],
+          "product_count": 5,
+          "route_rank": 26,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 9,
+          "route_rank": 27,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 9,
+          "route_rank": 28,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "CCOP(=O)(OC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(\\C)CC/C=C(\\C)CCC=C(C)C)OP(=O)(O)O"
+          ],
+          "product_count": 7,
+          "route_rank": 29,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "CCOP(=O)(OC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(\\C)CC/C=C(\\C)CCC=C(C)C)OP(=O)(O)O"
+          ],
+          "product_count": 9,
+          "route_rank": 30,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "CCOP(=O)(O)OP(=O)(O)OC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(\\C)CC/C=C(\\C)CCC=C(C)C"
+          ],
+          "product_count": 7,
+          "route_rank": 31,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "CCOP(=O)(OC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(/C)CC/C=C(\\C)CC/C=C(\\C)CCC=C(C)C)OP(=O)(O)O"
+          ],
+          "product_count": 9,
+          "route_rank": 32,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC(=O)CC1=CC=CC2O"
+          ],
+          "product_count": 5,
+          "route_rank": 33,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC3(CC1=CC=CC2=O)OCCO3"
+          ],
+          "product_count": 8,
+          "route_rank": 34,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C=C1CC[C@@]2(C)C(=CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]32)C1",
+            "C=C1CCOC1"
+          ],
+          "product_count": 5,
+          "route_rank": 35,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC3(CC1=CC=CC2=O)OCCO3"
+          ],
+          "product_count": 8,
+          "route_rank": 36,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 10,
+          "route_rank": 37,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC3(CC1=CC=CC2=O)OCCO3"
+          ],
+          "product_count": 8,
+          "route_rank": 38,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC(=O)CC1=CC=CC2O"
+          ],
+          "product_count": 5,
+          "route_rank": 39,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC3(CC1=CC=CC2=O)OCCO3"
+          ],
+          "product_count": 8,
+          "route_rank": 40,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC3(CC1=CC=CC2=O)OCCO3"
+          ],
+          "product_count": 8,
+          "route_rank": 41,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC3(CC1=CC=CC2=O)OCCO3"
+          ],
+          "product_count": 8,
+          "route_rank": 42,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C=C1CC[C@@]2(C)C(=CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]32)C1",
+            "C=C1CCOC1"
+          ],
+          "product_count": 5,
+          "route_rank": 43,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC(=O)CC1=CC=CC21OCCO1"
+          ],
+          "product_count": 10,
+          "route_rank": 44,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 10,
+          "route_rank": 45,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC1(C)[C@@H](O)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC1(C)[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]2(C)C3=C(CC[C@@H]12)[C@]1(C)CCC(C)(C(=O)CCCCl)[C@@]1(C)CC3",
+            "CC(C)=CCC/C(C)=C/CC/C(C)=C/CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\CC/C(C)=C\\COP(=O)(O)OP(=O)(O)O",
+            "C=C(C)CCOP(=O)(O)OP(=O)(O)O"
+          ],
+          "product_count": 10,
+          "route_rank": 46,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC(=O)C=C1CC=CC2=O"
+          ],
+          "product_count": 6,
+          "route_rank": 47,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C=C1CC[C@@]2(C)C(=CC[C@@H]3[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]32)C1",
+            "C=C1CCOC1"
+          ],
+          "product_count": 5,
+          "route_rank": 48,
+          "target_match": true
+        },
+        {
+          "product_canonical_isomeric_smiles": [
+            "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+            "CC12CCC(=O)CC1=CC=CC2=O",
+            "CC12CCC3(CC1=CC=CC2=O)OCCO3"
+          ],
+          "product_count": 8,
+          "route_rank": 49,
+          "target_match": true
+        }
+      ],
+      "schema_version": "target_equivalence_audit.v1",
+      "target_match": true
+    },
+    "target_match": true
+  },
+  "target": {
+    "exact_mw": 444.251189,
+    "formula": "C26H36O6",
+    "heavy_atoms": 32,
+    "inchi_key": "VOZHMAYHYHEWBW-NVOOAVKYSA-N",
+    "input_smiles": "CC(=O)O[C@H]1C[C@@]2([C@@H]3CC[C@@H]4C[C@H](CC[C@@]4([C@H]3CC[C@@]2([C@H]1C5=COC(=O)C=C5)C)C)O)O",
+    "isomeric_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+    "name": "bufotalin",
+    "rings": 5,
+    "stereocenters": 9
+  },
+  "terminal_audit": {
+    "accepted": true,
+    "match_basis": "canonical_isomeric_smiles_and_inchikey",
+    "matches_previous_hardcoded_compound_11": false,
+    "previous_hardcoded_compound_11": {
+      "canonical_isomeric_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+      "inchikey": "AEMFNILZOJDQLW-MGGVOPSTSA-N",
+      "input_smiles": "C[C@]12CCC(=O)C=C1CC[C@H]1[C@H]3CCC(=O)[C@@]3(C)CC[C@@H]12",
+      "valid": true
+    },
+    "reasons": [],
+    "schema_version": "strict_visual_terminal_identity_audit.v1",
+    "strict_visual_terminal": {
+      "canonical_isomeric_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+      "inchikey": "AEMFNILZOJDQLW-QAGGRKNESA-N",
+      "input_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+      "valid": true
+    },
+    "warnings": [
+      "strict_visual_terminal_differs_from_previous_hardcoded_compound_11"
+    ]
+  },
+  "tool_status": [
+    {
+      "elapsed_s": 0.022,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "validate_literature_intermediate_chain"
+    },
+    {
+      "elapsed_s": 0.111,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "build_source_detail_curator_records"
+    },
+    {
+      "elapsed_s": 0.389,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "compile_source_detail_chain_route"
+    },
+    {
+      "elapsed_s": 288.999,
+      "reasons": [
+        "advanced_same_scaffold_terminal",
+        "large_atom_jump",
+        "no_verifier_accepted_stock_closed_route"
+      ],
+      "status": "accepted",
+      "tool_name": "run_guided_chemenzy_rerun"
+    },
+    {
+      "elapsed_s": 404.652,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "run_route_expansion_subgoal_search"
+    },
+    {
+      "elapsed_s": 0.016,
+      "reasons": [],
+      "status": "accepted",
+      "tool_name": "stitch_literature_chain_with_subgoal_route"
+    },
+    {
+      "elapsed_s": 0.057,
+      "reasons": [
+        "advanced_same_scaffold_terminal",
+        "fake_closure_evidence_present",
+        "large_atom_jump",
+        "no_verifier_accepted_stock_closed_route",
+        "open_structure_research_timeout",
+        "raw_reaction_injection"
+      ],
+      "status": "rejected",
+      "tool_name": "validate_artifact_bundle"
+    }
+  ],
+  "visual_validation": {
+    "accepted": true,
+    "continuity_audit": {
+      "accepted": true,
+      "link_count": 14,
+      "links": [
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_1_bufotalin",
+          "left_main_reactant": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+          "right_product": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+          "to_step_id": "visual_step_2_33"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_2_33",
+          "left_main_reactant": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+          "right_product": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+          "to_step_id": "visual_step_3_32"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_3_32",
+          "left_main_reactant": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+          "right_product": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+          "to_step_id": "visual_step_4_31"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_4_31",
+          "left_main_reactant": "CC(C)(C)[Si](C)(C)O[C@@H]1CC[C@]2(O)[C@H]3CC[C@]4(C)C5OC5(c5ccc(=O)oc5)[C@H]4[C@H]3CC[C@@H]12",
+          "right_product": "CC(C)(C)[Si](C)(C)O[C@@H]1CC[C@]2(O)[C@H]3CC[C@]4(C)C5OC5(c5ccc(=O)oc5)[C@H]4[C@H]3CC[C@@H]12",
+          "to_step_id": "visual_step_5_30"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_5_30",
+          "left_main_reactant": "CC(C)(C)[Si](C)(C)O[C@@H]1CC[C@]2(O)[C@H]3CC[C@]4(C)C=C(c5ccc(=O)oc5)C[C@@H]4[C@H]3CC[C@@H]12",
+          "right_product": "CC(C)(C)[Si](C)(C)O[C@@H]1CC[C@]2(O)[C@H]3CC[C@]4(C)C=C(c5ccc(=O)oc5)C[C@@H]4[C@H]3CC[C@@H]12",
+          "to_step_id": "visual_step_6_22"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_6_22",
+          "left_main_reactant": "CC(C)(C)[Si](C)(C)O[C@@H]1CC[C@]2(O)[C@H]3CC[C@]4(C)C(I)=C[C@@H]4[C@H]3CC[C@@H]12",
+          "right_product": "CC(C)(C)[Si](C)(C)O[C@@H]1CC[C@]2(O)[C@H]3CC[C@]4(C)C(I)=C[C@@H]4[C@H]3CC[C@@H]12",
+          "to_step_id": "visual_step_7_14"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_7_14",
+          "left_main_reactant": "CC(C)(C)[Si](C)(C)O[C@@H]1CC[C@]2(O)[C@H]3CC[C@]4(C)C(=O)C=C[C@@H]4[C@H]3CC[C@@H]12",
+          "right_product": "CC(C)(C)[Si](C)(C)O[C@@H]1CC[C@]2(O)[C@H]3CC[C@]4(C)C(=O)C=C[C@@H]4[C@H]3CC[C@@H]12",
+          "to_step_id": "visual_step_8_20"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_8_20",
+          "left_main_reactant": "CC(C)(C)[Si](C)(C)O[C@@H]1CC[C@]2(C)[C@H]3CC[C@]4(C)C(=O)C=C[C@@H]4[C@H]3CC[C@@H]12",
+          "right_product": "CC(C)(C)[Si](C)(C)O[C@@H]1CC[C@]2(C)[C@H]3CC[C@]4(C)C(=O)C=C[C@@H]4[C@H]3CC[C@@H]12",
+          "to_step_id": "visual_step_9_19"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_9_19",
+          "left_main_reactant": "C[C@]12CC[C@@H](O)CC1CC[C@@H]1[C@@H]2C=CC(=O)[C@@]2(C)CC[C@@H]12",
+          "right_product": "C[C@]12CC[C@@H](O)CC1CC[C@@H]1[C@@H]2C=CC(=O)[C@@]2(C)CC[C@@H]12",
+          "to_step_id": "visual_step_10_28"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_10_28",
+          "left_main_reactant": "C[C@]12CC[C@@H](O)CC1CC[C@@H]1[C@@H]2C=C[C@@]2(C)[C@H]1CCC21OCCO1",
+          "right_product": "C[C@]12CC[C@@H](O)CC1CC[C@@H]1[C@@H]2C=C[C@@]2(C)[C@H]1CCC21OCCO1",
+          "to_step_id": "visual_step_11_27"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_11_27",
+          "left_main_reactant": "C[C@]12CC[C@@H](O)CC1CC[C@@H]1[C@@H]2CC[C@@]2(C)[C@H]1CC(Br)C21OCCO1",
+          "right_product": "C[C@]12CC[C@@H](O)CC1CC[C@@H]1[C@@H]2CC[C@@]2(C)[C@H]1CC(Br)C21OCCO1",
+          "to_step_id": "visual_step_12_26"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_12_26",
+          "left_main_reactant": "C[C@]12CC[C@@H](O)CC1CC[C@@H]1[C@@H]2CC[C@@]2(C)[C@H]1CCC21OCCO1",
+          "right_product": "C[C@]12CC[C@@H](O)CC1CC[C@@H]1[C@@H]2CC[C@@]2(C)[C@H]1CCC21OCCO1",
+          "to_step_id": "visual_step_13_23"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_13_23",
+          "left_main_reactant": "C[C@]12CCC(=O)CC1CC[C@@H]1[C@@H]2CC[C@@]2(C)[C@H]1CCC21OCCO1",
+          "right_product": "C[C@]12CCC(=O)CC1CC[C@@H]1[C@@H]2CC[C@@]2(C)[C@H]1CCC21OCCO1",
+          "to_step_id": "visual_step_14_25"
+        },
+        {
+          "accepted": true,
+          "from_step_id": "visual_step_14_25",
+          "left_main_reactant": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@@]2(C)[C@H]1CCC21OCCO1",
+          "right_product": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@@]2(C)[C@H]1CCC21OCCO1",
+          "to_step_id": "visual_step_15_24"
+        }
+      ],
+      "reasons": [],
+      "schema_version": "visual_structure_chain_continuity_audit.v1",
+      "target_canonical_smiles": "CC(=O)O[C@H]1C[C@]2(O)[C@@H]3CC[C@@H]4C[C@@H](O)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+      "target_match": true
+    },
+    "path": "/root/autodl-tmp/AutoPlanner/results/shared/bufotalin_fullflow_fresh_visual_existing_pdf_20260608_065053/literature_intermediate_chain_validation_strict_visual/visual_structure_chain_validation.json",
+    "reasons": [],
+    "status": "validated",
+    "summary": {
+      "accepted_step_count": 15,
+      "chain_contiguous": true,
+      "compound_count": 16,
+      "step_count": 15,
+      "target_match": true
+    },
+    "warnings": []
+  }
+}

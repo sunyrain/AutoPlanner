@@ -1,0 +1,2893 @@
+[
+  {
+    "doi": "10.1021/acscatal.2c05458",
+    "title": "Combining Electro-, Photo-, and Biocatalysis for One-Pot Selective Conversion of Furfural into Value-Added C4 Chemicals",
+    "record_uuid": "1096a1fa-0e02-5a84-b582-d54e38388727",
+    "cascade_id": "cascade_1",
+    "cascade_uuid": "6e58a1d0-dd08-4b9e-906a-c83790e91be8",
+    "target_smiles": "O=C(O)C=CC(=O)O",
+    "target_products": [
+      {
+        "name": "maleic acid",
+        "smiles": "O=C(O)C=CC(=O)O",
+        "inchi_key": "VZCYOOQTPOCHFL-UHFFFAOYSA-N",
+        "role": "target_product",
+        "smiles_raw": "OC(=O)C=CC(=O)O",
+        "role_canonical": "target_product"
+      }
+    ],
+    "starting_materials": [
+      {
+        "name": "furfural",
+        "smiles": "O=Cc1ccco1",
+        "inchi_key": "HYBBIBNJHNGZAN-UHFFFAOYSA-N",
+        "role": "main_substrate",
+        "role_canonical": "main_substrate"
+      }
+    ],
+    "route_domain": "all_chemical",
+    "operation_mode": "one_pot_simultaneous",
+    "depth": 3,
+    "gt_route": [
+      {
+        "step_id": "cascade_1_s1",
+        "step_index": 1,
+        "rxn_smiles": "O=Cc1ccco1>>O=C1C=CC(O)O1",
+        "rxn_smiles_status": "ok",
+        "transformation": "electrochemical oxidation of furfural to 5-hydroxy-2(5H)-furanone",
+        "transformation_superclass": "oxidation",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "furfural",
+            "smiles": "O=Cc1ccco1",
+            "inchi_key": "HYBBIBNJHNGZAN-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "5-hydroxy-2(5H)-furanone",
+            "smiles": "O=C1C=CC(O)O1",
+            "inchi_key": "DUAZKLYNTLDKQK-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "smiles_raw": "O=C1OC(O)C=C1",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "condition": {
+          "temperature_c": 25.0,
+          "ph": 8.5,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": "carbonate buffer",
+          "buffer_concentration_mM": null,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 20.0,
+          "reaction_time_h": 4.0
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": 100.0,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s1_cat1",
+            "component_name": "ACT (4-acetamido-2,2,6,6-tetramethylpiperidine-N-oxyl)",
+            "catalyst_class": "organocatalyst",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": null,
+            "engineering_status": null,
+            "ec_number": null,
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "ACT (4-acetamido-2,2,6,6-tetramethylpiperidine-N-oxyl)"
+          }
+        ],
+        "ec_number": null,
+        "ec_numbers": [],
+        "uniprot_ids": [],
+        "evidence_quote": "the complete conversion of 10 mM furfural was implemented within 4 h when ACT was coupled with EY.",
+        "step_notes": "Furfural completely converted within 4 h at 10 mM, 8 h at 20 mM."
+      },
+      {
+        "step_id": "cascade_1_s2",
+        "step_index": 2,
+        "rxn_smiles": "O=C1C=CC(O)O1>>O=CC=CC(=O)O",
+        "rxn_smiles_status": "ok",
+        "transformation": "photo-oxygenation of 5-hydroxy-2(5H)-furanone to formylacrylic acid",
+        "transformation_superclass": "oxidation",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "5-hydroxy-2(5H)-furanone",
+            "smiles": "O=C1C=CC(O)O1",
+            "inchi_key": "DUAZKLYNTLDKQK-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "smiles_raw": "O=C1OC(O)C=C1",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "formylacrylic acid",
+            "smiles": "O=CC=CC(=O)O",
+            "inchi_key": "ZOIRMVZWDRLJPI-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "condition": {
+          "temperature_c": 25.0,
+          "ph": 8.5,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": "carbonate buffer",
+          "buffer_concentration_mM": null,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": null,
+          "reaction_time_h": 24.0
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": null,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s2_cat1",
+            "component_name": "eosin Y (EY)",
+            "catalyst_class": "photocatalyst",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": null,
+            "engineering_status": null,
+            "ec_number": null,
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "eosin Y (EY)"
+          }
+        ],
+        "ec_number": null,
+        "ec_numbers": [],
+        "uniprot_ids": [],
+        "evidence_quote": "the FCA photo-oxygenation may be the rate-limiting step in the cascade reaction",
+        "step_notes": "Rate-limiting step; enhanced by immobilizing EY on resin (EY@NKA)."
+      },
+      {
+        "step_id": "cascade_1_s3",
+        "step_index": 3,
+        "rxn_smiles": "O=CC=CC(=O)O>>O=C(O)C=CC(=O)O",
+        "rxn_smiles_status": "ok",
+        "transformation": "oxidation of formylacrylic acid to maleic acid",
+        "transformation_superclass": "oxidation",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "formylacrylic acid",
+            "smiles": "O=CC=CC(=O)O",
+            "inchi_key": "ZOIRMVZWDRLJPI-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "maleic acid",
+            "smiles": "O=C(O)C=CC(=O)O",
+            "inchi_key": "VZCYOOQTPOCHFL-UHFFFAOYSA-N",
+            "role": "target_product",
+            "smiles_raw": "OC(=O)C=CC(=O)O",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": 25.0,
+          "ph": 8.5,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": "carbonate buffer",
+          "buffer_concentration_mM": null,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": null,
+          "reaction_time_h": 24.0
+        },
+        "outcome": {
+          "step_yield_percent": 97.0,
+          "step_conversion_percent": null,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s3_cat1",
+            "component_name": "ACT (4-acetamido-2,2,6,6-tetramethylpiperidine-N-oxyl)",
+            "catalyst_class": "organocatalyst",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": null,
+            "engineering_status": null,
+            "ec_number": null,
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "ACT (4-acetamido-2,2,6,6-tetramethylpiperidine-N-oxyl)"
+          }
+        ],
+        "ec_number": null,
+        "ec_numbers": [],
+        "uniprot_ids": [],
+        "evidence_quote": "ACT is a versatile catalyst capable of oxidizing both furfural and intermediate 5-hydroxy-2-(5H)-furanone.",
+        "step_notes": "ACT catalyzes both step 1 and step 3."
+      }
+    ],
+    "global_conditions": {
+      "temperature_c": 25.0,
+      "ph": 8.5,
+      "solvent_name": "water",
+      "solvent_system_class": "aqueous",
+      "buffer_name": "carbonate buffer",
+      "atmosphere": "aerobic",
+      "reaction_time_h": 24.0,
+      "substrate_concentration_mM": 20.0,
+      "reaction_volume_ml": null,
+      "reactor_type": "batch",
+      "mixing_method": "stirring",
+      "additives_text": "air bubbling"
+    },
+    "overall_outcome": {
+      "overall_yield_percent": 97.0,
+      "overall_yield_type": "HPLC",
+      "overall_conversion_percent": 100.0,
+      "overall_selectivity_percent": null,
+      "overall_ee_percent": null,
+      "overall_de_percent": null,
+      "overall_dr": null,
+      "titer_g_l": null,
+      "space_time_yield_g_l_h": null,
+      "isolated_yield_percent": null,
+      "analytical_yield_percent": null,
+      "overall_tof_h": null,
+      "overall_ton": null
+    },
+    "catalyst_combination_summary": "ACT (electrocatalyst) + EY (photocatalyst) for photoelectrocatalytic oxidation of furfural to maleic acid",
+    "quality_control": {
+      "record_tier": "gold",
+      "smiles_validation_status": "unchecked",
+      "smiles_validation_notes": null,
+      "cascade_definition_valid": true,
+      "requires_manual_review": false,
+      "review_flags": [],
+      "excluded_from_training": false,
+      "allowed_tasks": [
+        "topology",
+        "retrosynthesis",
+        "compatibility",
+        "evidence_retrieval"
+      ]
+    },
+    "gold_smoke_selection": {
+      "source_dataset": "cascade_dataset_v3.json",
+      "selection_version": "v1",
+      "criteria": [
+        "quality_control.record_tier == gold",
+        "allowed_tasks contains retrosynthesis",
+        "representation_type == small_molecule",
+        "is_demonstrated_success == true",
+        "all productive steps have rxn_smiles_status == ok",
+        "identity reactions removed"
+      ]
+    }
+  },
+  {
+    "doi": "10.1002/adsc.202200804",
+    "title": "Rhodium-Catalyzed Asymmetric Hydrohydrazonemethylation of Styrenes: Access to Chiral Hydrazones, Hydrazides, Hydrazines and Amines",
+    "record_uuid": "2afe55e6-05ef-52cd-b0cd-af8257c44b0c",
+    "cascade_id": "cascade_1",
+    "cascade_uuid": "bfd279d2-f97f-4667-8624-1b73950c7c77",
+    "target_smiles": "CC(=O)NN=C(C)Cc1ccccc1",
+    "target_products": [
+      {
+        "name": "N'-(2-phenylpropylidene)acetohydrazide",
+        "smiles": "CC(=O)NN=C(C)Cc1ccccc1",
+        "inchi_key": "JPRYYHJEGPDIFY-UHFFFAOYSA-N",
+        "role": "target_product",
+        "role_canonical": "target_product"
+      },
+      {
+        "name": "N'-(2-phenylpropyl)acetohydrazide",
+        "smiles": "CC(=O)NNC(C)Cc1ccccc1",
+        "inchi_key": "YAAVQSVNUBYLQQ-UHFFFAOYSA-N",
+        "role": "target_product",
+        "role_canonical": "target_product"
+      },
+      {
+        "name": "(R)-(2-phenylpropyl)hydrazine",
+        "smiles": "CC(Cc1ccccc1)NN",
+        "inchi_key": "VXTWEDPZMSVFEF-UHFFFAOYSA-N",
+        "role": "target_product",
+        "smiles_raw": "NNC(C)Cc1ccccc1",
+        "role_canonical": "target_product"
+      },
+      {
+        "name": "(R)-2-phenylpropan-1-amine",
+        "smiles": "CC(CN)c1ccccc1",
+        "inchi_key": "AXORVIZLPOGIRG-UHFFFAOYSA-N",
+        "role": "target_product",
+        "smiles_raw": "NCC(C)c1ccccc1",
+        "role_canonical": "target_product"
+      }
+    ],
+    "starting_materials": [
+      {
+        "name": "styrene",
+        "smiles": "C=Cc1ccccc1",
+        "inchi_key": "PPBRXRYQALVLMV-UHFFFAOYSA-N",
+        "role": "main_substrate",
+        "role_canonical": "main_substrate"
+      },
+      {
+        "name": "acetohydrazide",
+        "smiles": "CC(=O)NN",
+        "inchi_key": "OFLXLNCGODUUOT-UHFFFAOYSA-N",
+        "role": "nucleophile",
+        "role_canonical": "reagent"
+      }
+    ],
+    "route_domain": "all_chemical",
+    "operation_mode": "one_pot_sequential_addition",
+    "depth": 3,
+    "gt_route": [
+      {
+        "step_id": "cascade_1_s1",
+        "step_index": 1,
+        "rxn_smiles": "C=Cc1ccccc1.CC(=O)NN>>CC(=O)NN=C(C)Cc1ccccc1",
+        "rxn_smiles_status": "ok",
+        "transformation": "hydroformylation",
+        "transformation_superclass": "functional_group_interconversion",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "styrene",
+            "smiles": "C=Cc1ccccc1",
+            "inchi_key": "PPBRXRYQALVLMV-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "role_canonical": "main_substrate"
+          },
+          {
+            "name": "acetohydrazide",
+            "smiles": "CC(=O)NN",
+            "inchi_key": "OFLXLNCGODUUOT-UHFFFAOYSA-N",
+            "role": "nucleophile",
+            "role_canonical": "reagent"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "N'-(2-phenylpropylidene)acetohydrazide",
+            "smiles": "CC(=O)NN=C(C)Cc1ccccc1",
+            "inchi_key": "JPRYYHJEGPDIFY-UHFFFAOYSA-N",
+            "role": "target_product",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": 60.0,
+          "ph": null,
+          "solvent": "toluene",
+          "solvent_smiles": "Cc1ccccc1",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": null,
+          "buffer_concentration_mM": null,
+          "atmosphere": "CO/H2",
+          "substrate_concentration_mM": null,
+          "reaction_time_h": 18.0
+        },
+        "outcome": {
+          "step_yield_percent": 84.0,
+          "step_conversion_percent": null,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s1_cat1",
+            "component_name": "[Rh(acac)(CO)2]/(R,R)-Ph-BPE",
+            "catalyst_class": "metal_catalyst",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": null,
+            "engineering_status": null,
+            "ec_number": null,
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": "Rh",
+            "loading": "0.2 mol% Rh, 0.4 mol% ligand",
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "[Rh(acac)(CO)2]/(R,R)-Ph-BPE"
+          }
+        ],
+        "ec_number": null,
+        "ec_numbers": [],
+        "uniprot_ids": [],
+        "evidence_quote": "The anticipated hydroformylation-hydrazone reaction sequence (HHM) occurred and the selective formation of 3 was observed... This product was isolated with a yield of 84% after simple aqueous work-up.",
+        "step_notes": "Hydroformylation and condensation occur in one pot; product precipitates but is used directly."
+      },
+      {
+        "step_id": "cascade_1_s2",
+        "step_index": 2,
+        "rxn_smiles": "CC(=O)NN=C(C)Cc1ccccc1>>CC(=O)NNC(C)Cc1ccccc1",
+        "rxn_smiles_status": "ok",
+        "transformation": "C=N reduction",
+        "transformation_superclass": "reduction",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "N'-(2-phenylpropylidene)acetohydrazide",
+            "smiles": "CC(=O)NN=C(C)Cc1ccccc1",
+            "inchi_key": "JPRYYHJEGPDIFY-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "N'-(2-phenylpropyl)acetohydrazide",
+            "smiles": "CC(=O)NNC(C)Cc1ccccc1",
+            "inchi_key": "YAAVQSVNUBYLQQ-UHFFFAOYSA-N",
+            "role": "target_product",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": null,
+          "ph": null,
+          "solvent": "toluene",
+          "solvent_smiles": "Cc1ccccc1",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": null,
+          "buffer_concentration_mM": null,
+          "atmosphere": "not_specified",
+          "substrate_concentration_mM": null,
+          "reaction_time_h": null
+        },
+        "outcome": {
+          "step_yield_percent": 84.0,
+          "step_conversion_percent": null,
+          "step_ee_percent": 95.0,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s2_cat1",
+            "component_name": "DMAB/TsOH",
+            "catalyst_class": "reagent_mediated",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": null,
+            "engineering_status": null,
+            "ec_number": null,
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "DMAB/TsOH"
+          }
+        ],
+        "ec_number": null,
+        "ec_numbers": [],
+        "uniprot_ids": [],
+        "evidence_quote": "The reduction was conveniently carried out as a one-pot procedure, directly using the crude reaction mixture from the hydrohydrazonemethylation.",
+        "step_notes": "One-pot reduction using DMAB/TsOH after HHM."
+      },
+      {
+        "step_id": "cascade_1_s3",
+        "step_index": 3,
+        "rxn_smiles": "CC(=O)NNC(C)Cc1ccccc1>>CC(Cc1ccccc1)NN",
+        "rxn_smiles_status": "ok",
+        "transformation": "acetyl cleavage",
+        "transformation_superclass": "hydrolysis",
+        "step_role": "deprotection",
+        "input_species": [
+          {
+            "name": "N'-(2-phenylpropyl)acetohydrazide",
+            "smiles": "CC(=O)NNC(C)Cc1ccccc1",
+            "inchi_key": "YAAVQSVNUBYLQQ-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "(R)-(2-phenylpropyl)hydrazine",
+            "smiles": "CC(Cc1ccccc1)NN",
+            "inchi_key": "VXTWEDPZMSVFEF-UHFFFAOYSA-N",
+            "role": "target_product",
+            "smiles_raw": "NNC(C)Cc1ccccc1",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": null,
+          "ph": null,
+          "solvent": "MeOH",
+          "solvent_smiles": "CO",
+          "cosolvent": "diethyl ether",
+          "cosolvent_smiles": "CCOCC",
+          "buffer_name": null,
+          "buffer_concentration_mM": null,
+          "atmosphere": "not_specified",
+          "substrate_concentration_mM": null,
+          "reaction_time_h": null,
+          "solvent_raw": "MeOH/Et2O"
+        },
+        "outcome": {
+          "step_yield_percent": 96.0,
+          "step_conversion_percent": null,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s3_cat1",
+            "component_name": "HCl in MeOH/Et2O",
+            "catalyst_class": "acid_base_catalyst",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": null,
+            "engineering_status": null,
+            "ec_number": null,
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "HCl in MeOH/Et2O"
+          }
+        ],
+        "ec_number": null,
+        "ec_numbers": [],
+        "uniprot_ids": [],
+        "evidence_quote": "the acid catalyzed methanolysis with hydrogen chloride in MeOH/Et2O under water free conditions led to the selective formation of the monohydrochloride of (R)-(2-phenylpropyl)hydrazine",
+        "step_notes": "Acid-catalyzed methanolysis under water-free conditions."
+      }
+    ],
+    "global_conditions": {
+      "temperature_c": 60.0,
+      "ph": null,
+      "solvent_name": "toluene",
+      "solvent_system_class": "organic",
+      "buffer_name": null,
+      "atmosphere": "CO/H2",
+      "reaction_time_h": 18.0,
+      "substrate_concentration_mM": null,
+      "reaction_volume_ml": null,
+      "reactor_type": "autoclave",
+      "mixing_method": null,
+      "additives_text": null
+    },
+    "overall_outcome": {
+      "overall_yield_percent": 84.0,
+      "overall_yield_type": "isolated",
+      "overall_conversion_percent": null,
+      "overall_selectivity_percent": null,
+      "overall_ee_percent": 95.0,
+      "overall_de_percent": null,
+      "overall_dr": null,
+      "titer_g_l": null,
+      "space_time_yield_g_l_h": null,
+      "isolated_yield_percent": 84.0,
+      "analytical_yield_percent": null,
+      "overall_tof_h": null,
+      "overall_ton": null
+    },
+    "catalyst_combination_summary": "Rh/(R,R)-Ph-BPE for hydroformylation, then DMAB/TsOH for reduction or Raney-Ni for hydrogenolysis",
+    "quality_control": {
+      "record_tier": "gold",
+      "smiles_validation_status": "unchecked",
+      "smiles_validation_notes": null,
+      "cascade_definition_valid": true,
+      "requires_manual_review": false,
+      "review_flags": [],
+      "excluded_from_training": false,
+      "allowed_tasks": [
+        "topology",
+        "retrosynthesis",
+        "compatibility",
+        "substrate_scope"
+      ]
+    },
+    "gold_smoke_selection": {
+      "source_dataset": "cascade_dataset_v3.json",
+      "selection_version": "v1",
+      "criteria": [
+        "quality_control.record_tier == gold",
+        "allowed_tasks contains retrosynthesis",
+        "representation_type == small_molecule",
+        "is_demonstrated_success == true",
+        "all productive steps have rxn_smiles_status == ok",
+        "identity reactions removed"
+      ]
+    }
+  },
+  {
+    "doi": "10.1021/acscatal.7b02183",
+    "title": "Combination of Metal-Catalyzed Cycloisomerizations and Biocatalysis in Aqueous Media: Asymmetric Construction of Chiral Alcohols, Lactones, and γ-Hydroxy-Carbonyl Compounds",
+    "record_uuid": "6c598e91-d6e3-5d19-9af7-5c369117ab06",
+    "cascade_id": "cascade_1",
+    "cascade_uuid": "281e87e3-b1b8-4d34-9d77-702a1741d2a5",
+    "target_smiles": "CC(O)CCCO",
+    "target_products": [
+      {
+        "name": "1,4-pentanediol",
+        "smiles": "CC(O)CCCO",
+        "inchi_key": "GLOBUAZSRIOKLN-UHFFFAOYSA-N",
+        "role": "target_product",
+        "role_canonical": "target_product"
+      }
+    ],
+    "starting_materials": [
+      {
+        "name": "4-pentyn-1-ol",
+        "smiles": "C#CCCO",
+        "inchi_key": "OTJZCIYGRUNXTP-UHFFFAOYSA-N",
+        "role": "main_substrate",
+        "role_canonical": "main_substrate"
+      }
+    ],
+    "route_domain": "chemoenzymatic",
+    "operation_mode": "one_pot_sequential_addition",
+    "depth": 2,
+    "gt_route": [
+      {
+        "step_id": "cascade_1_s1",
+        "step_index": 1,
+        "rxn_smiles": "C#CCCO>>CC(=O)CCCO",
+        "rxn_smiles_status": "ok",
+        "transformation": "cycloisomerization/hydrolysis",
+        "transformation_superclass": "functional_group_interconversion",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "4-pentyn-1-ol",
+            "smiles": "C#CCCO",
+            "inchi_key": "OTJZCIYGRUNXTP-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "5-hydroxy-2-pentanone",
+            "smiles": "CC(=O)CCCO",
+            "inchi_key": "JSHPTIGHEWEXRW-UHFFFAOYSA-N",
+            "role": "target_product",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": 30.0,
+          "ph": null,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": null,
+          "buffer_concentration_mM": null,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 250.0,
+          "reaction_time_h": 9.0
+        },
+        "outcome": {
+          "step_yield_percent": 99.0,
+          "step_conversion_percent": 100.0,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s1_cat1",
+            "component_name": "Pd(II) complex 1",
+            "catalyst_class": "metal_catalyst",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": null,
+            "engineering_status": null,
+            "ec_number": null,
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": "Pd",
+            "loading": "5 mol%",
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "Pd(II) complex 1"
+          }
+        ],
+        "ec_number": null,
+        "ec_numbers": [],
+        "uniprot_ids": [],
+        "evidence_quote": "the formal hydrated product 7 (5-hydroxy-2-pentanone) was cleanly obtained in quantitative yield when complex 1 was used as catalyst",
+        "step_notes": "quantitative conversion to 7"
+      },
+      {
+        "step_id": "cascade_1_s2",
+        "step_index": 2,
+        "rxn_smiles": "CC(=O)CCCO>>CC(O)CCCO",
+        "rxn_smiles_status": "ok",
+        "transformation": "ketone bioreduction",
+        "transformation_superclass": "reduction",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "5-hydroxy-2-pentanone",
+            "smiles": "CC(=O)CCCO",
+            "inchi_key": "JSHPTIGHEWEXRW-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "1,4-pentanediol",
+            "smiles": "CC(O)CCCO",
+            "inchi_key": "GLOBUAZSRIOKLN-UHFFFAOYSA-N",
+            "role": "target_product",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": 30.0,
+          "ph": null,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": null,
+          "buffer_concentration_mM": null,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 250.0,
+          "reaction_time_h": 24.0
+        },
+        "outcome": {
+          "step_yield_percent": 90.0,
+          "step_conversion_percent": 100.0,
+          "step_ee_percent": 99.0,
+          "step_selectivity_notes": "both enantiomers available"
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s2_cat1",
+            "component_name": "ketoreductase (KRED)",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": "purified_enzyme",
+            "engineering_status": "unknown",
+            "ec_number": "1.1.1.184",
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": "NAD(P)H",
+            "cofactor_regeneration_mode": "other",
+            "cofactor_required_raw": "NADPH",
+            "cofactor_regeneration_mode_raw": "iPrOH",
+            "ec_number_partial": false,
+            "component_name_canonical": "ketoreductase (KRED)",
+            "enzyme_family": "reductase",
+            "component_name_raw": "KRED",
+            "ec_number_raw": "1.1.1.x",
+            "ec_source": "name_search"
+          }
+        ],
+        "ec_number": "1.1.1.184",
+        "ec_numbers": [
+          "1.1.1.184"
+        ],
+        "uniprot_ids": [],
+        "evidence_quote": "the one-pot approach was achieved, furnishing in both cases the corresponding 1,4-pentanediol (8) in good yields (up to 90%) after 24 h at 30 °C",
+        "step_notes": "4x dilution of metal reaction mixture"
+      }
+    ],
+    "global_conditions": {
+      "temperature_c": 30.0,
+      "ph": null,
+      "solvent_name": "water",
+      "solvent_system_class": "aqueous",
+      "buffer_name": null,
+      "atmosphere": "aerobic",
+      "reaction_time_h": 24.0,
+      "substrate_concentration_mM": 250.0,
+      "reaction_volume_ml": null,
+      "reactor_type": null,
+      "mixing_method": null,
+      "additives_text": null
+    },
+    "overall_outcome": {
+      "overall_yield_percent": 90.0,
+      "overall_yield_type": "isolated",
+      "overall_conversion_percent": null,
+      "overall_selectivity_percent": null,
+      "overall_ee_percent": 99.0,
+      "overall_de_percent": null,
+      "overall_dr": null,
+      "titer_g_l": null,
+      "space_time_yield_g_l_h": null,
+      "isolated_yield_percent": 90.0,
+      "analytical_yield_percent": null,
+      "overall_tof_h": null,
+      "overall_ton": null
+    },
+    "catalyst_combination_summary": "Pd(II) complex 1 + KRED",
+    "quality_control": {
+      "record_tier": "gold",
+      "smiles_validation_status": "unchecked",
+      "smiles_validation_notes": null,
+      "cascade_definition_valid": true,
+      "requires_manual_review": false,
+      "review_flags": [],
+      "excluded_from_training": false,
+      "allowed_tasks": [
+        "topology",
+        "retrosynthesis",
+        "compatibility"
+      ]
+    },
+    "gold_smoke_selection": {
+      "source_dataset": "cascade_dataset_v3.json",
+      "selection_version": "v1",
+      "criteria": [
+        "quality_control.record_tier == gold",
+        "allowed_tasks contains retrosynthesis",
+        "representation_type == small_molecule",
+        "is_demonstrated_success == true",
+        "all productive steps have rxn_smiles_status == ok",
+        "identity reactions removed"
+      ]
+    }
+  },
+  {
+    "doi": "10.1021/acscatal.7b02183",
+    "title": "Combination of Metal-Catalyzed Cycloisomerizations and Biocatalysis in Aqueous Media: Asymmetric Construction of Chiral Alcohols, Lactones, and γ-Hydroxy-Carbonyl Compounds",
+    "record_uuid": "6c598e91-d6e3-5d19-9af7-5c369117ab06",
+    "cascade_id": "cascade_3",
+    "cascade_uuid": "dc31f2c3-36ad-4799-a22c-58ba68a448f6",
+    "target_smiles": "CC(O)CCC(=O)O",
+    "target_products": [
+      {
+        "name": "γ-hydroxyvaleric acid",
+        "smiles": "CC(O)CCC(=O)O",
+        "inchi_key": "FMHKPLXYWVCLME-UHFFFAOYSA-N",
+        "role": "target_product",
+        "role_canonical": "target_product"
+      }
+    ],
+    "starting_materials": [
+      {
+        "name": "4-pentynoic acid",
+        "smiles": "C#CCCC(=O)O",
+        "inchi_key": "MLBYLEUJXUBIJJ-UHFFFAOYSA-N",
+        "role": "main_substrate",
+        "role_canonical": "main_substrate"
+      }
+    ],
+    "route_domain": "chemoenzymatic",
+    "operation_mode": "one_pot_sequential_addition",
+    "depth": 2,
+    "gt_route": [
+      {
+        "step_id": "cascade_3_s1",
+        "step_index": 1,
+        "rxn_smiles": "C#CCCC(=O)O>>CC(=O)CCC(=O)O",
+        "rxn_smiles_status": "ok",
+        "transformation": "cycloisomerization/hydrolysis",
+        "transformation_superclass": "functional_group_interconversion",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "4-pentynoic acid",
+            "smiles": "C#CCCC(=O)O",
+            "inchi_key": "MLBYLEUJXUBIJJ-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "levulinic acid",
+            "smiles": "CC(=O)CCC(=O)O",
+            "inchi_key": "JOOXCMJARBKPKM-UHFFFAOYSA-N",
+            "role": "target_product",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": 50.0,
+          "ph": null,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": null,
+          "buffer_concentration_mM": null,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": null,
+          "reaction_time_h": 0.75
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": 100.0,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_3_s1_cat1",
+            "component_name": "KAuCl4",
+            "catalyst_class": "metal_catalyst",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": null,
+            "engineering_status": null,
+            "ec_number": null,
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": "Au",
+            "loading": "5 mol%",
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "KAuCl4"
+          }
+        ],
+        "ec_number": null,
+        "ec_numbers": [],
+        "uniprot_ids": [],
+        "evidence_quote": "we achieved the complete conversion of 10 into 12 in only 45 min, in air and in aqueous media",
+        "step_notes": "complete conversion in 45 min"
+      },
+      {
+        "step_id": "cascade_3_s2",
+        "step_index": 2,
+        "rxn_smiles": "CC(=O)CCC(=O)O>>CC(O)CCC(=O)O",
+        "rxn_smiles_status": "ok",
+        "transformation": "ketone bioreduction",
+        "transformation_superclass": "reduction",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "levulinic acid",
+            "smiles": "CC(=O)CCC(=O)O",
+            "inchi_key": "JOOXCMJARBKPKM-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "γ-hydroxyvaleric acid",
+            "smiles": "CC(O)CCC(=O)O",
+            "inchi_key": "FMHKPLXYWVCLME-UHFFFAOYSA-N",
+            "role": "target_product",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": 30.0,
+          "ph": null,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": "DMSO",
+          "cosolvent_smiles": "CS(C)=O",
+          "buffer_name": null,
+          "buffer_concentration_mM": null,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 250.0,
+          "reaction_time_h": 24.0
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": 100.0,
+          "step_ee_percent": 99.0,
+          "step_selectivity_notes": "both enantiomers available"
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_3_s2_cat1",
+            "component_name": "ketoreductase (KRED)",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": "purified_enzyme",
+            "engineering_status": "unknown",
+            "ec_number": "1.1.1.184",
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": "NAD(P)H",
+            "cofactor_regeneration_mode": "other",
+            "cofactor_required_raw": "NADPH",
+            "cofactor_regeneration_mode_raw": "iPrOH",
+            "ec_number_partial": false,
+            "component_name_canonical": "ketoreductase (KRED)",
+            "enzyme_family": "reductase",
+            "component_name_raw": "KRED",
+            "ec_number_raw": "1.1.1.x",
+            "ec_source": "name_search"
+          }
+        ],
+        "ec_number": "1.1.1.184",
+        "ec_numbers": [
+          "1.1.1.184"
+        ],
+        "uniprot_ids": [],
+        "evidence_quote": "catalyst 13 exerted partial inhibition of the enzyme activity, leading to incomplete bioreductions (c up to 50%). Fortunately, this drawback could be circumvented just by adding 5% v/v of DMSO, allowing the quantitative synthesis of enantiopure γ-hydroxyvaleric acid",
+        "step_notes": "5% v/v DMSO added to overcome inhibition"
+      }
+    ],
+    "global_conditions": {
+      "temperature_c": 50.0,
+      "ph": null,
+      "solvent_name": "water",
+      "solvent_system_class": "aqueous",
+      "buffer_name": null,
+      "atmosphere": "aerobic",
+      "reaction_time_h": 24.0,
+      "substrate_concentration_mM": 250.0,
+      "reaction_volume_ml": null,
+      "reactor_type": null,
+      "mixing_method": null,
+      "additives_text": "5% v/v DMSO"
+    },
+    "overall_outcome": {
+      "overall_yield_percent": null,
+      "overall_yield_type": "not_specified",
+      "overall_conversion_percent": 100.0,
+      "overall_selectivity_percent": null,
+      "overall_ee_percent": 99.0,
+      "overall_de_percent": null,
+      "overall_dr": null,
+      "titer_g_l": null,
+      "space_time_yield_g_l_h": null,
+      "isolated_yield_percent": null,
+      "analytical_yield_percent": null,
+      "overall_tof_h": null,
+      "overall_ton": null
+    },
+    "catalyst_combination_summary": "KAuCl4 + KRED",
+    "quality_control": {
+      "record_tier": "gold",
+      "smiles_validation_status": "unchecked",
+      "smiles_validation_notes": null,
+      "cascade_definition_valid": true,
+      "requires_manual_review": false,
+      "review_flags": [],
+      "excluded_from_training": false,
+      "allowed_tasks": [
+        "topology",
+        "retrosynthesis",
+        "compatibility"
+      ]
+    },
+    "gold_smoke_selection": {
+      "source_dataset": "cascade_dataset_v3.json",
+      "selection_version": "v1",
+      "criteria": [
+        "quality_control.record_tier == gold",
+        "allowed_tasks contains retrosynthesis",
+        "representation_type == small_molecule",
+        "is_demonstrated_success == true",
+        "all productive steps have rxn_smiles_status == ok",
+        "identity reactions removed"
+      ]
+    }
+  },
+  {
+    "doi": "10.1002/cbic.70348",
+    "title": "Novel Multienzymatic Cascade for the Conversion of Salicin From Plant Extract Into Salicylic Acid",
+    "record_uuid": "b702857a-f20a-5e01-a9aa-842a7ea20967",
+    "cascade_id": "cascade_1",
+    "cascade_uuid": "83649a7a-374d-4cfd-a120-c0768a4949b1",
+    "target_smiles": "O=C(O)c1ccccc1O",
+    "target_products": [
+      {
+        "name": "salicylic acid",
+        "smiles": "O=C(O)c1ccccc1O",
+        "inchi_key": "YGSDEFSMJLZEOE-UHFFFAOYSA-N",
+        "role": "target_product",
+        "smiles_raw": "OC(=O)c1ccccc1O",
+        "role_canonical": "target_product"
+      }
+    ],
+    "starting_materials": [
+      {
+        "name": "salicylic alcohol",
+        "smiles": "OCc1ccccc1O",
+        "inchi_key": "CQRYARSYNCAZFO-UHFFFAOYSA-N",
+        "role": "main_substrate",
+        "smiles_raw": "Oc1ccccc1CO",
+        "role_canonical": "main_substrate"
+      }
+    ],
+    "route_domain": "chemoenzymatic",
+    "operation_mode": "one_pot_simultaneous",
+    "depth": 2,
+    "gt_route": [
+      {
+        "step_id": "cascade_1_s1",
+        "step_index": 1,
+        "rxn_smiles": "OCc1ccccc1O>>O=Cc1ccccc1O",
+        "rxn_smiles_status": "ok",
+        "transformation": "alcohol to aldehyde",
+        "transformation_superclass": "oxidation",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "salicylic alcohol",
+            "smiles": "OCc1ccccc1O",
+            "inchi_key": "CQRYARSYNCAZFO-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "smiles_raw": "Oc1ccccc1CO",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "salicylaldehyde",
+            "smiles": "O=Cc1ccccc1O",
+            "inchi_key": "SMQUZDBALVYZAC-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "condition": {
+          "temperature_c": 25.0,
+          "ph": 7.0,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": "sodium citrate",
+          "buffer_concentration_mM": 50.0,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 25.0,
+          "reaction_time_h": 48.0
+        },
+        "outcome": {
+          "step_yield_percent": 100.0,
+          "step_conversion_percent": 100.0,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_2_s1_cat1",
+            "component_name": "Trametes versicolor laccase",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": "purified_enzyme",
+            "engineering_status": "wild_type",
+            "ec_number": "1.10.3.2",
+            "organism": "Trametes versicolor",
+            "uniprot_id": "Q12717",
+            "support_material": null,
+            "metal_identity": null,
+            "loading": "0.4 mg/mM",
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "uniprot_status": "reviewed",
+            "uniprot_lookup_organism": "Trametes versicolor",
+            "enzyme_external_ids": {
+              "pdb": [],
+              "kegg": [],
+              "brenda": []
+            },
+            "enzyme_seq_length": 527,
+            "component_name_canonical": "laccase",
+            "enzyme_family": "oxidase"
+          },
+          {
+            "component_id": "cascade_2_s1_cat2",
+            "component_name": "TEMPO",
+            "catalyst_class": "organocatalyst",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": null,
+            "engineering_status": null,
+            "ec_number": null,
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": "12 mM",
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "TEMPO"
+          }
+        ],
+        "ec_number": "1.10.3.2",
+        "ec_numbers": [
+          "1.10.3.2"
+        ],
+        "uniprot_ids": [
+          "Q12717"
+        ],
+        "evidence_quote": "At 25°C, the oxidative reaction performed with TvL and XO demonstrated significant improvements in overall efficiency... extending the incubation time to 48 h ultimately led to complete oxidation.",
+        "step_notes": "Complete conversion of salicylic alcohol to salicylaldehyde at 48 h."
+      },
+      {
+        "step_id": "cascade_1_s2",
+        "step_index": 2,
+        "rxn_smiles": "O=Cc1ccccc1O>>O=C(O)c1ccccc1O",
+        "rxn_smiles_status": "ok",
+        "transformation": "aldehyde to acid",
+        "transformation_superclass": "oxidation",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "salicylaldehyde",
+            "smiles": "O=Cc1ccccc1O",
+            "inchi_key": "SMQUZDBALVYZAC-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "salicylic acid",
+            "smiles": "O=C(O)c1ccccc1O",
+            "inchi_key": "YGSDEFSMJLZEOE-UHFFFAOYSA-N",
+            "role": "target_product",
+            "smiles_raw": "OC(=O)c1ccccc1O",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": 25.0,
+          "ph": 7.0,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": "sodium citrate",
+          "buffer_concentration_mM": 50.0,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 25.0,
+          "reaction_time_h": 72.0
+        },
+        "outcome": {
+          "step_yield_percent": 77.0,
+          "step_conversion_percent": null,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_2_s2_cat1",
+            "component_name": "xanthine oxidase",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": "purified_enzyme",
+            "engineering_status": "wild_type",
+            "ec_number": "1.17.3.2",
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": "0.025 mg/mM",
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "xanthine oxidase"
+          }
+        ],
+        "ec_number": "1.17.3.2",
+        "ec_numbers": [
+          "1.17.3.2"
+        ],
+        "uniprot_ids": [],
+        "evidence_quote": "the reaction catalyzed by TvL and XO at 25°C and pH 7 for 72 h yielded the highest salicylic acid concentration of 19.2 mM, corresponding to a 77% unisolated yield.",
+        "step_notes": "Final SA concentration 19.2 mM from 25 mM starting material."
+      }
+    ],
+    "global_conditions": {
+      "temperature_c": 25.0,
+      "ph": 7.0,
+      "solvent_name": "water",
+      "solvent_system_class": "aqueous",
+      "buffer_name": "sodium citrate",
+      "atmosphere": "aerobic",
+      "reaction_time_h": 72.0,
+      "substrate_concentration_mM": 25.0,
+      "reaction_volume_ml": 5.0,
+      "reactor_type": "glass tube",
+      "mixing_method": "orbital shaking",
+      "additives_text": "TEMPO 12 mM"
+    },
+    "overall_outcome": {
+      "overall_yield_percent": 77.0,
+      "overall_yield_type": "conversion",
+      "overall_conversion_percent": null,
+      "overall_selectivity_percent": null,
+      "overall_ee_percent": null,
+      "overall_de_percent": null,
+      "overall_dr": null,
+      "titer_g_l": null,
+      "space_time_yield_g_l_h": null,
+      "isolated_yield_percent": null,
+      "analytical_yield_percent": null,
+      "overall_tof_h": null,
+      "overall_ton": null
+    },
+    "catalyst_combination_summary": "Laccase/TEMPO + XO for two-step oxidation of salicylic alcohol to salicylic acid",
+    "quality_control": {
+      "record_tier": "gold",
+      "smiles_validation_status": "unchecked",
+      "smiles_validation_notes": null,
+      "cascade_definition_valid": true,
+      "requires_manual_review": false,
+      "review_flags": [],
+      "excluded_from_training": false,
+      "allowed_tasks": [
+        "topology",
+        "retrosynthesis",
+        "compatibility",
+        "evidence_retrieval"
+      ]
+    },
+    "gold_smoke_selection": {
+      "source_dataset": "cascade_dataset_v3.json",
+      "selection_version": "v1",
+      "criteria": [
+        "quality_control.record_tier == gold",
+        "allowed_tasks contains retrosynthesis",
+        "representation_type == small_molecule",
+        "is_demonstrated_success == true",
+        "all productive steps have rxn_smiles_status == ok",
+        "identity reactions removed"
+      ]
+    }
+  },
+  {
+    "doi": "10.1021/acscatal.2c05458",
+    "title": "Combining Electro-, Photo-, and Biocatalysis for One-Pot Selective Conversion of Furfural into Value-Added C4 Chemicals",
+    "record_uuid": "1096a1fa-0e02-5a84-b582-d54e38388727",
+    "cascade_id": "cascade_4",
+    "cascade_uuid": "bde0da41-11b2-4a44-b475-6543c4259733",
+    "target_smiles": "O=C(O)/C=C/C(=O)O",
+    "target_products": [
+      {
+        "name": "fumaric acid",
+        "smiles": "O=C(O)/C=C/C(=O)O",
+        "inchi_key": "VZCYOOQTPOCHFL-OWOJBTEDSA-N",
+        "role": "target_product",
+        "smiles_raw": "OC(=O)/C=C/C(=O)O",
+        "role_canonical": "target_product"
+      }
+    ],
+    "starting_materials": [
+      {
+        "name": "furfural",
+        "smiles": "O=Cc1ccco1",
+        "inchi_key": "HYBBIBNJHNGZAN-UHFFFAOYSA-N",
+        "role": "main_substrate",
+        "role_canonical": "main_substrate"
+      }
+    ],
+    "route_domain": "chemoenzymatic",
+    "operation_mode": "one_pot_sequential_addition",
+    "depth": 2,
+    "gt_route": [
+      {
+        "step_id": "cascade_4_s1",
+        "step_index": 1,
+        "rxn_smiles": "O=Cc1ccco1>>O=C(O)C=CC(=O)O",
+        "rxn_smiles_status": "ok",
+        "transformation": "photoelectrocatalytic oxidation of furfural to maleic acid",
+        "transformation_superclass": "oxidation",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "furfural",
+            "smiles": "O=Cc1ccco1",
+            "inchi_key": "HYBBIBNJHNGZAN-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "maleic acid",
+            "smiles": "O=C(O)C=CC(=O)O",
+            "inchi_key": "VZCYOOQTPOCHFL-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "smiles_raw": "OC(=O)C=CC(=O)O",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "condition": {
+          "temperature_c": 25.0,
+          "ph": null,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": null,
+          "buffer_concentration_mM": null,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": null,
+          "reaction_time_h": 6.0
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": 100.0,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_4_s1_cat1",
+            "component_name": "ACT",
+            "catalyst_class": "organocatalyst",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": null,
+            "engineering_status": null,
+            "ec_number": null,
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "ACT"
+          },
+          {
+            "component_id": "cascade_4_s1_cat2",
+            "component_name": "eosin Y immobilized on resin (EY@NKA)",
+            "catalyst_class": "photocatalyst",
+            "catalyst_phase": "heterogeneous",
+            "biocatalyst_format": null,
+            "engineering_status": null,
+            "ec_number": null,
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": "NKA resin",
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "eosin Y immobilized on resin (EY@NKA)"
+          }
+        ],
+        "ec_number": null,
+        "ec_numbers": [],
+        "uniprot_ids": [],
+        "evidence_quote": "furfural was almost completely converted within 6 h along with the production of FA with an approximately 20% yield",
+        "step_notes": "Furfural completely converted within 6 h."
+      },
+      {
+        "step_id": "cascade_4_s2",
+        "step_index": 2,
+        "rxn_smiles": "O=C(O)C=CC(=O)O>>O=C(O)/C=C/C(=O)O",
+        "rxn_smiles_status": "ok",
+        "transformation": "isomerization of maleic acid to fumaric acid by MaiA",
+        "transformation_superclass": "isomerization",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "maleic acid",
+            "smiles": "O=C(O)C=CC(=O)O",
+            "inchi_key": "VZCYOOQTPOCHFL-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "smiles_raw": "OC(=O)C=CC(=O)O",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "fumaric acid",
+            "smiles": "O=C(O)/C=C/C(=O)O",
+            "inchi_key": "VZCYOOQTPOCHFL-OWOJBTEDSA-N",
+            "role": "target_product",
+            "smiles_raw": "OC(=O)/C=C/C(=O)O",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": 25.0,
+          "ph": null,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": null,
+          "buffer_concentration_mM": null,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": null,
+          "reaction_time_h": 16.0
+        },
+        "outcome": {
+          "step_yield_percent": 67.0,
+          "step_conversion_percent": null,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_4_s2_cat1",
+            "component_name": "maleate cis-trans isomerase (MaiA) encapsulated in calcium alginate beads (MaiA@CAB)",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "immobilized",
+            "biocatalyst_format": "immobilized_enzyme",
+            "engineering_status": "wild_type",
+            "ec_number": "5.2.1.1",
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": "calcium alginate beads",
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": null,
+            "cofactor_regeneration_mode": null,
+            "ec_number_partial": false,
+            "component_name_canonical": "maleate cis-trans isomerase (MaiA) encapsulated in calcium alginate beads (MaiA@CAB)"
+          }
+        ],
+        "ec_number": "5.2.1.1",
+        "ec_numbers": [
+          "5.2.1.1"
+        ],
+        "uniprot_ids": [],
+        "evidence_quote": "fresh MaiA@CAB was added at 8 and 10 h",
+        "step_notes": "Fresh MaiA@CAB added at 8 and 10 h to compensate for inactivation."
+      }
+    ],
+    "global_conditions": {
+      "temperature_c": 25.0,
+      "ph": null,
+      "solvent_name": "water",
+      "solvent_system_class": "aqueous",
+      "buffer_name": null,
+      "atmosphere": "aerobic",
+      "reaction_time_h": 16.0,
+      "substrate_concentration_mM": null,
+      "reaction_volume_ml": null,
+      "reactor_type": "batch",
+      "mixing_method": "stirring",
+      "additives_text": "fresh MaiA@CAB added at 8 and 10 h"
+    },
+    "overall_outcome": {
+      "overall_yield_percent": 67.0,
+      "overall_yield_type": "HPLC",
+      "overall_conversion_percent": 100.0,
+      "overall_selectivity_percent": null,
+      "overall_ee_percent": null,
+      "overall_de_percent": null,
+      "overall_dr": null,
+      "titer_g_l": null,
+      "space_time_yield_g_l_h": null,
+      "isolated_yield_percent": null,
+      "analytical_yield_percent": null,
+      "overall_tof_h": null,
+      "overall_ton": null
+    },
+    "catalyst_combination_summary": "ACT + EY@NKA photoelectrocatalysis then MaiA@CAB (immobilized isomerase) with fresh enzyme addition",
+    "quality_control": {
+      "record_tier": "gold",
+      "smiles_validation_status": "unchecked",
+      "smiles_validation_notes": null,
+      "cascade_definition_valid": true,
+      "requires_manual_review": false,
+      "review_flags": [],
+      "excluded_from_training": false,
+      "allowed_tasks": [
+        "topology",
+        "retrosynthesis",
+        "compatibility",
+        "evidence_retrieval"
+      ]
+    },
+    "gold_smoke_selection": {
+      "source_dataset": "cascade_dataset_v3.json",
+      "selection_version": "v1",
+      "criteria": [
+        "quality_control.record_tier == gold",
+        "allowed_tasks contains retrosynthesis",
+        "representation_type == small_molecule",
+        "is_demonstrated_success == true",
+        "all productive steps have rxn_smiles_status == ok",
+        "identity reactions removed"
+      ]
+    }
+  },
+  {
+    "doi": "10.1021/jacs.9b11761",
+    "title": "One-Pot Biocatalytic Transformation of Adipic Acid to 6-Aminocaproic Acid and 1,6-Hexamethylenediamine Using Carboxylic Acid Reductases and Transaminases",
+    "record_uuid": "ee897ae8-b8e5-58f1-845b-b2223cab157f",
+    "cascade_id": "cascade_2",
+    "cascade_uuid": "4894a31b-61ed-443a-ac25-e6a2f438b193",
+    "target_smiles": "NCCCCCCN",
+    "target_products": [
+      {
+        "name": "1,6-hexamethylenediamine",
+        "smiles": "NCCCCCCN",
+        "inchi_key": "NAQMVNRVTILPCV-UHFFFAOYSA-N",
+        "role": "target_product",
+        "role_canonical": "target_product"
+      }
+    ],
+    "starting_materials": [
+      {
+        "name": "6-aminocaproic acid",
+        "smiles": "NCCCCCC(=O)O",
+        "inchi_key": "SLXKOJJOQWFEFD-UHFFFAOYSA-N",
+        "role": "main_substrate",
+        "role_canonical": "main_substrate"
+      }
+    ],
+    "route_domain": "all_enzymatic",
+    "operation_mode": "one_pot_simultaneous",
+    "depth": 2,
+    "gt_route": [
+      {
+        "step_id": "cascade_2_s1",
+        "step_index": 1,
+        "rxn_smiles": "NCCCCCC(=O)O>>NCCCCCC=O",
+        "rxn_smiles_status": "ok",
+        "transformation": "carboxylic acid reduction to aldehyde",
+        "transformation_superclass": "reduction",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "6-aminocaproic acid",
+            "smiles": "NCCCCCC(=O)O",
+            "inchi_key": "SLXKOJJOQWFEFD-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "6-aminohexanal",
+            "smiles": "NCCCCCC=O",
+            "inchi_key": "CCYXEHOXJOKCCJ-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "condition": {
+          "temperature_c": 30.0,
+          "ph": 7.5,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": "HEPES-K",
+          "buffer_concentration_mM": 100.0,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 10.0,
+          "reaction_time_h": 12.0
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": 75.0,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_2_s1_cat1",
+            "component_name": "MAB4714 L342E",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": "purified_enzyme",
+            "engineering_status": "engineered_mutant",
+            "ec_number": "1.2.1.30",
+            "organism": "Mycobacterium abscessus",
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": "NAD(P)H",
+            "cofactor_regeneration_mode": "FDH",
+            "cofactor_required_raw": "NADPH, ATP",
+            "cofactor_regeneration_mode_raw": "enzymatic (PPK2 for ATP, FDH for NADPH)",
+            "ec_number_partial": false,
+            "component_name_canonical": "MAB4714 L342E"
+          }
+        ],
+        "ec_number": "1.2.1.30",
+        "ec_numbers": [
+          "1.2.1.30"
+        ],
+        "uniprot_ids": [],
+        "evidence_quote": "With 6-ACA as substrate, purified L342E and SAV2585 showed up to 50% conversion to HMD compared to 1.5% observed for wild type MAB4714.",
+        "step_notes": "L342E mutant shows 10-fold higher catalytic efficiency toward 6-ACA than wild type."
+      },
+      {
+        "step_id": "cascade_2_s2",
+        "step_index": 2,
+        "rxn_smiles": "NCCCCCC=O>>NCCCCCCN",
+        "rxn_smiles_status": "ok",
+        "transformation": "transamination of aldehyde to amine",
+        "transformation_superclass": "amination",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "6-aminohexanal",
+            "smiles": "NCCCCCC=O",
+            "inchi_key": "CCYXEHOXJOKCCJ-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "1,6-hexamethylenediamine",
+            "smiles": "NCCCCCCN",
+            "inchi_key": "NAQMVNRVTILPCV-UHFFFAOYSA-N",
+            "role": "target_product",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": 30.0,
+          "ph": 7.5,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": "HEPES-K",
+          "buffer_concentration_mM": 100.0,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 10.0,
+          "reaction_time_h": 12.0
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": 75.0,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_2_s2_cat1",
+            "component_name": "SAV2585",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": "purified_enzyme",
+            "engineering_status": "wild_type",
+            "ec_number": "2.6.1.18",
+            "organism": "Streptomyces avermitilis",
+            "uniprot_id": "A0A177HRB3",
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": "PLP",
+            "cofactor_regeneration_mode": "other",
+            "cofactor_regeneration_mode_raw": "amine donor recycling via Glu-DH",
+            "ec_number_partial": false,
+            "uniprot_status": "unreviewed",
+            "uniprot_lookup_organism": "Streptomyces jeddahensis",
+            "enzyme_external_ids": {
+              "pdb": [],
+              "kegg": [],
+              "brenda": []
+            },
+            "enzyme_seq_length": 185,
+            "component_name_canonical": "SAV2585"
+          },
+          {
+            "component_id": "cascade_2_s2_cat2",
+            "component_name": "PatA",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": "purified_enzyme",
+            "engineering_status": "wild_type",
+            "ec_number": "2.6.1.82",
+            "organism": "Escherichia coli",
+            "uniprot_id": "B6I445",
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": "PLP",
+            "cofactor_regeneration_mode": "other",
+            "cofactor_regeneration_mode_raw": "amine donor recycling via Glu-DH",
+            "ec_number_partial": false,
+            "uniprot_status": "reviewed",
+            "uniprot_lookup_organism": "Escherichia coli (strain SE11)",
+            "enzyme_external_ids": {
+              "pdb": [],
+              "kegg": [
+                "ecy:ECSE_3354"
+              ],
+              "brenda": []
+            },
+            "enzyme_seq_length": 459,
+            "organism_canonical": "Escherichia coli",
+            "component_name_canonical": "PatA"
+          }
+        ],
+        "ec_number": "2.6.1.18",
+        "ec_numbers": [
+          "2.6.1.18",
+          "2.6.1.82"
+        ],
+        "uniprot_ids": [
+          "A0A177HRB3",
+          "B6I445"
+        ],
+        "evidence_quote": "Furthermore, the addition of PatA increased the conversion of 6-ACA to HMD to 70%.",
+        "step_notes": "PatA addition increased conversion from 50% to 75%."
+      }
+    ],
+    "global_conditions": {
+      "temperature_c": 30.0,
+      "ph": 7.5,
+      "solvent_name": "water",
+      "solvent_system_class": "aqueous",
+      "buffer_name": "HEPES-K",
+      "atmosphere": "aerobic",
+      "reaction_time_h": 12.0,
+      "substrate_concentration_mM": 10.0,
+      "reaction_volume_ml": 0.2,
+      "reactor_type": "microcentrifuge tube",
+      "mixing_method": "shaking at 1000 rpm",
+      "additives_text": "2 mM NADPH, 2 mM L-Glu, 2 mM ATP, 5 mM polyP, 10 mM MgCl2, 0.05 mM PLP, 100 mM Na-formate, 50 mM NH4Cl, 20 μg CHU0107, 20 μg FDH D222Q/H224N, 20 μg PPA, 20 μg Glu-DH, 80 μg CAR L342E, 20 μg SAV2585, 20 μg PatA"
+    },
+    "overall_outcome": {
+      "overall_yield_percent": null,
+      "overall_yield_type": "not_specified",
+      "overall_conversion_percent": 75.0,
+      "overall_selectivity_percent": null,
+      "overall_ee_percent": null,
+      "overall_de_percent": null,
+      "overall_dr": null,
+      "titer_g_l": null,
+      "space_time_yield_g_l_h": null,
+      "isolated_yield_percent": null,
+      "analytical_yield_percent": null,
+      "overall_tof_h": null,
+      "overall_ton": null
+    },
+    "catalyst_combination_summary": "CAR MAB4714 L342E + ωTA SAV2585 + PatA",
+    "quality_control": {
+      "record_tier": "gold",
+      "smiles_validation_status": "unchecked",
+      "smiles_validation_notes": null,
+      "cascade_definition_valid": true,
+      "requires_manual_review": false,
+      "review_flags": [],
+      "excluded_from_training": false,
+      "allowed_tasks": [
+        "topology",
+        "retrosynthesis",
+        "compatibility",
+        "evidence_retrieval"
+      ]
+    },
+    "gold_smoke_selection": {
+      "source_dataset": "cascade_dataset_v3.json",
+      "selection_version": "v1",
+      "criteria": [
+        "quality_control.record_tier == gold",
+        "allowed_tasks contains retrosynthesis",
+        "representation_type == small_molecule",
+        "is_demonstrated_success == true",
+        "all productive steps have rxn_smiles_status == ok",
+        "identity reactions removed"
+      ]
+    }
+  },
+  {
+    "doi": "10.1002/bit.27133",
+    "title": "Tuning of the enzyme ratio in a neutral redox convergent cascade: A key approach for an efficient one-pot/two-step biocatalytic whole-cell system",
+    "record_uuid": "119532b1-cbf4-5c1d-bb52-202f12fb6336",
+    "cascade_id": "cascade_1",
+    "cascade_uuid": "1bd1537f-88a1-4b66-8f8d-a25b94f07638",
+    "target_smiles": "O=C1CCCCCO1",
+    "target_products": [
+      {
+        "name": "ε-caprolactone",
+        "smiles": "O=C1CCCCCO1",
+        "inchi_key": "PAPBSGBWRJIAAV-UHFFFAOYSA-N",
+        "role": "target_product",
+        "role_canonical": "target_product"
+      },
+      {
+        "name": "3,4-dihydrocoumarin",
+        "smiles": "O=C1CCc2ccccc2O1",
+        "inchi_key": "VMUXSMXIQBNMGZ-UHFFFAOYSA-N",
+        "role": "target_product",
+        "role_canonical": "target_product"
+      }
+    ],
+    "starting_materials": [
+      {
+        "name": "cyclohexanol",
+        "smiles": "OC1CCCCC1",
+        "inchi_key": "HPXRVTGHNJAIIH-UHFFFAOYSA-N",
+        "role": "main_substrate",
+        "smiles_raw": "C1CCC(CC1)O",
+        "role_canonical": "main_substrate"
+      },
+      {
+        "name": "1-indanol",
+        "smiles": "OC1Cc2ccccc21",
+        "inchi_key": "SKLKSDFOCXHYOO-UHFFFAOYSA-N",
+        "role": "main_substrate",
+        "smiles_raw": "OC1Cc2ccccc12",
+        "role_canonical": "main_substrate"
+      }
+    ],
+    "route_domain": "all_enzymatic",
+    "operation_mode": "one_pot_simultaneous",
+    "depth": 2,
+    "gt_route": [
+      {
+        "step_id": "cascade_1_s1",
+        "step_index": 1,
+        "rxn_smiles": "OC1CCCCC1>>O=C1CCCCC1",
+        "rxn_smiles_status": "ok",
+        "transformation": "alcohol oxidation",
+        "transformation_superclass": "oxidation",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "cyclohexanol",
+            "smiles": "OC1CCCCC1",
+            "inchi_key": "HPXRVTGHNJAIIH-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "smiles_raw": "C1CCC(CC1)O",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "cyclohexanone",
+            "smiles": "O=C1CCCCC1",
+            "inchi_key": "JHIVVAPYMSGYDF-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "condition": {
+          "temperature_c": 25.0,
+          "ph": 7.0,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": "potassium phosphate",
+          "buffer_concentration_mM": 100.0,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 16.0,
+          "reaction_time_h": null
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": null,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s1_cat1",
+            "component_name": "ADH_Singulis",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "cell_bound",
+            "biocatalyst_format": "whole_cell_resting",
+            "engineering_status": "wild_type",
+            "ec_number": "1.1.1.49",
+            "organism": "Singulisphaera acidiphilia",
+            "uniprot_id": "A0AAU7CI67",
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": "NADP+",
+            "cofactor_regeneration_mode": "other",
+            "cofactor_regeneration_mode_raw": "coupled_enzyme",
+            "ec_number_partial": false,
+            "uniprot_status": "unreviewed",
+            "uniprot_lookup_organism": "Singulisphaera sp. Ch08",
+            "enzyme_external_ids": {
+              "pdb": [],
+              "kegg": [],
+              "brenda": []
+            },
+            "enzyme_seq_length": 517,
+            "component_name_canonical": "ADH_Singulis",
+            "ec_number_raw": "1.1.1.x",
+            "ec_source": "uniprot"
+          }
+        ],
+        "ec_number": "1.1.1.49",
+        "ec_numbers": [
+          "1.1.1.49"
+        ],
+        "uniprot_ids": [
+          "A0AAU7CI67"
+        ],
+        "evidence_quote": "The efficiency of a versatile in vivo cascade involving a promiscuous alcohol dehydrogenase, obtained from a biodiversity search, and a Baeyer-Villiger monooxygenase was enhanced by the independent control of the production level of each enzyme to produce ε-caprolactone and 3,4-dihydrocoumarin.",
+        "step_notes": null
+      },
+      {
+        "step_id": "cascade_1_s2",
+        "step_index": 2,
+        "rxn_smiles": "O=C1CCCCC1>>O=C1CCCCCO1",
+        "rxn_smiles_status": "ok",
+        "transformation": "Baeyer-Villiger oxidation",
+        "transformation_superclass": "oxidation",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "cyclohexanone",
+            "smiles": "O=C1CCCCC1",
+            "inchi_key": "JHIVVAPYMSGYDF-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "ε-caprolactone",
+            "smiles": "O=C1CCCCCO1",
+            "inchi_key": "PAPBSGBWRJIAAV-UHFFFAOYSA-N",
+            "role": "target_product",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": 25.0,
+          "ph": 7.0,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": "potassium phosphate",
+          "buffer_concentration_mM": 100.0,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 16.0,
+          "reaction_time_h": null
+        },
+        "outcome": {
+          "step_yield_percent": 80.0,
+          "step_conversion_percent": 99.5,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s2_cat1",
+            "component_name": "BVMO_Parvi",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "cell_bound",
+            "biocatalyst_format": "whole_cell_resting",
+            "engineering_status": "wild_type",
+            "ec_number": "1.14.13.x",
+            "organism": "Parvibaculum lavamentivorans",
+            "uniprot_id": "A7HU16",
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": "NAD(P)H",
+            "cofactor_regeneration_mode": "other",
+            "cofactor_required_raw": "NADPH",
+            "cofactor_regeneration_mode_raw": "coupled_enzyme",
+            "ec_number_partial": true,
+            "uniprot_status": "reviewed",
+            "uniprot_lookup_organism": "Parvibaculum lavamentivorans (strain DS-1 / DSM 13023 / NCIMB 13966)",
+            "enzyme_external_ids": {
+              "pdb": [
+                "6JDK"
+              ],
+              "kegg": [
+                "pla:Plav_1781"
+              ],
+              "brenda": []
+            },
+            "enzyme_seq_length": 544,
+            "component_name_canonical": "BVMO_Parvi"
+          }
+        ],
+        "ec_number": "1.14.13.x",
+        "ec_numbers": [
+          "1.14.13.x"
+        ],
+        "uniprot_ids": [
+          "A7HU16"
+        ],
+        "evidence_quote": "The efficiency of a versatile in vivo cascade involving a promiscuous alcohol dehydrogenase, obtained from a biodiversity search, and a Baeyer-Villiger monooxygenase was enhanced by the independent control of the production level of each enzyme to produce ε-caprolactone and 3,4-dihydrocoumarin.",
+        "step_notes": null
+      }
+    ],
+    "global_conditions": {
+      "temperature_c": 25.0,
+      "ph": 7.0,
+      "solvent_name": "water",
+      "solvent_system_class": "aqueous",
+      "buffer_name": "potassium phosphate",
+      "atmosphere": "aerobic",
+      "reaction_time_h": null,
+      "substrate_concentration_mM": 16.0,
+      "reaction_volume_ml": 500.0,
+      "reactor_type": "baffled flask",
+      "mixing_method": "shaking",
+      "additives_text": null
+    },
+    "overall_outcome": {
+      "overall_yield_percent": 80.0,
+      "overall_yield_type": "isolated",
+      "overall_conversion_percent": 100.0,
+      "overall_selectivity_percent": null,
+      "overall_ee_percent": null,
+      "overall_de_percent": null,
+      "overall_dr": null,
+      "titer_g_l": 1.4,
+      "space_time_yield_g_l_h": 244.0,
+      "isolated_yield_percent": 80.0,
+      "analytical_yield_percent": null,
+      "overall_tof_h": null,
+      "overall_ton": 7100.0
+    },
+    "catalyst_combination_summary": "ADH_Singulis (NADP+-dependent) + BVMO_Parvi (NADPH-dependent) in E. coli whole cells",
+    "quality_control": {
+      "record_tier": "gold",
+      "smiles_validation_status": "unchecked",
+      "smiles_validation_notes": null,
+      "cascade_definition_valid": true,
+      "requires_manual_review": false,
+      "review_flags": [],
+      "excluded_from_training": false,
+      "allowed_tasks": [
+        "topology",
+        "retrosynthesis",
+        "compatibility",
+        "substrate_scope",
+        "evidence_retrieval"
+      ]
+    },
+    "gold_smoke_selection": {
+      "source_dataset": "cascade_dataset_v3.json",
+      "selection_version": "v1",
+      "criteria": [
+        "quality_control.record_tier == gold",
+        "allowed_tasks contains retrosynthesis",
+        "representation_type == small_molecule",
+        "is_demonstrated_success == true",
+        "all productive steps have rxn_smiles_status == ok",
+        "identity reactions removed"
+      ]
+    }
+  },
+  {
+    "doi": "10.1021/jacs.9b11761",
+    "title": "One-Pot Biocatalytic Transformation of Adipic Acid to 6-Aminocaproic Acid and 1,6-Hexamethylenediamine Using Carboxylic Acid Reductases and Transaminases",
+    "record_uuid": "ee897ae8-b8e5-58f1-845b-b2223cab157f",
+    "cascade_id": "cascade_1",
+    "cascade_uuid": "1171a2fc-f168-49a7-8c84-63c7d436407e",
+    "target_smiles": "NCCCCCC(=O)O",
+    "target_products": [
+      {
+        "name": "6-aminocaproic acid",
+        "smiles": "NCCCCCC(=O)O",
+        "inchi_key": "SLXKOJJOQWFEFD-UHFFFAOYSA-N",
+        "role": "target_product",
+        "role_canonical": "target_product"
+      }
+    ],
+    "starting_materials": [
+      {
+        "name": "adipic acid",
+        "smiles": "O=C(O)CCCCC(=O)O",
+        "inchi_key": "WNLRTRBMVRJNCN-UHFFFAOYSA-N",
+        "role": "main_substrate",
+        "smiles_raw": "OC(=O)CCCCC(=O)O",
+        "role_canonical": "main_substrate"
+      }
+    ],
+    "route_domain": "all_enzymatic",
+    "operation_mode": "one_pot_simultaneous",
+    "depth": 2,
+    "gt_route": [
+      {
+        "step_id": "cascade_1_s1",
+        "step_index": 1,
+        "rxn_smiles": "O=C(O)CCCCC(=O)O>>O=CCCCCC(=O)O",
+        "rxn_smiles_status": "ok",
+        "transformation": "carboxylic acid reduction to aldehyde",
+        "transformation_superclass": "reduction",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "adipic acid",
+            "smiles": "O=C(O)CCCCC(=O)O",
+            "inchi_key": "WNLRTRBMVRJNCN-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "smiles_raw": "OC(=O)CCCCC(=O)O",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "adipic semialdehyde",
+            "smiles": "O=CCCCCC(=O)O",
+            "inchi_key": "PNPPVRALIYXJBW-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "condition": {
+          "temperature_c": 30.0,
+          "ph": 7.5,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": "HEPES-K",
+          "buffer_concentration_mM": 100.0,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 10.0,
+          "reaction_time_h": 12.0
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": 95.0,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s1_cat1",
+            "component_name": "MAB4714",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": "purified_enzyme",
+            "engineering_status": "wild_type",
+            "ec_number": "1.2.1.30",
+            "organism": "Mycobacterium abscessus",
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": "NAD(P)H",
+            "cofactor_regeneration_mode": "FDH",
+            "cofactor_required_raw": "NADPH, ATP",
+            "cofactor_regeneration_mode_raw": "enzymatic (PPK2 for ATP, FDH for NADPH)",
+            "ec_number_partial": false,
+            "component_name_canonical": "MAB4714"
+          }
+        ],
+        "ec_number": "1.2.1.30",
+        "ec_numbers": [
+          "1.2.1.30"
+        ],
+        "uniprot_ids": [],
+        "evidence_quote": "With regenerating systems for ATP, NAD(P)H, and amine donor, these enzymes achieved 40% conversion, whereas the addition of the E. coli pyrophosphatase PPA increased 6-ACA production to 90-95% conversion.",
+        "step_notes": "CAR reduces adipic acid to adipic semialdehyde, which spontaneously cyclizes? Not specified."
+      },
+      {
+        "step_id": "cascade_1_s2",
+        "step_index": 2,
+        "rxn_smiles": "O=CCCCCC(=O)O>>NCCCCCC(=O)O",
+        "rxn_smiles_status": "ok",
+        "transformation": "transamination of aldehyde to amine",
+        "transformation_superclass": "amination",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "adipic semialdehyde",
+            "smiles": "O=CCCCCC(=O)O",
+            "inchi_key": "PNPPVRALIYXJBW-UHFFFAOYSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "6-aminocaproic acid",
+            "smiles": "NCCCCCC(=O)O",
+            "inchi_key": "SLXKOJJOQWFEFD-UHFFFAOYSA-N",
+            "role": "target_product",
+            "role_canonical": "target_product"
+          }
+        ],
+        "condition": {
+          "temperature_c": 30.0,
+          "ph": 7.5,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": "HEPES-K",
+          "buffer_concentration_mM": 100.0,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": 10.0,
+          "reaction_time_h": 12.0
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": 95.0,
+          "step_ee_percent": null,
+          "step_selectivity_notes": null
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_1_s2_cat1",
+            "component_name": "SAV2585",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "homogeneous",
+            "biocatalyst_format": "purified_enzyme",
+            "engineering_status": "wild_type",
+            "ec_number": "2.6.1.18",
+            "organism": "Streptomyces avermitilis",
+            "uniprot_id": "A0A177HRB3",
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": "PLP",
+            "cofactor_regeneration_mode": "other",
+            "cofactor_regeneration_mode_raw": "amine donor recycling via Glu-DH",
+            "ec_number_partial": false,
+            "uniprot_status": "unreviewed",
+            "uniprot_lookup_organism": "Streptomyces jeddahensis",
+            "enzyme_external_ids": {
+              "pdb": [],
+              "kegg": [],
+              "brenda": []
+            },
+            "enzyme_seq_length": 185,
+            "component_name_canonical": "SAV2585"
+          }
+        ],
+        "ec_number": "2.6.1.18",
+        "ec_numbers": [
+          "2.6.1.18"
+        ],
+        "uniprot_ids": [
+          "A0A177HRB3"
+        ],
+        "evidence_quote": "With regenerating systems for ATP, NAD(P)H, and amine donor, these enzymes achieved 40% conversion, whereas the addition of the E. coli pyrophosphatase PPA increased 6-ACA production to 90-95% conversion.",
+        "step_notes": "Transaminase uses L-Glu as amine donor, regenerated by Glu-DH."
+      }
+    ],
+    "global_conditions": {
+      "temperature_c": 30.0,
+      "ph": 7.5,
+      "solvent_name": "water",
+      "solvent_system_class": "aqueous",
+      "buffer_name": "HEPES-K",
+      "atmosphere": "aerobic",
+      "reaction_time_h": 12.0,
+      "substrate_concentration_mM": 10.0,
+      "reaction_volume_ml": 0.2,
+      "reactor_type": "microcentrifuge tube",
+      "mixing_method": "shaking at 1000 rpm",
+      "additives_text": "2 mM NADPH, 2 mM L-Glu, 2 mM ATP, 5 mM polyP, 10 mM MgCl2, 0.05 mM PLP, 100 mM Na-formate, 50 mM NH4Cl, 20 μg CHU0107 (PPK2), 20 μg FDH D222Q/H224N, 20 μg PPA, 20 μg Glu-DH, 80 μg CAR, 20 μg SAV2585"
+    },
+    "overall_outcome": {
+      "overall_yield_percent": null,
+      "overall_yield_type": "not_specified",
+      "overall_conversion_percent": 95.0,
+      "overall_selectivity_percent": null,
+      "overall_ee_percent": null,
+      "overall_de_percent": null,
+      "overall_dr": null,
+      "titer_g_l": null,
+      "space_time_yield_g_l_h": null,
+      "isolated_yield_percent": null,
+      "analytical_yield_percent": null,
+      "overall_tof_h": null,
+      "overall_ton": null
+    },
+    "catalyst_combination_summary": "CAR MAB4714 (wild type) + ωTA SAV2585",
+    "quality_control": {
+      "record_tier": "gold",
+      "smiles_validation_status": "unchecked",
+      "smiles_validation_notes": null,
+      "cascade_definition_valid": true,
+      "requires_manual_review": false,
+      "review_flags": [],
+      "excluded_from_training": false,
+      "allowed_tasks": [
+        "topology",
+        "retrosynthesis",
+        "compatibility",
+        "evidence_retrieval"
+      ]
+    },
+    "gold_smoke_selection": {
+      "source_dataset": "cascade_dataset_v3.json",
+      "selection_version": "v1",
+      "criteria": [
+        "quality_control.record_tier == gold",
+        "allowed_tasks contains retrosynthesis",
+        "representation_type == small_molecule",
+        "is_demonstrated_success == true",
+        "all productive steps have rxn_smiles_status == ok",
+        "identity reactions removed"
+      ]
+    }
+  },
+  {
+    "doi": "10.1002/anie.201605990",
+    "title": "Whole-Cell-Catalyzed Multiple Regio- and Stereoselective Functionalizations in Cascade Reactions Enabled by Directed Evolution",
+    "record_uuid": "af50de00-1afd-548e-811c-d96400c134b0",
+    "cascade_id": "cascade_3",
+    "cascade_uuid": "1cad96c3-2dcd-474e-a1de-1abfec021b1c",
+    "target_smiles": "O[C@@H]1CCCC[C@H]1O",
+    "target_products": [
+      {
+        "name": "meso-cyclohexane-1,2-diol",
+        "smiles": "O[C@@H]1CCCC[C@H]1O",
+        "inchi_key": "PFURGBBHAOXLIO-PHDIDXHHSA-N",
+        "role": "target_product",
+        "role_canonical": "buffer_salt_water"
+      }
+    ],
+    "starting_materials": [
+      {
+        "name": "cyclohexanone",
+        "smiles": "O=C1CCCCC1",
+        "inchi_key": "JHIVVAPYMSGYDF-UHFFFAOYSA-N",
+        "role": "main_substrate",
+        "role_canonical": "main_substrate"
+      }
+    ],
+    "route_domain": "all_enzymatic",
+    "operation_mode": "one_pot_simultaneous",
+    "depth": 2,
+    "gt_route": [
+      {
+        "step_id": "cascade_3_s1",
+        "step_index": 1,
+        "rxn_smiles": "O=C1CCCCC1>>O=C1CCCC[C@H]1O",
+        "rxn_smiles_status": "ok",
+        "transformation": "alpha-hydroxylation of cyclohexanone",
+        "transformation_superclass": "oxidation",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "cyclohexanone",
+            "smiles": "O=C1CCCCC1",
+            "inchi_key": "JHIVVAPYMSGYDF-UHFFFAOYSA-N",
+            "role": "main_substrate",
+            "role_canonical": "main_substrate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "(S)-2-hydroxycyclohexanone",
+            "smiles": "O=C1CCCC[C@H]1O",
+            "inchi_key": "ODZTXUXIYGJLMC-RXMQYKEDSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "condition": {
+          "temperature_c": 30.0,
+          "ph": null,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": null,
+          "buffer_concentration_mM": null,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": null,
+          "reaction_time_h": null
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": 98.0,
+          "step_ee_percent": null,
+          "step_selectivity_notes": "e.r.=5:95 in favor of (S)-4"
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_3_s1_cat1",
+            "component_name": "P450-BM3 mutant ATD04",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "cell_bound",
+            "biocatalyst_format": "whole_cell_resting",
+            "engineering_status": "directed_evolution_variant",
+            "ec_number": "1.14.14.1",
+            "organism": "Bacillus megaterium",
+            "uniprot_id": "P14779",
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": "NAD(P)H",
+            "cofactor_regeneration_mode": "other",
+            "cofactor_required_raw": "NADPH",
+            "cofactor_regeneration_mode_raw": "whole_cell_regeneration",
+            "ec_number_partial": false,
+            "uniprot_status": "reviewed",
+            "uniprot_lookup_organism": "Priestia megaterium (strain ATCC 14581 / DSM 32 / CCUG 1817 / JCM 2506 / NBRC 15308 / NCIMB 9376 / NCTC 10342 / NRRL B-14308 / VKM B-512 / Ford 19)",
+            "enzyme_external_ids": {
+              "pdb": [
+                "1BU7",
+                "1BVY",
+                "1FAG",
+                "1FAH",
+                "1JME",
+                "1JPZ",
+                "1P0V",
+                "1P0W",
+                "1P0X",
+                "1SMI",
+                "1SMJ",
+                "1YQO",
+                "1YQP",
+                "1ZO4",
+                "1ZO9",
+                "1ZOA",
+                "2BMH",
+                "2HPD",
+                "2IJ2",
+                "2IJ3",
+                "2IJ4",
+                "2J1M",
+                "2J4S",
+                "2NNB",
+                "2UWH",
+                "2X7Y",
+                "2X80",
+                "3BEN",
+                "3CBD",
+                "3DGI",
+                "3EKB",
+                "3EKD",
+                "3EKF",
+                "3HF2",
+                "3KX3",
+                "3KX4",
+                "3KX5",
+                "3M4V",
+                "3NPL",
+                "3PSX",
+                "3WSP",
+                "4DQK",
+                "4DQL",
+                "4DTW",
+                "4DTY",
+                "4DTZ",
+                "4DU2",
+                "4DUA",
+                "4DUB",
+                "4DUC",
+                "4DUD",
+                "4DUE",
+                "4DUF",
+                "4H23",
+                "4H24",
+                "4HGF",
+                "4HGG",
+                "4HGH",
+                "4HGI",
+                "4HGJ",
+                "4KEW",
+                "4KEY",
+                "4KF0",
+                "4KF2",
+                "4KPA",
+                "4KPB",
+                "4O4P",
+                "4RSN",
+                "4WG2",
+                "4ZF6",
+                "4ZF8",
+                "4ZFA",
+                "4ZFB",
+                "5B2U",
+                "5B2V",
+                "5B2W",
+                "5B2X",
+                "5B2Y",
+                "5DYP",
+                "5DYZ",
+                "5E78",
+                "5E7Y",
+                "5E9Z",
+                "5JQ2",
+                "5JQU",
+                "5JQV",
+                "5JTD",
+                "5OG9",
+                "5UCW",
+                "5XA3",
+                "5XHJ",
+                "5ZIS",
+                "5ZLH",
+                "6H1O",
+                "6H1S",
+                "6HN8",
+                "6IAO",
+                "6JLV",
+                "6JMH",
+                "6JMW",
+                "6JO1",
+                "6JS8",
+                "6JVC",
+                "6JZS",
+                "6K24",
+                "6K3Q",
+                "6K58",
+                "6K9S",
+                "6L1A",
+                "6L1B",
+                "6LY4",
+                "7CKN",
+                "7CON",
+                "7COO",
+                "7CP8",
+                "7CVR",
+                "7CX6",
+                "7CX8",
+                "7CZI",
+                "7D0T",
+                "7D0U",
+                "7D1F",
+                "7E46",
+                "7EGN",
+                "7W97",
+                "7W9D",
+                "7W9J",
+                "7WDD",
+                "7WDE",
+                "7WDG",
+                "7WDH",
+                "7WDI",
+                "7WG0",
+                "7WY1",
+                "7WY2",
+                "7WY3",
+                "7WY4",
+                "7XZK",
+                "7Y0P",
+                "7Y0Q",
+                "7Y0R",
+                "7Y0S",
+                "7Y0T",
+                "7Y0U",
+                "7Y9J",
+                "7Y9K",
+                "7Y9L",
+                "7Y9M",
+                "7YD9",
+                "7YDA",
+                "7YDB",
+                "7YDC",
+                "7YDD",
+                "7YDE",
+                "7YDL",
+                "7YFT",
+                "7YJD",
+                "7YJE",
+                "7YJF",
+                "7YJG",
+                "7YJH",
+                "8DME",
+                "8DMG",
+                "8DSG",
+                "8HON",
+                "8HOO",
+                "8HOP",
+                "8HOQ",
+                "8HOR",
+                "8HOS",
+                "8HOT",
+                "8HOU",
+                "8JC3",
+                "8JC4",
+                "8Q2F",
+                "8QZE",
+                "8QZF",
+                "8YAY",
+                "8YAZ",
+                "8YB0",
+                "8YB1",
+                "8YB2",
+                "8YB3",
+                "9ISS",
+                "9IST",
+                "9ISU",
+                "9KGP",
+                "9KT5"
+              ],
+              "kegg": [
+                "bmeg:BG04_163"
+              ],
+              "brenda": [
+                "1.1.1.B57",
+                "1.14.14.1",
+                "1.6.2.4"
+              ]
+            },
+            "enzyme_seq_length": 1049,
+            "component_name_canonical": "cytochrome P450 monooxygenase",
+            "enzyme_family": "monooxygenase"
+          }
+        ],
+        "ec_number": "1.14.14.1",
+        "ec_numbers": [
+          "1.14.14.1"
+        ],
+        "uniprot_ids": [
+          "P14779"
+        ],
+        "evidence_quote": "The best results, with e.r.=95:5 (or 5:95) for both R and S selectivity, originate from ISM scheme A→B (Figure 2 C).",
+        "step_notes": null
+      },
+      {
+        "step_id": "cascade_3_s2",
+        "step_index": 2,
+        "rxn_smiles": "O=C1CCCC[C@H]1O>>O[C@@H]1CCCC[C@H]1O",
+        "rxn_smiles_status": "ok",
+        "transformation": "reduction of (S)-2-hydroxycyclohexanone to meso-cyclohexane-1,2-diol",
+        "transformation_superclass": "reduction",
+        "step_role": "productive_transformation",
+        "input_species": [
+          {
+            "name": "(S)-2-hydroxycyclohexanone",
+            "smiles": "O=C1CCCC[C@H]1O",
+            "inchi_key": "ODZTXUXIYGJLMC-RXMQYKEDSA-N",
+            "role": "intermediate",
+            "role_canonical": "intermediate"
+          }
+        ],
+        "output_species": [
+          {
+            "name": "meso-cyclohexane-1,2-diol",
+            "smiles": "O[C@@H]1CCCC[C@H]1O",
+            "inchi_key": "PFURGBBHAOXLIO-PHDIDXHHSA-N",
+            "role": "target_product",
+            "role_canonical": "buffer_salt_water"
+          }
+        ],
+        "condition": {
+          "temperature_c": 30.0,
+          "ph": null,
+          "solvent": "water",
+          "solvent_smiles": "O",
+          "cosolvent": null,
+          "cosolvent_smiles": null,
+          "buffer_name": null,
+          "buffer_concentration_mM": null,
+          "atmosphere": "aerobic",
+          "substrate_concentration_mM": null,
+          "reaction_time_h": null
+        },
+        "outcome": {
+          "step_yield_percent": null,
+          "step_conversion_percent": null,
+          "step_ee_percent": null,
+          "step_selectivity_notes": "high enantio- and diastereoselectivity"
+        },
+        "catalyst_components": [
+          {
+            "component_id": "cascade_3_s2_cat1",
+            "component_name": "BDHA",
+            "catalyst_class": "enzyme",
+            "catalyst_phase": "cell_bound",
+            "biocatalyst_format": "whole_cell_resting",
+            "engineering_status": "wild_type",
+            "ec_number": "1.1.1.4",
+            "organism": null,
+            "uniprot_id": null,
+            "support_material": null,
+            "metal_identity": null,
+            "loading": null,
+            "cofactor_required": "NADH",
+            "cofactor_regeneration_mode": "other",
+            "cofactor_regeneration_mode_raw": "whole_cell_regeneration",
+            "ec_number_partial": false,
+            "component_name_canonical": "BDHA"
+          }
+        ],
+        "ec_number": "1.1.1.4",
+        "ec_numbers": [
+          "1.1.1.4"
+        ],
+        "uniprot_ids": [],
+        "evidence_quote": "E. coli (P450ATD04+BDHA) or E. coli (P450ATC06+BUDC) containing the S/R-selective P450-BM3 mutant and the R,R/S,S-selective ADH favored meso-5, the former being more selective (Table 1, entries 2 and 3).",
+        "step_notes": null
+      }
+    ],
+    "global_conditions": {
+      "temperature_c": 30.0,
+      "ph": null,
+      "solvent_name": "water",
+      "solvent_system_class": "aqueous",
+      "buffer_name": null,
+      "atmosphere": "aerobic",
+      "reaction_time_h": null,
+      "substrate_concentration_mM": null,
+      "reaction_volume_ml": null,
+      "reactor_type": null,
+      "mixing_method": null,
+      "additives_text": "glucose as energy source"
+    },
+    "overall_outcome": {
+      "overall_yield_percent": null,
+      "overall_yield_type": "not_specified",
+      "overall_conversion_percent": null,
+      "overall_selectivity_percent": null,
+      "overall_ee_percent": null,
+      "overall_de_percent": null,
+      "overall_dr": null,
+      "titer_g_l": null,
+      "space_time_yield_g_l_h": null,
+      "isolated_yield_percent": null,
+      "analytical_yield_percent": null,
+      "overall_tof_h": null,
+      "overall_ton": null
+    },
+    "catalyst_combination_summary": "P450-BM3 mutant (ATD04) + BDHA in E. coli whole cells",
+    "quality_control": {
+      "record_tier": "gold",
+      "smiles_validation_status": "unchecked",
+      "smiles_validation_notes": null,
+      "cascade_definition_valid": true,
+      "requires_manual_review": false,
+      "review_flags": [],
+      "excluded_from_training": false,
+      "allowed_tasks": [
+        "topology",
+        "retrosynthesis",
+        "compatibility"
+      ]
+    },
+    "gold_smoke_selection": {
+      "source_dataset": "cascade_dataset_v3.json",
+      "selection_version": "v1",
+      "criteria": [
+        "quality_control.record_tier == gold",
+        "allowed_tasks contains retrosynthesis",
+        "representation_type == small_molecule",
+        "is_demonstrated_success == true",
+        "all productive steps have rxn_smiles_status == ok",
+        "identity reactions removed"
+      ]
+    }
+  }
+]

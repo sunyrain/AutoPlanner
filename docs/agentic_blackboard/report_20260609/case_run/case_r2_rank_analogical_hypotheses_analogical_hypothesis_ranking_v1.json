@@ -1,0 +1,297 @@
+{
+  "accepted": true,
+  "reasons": [],
+  "result": {
+    "accepted": true,
+    "no_solved_claim": true,
+    "ranked_hypotheses": [
+      {
+        "hypothesis_id": "target_side_analogue_diene_iminium_scaffold_inspiration",
+        "no_solved_claim": true,
+        "rank_input_index": 6,
+        "required_verification": [
+          "target_proximal_bridge",
+          "deterministic_parent_proof"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "analogue_diene_iminium_scaffold_inspiration"
+      },
+      {
+        "hypothesis_id": "target_side_analogue_diene_iminium_scaffold_inspiration",
+        "no_solved_claim": true,
+        "rank_input_index": 12,
+        "required_verification": [
+          "target_proximal_bridge",
+          "deterministic_parent_proof"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "analogue_diene_iminium_scaffold_inspiration"
+      },
+      {
+        "hypothesis_id": "target_side_aryl_ester_or_anthranilate_disconnection",
+        "no_solved_claim": true,
+        "rank_input_index": 1,
+        "required_verification": [
+          "target_equivalence",
+          "target_core_retention",
+          "exact_literature_segment_connected_to_parent_route"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "aryl_ester_or_anthranilate_sidechain"
+      },
+      {
+        "hypothesis_id": "target_side_aryl_ester_or_anthranilate_disconnection",
+        "no_solved_claim": true,
+        "rank_input_index": 7,
+        "required_verification": [
+          "target_equivalence",
+          "target_core_retention",
+          "exact_literature_segment_connected_to_parent_route"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "aryl_ester_or_anthranilate_sidechain"
+      },
+      {
+        "hypothesis_id": "target_side_imide_fragment_preparation",
+        "no_solved_claim": true,
+        "rank_input_index": 2,
+        "required_verification": [
+          "fragment_identity",
+          "parent_bridge_connectivity"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "imide_or_succinimide_fragment"
+      },
+      {
+        "hypothesis_id": "target_side_imide_fragment_preparation",
+        "no_solved_claim": true,
+        "rank_input_index": 8,
+        "required_verification": [
+          "fragment_identity",
+          "parent_bridge_connectivity"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "imide_or_succinimide_fragment"
+      },
+      {
+        "hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+        "no_solved_claim": true,
+        "rank_input_index": 3,
+        "required_verification": [
+          "core_retention_audit",
+          "max_unexplained_heavy_atom_jump",
+          "route_verifier_acceptance"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "polycyclic_cage_core"
+      },
+      {
+        "hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+        "no_solved_claim": true,
+        "rank_input_index": 9,
+        "required_verification": [
+          "core_retention_audit",
+          "max_unexplained_heavy_atom_jump",
+          "route_verifier_acceptance"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "polycyclic_cage_core"
+      },
+      {
+        "hypothesis_id": "target_side_protecting_group_level_transformations",
+        "no_solved_claim": true,
+        "rank_input_index": 5,
+        "required_verification": [
+          "same_core_identity",
+          "source_grounded_conditions"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "protecting_group_level_transformations"
+      },
+      {
+        "hypothesis_id": "target_side_protecting_group_level_transformations",
+        "no_solved_claim": true,
+        "rank_input_index": 11,
+        "required_verification": [
+          "same_core_identity",
+          "source_grounded_conditions"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "protecting_group_level_transformations"
+      },
+      {
+        "hypothesis_id": "target_side_tertiary_amine_state_adjustment",
+        "no_solved_claim": true,
+        "rank_input_index": 4,
+        "required_verification": [
+          "same_core_identity",
+          "no_imide_n_misassignment"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "tertiary_amine"
+      },
+      {
+        "hypothesis_id": "target_side_tertiary_amine_state_adjustment",
+        "no_solved_claim": true,
+        "rank_input_index": 10,
+        "required_verification": [
+          "same_core_identity",
+          "no_imide_n_misassignment"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "tertiary_amine"
+      }
+    ],
+    "ranking_factors": [
+      "target_handle_overlap",
+      "target_core_retention",
+      "heavy_atom_retention",
+      "source_confidence",
+      "likelihood_to_bridge_exact_rows",
+      "previous_round_failure_penalty"
+    ],
+    "reasons": [],
+    "schema_version": "analogical_hypothesis_ranking.v1",
+    "selected_hypotheses": [
+      {
+        "hypothesis_id": "target_side_analogue_diene_iminium_scaffold_inspiration",
+        "no_solved_claim": true,
+        "rank_input_index": 6,
+        "required_verification": [
+          "target_proximal_bridge",
+          "deterministic_parent_proof"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "analogue_diene_iminium_scaffold_inspiration"
+      },
+      {
+        "hypothesis_id": "target_side_analogue_diene_iminium_scaffold_inspiration",
+        "no_solved_claim": true,
+        "rank_input_index": 12,
+        "required_verification": [
+          "target_proximal_bridge",
+          "deterministic_parent_proof"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "analogue_diene_iminium_scaffold_inspiration"
+      },
+      {
+        "hypothesis_id": "target_side_aryl_ester_or_anthranilate_disconnection",
+        "no_solved_claim": true,
+        "rank_input_index": 1,
+        "required_verification": [
+          "target_equivalence",
+          "target_core_retention",
+          "exact_literature_segment_connected_to_parent_route"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "aryl_ester_or_anthranilate_sidechain"
+      }
+    ]
+  }
+}

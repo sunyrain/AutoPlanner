@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bufotalin 逆合成候选展示 | AutoPlanner Cascade</title>
+  <style>
+    :root { --bg:#f6f7f9; --panel:#fff; --text:#17202f; --muted:#647084; --line:#d9dee7; --brand:#0f766e; --ink:#0f172a; --soft:#eef7f5; --warn:#9a5b00; --shadow:0 18px 48px rgba(15,23,42,.08); }
+    * { box-sizing:border-box; }
+    body { margin:0; overflow-x:hidden; background:var(--bg); color:var(--text); font:14px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .wrap { width:min(1480px, calc(100vw - 42px)); margin:0 auto; }
+    header { background:#fff; border-bottom:1px solid var(--line); }
+    .hero { padding:28px 0 22px; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:24px; align-items:end; }
+    h1 { margin:0 0 10px; font-size:32px; line-height:1.12; letter-spacing:0; color:var(--ink); }
+    .lead { color:var(--muted); max-width:980px; }
+    .metrics { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+    .metric { min-width:128px; border:1px solid var(--line); padding:10px 12px; background:#fbfcff; }
+    .metric b { display:block; font-size:24px; color:var(--brand); line-height:1.05; }
+    .metric span { color:var(--muted); font-size:12px; }
+    main { padding:22px 0 54px; }
+    .target { max-width:100%; min-width:0; background:var(--panel); border:1px solid var(--line); box-shadow:var(--shadow); }
+    .targetHead { display:grid; grid-template-columns:310px minmax(0,1fr); gap:22px; padding:18px; border-bottom:1px solid var(--line); }
+    .mol { height:230px; display:grid; place-items:center; border:1px solid var(--line); background:#fff; overflow:hidden; }
+    .mol img { width:100%; height:100%; object-fit:contain; }
+    h2 { margin:0 0 8px; font-size:24px; letter-spacing:0; }
+    .policy { color:var(--muted); max-width:920px; }
+    .badges,.routeMeta { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+    .badge { border:1px solid var(--line); background:#f8fafc; padding:4px 8px; font-size:12px; font-weight:750; color:#344054; }
+    .badge.ok { color:#047857; background:#ecfdf5; border-color:#bbf7d0; }
+    .badge.warn { color:var(--warn); background:#fff7ed; border-color:#fed7aa; }
+    .routes { display:grid; gap:18px; min-width:0; padding:18px; }
+    .route { min-width:0; max-width:100%; border:1px solid var(--line); background:#fcfdff; }
+    .routeHead { padding:12px 14px; display:flex; justify-content:space-between; gap:12px; align-items:flex-start; border-bottom:1px solid var(--line); }
+    .routeTitle { font-size:17px; font-weight:850; color:var(--ink); }
+    .routeHead p { margin:10px 0 0; color:var(--muted); max-width:900px; }
+    .source { margin-top:8px; color:#31534f; }
+    .source a { color:var(--brand); margin-left:8px; font-weight:800; }
+    .routeLinks a { color:var(--brand); font-weight:800; text-decoration:none; margin-left:12px; white-space:nowrap; }
+    .svgBox { min-width:0; max-width:100%; padding:12px; background:#fff; overflow:hidden; }
+    .svgBox img { display:block; width:100%; max-width:100%; height:auto; }
+    .note { margin:14px 0 0; padding:10px 12px; background:var(--soft); border-left:3px solid var(--brand); color:#31534f; }
+    .back { display:inline-block; margin:16px 0; color:var(--brand); font-weight:800; text-decoration:none; }
+    footer { color:var(--muted); padding:22px 0 40px; }
+    @media (max-width:900px) { .wrap { width:min(100vw - 24px,1480px); } .hero,.targetHead,.routeHead { display:block; } .metrics { justify-content:flex-start; margin-top:14px; } .routeLinks { margin-top:8px; } .routeLinks a { margin-left:0; margin-right:12px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <div>
+        <h1>Bufotalin 逆合成候选展示</h1>
+        <div class="lead">静态汇报版。当前展示 Bufotalin 的保守候选：1 条来源支持的半合成锚点路线，以及 1 条上游拼接复核候选。页面用于专家讨论模型边界和半合成策略，不等同于已验证全合成方案。</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><b>2</b><span>展示路线</span></div>
+        <div class="metric"><b>1</b><span>高置信锚点</span></div>
+        <div class="metric"><b>17</b><span>排除候选</span></div>
+        <div class="metric"><b>4</b><span>最长步数</span></div>
+      </div>
+    </div>
+  </header>
+  <main class="wrap">
+    <a class="back" href="../">返回展示总览</a>
+    <section class="target" id="bufotalin">
+      <div class="targetHead">
+        <div class="mol"><img src="assets/target.svg" alt="Bufotalin"></div>
+        <div>
+          <h2>Bufotalin</h2>
+          <div class="policy">目标 SMILES：CC(=O)O[C@H]1C[C@@]2([C@@H]3CC[C@@H]4C[C@H](CC[C@@]4([C@H]3CC[C@@]2([C@H]1C5=COC(=O)C=C5)C)C)O)O</div>
+          <div class="badges">
+            <span class="badge ok">source-supported semisynthesis: 1</span>
+            <span class="badge">stitched review-only: 1</span>
+            <span class="badge">excluded: 17</span>
+            <span class="badge">source root: bufotalin_repair_fresh_smoke_20260526_050824</span>
+          </div>
+          <div class="note">筛选规则：保留来源支持且条件完整的半合成锚点；拼接路线仅作为复核候选；排除过短、条件不完整、目标循环或 verifier 未通过的路线。</div>
+        </div>
+      </div>
+      <div class="routes">
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 1 · 1 steps · 高置信半合成锚点</div>
+            <div class="routeMeta">
+              <span class="badge ok">high_confidence_source_supported</span>
+              <span class="badge">score 0.9</span>
+              <span class="badge">source anchor</span>
+              
+            </div>
+            <p>文献/数据库支持的高级前体 Deacetylbufotalin，经 O-乙酰化得到 Bufotalin。</p>
+            <div class="source"><b>高级前体：</b>Deacetylbufotalin；CAS 465-19-0。<a href="https://www.drugfuture.com/chemdata/bufogenin-b.html">ref</a><a href="https://pubchem.ncbi.nlm.nih.gov/compound/Desacetylbufotalin">ref</a><a href="https://amp.chemicalbook.com/ChemicalProductProperty_EN_CB62078771.htm">ref</a></div>
+          </div>
+          <div class="routeLinks"><a href="assets/scheme_route_01.svg">SVG</a><a href="assets/scheme_route_01.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/scheme_route_01.svg" alt="Bufotalin route 1"></div>
+      </article>
+
+      <article class="route">
+        <div class="routeHead">
+          <div>
+            <div class="routeTitle">Route 2 · 4 steps · 上游拼接复核候选</div>
+            <div class="routeMeta">
+              <span class="badge ok">stitched_semisynthesis_upstream_review_only</span>
+              <span class="badge">score 0.008362</span>
+              <span class="badge">source cycle_001_upstream_first_d16_i200_k100_upstream_mainline_zinc</span>
+              <span class="badge warn">low_condition_prediction_score</span><span class="badge warn">rcr_condition_prediction_only</span>
+            </div>
+            <p>以半合成锚点为末端，向上游继续展开的计算候选；用于讨论模型能力边界。</p>
+            
+          </div>
+          <div class="routeLinks"><a href="assets/scheme_route_02.svg">SVG</a><a href="assets/scheme_route_02.pdf">PDF</a></div>
+        </div>
+        <div class="svgBox"><img src="assets/scheme_route_02.svg" alt="Bufotalin route 2"></div>
+      </article>
+
+      </div>
+    </section>
+  </main>
+  <footer class="wrap">Generated from final_candidates_payload.json at 2026-05-26T05:23:38.029958+00:00.</footer>
+</body>
+</html>

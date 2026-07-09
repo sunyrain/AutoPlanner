@@ -1,0 +1,1263 @@
+{
+  "schema_version": "strategic_disconnections.v6_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Fifth expanded public source layer focused on glycosylated natural products, NRPS/RiPP macrocyclic peptides, controlled or toxic alkaloid skeletons, hydrolyzable tannins, lipid mediator and endocannabinoid boundaries, iminosugar glycomimetics, macrocyclic degraders and molecular glues, and photoresponsive chemical-biology probes.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist review",
+      "explicit precursor structures before template or proposal promotion",
+      "separate biosynthetic-anchor, chiral-pool, conjugation, photoresponsive-probe, or delivery policy",
+      "route-specific stereochemistry, site-selectivity, protecting-group, linkage, and biological-context review",
+      "antimicrobial stewardship, controlled-substance, toxic-alkaloid, bioactive-degrader, photoaffinity, phototoxicity, or lipid-signaling review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operational procedures, and synthesis conditions",
+      "controlled alkaloid, antimicrobial peptide, degrader, photoaffinity, photopharmacology, and endocannabinoid entries are high-level route priors only"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "natural_product_glycosylated_macrolide",
+      "name": "Glycosylated natural products and macrolide glycodiversification",
+      "pattern_keywords": [
+        "glycosylated natural product",
+        "deoxysugar",
+        "glycosyltransferase",
+        "glycodiversification",
+        "macrolide glycoside",
+        "anthracycline glycoside",
+        "nucleotide sugar",
+        "O-glycoside"
+      ],
+      "strategic_principle": "Separate aglycone construction, unusual sugar biosynthesis or donor preparation, and glycosyltransferase or chemical glycosylation site policy. Sugar identity and attachment position are strategic route metadata, not ordinary protecting-group decoration."
+    },
+    {
+      "family_id": "nonribosomal_peptide_natural_product",
+      "name": "Nonribosomal and ribosomal macrocyclic peptide natural products",
+      "pattern_keywords": [
+        "nonribosomal peptide",
+        "NRPS",
+        "cyclic peptide",
+        "macrocyclic peptide",
+        "thiazoline",
+        "oxazoline",
+        "RiPP",
+        "thioesterase"
+      ],
+      "strategic_principle": "Map peptide natural products to assembly-line, cyclase, and tailoring logic before applying ordinary peptide retrosynthesis. Macrocyclization site, heterocycle oxidation state, epimerization, N-methylation, and fatty-acyl tailoring are route-defining."
+    },
+    {
+      "family_id": "alkaloid_morphinan_tropane_expansion",
+      "name": "Morphinan, tropane, and quinolizidine alkaloid skeletons",
+      "pattern_keywords": [
+        "morphinan",
+        "reticuline",
+        "salutaridine",
+        "thebaine",
+        "tropane",
+        "scopolamine",
+        "hyoscyamine",
+        "quinolizidine",
+        "lupanine",
+        "sparteine"
+      ],
+      "strategic_principle": "Treat regulated or toxic alkaloid skeletons as compliance-gated route-critique records. Strategic analysis should identify biosynthetic branch points and skeleton-forming cyclizations while avoiding operational route generation for controlled or hazardous targets."
+    },
+    {
+      "family_id": "polyphenol_tannin_ellagitannin",
+      "name": "Hydrolyzable tannins, ellagitannins, and polyphenol oxidative-coupling scaffolds",
+      "pattern_keywords": [
+        "ellagitannin",
+        "hydrolyzable tannin",
+        "gallotannin",
+        "HHDP",
+        "galloyl glucose",
+        "oxidative coupling",
+        "ellagic acid",
+        "pedunculagin"
+      ],
+      "strategic_principle": "Expose glucose or polyol galloylation, galloyl ester pattern, and biomimetic oxidative C-C/C-O coupling as the strategic operations. Axial chirality and oligomerization state must be tracked before route scoring."
+    },
+    {
+      "family_id": "lipid_mediator_endocannabinoid",
+      "name": "Lipid mediators, endocannabinoids, and specialized pro-resolving mediators",
+      "pattern_keywords": [
+        "endocannabinoid",
+        "anandamide",
+        "2-arachidonoylglycerol",
+        "lipoxin",
+        "resolvin",
+        "protectin",
+        "maresin",
+        "polyunsaturated fatty acid"
+      ],
+      "strategic_principle": "Separate lipid-chain stereochemistry, oxidation pattern, amide or glycerol ester linkage, and membrane/lipid-signaling context. Do not score lipid mediators as simple fatty-acid derivatives when double-bond geometry and oxygenation sequence define activity."
+    },
+    {
+      "family_id": "carbohydrate_mimetic_iminosugar",
+      "name": "Iminosugars, azasugars, and carbohydrate-mimetic glycosidase inhibitors",
+      "pattern_keywords": [
+        "iminosugar",
+        "azasugar",
+        "deoxynojirimycin",
+        "nojirimycin",
+        "swainsonine",
+        "glycomimetic",
+        "piperidine iminosugar",
+        "indolizidine iminosugar"
+      ],
+      "strategic_principle": "Treat nitrogen-in-the-ring sugar mimics as stereochemical carbohydrate objects. Strategic routes should preserve or explain carbohydrate configuration, ring nitrogen placement, N-substitution, and glycosidase-transition-state mimicry."
+    },
+    {
+      "family_id": "macrocyclic_degrader_and_molecular_glue",
+      "name": "Macrocyclic degraders, PROTACs, and molecular glue induced-proximity scaffolds",
+      "pattern_keywords": [
+        "macrocyclic degrader",
+        "PROTAC",
+        "molecular glue",
+        "targeted protein degradation",
+        "E3 ligase",
+        "linker",
+        "ternary complex",
+        "macrocyclic peptide degrader"
+      ],
+      "strategic_principle": "Separate target ligand, E3-ligase recruiter, linker or macrocycle constraint, and induced-proximity biology. Chemical convergence alone is insufficient unless ternary-complex or molecular-glue metadata is present."
+    },
+    {
+      "family_id": "photopharmacology_photoaffinity_probe",
+      "name": "Photoaffinity probes, photoswitches, and photopharmacology motifs",
+      "pattern_keywords": [
+        "photoaffinity probe",
+        "diazirine",
+        "benzophenone",
+        "aryl azide",
+        "photopharmacology",
+        "azobenzene",
+        "photoswitch",
+        "photocaged probe"
+      ],
+      "strategic_principle": "Separate parent ligand, photoreactive or photoswitchable handle, enrichment/tethering handle, and irradiation/biological-compatibility metadata. Probe derivatization is strategic only when target engagement is preserved and photochemical risk is explicit."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "glycosylated_np_aglycone_sugar_donor_anchor",
+      "family_id": "natural_product_glycosylated_macrolide",
+      "name": "Natural-product aglycone plus unusual sugar donor or glycosyltransferase module",
+      "role": "glycosylated_natural_product_anchor",
+      "aliases": [
+        "macrolide aglycone",
+        "deoxysugar donor",
+        "TDP-deoxysugar",
+        "glycosyltransferase acceptor",
+        "anthracycline glycoside"
+      ],
+      "acceptance_policy": "requires_aglycone_sugar_attachment_site_and_glycosylation_method_metadata"
+    },
+    {
+      "anchor_id": "nrps_macrocyclic_peptide_biosynthetic_anchor",
+      "family_id": "nonribosomal_peptide_natural_product",
+      "name": "NRPS/RiPP peptide assembly and cyclization module",
+      "role": "peptide_natural_product_biosynthetic_anchor",
+      "aliases": [
+        "NRPS module",
+        "thioesterase cyclase",
+        "heterocyclization domain",
+        "RiPP precursor peptide",
+        "macrocyclic peptide"
+      ],
+      "acceptance_policy": "requires_sequence_cyclization_tailoring_and_biosynthetic_or_synthetic_boundary_metadata"
+    },
+    {
+      "anchor_id": "regulated_toxic_alkaloid_branchpoint_anchor",
+      "family_id": "alkaloid_morphinan_tropane_expansion",
+      "name": "Biosynthetic branch point for regulated or toxic alkaloid skeletons",
+      "role": "compliance_gated_alkaloid_anchor",
+      "aliases": [
+        "reticuline branch point",
+        "salutaridine promorphinan",
+        "tropinone/tropine",
+        "N-methylpyrrolinium",
+        "cadaverine quinolizidine precursor"
+      ],
+      "acceptance_policy": "controlled_substance_or_toxic_alkaloid_review_required_before_any_promotion"
+    },
+    {
+      "anchor_id": "ellagitannin_galloyl_glucose_anchor",
+      "family_id": "polyphenol_tannin_ellagitannin",
+      "name": "Galloylated glucose/polyol precursor and HHDP oxidative-coupling pattern",
+      "role": "hydrolyzable_tannin_anchor",
+      "aliases": [
+        "1-O-galloyl glucose",
+        "pentagalloyl glucose",
+        "HHDP ester",
+        "gallotannin",
+        "tellimagrandin"
+      ],
+      "acceptance_policy": "requires_galloyl_positions_HHDP_atropisomerism_and_oligomer_state_metadata"
+    },
+    {
+      "anchor_id": "lipid_mediator_pufa_linkage_anchor",
+      "family_id": "lipid_mediator_endocannabinoid",
+      "name": "PUFA-derived lipid mediator chain, oxygenation pattern, and polar linkage",
+      "role": "lipid_mediator_anchor",
+      "aliases": [
+        "arachidonic acid",
+        "DHA/EPA precursor",
+        "anandamide",
+        "2-AG",
+        "lipoxin/resolvin precursor"
+      ],
+      "acceptance_policy": "requires_double_bond_geometry_oxygenation_stereochemistry_and_lipid_signaling_review"
+    },
+    {
+      "anchor_id": "iminosugar_chiral_carbohydrate_anchor",
+      "family_id": "carbohydrate_mimetic_iminosugar",
+      "name": "Chiral carbohydrate-derived iminosugar scaffold",
+      "role": "iminosugar_chiral_pool_anchor",
+      "aliases": [
+        "deoxynojirimycin",
+        "nojirimycin",
+        "swainsonine",
+        "azasugar",
+        "polyhydroxylated piperidine"
+      ],
+      "acceptance_policy": "requires_absolute_configuration_ring_size_and_N_substitution_metadata"
+    },
+    {
+      "anchor_id": "degrader_induced_proximity_anchor",
+      "family_id": "macrocyclic_degrader_and_molecular_glue",
+      "name": "Target ligand, E3 recruiter, linker/macrocycle, and induced-proximity biology",
+      "role": "targeted_degrader_anchor",
+      "aliases": [
+        "PROTAC warhead",
+        "E3 ligase ligand",
+        "CRBN/VHL recruiter",
+        "molecular glue",
+        "macrocyclic peptide degrader"
+      ],
+      "acceptance_policy": "requires_target_E3_linker_or_glue_mode_and_bioactive_degrader_review"
+    },
+    {
+      "anchor_id": "photoresponsive_probe_handle_anchor",
+      "family_id": "photopharmacology_photoaffinity_probe",
+      "name": "Parent ligand plus photoreactive/photoswitchable handle and reporter/tether",
+      "role": "photoresponsive_probe_anchor",
+      "aliases": [
+        "diazirine probe",
+        "benzophenone probe",
+        "aryl azide probe",
+        "azobenzene photoswitch",
+        "photochromic ligand"
+      ],
+      "acceptance_policy": "requires_parent_activity_photochemistry_irradiation_window_and_probe_safety_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "glycosylated_np_aglycone_sugar_disconnection",
+      "family_id": "natural_product_glycosylated_macrolide",
+      "name": "Glycosylated natural product to aglycone plus activated sugar donor",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "glycosylated macrolides",
+          "anthracycline glycosides",
+          "glycosylated bacterial natural products"
+        ],
+        "target_features": [
+          "O-, N-, or C-linked sugar appended to a natural-product aglycone",
+          "deoxysugar or unusual sugar motif",
+          "regioselective glycosylation site"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "aglycone-sugar glycosidic bond"
+        ],
+        "forward_logic": [
+          "construct or source the aglycone with the correct acceptor site",
+          "prepare or biosynthetically access the matching nucleotide sugar donor",
+          "select chemical glycosylation, glycosyltransferase, or pathway-engineering policy with site metadata"
+        ],
+        "suggested_precursor_roles": [
+          "aglycone acceptor",
+          "activated deoxysugar donor",
+          "glycosyltransferase module",
+          "protected glycoside intermediate"
+        ],
+        "planner_hint": "Reward routes that explicitly separate aglycone formation from sugar-donor and attachment-site policy."
+      },
+      "risks": [
+        "anomeric stereochemistry",
+        "site-selective glycosylation",
+        "sugar identity drives biological activity",
+        "enzymatic substrate scope may be narrow"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Natural-product sugar biosynthesis review describes unusual sugars, glycosyltransferases, and glycodiversification.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2796923/"
+        },
+        {
+          "type": "literature",
+          "citation": "Comprehensive review analyzes glycosylated bacterial natural products and glycosyl regiospecificity.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4560691/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "glycosylated_np_aglycone_sugar_prior",
+        "rerank_bonus": "high when aglycone, sugar donor, and attachment site are explicit"
+      }
+    },
+    {
+      "id": "glycodiversification_gt_module_policy",
+      "family_id": "natural_product_glycosylated_macrolide",
+      "name": "Glycodiversification by sugar-biosynthesis and glycosyltransferase module exchange",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "glycodiversified natural products",
+          "macrolide glycoforms",
+          "engineered deoxysugar analogues"
+        ],
+        "target_features": [
+          "same aglycone with altered sugar identity",
+          "alternate sugar biosynthetic module",
+          "glycosyltransferase-mediated exchange"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "biosynthetic sugar tailoring sequence boundary",
+          "glycosyltransferase donor/acceptor boundary"
+        ],
+        "forward_logic": [
+          "define whether sugar diversity is chemical, chemoenzymatic, or pathway-engineered",
+          "track donor activation and glycosyltransferase tolerance",
+          "avoid treating sugar exchange as a generic late-stage substituent swap"
+        ],
+        "suggested_precursor_roles": [
+          "native glycoside",
+          "alternative nucleotide sugar",
+          "engineered glycosyltransferase",
+          "glycodiversified analogue"
+        ],
+        "planner_hint": "Use glycodiversification only as an advisory source unless donor, enzyme, and acceptor compatibility are reviewed."
+      },
+      "risks": [
+        "enzyme specificity",
+        "sugar biosynthesis pathway compatibility",
+        "regioselectivity",
+        "bioactivity may invert with sugar changes"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Review discusses enzyme engineering for natural-product glycodiversification with glycosyltransferases.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4552347/"
+        },
+        {
+          "type": "literature",
+          "citation": "Rare microbial sugar exchange review covers glycosyltransferase-mediated natural-product sugar replacement.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5110563/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "glycodiversification_module_prior",
+        "rerank_bonus": "moderate for explicit enzyme and donor-scope metadata"
+      }
+    },
+    {
+      "id": "nrps_macrocycle_linear_peptide_disconnection",
+      "family_id": "nonribosomal_peptide_natural_product",
+      "name": "NRPS/RiPP macrocycle to linear precursor and cyclase/thioesterase release policy",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "cyclic peptides",
+          "nonribosomal peptide natural products",
+          "macrocyclic peptide antibiotics and probes"
+        ],
+        "target_features": [
+          "head-to-tail or side-chain macrocycle",
+          "nonproteinogenic residues",
+          "biosynthetic cyclase or thioesterase logic"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "macrocyclic amide, ester, or side-chain linkage"
+        ],
+        "forward_logic": [
+          "map the macrocycle closure site and linear peptide sequence",
+          "choose chemical macrocyclization or enzyme-catalyzed cyclization boundary",
+          "track D-residues, N-methylation, lipidation, and tailoring before route scoring"
+        ],
+        "suggested_precursor_roles": [
+          "linear peptide precursor",
+          "peptidyl thioester or activated ester",
+          "NRPS thioesterase/cyclase module",
+          "macrocyclic peptide product"
+        ],
+        "planner_hint": "Reward explicit macrocycle-opening to a sequence-aware precursor; penalize routes that ignore noncanonical residue and tailoring logic."
+      },
+      "risks": [
+        "macrocyclization site selectivity",
+        "epimerization",
+        "protecting-group burden",
+        "antimicrobial or toxin context for some cyclic peptides"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Biosynthetic macrocyclic peptide review covers NRPS thioesterase/cyclase and RiPP cyclization strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8199541/"
+        },
+        {
+          "type": "literature",
+          "citation": "Macrocyclization review summarizes modern cyclic peptide and peptidomimetic closure strategies.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8372203/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "nrps_macrocycle_prior",
+        "rerank_bonus": "high when sequence, closure site, and tailoring metadata are explicit",
+        "compliance_gate": "antimicrobial_or_toxin_context_review_required"
+      }
+    },
+    {
+      "id": "nrps_thiazoline_oxazoline_heterocycle_policy",
+      "family_id": "nonribosomal_peptide_natural_product",
+      "name": "Peptide thiazoline/oxazoline heterocycle to Cys/Ser/Thr cyclodehydration precursor",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "thiazoline-containing nonribosomal peptides",
+          "oxazoline-containing peptides",
+          "azole-rich RiPPs and NRPS natural products"
+        ],
+        "target_features": [
+          "thiazoline, thiazole, oxazoline, or oxazole embedded in a peptide",
+          "Cys/Ser/Thr-derived heterocycle",
+          "oxidation-state variants"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "heterocycle C-N/C-S or C-N/C-O bonds traced to cyclodehydrated amino-acid side chain"
+        ],
+        "forward_logic": [
+          "map the heterocycle to a cysteine, serine, or threonine residue",
+          "define whether NRPS Cy domain, RiPP TOMM machinery, or chemical cyclodehydration is the route boundary",
+          "track thiazoline/oxazoline versus thiazole/oxazole oxidation state"
+        ],
+        "suggested_precursor_roles": [
+          "Cys/Ser/Thr-containing peptide",
+          "heterocyclization enzyme module",
+          "oxidase/tailoring module",
+          "azole-containing peptide"
+        ],
+        "planner_hint": "Treat embedded peptide azolines as strategic tailoring motifs, not generic heteroaryl fragments."
+      },
+      "risks": [
+        "heterocycle oxidation-state mismatch",
+        "sequence context controls enzyme scope",
+        "bioactive peptide safety context",
+        "chemical dehydration can scramble sensitive residues"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "NRPS heterocyclization-domain study explains formation of thiazoline and oxazoline rings from Cys/Ser/Thr residues.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5224394/"
+        },
+        {
+          "type": "literature",
+          "citation": "Cyclisation review covers thiazole and oxazole formation in ribosomally synthesized modified peptides.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4979651/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "nrps_azole_tailoring_prior",
+        "rerank_bonus": "moderate for residue-to-heterocycle mapping and oxidation-state policy",
+        "compliance_gate": "bioactive_peptide_review_required"
+      }
+    },
+    {
+      "id": "morphinan_reticuline_salutaridine_branch_disconnection",
+      "family_id": "alkaloid_morphinan_tropane_expansion",
+      "name": "Morphinan skeleton to reticuline/salutaridine biosynthetic branch point",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "morphinan alkaloids",
+          "promorphinan intermediates",
+          "benzylisoquinoline-derived alkaloids"
+        ],
+        "target_features": [
+          "morphinan or promorphinan skeleton",
+          "reticuline-derived phenol coupling",
+          "thebaine/morphine/codeine-like topology"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-C phenol-coupling bond forming the promorphinan skeleton"
+        ],
+        "forward_logic": [
+          "map target to reticuline stereochemistry and salutaridine/promorphinan branch point",
+          "separate skeleton-forming oxidative coupling from late O-demethylation or reduction policy",
+          "treat regulated morphinan targets as compliance-gated critique records only"
+        ],
+        "suggested_precursor_roles": [
+          "(R)-reticuline-like precursor",
+          "salutaridine/promorphinan intermediate",
+          "benzylisoquinoline branch-point scaffold",
+          "late morphinan tailoring metadata"
+        ],
+        "planner_hint": "Use only for high-level route critique; do not promote into operational proposal generation for controlled morphinan targets."
+      },
+      "risks": [
+        "controlled-substance scope",
+        "stereoselective phenol coupling",
+        "late biosynthetic tailoring complexity",
+        "legal and safety restrictions"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Opium poppy evolution study describes morphinan biosynthesis from reticuline to thebaine.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7357826/"
+        },
+        {
+          "type": "literature",
+          "citation": "Salutaridine synthase article identifies stereoselective C-C phenol coupling in morphine biosynthesis.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2782036/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "morphinan_branchpoint_critique_prior",
+        "rerank_bonus": "low unless legal review and non-operational critique-only mode are explicit",
+        "compliance_gate": "controlled_substance_review_required"
+      }
+    },
+    {
+      "id": "tropane_tropinone_tropine_ester_disconnection",
+      "family_id": "alkaloid_morphinan_tropane_expansion",
+      "name": "Tropane ester to tropinone/tropine core plus acyl/tropyl moiety",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "tropane alkaloids",
+          "hyoscyamine/scopolamine-like alkaloids",
+          "coca and calystegine-adjacent tropanes"
+        ],
+        "target_features": [
+          "bicyclic tropane ring",
+          "tropine or pseudotropine stereochemistry",
+          "esterified alcohol or epoxide motif"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "tropane alcohol-acyl ester bond",
+          "tropane skeleton traced to tropinone/tropine branch point"
+        ],
+        "forward_logic": [
+          "separate tropane core formation, tropine/pseudotropine stereochemistry, and acyl partner",
+          "track biosynthetic source or reviewed core policy",
+          "gate regulated or toxic tropane targets before any proposal-source use"
+        ],
+        "suggested_precursor_roles": [
+          "tropinone",
+          "tropine or pseudotropine",
+          "phenyllactate/tropyl acyl partner",
+          "late oxidized tropane"
+        ],
+        "planner_hint": "Use tropane entries for compliance-gated route critique and anchor recognition, not default stock closure."
+      },
+      "risks": [
+        "toxic anticholinergic pharmacology",
+        "controlled or regulated analogues",
+        "tropine stereochemistry",
+        "biosynthetic versus chemical route mismatch"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Tropane alkaloid review covers chemistry, pharmacology, biosynthesis, and production.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6412926/"
+        },
+        {
+          "type": "literature",
+          "citation": "Tropane and granatane biosynthesis review summarizes pathway and metabolic-engineering context.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6274040/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "tropane_branchpoint_critique_prior",
+        "rerank_bonus": "low unless toxicology/legal review and core stereochemistry are explicit",
+        "compliance_gate": "controlled_or_toxic_alkaloid_review_required"
+      }
+    },
+    {
+      "id": "quinolizidine_cadaverine_lupin_core_policy",
+      "family_id": "alkaloid_morphinan_tropane_expansion",
+      "name": "Quinolizidine alkaloid to lysine/cadaverine-derived skeleton policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "quinolizidine alkaloids",
+          "lupin alkaloids",
+          "lupanine/sparteine-like scaffolds"
+        ],
+        "target_features": [
+          "quinolizidine or piperidine ring system",
+          "lysine/cadaverine biosynthetic origin",
+          "toxic bitter-lupin alkaloid context"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "quinolizidine ring traced to cadaverine-derived cyclization logic"
+        ],
+        "forward_logic": [
+          "map target class to quinolizidine structural subtype",
+          "separate lysine/cadaverine biosynthetic logic from late oxidations and acylations",
+          "flag food-safety, toxicity, and medicinal-use context"
+        ],
+        "suggested_precursor_roles": [
+          "cadaverine-derived intermediate",
+          "lupanine/sparteine-type core",
+          "late oxidized quinolizidine",
+          "plant-source alkaloid profile metadata"
+        ],
+        "planner_hint": "Use as a toxic-alkaloid route-critique prior; require explicit subtype and safety metadata."
+      },
+      "risks": [
+        "toxic alkaloid exposure",
+        "partially elucidated biosynthesis",
+        "stereochemical subtype mismatch",
+        "food/feed regulatory context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Quinolizidine alkaloid biosynthesis review discusses lysine/cadaverine origin and pathway uncertainties.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3481059/"
+        },
+        {
+          "type": "literature",
+          "citation": "Lupin quinolizidine review covers toxicity, biosynthesis, and grain-quality implications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5281559/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "quinolizidine_toxic_alkaloid_prior",
+        "rerank_bonus": "low unless quinolizidine subtype and safety context are explicit",
+        "compliance_gate": "toxic_alkaloid_food_safety_review_required"
+      }
+    },
+    {
+      "id": "ellagitannin_hhdp_oxidative_coupling_disconnection",
+      "family_id": "polyphenol_tannin_ellagitannin",
+      "name": "Ellagitannin HHDP unit to adjacent galloyl groups on glucose/polyol",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "ellagitannins",
+          "hydrolyzable tannins",
+          "HHDP-containing polyphenols"
+        ],
+        "target_features": [
+          "hexahydroxydiphenoyl ester",
+          "galloylated glucose core",
+          "axially chiral biaryl polyphenol"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "HHDP C-C bond traced to oxidative coupling of adjacent galloyl esters"
+        ],
+        "forward_logic": [
+          "assign galloyl positions on glucose or polyol",
+          "plan oxidative C-C coupling that creates HHDP and axial chirality",
+          "track hydrolysis/degalloylation and oligomerization state"
+        ],
+        "suggested_precursor_roles": [
+          "galloylated glucose",
+          "pentagalloyl glucose",
+          "HHDP ester",
+          "ellagitannin monomer"
+        ],
+        "planner_hint": "Reward routes that expose galloyl-position logic and HHDP atropisomerism before oxidation."
+      },
+      "risks": [
+        "atropisomer control",
+        "overoxidation",
+        "polyphenol instability",
+        "regioselective galloylation"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Ellagitannin structural review describes HHDP formation by oxidative C-C coupling of neighboring galloyl groups.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2820991/"
+        },
+        {
+          "type": "literature",
+          "citation": "Hydrolyzable tannin biosynthesis review summarizes galloyl glucose to HHDP oxidative-coupling pathway.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11921145/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "ellagitannin_hhdp_prior",
+        "rerank_bonus": "high for galloyl-position and HHDP-stereochemistry metadata"
+      }
+    },
+    {
+      "id": "ellagitannin_oligomer_valoneoyl_policy",
+      "family_id": "polyphenol_tannin_ellagitannin",
+      "name": "Oligomeric ellagitannin to monomeric galloyl/HHDP building blocks",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "oligomeric ellagitannins",
+          "complex hydrolyzable tannins",
+          "valoneoyl or chebuloyl tannins"
+        ],
+        "target_features": [
+          "multiple galloyl/HHDP units",
+          "intermolecular oxidative coupling",
+          "highly oxygenated polyphenol oligomer"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "intermolecular C-C or C-O oxidative-coupling links between tannin monomers"
+        ],
+        "forward_logic": [
+          "reduce the target to monomeric galloyl/HHDP pattern units",
+          "define oxidative oligomerization or valoneoyl/chebuloyl formation policy",
+          "keep hydrolysis and ester migration risks explicit"
+        ],
+        "suggested_precursor_roles": [
+          "ellagitannin monomer",
+          "galloyl/HHDP building block",
+          "oxidative oligomerization precursor",
+          "complex tannin"
+        ],
+        "planner_hint": "Avoid scoring oligomeric tannins as generic polyphenol decoration; require monomer and coupling topology."
+      },
+      "risks": [
+        "mixtures of oligomerization states",
+        "polyphenol redox lability",
+        "difficult structural assignment",
+        "hydrolysis during handling"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Ellagic acid review summarizes galloyl glucose, HHDP oxidative coupling, and ellagitannin structural diversity.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8885183/"
+        },
+        {
+          "type": "literature",
+          "citation": "Ellagitannin cancer-review chemistry section describes monomers and oxidative-coupled dimers.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4885066/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "ellagitannin_oligomer_prior",
+        "rerank_bonus": "moderate for explicit monomer topology and oxidative-coupling assignment"
+      }
+    },
+    {
+      "id": "endocannabinoid_amide_glycerol_ester_disconnection",
+      "family_id": "lipid_mediator_endocannabinoid",
+      "name": "Endocannabinoid to arachidonoyl chain plus ethanolamide or glycerol linkage",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "endocannabinoids",
+          "N-acylethanolamines",
+          "monoacylglycerol lipid mediators"
+        ],
+        "target_features": [
+          "arachidonoyl ethanolamide",
+          "2-arachidonoylglycerol",
+          "fatty-acid amide or glycerol ester"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "fatty-acid amide bond",
+          "2-monoacylglycerol ester bond"
+        ],
+        "forward_logic": [
+          "separate PUFA chain identity and double-bond geometry from polar headgroup",
+          "choose amide or glycerol ester linkage policy",
+          "track enzymatic metabolism and lipid-signaling context"
+        ],
+        "suggested_precursor_roles": [
+          "arachidonic acid derivative",
+          "ethanolamine headgroup",
+          "glycerol or protected glycerol",
+          "endocannabinoid lipid mediator"
+        ],
+        "planner_hint": "Reward routes that preserve PUFA geometry and distinguish amide from glycerol ester mediator classes."
+      },
+      "risks": [
+        "double-bond isomerization",
+        "oxidation of polyunsaturated chains",
+        "cannabinoid-signaling pharmacology",
+        "amide versus ester metabolic stability"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Endocannabinoid review covers anandamide, 2-AG, and metabolic routes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6271436/"
+        },
+        {
+          "type": "literature",
+          "citation": "Endocannabinoid system overview discusses eCB amide/ester families and biosynthetic enzymes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3303140/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "endocannabinoid_linkage_prior",
+        "rerank_bonus": "moderate for correct PUFA geometry and polar-linkage metadata",
+        "compliance_gate": "cannabinoid_lipid_signaling_review_required"
+      }
+    },
+    {
+      "id": "spm_pufa_oxygenation_stereochemistry_policy",
+      "family_id": "lipid_mediator_endocannabinoid",
+      "name": "Specialized pro-resolving mediator to PUFA oxygenation and stereochemical sequence",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "lipoxins",
+          "resolvins",
+          "protectins",
+          "maresins",
+          "specialized pro-resolving mediators"
+        ],
+        "target_features": [
+          "polyunsaturated fatty acid backbone",
+          "multiple hydroxyl/epoxide oxygenation pattern",
+          "defined E/Z double-bond geometry and stereochemistry"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "oxygenated PUFA traced to staged oxygenation/epoxide or hydroxy precursors"
+        ],
+        "forward_logic": [
+          "assign AA/EPA/DHA precursor family",
+          "track lipoxygenase-like oxygenation positions and stereochemistry",
+          "avoid generic fatty-acid simplification that loses double-bond geometry"
+        ],
+        "suggested_precursor_roles": [
+          "AA/EPA/DHA chain",
+          "hydroxy-PUFA intermediate",
+          "epoxide or conjugated triene precursor",
+          "SPM analogue"
+        ],
+        "planner_hint": "Use SPM entries only when oxygenation position, stereochemistry, and double-bond geometry are retained."
+      },
+      "risks": [
+        "polyene isomerization",
+        "oxygenation stereochemistry",
+        "analytical identity uncertainty",
+        "bioactive lipid receptor context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "SPM chemistry and biology review summarizes lipoxin and resolvin synthesis and analog design.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11124040/"
+        },
+        {
+          "type": "literature",
+          "citation": "SPM immune-response review describes AA/EPA/DHA-derived lipoxin, resolvin, protectin, and maresin families.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9962762/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "spm_pufa_oxygenation_prior",
+        "rerank_bonus": "high for preserved stereochemistry and oxygenation sequence",
+        "compliance_gate": "bioactive_lipid_mediator_review_required"
+      }
+    },
+    {
+      "id": "iminosugar_chiral_pool_ring_nitrogen_disconnection",
+      "family_id": "carbohydrate_mimetic_iminosugar",
+      "name": "Iminosugar to chiral carbohydrate precursor with ring nitrogen installation",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "iminosugars",
+          "azasugars",
+          "deoxynojirimycin analogues",
+          "glycosidase inhibitors"
+        ],
+        "target_features": [
+          "polyhydroxylated piperidine, pyrrolidine, indolizidine, or azepane",
+          "sugar-like stereochemical array",
+          "endocyclic nitrogen replacing oxygen"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "C-N ring bond traced to carbohydrate-derived aminoalcohol precursor"
+        ],
+        "forward_logic": [
+          "select carbohydrate or asymmetric precursor that encodes most stereocenters",
+          "install ring nitrogen while preserving sugar configuration",
+          "defer N-alkyl substituent changes until core stereochemistry is verified"
+        ],
+        "suggested_precursor_roles": [
+          "protected carbohydrate",
+          "aminoalcohol chain",
+          "polyhydroxylated piperidine",
+          "iminosugar core"
+        ],
+        "planner_hint": "Reward chiral-pool routes that explicitly preserve iminosugar stereochemistry and ring size."
+      },
+      "risks": [
+        "dense stereochemistry",
+        "protecting-group burden",
+        "ring-size mismatch",
+        "enzyme selectivity depends on configuration"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Deoxynojirimycin review describes DNJ as an iminosugar/azasugar and covers occurrence and chemistry.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6273535/"
+        },
+        {
+          "type": "literature",
+          "citation": "Iminosugar stereochemistry study summarizes ring size, stereochemistry, and N-substituent effects.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6789487/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "iminosugar_chiral_pool_prior",
+        "rerank_bonus": "high when carbohydrate configuration and ring nitrogen placement are explicit"
+      }
+    },
+    {
+      "id": "iminosugar_N_substitution_glycomimetic_policy",
+      "family_id": "carbohydrate_mimetic_iminosugar",
+      "name": "Iminosugar N-substitution and glycomimetic activity policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "N-alkyl iminosugars",
+          "miglustat/miglitol-like analogues",
+          "glycomimetic inhibitors"
+        ],
+        "target_features": [
+          "iminosugar core plus N-alkyl or appended side chain",
+          "glycosidase or glycosylation inhibitor design",
+          "transition-state mimicry metadata"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "N-substituent bond on iminosugar core"
+        ],
+        "forward_logic": [
+          "construct the iminosugar core before N-substituent diversification",
+          "track how N-substitution changes binding, permeability, and selectivity",
+          "distinguish pharmacophore side-chain tuning from core-skeleton synthesis"
+        ],
+        "suggested_precursor_roles": [
+          "unsubstituted iminosugar core",
+          "N-alkyl side-chain partner",
+          "glycomimetic inhibitor",
+          "configuration-controlled analogue"
+        ],
+        "planner_hint": "Do not score N-alkylation as strategic progress unless the iminosugar core and biological role are already explicit."
+      },
+      "risks": [
+        "side chain changes selectivity and toxicity",
+        "N-alkylation may alter solubility",
+        "configuration-activity cliffs",
+        "lysosomal or glycosylation biology context"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Cystic-fibrosis iminosugar review covers synthesis and therapeutic applications of iminosugar glycomimetics.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7247015/"
+        },
+        {
+          "type": "literature",
+          "citation": "Glycomimetic design review notes DNJ-derived drugs and carbohydrate bioisosteres.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6784292/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "iminosugar_N_substitution_prior",
+        "rerank_bonus": "moderate for core-first strategy and N-substituent activity metadata"
+      }
+    },
+    {
+      "id": "macrocyclic_protac_target_E3_linker_disconnection",
+      "family_id": "macrocyclic_degrader_and_molecular_glue",
+      "name": "Macrocyclic or constrained PROTAC to target ligand, E3 recruiter, and linker/macrocycle",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "PROTACs",
+          "macrocyclic degraders",
+          "constrained bifunctional degraders"
+        ],
+        "target_features": [
+          "target-binding ligand",
+          "E3 ligase recruiter",
+          "linker or macrocyclic constraint",
+          "ternary-complex design"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "target ligand-linker bond",
+          "linker-E3 recruiter bond",
+          "macrocycle-closing bond when constrained"
+        ],
+        "forward_logic": [
+          "prepare target ligand and E3 recruiter as separate modules",
+          "define linker vector, length, polarity, and optional macrocyclization",
+          "require ternary-complex or degradation metadata before promotion"
+        ],
+        "suggested_precursor_roles": [
+          "POI ligand",
+          "E3 ligase recruiter",
+          "linker or macrocycle precursor",
+          "bifunctional degrader"
+        ],
+        "planner_hint": "Chemical convergence gets credit only when target, E3, linker vectors, and degradation rationale are all explicit."
+      },
+      "risks": [
+        "high molecular weight and permeability",
+        "ternary-complex cooperativity",
+        "E3 expression context",
+        "bioactive degrader safety review"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "PROTAC design review discusses target ligand, E3 ligand, linker, and macrocyclic PROTAC examples.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9729011/"
+        },
+        {
+          "type": "literature",
+          "citation": "Macrocyclic peptide degrader review describes PROTAC and molecular-glue distinctions and macrocyclic degrader opportunities.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11733494/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "macrocyclic_degrader_module_prior",
+        "rerank_bonus": "moderate only with target/E3/linker and degradation metadata",
+        "compliance_gate": "bioactive_degrader_review_required"
+      }
+    },
+    {
+      "id": "molecular_glue_neosubstrate_E3_surface_policy",
+      "family_id": "macrocyclic_degrader_and_molecular_glue",
+      "name": "Molecular glue to E3-ligase/neosubstrate induced-interface policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "molecular glue degraders",
+          "E3-recruiting monovalent degraders",
+          "induced-proximity small molecules"
+        ],
+        "target_features": [
+          "monovalent glue scaffold",
+          "E3 ligase engagement",
+          "neosubstrate recruitment",
+          "protein-protein interface stabilization"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "do not force bifunctional linker disconnection; treat as interface-stabilizing small-molecule scaffold"
+        ],
+        "forward_logic": [
+          "identify glue scaffold and E3/neosubstrate interface evidence",
+          "separate medicinal chemistry scaffold synthesis from induced-proximity biology",
+          "require proteomic or structural mode-of-action metadata before proposal-source promotion"
+        ],
+        "suggested_precursor_roles": [
+          "monovalent glue scaffold",
+          "E3 ligase interaction motif",
+          "neosubstrate interface metadata",
+          "degrader activity evidence"
+        ],
+        "planner_hint": "Do not rewrite molecular glues as PROTACs; score them through induced-interface evidence."
+      },
+      "risks": [
+        "phenotypic discovery can obscure target",
+        "neosubstrate spectrum and off-target degradation",
+        "E3-ligase dependence",
+        "bioactive degrader safety"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "E3 ligase ligandability review contrasts PROTACs and molecular glue degraders in targeted protein degradation.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8928483/"
+        },
+        {
+          "type": "literature",
+          "citation": "Targeted degradation review summarizes molecular glue and PROTAC mechanisms and applications.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8977435/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "molecular_glue_interface_prior",
+        "rerank_bonus": "moderate only with E3/neosubstrate and mode-of-action metadata",
+        "compliance_gate": "bioactive_degrader_review_required"
+      }
+    },
+    {
+      "id": "photoaffinity_parent_ligand_photoreactive_handle_disconnection",
+      "family_id": "photopharmacology_photoaffinity_probe",
+      "name": "Photoaffinity probe to parent ligand, photoreactive handle, and enrichment/reporter handle",
+      "confidence": "high",
+      "applicability": {
+        "target_classes": [
+          "photoaffinity probes",
+          "chemical proteomics probes",
+          "target-identification probes"
+        ],
+        "target_features": [
+          "diazirine, benzophenone, or aryl azide",
+          "bioactive parent ligand",
+          "alkyne, biotin, or reporter/enrichment handle"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "parent ligand-photoreactive linker bond",
+          "reporter/enrichment handle linker bond"
+        ],
+        "forward_logic": [
+          "preserve parent-ligand target engagement while adding minimal photoreactive handle",
+          "choose diazirine, benzophenone, aryl azide, or alternative handle based on size and photochemistry",
+          "keep enrichment handle and photolysis compatibility separate from parent synthesis"
+        ],
+        "suggested_precursor_roles": [
+          "parent ligand",
+          "photoreactive handle",
+          "click/enrichment tag",
+          "photoaffinity probe"
+        ],
+        "planner_hint": "Reward probe routes only when parent activity, handle position, and photochemical compatibility are explicit."
+      },
+      "risks": [
+        "parent affinity loss",
+        "nonspecific labeling",
+        "phototoxicity or sample damage",
+        "probe hydrophobicity and permeability"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Photoaffinity probe review describes benzophenone, aryl azide, and diazirine photoreactive units.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6270116/"
+        },
+        {
+          "type": "literature",
+          "citation": "Recent photoaffinity chemistry review focuses on benzophenone and diazirine radical precursors.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7288102/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "photoaffinity_probe_prior",
+        "rerank_bonus": "moderate for parent-ligand preserving handle placement and reporter policy",
+        "compliance_gate": "photoaffinity_probe_safety_review_required"
+      }
+    },
+    {
+      "id": "azobenzene_photoswitch_parent_ligand_policy",
+      "family_id": "photopharmacology_photoaffinity_probe",
+      "name": "Photoswitchable ligand to parent pharmacophore plus azobenzene/photochromic switch",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "photopharmacology ligands",
+          "photoswitchable ion-channel or receptor ligands",
+          "azobenzene-based probes"
+        ],
+        "target_features": [
+          "azobenzene or related photoswitch",
+          "cis/trans bioactivity difference",
+          "parent pharmacophore retained in one isomer"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "parent pharmacophore-photoswitch linker bond",
+          "photoswitch substituent vector"
+        ],
+        "forward_logic": [
+          "identify parent ligand vectors that tolerate azologization or photoswitch insertion",
+          "track trans/cis geometry, wavelength window, thermal relaxation, and biological compatibility",
+          "separate photoswitch design from target-binding pharmacophore synthesis"
+        ],
+        "suggested_precursor_roles": [
+          "parent ligand",
+          "azobenzene/photoswitch module",
+          "photochromic ligand",
+          "tethering electrophile when applicable"
+        ],
+        "planner_hint": "Score photopharmacology routes by switch-state activity and photophysical metadata, not only by synthesis of an azobenzene."
+      },
+      "risks": [
+        "UV phototoxicity",
+        "poor tissue penetration",
+        "thermal relaxation mismatch",
+        "isomer-specific off-target activity"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Photopharmacology DHFR study discusses azobenzene photoswitchable drug design and cis/trans activity.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8958501/"
+        },
+        {
+          "type": "literature",
+          "citation": "Ion-channel photopharmacology review describes modular photoswitchable ligands and azobenzene use.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8584574/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "photopharmacology_photoswitch_prior",
+        "rerank_bonus": "moderate only with switch-state activity and photophysical metadata",
+        "compliance_gate": "phototoxicity_and_probe_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v6 expansion promotes the backlog families for glycosylated natural products, NRPS/RiPP peptide natural products, morphinan/tropane/quinolizidine alkaloid critique, ellagitannins, endocannabinoid/SPM lipid mediators, iminosugar glycomimetics, macrocyclic degraders/molecular glues, and photoresponsive probes."
+    },
+    {
+      "type": "safety_note",
+      "summary": "Controlled alkaloid, toxic alkaloid, antimicrobial/bioactive peptide, cannabinoid/lipid mediator, degrader, photoaffinity, and photopharmacology records are advisory. Promotion to proposal generation requires explicit legal, safety, stewardship, toxicology, photochemistry, or biological-mode review as applicable."
+    }
+  ]
+}

@@ -1,0 +1,1181 @@
+{
+  "schema_version": "strategic_disconnections.v16_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Fifteenth expanded public source layer focused on source-reliability and process-boundary strategy for enzyme promiscuity and substrate engineering, whole-cell biotransformation, cell-free pathway reconstitution, cofactor regeneration, biocatalyst stability under solvent or loading stress, product inhibition and in situ product removal, biosensor or high-throughput screening lineage, and green-chemistry or sustainability critique of biocatalytic routes.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist, enzymologist, process, and data-lineage review",
+      "explicit substrate scope, enzyme lineage, engineering evidence, host or cell-free context, cofactor loop, stability boundary, product-removal method, screening provenance, or sustainability metric before proposal promotion",
+      "separate enzyme-promiscuity, whole-cell, cell-free cascade, cofactor-regeneration, process-stability, product-removal, screening-lineage, and green-chemistry critique policy",
+      "route-specific enzyme identity, assay lineage, host background, cofactor balance, solvent/loading tolerance, inhibition or equilibrium limitation, hit-screen reliability, downstream processing, and sustainability evidence review",
+      "biosecurity, host-engineering, screening false-positive, environmental, process-safety, waste, solvent, LCA, or scale-up review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid quantities, operating conditions, expression instructions, and implementation protocols",
+      "v16 records are source-trust and process-boundary priors only and must not auto-close routes as stock, validated strain processes, or verified green-chemistry claims"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "enzyme_promiscuity_substrate_engineering_policy",
+      "name": "Enzyme promiscuity, substrate walking, and active-site engineering policy",
+      "pattern_keywords": [
+        "enzyme promiscuity",
+        "substrate engineering",
+        "substrate walking",
+        "directed evolution",
+        "active-site engineering",
+        "scope expansion"
+      ],
+      "strategic_principle": "Separate native enzyme precedent from promiscuous activity, engineered scope expansion, and assay lineage. A promiscuous hit is a source candidate, not proof of general substrate acceptance."
+    },
+    {
+      "family_id": "whole_cell_fermentation_biotransformation_boundary",
+      "name": "Whole-cell biotransformation, fermentation, pathway-host, and cell-factory boundaries",
+      "pattern_keywords": [
+        "whole-cell biocatalysis",
+        "biotransformation",
+        "fermentation",
+        "cell factory",
+        "membrane permeability",
+        "host background"
+      ],
+      "strategic_principle": "Separate molecular enzyme logic from host uptake, toxicity, transport, competing metabolism, fermentation mode, and product export. Whole-cell records must carry host-context metadata."
+    },
+    {
+      "family_id": "cell_free_enzyme_cascade_pathway_reconstitution",
+      "name": "Cell-free pathway reconstitution, enzyme cascade assembly, and substrate-channeling boundaries",
+      "pattern_keywords": [
+        "cell-free enzyme cascade",
+        "pathway reconstitution",
+        "multi-enzyme reaction network",
+        "substrate channeling",
+        "enzyme scaffold",
+        "artificial metabolism"
+      ],
+      "strategic_principle": "Separate target disconnection from enzyme order, intermediate channeling, cofactor balancing, enzyme ratio, and cell-free pathway provenance. Cell-free cascades are route programs, not single reaction templates."
+    },
+    {
+      "family_id": "enzyme_cofactor_regeneration_electrochemical_photochemical",
+      "name": "NAD(P)H, flavin, ATP, SAM, electrochemical, and photochemical cofactor-regeneration policies",
+      "pattern_keywords": [
+        "cofactor regeneration",
+        "NADH",
+        "NADPH",
+        "ATP regeneration",
+        "SAM regeneration",
+        "electrochemical regeneration"
+      ],
+      "strategic_principle": "Separate enzyme transformation from cofactor recycle loop, sacrificial substrate, electro/photochemical driver, and redox balance. The cofactor loop can be a route-defining strategic object."
+    },
+    {
+      "family_id": "biocatalyst_stability_solvent_high_substrate_load_process",
+      "name": "Biocatalyst stability under solvent, temperature, substrate-loading, and inhibition stress",
+      "pattern_keywords": [
+        "enzyme stability",
+        "solvent tolerance",
+        "organic solvent biocatalysis",
+        "high substrate loading",
+        "process stability",
+        "substrate inhibition"
+      ],
+      "strategic_principle": "Separate chemically plausible enzymatic disconnections from process viability under solvent, loading, temperature, inhibition, or catalyst-lifetime stress. Stability evidence gates process promotion."
+    },
+    {
+      "family_id": "enzyme_product_inhibition_in_situ_removal_boundary",
+      "name": "Product inhibition, equilibrium limits, in situ product removal, extraction, membrane, and crystallization boundaries",
+      "pattern_keywords": [
+        "product inhibition",
+        "in situ product removal",
+        "ISPR",
+        "product crystallization",
+        "equilibrium shift",
+        "biocatalytic process separation"
+      ],
+      "strategic_principle": "Separate molecular route feasibility from product inhibition, equilibrium, toxicity, and downstream removal. In situ removal is a strategic process boundary, not an incidental condition."
+    },
+    {
+      "family_id": "biosensor_high_throughput_enzyme_screening_lineage",
+      "name": "Biosensor, high-throughput screening, directed-evolution, and enzyme-hit lineage policy",
+      "pattern_keywords": [
+        "biosensor",
+        "high-throughput screening",
+        "directed evolution",
+        "droplet screening",
+        "enzyme screening",
+        "hit lineage"
+      ],
+      "strategic_principle": "Separate route evidence from screening lineage, assay readout, false-positive risk, and evolution campaign provenance. A screened enzyme hit must carry how it was found and validated."
+    },
+    {
+      "family_id": "green_chemistry_lca_biocatalysis_route_critique",
+      "name": "Green chemistry, circular-economy, LCA-style, waste, solvent, and sustainability critique for biocatalytic routes",
+      "pattern_keywords": [
+        "green chemistry",
+        "life cycle assessment",
+        "LCA",
+        "circular economy",
+        "sustainable biocatalysis",
+        "waste and solvent critique"
+      ],
+      "strategic_principle": "Separate biocatalysis as a method from evidence-backed sustainability. Lower temperature, aqueous media, or enzyme use is not automatically greener without solvent, waste, energy, feedstock, and scale evidence."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "enzyme_promiscuity_scope_lineage_anchor",
+      "family_id": "enzyme_promiscuity_substrate_engineering_policy",
+      "name": "Promiscuous or engineered enzyme anchor with reviewed substrate scope, mutation lineage, and assay evidence",
+      "role": "enzyme_promiscuity_scope_anchor",
+      "aliases": [
+        "promiscuous enzyme hit",
+        "directed-evolution variant",
+        "substrate-walking campaign"
+      ],
+      "acceptance_policy": "requires_native_activity_scope_engineering_lineage_assay_validation_and_substrate_similarity_review"
+    },
+    {
+      "anchor_id": "whole_cell_host_context_biotransformation_anchor",
+      "family_id": "whole_cell_fermentation_biotransformation_boundary",
+      "name": "Whole-cell route anchor with reviewed host background, uptake/export, toxicity, and competing metabolism",
+      "role": "whole_cell_host_context_anchor",
+      "aliases": [
+        "whole-cell biocatalyst",
+        "fermentation host",
+        "cell factory"
+      ],
+      "acceptance_policy": "requires_host_strain_context_uptake_export_toxicity_competing_metabolism_and_biosafety_review"
+    },
+    {
+      "anchor_id": "cell_free_cascade_reconstitution_anchor",
+      "family_id": "cell_free_enzyme_cascade_pathway_reconstitution",
+      "name": "Cell-free cascade anchor with reviewed enzyme order, intermediate channeling, cofactor balancing, and pathway provenance",
+      "role": "cell_free_cascade_anchor",
+      "aliases": [
+        "cell-free artificial metabolism",
+        "multi-enzyme cascade",
+        "pathway reconstitution"
+      ],
+      "acceptance_policy": "requires_enzyme_order_intermediate_identity_cofactor_balance_pathway_provenance_and_process_review"
+    },
+    {
+      "anchor_id": "cofactor_regeneration_loop_anchor",
+      "family_id": "enzyme_cofactor_regeneration_electrochemical_photochemical",
+      "name": "Cofactor-regeneration anchor with reviewed recycle loop, redox or energy balance, and driver compatibility",
+      "role": "cofactor_regeneration_anchor",
+      "aliases": [
+        "NADPH regeneration",
+        "electrochemical cofactor regeneration",
+        "ATP or SAM recycle loop"
+      ],
+      "acceptance_policy": "requires_cofactor_identity_recycle_loop_driver_redox_or_energy_balance_and_cascade_compatibility_review"
+    },
+    {
+      "anchor_id": "biocatalyst_process_stability_anchor",
+      "family_id": "biocatalyst_stability_solvent_high_substrate_load_process",
+      "name": "Biocatalyst process-stability anchor with reviewed solvent, loading, inhibition, and catalyst-lifetime boundaries",
+      "role": "biocatalyst_stability_process_anchor",
+      "aliases": [
+        "solvent-stable enzyme",
+        "high-substrate-loading biocatalysis",
+        "process-stable biocatalyst"
+      ],
+      "acceptance_policy": "requires_solvent_loading_temperature_inhibition_catalyst_lifetime_and_process_window_review"
+    },
+    {
+      "anchor_id": "in_situ_product_removal_process_anchor",
+      "family_id": "enzyme_product_inhibition_in_situ_removal_boundary",
+      "name": "In situ product-removal anchor with reviewed product inhibition, equilibrium, removal mode, and downstream compatibility",
+      "role": "ispr_process_boundary_anchor",
+      "aliases": [
+        "in situ product removal",
+        "product crystallization",
+        "equilibrium-shift separation"
+      ],
+      "acceptance_policy": "requires_product_inhibition_or_equilibrium_evidence_removal_mode_downstream_compatibility_and_process_review"
+    },
+    {
+      "anchor_id": "biosensor_screening_lineage_anchor",
+      "family_id": "biosensor_high_throughput_enzyme_screening_lineage",
+      "name": "Screened enzyme-hit anchor with reviewed assay format, biosensor or droplet readout, and validation lineage",
+      "role": "screening_lineage_anchor",
+      "aliases": [
+        "biosensor screen",
+        "droplet screening",
+        "directed-evolution hit"
+      ],
+      "acceptance_policy": "requires_assay_readout_hit_lineage_false_positive_controls_resynthesis_or_orthogonal_validation_review"
+    },
+    {
+      "anchor_id": "green_chemistry_lca_route_critique_anchor",
+      "family_id": "green_chemistry_lca_biocatalysis_route_critique",
+      "name": "Sustainability critique anchor with reviewed solvent, waste, energy, feedstock, scale, and LCA-style evidence",
+      "role": "green_chemistry_route_critique_anchor",
+      "aliases": [
+        "sustainable biocatalysis critique",
+        "LCA-style route evidence",
+        "circular-economy route review"
+      ],
+      "acceptance_policy": "requires_solvent_waste_energy_feedstock_scale_metric_and_comparator_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "enzyme_promiscuity_scope_expansion_policy",
+      "family_id": "enzyme_promiscuity_substrate_engineering_policy",
+      "name": "Target transformation to promiscuous enzyme hit plus scope-expansion and assay-lineage policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "new-substrate enzyme routes",
+          "promiscuous enzyme transformations",
+          "substrate-engineered analogues"
+        ],
+        "target_features": [
+          "activity outside native substrate",
+          "scope expansion",
+          "assay-derived enzyme hit"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "native-substrate precedent to new-substrate boundary",
+          "assay hit to route evidence boundary"
+        ],
+        "forward_logic": [
+          "separate native enzyme precedent from promiscuous or engineered activity",
+          "track substrate similarity, assay format, and validation depth",
+          "flag routes where enzyme scope expansion is assumed from weak analog evidence"
+        ],
+        "suggested_precursor_roles": [
+          "target substrate",
+          "native enzyme or engineered variant",
+          "promiscuous activity evidence",
+          "assay-lineage metadata"
+        ],
+        "planner_hint": "Reward promiscuity records only when substrate similarity and assay lineage are explicit."
+      },
+      "risks": [
+        "promiscuity overgeneralization",
+        "assay artifact",
+        "substrate-scope cliff",
+        "variant lineage missing"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Enzyme-promiscuity review frames promiscuity as an engine of evolutionary innovation rather than universal substrate scope.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/25210039/"
+        },
+        {
+          "type": "literature",
+          "citation": "Directed-evolution review discusses how protein catalysts are engineered and why lineage matters for catalytic claims.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/29494241/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "enzyme_promiscuity_scope_prior",
+        "rerank_bonus": "moderate for explicit substrate similarity, enzyme lineage, assay format, and orthogonal validation",
+        "compliance_gate": "enzyme_promiscuity_scope_and_assay_lineage_review_required"
+      }
+    },
+    {
+      "id": "substrate_walking_active_site_engineering_boundary",
+      "family_id": "enzyme_promiscuity_substrate_engineering_policy",
+      "name": "Engineered substrate route to active-site variant plus substrate-walking policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "engineered-enzyme analogues",
+          "non-native substrate products",
+          "natural-product diversification routes"
+        ],
+        "target_features": [
+          "active-site mutation",
+          "substrate walking",
+          "engineered specificity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "variant-specific substrate boundary",
+          "substrate-walking evidence boundary"
+        ],
+        "forward_logic": [
+          "separate chemical substrate modification from enzyme-engineering evidence",
+          "track mutation set, selection objective, substrate series, and final validation",
+          "avoid promoting engineered variants without lineage and controls"
+        ],
+        "suggested_precursor_roles": [
+          "substrate series",
+          "active-site variant",
+          "engineered product",
+          "screening and validation metadata"
+        ],
+        "planner_hint": "Use substrate-engineering records when route trust depends on how an enzyme variant was obtained."
+      },
+      "risks": [
+        "mutation lineage absent",
+        "narrow substrate series",
+        "screening bias",
+        "scale transfer unsupported"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Natural-product enzyme-promiscuity review discusses harnessing promiscuity for synthesis across plants and microbes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41171120/"
+        },
+        {
+          "type": "literature",
+          "citation": "Enzyme-promiscuity review in carbohydrate-active enzymes describes applications and limits in biocatalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/32942240/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "substrate_engineering_lineage_prior",
+        "rerank_bonus": "moderate for explicit mutation, substrate-walking series, selection objective, and scale/validation status",
+        "compliance_gate": "engineered_enzyme_lineage_and_scope_review_required"
+      }
+    },
+    {
+      "id": "whole_cell_host_uptake_export_boundary",
+      "family_id": "whole_cell_fermentation_biotransformation_boundary",
+      "name": "Whole-cell product to enzyme route plus host uptake/export, toxicity, and metabolism boundary",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "whole-cell biotransformation products",
+          "cell-factory intermediates",
+          "fermentation-derived analogues"
+        ],
+        "target_features": [
+          "host-cell context",
+          "substrate uptake or product export",
+          "competing metabolism"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "isolated enzyme route to whole-cell host boundary",
+          "uptake/export and toxicity boundary"
+        ],
+        "forward_logic": [
+          "separate enzyme transformation from host transport and metabolic background",
+          "track uptake, product export, host toxicity, and competing pathways",
+          "flag whole-cell records where isolated-enzyme evidence is being overextended"
+        ],
+        "suggested_precursor_roles": [
+          "substrate fed to host",
+          "whole-cell catalyst or strain",
+          "product or metabolite",
+          "host-context metadata"
+        ],
+        "planner_hint": "Reward whole-cell routes only when host background and transport/toxicity constraints are explicit."
+      },
+      "risks": [
+        "membrane permeability gap",
+        "host toxicity",
+        "competing metabolism",
+        "strain provenance missing"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Whole-cell biocatalysis review covers selective C-O functional-group introduction and modification in whole cells.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/23475180/"
+        },
+        {
+          "type": "literature",
+          "citation": "Whole-cell bioprocess review discusses permeability issues and membrane engineering in whole-cell processes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/17221194/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "whole_cell_host_context_prior",
+        "rerank_bonus": "moderate for explicit host, uptake/export, toxicity, strain lineage, and competing-metabolism policy",
+        "compliance_gate": "whole_cell_host_context_biosafety_and_process_review_required"
+      }
+    },
+    {
+      "id": "fermentation_biotransformation_process_mode_policy",
+      "family_id": "whole_cell_fermentation_biotransformation_boundary",
+      "name": "Fermentation or cell-factory route to pathway host plus process-mode and product-export policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "fermentation products",
+          "cell-factory chemicals",
+          "whole-cell cascade products"
+        ],
+        "target_features": [
+          "fermentation host",
+          "bioproduction mode",
+          "pathway-host background"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "product route to pathway-host boundary",
+          "fermentation mode and export boundary"
+        ],
+        "forward_logic": [
+          "separate molecular precursor logic from host pathway and process mode",
+          "track whether the route is batch fermentation, flow fermentation, simultaneous biocatalysis, or resting-cell transformation",
+          "carry export, downstream recovery, and host burden into route critique"
+        ],
+        "suggested_precursor_roles": [
+          "feedstock or substrate",
+          "host strain or cell factory",
+          "fermentation product",
+          "process-mode metadata"
+        ],
+        "planner_hint": "Use fermentation boundary records when host and process mode change route meaning."
+      },
+      "risks": [
+        "host-burden overclaim",
+        "product export not shown",
+        "downstream recovery gap",
+        "fermentation evidence not transferable"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Flow-fermentation review discusses microsystems for whole-cell bioproduction processes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/39890503/"
+        },
+        {
+          "type": "literature",
+          "citation": "Review on simultaneous fermentation and enzymatic biocatalysis describes combined process options.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/38796486/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "whole_cell_fermentation_mode_prior",
+        "rerank_bonus": "moderate for explicit host, process mode, pathway context, product export, and downstream recovery",
+        "compliance_gate": "fermentation_host_process_and_biosafety_review_required"
+      }
+    },
+    {
+      "id": "cell_free_multienzyme_pathway_reconstitution_policy",
+      "family_id": "cell_free_enzyme_cascade_pathway_reconstitution",
+      "name": "Cell-free route to enzyme set plus pathway order, intermediate identity, and cofactor balance",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "cell-free cascade products",
+          "artificial metabolism products",
+          "multi-enzyme route programs"
+        ],
+        "target_features": [
+          "reconstituted pathway",
+          "multi-enzyme network",
+          "cofactor balancing"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "single reaction to pathway program boundary",
+          "intermediate and cofactor-balance boundary"
+        ],
+        "forward_logic": [
+          "separate product synthesis into ordered enzyme modules and intermediates",
+          "track cofactor balance, enzyme compatibility, and intermediate accumulation",
+          "require pathway provenance before treating a cell-free route as source-backed"
+        ],
+        "suggested_precursor_roles": [
+          "starting substrate",
+          "enzyme set",
+          "cell-free intermediates",
+          "target product"
+        ],
+        "planner_hint": "Reward cell-free routes when enzyme order, intermediate identities, and cofactor balance are explicit."
+      },
+      "risks": [
+        "enzyme incompatibility",
+        "intermediate accumulation",
+        "cofactor imbalance",
+        "pathway provenance missing"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Cell-free pathway review covers tools and strategies for constructing cell-free enzyme pathways.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/30521853/"
+        },
+        {
+          "type": "literature",
+          "citation": "Synthetic-biology review describes design fundamentals for in vitro multi-enzyme reaction networks.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/27757475/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cell_free_pathway_reconstitution_prior",
+        "rerank_bonus": "high for explicit enzyme order, intermediate identities, cofactor balance, and pathway provenance",
+        "compliance_gate": "cell_free_cascade_pathway_and_process_review_required"
+      }
+    },
+    {
+      "id": "substrate_channeling_scaffold_cascade_policy",
+      "family_id": "cell_free_enzyme_cascade_pathway_reconstitution",
+      "name": "Cell-free cascade to substrate-channeling or enzyme-scaffold policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "scaffolded enzyme cascades",
+          "channeling-dependent multi-enzyme products",
+          "nanoscaffold or compartment-like cascades"
+        ],
+        "target_features": [
+          "substrate channeling",
+          "enzyme scaffold",
+          "intermediate instability or toxicity"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "free-enzyme cascade to scaffold boundary",
+          "intermediate channeling boundary"
+        ],
+        "forward_logic": [
+          "separate ordinary multi-enzyme mixture from scaffolded or channeling-dependent route",
+          "track intermediate stability, diffusion risk, and scaffold provenance",
+          "flag routes where channeling is invoked without evidence"
+        ],
+        "suggested_precursor_roles": [
+          "enzyme modules",
+          "scaffold or compartment",
+          "labile intermediate",
+          "target product"
+        ],
+        "planner_hint": "Use channeling records when intermediate handling, not only enzyme identity, defines feasibility."
+      },
+      "risks": [
+        "channeling overclaim",
+        "scaffold compatibility gap",
+        "intermediate toxicity",
+        "module ratio not controlled"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Substrate-channeling review covers enzyme complexes for biotechnological applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/21672618/"
+        },
+        {
+          "type": "literature",
+          "citation": "Multi-enzyme assembly review discusses strategies and perspectives for assembling multi-enzyme systems.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/28423958/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cell_free_channeling_scaffold_prior",
+        "rerank_bonus": "moderate for explicit scaffold, channeling rationale, labile intermediate, and enzyme-ratio policy",
+        "compliance_gate": "substrate_channeling_scaffold_and_intermediate_review_required"
+      }
+    },
+    {
+      "id": "nadph_redox_cofactor_regeneration_boundary",
+      "family_id": "enzyme_cofactor_regeneration_electrochemical_photochemical",
+      "name": "Redox biocatalytic step to NAD(P)H recycle loop plus redox-balance policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "redox biocatalysis products",
+          "ketoreductase or ene-reductase products",
+          "oxygenase or dehydrogenase cascade products"
+        ],
+        "target_features": [
+          "NADH or NADPH requirement",
+          "cofactor regeneration",
+          "redox balance"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "enzyme transformation to recycle-loop boundary",
+          "redox-balance boundary"
+        ],
+        "forward_logic": [
+          "separate target redox step from cofactor-recycle method",
+          "track sacrificial substrate, hydrogenase, oxidase, dehydrogenase, or electrochemical driver",
+          "carry redox balance and byproduct burden into route ranking"
+        ],
+        "suggested_precursor_roles": [
+          "redox substrate",
+          "redox enzyme",
+          "cofactor regeneration module",
+          "product and byproduct metadata"
+        ],
+        "planner_hint": "Reward redox biocatalysis only when cofactor recycle and redox balance are explicit."
+      },
+      "risks": [
+        "cofactor recycle omitted",
+        "byproduct burden hidden",
+        "redox mismatch",
+        "driver incompatibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Redox-biocatalysis review compares nicotinamide cofactor-regeneration methods quantitatively.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36129761/"
+        },
+        {
+          "type": "literature",
+          "citation": "Hydrogenase review discusses H2-driven NAD(P)+ cofactor regeneration.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/23497170/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "nadph_cofactor_regeneration_prior",
+        "rerank_bonus": "high for explicit cofactor identity, recycle module, redox balance, and byproduct policy",
+        "compliance_gate": "cofactor_regeneration_redox_balance_review_required"
+      }
+    },
+    {
+      "id": "electro_photo_cofactor_driver_policy",
+      "family_id": "enzyme_cofactor_regeneration_electrochemical_photochemical",
+      "name": "Biocatalytic route to electrochemical, photochemical, or engineered cofactor-regeneration driver",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "electrobiocatalytic routes",
+          "photobiocatalytic cofactor routes",
+          "engineered cofactor-demand cascades"
+        ],
+        "target_features": [
+          "electrochemical cofactor regeneration",
+          "photochemical driver",
+          "cofactor engineering"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "enzymatic route to energy-driver boundary",
+          "cofactor engineering boundary"
+        ],
+        "forward_logic": [
+          "separate enzyme transformation from electro/photochemical cofactor driver",
+          "track mediator, electrode, light, or engineered cofactor dependency",
+          "flag routes where energy input or mediator compatibility dominates feasibility"
+        ],
+        "suggested_precursor_roles": [
+          "enzyme-catalyzed step",
+          "cofactor",
+          "electrochemical or photochemical driver",
+          "regenerated cofactor loop"
+        ],
+        "planner_hint": "Use electro/photo cofactor records when the driver is route-defining, not a generic condition."
+      },
+      "risks": [
+        "mediator incompatibility",
+        "enzyme deactivation by driver",
+        "hidden energy input",
+        "scale-up uncertainty"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Electrochemical cofactor-regeneration review describes strategies for industrial biocatalysis reactors.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/29030132/"
+        },
+        {
+          "type": "literature",
+          "citation": "Cofactor-engineering review frames cofactor engineering as a driver of next-generation biomanufacturing.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/41927444/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "electro_photo_cofactor_driver_prior",
+        "rerank_bonus": "moderate for explicit driver, mediator or energy source, cofactor identity, and enzyme-compatibility evidence",
+        "compliance_gate": "electro_photochemical_cofactor_driver_review_required"
+      }
+    },
+    {
+      "id": "solvent_tolerant_biocatalyst_process_boundary",
+      "family_id": "biocatalyst_stability_solvent_high_substrate_load_process",
+      "name": "Enzymatic route to solvent-tolerant biocatalyst plus nonaqueous process-stability policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "non-aqueous biocatalytic routes",
+          "hydrophobic-substrate transformations",
+          "solvent-stressed enzyme processes"
+        ],
+        "target_features": [
+          "organic solvent",
+          "solvent-tolerant enzyme",
+          "catalyst stability boundary"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "molecular route to solvent process boundary",
+          "enzyme stability and solvent-tolerance boundary"
+        ],
+        "forward_logic": [
+          "separate substrate solubility needs from enzyme solvent tolerance",
+          "track solvent class, water activity, catalyst lifetime, and activity retention",
+          "avoid promoting solvent-dependent routes without stability evidence"
+        ],
+        "suggested_precursor_roles": [
+          "hydrophobic substrate",
+          "solvent-tolerant enzyme",
+          "product",
+          "solvent/stability metadata"
+        ],
+        "planner_hint": "Reward solvent-stability records when solvent need and enzyme stability are both explicit."
+      },
+      "risks": [
+        "enzyme deactivation",
+        "substrate solubility overclaim",
+        "solvent safety gap",
+        "activity/stability tradeoff missing"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Solvent-tolerant enzyme review discusses adaptations and applications of extremophile enzymes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/36933597/"
+        },
+        {
+          "type": "literature",
+          "citation": "Review on solvent-stable microbial lipases covers current understanding and biotechnological applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/30535639/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "solvent_tolerant_biocatalyst_prior",
+        "rerank_bonus": "moderate for explicit solvent, enzyme stability, catalyst lifetime, and substrate-solubility rationale",
+        "compliance_gate": "solvent_tolerance_process_safety_and_stability_review_required"
+      }
+    },
+    {
+      "id": "high_loading_biocatalyst_stability_policy",
+      "family_id": "biocatalyst_stability_solvent_high_substrate_load_process",
+      "name": "Biocatalytic route to high-loading or stressed process plus catalyst-stability and inhibition policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "high-substrate-loading enzyme processes",
+          "industrial biocatalytic transformations",
+          "stability-engineered biocatalyst routes"
+        ],
+        "target_features": [
+          "high substrate loading",
+          "substrate or product inhibition",
+          "engineered catalyst stability"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "lab-scale activity to process-window boundary",
+          "loading and inhibition boundary"
+        ],
+        "forward_logic": [
+          "separate enzyme activity proof from process-window evidence",
+          "track substrate loading, inhibition, temperature, lifetime, and engineering strategy",
+          "flag routes where scale-up assumes stability not shown in source evidence"
+        ],
+        "suggested_precursor_roles": [
+          "enzyme route",
+          "high-loading substrate feed",
+          "stabilized or engineered biocatalyst",
+          "process-window metadata"
+        ],
+        "planner_hint": "Use process-stability records when activity must survive loading, inhibition, temperature, or lifetime stress."
+      },
+      "risks": [
+        "process window not demonstrated",
+        "substrate inhibition",
+        "lifetime too short",
+        "engineering data not comparable"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Biocatalyst-stabilization review discusses strategies for stabilizing biocatalysts.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/23807146/"
+        },
+        {
+          "type": "literature",
+          "citation": "Protein-engineering review covers enzyme engineering for process applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/23562542/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "high_loading_biocatalyst_stability_prior",
+        "rerank_bonus": "moderate for explicit loading, inhibition, stability engineering, lifetime, and process window",
+        "compliance_gate": "high_loading_biocatalyst_process_stability_review_required"
+      }
+    },
+    {
+      "id": "in_situ_product_crystallization_boundary",
+      "family_id": "enzyme_product_inhibition_in_situ_removal_boundary",
+      "name": "Biocatalytic product to in situ crystallization plus product-inhibition and equilibrium policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "poorly soluble biocatalytic products",
+          "product-inhibited enzyme transformations",
+          "whole-cell biocatalysis products"
+        ],
+        "target_features": [
+          "in situ product crystallization",
+          "product inhibition",
+          "equilibrium or toxicity relief"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "reaction to separation boundary",
+          "product-inhibition relief boundary"
+        ],
+        "forward_logic": [
+          "separate molecular transformation from in situ crystallization or removal",
+          "track inhibition/equilibrium evidence, supersaturation, and downstream compatibility",
+          "avoid treating product removal as an incidental condition when it enables conversion"
+        ],
+        "suggested_precursor_roles": [
+          "enzyme substrate",
+          "biocatalyst",
+          "product crystal or removed phase",
+          "ISPR metadata"
+        ],
+        "planner_hint": "Reward in situ crystallization records when product removal is necessary to overcome inhibition or equilibrium limits."
+      },
+      "risks": [
+        "crystallization not selective",
+        "enzyme fouling",
+        "mass-transfer limitation",
+        "downstream compatibility gap"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "ISPR crystallization review covers principles, design, and whole-cell biocatalysis applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/16607527/"
+        },
+        {
+          "type": "literature",
+          "citation": "In situ product crystallization review covers application of crystallization and related techniques in biocatalytic processes.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/30395380/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "in_situ_product_crystallization_prior",
+        "rerank_bonus": "moderate for explicit inhibition/equilibrium limit, removal mode, downstream compatibility, and process evidence",
+        "compliance_gate": "ispr_crystallization_process_review_required"
+      }
+    },
+    {
+      "id": "in_situ_extraction_membrane_product_removal_policy",
+      "family_id": "enzyme_product_inhibition_in_situ_removal_boundary",
+      "name": "Biocatalytic route to extraction, membrane, adsorption, or phase-transfer product-removal policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "volatile or inhibitory biocatalytic products",
+          "equilibrium-limited products",
+          "whole-cell or enzyme-cascade products"
+        ],
+        "target_features": [
+          "in situ product removal",
+          "extraction or membrane separation",
+          "product toxicity or equilibrium limitation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "enzyme transformation to removal module boundary",
+          "equilibrium-shift process boundary"
+        ],
+        "forward_logic": [
+          "separate target transformation from removal module design",
+          "track whether extraction, adsorption, membrane, or phase split relieves inhibition or shifts equilibrium",
+          "flag solvent and biocompatibility risks"
+        ],
+        "suggested_precursor_roles": [
+          "enzyme route",
+          "product-removal module",
+          "removed product stream",
+          "biocompatibility metadata"
+        ],
+        "planner_hint": "Use product-removal records when separation is a condition of feasibility rather than a downstream afterthought."
+      },
+      "risks": [
+        "removal solvent harms enzyme",
+        "phase-transfer mass limitation",
+        "product loss or impurity co-removal",
+        "process integration unsupported"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "ISPR crystallization review provides general context for integrating product recovery with whole-cell biocatalysis.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/16607527/"
+        },
+        {
+          "type": "literature",
+          "citation": "Biocatalytic-process crystallization review describes related in situ product-removal approaches.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/30395380/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "in_situ_product_removal_prior",
+        "rerank_bonus": "moderate for explicit inhibition or equilibrium rationale, removal module, and enzyme compatibility",
+        "compliance_gate": "ispr_extraction_membrane_biocompatibility_review_required"
+      }
+    },
+    {
+      "id": "biosensor_screen_hit_lineage_policy",
+      "family_id": "biosensor_high_throughput_enzyme_screening_lineage",
+      "name": "Enzyme route to biosensor or high-throughput screen hit plus lineage and false-positive policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "screened enzyme variants",
+          "biosensor-discovered activities",
+          "directed-evolution hits"
+        ],
+        "target_features": [
+          "biosensor readout",
+          "high-throughput screen",
+          "hit validation lineage"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "screen hit to route evidence boundary",
+          "biosensor readout to product validation boundary"
+        ],
+        "forward_logic": [
+          "separate screen readout from chemical product validation",
+          "track assay format, reporter specificity, false-positive controls, and orthogonal validation",
+          "avoid treating a screening hit as a mature proposal source without lineage"
+        ],
+        "suggested_precursor_roles": [
+          "enzyme library",
+          "biosensor or screen",
+          "hit enzyme",
+          "validated product evidence"
+        ],
+        "planner_hint": "Reward screening-lineage records only when assay readout and product validation are explicit."
+      },
+      "risks": [
+        "false-positive hit",
+        "reporter cross-reactivity",
+        "screening condition mismatch",
+        "validation missing"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Droplet-screening review covers advanced high-throughput strategies for enzyme engineering.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/38171222/"
+        },
+        {
+          "type": "literature",
+          "citation": "Transcription-factor biosensor review discusses high-throughput screening advances and applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/29485214/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "biosensor_screening_lineage_prior",
+        "rerank_bonus": "moderate for explicit assay format, reporter specificity, hit lineage, and orthogonal validation",
+        "compliance_gate": "biosensor_screening_false_positive_and_validation_review_required"
+      }
+    },
+    {
+      "id": "directed_evolution_library_provenance_boundary",
+      "family_id": "biosensor_high_throughput_enzyme_screening_lineage",
+      "name": "Engineered route to directed-evolution library plus selection pressure and validation provenance",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "directed-evolution variants",
+          "engineered enzyme libraries",
+          "biofoundry-derived hits"
+        ],
+        "target_features": [
+          "library lineage",
+          "selection pressure",
+          "high-throughput validation"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "variant to library lineage boundary",
+          "selection pressure to route objective boundary"
+        ],
+        "forward_logic": [
+          "separate final variant from library design and selection objective",
+          "track mutation lineage, assay pressure, and resynthesis or analytical validation",
+          "flag variants whose performance is tied to assay context"
+        ],
+        "suggested_precursor_roles": [
+          "parent enzyme",
+          "variant library",
+          "selected hit",
+          "validation and provenance metadata"
+        ],
+        "planner_hint": "Use directed-evolution provenance records when variant source quality is part of route trust."
+      },
+      "risks": [
+        "assay overfitting",
+        "library provenance missing",
+        "activity not analytically confirmed",
+        "performance not transferable"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Metabolite-detection tool review covers high-throughput detection for metabolic engineering and directed-evolution applications.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/28723577/"
+        },
+        {
+          "type": "literature",
+          "citation": "Biosensor review discusses high-throughput library screening for metabolite production.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34347108/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "directed_evolution_lineage_prior",
+        "rerank_bonus": "moderate for explicit parent, library, selection pressure, and orthogonal validation",
+        "compliance_gate": "directed_evolution_lineage_and_assay_transfer_review_required"
+      }
+    },
+    {
+      "id": "biocatalysis_sustainability_claim_critique",
+      "family_id": "green_chemistry_lca_biocatalysis_route_critique",
+      "name": "Biocatalytic route to sustainability claim plus solvent, energy, waste, feedstock, and comparator policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "green-chemistry route claims",
+          "sustainable biocatalytic alternatives",
+          "circular-economy route critiques"
+        ],
+        "target_features": [
+          "sustainability claim",
+          "solvent or waste advantage",
+          "feedstock or energy comparator"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "enzyme-use claim to sustainability-evidence boundary",
+          "route comparator boundary"
+        ],
+        "forward_logic": [
+          "separate biocatalysis label from evidence-backed sustainability",
+          "track solvent, waste, energy, feedstock, scale, and comparator route",
+          "flag routes where greenness is asserted without LCA-style evidence"
+        ],
+        "suggested_precursor_roles": [
+          "biocatalytic route",
+          "chemical comparator route",
+          "sustainability metrics",
+          "scale and boundary metadata"
+        ],
+        "planner_hint": "Reward sustainability claims only when metrics and comparator boundaries are explicit."
+      },
+      "risks": [
+        "greenwashing",
+        "system boundary mismatch",
+        "solvent or energy burden hidden",
+        "scale not comparable"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Circular-economy review discusses enzymes, in vivo biocatalysis, and metabolic engineering for sustainability.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34228428/"
+        },
+        {
+          "type": "literature",
+          "citation": "Critical evaluation of sustainable natural-product glycosylation compares biocatalytic and chemical approaches.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/40952024/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "biocatalysis_sustainability_critique_prior",
+        "rerank_bonus": "moderate for explicit solvent, waste, energy, feedstock, scale, and comparator evidence",
+        "compliance_gate": "green_chemistry_lca_boundary_review_required"
+      }
+    },
+    {
+      "id": "lca_route_boundary_and_scale_policy",
+      "family_id": "green_chemistry_lca_biocatalysis_route_critique",
+      "name": "Biocatalytic process to LCA-style system boundary, scale, circularity, and waste policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "scaled biocatalytic processes",
+          "circular-economy biomanufacturing routes",
+          "waste-reduction route critiques"
+        ],
+        "target_features": [
+          "system boundary",
+          "process scale",
+          "waste, solvent, or circularity metric"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "bench route to system-boundary boundary",
+          "sustainability metric to scale boundary"
+        ],
+        "forward_logic": [
+          "separate laboratory route plausibility from sustainability assessment boundary",
+          "track process scale, feedstock origin, solvent burden, catalyst lifetime, and waste stream",
+          "require comparator and system boundary before ranking as greener"
+        ],
+        "suggested_precursor_roles": [
+          "bench biocatalytic route",
+          "process scale boundary",
+          "waste and solvent metrics",
+          "comparator process"
+        ],
+        "planner_hint": "Use LCA-boundary records when the strategic decision is route critique, not bond disconnection."
+      },
+      "risks": [
+        "bench-to-scale mismatch",
+        "unclear system boundary",
+        "feedstock burden omitted",
+        "waste stream not counted"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Industrial biocatalysis review discusses acceleration of biocatalysis implementation in industry.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/31049622/"
+        },
+        {
+          "type": "literature",
+          "citation": "Circular-economy review frames enzyme and in vivo biocatalysis in sustainability contexts.",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/34228428/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "lca_route_boundary_prior",
+        "rerank_bonus": "moderate for explicit system boundary, scale, waste/solvent metric, and comparator process",
+        "compliance_gate": "lca_sustainability_scale_and_comparator_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v16 expansion promotes source-reliability and process-boundary backlog families covering enzyme promiscuity, whole-cell context, cell-free cascades, cofactor regeneration, process stability, product removal, screening lineage, and sustainability critique."
+    },
+    {
+      "type": "safety_note",
+      "summary": "V16 records are advisory. Promotion requires explicit source lineage, host or process boundary, cofactor/stability/removal evidence where relevant, and sustainability or screening claims must be supported by comparator and validation metadata."
+    }
+  ]
+}

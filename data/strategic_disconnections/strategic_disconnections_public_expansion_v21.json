@@ -1,0 +1,1203 @@
+{
+  "schema_version": "strategic_disconnections.v21_public_expansion",
+  "status": "curated_public_expansion",
+  "purpose": "Twentieth expanded public source layer focused on route-context semantics that cannot be represented by isolated reaction templates: cross-step condition envelopes, reagent role and atom-contribution semantics, visual scheme to reaction-graph alignment, expert-review calibration, negative-control and decoy-route generation, endpoint-goal context, reaction-scope transfer, and route portfolio diversity or redundancy.",
+  "created_utc": "2026-06-03",
+  "use_policy": {
+    "default": "advisory_only",
+    "do_not_treat_as_stock_by_default": true,
+    "promotion_requirements": [
+      "manual chemist, process, data-curation, model-validation, reviewer-calibration, endpoint-owner, and project-governance review",
+      "explicit cross-step condition envelope, reagent-role/atom-contribution evidence, visual-to-graph alignment, reviewer calibration, decoy/negative-control provenance, endpoint definition, substrate-scope transfer evidence, or route-portfolio rationale before proposal promotion",
+      "separate condition-envelope, role-semantics, visual-alignment, review-calibration, negative-control, endpoint-context, substrate-scope, and route-diversity policy",
+      "route-specific pH/temperature/solvent/carryover compatibility, atom mapping and reaction role assignment, scheme/SMILES/graph reconciliation, rubric and inter-rater agreement, hard-negative construction, endpoint criteria, functional-group tolerance, and shared-bottleneck or backup-route analysis",
+      "safety, legal, copyright, source-license, reviewer-consensus, route-objective, assay-context, and benchmark-governance review where relevant"
+    ],
+    "safety_scope": [
+      "records intentionally avoid operational quantities, executable procedures, hazardous instructions, scale-up instructions, biological protocols, and unpublished proprietary details",
+      "v21 records are route-context and source-policy priors only and must not auto-close routes as stock, validated condition envelopes, validated atom maps, validated visual extractions, final review labels, or executable decoy generators"
+    ]
+  },
+  "families": [
+    {
+      "family_id": "condition_envelope_cross_step_compatibility_policy",
+      "name": "Cross-step condition envelope, pH/temperature/solvent carryover, aqueous/organic handoff, cofactor, and protecting-group compatibility policy",
+      "pattern_keywords": [
+        "condition envelope",
+        "cross-step compatibility",
+        "pH compatibility",
+        "solvent carryover",
+        "aqueous organic handoff",
+        "cascade compatibility"
+      ],
+      "strategic_principle": "Separate single-step feasibility from route-level condition compatibility. Multistep and cascade records need pH, temperature, solvent, cofactor, intermediate stability, carryover, and isolation/handoff evidence before the route can be trusted."
+    },
+    {
+      "family_id": "reagent_role_and_atom_contribution_semantics_policy",
+      "name": "Reactant/reagent/catalyst role assignment, atom contribution, carrier reagent, sacrificial scaffold, and atom-provenance semantics policy",
+      "pattern_keywords": [
+        "reaction role",
+        "reactant reagent catalyst",
+        "atom contribution",
+        "carrier reagent",
+        "atom mapping",
+        "sacrificial scaffold"
+      ],
+      "strategic_principle": "Separate a named precursor from the atoms and role it contributes. Route meaning changes when a large species is a carrier reagent, sacrificial scaffold, catalyst, solvent, or stock-like reactant; atom provenance and role assignment are strategic source fields."
+    },
+    {
+      "family_id": "route_visual_scheme_to_graph_alignment_policy",
+      "name": "Rendered route scheme, text/table extraction, reaction graph, SMILES, atom map, and figure-provenance alignment policy",
+      "pattern_keywords": [
+        "visual scheme",
+        "reaction diagram",
+        "OCSR",
+        "SMILES alignment",
+        "reaction graph",
+        "figure provenance"
+      ],
+      "strategic_principle": "Separate visual evidence from machine-readable route records. A route scheme, table, or figure becomes a usable source only after image segmentation, structure recognition, role assignment, SMILES/graph reconciliation, and source-file provenance are reviewed."
+    },
+    {
+      "family_id": "expert_review_calibration_inter_rater_policy",
+      "name": "Expert review rubric, inter-rater agreement, disagreement adjudication, label drift, and calibration-example policy",
+      "pattern_keywords": [
+        "expert review",
+        "inter-rater agreement",
+        "Cohen kappa",
+        "adjudication",
+        "label drift",
+        "reviewer calibration"
+      ],
+      "strategic_principle": "Separate a review label from evidence that reviewers apply it consistently. Route-quality, failure, and promotion labels need rubrics, calibration examples, inter-rater agreement, adjudication, and drift checks."
+    },
+    {
+      "family_id": "negative_control_decoy_route_generation_policy",
+      "name": "Negative-control, decoy route, corrupted route, self-loop, hard negative, and benchmark-control generation policy",
+      "pattern_keywords": [
+        "negative control",
+        "decoy route",
+        "hard negative",
+        "corrupted route",
+        "self loop",
+        "benchmark control"
+      ],
+      "strategic_principle": "Separate failure examples that improve a verifier from artifacts that bias evaluation. Negative and decoy route records need construction provenance, hardness controls, label-noise checks, leakage guards, and source-backed failure modes."
+    },
+    {
+      "family_id": "endpoint_definition_goal_context_policy",
+      "name": "Endpoint-definition, target-vs-analogue, API, impurity, reference standard, probe, demonstration, and route-goal context policy",
+      "pattern_keywords": [
+        "endpoint definition",
+        "target analogue",
+        "API endpoint",
+        "impurity standard",
+        "chemical probe",
+        "route goal"
+      ],
+      "strategic_principle": "Separate a molecular structure from the purpose of making it. The same compound can require different source criteria as an API, analogue, impurity standard, reference material, probe, prodrug, demonstration route, or process endpoint."
+    },
+    {
+      "family_id": "reaction_scope_transfer_substrate_class_policy",
+      "name": "Reaction-scope transfer, substrate-class boundary, functional-group tolerance, negative-scope, and analogue-cliff policy",
+      "pattern_keywords": [
+        "reaction scope",
+        "substrate class",
+        "functional group tolerance",
+        "negative scope",
+        "analogue cliff",
+        "scope transfer"
+      ],
+      "strategic_principle": "Separate a reaction precedent from the substrate class where it remains trustworthy. Scope transfer records need substrate selection logic, functional-group tolerance, negative examples, steric/electronic boundaries, and analogue-cliff evidence."
+    },
+    {
+      "family_id": "route_diversity_portfolio_and_redundancy_policy",
+      "name": "Route diversity, portfolio, backup route, shared bottleneck, redundancy, common-intermediate, and multi-objective route policy",
+      "pattern_keywords": [
+        "route diversity",
+        "route portfolio",
+        "backup route",
+        "shared bottleneck",
+        "common intermediate",
+        "multi objective route"
+      ],
+      "strategic_principle": "Separate the single best-looking route from a strategically useful route portfolio. Multiple chemically diverse routes can hedge shared bottlenecks, supply risk, scale-up uncertainty, IP constraints, and objective changes."
+    }
+  ],
+  "anchors": [
+    {
+      "anchor_id": "condition_envelope_cross_step_anchor",
+      "family_id": "condition_envelope_cross_step_compatibility_policy",
+      "name": "Condition-envelope anchor with reviewed pH, temperature, solvent, cofactor, intermediate stability, carryover, and handoff compatibility",
+      "role": "condition_envelope_anchor",
+      "aliases": [
+        "route condition envelope",
+        "cascade compatibility record",
+        "aqueous-organic handoff record"
+      ],
+      "acceptance_policy": "requires_pH_temperature_solvent_cofactor_intermediate_stability_carryover_handoff_and_isolation_review"
+    },
+    {
+      "anchor_id": "reagent_role_atom_contribution_anchor",
+      "family_id": "reagent_role_and_atom_contribution_semantics_policy",
+      "name": "Role/atom-contribution anchor with reviewed reactant, reagent, catalyst, solvent, carrier, sacrificial scaffold, and atom-provenance evidence",
+      "role": "role_atom_contribution_anchor",
+      "aliases": [
+        "reaction-role assignment",
+        "carrier reagent atom provenance",
+        "reactant contribution record"
+      ],
+      "acceptance_policy": "requires_reaction_role_atom_map_product_atom_contribution_carrier_or_sacrificial_scaffold_context_and_reviewer_review"
+    },
+    {
+      "anchor_id": "visual_scheme_graph_alignment_anchor",
+      "family_id": "route_visual_scheme_to_graph_alignment_policy",
+      "name": "Visual-scheme alignment anchor with reviewed source figure, extracted structures, labels, reaction graph, SMILES, atom map, and role assignment",
+      "role": "visual_scheme_alignment_anchor",
+      "aliases": [
+        "reaction diagram to graph",
+        "OCSR route-card alignment",
+        "scheme-to-SMILES provenance"
+      ],
+      "acceptance_policy": "requires_source_figure_segmentation_structure_recognition_label_role_assignment_smiles_graph_atommap_and_manual_review"
+    },
+    {
+      "anchor_id": "expert_review_calibration_anchor",
+      "family_id": "expert_review_calibration_inter_rater_policy",
+      "name": "Expert-review calibration anchor with rubric, calibration examples, inter-rater agreement, adjudication trace, and label-drift checks",
+      "role": "review_calibration_anchor",
+      "aliases": [
+        "route review rubric",
+        "inter-rater agreement record",
+        "label adjudication trace"
+      ],
+      "acceptance_policy": "requires_review_rubric_calibration_set_inter_rater_metric_disagreement_adjudication_label_drift_and_reviewer_lineage"
+    },
+    {
+      "anchor_id": "negative_control_decoy_route_anchor",
+      "family_id": "negative_control_decoy_route_generation_policy",
+      "name": "Negative-control/decoy anchor with reviewed construction rule, failure mode, hardness, label-noise, leakage, and benchmark-control provenance",
+      "role": "negative_control_route_anchor",
+      "aliases": [
+        "hard negative route",
+        "decoy route control",
+        "corrupted route source"
+      ],
+      "acceptance_policy": "requires_decoy_generation_rule_source_failure_mode_hardness_label_noise_overlap_leakage_and_benchmark_context_review"
+    },
+    {
+      "anchor_id": "endpoint_goal_context_anchor",
+      "family_id": "endpoint_definition_goal_context_policy",
+      "name": "Endpoint-goal anchor with reviewed target identity, analogue boundary, API/impurity/probe/standard purpose, assay or specification, and acceptance criteria",
+      "role": "endpoint_context_anchor",
+      "aliases": [
+        "route endpoint definition",
+        "target-vs-analogue policy",
+        "API/impurity/probe goal record"
+      ],
+      "acceptance_policy": "requires_endpoint_purpose_target_identity_analogue_boundary_acceptance_criteria_specification_or_assay_and_reviewer_context"
+    },
+    {
+      "anchor_id": "reaction_scope_transfer_anchor",
+      "family_id": "reaction_scope_transfer_substrate_class_policy",
+      "name": "Scope-transfer anchor with reviewed substrate class, functional-group tolerance, steric/electronic boundary, negative scope, and analogue-cliff evidence",
+      "role": "reaction_scope_transfer_anchor",
+      "aliases": [
+        "substrate-scope transfer",
+        "functional-group tolerance boundary",
+        "negative-scope record"
+      ],
+      "acceptance_policy": "requires_substrate_class_scope_set_functional_group_tolerance_negative_examples_steric_electronic_boundary_and_transfer_review"
+    },
+    {
+      "anchor_id": "route_diversity_portfolio_anchor",
+      "family_id": "route_diversity_portfolio_and_redundancy_policy",
+      "name": "Route-portfolio anchor with reviewed diverse routes, backup value, shared bottlenecks, common intermediates, supply/IP/process risks, and objective tradeoffs",
+      "role": "route_portfolio_anchor",
+      "aliases": [
+        "route diversity portfolio",
+        "backup route record",
+        "shared bottleneck map"
+      ],
+      "acceptance_policy": "requires_route_set_diversity_metric_backup_route_value_shared_bottleneck_supply_ip_process_risk_and_objective_tradeoff_review"
+    }
+  ],
+  "disconnections": [
+    {
+      "id": "cross_step_condition_envelope_handoff_boundary",
+      "family_id": "condition_envelope_cross_step_compatibility_policy",
+      "name": "Multistep route to condition envelope plus pH, temperature, solvent, cofactor, carryover, and handoff boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "chemoenzymatic cascades",
+          "multistep one-pot or telescoped routes",
+          "routes with aqueous/organic handoffs"
+        ],
+        "target_features": [
+          "condition envelope",
+          "pH or temperature compatibility",
+          "solvent carryover",
+          "cofactor compatibility"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "single-step condition to route-level condition envelope boundary",
+          "intermediate handoff to carryover compatibility boundary"
+        ],
+        "forward_logic": [
+          "separate step precedent from route-level condition compatibility",
+          "track pH, temperature, solvent, cofactor, intermediate stability, catalyst tolerance, and isolation or buffer-exchange handoff",
+          "flag cascades where each individual step is plausible but the combined condition envelope is not"
+        ],
+        "suggested_precursor_roles": [
+          "upstream intermediate",
+          "condition envelope",
+          "carryover species",
+          "downstream catalyst or enzyme"
+        ],
+        "planner_hint": "Reward multistep routes only when cross-step condition compatibility and handoff evidence are explicit."
+      },
+      "risks": [
+        "stepwise precedent incompatible",
+        "pH or temperature mismatch",
+        "solvent carryover poisons catalyst",
+        "intermediate unstable before handoff"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Linear biocatalytic cascade review discusses compatibility of individual reaction steps and pH/temperature suitability across enzymes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7814890/"
+        },
+        {
+          "type": "literature",
+          "citation": "Roadmap for biocatalysis discusses pH, temperature, product, substrate, cofactor, and catalyst incompatibilities in one-pot cascades.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4993178/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cross_step_condition_envelope_prior",
+        "rerank_bonus": "moderate for explicit pH, temperature, solvent, cofactor, carryover, and handoff compatibility",
+        "compliance_gate": "cross_step_condition_envelope_review_required"
+      }
+    },
+    {
+      "id": "one_pot_vs_sequential_compartmentalization_policy",
+      "family_id": "condition_envelope_cross_step_compatibility_policy",
+      "name": "One-pot or sequential cascade to compartmentalization, isolation, buffer exchange, and route-efficiency policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "one-pot cascades",
+          "sequential chemoenzymatic routes",
+          "flow or compartmentalized cascades"
+        ],
+        "target_features": [
+          "one-pot cascade",
+          "sequential addition",
+          "compartmentalization",
+          "buffer exchange"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "one-pot claim to compatibility/compartmentalization boundary",
+          "sequential route to isolation and buffer-exchange boundary"
+        ],
+        "forward_logic": [
+          "separate route telescoping from evidence that catalysts and intermediates can share a vessel or require separation",
+          "track concurrent vs sequential mode, compartmentalization, flow cartridge separation, buffer exchange, purification loss, and process complexity",
+          "avoid rewarding one-pot claims without compatibility evidence or realistic handoff operations"
+        ],
+        "suggested_precursor_roles": [
+          "one-pot catalyst set",
+          "sequential intermediate",
+          "compartment or flow module",
+          "handoff operation"
+        ],
+        "planner_hint": "Use one-pot and sequential cascade records only when compatibility or separation mode is part of the source."
+      },
+      "risks": [
+        "one-pot compatibility overclaimed",
+        "buffer exchange hidden",
+        "protein/catalyst incompatibility",
+        "telescoping loses unstable intermediate"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Chemical Society Reviews article on chemo/photo-enzymatic cascades discusses concurrent, sequential, and compartmentalized cascade modes.",
+          "url": "https://pubs.rsc.org/en/content/articlehtml/2024/cs/d3cs00595j"
+        },
+        {
+          "type": "literature",
+          "citation": "Continuous-flow biocatalysis review discusses pH/temperature/cofactor incompatibility and buffer-change complexity for cascade processes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC13001063/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "cascade_compartmentalization_handoff_prior",
+        "rerank_bonus": "moderate for explicit concurrent/sequential mode, compartmentalization, buffer exchange, isolation loss, and process complexity",
+        "compliance_gate": "one_pot_sequential_cascade_compatibility_review_required"
+      }
+    },
+    {
+      "id": "reactant_reagent_catalyst_atom_contribution_boundary",
+      "family_id": "reagent_role_and_atom_contribution_semantics_policy",
+      "name": "Precursor set to reactant/reagent/catalyst role assignment plus product-atom contribution boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "reaction database rows",
+          "template extraction records",
+          "route terminal audits"
+        ],
+        "target_features": [
+          "reactant role",
+          "reagent role",
+          "catalyst role",
+          "atom contribution"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "named input to reaction-role boundary",
+          "product structure to atom-contribution boundary"
+        ],
+        "forward_logic": [
+          "separate a molecule appearing in a reaction from the role it plays in product construction",
+          "track limiting reactant, reagent, catalyst, solvent, internal standard, product atom contribution, and atom mapping",
+          "avoid treating a reagent or catalyst as a strategic precursor merely because it is large or purchasable"
+        ],
+        "suggested_precursor_roles": [
+          "product-contributing reactant",
+          "reagent",
+          "catalyst",
+          "atom map"
+        ],
+        "planner_hint": "Reward precursor records only when role assignment and atom contribution are explicit."
+      },
+      "risks": [
+        "reagent promoted as precursor",
+        "catalyst treated as stock closure",
+        "atom contribution unknown",
+        "template role assignment wrong"
+      ],
+      "evidence": [
+        {
+          "type": "schema",
+          "citation": "ORD schema documentation records reaction inputs, roles, identifiers, amounts, conditions, outcomes, and provenance.",
+          "url": "https://docs.open-reaction-database.org/en/stable/schema.html"
+        },
+        {
+          "type": "literature",
+          "citation": "Reaction role assignment article describes the challenge of assigning reactant, reagent, and product roles in large reaction data sets.",
+          "url": "https://pubs.acs.org/doi/10.1021/acs.jcim.6b00564"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "reaction_role_atom_contribution_prior",
+        "rerank_bonus": "moderate for explicit role assignment, atom map, product contribution, and provenance",
+        "compliance_gate": "reaction_role_atom_contribution_review_required"
+      }
+    },
+    {
+      "id": "carrier_reagent_sacrificial_scaffold_semantics_policy",
+      "family_id": "reagent_role_and_atom_contribution_semantics_policy",
+      "name": "Large input to carrier reagent or sacrificial scaffold plus contributed-fragment and terminal-audit policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "large reagent terminal audits",
+          "Wittig/HWE or transfer reagents",
+          "route-tree stock closure audits"
+        ],
+        "target_features": [
+          "carrier reagent",
+          "sacrificial scaffold",
+          "leaving scaffold",
+          "fragment contribution"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "large input to carrier-vs-product-like boundary",
+          "terminal molecule to contributed-fragment boundary"
+        ],
+        "forward_logic": [
+          "separate input size from whether the input is product-like or a carrier of a small fragment",
+          "track atom contribution, leaving scaffold, product-inherited atoms, terminal stock status, and route-audit label",
+          "neutralize size-based product-like penalties when atom provenance shows a carrier reagent, and penalize product-like stock shortcuts otherwise"
+        ],
+        "suggested_precursor_roles": [
+          "carrier reagent",
+          "sacrificial scaffold",
+          "contributed fragment",
+          "terminal audit label"
+        ],
+        "planner_hint": "Classify large inputs using atom provenance and carrier context, not heavy-atom count alone."
+      },
+      "risks": [
+        "carrier reagent mistaken as advanced intermediate",
+        "product-like terminal mistaken as carrier",
+        "sacrificial atoms counted as progress",
+        "stock closure inflated"
+      ],
+      "evidence": [
+        {
+          "type": "local_file",
+          "citation": "AutoPlanner cascade report records a large Wittig phosphorane carrier reagent that should not be classified as product-like terminal by size alone.",
+          "file": "docs/archive/2026-05/AUTOPLANNER_CASCADE_PROGRESS_REPORT_2026-05-19.md",
+          "url": "https://docs.open-reaction-database.org/en/stable/schema.html"
+        },
+        {
+          "type": "reference",
+          "citation": "Chemaxon reaction mapping documentation describes atom mapping as identifying atoms across reactant and product sides.",
+          "url": "https://docs.chemaxon.com/display/docs/reactor_reaction-mapping.md"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "carrier_reagent_atom_provenance_prior",
+        "rerank_bonus": "moderate for explicit contributed fragment, leaving scaffold, atom map, and terminal audit label",
+        "compliance_gate": "carrier_reagent_sacrificial_scaffold_review_required"
+      }
+    },
+    {
+      "id": "scheme_image_to_smiles_graph_alignment_boundary",
+      "family_id": "route_visual_scheme_to_graph_alignment_policy",
+      "name": "Rendered scheme to extracted structures, labels, SMILES, reaction graph, and role-alignment boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "reaction schemes from publications",
+          "PPTX or PDF route figures",
+          "OCR/OCSR extracted route records"
+        ],
+        "target_features": [
+          "reaction diagram",
+          "OCSR",
+          "SMILES extraction",
+          "reaction graph"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "visual scheme to machine-readable structure boundary",
+          "figure layout to reaction graph and role boundary"
+        ],
+        "forward_logic": [
+          "separate a rendered route figure from a source record usable by the planner",
+          "track figure provenance, segmentation, structure recognition, label assignment, arrow topology, reaction graph, SMILES, and manual correction",
+          "avoid promoting visual schemes until molecule identity and reaction roles align with the figure"
+        ],
+        "suggested_precursor_roles": [
+          "source figure",
+          "segmented structure",
+          "reaction graph",
+          "reviewed SMILES/roles"
+        ],
+        "planner_hint": "Use visual route sources only after scheme-to-SMILES and scheme-to-graph alignment are reviewed."
+      },
+      "risks": [
+        "OCSR structure error",
+        "label-to-structure mismatch",
+        "arrow topology wrong",
+        "scheme role assignment missing"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "ReactionDataExtractor 2.0 constructs reaction-scheme graphs from images and integrates OCR/OCSR engines.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10565829/"
+        },
+        {
+          "type": "literature",
+          "citation": "DECIMER.ai describes automated extraction and interpretation of chemical structures into machine-readable representations.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10439916/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "visual_scheme_graph_alignment_prior",
+        "rerank_bonus": "moderate for explicit figure provenance, segmentation, OCSR, label/role assignment, graph alignment, and manual correction",
+        "compliance_gate": "visual_scheme_to_graph_alignment_review_required"
+      }
+    },
+    {
+      "id": "local_pptx_scheme_visual_alignment_policy",
+      "family_id": "route_visual_scheme_to_graph_alignment_policy",
+      "name": "Local PPTX/PDF scheme to source-file, rendered asset, extracted table, route graph, and manual-redraw alignment policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "local PPTX route sources",
+          "rendered statin route assets",
+          "manually redrawn schemes"
+        ],
+        "target_features": [
+          "PPTX embedded scheme",
+          "rendered scheme",
+          "manual redraw",
+          "route graph alignment"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "local visual source to reviewed route graph boundary",
+          "embedded scheme to manual-redraw and file-provenance boundary"
+        ],
+        "forward_logic": [
+          "separate local visual assets from route-card evidence that can be queried",
+          "track PPTX/PDF path, slide/asset ID, extracted text/table, rendered scheme, manual redraw, structure assignment, and reviewer signoff",
+          "keep local visual schemes advisory until graph alignment and source provenance are complete"
+        ],
+        "suggested_precursor_roles": [
+          "local source file",
+          "rendered scheme asset",
+          "manual route graph",
+          "reviewed route card"
+        ],
+        "planner_hint": "Treat local PPTX schemes as route-card candidates until visual, graph, and structure alignment are signed off."
+      },
+      "risks": [
+        "embedded OLE scheme not parsed",
+        "rendered figure missing source link",
+        "manual redraw changes structure",
+        "route graph not aligned with table"
+      ],
+      "evidence": [
+        {
+          "type": "local_file",
+          "citation": "Local statin route extraction records PPTX-derived route context and embedded scheme limitations.",
+          "file": "data/strategic_disconnections/pptx_statin_route_extraction.md",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10565829/"
+        },
+        {
+          "type": "local_file",
+          "citation": "Integration notes require extracting/redrawing chemical schemes and checking structures, atom mapping, stereochemistry, hazards, and process constraints before template promotion.",
+          "file": "data/strategic_disconnections/INTEGRATION_NOTES.md",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10439916/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "local_visual_scheme_alignment_prior",
+        "rerank_bonus": "low until source path, rendered asset, graph alignment, structures, stereochemistry, and reviewer signoff are explicit",
+        "compliance_gate": "local_visual_scheme_graph_alignment_review_required"
+      }
+    },
+    {
+      "id": "route_review_rubric_inter_rater_boundary",
+      "family_id": "expert_review_calibration_inter_rater_policy",
+      "name": "Route-quality label to reviewer rubric, calibration examples, inter-rater metric, and adjudication boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "route-quality review labels",
+          "human evidence review batches",
+          "failure or promotion labels"
+        ],
+        "target_features": [
+          "review rubric",
+          "inter-rater agreement",
+          "adjudication",
+          "calibration examples"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "single reviewer label to rubric/calibration boundary",
+          "review outcome to inter-rater/adjudication boundary"
+        ],
+        "forward_logic": [
+          "separate review labels from evidence that the label process is reliable",
+          "track rubric version, calibration examples, reviewer IDs or roles, inter-rater metric, disagreement class, adjudication, and final label",
+          "avoid training route-value models on uncalibrated or drifted review labels"
+        ],
+        "suggested_precursor_roles": [
+          "review rubric",
+          "calibration example set",
+          "reviewer labels",
+          "adjudicated label"
+        ],
+        "planner_hint": "Use human review labels as strong source evidence only when rubric and inter-rater calibration are recorded."
+      },
+      "risks": [
+        "single-reviewer bias",
+        "rubric ambiguity",
+        "low inter-rater agreement",
+        "adjudication missing"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Kappa statistic review explains interrater reliability and agreement metrics for categorical ratings.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3900052/"
+        },
+        {
+          "type": "literature",
+          "citation": "Inter-rater reliability tutorial discusses choosing, computing, interpreting, and reporting reliability statistics.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3402032/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "route_review_calibration_prior",
+        "rerank_bonus": "moderate for rubric version, calibration set, inter-rater metric, adjudication trace, and final label provenance",
+        "compliance_gate": "expert_review_calibration_inter_rater_review_required"
+      }
+    },
+    {
+      "id": "label_drift_reviewer_disagreement_policy",
+      "family_id": "expert_review_calibration_inter_rater_policy",
+      "name": "Review label stream to label-drift, reviewer disagreement, ambiguity class, and recalibration policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "long-running review pipelines",
+          "route block labels",
+          "model-review calibration batches"
+        ],
+        "target_features": [
+          "label drift",
+          "reviewer disagreement",
+          "ambiguity",
+          "recalibration"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "review label stream to drift-monitoring boundary",
+          "disagreement to ambiguity/adjudication boundary"
+        ],
+        "forward_logic": [
+          "separate a growing label set from evidence that reviewer behavior stayed consistent",
+          "track review batch, label distribution, disagreement categories, ambiguous examples, rubric changes, recalibration, and model retraining impact",
+          "flag labels collected under shifted rubrics or unadjudicated disagreement"
+        ],
+        "suggested_precursor_roles": [
+          "review batch",
+          "disagreement case",
+          "rubric revision",
+          "recalibrated label set"
+        ],
+        "planner_hint": "Down-rank review labels when drift, ambiguity, or rubric changes are not tracked."
+      },
+      "risks": [
+        "label drift",
+        "rubric revision not versioned",
+        "ambiguous cases forced into hard labels",
+        "model trained on inconsistent labels"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Annotation quality management analysis notes that inter-annotator agreement should be paired with validation and adjudication measures.",
+          "url": "https://direct.mit.edu/coli/article/50/3/817/120233/Analyzing-Dataset-Annotation-Quality-Management-in"
+        },
+        {
+          "type": "literature",
+          "citation": "Clinical annotation study describes annotation guidelines, annotator expertise, and inter-annotator reliability measurement.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3540452/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "review_label_drift_prior",
+        "rerank_bonus": "moderate for explicit batch version, disagreement class, rubric revision, recalibration, and adjudication evidence",
+        "compliance_gate": "review_label_drift_and_adjudication_review_required"
+      }
+    },
+    {
+      "id": "decoy_route_hard_negative_generation_boundary",
+      "family_id": "negative_control_decoy_route_generation_policy",
+      "name": "Verifier training record to decoy route, hard negative, corrupted route, and label-noise guardrail boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "route verifier training packs",
+          "reranker hard negatives",
+          "benchmark controls"
+        ],
+        "target_features": [
+          "decoy route",
+          "hard negative",
+          "corrupted route",
+          "label noise"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "negative example to decoy-generation boundary",
+          "training control to label-noise and leakage boundary"
+        ],
+        "forward_logic": [
+          "separate a useful hard negative from a biased or mislabeled artifact",
+          "track generation rule, source route, corrupted feature, hardness criterion, overlap with positives, label-noise risk, and benchmark split",
+          "avoid training verifiers on decoys that leak labels through trivial artifacts or false-negative chemistry"
+        ],
+        "suggested_precursor_roles": [
+          "source route",
+          "decoy transformation",
+          "hard negative route",
+          "leakage/noise audit"
+        ],
+        "planner_hint": "Use decoy route records only when construction rule, hardness, label-noise, and leakage checks are explicit."
+      },
+      "risks": [
+        "trivial decoy artifact",
+        "false negative route",
+        "positive/negative leakage",
+        "model learns generator bias"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "DUD-E benchmark describes property-matched decoys as negative controls and discusses benchmark design.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3405771/"
+        },
+        {
+          "type": "literature",
+          "citation": "DUD-E bias study shows decoy-selection artifacts can mislead model performance evaluation.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6701836/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "decoy_route_hard_negative_prior",
+        "rerank_bonus": "moderate for explicit decoy rule, hardness, label-noise, leakage, and source route provenance",
+        "compliance_gate": "negative_control_decoy_route_generation_review_required"
+      }
+    },
+    {
+      "id": "failed_reaction_negative_control_policy",
+      "family_id": "negative_control_decoy_route_generation_policy",
+      "name": "Failed reaction or route artifact to source-backed negative control plus failure-mode and benchmark-use policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "failed reactions",
+          "route artifacts",
+          "negative chemical data"
+        ],
+        "target_features": [
+          "failed reaction",
+          "negative data",
+          "failure mode",
+          "benchmark control"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "failed experiment to comparable negative-data boundary",
+          "route artifact to benchmark-control boundary"
+        ],
+        "forward_logic": [
+          "separate negative data that teaches route boundaries from incomparable or incomplete failure records",
+          "track attempted substrate, condition context, target endpoint, observed failure mode, comparability to positives, and use in training or evaluation",
+          "avoid promoting failures without enough context to distinguish chemistry limits from missing metadata"
+        ],
+        "suggested_precursor_roles": [
+          "failed reaction",
+          "failure mode",
+          "comparable positive control",
+          "negative-control label"
+        ],
+        "planner_hint": "Use failed-reaction controls when failure context and positive comparability are explicit."
+      },
+      "risks": [
+        "failure due to missing metadata",
+        "negative not comparable to positives",
+        "false negative in training",
+        "failure mode not identified"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Negative chemical data paper discusses failed reactions and negative data for improving chemistry machine-learning models.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12164950/"
+        },
+        {
+          "type": "literature",
+          "citation": "Reaction-condition prediction review discusses hard negatives and negative transfer in data-driven reaction modeling.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12422413/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "failed_reaction_negative_control_prior",
+        "rerank_bonus": "moderate for explicit failure mode, comparable positive context, metadata completeness, and benchmark-use boundary",
+        "compliance_gate": "failed_reaction_negative_control_review_required"
+      }
+    },
+    {
+      "id": "target_analogue_endpoint_goal_context_boundary",
+      "family_id": "endpoint_definition_goal_context_policy",
+      "name": "Molecular endpoint to target-vs-analogue, route demonstration, API, impurity, probe, or reference-standard goal boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "API routes",
+          "analogue demonstrations",
+          "impurity/reference standards",
+          "chemical probes"
+        ],
+        "target_features": [
+          "endpoint definition",
+          "target analogue",
+          "API",
+          "impurity standard",
+          "chemical probe"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "molecular identity to route-goal boundary",
+          "target/analogue distinction to acceptance-criteria boundary"
+        ],
+        "forward_logic": [
+          "separate the structure being made from the purpose of making it",
+          "track whether the endpoint is API, analogue, impurity, reference standard, probe, route demonstration, or process intermediate",
+          "apply route acceptance criteria that match endpoint goal rather than using one generic success metric"
+        ],
+        "suggested_precursor_roles": [
+          "declared endpoint",
+          "analogue boundary",
+          "acceptance criteria",
+          "route purpose"
+        ],
+        "planner_hint": "Require endpoint-goal context before deciding whether a route is successful or source-promotable."
+      },
+      "risks": [
+        "analogue mistaken for target",
+        "demonstration route judged as API route",
+        "impurity standard criteria omitted",
+        "probe quality confused with drug quality"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "ICH Q3A(R2) guideline covers impurity reporting, identification, and qualification in new drug substances.",
+          "url": "https://www.ema.europa.eu/en/ich-q3a-r2-impurities-new-drug-substances-scientific-guideline"
+        },
+        {
+          "type": "literature",
+          "citation": "Chemical probe quality review distinguishes probe fitness criteria such as potency, selectivity, and target engagement from general compound availability.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9749956/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "endpoint_goal_context_prior",
+        "rerank_bonus": "moderate for explicit endpoint purpose, target/analogue boundary, acceptance criteria, and assay/specification context",
+        "compliance_gate": "endpoint_definition_goal_context_review_required"
+      }
+    },
+    {
+      "id": "reference_standard_probe_api_acceptance_policy",
+      "family_id": "endpoint_definition_goal_context_policy",
+      "name": "Endpoint source to reference-standard, probe, API, impurity, or assay acceptance criteria policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "reference standards",
+          "bioactive probes",
+          "drug substances",
+          "analytical endpoints"
+        ],
+        "target_features": [
+          "acceptance criteria",
+          "reference standard",
+          "assay use",
+          "specification"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "endpoint source to purpose-specific acceptance boundary",
+          "assay or specification to route-evidence boundary"
+        ],
+        "forward_logic": [
+          "separate a route endpoint from the evidence needed for its intended use",
+          "track purity, identity, stability, analytical method, biological validation, specification, or demonstration-only status",
+          "flag endpoint sources that lack the evidence required for their declared purpose"
+        ],
+        "suggested_precursor_roles": [
+          "endpoint source",
+          "acceptance criteria",
+          "analytical method or assay",
+          "declared use"
+        ],
+        "planner_hint": "Use endpoint-specific evidence gates for standards, probes, APIs, and demonstration routes."
+      },
+      "risks": [
+        "generic purity insufficient",
+        "assay purpose unsupported",
+        "reference standard stability missing",
+        "endpoint acceptance not declared"
+      ],
+      "evidence": [
+        {
+          "type": "guideline",
+          "citation": "ICH Q6A guidance covers specifications and acceptance criteria for new drug substances and products.",
+          "url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/q6a-specifications-test-procedures-and-acceptance-criteria-new-drug-substances-and-new-drug-products"
+        },
+        {
+          "type": "literature",
+          "citation": "Probe Miner paper discusses quantitative assessment of potential chemical probes and probe-quality fitness factors.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5814752/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "endpoint_acceptance_criteria_prior",
+        "rerank_bonus": "moderate for explicit declared use, purity/identity/stability, method or assay, and endpoint-specific acceptance criteria",
+        "compliance_gate": "endpoint_specific_acceptance_criteria_review_required"
+      }
+    },
+    {
+      "id": "substrate_scope_transfer_functional_group_boundary",
+      "family_id": "reaction_scope_transfer_substrate_class_policy",
+      "name": "Reaction precedent to substrate-class, functional-group tolerance, steric/electronic boundary, and negative-scope policy",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "method-scope transfers",
+          "analogue route proposals",
+          "substrate-class extrapolations"
+        ],
+        "target_features": [
+          "substrate scope",
+          "functional group tolerance",
+          "steric/electronic effects",
+          "negative scope"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "reaction precedent to substrate-class scope boundary",
+          "functional group tolerance to transferability boundary"
+        ],
+        "forward_logic": [
+          "separate a reported reaction from evidence it transfers to the target substrate class",
+          "track scope-set selection, functional-group tolerance, steric/electronic descriptors, excluded substrates, and target-substrate similarity",
+          "avoid transferring methods from biased scope tables without negative or boundary examples"
+        ],
+        "suggested_precursor_roles": [
+          "reported substrate",
+          "target substrate class",
+          "functional-group tolerance record",
+          "negative-scope example"
+        ],
+        "planner_hint": "Reward reaction precedents only when substrate-scope transfer and functional-group tolerance are explicit."
+      },
+      "risks": [
+        "scope table biased",
+        "negative examples absent",
+        "target substrate out of class",
+        "functional group incompatibility"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Substrate-selection paper discusses biases in reported substrate-scope studies and strategies for unbiased reaction generality evaluation.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11046462/"
+        },
+        {
+          "type": "literature",
+          "citation": "Reaction-scope generality review discusses substrate selection, data acquisition, and analysis for generality-oriented reaction optimization.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12501685/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "substrate_scope_transfer_prior",
+        "rerank_bonus": "moderate for explicit substrate class, scope-set selection, functional-group tolerance, negative examples, and target similarity",
+        "compliance_gate": "reaction_scope_transfer_functional_group_review_required"
+      }
+    },
+    {
+      "id": "analogue_cliff_scope_failure_policy",
+      "family_id": "reaction_scope_transfer_substrate_class_policy",
+      "name": "Analogue proposal to scope cliff, failed substrate, out-of-domain functional group, and review-worklist policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "analogue series routes",
+          "late-stage diversification proposals",
+          "method transfer failures"
+        ],
+        "target_features": [
+          "analogue cliff",
+          "scope failure",
+          "out-of-domain substrate",
+          "negative scope"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "analogue route to scope-cliff boundary",
+          "failed substrate to review-worklist boundary"
+        ],
+        "forward_logic": [
+          "separate close analogue similarity from actual transferability of the reaction",
+          "track activity or reactivity cliffs, failed substrate records, out-of-domain functional groups, and reviewer resolution",
+          "turn uncertain analogue transfers into review worklist items rather than strong proposal sources"
+        ],
+        "suggested_precursor_roles": [
+          "analogue substrate",
+          "scope-cliff example",
+          "failed substrate",
+          "review label"
+        ],
+        "planner_hint": "Down-rank analogue transfers when substrate-scope cliffs or failed examples are not resolved."
+      },
+      "risks": [
+        "close analogue still fails",
+        "failed substrate omitted",
+        "out-of-domain functionality ignored",
+        "review worklist bypassed"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Predictive chemistry review discusses reaction development, substrate-scope assessment, and the role of reaction data in deployment.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9811563/"
+        },
+        {
+          "type": "literature",
+          "citation": "Functional-group evaluation kit paper notes limitations in reporting functional-group tolerance and negative findings.",
+          "url": "https://academic.oup.com/bcsj/article/96/5/465/7332909"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "analogue_scope_cliff_prior",
+        "rerank_bonus": "low unless failed substrates, out-of-domain groups, and reviewer resolution are explicit",
+        "compliance_gate": "analogue_cliff_scope_failure_review_required"
+      }
+    },
+    {
+      "id": "route_portfolio_diversity_backup_boundary",
+      "family_id": "route_diversity_portfolio_and_redundancy_policy",
+      "name": "Single best route to chemically diverse portfolio plus backup route, shared bottleneck, and objective-tradeoff boundary",
+      "confidence": "medium_high",
+      "applicability": {
+        "target_classes": [
+          "CASP route pools",
+          "process backup route planning",
+          "portfolio route reviews"
+        ],
+        "target_features": [
+          "route diversity",
+          "backup route",
+          "shared bottleneck",
+          "multi-objective route ranking"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "top route to route-portfolio boundary",
+          "route cost to diversity and shared-bottleneck boundary"
+        ],
+        "forward_logic": [
+          "separate the lowest-cost route from a route set that hedges strategic risk",
+          "track route diversity, shared intermediates, common bottlenecks, supplier/IP/process risks, backup value, and objective-specific tradeoffs",
+          "avoid collapsing search to one route when chemically distinct backups reduce risk"
+        ],
+        "suggested_precursor_roles": [
+          "top route",
+          "backup route",
+          "shared bottleneck",
+          "route portfolio"
+        ],
+        "planner_hint": "Reward route pools that expose chemically diverse backups and shared-bottleneck risk."
+      },
+      "risks": [
+        "single route overoptimized",
+        "backup route absent",
+        "shared bottleneck hidden",
+        "diversity not measured"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "Chemical Science article discusses selecting cost-effective yet chemically diverse pathways from computer-generated retrosynthetic plans.",
+          "url": "https://pubs.rsc.org/en/content/articlehtml/2019/sc/c8sc05611k"
+        },
+        {
+          "type": "literature",
+          "citation": "CompRet paper states that CASP programs should provide many synthetic routes to consider optimal and alternative routes.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7465358/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "route_portfolio_diversity_prior",
+        "rerank_bonus": "moderate for explicit route diversity, backup value, shared bottlenecks, and objective-specific tradeoffs",
+        "compliance_gate": "route_portfolio_diversity_backup_review_required"
+      }
+    },
+    {
+      "id": "common_intermediate_shared_bottleneck_redundancy_policy",
+      "family_id": "route_diversity_portfolio_and_redundancy_policy",
+      "name": "Route set to common intermediate, shared bottleneck, redundancy, and portfolio-risk policy",
+      "confidence": "medium",
+      "applicability": {
+        "target_classes": [
+          "analogue series route planning",
+          "common-intermediate strategies",
+          "multi-target route portfolios"
+        ],
+        "target_features": [
+          "common intermediate",
+          "shared bottleneck",
+          "route redundancy",
+          "portfolio risk"
+        ]
+      },
+      "retrosynthetic_move": {
+        "break_bonds": [
+          "route set to common-intermediate boundary",
+          "shared bottleneck to redundancy-risk boundary"
+        ],
+        "forward_logic": [
+          "separate useful shared intermediates from fragile shared bottlenecks",
+          "track common intermediate scope, route branching, backup source, supplier or process bottleneck, and diversity across objectives",
+          "flag portfolios whose routes look diverse downstream but share the same risky upstream constraint"
+        ],
+        "suggested_precursor_roles": [
+          "common intermediate",
+          "branch route",
+          "shared bottleneck",
+          "redundant backup source"
+        ],
+        "planner_hint": "Use common-intermediate records only when shared-bottleneck and redundancy risks are explicit."
+      },
+      "risks": [
+        "apparent diversity shares upstream bottleneck",
+        "common intermediate not scalable",
+        "backup route depends on same supplier",
+        "portfolio objective unclear"
+      ],
+      "evidence": [
+        {
+          "type": "literature",
+          "citation": "PaRoutes framework discusses route quality and route diversity metrics for retrosynthesis route prediction benchmarks.",
+          "url": "https://www.sciencedirect.com/org/science/article/pii/S2635098X23000955"
+        },
+        {
+          "type": "literature",
+          "citation": "Convergent retrosynthesis planning article discusses identifying shared convergent routes across multiple compounds.",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11869726/"
+        }
+      ],
+      "use_policy": {
+        "proposal_source": "common_intermediate_redundancy_prior",
+        "rerank_bonus": "moderate for explicit common-intermediate scope, shared-bottleneck risk, backup source, and objective context",
+        "compliance_gate": "common_intermediate_shared_bottleneck_review_required"
+      }
+    }
+  ],
+  "source_notes": [
+    {
+      "type": "expansion_scope",
+      "summary": "The v21 expansion promotes backlog families covering cross-step condition compatibility, role and atom-contribution semantics, visual scheme to graph alignment, expert-review calibration, negative-control and decoy-route generation, endpoint context, substrate-scope transfer, and route portfolio diversity."
+    },
+    {
+      "type": "safety_note",
+      "summary": "V21 records are advisory route-context records. Promotion requires explicit evidence and reviewer approval; they must not turn visual schemes, atom-role guesses, review labels, hard negatives, endpoint contexts, scope transfers, or route portfolios into executable procedures or stock closures by default."
+    }
+  ]
+}

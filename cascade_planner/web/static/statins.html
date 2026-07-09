@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>他汀类逆合成路线展示</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --text: #18202f;
+      --muted: #667085;
+      --line: #d9dee8;
+      --brand: #155e75;
+      --brand-2: #0f766e;
+      --warn: #b45309;
+      --bad: #b91c1c;
+      --ok: #047857;
+      --shadow: 0 14px 40px rgba(24, 32, 47, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header {
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+    }
+    .wrap {
+      width: min(1480px, calc(100vw - 40px));
+      margin: 0 auto;
+    }
+    .topbar {
+      padding: 22px 0 18px;
+      display: flex;
+      gap: 18px;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      color: var(--muted);
+      max-width: 980px;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+      min-width: 420px;
+    }
+    .metric {
+      min-width: 116px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      background: #fbfcff;
+    }
+    .metric b {
+      display: block;
+      font-size: 21px;
+      line-height: 1.1;
+      color: var(--brand);
+    }
+    .metric span { color: var(--muted); font-size: 12px; }
+    main { padding: 20px 0 42px; }
+    .targetBar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .targetBtn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      padding: 9px 12px;
+      cursor: pointer;
+      font-weight: 650;
+    }
+    .targetBtn.active {
+      color: #fff;
+      background: var(--brand);
+      border-color: var(--brand);
+    }
+    .targetBtn small {
+      font-weight: 600;
+      opacity: 0.8;
+      margin-left: 6px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 330px minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .side, .content, .route {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .side {
+      position: sticky;
+      top: 14px;
+      padding: 16px;
+    }
+    .molBox {
+      height: 220px;
+      border: 1px solid var(--line);
+      background: #fff;
+      display: grid;
+      place-items: center;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+    .molBox img { width: 100%; height: 100%; object-fit: contain; }
+    .side h2 {
+      margin: 0 0 4px;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 7px 10px;
+      margin: 14px 0;
+      color: var(--muted);
+    }
+    .kv b { color: var(--text); font-weight: 700; }
+    .dist { margin-top: 14px; }
+    .distRow {
+      display: grid;
+      grid-template-columns: 42px 1fr 54px;
+      gap: 8px;
+      align-items: center;
+      margin: 6px 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .bar {
+      height: 9px;
+      background: #e8edf3;
+      overflow: hidden;
+    }
+    .bar i {
+      display: block;
+      height: 100%;
+      background: var(--brand-2);
+    }
+    .content { padding: 16px; }
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) 140px 140px 180px 170px 170px;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    input, select, button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      min-height: 38px;
+      padding: 8px 10px;
+      font: inherit;
+    }
+    button { cursor: pointer; font-weight: 650; }
+    .checkCtl {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      min-height: 38px;
+      padding: 8px 10px;
+      color: #344054;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+    .checkCtl input {
+      min-height: 0;
+      width: 16px;
+      height: 16px;
+      padding: 0;
+      margin: 0;
+    }
+    .resultLine {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      margin: 2px 0 12px;
+    }
+    .routes {
+      display: grid;
+      gap: 10px;
+    }
+    .route {
+      box-shadow: none;
+      overflow: hidden;
+    }
+    .route summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 12px 14px;
+      display: grid;
+      grid-template-columns: 120px minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+    }
+    .route summary::-webkit-details-marker { display: none; }
+    .rank {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--brand);
+    }
+    .routeTitle {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 3px 8px;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      color: #344054;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge.good { color: var(--ok); border-color: #bbf7d0; background: #f0fdf4; }
+    .badge.warn { color: var(--warn); border-color: #fed7aa; background: #fff7ed; }
+    .badge.bad { color: var(--bad); border-color: #fecaca; background: #fff1f2; }
+    .muted { color: var(--muted); }
+    .routeMeta {
+      text-align: right;
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 150px;
+    }
+    .routeBody {
+      border-top: 1px solid var(--line);
+      padding: 12px 14px 16px;
+      background: #fcfdff;
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .chip {
+      border: 1px solid #dbe3ef;
+      background: #fff;
+      color: #475467;
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+    .svgFrame {
+      background: #fff;
+      border: 1px solid var(--line);
+      min-height: 240px;
+      overflow: auto;
+    }
+    .svgFrame img {
+      display: block;
+      max-width: none;
+      min-width: 100%;
+    }
+    .empty {
+      padding: 28px;
+      color: var(--muted);
+      text-align: center;
+      border: 1px dashed var(--line);
+      background: #fff;
+    }
+    .loading {
+      padding: 48px;
+      text-align: center;
+      color: var(--muted);
+    }
+    @media (max-width: 980px) {
+      .wrap { width: min(100vw - 24px, 1480px); }
+      .topbar, .layout { display: block; }
+      .meta { min-width: 0; justify-content: flex-start; margin-top: 14px; }
+      .side { position: static; margin-bottom: 14px; }
+      .toolbar { grid-template-columns: 1fr 1fr; }
+      .route summary { grid-template-columns: 1fr; gap: 6px; }
+      .routeMeta { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap topbar">
+      <div>
+        <h1>他汀类逆合成路线展示</h1>
+        <div class="subtitle">
+          深度 20、迭代 200、top-k 100 的九个他汀目标完整搜索结果；默认只展示 presentation-ready 路线，隐藏 needs_chemist_review。大 terminal 片段不做硬过滤。
+        </div>
+      </div>
+      <div class="meta" id="meta"></div>
+    </div>
+  </header>
+  <main class="wrap">
+    <div id="targetBar" class="targetBar"></div>
+    <div id="app" class="loading">加载他汀路线数据...</div>
+  </main>
+
+  <script>
+    const fmt = new Intl.NumberFormat("zh-CN");
+    let data = null;
+    let activeIndex = 0;
+    let state = { q: "", className: "all", minSteps: "", maxSteps: "", sort: "audit", showReview: false };
+
+    const routeClassLabel = {
+      triage_late_stage: "晚期修饰",
+      triage_fragment: "片段拼接",
+      triage_semisynthesis: "半合成",
+      needs_chemist_review: "需化学家复核",
+      reject_artifact: "已拒绝",
+      audit_missing: "审计缺失"
+    };
+
+    function esc(value) {
+      return String(value ?? "").replace(/[&<>"']/g, ch => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+      }[ch]));
+    }
+
+    function num(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      const n = Number(value);
+      return Number.isFinite(n) ? fmt.format(n) : esc(value);
+    }
+
+    function pct(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      const n = Number(value);
+      return Number.isFinite(n) ? `${Math.round(n * 100)}%` : "-";
+    }
+
+    function score(value) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n.toFixed(4) : "-";
+    }
+
+    function badgeClass(routeClass, risk) {
+      if (routeClass === "reject_artifact" || Number(risk) >= 40) return "bad";
+      if (Number(risk) >= 30 || routeClass === "needs_chemist_review") return "warn";
+      return "good";
+    }
+
+    function renderMeta() {
+      const a = data.aggregate || {};
+      const presentationReady = data.targets.reduce((sum, target) => sum + presentationReadyRoutes(target).length, 0);
+      const rows = [
+        ["目标", a.targets],
+        ["原始路线", a.raw_routes],
+        ["web 保留", a.web_kept_routes],
+        ["默认展示", presentationReady],
+        ["含复核", a.showcase_routes],
+        ["排除 1-2 步", a.short_removed_routes]
+      ];
+      document.getElementById("meta").innerHTML = rows.map(([label, value]) =>
+        `<div class="metric"><b>${num(value)}</b><span>${esc(label)}</span></div>`
+      ).join("");
+    }
+
+    function renderTargetBar() {
+      document.getElementById("targetBar").innerHTML = data.targets.map((t, index) => `
+        <button class="targetBtn ${index === activeIndex ? "active" : ""}" data-target="${index}">
+          ${esc(t.target_name)}<small>${num(presentationReadyRoutes(t).length)}/${num(t.showcase_route_count)}</small>
+        </button>
+      `).join("");
+      document.querySelectorAll(".targetBtn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          activeIndex = Number(btn.dataset.target);
+          render();
+        });
+      });
+    }
+
+    function stepRows(target) {
+      const dist = target.step_count_distribution_showcase || {};
+      const max = Math.max(1, ...Object.values(dist).map(Number));
+      return Object.entries(dist).map(([steps, count]) => `
+        <div class="distRow">
+          <span>${esc(steps)} 步</span>
+          <span class="bar"><i style="width:${Math.max(3, Number(count) / max * 100)}%"></i></span>
+          <b>${num(count)}</b>
+        </div>
+      `).join("");
+    }
+
+    function targetPanel(target) {
+      const readyCount = presentationReadyRoutes(target).length;
+      return `
+        <aside class="side">
+          <div class="molBox"><img src="/api/mol.svg?smiles=${encodeURIComponent(target.target_smiles)}&w=330&h=220" alt="${esc(target.target_name)}"></div>
+          <h2>${esc(target.target_name)}</h2>
+          <div class="muted">${esc(target.panel || "")}</div>
+          <div class="kv">
+            <span>原始路线</span><b>${num(target.raw_route_count)}</b>
+            <span>web 保留</span><b>${num(target.web_kept_route_count)}</b>
+            <span>排除短路线</span><b>${num(target.short_removed_route_count)}</b>
+            <span>默认展示</span><b>${num(readyCount)}</b>
+            <span>含复核路线</span><b>${num(target.showcase_route_count)}</b>
+          </div>
+          <div class="dist">${stepRows(target)}</div>
+        </aside>
+      `;
+    }
+
+    function presentationReadyRoutes(target) {
+      return target.routes.filter(route => route.route_class !== "needs_chemist_review");
+    }
+
+    function filteredRoutes(target) {
+      const q = state.q.trim().toLowerCase();
+      const minSteps = state.minSteps === "" ? null : Number(state.minSteps);
+      const maxSteps = state.maxSteps === "" ? null : Number(state.maxSteps);
+      let rows = [...target.routes];
+      rows = rows.filter(route => {
+        if (!state.showReview && route.route_class === "needs_chemist_review") return false;
+        const text = [
+          route.display_rank,
+          route.original_rank,
+          route.route_class,
+          ...(route.tags || []),
+          ...(route.issues || [])
+        ].join(" ").toLowerCase();
+        if (q && !text.includes(q)) return false;
+        if (state.className !== "all" && route.route_class !== state.className) return false;
+        if (minSteps !== null && Number(route.n_steps) < minSteps) return false;
+        if (maxSteps !== null && Number(route.n_steps) > maxSteps) return false;
+        return true;
+      });
+      if (state.sort === "steps_desc") rows.sort((a, b) => Number(b.n_steps) - Number(a.n_steps) || Number(a.display_rank) - Number(b.display_rank));
+      if (state.sort === "steps_asc") rows.sort((a, b) => Number(a.n_steps) - Number(b.n_steps) || Number(a.display_rank) - Number(b.display_rank));
+      if (state.sort === "score_desc") rows.sort((a, b) => Number(b.score || -Infinity) - Number(a.score || -Infinity) || Number(a.display_rank) - Number(b.display_rank));
+      return rows;
+    }
+
+    function classOptions(target) {
+      const classSource = state.showReview ? target.routes : presentationReadyRoutes(target);
+      const classes = [...new Set(classSource.map(r => r.route_class).filter(Boolean))].sort();
+      return `<option value="all">全部类型</option>` + classes.map(cls =>
+        `<option value="${esc(cls)}" ${state.className === cls ? "selected" : ""}>${esc(routeClassLabel[cls] || cls)}</option>`
+      ).join("");
+    }
+
+    function toolbar(target) {
+      return `
+        <div class="toolbar">
+          <input id="q" value="${esc(state.q)}" placeholder="搜索 rank、标签、问题类型" />
+          <input id="minSteps" type="number" min="3" max="20" value="${esc(state.minSteps)}" placeholder="最少步数" />
+          <input id="maxSteps" type="number" min="3" max="20" value="${esc(state.maxSteps)}" placeholder="最多步数" />
+          <select id="className">${classOptions(target)}</select>
+          <select id="sort">
+            <option value="audit" ${state.sort === "audit" ? "selected" : ""}>审计排序</option>
+            <option value="steps_desc" ${state.sort === "steps_desc" ? "selected" : ""}>步数从多到少</option>
+            <option value="steps_asc" ${state.sort === "steps_asc" ? "selected" : ""}>步数从少到多</option>
+            <option value="score_desc" ${state.sort === "score_desc" ? "selected" : ""}>分数从高到低</option>
+          </select>
+          <label class="checkCtl"><input id="showReview" type="checkbox" ${state.showReview ? "checked" : ""}>显示需复核</label>
+        </div>
+      `;
+    }
+
+    function routeCard(route, target) {
+      const cls = route.route_class || "audit_missing";
+      const terminal = route.terminal_profile || {};
+      const cond = route.condition_audit || {};
+      const tags = [...(route.tags || []), ...(route.issues || [])].slice(0, 12);
+      return `
+        <details class="route">
+          <summary>
+            <div class="rank">#${num(route.display_rank)}</div>
+            <div>
+              <div class="routeTitle">
+                <span class="badge good">${num(route.n_steps)} 步</span>
+                <span class="badge ${badgeClass(cls, route.risk_order)}">${esc(routeClassLabel[cls] || cls)}</span>
+                <span class="badge">risk ${num(route.risk_order)}</span>
+                <span class="muted">原始 rank ${num(route.original_rank)}</span>
+              </div>
+              <div class="muted">
+                terminal max heavy ${num(terminal.effective_max_terminal_heavy_atoms ?? terminal.max_terminal_heavy_atoms)}
+                · 条件覆盖 ${pct(route.metrics?.condition_coverage)}
+                · score ${score(route.score)}
+              </div>
+            </div>
+            <div class="routeMeta">
+              terminal ${num(terminal.terminal_count)} 个<br>
+              ${cond.route_risk ? `condition ${esc(cond.route_risk)}` : "condition raw"}
+            </div>
+          </summary>
+          <div class="routeBody">
+            <div class="chips">
+              ${tags.map(tag => `<span class="chip">${esc(tag)}</span>`).join("") || `<span class="chip">no extra tag</span>`}
+            </div>
+            <div class="svgFrame">
+              <img data-src="${esc(route.svg_url)}?steps_per_row=4&mol_w=230&mol_h=150" alt="${esc(target.target_name)} route ${num(route.display_rank)} SVG">
+            </div>
+          </div>
+        </details>
+      `;
+    }
+
+    function bindControls() {
+      for (const id of ["q", "minSteps", "maxSteps", "className", "sort"]) {
+        const el = document.getElementById(id);
+        el.addEventListener("input", () => {
+          state[id === "className" ? "className" : id] = el.value;
+          renderRoutesOnly();
+        });
+      }
+      document.getElementById("showReview").addEventListener("change", event => {
+        state.showReview = event.target.checked;
+        if (!state.showReview && state.className === "needs_chemist_review") state.className = "all";
+        render();
+      });
+    }
+
+    function bindLazySvg() {
+      document.querySelectorAll("details.route").forEach(details => {
+        details.addEventListener("toggle", () => {
+          if (!details.open) return;
+          const img = details.querySelector("img[data-src]");
+          if (img && !img.src) img.src = img.dataset.src;
+        }, { once: true });
+      });
+    }
+
+    function renderRoutesOnly() {
+      const target = data.targets[activeIndex];
+      const rows = filteredRoutes(target);
+      const readyCount = presentationReadyRoutes(target).length;
+      document.getElementById("resultLine").innerHTML = `
+        <span>当前显示 ${num(rows.length)} 条；默认可展示 ${num(readyCount)} 条；含需复核共 ${num(target.showcase_route_count)} 条</span>
+        <span>SVG 展开路线时加载</span>
+      `;
+      document.getElementById("routes").innerHTML = rows.length
+        ? rows.map(route => routeCard(route, target)).join("")
+        : `<div class="empty">没有符合当前筛选条件的路线</div>`;
+      bindLazySvg();
+    }
+
+    function render() {
+      renderMeta();
+      renderTargetBar();
+      const target = data.targets[activeIndex];
+      const classSource = state.showReview ? target.routes : presentationReadyRoutes(target);
+      const availableClasses = new Set(classSource.map(r => r.route_class).filter(Boolean));
+      if (state.className !== "all" && !availableClasses.has(state.className)) state.className = "all";
+      document.getElementById("app").className = "layout";
+      document.getElementById("app").innerHTML = `
+        ${targetPanel(target)}
+        <section class="content">
+          ${toolbar(target)}
+          <div id="resultLine" class="resultLine"></div>
+          <div id="routes" class="routes"></div>
+        </section>
+      `;
+      bindControls();
+      renderRoutesOnly();
+    }
+
+    fetch("/api/statins")
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(json => {
+        data = json;
+        render();
+      })
+      .catch(err => {
+        document.getElementById("app").className = "empty";
+        document.getElementById("app").textContent = `加载失败：${err.message}`;
+      });
+  </script>
+</body>
+</html>

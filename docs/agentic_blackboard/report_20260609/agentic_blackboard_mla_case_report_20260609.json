@@ -1,0 +1,868 @@
+{
+  "action_batches": [
+    {
+      "actions": [
+        {
+          "action_id": "case_r1:generate_disconnection_hypotheses",
+          "action_type": "generate_disconnection_hypotheses",
+          "expected_artifact": "target_side_disconnection_hypotheses.v1",
+          "payload": {},
+          "rationale": "Initial MLA-like target needs target-side handles before any rerun.",
+          "schema_version": "agent_action.v1",
+          "success_condition": "Aryl ester, imide, cage, and amine advisory tasks appear."
+        },
+        {
+          "action_id": "case_r1:build_failure_critic_report",
+          "action_type": "build_failure_critic_report",
+          "expected_artifact": "failure_critic_report.v1",
+          "payload": {},
+          "rationale": "Prior route verifier shows large atom jump and advanced terminal; normalize that into bridge tasks.",
+          "schema_version": "agent_action.v1",
+          "success_condition": "Target bridge, terminal blacklist, and next-action bias are recorded."
+        },
+        {
+          "action_id": "case_r1:search_literature",
+          "action_type": "search_literature",
+          "expected_artifact": "literature_scout_report.v1",
+          "payload": {},
+          "rationale": "Bridge tasks need target-proximal source candidates before exact replay.",
+          "schema_version": "agent_action.v1",
+          "success_condition": "Scout emits source candidates and extraction recommendations."
+        }
+      ],
+      "case_id": "mla_like_alkaloid_case",
+      "mode": "deterministic_report_case_planner",
+      "round_index": 1,
+      "schema_version": "agent_action_batch.v1"
+    },
+    {
+      "actions": [
+        {
+          "action_id": "case_r2:compile_exact_literature_rows",
+          "action_type": "compile_exact_literature_rows",
+          "expected_artifact": "compiled exact literature rows",
+          "payload": {},
+          "rationale": "Mock source-detail row is available; compile it as exact evidence, not as proof.",
+          "schema_version": "agent_action.v1",
+          "success_condition": "One exact row enters literature_evidence.exact_rows."
+        },
+        {
+          "action_id": "case_r2:rank_analogical_hypotheses",
+          "action_type": "rank_analogical_hypotheses",
+          "expected_artifact": "analogical_hypothesis_ranking.v1",
+          "payload": {},
+          "rationale": "Rank advisory hypotheses after exact-row context is present.",
+          "schema_version": "agent_action.v1",
+          "success_condition": "Selected hypotheses carry required verification and no_solved_claim."
+        },
+        {
+          "action_id": "case_r2:stop_unresolved",
+          "action_type": "stop_unresolved",
+          "expected_artifact": "unresolved stop marker",
+          "payload": {},
+          "rationale": "No stitched parent proof exists; stop without solved claim.",
+          "schema_version": "agent_action.v1",
+          "success_condition": "Final verdict stays unresolved or partial, never solved."
+        }
+      ],
+      "case_id": "mla_like_alkaloid_case",
+      "mode": "deterministic_report_case_planner",
+      "round_index": 2,
+      "schema_version": "agent_action_batch.v1"
+    }
+  ],
+  "action_history": [
+    {
+      "action_id": "case_r1:generate_disconnection_hypotheses",
+      "action_signature": "{\"action_type\": \"generate_disconnection_hypotheses\", \"payload\": {}}",
+      "action_type": "generate_disconnection_hypotheses",
+      "artifact_ref": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r1_generate_disconnection_hypotheses_target_side_disconnection_hypotheses_v1.json",
+      "reasons": [],
+      "round_index": 1,
+      "schema_version": "agent_action_history_record.v1",
+      "stale": false,
+      "status": "accepted",
+      "useful_artifact": true
+    },
+    {
+      "action_id": "case_r1:build_failure_critic_report",
+      "action_signature": "{\"action_type\": \"build_failure_critic_report\", \"payload\": {}}",
+      "action_type": "build_failure_critic_report",
+      "artifact_ref": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r1_build_failure_critic_report_failure_critic_report_v1.json",
+      "reasons": [],
+      "round_index": 1,
+      "schema_version": "agent_action_history_record.v1",
+      "stale": false,
+      "status": "accepted",
+      "useful_artifact": true
+    },
+    {
+      "action_id": "case_r1:search_literature",
+      "action_signature": "{\"action_type\": \"search_literature\", \"payload\": {}}",
+      "action_type": "search_literature",
+      "artifact_ref": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r1_search_literature_literature_scout_report_v1.json",
+      "reasons": [],
+      "round_index": 1,
+      "schema_version": "agent_action_history_record.v1",
+      "stale": false,
+      "status": "accepted",
+      "useful_artifact": true
+    },
+    {
+      "action_id": "r1:auto_failure_critic",
+      "action_signature": "{\"action_type\": \"build_failure_critic_report\", \"payload\": {}}",
+      "action_type": "build_failure_critic_report",
+      "artifact_ref": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/r1_auto_failure_critic_failure_critic_report_v1.json",
+      "reasons": [],
+      "round_index": 1,
+      "schema_version": "agent_action_history_record.v1",
+      "stale": false,
+      "status": "accepted",
+      "useful_artifact": true
+    },
+    {
+      "action_id": "case_r2:compile_exact_literature_rows",
+      "action_signature": "{\"action_type\": \"compile_exact_literature_rows\", \"payload\": {}}",
+      "action_type": "compile_exact_literature_rows",
+      "artifact_ref": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r2_compile_exact_literature_rows_compiled_exact_literature_rows_mock_v1.json",
+      "reasons": [],
+      "round_index": 2,
+      "schema_version": "agent_action_history_record.v1",
+      "stale": false,
+      "status": "accepted",
+      "useful_artifact": true
+    },
+    {
+      "action_id": "case_r2:rank_analogical_hypotheses",
+      "action_signature": "{\"action_type\": \"rank_analogical_hypotheses\", \"payload\": {}}",
+      "action_type": "rank_analogical_hypotheses",
+      "artifact_ref": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r2_rank_analogical_hypotheses_analogical_hypothesis_ranking_v1.json",
+      "reasons": [],
+      "round_index": 2,
+      "schema_version": "agent_action_history_record.v1",
+      "stale": false,
+      "status": "accepted",
+      "useful_artifact": true
+    },
+    {
+      "action_id": "case_r2:stop_unresolved",
+      "action_signature": "{\"action_type\": \"stop_unresolved\", \"payload\": {}}",
+      "action_type": "stop_unresolved",
+      "artifact_ref": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r2_stop_unresolved_agent_stop_unresolved_v1.json",
+      "reasons": [
+        "stop_unresolved_selected"
+      ],
+      "round_index": 2,
+      "schema_version": "agent_action_history_record.v1",
+      "stale": true,
+      "status": "accepted",
+      "useful_artifact": false
+    },
+    {
+      "action_id": "r2:auto_failure_critic",
+      "action_signature": "{\"action_type\": \"build_failure_critic_report\", \"payload\": {}}",
+      "action_type": "build_failure_critic_report",
+      "artifact_ref": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/r2_auto_failure_critic_failure_critic_report_v1.json",
+      "reasons": [],
+      "round_index": 2,
+      "schema_version": "agent_action_history_record.v1",
+      "stale": false,
+      "status": "accepted",
+      "useful_artifact": true
+    }
+  ],
+  "analogical_hypothesis_ranking": {
+    "accepted": true,
+    "no_solved_claim": true,
+    "ranked_hypotheses": [
+      {
+        "hypothesis_id": "target_side_analogue_diene_iminium_scaffold_inspiration",
+        "no_solved_claim": true,
+        "rank_input_index": 6,
+        "required_verification": [
+          "target_proximal_bridge",
+          "deterministic_parent_proof"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "analogue_diene_iminium_scaffold_inspiration"
+      },
+      {
+        "hypothesis_id": "target_side_analogue_diene_iminium_scaffold_inspiration",
+        "no_solved_claim": true,
+        "rank_input_index": 12,
+        "required_verification": [
+          "target_proximal_bridge",
+          "deterministic_parent_proof"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "analogue_diene_iminium_scaffold_inspiration"
+      },
+      {
+        "hypothesis_id": "target_side_aryl_ester_or_anthranilate_disconnection",
+        "no_solved_claim": true,
+        "rank_input_index": 1,
+        "required_verification": [
+          "target_equivalence",
+          "target_core_retention",
+          "exact_literature_segment_connected_to_parent_route"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "aryl_ester_or_anthranilate_sidechain"
+      },
+      {
+        "hypothesis_id": "target_side_aryl_ester_or_anthranilate_disconnection",
+        "no_solved_claim": true,
+        "rank_input_index": 7,
+        "required_verification": [
+          "target_equivalence",
+          "target_core_retention",
+          "exact_literature_segment_connected_to_parent_route"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "aryl_ester_or_anthranilate_sidechain"
+      },
+      {
+        "hypothesis_id": "target_side_imide_fragment_preparation",
+        "no_solved_claim": true,
+        "rank_input_index": 2,
+        "required_verification": [
+          "fragment_identity",
+          "parent_bridge_connectivity"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "imide_or_succinimide_fragment"
+      },
+      {
+        "hypothesis_id": "target_side_imide_fragment_preparation",
+        "no_solved_claim": true,
+        "rank_input_index": 8,
+        "required_verification": [
+          "fragment_identity",
+          "parent_bridge_connectivity"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "imide_or_succinimide_fragment"
+      },
+      {
+        "hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+        "no_solved_claim": true,
+        "rank_input_index": 3,
+        "required_verification": [
+          "core_retention_audit",
+          "max_unexplained_heavy_atom_jump",
+          "route_verifier_acceptance"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "polycyclic_cage_core"
+      },
+      {
+        "hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+        "no_solved_claim": true,
+        "rank_input_index": 9,
+        "required_verification": [
+          "core_retention_audit",
+          "max_unexplained_heavy_atom_jump",
+          "route_verifier_acceptance"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "polycyclic_cage_core"
+      },
+      {
+        "hypothesis_id": "target_side_protecting_group_level_transformations",
+        "no_solved_claim": true,
+        "rank_input_index": 5,
+        "required_verification": [
+          "same_core_identity",
+          "source_grounded_conditions"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "protecting_group_level_transformations"
+      },
+      {
+        "hypothesis_id": "target_side_protecting_group_level_transformations",
+        "no_solved_claim": true,
+        "rank_input_index": 11,
+        "required_verification": [
+          "same_core_identity",
+          "source_grounded_conditions"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "protecting_group_level_transformations"
+      },
+      {
+        "hypothesis_id": "target_side_tertiary_amine_state_adjustment",
+        "no_solved_claim": true,
+        "rank_input_index": 4,
+        "required_verification": [
+          "same_core_identity",
+          "no_imide_n_misassignment"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "tertiary_amine"
+      },
+      {
+        "hypothesis_id": "target_side_tertiary_amine_state_adjustment",
+        "no_solved_claim": true,
+        "rank_input_index": 10,
+        "required_verification": [
+          "same_core_identity",
+          "no_imide_n_misassignment"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "tertiary_amine"
+      }
+    ],
+    "ranking_factors": [
+      "target_handle_overlap",
+      "target_core_retention",
+      "heavy_atom_retention",
+      "source_confidence",
+      "likelihood_to_bridge_exact_rows",
+      "previous_round_failure_penalty"
+    ],
+    "reasons": [],
+    "schema_version": "analogical_hypothesis_ranking.v1",
+    "selected_hypotheses": [
+      {
+        "hypothesis_id": "target_side_analogue_diene_iminium_scaffold_inspiration",
+        "no_solved_claim": true,
+        "rank_input_index": 6,
+        "required_verification": [
+          "target_proximal_bridge",
+          "deterministic_parent_proof"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "analogue_diene_iminium_scaffold_inspiration"
+      },
+      {
+        "hypothesis_id": "target_side_analogue_diene_iminium_scaffold_inspiration",
+        "no_solved_claim": true,
+        "rank_input_index": 12,
+        "required_verification": [
+          "target_proximal_bridge",
+          "deterministic_parent_proof"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "analogue_diene_iminium_scaffold_inspiration"
+      },
+      {
+        "hypothesis_id": "target_side_aryl_ester_or_anthranilate_disconnection",
+        "no_solved_claim": true,
+        "rank_input_index": 1,
+        "required_verification": [
+          "target_equivalence",
+          "target_core_retention",
+          "exact_literature_segment_connected_to_parent_route"
+        ],
+        "schema_version": "ranked_analogical_hypothesis.v1",
+        "score": 15,
+        "score_components": {
+          "previous_failure_penalty": true,
+          "source_confidence": 0,
+          "target_core_retention": true,
+          "target_handle_overlap": false
+        },
+        "target_handle": "aryl_ester_or_anthranilate_sidechain"
+      }
+    ]
+  },
+  "architecture_guards": [
+    "Planner selects typed actions only; it cannot emit route SMILES or solved verdicts.",
+    "Action batches are schema-validated, budgeted, and stale-action checked before execution.",
+    "Failure critic turns route-verifier and plugin-runtime failures into bridge tasks.",
+    "Exact literature rows and analogy are separated; analogy only changes priorities.",
+    "Final solved requires stitched_parent_route_proof.v1, not backend or child solved flags."
+  ],
+  "artifact_refs": {
+    "case_r1_build_failure_critic_report_failure_critic_report_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r1_build_failure_critic_report_failure_critic_report_v1.json",
+    "case_r1_generate_disconnection_hypotheses_target_side_disconnection_hypotheses_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r1_generate_disconnection_hypotheses_target_side_disconnection_hypotheses_v1.json",
+    "case_r1_search_literature_literature_scout_report_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r1_search_literature_literature_scout_report_v1.json",
+    "case_r2_compile_exact_literature_rows_compiled_exact_literature_rows_mock_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r2_compile_exact_literature_rows_compiled_exact_literature_rows_mock_v1.json",
+    "case_r2_rank_analogical_hypotheses_analogical_hypothesis_ranking_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r2_rank_analogical_hypotheses_analogical_hypothesis_ranking_v1.json",
+    "case_r2_stop_unresolved_agent_stop_unresolved_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r2_stop_unresolved_agent_stop_unresolved_v1.json",
+    "r1_auto_failure_critic_failure_critic_report_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/r1_auto_failure_critic_failure_critic_report_v1.json",
+    "r2_auto_failure_critic_failure_critic_report_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/r2_auto_failure_critic_failure_critic_report_v1.json"
+  },
+  "bridge_tasks": [
+    {
+      "case_id": "mla_like_alkaloid_case",
+      "priority": "high",
+      "required_bridge": "Find a target-proximal intermediate that explains the large skeleton change.",
+      "required_verification": [
+        "target_equivalence",
+        "parent_route_proof"
+      ],
+      "schema_version": "agent_bridge_task.v1",
+      "status": "open",
+      "target_handle": "target_side",
+      "target_name": "MLA-like alkaloid case",
+      "task_id": "target_proximal_bridge_required:MLA-like alkaloid case",
+      "task_type": "target_proximal_bridge_required"
+    },
+    {
+      "case_id": "mla_like_alkaloid_case",
+      "priority": "high",
+      "required_bridge": "Find a target-side bridge before replaying exact source products.",
+      "required_verification": [
+        "target_equivalence",
+        "parent_route_proof"
+      ],
+      "schema_version": "agent_bridge_task.v1",
+      "status": "open",
+      "target_handle": "target_side",
+      "target_name": "MLA-like alkaloid case",
+      "task_id": "bridge_to_literature_product_required:MLA-like alkaloid case",
+      "task_type": "bridge_to_literature_product_required"
+    },
+    {
+      "case_id": "mla_like_alkaloid_case",
+      "priority": "high",
+      "required_bridge": "Find upstream synthesis for rejected same-scaffold terminal.",
+      "required_verification": [
+        "child_target_route_verifier",
+        "parent_bridge_connectivity"
+      ],
+      "schema_version": "agent_bridge_task.v1",
+      "status": "open",
+      "target_handle": "advanced_same_scaffold_terminal",
+      "target_name": "MLA-like alkaloid case",
+      "task_id": "upstream_child:CN1CC2CCC1CC2OC(C)=O",
+      "task_type": "upstream_terminal_synthesis",
+      "terminal": {
+        "canonical_smiles": "CN1CC2CCC1CC2OC(C)=O",
+        "heavy_atoms": 18,
+        "reason": "advanced_same_scaffold_terminal",
+        "schema_version": "agent_terminal_blacklist_entry.v1",
+        "smiles": "CN1CC2CCC1CC2OC(C)=O",
+        "target_similarity": 0.72
+      }
+    },
+    {
+      "case_id": "mla_like_alkaloid_case",
+      "priority": "medium",
+      "required_bridge": "Treat literature rows as disconnected until a target-proximal bridge is found.",
+      "required_verification": [
+        "target_equivalence",
+        "parent_route_proof"
+      ],
+      "schema_version": "agent_bridge_task.v1",
+      "status": "open",
+      "target_handle": "target_side",
+      "target_name": "MLA-like alkaloid case",
+      "task_id": "target_side_bridge_before_source_replay:MLA-like alkaloid case",
+      "task_type": "target_side_bridge_before_source_replay"
+    },
+    {
+      "case_id": "mla_like_alkaloid_case",
+      "required_bridge": "core alcohol or phenol plus activated anthranilate/imide acid fragment",
+      "required_verification": [
+        "target_equivalence",
+        "target_core_retention",
+        "exact_literature_segment_connected_to_parent_route"
+      ],
+      "schema_version": "agent_bridge_task.v1",
+      "source_hypothesis_id": "target_side_aryl_ester_or_anthranilate_disconnection",
+      "status": "open",
+      "target_handle": "aryl_ester_or_anthranilate_sidechain",
+      "target_name": "MLA-like alkaloid case",
+      "task_id": "bridge:aryl_ester_or_anthranilate_sidechain",
+      "task_type": "target_proximal_bridge"
+    },
+    {
+      "case_id": "mla_like_alkaloid_case",
+      "required_bridge": "preassembled imide or succinimide-containing acid/activated fragment",
+      "required_verification": [
+        "fragment_identity",
+        "parent_bridge_connectivity"
+      ],
+      "schema_version": "agent_bridge_task.v1",
+      "source_hypothesis_id": "target_side_imide_fragment_preparation",
+      "status": "open",
+      "target_handle": "imide_or_succinimide_fragment",
+      "target_name": "MLA-like alkaloid case",
+      "task_id": "bridge:imide_or_succinimide_fragment",
+      "task_type": "target_proximal_bridge"
+    },
+    {
+      "case_id": "mla_like_alkaloid_case",
+      "required_bridge": "target-proximal cage intermediate with matched ring system",
+      "required_verification": [
+        "core_retention_audit",
+        "max_unexplained_heavy_atom_jump",
+        "route_verifier_acceptance"
+      ],
+      "schema_version": "agent_bridge_task.v1",
+      "source_hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+      "status": "open",
+      "target_handle": "polycyclic_cage_core",
+      "target_name": "MLA-like alkaloid case",
+      "task_id": "bridge:polycyclic_cage_core",
+      "task_type": "target_proximal_bridge"
+    },
+    {
+      "case_id": "mla_like_alkaloid_case",
+      "required_bridge": "same-core secondary/tertiary amine state precursor",
+      "required_verification": [
+        "same_core_identity",
+        "no_imide_n_misassignment"
+      ],
+      "schema_version": "agent_bridge_task.v1",
+      "source_hypothesis_id": "target_side_tertiary_amine_state_adjustment",
+      "status": "open",
+      "target_handle": "tertiary_amine",
+      "target_name": "MLA-like alkaloid case",
+      "task_id": "bridge:tertiary_amine",
+      "task_type": "target_proximal_bridge"
+    },
+    {
+      "case_id": "mla_like_alkaloid_case",
+      "required_bridge": "same-core alcohol/phenol protection-state analog",
+      "required_verification": [
+        "same_core_identity",
+        "source_grounded_conditions"
+      ],
+      "schema_version": "agent_bridge_task.v1",
+      "source_hypothesis_id": "target_side_protecting_group_level_transformations",
+      "status": "open",
+      "target_handle": "protecting_group_level_transformations",
+      "target_name": "MLA-like alkaloid case",
+      "task_id": "bridge:protecting_group_level_transformations",
+      "task_type": "target_proximal_bridge"
+    },
+    {
+      "case_id": "mla_like_alkaloid_case",
+      "required_bridge": "target-proximal cage precursor, not a distant analogue product",
+      "required_verification": [
+        "target_proximal_bridge",
+        "deterministic_parent_proof"
+      ],
+      "schema_version": "agent_bridge_task.v1",
+      "source_hypothesis_id": "target_side_analogue_diene_iminium_scaffold_inspiration",
+      "status": "open",
+      "target_handle": "analogue_diene_iminium_scaffold_inspiration",
+      "target_name": "MLA-like alkaloid case",
+      "task_id": "bridge:analogue_diene_iminium_scaffold_inspiration",
+      "task_type": "target_proximal_bridge"
+    }
+  ],
+  "budget_state": {
+    "chemenzy_runs": 0,
+    "child_target_runs": 0,
+    "max_chemenzy_runs": 1,
+    "max_child_target_runs": 2,
+    "max_rounds": 2,
+    "max_scout_calls": 3,
+    "max_visual_calls": 3,
+    "rounds_completed": 2,
+    "schema_version": "agent_blackboard_budget_state.v1",
+    "scout_calls": 1,
+    "visual_calls": 0
+  },
+  "case_run_dir": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run",
+  "decision_points": [
+    {
+      "action_type": "generate_disconnection_hypotheses",
+      "expected_artifact": "target_side_disconnection_hypotheses.v1",
+      "rationale": "Initial MLA-like target needs target-side handles before any rerun.",
+      "reasons": [],
+      "round": 1,
+      "status": "accepted",
+      "success_condition": "Aryl ester, imide, cage, and amine advisory tasks appear.",
+      "useful_artifact": true
+    },
+    {
+      "action_type": "build_failure_critic_report",
+      "expected_artifact": "failure_critic_report.v1",
+      "rationale": "Prior route verifier shows large atom jump and advanced terminal; normalize that into bridge tasks.",
+      "reasons": [],
+      "round": 1,
+      "status": "accepted",
+      "success_condition": "Target bridge, terminal blacklist, and next-action bias are recorded.",
+      "useful_artifact": true
+    },
+    {
+      "action_type": "search_literature",
+      "expected_artifact": "literature_scout_report.v1",
+      "rationale": "Bridge tasks need target-proximal source candidates before exact replay.",
+      "reasons": [],
+      "round": 1,
+      "status": "accepted",
+      "success_condition": "Scout emits source candidates and extraction recommendations.",
+      "useful_artifact": true
+    },
+    {
+      "action_type": "compile_exact_literature_rows",
+      "expected_artifact": "compiled exact literature rows",
+      "rationale": "Mock source-detail row is available; compile it as exact evidence, not as proof.",
+      "reasons": [],
+      "round": 2,
+      "status": "accepted",
+      "success_condition": "One exact row enters literature_evidence.exact_rows.",
+      "useful_artifact": true
+    },
+    {
+      "action_type": "rank_analogical_hypotheses",
+      "expected_artifact": "analogical_hypothesis_ranking.v1",
+      "rationale": "Rank advisory hypotheses after exact-row context is present.",
+      "reasons": [],
+      "round": 2,
+      "status": "accepted",
+      "success_condition": "Selected hypotheses carry required verification and no_solved_claim.",
+      "useful_artifact": true
+    },
+    {
+      "action_type": "stop_unresolved",
+      "expected_artifact": "unresolved stop marker",
+      "rationale": "No stitched parent proof exists; stop without solved claim.",
+      "reasons": [
+        "stop_unresolved_selected"
+      ],
+      "round": 2,
+      "status": "accepted",
+      "success_condition": "Final verdict stays unresolved or partial, never solved.",
+      "useful_artifact": false
+    }
+  ],
+  "final_verdict": {
+    "artifact_refs": {
+      "case_r1_build_failure_critic_report_failure_critic_report_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r1_build_failure_critic_report_failure_critic_report_v1.json",
+      "case_r1_generate_disconnection_hypotheses_target_side_disconnection_hypotheses_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r1_generate_disconnection_hypotheses_target_side_disconnection_hypotheses_v1.json",
+      "case_r1_search_literature_literature_scout_report_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r1_search_literature_literature_scout_report_v1.json",
+      "case_r2_compile_exact_literature_rows_compiled_exact_literature_rows_mock_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r2_compile_exact_literature_rows_compiled_exact_literature_rows_mock_v1.json",
+      "case_r2_rank_analogical_hypotheses_analogical_hypothesis_ranking_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r2_rank_analogical_hypotheses_analogical_hypothesis_ranking_v1.json",
+      "case_r2_stop_unresolved_agent_stop_unresolved_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/case_r2_stop_unresolved_agent_stop_unresolved_v1.json",
+      "r1_auto_failure_critic_failure_critic_report_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/r1_auto_failure_critic_failure_critic_report_v1.json",
+      "r2_auto_failure_critic_failure_critic_report_v1": "/root/autodl-tmp/AutoPlanner/docs/agentic_blackboard/report_20260609/case_run/r2_auto_failure_critic_failure_critic_report_v1.json"
+    },
+    "case_id": "mla_like_alkaloid_case",
+    "reasons": [
+      "advanced_same_scaffold_terminal",
+      "fake_closure_evidence_present",
+      "large_atom_jump",
+      "no_deterministic_parent_route_proof",
+      "route_verifier_rejected_raw_routes"
+    ],
+    "route_status": "fake_closed_rejected",
+    "run_semantics": "canonical_agent_controller",
+    "schema_version": "codex_entry_final_verdict.v1",
+    "solved": false,
+    "stock_audit_passed": false,
+    "verdict": "fake_closed_rejected"
+  },
+  "generated_at_utc": "2026-06-09T04:38:12.354881+00:00",
+  "literature_evidence": {
+    "confidence": "exact_rows",
+    "exact_rows": [
+      {
+        "confidence": "source_detail_validated_mock",
+        "evidence_refs": [
+          "scheme_2_compound_17_to_target"
+        ],
+        "no_solved_claim": true,
+        "product_smiles": "CN1CC2CCC1CC2OC(=O)c3ccccc3N4C(=O)CCC4=O",
+        "row_id": "mock_exact_aryl_ester_step",
+        "schema_version": "agent_exact_literature_row_summary.v1",
+        "source_ref": "mock:source_detail:mla_sidechain"
+      }
+    ],
+    "schema_version": "agent_literature_evidence_summary.v1",
+    "source_candidates": [
+      {
+        "candidate_id": "query_1",
+        "expected_scheme_or_compound_labels": [],
+        "extraction_task_recommendations": [
+          "compile_exact_literature_rows",
+          "extract_visual_literature_chain"
+        ],
+        "local_pdf": "",
+        "relevance_rationale": "Find a target-proximal intermediate that explains the large skeleton change.",
+        "schema_version": "literature_source_candidate.v1",
+        "source_ref": "query:MLA-like alkaloid case:target_side",
+        "title": "MLA-like alkaloid case synthesis target_side bridge",
+        "url": ""
+      },
+      {
+        "candidate_id": "query_3",
+        "expected_scheme_or_compound_labels": [],
+        "extraction_task_recommendations": [
+          "compile_exact_literature_rows",
+          "extract_visual_literature_chain"
+        ],
+        "local_pdf": "",
+        "relevance_rationale": "Find upstream synthesis for rejected same-scaffold terminal.",
+        "schema_version": "literature_source_candidate.v1",
+        "source_ref": "query:MLA-like alkaloid case:advanced_same_scaffold_terminal",
+        "title": "MLA-like alkaloid case synthesis advanced_same_scaffold_terminal bridge",
+        "url": ""
+      }
+    ],
+    "source_refs": [
+      "query:MLA-like alkaloid case:target_side",
+      "query:MLA-like alkaloid case:advanced_same_scaffold_terminal"
+    ],
+    "visual_chains": []
+  },
+  "parent_route_proof": {},
+  "route_failures": [
+    {
+      "reason": "large_atom_jump",
+      "route_status": "fake_closed_rejected",
+      "schema_version": "agent_route_failure.v1",
+      "source_schema_version": "harness_route_verifier_report.v1",
+      "summary": "unexplained heavy-atom jump in route graph"
+    },
+    {
+      "reason": "literature_template_plugin_not_invoked",
+      "route_status": "",
+      "schema_version": "agent_route_failure.v1",
+      "source_schema_version": "literature_template_plugin_runtime_diagnostics.v1",
+      "summary": "literature template plugin was present but not exercised by backend"
+    },
+    {
+      "reason": "advanced_same_scaffold_terminal",
+      "route_status": "fake_closed_rejected",
+      "schema_version": "agent_route_failure.v1",
+      "source_schema_version": "harness_route_verifier_report.v1",
+      "summary": "advanced target-like terminal used as stock"
+    },
+    {
+      "reason": "plugin_product_hits=0",
+      "route_status": "",
+      "schema_version": "agent_route_failure.v1",
+      "source_schema_version": "literature_template_plugin_runtime_diagnostics.v1",
+      "summary": "source rows did not connect to target products"
+    }
+  ],
+  "schema_version": "agentic_blackboard_case_report_data.v1",
+  "target": {
+    "canonical_smiles": "CN1CC2CCC1CC2OC(=O)c1ccccc1N1C(=O)CCC1=O",
+    "family_hint": "MLA, methyllycaconitine-like alkaloid, aryl ester, imide, cage",
+    "functional_handles": [
+      "MLA",
+      "aromatic_or_heteroaromatic",
+      "aryl ester",
+      "cage",
+      "imide",
+      "lactone_or_ester",
+      "methyllycaconitine-like alkaloid",
+      "polycyclic_or_steroid_like"
+    ],
+    "heavy_atoms": 25,
+    "inchi_key": "IJLCDJRMOHFKIL-UHFFFAOYSA-N",
+    "isomeric_smiles": "CN1CC2CCC1CC2OC(=O)c1ccccc1N1C(=O)CCC1=O",
+    "rings": 5,
+    "schema_version": "agent_target_profile_summary.v1",
+    "target_name": "MLA-like alkaloid case",
+    "target_smiles": "CN1CC2CCC1CC2OC(=O)c3ccccc3N4C(=O)CCC4=O",
+    "valid": true
+  },
+  "terminal_blacklist": [
+    {
+      "canonical_smiles": "CN1CC2CCC1CC2OC(C)=O",
+      "heavy_atoms": 18,
+      "reason": "advanced_same_scaffold_terminal",
+      "schema_version": "agent_terminal_blacklist_entry.v1",
+      "smiles": "CN1CC2CCC1CC2OC(C)=O",
+      "target_similarity": 0.72
+    }
+  ],
+  "test_summary": "pytest -q: 279 passed, 2 skipped, 7 warnings in 76.17s"
+}

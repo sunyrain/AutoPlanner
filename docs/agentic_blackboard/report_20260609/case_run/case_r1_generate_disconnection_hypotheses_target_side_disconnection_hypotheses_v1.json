@@ -1,0 +1,246 @@
+{
+  "accepted": true,
+  "reasons": [],
+  "result": {
+    "accepted": true,
+    "bridge_tasks": [
+      {
+        "case_id": "mla_like_alkaloid_case",
+        "required_bridge": "core alcohol or phenol plus activated anthranilate/imide acid fragment",
+        "required_verification": [
+          "target_equivalence",
+          "target_core_retention",
+          "exact_literature_segment_connected_to_parent_route"
+        ],
+        "schema_version": "agent_bridge_task.v1",
+        "source_hypothesis_id": "target_side_aryl_ester_or_anthranilate_disconnection",
+        "status": "open",
+        "target_handle": "aryl_ester_or_anthranilate_sidechain",
+        "target_name": "MLA-like alkaloid case",
+        "task_id": "bridge:aryl_ester_or_anthranilate_sidechain",
+        "task_type": "target_proximal_bridge"
+      },
+      {
+        "case_id": "mla_like_alkaloid_case",
+        "required_bridge": "preassembled imide or succinimide-containing acid/activated fragment",
+        "required_verification": [
+          "fragment_identity",
+          "parent_bridge_connectivity"
+        ],
+        "schema_version": "agent_bridge_task.v1",
+        "source_hypothesis_id": "target_side_imide_fragment_preparation",
+        "status": "open",
+        "target_handle": "imide_or_succinimide_fragment",
+        "target_name": "MLA-like alkaloid case",
+        "task_id": "bridge:imide_or_succinimide_fragment",
+        "task_type": "target_proximal_bridge"
+      },
+      {
+        "case_id": "mla_like_alkaloid_case",
+        "required_bridge": "target-proximal cage intermediate with matched ring system",
+        "required_verification": [
+          "core_retention_audit",
+          "max_unexplained_heavy_atom_jump",
+          "route_verifier_acceptance"
+        ],
+        "schema_version": "agent_bridge_task.v1",
+        "source_hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+        "status": "open",
+        "target_handle": "polycyclic_cage_core",
+        "target_name": "MLA-like alkaloid case",
+        "task_id": "bridge:polycyclic_cage_core",
+        "task_type": "target_proximal_bridge"
+      },
+      {
+        "case_id": "mla_like_alkaloid_case",
+        "required_bridge": "same-core secondary/tertiary amine state precursor",
+        "required_verification": [
+          "same_core_identity",
+          "no_imide_n_misassignment"
+        ],
+        "schema_version": "agent_bridge_task.v1",
+        "source_hypothesis_id": "target_side_tertiary_amine_state_adjustment",
+        "status": "open",
+        "target_handle": "tertiary_amine",
+        "target_name": "MLA-like alkaloid case",
+        "task_id": "bridge:tertiary_amine",
+        "task_type": "target_proximal_bridge"
+      },
+      {
+        "case_id": "mla_like_alkaloid_case",
+        "required_bridge": "same-core alcohol/phenol protection-state analog",
+        "required_verification": [
+          "same_core_identity",
+          "source_grounded_conditions"
+        ],
+        "schema_version": "agent_bridge_task.v1",
+        "source_hypothesis_id": "target_side_protecting_group_level_transformations",
+        "status": "open",
+        "target_handle": "protecting_group_level_transformations",
+        "target_name": "MLA-like alkaloid case",
+        "task_id": "bridge:protecting_group_level_transformations",
+        "task_type": "target_proximal_bridge"
+      },
+      {
+        "case_id": "mla_like_alkaloid_case",
+        "required_bridge": "target-proximal cage precursor, not a distant analogue product",
+        "required_verification": [
+          "target_proximal_bridge",
+          "deterministic_parent_proof"
+        ],
+        "schema_version": "agent_bridge_task.v1",
+        "source_hypothesis_id": "target_side_analogue_diene_iminium_scaffold_inspiration",
+        "status": "open",
+        "target_handle": "analogue_diene_iminium_scaffold_inspiration",
+        "target_name": "MLA-like alkaloid case",
+        "task_id": "bridge:analogue_diene_iminium_scaffold_inspiration",
+        "task_type": "target_proximal_bridge"
+      }
+    ],
+    "case_id": "mla_like_alkaloid_case",
+    "hypotheses": [
+      {
+        "expected_precursor_type": "core alcohol or phenol plus activated anthranilate/imide acid fragment",
+        "hypothesis_id": "target_side_aryl_ester_or_anthranilate_disconnection",
+        "must_preserve_substructure": [
+          "polycyclic_cage_core",
+          "tertiary_amine_state"
+        ],
+        "no_solved_claim": true,
+        "proposed_disconnection_region": "late-stage aryl ester/anthranilate sidechain attachment",
+        "related_source_evidence": [],
+        "required_verification": [
+          "target_equivalence",
+          "target_core_retention",
+          "exact_literature_segment_connected_to_parent_route"
+        ],
+        "risk_flags": [
+          "sidechain_exact_replay_requires_target_proximal_core_bridge"
+        ],
+        "schema_version": "target_side_disconnection_hypothesis.v1",
+        "target_handle": "aryl_ester_or_anthranilate_sidechain"
+      },
+      {
+        "expected_precursor_type": "preassembled imide or succinimide-containing acid/activated fragment",
+        "hypothesis_id": "target_side_imide_fragment_preparation",
+        "must_preserve_substructure": [
+          "polycyclic_cage_core"
+        ],
+        "no_solved_claim": true,
+        "proposed_disconnection_region": "imide/succinimide substituent preparation before final coupling",
+        "related_source_evidence": [],
+        "required_verification": [
+          "fragment_identity",
+          "parent_bridge_connectivity"
+        ],
+        "risk_flags": [
+          "fragment_synthesis_cannot_close_parent_without_stitch"
+        ],
+        "schema_version": "target_side_disconnection_hypothesis.v1",
+        "target_handle": "imide_or_succinimide_fragment"
+      },
+      {
+        "expected_precursor_type": "target-proximal cage intermediate with matched ring system",
+        "hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+        "must_preserve_substructure": [
+          "polycyclic_cage_core"
+        ],
+        "no_solved_claim": true,
+        "proposed_disconnection_region": "peripheral functionalization while retaining the cage scaffold",
+        "related_source_evidence": [],
+        "required_verification": [
+          "core_retention_audit",
+          "max_unexplained_heavy_atom_jump",
+          "route_verifier_acceptance"
+        ],
+        "risk_flags": [
+          "large_atom_jump_must_be_explained_by_bridge"
+        ],
+        "schema_version": "target_side_disconnection_hypothesis.v1",
+        "target_handle": "polycyclic_cage_core"
+      },
+      {
+        "expected_precursor_type": "same-core secondary/tertiary amine state precursor",
+        "hypothesis_id": "target_side_tertiary_amine_state_adjustment",
+        "must_preserve_substructure": [
+          "polycyclic_cage_core"
+        ],
+        "no_solved_claim": true,
+        "proposed_disconnection_region": "amine-state or N-substitution adjustment",
+        "related_source_evidence": [],
+        "required_verification": [
+          "same_core_identity",
+          "no_imide_n_misassignment"
+        ],
+        "risk_flags": [
+          "amine_state_change_is_advisory_only"
+        ],
+        "schema_version": "target_side_disconnection_hypothesis.v1",
+        "target_handle": "tertiary_amine"
+      },
+      {
+        "expected_precursor_type": "same-core alcohol/phenol protection-state analog",
+        "hypothesis_id": "target_side_protecting_group_level_transformations",
+        "must_preserve_substructure": [
+          "polycyclic_cage_core"
+        ],
+        "no_solved_claim": true,
+        "proposed_disconnection_region": "alcohol/phenol protection-state adjustments",
+        "related_source_evidence": [],
+        "required_verification": [
+          "same_core_identity",
+          "source_grounded_conditions"
+        ],
+        "risk_flags": [
+          "protecting_group_logic_not_parent_route_proof"
+        ],
+        "schema_version": "target_side_disconnection_hypothesis.v1",
+        "target_handle": "protecting_group_level_transformations"
+      },
+      {
+        "expected_precursor_type": "target-proximal cage precursor, not a distant analogue product",
+        "hypothesis_id": "target_side_analogue_diene_iminium_scaffold_inspiration",
+        "must_preserve_substructure": [
+          "polycyclic_cage_core"
+        ],
+        "no_solved_claim": true,
+        "proposed_disconnection_region": "scaffold-construction inspiration from analogue diene/iminium chemistry",
+        "related_source_evidence": [],
+        "required_verification": [
+          "target_proximal_bridge",
+          "deterministic_parent_proof"
+        ],
+        "risk_flags": [
+          "analogy_never_counts_as_solved_proof"
+        ],
+        "schema_version": "target_side_disconnection_hypothesis.v1",
+        "target_handle": "analogue_diene_iminium_scaffold_inspiration"
+      }
+    ],
+    "mode": "advisory_target_side_strategy_only",
+    "no_solved_claim": true,
+    "production_write_blocked": true,
+    "reasons": [],
+    "requires_verifier": true,
+    "schema_version": "target_side_disconnection_hypotheses.v1",
+    "semantics": {
+      "raw_reaction_output_allowed": false,
+      "requires_parent_route_proof": true,
+      "solved_claim_allowed": false
+    },
+    "target": {
+      "handles": [
+        "aryl_ester_or_anthranilate_sidechain",
+        "imide_or_succinimide_fragment",
+        "tertiary_amine",
+        "protecting_group_level_transformations",
+        "polycyclic_cage_core",
+        "analogue_diene_iminium_scaffold_inspiration"
+      ],
+      "heavy_atoms": 25,
+      "name": "MLA-like alkaloid case",
+      "rings": 5,
+      "smiles": "CN1CC2CCC1CC2OC(=O)c3ccccc3N4C(=O)CCC4=O"
+    }
+  }
+}

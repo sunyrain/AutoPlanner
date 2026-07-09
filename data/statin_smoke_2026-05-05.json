@@ -1,0 +1,42 @@
+[
+  {
+    "doi": "PubChem CID 60823",
+    "cascade_id": "atorvastatin",
+    "target_smiles": "CC(C)C1=C(C(=C(N1CC[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)C3=CC=CC=C3)C(=O)NC4=CC=CC=C4",
+    "route_domain": "chemoenzymatic",
+    "depth": 3,
+    "gt_route": []
+  },
+  {
+    "doi": "PubChem CID 446157",
+    "cascade_id": "rosuvastatin",
+    "target_smiles": "CC(C)C1=NC(=NC(=C1/C=C/[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)N(C)S(=O)(=O)C",
+    "route_domain": "chemoenzymatic",
+    "depth": 3,
+    "gt_route": []
+  },
+  {
+    "doi": "PubChem CID 54454",
+    "cascade_id": "simvastatin",
+    "target_smiles": "CCC(C)(C)C(=O)O[C@H]1C[C@H](C=C2[C@H]1[C@H]([C@H](C=C2)C)CC[C@@H]3C[C@H](CC(=O)O3)O)C",
+    "route_domain": "chemoenzymatic",
+    "depth": 3,
+    "gt_route": []
+  },
+  {
+    "doi": "PubChem CID 54687",
+    "cascade_id": "pravastatin",
+    "target_smiles": "CC[C@H](C)C(=O)O[C@H]1C[C@@H](C=C2[C@H]1[C@H]([C@H](C=C2)C)CC[C@H](C[C@H](CC(=O)O)O)O)O",
+    "route_domain": "chemoenzymatic",
+    "depth": 3,
+    "gt_route": []
+  },
+  {
+    "doi": "PubChem CID 53232",
+    "cascade_id": "lovastatin",
+    "target_smiles": "CC[C@H](C)C(=O)O[C@H]1C[C@H](C=C2[C@H]1[C@H]([C@H](C=C2)C)CC[C@@H]3C[C@H](CC(=O)O3)O)C",
+    "route_domain": "chemoenzymatic",
+    "depth": 3,
+    "gt_route": []
+  }
+]

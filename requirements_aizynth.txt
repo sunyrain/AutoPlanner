@@ -1,0 +1,8 @@
+# AiZynth multi-step env
+# Python 3.11; keep ISOLATED from main env
+aizynthfinder==4.4.1
+rdchiral==1.1.0
+onnxruntime>=1.18
+rdkit>=2024.3.5
+numpy<2.1
+pyyaml
