@@ -33,4 +33,3 @@ Successful source coverage:
 - Keep local PDFs as evidence cache, not blind route proof.
 - Use higher but bounded budgets: 5 rounds, 2 Codex research/scout runs, 3 visual/PDF extraction calls, and 10 action-planner tool calls.
 - Emit blackboard steps for every run so planner decisions can be compared round by round.
-
