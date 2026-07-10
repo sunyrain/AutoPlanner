@@ -305,14 +305,8 @@ def sanitize_filename(value: str, fallback: str = "paper") -> str:
 
 
 def is_pdf_payload(headers: dict[str, str], body: bytes) -> bool:
-    lowered = {str(k).lower(): str(v).lower() for k, v in headers.items()}
-    content_type = lowered.get("content-type", "")
-    disposition = lowered.get("content-disposition", "")
-    return (
-        "application/pdf" in content_type
-        or ("filename=" in disposition and ".pdf" in disposition)
-        or body[:5] == b"%PDF-"
-    )
+    del headers
+    return bytes(body or b"")[:1024].lstrip().startswith(b"%PDF-")
 
 
 def _download_one_request(

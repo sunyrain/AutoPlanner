@@ -14,10 +14,14 @@ from cascade_planner.harness.codex_plan import (
 )
 from cascade_planner.harness.preflight import run_preflight
 from cascade_planner.harness.progress import write_progress_panel
+from cascade_planner.harness.parent_route_proof import (
+    compile_stitched_parent_route_proof,
+    is_solved_parent_route_proof,
+)
+from cascade_planner.harness.route_verifier import is_accepted_route_verifier_report
 from cascade_planner.harness.schemas import (
     CANONICAL_RUN_SEMANTICS,
     FINAL_VERDICTS,
-    WORKFLOW_PLAN_SCHEMA,
     ArtifactBundle,
     FinalVerdict,
     TargetInput,
@@ -358,16 +362,43 @@ def emit_final_verdict(bundle_or_data: ArtifactBundle | dict[str, Any]) -> Final
             route_status="artifact_rejected",
             stock_audit_passed=False,
         )
+    parent_proof = _parent_route_proof_artifact(artifacts)
+    expected_target_smiles = str(bundle.target_input.get("target_smiles") or "")
+    if not is_solved_parent_route_proof(
+        parent_proof,
+        expected_target_smiles=expected_target_smiles,
+    ):
+        verifier = _route_verifier_artifact(artifacts)
+        if verifier:
+            parent_proof = compile_stitched_parent_route_proof(
+                target_smiles=expected_target_smiles,
+                target_name=str(bundle.target_input.get("target_name") or ""),
+                case_id=bundle.case_id,
+                parent_verifier=verifier,
+            )
     stitched = _stitched_route_audit(artifacts)
-    if stitched.get("accepted") and stitched.get("stock_audit_passed") and stitched.get("solved"):
+    if not is_solved_parent_route_proof(
+        parent_proof,
+        expected_target_smiles=expected_target_smiles,
+    ) and stitched:
+        parent_proof = compile_stitched_parent_route_proof(
+            target_smiles=expected_target_smiles,
+            target_name=str(bundle.target_input.get("target_name") or ""),
+            case_id=bundle.case_id,
+            stitched_route=stitched,
+        )
+    if is_solved_parent_route_proof(
+        parent_proof,
+        expected_target_smiles=expected_target_smiles,
+    ):
         if bundle.run_semantics != CANONICAL_RUN_SEMANTICS:
             return FinalVerdict(
                 case_id=bundle.case_id,
                 verdict="needs_followup",
-                reasons=sorted(set([str(item) for item in stitched.get("reasons") or []] + ["noncanonical_run_cannot_claim_solved"])),
+                reasons=["noncanonical_run_cannot_claim_solved"],
                 route_status="needs_followup",
                 stock_audit_passed=True,
-                artifact_refs=dict(stitched.get("artifact_refs") or {}),
+                artifact_refs=dict(parent_proof.get("artifact_refs") or {}),
                 run_semantics=bundle.run_semantics,
             )
         return FinalVerdict(
@@ -377,12 +408,16 @@ def emit_final_verdict(bundle_or_data: ArtifactBundle | dict[str, Any]) -> Final
             route_status="solved",
             solved=True,
             stock_audit_passed=True,
-            artifact_refs=dict(stitched.get("artifact_refs") or {}),
+            artifact_refs=dict(parent_proof.get("artifact_refs") or {}),
             run_semantics=bundle.run_semantics,
         )
-    audit = _latest_route_audit(artifacts)
+    audit = _latest_route_audit(
+        artifacts,
+        expected_target_smiles=expected_target_smiles,
+    )
     route_status = str(audit.get("route_status") or "")
     reasons = [str(item) for item in audit.get("reasons") or []]
+    deterministic_verifier_accepted = audit.get("_deterministic_route_verifier_accepted") is True
     if audit.get("fake_closure_rejected") or route_status == "fake_closed_rejected" or "fake_closure_evidence_present" in validation_reasons:
         return FinalVerdict(
             case_id=bundle.case_id,
@@ -391,7 +426,10 @@ def emit_final_verdict(bundle_or_data: ArtifactBundle | dict[str, Any]) -> Final
             route_status="fake_closed_rejected",
             stock_audit_passed=bool(audit.get("stock_audit_passed")),
         )
-    if route_status == "solved" and audit.get("stock_audit_passed") and bundle.run_semantics != CANONICAL_RUN_SEMANTICS:
+    if route_status == "solved" and audit.get("stock_audit_passed") and not deterministic_verifier_accepted:
+        reasons.append("solved_requires_deterministic_parent_route_proof")
+        route_status = "unresolved"
+    if route_status == "solved" and deterministic_verifier_accepted and bundle.run_semantics != CANONICAL_RUN_SEMANTICS:
         return FinalVerdict(
             case_id=bundle.case_id,
             verdict="needs_followup",
@@ -400,7 +438,7 @@ def emit_final_verdict(bundle_or_data: ArtifactBundle | dict[str, Any]) -> Final
             stock_audit_passed=bool(audit.get("stock_audit_passed")),
             run_semantics=bundle.run_semantics,
         )
-    if route_status == "solved" and audit.get("stock_audit_passed"):
+    if route_status == "solved" and deterministic_verifier_accepted:
         return FinalVerdict(
             case_id=bundle.case_id,
             verdict="solved",
@@ -412,12 +450,12 @@ def emit_final_verdict(bundle_or_data: ArtifactBundle | dict[str, Any]) -> Final
         )
     if route_status == "solved" and not audit.get("stock_audit_passed"):
         reasons.append("solved_requires_stock_audit")
-    tool_failed = any(row.get("status") in {"rejected", "error"} for row in bundle.tool_calls)
+    tool_failed = any(_tool_call_is_execution_failure(row) for row in bundle.tool_calls)
     if tool_failed:
         tool_failure_reasons = [
             str(reason)
             for row in bundle.tool_calls
-            if row.get("status") in {"rejected", "error"}
+            if _tool_call_is_execution_failure(row)
             for reason in row.get("reasons") or []
         ]
         return FinalVerdict(
@@ -464,6 +502,34 @@ def emit_final_verdict(bundle_or_data: ArtifactBundle | dict[str, Any]) -> Final
         route_status=route_status or "unresolved",
         stock_audit_passed=bool(audit.get("stock_audit_passed")),
     )
+
+
+def _tool_call_is_execution_failure(row: dict[str, Any]) -> bool:
+    status = str(row.get("status") or "")
+    if status == "error":
+        return True
+    if status != "rejected":
+        return False
+    tool_name = str(row.get("tool_name") or "")
+    reasons = {str(reason) for reason in row.get("reasons") or []}
+    hard_failure_markers = {
+        "tool_exception",
+        "forbidden_tool",
+        "chem_enzy_nonzero_exit",
+        "chem_enzy_timeout",
+        "codex_executable_or_api_key_missing",
+    }
+    if reasons & hard_failure_markers:
+        return True
+    if any("tool_exception" in reason for reason in reasons):
+        return True
+    audit_rejection_tools = {
+        "compile_source_detail_chain_route",
+        "resolve_literature_structure_task",
+        "validate_literature_intermediate_chain",
+        "validate_artifact_bundle",
+    }
+    return tool_name not in audit_rejection_tools
 
 
 def _hypothesis_route_report(artifacts: dict[str, Any]) -> dict[str, Any]:
@@ -610,24 +676,35 @@ def _compiled_downstream_or_curator_records_available(state: ToolExecutionState)
     return (open_dir / "evidence" / "source_detail_curator_records.json").exists()
 
 
-def _latest_route_audit(artifacts: dict[str, Any]) -> dict[str, Any]:
+def _latest_route_audit(
+    artifacts: dict[str, Any],
+    *,
+    expected_target_smiles: str = "",
+) -> dict[str, Any]:
     guided = artifacts.get("guided_chemenzy")
     if isinstance(guided, dict):
         verifier = dict(guided.get("raw_route_verifier") or {})
         if verifier:
+            verifier_accepted = is_accepted_route_verifier_report(
+                verifier,
+                expected_target_smiles=expected_target_smiles,
+            )
             route_status = str(verifier.get("route_status") or "")
             reasons = [str(item) for item in verifier.get("reasons") or []]
-            if not verifier.get("accepted"):
+            if not verifier_accepted:
                 reasons.append("route_verifier_rejected_raw_routes")
             return {
                 "schema_version": "route_audit_report.v1",
                 "case_id": guided.get("case_id") or verifier.get("case_id") or "",
-                "route_status": "solved" if verifier.get("accepted") else route_status or "fake_closed_rejected",
-                "stock_audit_passed": bool(verifier.get("accepted")),
-                "fake_closure_rejected": bool(not verifier.get("accepted") and route_status == "fake_closed_rejected"),
+                "route_status": "solved"
+                if verifier_accepted
+                else (route_status if route_status and route_status != "solved" else "fake_closed_rejected"),
+                "stock_audit_passed": verifier_accepted,
+                "fake_closure_rejected": bool(not verifier_accepted),
                 "reasons": sorted(set(reasons)),
                 "rejected_terminal_list": list(verifier.get("rejected_terminal_list") or []),
                 "failure_events": list(verifier.get("failure_events") or []),
+                "_deterministic_route_verifier_accepted": verifier_accepted,
             }
     verifier_sources: list[dict[str, Any]] = []
     route_verifier = artifacts.get("route_verifier")
@@ -643,25 +720,32 @@ def _latest_route_audit(artifacts: dict[str, Any]) -> dict[str, Any]:
             verifier_sources.append(dict(result["raw_route_verifier"]))
     for verifier in verifier_sources:
         if verifier:
+            verifier_accepted = is_accepted_route_verifier_report(
+                verifier,
+                expected_target_smiles=expected_target_smiles,
+            )
             route_status = str(verifier.get("route_status") or "")
             reasons = [str(item) for item in verifier.get("reasons") or []]
-            if not verifier.get("accepted"):
+            if not verifier_accepted:
                 reasons.append("route_verifier_rejected_raw_routes")
             return {
                 "schema_version": "route_audit_report.v1",
                 "case_id": verifier.get("case_id") or "",
-                "route_status": "solved" if verifier.get("accepted") else route_status or "fake_closed_rejected",
-                "stock_audit_passed": bool(verifier.get("accepted")),
-                "fake_closure_rejected": bool(not verifier.get("accepted") and route_status == "fake_closed_rejected"),
+                "route_status": "solved"
+                if verifier_accepted
+                else (route_status if route_status and route_status != "solved" else "fake_closed_rejected"),
+                "stock_audit_passed": verifier_accepted,
+                "fake_closure_rejected": bool(not verifier_accepted),
                 "reasons": sorted(set(reasons)),
                 "rejected_terminal_list": list(verifier.get("rejected_terminal_list") or []),
                 "failure_events": list(verifier.get("failure_events") or []),
+                "_deterministic_route_verifier_accepted": verifier_accepted,
             }
     audit = artifacts.get("route_audit")
     if isinstance(audit, dict):
-        return dict(audit)
+        return {**dict(audit), "_deterministic_route_verifier_accepted": False}
     if isinstance(chemenzy, dict) and isinstance(chemenzy.get("route_audit"), dict):
-        return dict(chemenzy["route_audit"])
+        return {**dict(chemenzy["route_audit"]), "_deterministic_route_verifier_accepted": False}
     return {}
 
 
@@ -669,6 +753,32 @@ def _stitched_route_audit(artifacts: dict[str, Any]) -> dict[str, Any]:
     stitched = artifacts.get("stitched_semisynthesis_route")
     if isinstance(stitched, dict):
         return dict(stitched.get("result") or stitched)
+    return {}
+
+
+def _parent_route_proof_artifact(artifacts: dict[str, Any]) -> dict[str, Any]:
+    for key in ("parent_route_proof", "stitched_parent_route_proof"):
+        value = artifacts.get(key)
+        if isinstance(value, dict):
+            nested = value.get("result")
+            return dict(nested) if isinstance(nested, dict) else dict(value)
+    return {}
+
+
+def _route_verifier_artifact(artifacts: dict[str, Any]) -> dict[str, Any]:
+    guided = artifacts.get("guided_chemenzy")
+    if isinstance(guided, dict) and isinstance(guided.get("raw_route_verifier"), dict):
+        return dict(guided["raw_route_verifier"])
+    verifier = artifacts.get("route_verifier")
+    if isinstance(verifier, dict):
+        return dict(verifier)
+    chemenzy = artifacts.get("chemenzy")
+    if isinstance(chemenzy, dict):
+        if isinstance(chemenzy.get("raw_route_verifier"), dict):
+            return dict(chemenzy["raw_route_verifier"])
+        result = chemenzy.get("result")
+        if isinstance(result, dict) and isinstance(result.get("raw_route_verifier"), dict):
+            return dict(result["raw_route_verifier"])
     return {}
 
 

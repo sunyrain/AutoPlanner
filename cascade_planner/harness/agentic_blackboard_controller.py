@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 from datetime import datetime, timezone
@@ -16,6 +17,8 @@ from cascade_planner.agent.codex_worker import (
 )
 from cascade_planner.harness.agent_action_planner import validate_action_batch
 from cascade_planner.harness.agentic_blackboard import (
+    _drop_large_fields,
+    _refresh_source_lifecycle,
     build_agentic_guided_payload,
     complete_round,
     initialize_agent_blackboard,
@@ -44,7 +47,10 @@ from cascade_planner.harness.local_pdf_proxy import (
     local_pdf_proxy_request_queue_path,
     write_pdf_request_queue,
 )
-from cascade_planner.harness.parent_route_proof import compile_stitched_parent_route_proof
+from cascade_planner.harness.parent_route_proof import (
+    compile_stitched_parent_route_proof,
+    is_solved_parent_route_proof,
+)
 from cascade_planner.harness.preflight import run_preflight
 from cascade_planner.harness.runner import emit_final_verdict
 from cascade_planner.harness.route_objectives import (
@@ -52,6 +58,9 @@ from cascade_planner.harness.route_objectives import (
     classify_route_objectives,
     compile_route_objective_proof_bundle,
 )
+from cascade_planner.harness.route_verifier import is_accepted_route_verifier_report
+from cascade_planner.harness.route_forest import write_route_forest_artifacts
+from cascade_planner.harness.retrosynthetic_proposals import compile_retrosynthetic_proposal_bus
 from cascade_planner.harness.schemas import (
     ArtifactBundle,
     FinalVerdict,
@@ -66,9 +75,23 @@ from cascade_planner.harness.tools import (
     artifact_bundle_from_state,
     execute_local_tool,
 )
+from cascade_planner.orchestration.codex_retrosynthesis import (
+    RetrosynthesisTeamConfig,
+    run_codex_retrosynthesis_campaign,
+)
+from cascade_planner.routes import consensus_to_blackboard_proposals, rebuild_consensus_graph_from_blackboard
 
 
 ActionPlannerRunner = Callable[..., dict[str, Any]]
+AgentTeamRunner = Callable[[WorkerTask], Any]
+
+
+def _nonnegative_budget_int(value: Any, *, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return max(0, parsed)
 
 
 def run_agentic_blackboard_controller(
@@ -93,11 +116,19 @@ def run_agentic_blackboard_controller(
     template_radius_policy: str = "auto",
     analog_template_confidence_threshold: str = "medium",
     use_codex_action_planner: bool | None = True,
+    use_codex_agent_team: bool = False,
+    codex_agent_team_max_depth: int = 2,
+    codex_agent_team_max_expansions: int = 4,
+    codex_agent_team_frontier_batch_size: int = 2,
+    codex_agent_team_model: str = "",
+    codex_agent_team_auth_mode: str = "auto",
+    codex_agent_team_runner: AgentTeamRunner | None = None,
     stop_on_problem: bool = False,
     action_planner: ActionPlannerRunner | None = None,
     mock_tool_results: dict[str, Any] | None = None,
     prior_artifacts: dict[str, Any] | None = None,
     budget: HarnessBudget | None = None,
+    emit_blackboard_steps: bool = False,
 ) -> dict[str, Any]:
     """Run the policy-driven DAG + blackboard controller."""
     run_dir = Path(output_dir).resolve()
@@ -105,8 +136,11 @@ def run_agentic_blackboard_controller(
     (run_dir / "tool_calls.jsonl").touch()
     (run_dir / "decision_trace.jsonl").touch()
     budget = budget or HarnessBudget(timeout_s=float(timeout_s))
-    budget.max_guided_chemenzy_runs = max(1, int(budget.max_guided_chemenzy_runs or 1))
-    budget.max_route_expansion_subgoal_runs = max(1, int(budget.max_route_expansion_subgoal_runs or 2))
+    budget.max_guided_chemenzy_runs = _nonnegative_budget_int(budget.max_guided_chemenzy_runs, default=1)
+    budget.max_route_expansion_subgoal_runs = _nonnegative_budget_int(
+        budget.max_route_expansion_subgoal_runs,
+        default=2,
+    )
 
     target = TargetInput(
         target_name=target_name,
@@ -175,6 +209,16 @@ def run_agentic_blackboard_controller(
     )
     if prior_artifacts:
         blackboard = _seed_failure_evidence_from_prior(blackboard, state=state)
+        blackboard = _seed_prior_analogical_evidence(blackboard, state=state)
+    blackboard = _refresh_blackboard_from_local_pdf_proxy_downloads(blackboard, run_dir=run_dir)
+    step_index = 0
+    if emit_blackboard_steps:
+        step_index = _emit_blackboard_step(
+            blackboard,
+            run_dir=run_dir,
+            step_index=step_index,
+            stage="initialized",
+        )
 
     tool_calls: list[dict[str, Any]] = []
     action_batches: list[dict[str, Any]] = []
@@ -190,8 +234,40 @@ def run_agentic_blackboard_controller(
         )
         return _result(run_dir, target_data, preflight, blackboard, action_batches, validations, bundle, final, tool_calls)
 
+    if use_codex_agent_team:
+        blackboard = _run_and_merge_codex_agent_team(
+            blackboard=blackboard,
+            state=state,
+            target_name=target_name,
+            target_smiles=target_smiles,
+            literature_sources=source_rows,
+            config=RetrosynthesisTeamConfig(
+                timeout_s=min(float(timeout_s), 900.0),
+                max_depth=max(1, int(codex_agent_team_max_depth or 1)),
+                max_expansions=max(1, int(codex_agent_team_max_expansions or 1)),
+                frontier_batch_size=max(1, int(codex_agent_team_frontier_batch_size or 1)),
+                model=str(codex_agent_team_model or ""),
+                auth_mode=str(codex_agent_team_auth_mode or "auto"),
+            ),
+            runner=codex_agent_team_runner,
+        )
+        if emit_blackboard_steps:
+            step_index = _emit_blackboard_step(
+                blackboard,
+                run_dir=run_dir,
+                step_index=step_index,
+                stage="codex_agent_team",
+                detail={
+                    "accepted": bool((blackboard.get("codex_agent_team") or {}).get("accepted")),
+                    "child_agent_count": len(
+                        ((blackboard.get("codex_agent_team") or {}).get("coordinator") or {}).get("observed_child_agents") or []
+                    ),
+                },
+            )
+
     stop_requested = False
     for round_index in range(1, int(max_rounds or 3) + 1):
+        blackboard = _refresh_blackboard_from_local_pdf_proxy_downloads(blackboard, run_dir=run_dir)
         action_batch = _obtain_action_batch(
             blackboard=blackboard,
             round_index=round_index,
@@ -200,6 +276,7 @@ def run_agentic_blackboard_controller(
             action_planner=action_planner,
             exhaust_round_budget=exhaust_round_budget,
             use_codex_action_planner=use_codex_action_planner,
+            allow_deterministic_fallback=not bool(use_codex_agent_team),
         )
         validation = validate_action_batch(action_batch, blackboard=blackboard)
         blackboard = update_blackboard_from_action_batch(
@@ -208,6 +285,19 @@ def run_agentic_blackboard_controller(
             validation=validation,
             round_index=round_index,
         )
+        if emit_blackboard_steps:
+            step_index = _emit_blackboard_step(
+                blackboard,
+                run_dir=run_dir,
+                step_index=step_index,
+                stage="action_batch",
+                round_index=round_index,
+                detail={
+                    "action_count": len(action_batch.get("actions") or []),
+                    "validation_accepted": bool(validation.get("accepted")),
+                    "validation_reasons": [str(item) for item in validation.get("reasons") or []],
+                },
+            )
         validations.append(validation)
         action_batches.append(action_batch)
         batch_path = run_dir / f"action_batch_round_{round_index}.json"
@@ -256,6 +346,20 @@ def run_agentic_blackboard_controller(
                 round_index=round_index,
                 run_dir=run_dir,
             )
+            if emit_blackboard_steps:
+                step_index = _emit_blackboard_step(
+                    blackboard,
+                    run_dir=run_dir,
+                    step_index=step_index,
+                    stage="agent_action",
+                    round_index=round_index,
+                    action_id=str(action.get("action_id") or ""),
+                    action_type=action_type,
+                    detail={
+                        "accepted": bool(action_result.get("accepted", True)),
+                        "useful_artifact": bool(blackboard["action_history"][-1].get("useful_artifact")),
+                    },
+                )
             round_useful = round_useful or bool(blackboard["action_history"][-1].get("useful_artifact"))
             append_jsonl(
                 run_dir / "decision_trace.jsonl",
@@ -285,14 +389,33 @@ def run_agentic_blackboard_controller(
             if action_type == "stop_unresolved":
                 stop_requested = True
                 break
+        blackboard = _refresh_blackboard_from_local_pdf_proxy_downloads(blackboard, run_dir=run_dir)
         blackboard = _auto_update_critic(blackboard, state=state, run_dir=run_dir, round_index=round_index)
+        if emit_blackboard_steps:
+            step_index = _emit_blackboard_step(
+                blackboard,
+                run_dir=run_dir,
+                step_index=step_index,
+                stage="auto_critic",
+                round_index=round_index,
+            )
         blackboard = complete_round(blackboard, round_index)
+        if emit_blackboard_steps:
+            step_index = _emit_blackboard_step(
+                blackboard,
+                run_dir=run_dir,
+                step_index=step_index,
+                stage="round_complete",
+                round_index=round_index,
+                detail={"round_useful": bool(round_useful)},
+            )
         write_json(run_dir / "agent_blackboard.json", blackboard)
         if stop_requested or _parent_proof_accepted(blackboard):
             break
         if not round_useful and round_index >= int(max_rounds or 3):
             break
 
+    blackboard = _refresh_blackboard_from_local_pdf_proxy_downloads(blackboard, run_dir=run_dir)
     blackboard, bundle, final = _finalize_agentic_run(
         state=state,
         blackboard=blackboard,
@@ -301,6 +424,200 @@ def run_agentic_blackboard_controller(
         tool_calls=tool_calls,
     )
     return _result(run_dir, target_data, preflight, blackboard, action_batches, validations, bundle, final, tool_calls)
+
+
+def _run_and_merge_codex_agent_team(
+    *,
+    blackboard: dict[str, Any],
+    state: ToolExecutionState,
+    target_name: str,
+    target_smiles: str,
+    literature_sources: list[dict[str, Any]],
+    config: RetrosynthesisTeamConfig,
+    runner: AgentTeamRunner | None,
+) -> dict[str, Any]:
+    board = dict(blackboard)
+    try:
+        report = run_codex_retrosynthesis_campaign(
+            case_id=str(board.get("case_id") or state.preflight.get("case_id") or "target"),
+            target_name=target_name,
+            target_smiles=target_smiles,
+            run_dir=state.run_dir,
+            repository_root=Path(__file__).resolve().parents[2],
+            blackboard_context=board,
+            literature_sources=literature_sources,
+            config=config,
+            runner=runner,
+        )
+    except Exception as exc:
+        report = {
+            "schema_version": "codex_retrosynthesis_team_run.v1",
+            "accepted": False,
+            "case_id": str(board.get("case_id") or "target"),
+            "reasons": [f"team_runtime_error:{type(exc).__name__}:{exc}"],
+            "semantics": {
+                "codex_child_agents_required": True,
+                "deterministic_scientific_fallback_used": False,
+                "no_solved_claim": True,
+            },
+        }
+        write_json(state.run_dir / "codex_retrosynthesis_team" / "team_report.json", report)
+    board["codex_agent_team"] = report
+    state.artifacts["codex_retrosynthesis_team"] = report
+    refs = dict(board.get("artifact_refs") or {})
+    refs["codex_retrosynthesis_team"] = str(state.run_dir / "codex_retrosynthesis_team" / "team_report.json")
+    if report.get("route_consensus_ref"):
+        refs["route_consensus"] = str(report["route_consensus_ref"])
+    if report.get("route_consensus_graph_ref"):
+        refs["route_consensus_graph"] = str(report["route_consensus_graph_ref"])
+    board["artifact_refs"] = refs
+    board.setdefault("agent_team_history", []).append({
+        "schema_version": "codex_agent_team_history.v1",
+        "accepted": bool(report.get("accepted")),
+        "coordinator": dict(report.get("coordinator") or {}),
+        "reasons": [str(item) for item in report.get("reasons") or []],
+    })
+    if report.get("accepted"):
+        board["route_consensus"] = dict(report.get("route_consensus") or {})
+        board["route_consensus_graph"] = dict(report.get("route_consensus_graph") or {})
+        existing = {
+            str(row.get("proposal_id") or ""): dict(row)
+            for row in board.get("retrosynthetic_proposals") or []
+            if isinstance(row, dict) and str(row.get("proposal_id") or "")
+        }
+        for row in report.get("blackboard_proposals") or []:
+            if isinstance(row, dict) and str(row.get("proposal_id") or ""):
+                existing[str(row["proposal_id"])] = dict(row)
+        board["retrosynthetic_proposals"] = list(existing.values())
+    else:
+        board.setdefault("safety_flags", []).append("codex_agent_team_not_accepted")
+    write_json(state.run_dir / "agent_blackboard.json", board)
+    append_jsonl(
+        state.run_dir / "decision_trace.jsonl",
+        {
+            "stage": "codex_agent_team",
+            "accepted": bool(report.get("accepted")),
+            "coordinator": dict(report.get("coordinator") or {}),
+            "reasons": [str(item) for item in report.get("reasons") or []],
+        },
+    )
+    return board
+
+
+def _emit_blackboard_step(
+    blackboard: dict[str, Any],
+    *,
+    run_dir: Path,
+    step_index: int,
+    stage: str,
+    round_index: int | None = None,
+    action_id: str = "",
+    action_type: str = "",
+    detail: dict[str, Any] | None = None,
+) -> int:
+    step_dir = run_dir / "blackboard_steps"
+    step_dir.mkdir(parents=True, exist_ok=True)
+    next_index = int(step_index) + 1
+    token_parts = [f"{next_index:04d}", stage]
+    if round_index is not None:
+        token_parts.append(f"r{int(round_index)}")
+    if action_type:
+        token_parts.append(action_type)
+    if action_id:
+        token_parts.append(action_id)
+    filename = _safe_artifact_filename("_".join(token_parts)) + ".json"
+    summary = _blackboard_step_summary(
+        blackboard,
+        step_index=next_index,
+        stage=stage,
+        round_index=round_index,
+        action_id=action_id,
+        action_type=action_type,
+        detail=detail,
+    )
+    write_json(
+        step_dir / filename,
+        {
+            "schema_version": "agent_blackboard_step_snapshot.v1",
+            "created_at_utc": _now(),
+            "summary": summary,
+            "blackboard": blackboard,
+        },
+    )
+    append_jsonl(step_dir / "summary.jsonl", summary)
+    return next_index
+
+
+def _blackboard_step_summary(
+    blackboard: dict[str, Any],
+    *,
+    step_index: int,
+    stage: str,
+    round_index: int | None,
+    action_id: str,
+    action_type: str,
+    detail: dict[str, Any] | None,
+) -> dict[str, Any]:
+    evidence = dict(blackboard.get("literature_evidence") or {})
+    budget = dict(blackboard.get("budget_state") or {})
+    history = [row for row in blackboard.get("action_history") or [] if isinstance(row, dict)]
+    planner_history = [row for row in blackboard.get("planner_history") or [] if isinstance(row, dict)]
+    last_action = dict(history[-1]) if history else {}
+    last_planner = dict(planner_history[-1]) if planner_history else {}
+    source_lifecycle = [row for row in evidence.get("source_lifecycle") or [] if isinstance(row, dict)]
+    current_belief = dict(blackboard.get("current_belief") or {})
+    route_objective_summary = dict(blackboard.get("route_objective_summary") or {})
+    source_stage_counts: dict[str, int] = {}
+    for row in source_lifecycle:
+        stage_name = str(row.get("stage") or "unknown")
+        source_stage_counts[stage_name] = source_stage_counts.get(stage_name, 0) + 1
+    return {
+        "schema_version": "agent_blackboard_step_summary.v1",
+        "step_index": int(step_index),
+        "stage": stage,
+        "round_index": round_index,
+        "action_id": action_id,
+        "action_type": action_type,
+        "case_id": str(blackboard.get("case_id") or ""),
+        "detail": dict(detail or {}),
+        "budget_state": budget,
+        "counts": {
+            "action_history": len(history),
+            "planner_history": len(planner_history),
+            "source_candidates": len(evidence.get("source_candidates") or []),
+            "source_refs": len(evidence.get("source_refs") or []),
+            "source_lifecycle": len(source_lifecycle),
+            "exact_rows": len(evidence.get("exact_rows") or []),
+            "pdf_structure_evidence": len(evidence.get("pdf_structure_evidence") or []),
+            "visual_chains": len(evidence.get("visual_chains") or []),
+            "structure_resolution_tasks": len(evidence.get("structure_resolution_tasks") or []),
+            "route_failures": len(blackboard.get("route_failures") or []),
+            "blocked_directions": len(current_belief.get("blocked_directions") or blackboard.get("blocked_directions") or []),
+            "next_action_bias": len(current_belief.get("next_action_bias") or blackboard.get("next_action_bias") or []),
+            "bridge_tasks": len(blackboard.get("bridge_tasks") or []),
+            "route_objectives": len(route_objective_summary.get("objectives") or blackboard.get("route_objectives") or []),
+            "endpoint_candidates": len(blackboard.get("endpoint_candidates") or []),
+            "semisynthesis_anchors": len(blackboard.get("semisynthesis_anchors") or []),
+            "reaction_idea_cards": len(blackboard.get("reaction_idea_cards") or []),
+            "retrosynthetic_proposals": len(blackboard.get("retrosynthetic_proposals") or []),
+            "recursive_hypothesis_tasks": len(blackboard.get("recursive_hypothesis_tasks") or []),
+            "artifact_refs": len(blackboard.get("artifact_refs") or {}),
+        },
+        "source_lifecycle_stage_counts": source_stage_counts,
+        "last_planner": {
+            "mode": str(last_planner.get("mode") or ""),
+            "action_types": [str(item) for item in last_planner.get("action_types") or []],
+            "fallback_used": bool((last_planner.get("codex_action_planner") or {}).get("fallback_used")),
+            "status": str((last_planner.get("codex_action_planner") or {}).get("status") or ""),
+        },
+        "last_action": {
+            "action_id": str(last_action.get("action_id") or ""),
+            "action_type": str(last_action.get("action_type") or ""),
+            "useful_artifact": bool(last_action.get("useful_artifact")),
+            "delta": dict(last_action.get("delta") or {}),
+        },
+        "final_verdict": dict(blackboard.get("final_verdict") or {}),
+    }
 
 
 def _stop_on_problem_action_batch_reason(action_batch: dict[str, Any], validation: dict[str, Any]) -> str:
@@ -372,6 +689,64 @@ def _record_stop_on_problem(
     return board
 
 
+def _refresh_multisource_route_consensus(
+    *,
+    state: ToolExecutionState,
+    blackboard: dict[str, Any],
+) -> dict[str, Any]:
+    """Rebuild the advisory graph after every planner/source channel has run."""
+    board = dict(blackboard)
+    existing_graph = dict(board.get("route_consensus_graph") or {})
+    max_depth = int((existing_graph.get("limits") or {}).get("max_depth") or 2)
+    rebuild = rebuild_consensus_graph_from_blackboard(board, max_depth=max_depth)
+    rebuild_path = state.run_dir / "route_consensus_rebuild.json"
+    consensus_path = state.run_dir / "route_consensus_fused.json"
+    graph_path = state.run_dir / "route_consensus_graph_fused.json"
+    write_json(rebuild_path, rebuild)
+    state.artifacts["route_consensus_rebuild"] = rebuild
+    refs = dict(board.get("artifact_refs") or {})
+    refs["route_consensus_rebuild"] = str(rebuild_path)
+    if not rebuild.get("accepted"):
+        board["artifact_refs"] = refs
+        return board
+
+    consensus = dict(rebuild.get("consensus") or {})
+    graph = dict(rebuild.get("graph") or {})
+    write_json(consensus_path, consensus)
+    write_json(graph_path, graph)
+    refs["route_consensus"] = str(consensus_path)
+    refs["route_consensus_graph"] = str(graph_path)
+    board["artifact_refs"] = refs
+    board["route_consensus"] = consensus
+    board["route_consensus_graph"] = graph
+    state.artifacts["route_consensus"] = consensus
+    state.artifacts["route_consensus_graph"] = graph
+    existing = {
+        str(row.get("proposal_id") or ""): dict(row)
+        for row in board.get("retrosynthetic_proposals") or []
+        if isinstance(row, dict) and str(row.get("proposal_id") or "")
+    }
+    for row in consensus_to_blackboard_proposals(consensus):
+        if str(row.get("proposal_id") or ""):
+            existing[str(row["proposal_id"])] = dict(row)
+    board["retrosynthetic_proposals"] = list(existing.values())
+
+    team = dict(board.get("codex_agent_team") or {})
+    if team:
+        team["route_consensus"] = consensus
+        team["route_consensus_ref"] = str(consensus_path)
+        team["route_consensus_graph"] = graph
+        team["route_consensus_graph_ref"] = str(graph_path)
+        team["route_consensus_expansions"] = [
+            dict(row) for row in rebuild.get("expansions") or [] if isinstance(row, dict)
+        ]
+        team["post_run_multisource_rebuild_ref"] = str(rebuild_path)
+        board["codex_agent_team"] = team
+        state.artifacts["codex_retrosynthesis_team"] = team
+        write_json(state.run_dir / "codex_retrosynthesis_team" / "team_report.json", team)
+    return board
+
+
 def _finalize_agentic_run(
     *,
     state: ToolExecutionState,
@@ -383,6 +758,7 @@ def _finalize_agentic_run(
 ) -> tuple[dict[str, Any], ArtifactBundle, FinalVerdict]:
     """Run the single audited closeout path for every controller exit."""
     board = dict(blackboard)
+    board = _refresh_multisource_route_consensus(state=state, blackboard=board)
     board.setdefault("artifact_refs", {})["agentic_run_audit"] = str(state.run_dir / "agentic_run_audit.json")
     board.setdefault("artifact_refs", {})["agentic_final_verdict_validation"] = str(state.run_dir / "agentic_final_verdict_validation.json")
     board.setdefault("artifact_refs", {})["agent_blackboard_snapshot"] = str(state.run_dir / "agent_blackboard_snapshot.json")
@@ -431,6 +807,22 @@ def _finalize_agentic_run(
         final_validation["corrected_final_verdict"] = final.to_dict()
         state.safety_flags.append("agentic_final_verdict_validation_failed")
     state.validations.append(final_validation)
+
+    # Presentation is a projection of the corrected final verdict, not an
+    # input to it. Rendering earlier allowed advisory branches to label
+    # themselves as a final integrated solution before closeout validation.
+    board["final_verdict"] = final.to_dict()
+    route_forest_artifact = _record_route_forest_display_artifact(
+        state=state,
+        blackboard=board,
+    )
+    state.artifacts["route_forest_display"] = route_forest_artifact
+    # Rendering registers the forest/HTML (or error) refs on the board. Keep
+    # every closeout projection, including invalid-input runs, on the same
+    # authoritative reference set.
+    final.artifact_refs = dict(board.get("artifact_refs") or {})
+    board["final_verdict"] = final.to_dict()
+    state.artifacts["agent_blackboard"] = board
 
     final_validation_artifact = _record_agentic_final_verdict_validation_artifact(
         state=state,
@@ -491,7 +883,7 @@ def emit_agentic_final_verdict(
 ) -> FinalVerdict:
     proof = dict(blackboard.get("parent_route_proof") or artifacts.get("parent_route_proof") or {})
     case_id = str(blackboard.get("case_id") or (bundle or {}).get("case_id") or "target")
-    if proof.get("accepted") and proof.get("solved"):
+    if _blackboard_parent_proof_solved(blackboard, proof):
         return FinalVerdict(
             case_id=case_id,
             verdict="solved",
@@ -538,13 +930,23 @@ def emit_agentic_final_verdict(
                 artifact_refs=dict(blackboard.get("artifact_refs") or {}),
             )
         status = str(proof.get("route_status") or latest_verdict.route_status or "unresolved")
+        invalid_solved_claim = status == "solved" and not _blackboard_parent_proof_solved(blackboard, proof)
+        if invalid_solved_claim:
+            status = "unresolved"
         verdict = "fake_closed_rejected" if status == "fake_closed_rejected" else (
             "partial_anchor_only_not_solved" if status == "partial_anchor_only_not_solved" else "unresolved"
         )
         return FinalVerdict(
             case_id=case_id,
             verdict=verdict,
-            reasons=[str(item) for item in proof.get("reasons") or latest_verdict.reasons],
+            reasons=sorted(
+                set(
+                    [
+                        *[str(item) for item in proof.get("reasons") or latest_verdict.reasons],
+                        *(["invalid_parent_route_proof_contract"] if invalid_solved_claim else []),
+                    ]
+                )
+            ),
             route_status=status,
             stock_audit_passed=False,
             artifact_refs=dict(blackboard.get("artifact_refs") or {}),
@@ -596,15 +998,41 @@ def _hypothesis_report_available(artifacts: dict[str, Any]) -> bool:
 
 
 def _hypothesis_route_status_from_artifacts(artifacts: dict[str, Any]) -> str:
-    execution = artifacts.get("hypothesis_execution_report")
-    if isinstance(execution, dict):
-        payload = dict(execution.get("payload") or execution)
-        status = str(payload.get("route_status") or "")
-        if status and status != "no_hypothesis_candidates":
-            return status
+    execution_status = _hypothesis_execution_status_from_artifacts(artifacts)
+    if execution_status:
+        return execution_status
+    proof_bundle = artifacts.get("route_proof_bundle")
+    if isinstance(proof_bundle, dict):
+        payload = dict(proof_bundle.get("payload") or proof_bundle)
+        proof_result = payload.get("result")
+        proof_views = [dict(proof_result)] if isinstance(proof_result, dict) else []
+        proof_views.append(payload)
+        for proof in proof_views:
+            status = str(proof.get("route_status") or "")
+            if status and status not in {"solved", "unresolved"}:
+                return status
+            for row in proof.get("objective_proofs") or []:
+                if not isinstance(row, dict):
+                    continue
+                objective_status = str(row.get("route_status") or "")
+                if objective_status and objective_status not in {"solved", "unresolved"}:
+                    return objective_status
+            if proof.get("objective_proofs"):
+                return "hypothesis_route_proposed"
     if _hypothesis_report_available(artifacts):
         return "hypothesis_route_proposed"
     return ""
+
+
+def _hypothesis_execution_status_from_artifacts(artifacts: dict[str, Any]) -> str:
+    execution = artifacts.get("hypothesis_execution_report")
+    if not isinstance(execution, dict):
+        return ""
+    payload = dict(execution.get("payload") or execution)
+    status = str(payload.get("route_status") or "")
+    if not status or status == "no_hypothesis_candidates":
+        return ""
+    return status
 
 
 def _validate_agentic_final_verdict(
@@ -615,6 +1043,7 @@ def _validate_agentic_final_verdict(
 ) -> dict[str, Any]:
     proof = dict(blackboard.get("parent_route_proof") or {})
     belief = dict(blackboard.get("current_belief") or {})
+    proof_solved = _blackboard_parent_proof_solved(blackboard, proof)
     reasons: list[str] = []
     verdict_solved = str(final_verdict.get("verdict") or "") == "solved"
     solved_claim = bool(final_verdict.get("solved")) or verdict_solved
@@ -624,11 +1053,11 @@ def _validate_agentic_final_verdict(
     if route_solved_claim and not bool(final_verdict.get("solved")):
         reasons.append("final_route_status_solved_without_solved_flag")
     if solved_claim or route_solved_claim:
-        if not (proof.get("accepted") and proof.get("solved")):
+        if not proof_solved:
             reasons.append("final_solved_without_parent_proof")
         if not bool(final_verdict.get("stock_audit_passed")):
             reasons.append("final_solved_without_stock_audit")
-        if bool(belief.get("child_route_solved")) and not (proof.get("accepted") and proof.get("solved")):
+        if bool(belief.get("child_route_solved")) and not proof_solved:
             reasons.append("child_solved_promoted_without_parent_proof")
         rejected_action_batches = [
             str(row.get("case_id") or row.get("artifact_id") or row.get("artifact_key") or "action_batch")
@@ -646,8 +1075,8 @@ def _validate_agentic_final_verdict(
         "case_id": str(final_verdict.get("case_id") or blackboard.get("case_id") or ""),
         "final_verdict": dict(final_verdict),
         "parent_route_proof_summary": {
-            "accepted": bool(proof.get("accepted")),
-            "solved": bool(proof.get("solved")),
+            "accepted": proof_solved,
+            "solved": proof_solved,
             "route_status": str(proof.get("route_status") or ""),
         },
         "checked_invariants": [
@@ -692,6 +1121,7 @@ def _obtain_action_batch(
     action_planner: ActionPlannerRunner | None,
     exhaust_round_budget: bool = False,
     use_codex_action_planner: bool | None = None,
+    allow_deterministic_fallback: bool = True,
 ) -> dict[str, Any]:
     if action_planner is not None:
         return action_planner(blackboard=blackboard, round_index=round_index, run_dir=run_dir)
@@ -702,6 +1132,7 @@ def _obtain_action_batch(
         enabled=use_codex_action_planner,
         exhaust_round_budget=exhaust_round_budget,
         mock_output=_mock_codex_action_planner(state, blackboard, round_index) if state is not None else None,
+        allow_deterministic_fallback=allow_deterministic_fallback,
     )
 
 
@@ -865,19 +1296,19 @@ def _execute_agent_action(
         return {"accepted": bool(result.get("accepted")), "result": result, "reasons": [str(item) for item in result.get("reasons") or []]}, []
     if action_type == "extract_pdf_literature_structures":
         payload = dict(action.get("payload") or {})
-        _inject_pdf_defaults(payload, state.target_input)
+        _inject_pdf_defaults(payload, state.target_input, blackboard=blackboard)
         payload.setdefault("output_dir", _pdf_action_output_dir(action))
         record = execute_local_tool("extract_pdf_literature_structures", payload, state)
         return _tool_record_to_action_result(record), [record.to_dict()]
     if action_type == "extract_visual_literature_chain":
         payload = dict(action.get("payload") or {})
-        _inject_pdf_defaults(payload, state.target_input)
+        _inject_pdf_defaults(payload, state.target_input, blackboard=blackboard)
         payload.setdefault("output_dir", _visual_action_output_dir(action))
         record = execute_local_tool("extract_visual_literature_chain", payload, state)
         return _tool_record_to_action_result(record), [record.to_dict()]
     if action_type == "resolve_literature_structure_task":
         payload = dict(action.get("payload") or {})
-        _inject_pdf_defaults(payload, state.target_input)
+        _inject_pdf_defaults(payload, state.target_input, blackboard=blackboard)
         payload.setdefault("output_dir", _structure_resolution_action_output_dir(action))
         record = execute_local_tool("resolve_literature_structure_task", payload, state)
         return _tool_record_to_action_result(record), [record.to_dict()]
@@ -1393,6 +1824,13 @@ def _capability_check_planner_history(
                     guided = dict(guided_actions.get("run_guided_chemenzy") or {})
                     child = dict(child_actions.get("expand_child_target") or {})
                     stitch = dict(stitch_actions.get("stitch_parent_route") or {})
+                    guided_fields = [str(field) for field in guided.get("accepted_payload_fields") or []]
+                    guided_policy_contract_present = bool(
+                        "guided_policy_runtime_rebuild" in guided_fields
+                        or guided.get("runtime_policy_rebuild") is True
+                        or "search_policy" in guided_fields
+                        or "chem_enzy_search_policy" in guided_fields
+                    )
                     template_policy_missing = [
                         action_type
                         for action_type, requirement in template_actions.items()
@@ -1411,7 +1849,7 @@ def _capability_check_planner_history(
                         )
                     elif not guided:
                         reasons.append(f"codex_planner_snapshot_missing_guided_action_requirements:{idx}")
-                    elif "search_policy" not in (guided.get("accepted_payload_fields") or []):
+                    elif not guided_policy_contract_present:
                         reasons.append(f"codex_planner_snapshot_guided_requirements_missing_policy_field:{idx}")
                     elif not child:
                         reasons.append(f"codex_planner_snapshot_missing_child_expansion_requirements:{idx}")
@@ -1566,7 +2004,10 @@ def _capability_check_source_acquisition(blackboard: dict[str, Any]) -> dict[str
             status="not_exercised",
         )
     reasons: list[str] = []
-    if evidence.get("fallback_order") != ["codex_online", "local_pdf", "placeholder"]:
+    if evidence.get("fallback_order") not in (
+        ["codex_online", "local_pdf", "placeholder"],
+        ["codex_online", "placeholder"],
+    ):
         reasons.append("source_acquisition_fallback_order_not_recorded")
     if not isinstance(evidence.get("scout_attempts"), list):
         reasons.append("source_acquisition_attempts_not_recorded")
@@ -1742,7 +2183,7 @@ def _capability_check_final_verdict_gate(
     reasons: list[str] = []
     if not final_validation.get("accepted"):
         reasons.append("final_verdict_validation_rejected")
-    if solved and not (proof.get("accepted") and proof.get("solved")):
+    if solved and not _blackboard_parent_proof_solved(blackboard, proof):
         reasons.append("solved_without_parent_proof")
     return _capability_check(
         "final_verdict_requires_parent_route_proof",
@@ -1750,7 +2191,7 @@ def _capability_check_final_verdict_gate(
         evidence=[
             f"final_verdict:{final_verdict.get('verdict') or ''}",
             f"final_solved:{bool(final_verdict.get('solved'))}",
-            f"parent_proof_accepted:{bool(proof.get('accepted'))}",
+            f"parent_proof_accepted:{_blackboard_parent_proof_solved(blackboard, proof)}",
             f"final_validation_accepted:{bool(final_validation.get('accepted'))}",
         ],
         reasons=reasons,
@@ -1957,6 +2398,117 @@ def _record_hypothesis_execution_report_artifact(
     return artifact
 
 
+def _record_route_forest_display_artifact(
+    *,
+    state: ToolExecutionState,
+    blackboard: dict[str, Any],
+) -> dict[str, Any]:
+    case_id = str(blackboard.get("case_id") or state.preflight.get("case_id") or "case")
+    forest_path = state.run_dir / "explored_route_forest.json"
+    html_path = state.run_dir / "route_forest.html"
+    refs = blackboard.setdefault("artifact_refs", {})
+    refs["explored_route_forest"] = str(forest_path)
+    refs["route_forest_html"] = str(html_path)
+    try:
+        rendered = write_route_forest_artifacts(
+            blackboard,
+            run_dir=state.run_dir,
+            forest_output=forest_path,
+            html_output=html_path,
+        )
+        forest = dict(rendered.get("forest") or {})
+        primary_branch_id = str(forest.get("primary_branch_id") or "")
+        primary_branch = next(
+            (
+                branch
+                for branch in forest.get("branches") or []
+                if isinstance(branch, dict) and str(branch.get("branch_id") or "") == primary_branch_id
+            ),
+            {},
+        )
+        payload = {
+            "schema_version": "route_forest_display_payload.v1",
+            "accepted": True,
+            "read_only": True,
+            "html_path": str(html_path),
+            "forest_path": str(forest_path),
+            "target": dict(forest.get("target") or {}),
+            "counts": dict(forest.get("counts") or {}),
+            "primary_branch": {
+                "branch_id": str(primary_branch.get("branch_id") or ""),
+                "title": str(primary_branch.get("title") or ""),
+                "kind": str(primary_branch.get("kind") or ""),
+                "step_count": len(primary_branch.get("step_ids") or []),
+                "synthesis_class": str(primary_branch.get("synthesis_class") or "unspecified"),
+                "solved": bool(primary_branch.get("solved")),
+                "executable": bool(primary_branch.get("executable")),
+                "advisory_only": bool(primary_branch.get("advisory_only", True)),
+            },
+            "primary_selection": dict(forest.get("primary_selection") or {}),
+            "interaction_model": "main_route_with_step_scoped_read_only_replacement_preview",
+        }
+        append_jsonl(
+            state.run_dir / "decision_trace.jsonl",
+            {
+                "stage": "route_forest_rendered",
+                "html_path": str(html_path),
+                "forest_path": str(forest_path),
+                "counts": payload["counts"],
+            },
+        )
+    except Exception as exc:  # pragma: no cover - defensive closeout path
+        error_path = state.run_dir / "route_forest_error.json"
+        refs["route_forest_error"] = str(error_path)
+        payload = {
+            "schema_version": "route_forest_display_payload.v1",
+            "accepted": False,
+            "read_only": True,
+            "html_path": str(html_path),
+            "forest_path": str(forest_path),
+            "error_path": str(error_path),
+            "error": repr(exc),
+            "target": {},
+            "counts": {},
+        }
+        write_json(
+            error_path,
+            {
+                "schema_version": "route_forest_render_error.v1",
+                "accepted": False,
+                "case_id": case_id,
+                "error": repr(exc),
+                "html_path": str(html_path),
+                "forest_path": str(forest_path),
+            },
+        )
+        state.safety_flags.append("route_forest_render_failed")
+        append_jsonl(
+            state.run_dir / "decision_trace.jsonl",
+            {
+                "stage": "route_forest_render_failed",
+                "error": repr(exc),
+                "error_path": str(error_path),
+            },
+        )
+    artifact = {
+        "schema_version": "route_forest_display_artifact.v1",
+        "artifact_type": "ExploredRouteForestDisplay",
+        "artifact_id": f"{case_id}:route_forest_display",
+        "case_id": case_id,
+        "source": "agentic_blackboard_controller",
+        "input_refs": [str(state.run_dir / "agent_blackboard.json")],
+        "evidence_refs": [
+            str(ref)
+            for ref in (blackboard.get("artifact_refs") or {}).values()
+            if str(ref or "").strip()
+        ][:20],
+        "validation_status": "accepted" if payload.get("accepted") else "draft",
+        "payload": payload,
+        "artifact_ref": str(html_path),
+    }
+    return artifact
+
+
 def _compile_agentic_run_audit_payload(
     *,
     blackboard: dict[str, Any],
@@ -2125,7 +2677,7 @@ def _followup_tasks_from_blackboard(
         )
 
     exact_rows = [dict(row) for row in evidence.get("exact_rows") or [] if isinstance(row, dict)]
-    if exact_rows and not (parent_proof.get("accepted") and parent_proof.get("solved")):
+    if exact_rows and not _blackboard_parent_proof_solved(blackboard, parent_proof):
         tasks.append(
             {
                 "schema_version": "agentic_followup_task.v1",
@@ -2560,6 +3112,66 @@ def _seed_failure_evidence_from_prior(blackboard: dict[str, Any], *, state: Tool
     return board
 
 
+def _seed_prior_analogical_evidence(blackboard: dict[str, Any], *, state: ToolExecutionState) -> dict[str, Any]:
+    board = dict(blackboard)
+    rows: list[dict[str, Any]] = []
+    explicit_rows = state.artifacts.get("analogical_hypotheses")
+    if isinstance(explicit_rows, list):
+        rows.extend(dict(row) for row in explicit_rows if isinstance(row, dict))
+    analogical_artifact = state.artifacts.get("analogical_retrosynthesis_hypotheses")
+    if isinstance(analogical_artifact, dict):
+        rows.extend(dict(row) for row in analogical_artifact.get("hypotheses") or [] if isinstance(row, dict))
+        board["analogical_retrosynthesis_hypotheses"] = _drop_large_fields(analogical_artifact)
+    ranking = state.artifacts.get("analogical_hypothesis_ranking")
+    if isinstance(ranking, dict):
+        board["analogical_hypothesis_ranking"] = _drop_large_fields(ranking)
+        rows.extend(dict(row) for row in ranking.get("ranked_hypotheses") or [] if isinstance(row, dict))
+        rows.extend(dict(row) for row in ranking.get("selected_hypotheses") or [] if isinstance(row, dict))
+    if not rows and not isinstance(ranking, dict):
+        return board
+    _extend_unique_by_key(board, "analogical_hypotheses", rows, "hypothesis_id")
+    report = compile_retrosynthetic_proposal_bus(board)
+    _extend_unique_by_key(board, "reaction_idea_cards", report.get("reaction_idea_cards") or [], "card_id")
+    _extend_unique_by_key(board, "retrosynthetic_proposals", report.get("retrosynthetic_proposals") or [], "proposal_id")
+    _extend_unique_by_key(board, "recursive_hypothesis_tasks", report.get("recursive_hypothesis_tasks") or [], "task_id")
+    board["retrosynthetic_proposal_compile_report"] = {
+        "schema_version": str(report.get("schema_version") or "retrosynthetic_proposal_compile_report.v1"),
+        "accepted": bool(report.get("accepted")),
+        "counts": dict(report.get("counts") or {}),
+        "source": "prior_analogical_evidence_seed",
+        "allowed_use": "proposal_bus_and_recursive_search_seed_only",
+        "not_parent_route_proof": True,
+        "no_solved_claim": True,
+    }
+    if report.get("recursive_hypothesis_tasks"):
+        belief = dict(board.get("current_belief") or {})
+        bias = [str(item) for item in belief.get("next_action_bias") or [] if str(item).strip()]
+        if "expand_child_target" not in bias:
+            bias.append("expand_child_target")
+        belief["next_action_bias"] = bias
+        board["current_belief"] = belief
+    return board
+
+
+def _extend_unique_by_key(board: dict[str, Any], key: str, rows: list[Any], unique_key: str) -> None:
+    existing = list(board.get(key) or [])
+    seen = {
+        str(row.get(unique_key) or "")
+        for row in existing
+        if isinstance(row, dict) and str(row.get(unique_key) or "").strip()
+    }
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        marker = str(raw.get(unique_key) or "").strip()
+        if marker and marker in seen:
+            continue
+        existing.append(dict(raw))
+        if marker:
+            seen.add(marker)
+    board[key] = existing
+
+
 def _compile_parent_proof_from_state(
     *,
     state: ToolExecutionState,
@@ -2567,8 +3179,9 @@ def _compile_parent_proof_from_state(
     stitched: dict[str, Any],
 ) -> dict[str, Any]:
     parent_verifier = {} if stitched.get("accepted") else _latest_parent_verifier(state.artifacts)
-    route_expansion = dict(state.artifacts.get("route_expansion_subgoal_search") or {})
-    exact_rows = (blackboard.get("literature_evidence") or {}).get("exact_rows") or []
+    direct_parent_route = _direct_parent_verifier_ready_for_proof(blackboard, parent_verifier) and not stitched.get("accepted")
+    route_expansion = {} if direct_parent_route else dict(state.artifacts.get("route_expansion_subgoal_search") or {})
+    exact_rows = [] if direct_parent_route else (blackboard.get("literature_evidence") or {}).get("exact_rows") or []
     exact_segment = {
         "accepted": bool(exact_rows),
         "parent_route_connected": bool(stitched.get("accepted")),
@@ -2584,6 +3197,32 @@ def _compile_parent_proof_from_state(
         exact_literature_segment=exact_segment,
         analogy_refs=(blackboard.get("analogical_hypothesis_ranking") or {}).get("selected_hypotheses") or [],
     )
+
+
+def _direct_parent_verifier_ready_for_proof(blackboard: dict[str, Any], parent_verifier: dict[str, Any]) -> bool:
+    summary = dict((blackboard.get("current_belief") or {}).get("parent_route_verifier") or {})
+    verifier_ready = is_accepted_route_verifier_report(parent_verifier)
+    try:
+        summary_route_count = int(summary.get("accepted_route_count") or 0)
+        summary_step_count = int(summary.get("best_route_step_count") or 0)
+    except (TypeError, ValueError):
+        summary_route_count = 0
+        summary_step_count = 0
+    summary_ready = bool(
+        summary.get("schema_version") == "agent_parent_route_verifier_summary.v1"
+        and summary.get("verifier_schema_version") == "harness_route_verifier_report.v1"
+        and summary.get("accepted") is True
+        and summary.get("solved") is True
+        and str(summary.get("route_status") or "") == "solved"
+        and summary.get("target_match") is True
+        and summary_route_count > 0
+        and summary.get("best_route_rank") is not None
+        and summary_step_count > 0
+        and isinstance(summary.get("reasons"), list)
+        and not summary["reasons"]
+        and isinstance(summary.get("warnings"), list)
+    )
+    return bool(verifier_ready and (summary_ready or not summary))
 
 
 def _latest_parent_verifier(artifacts: dict[str, Any]) -> dict[str, Any]:
@@ -2740,6 +3379,7 @@ def _merge_local_pdf_scout_report(codex_report: dict[str, Any], local_report: di
         if isinstance(row, dict):
             add_or_merge(row)
 
+    candidates = _merge_metadata_into_concrete_source_documents(candidates)
     merged["source_candidates"] = candidates[:max_sources]
     merged["source_refs"] = _dedupe(
         [
@@ -2749,10 +3389,64 @@ def _merge_local_pdf_scout_report(codex_report: dict[str, Any], local_report: di
         ]
     )[:max_sources]
     if any(str(row.get("local_pdf") or "").strip() for row in candidates):
-        cache_hit = any(str(row.get("source_discovery_mode") or "") == "codex_online+local_pdf_cache" for row in candidates)
+        cache_hit = any(
+            str(row.get("source_discovery_mode") or "")
+            in {"codex_online+local_pdf_cache", "local_pdf_cache_match"}
+            for row in candidates
+        )
         merged["source_discovery_mode"] = "codex_online+local_pdf_cache" if cache_hit else "codex_online+local_pdf"
         merged["accepted"] = True
     return merged
+
+
+def _merge_metadata_into_concrete_source_documents(
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Attach source-level metadata to every concrete document for that source.
+
+    Article PDFs and supplementary-information PDFs often share a DOI.  The
+    same rule applies to publisher PII records.  The metadata lead must not
+    consume a result slot and thereby hide an independently extractable
+    document.
+    """
+    metadata_by_source: dict[str, list[dict[str, Any]]] = {}
+    concrete_sources: set[str] = set()
+    for candidate in candidates:
+        source_key = _candidate_logical_source_key(candidate)
+        if not source_key:
+            continue
+        if _candidate_has_concrete_document_identity(candidate):
+            concrete_sources.add(source_key)
+        else:
+            metadata_by_source.setdefault(source_key, []).append(candidate)
+
+    merged: list[dict[str, Any]] = []
+    for candidate in candidates:
+        source_key = _candidate_logical_source_key(candidate)
+        is_concrete = _candidate_has_concrete_document_identity(candidate)
+        if source_key in concrete_sources and not is_concrete:
+            continue
+        row = dict(candidate)
+        if source_key and is_concrete:
+            for metadata in metadata_by_source.get(source_key, []):
+                row = _merge_source_candidate(metadata, row)
+        merged.append(row)
+    return merged
+
+
+def _candidate_has_concrete_document_identity(row: dict[str, Any]) -> bool:
+    return any(
+        str(row.get(key) or "").strip()
+        for key in ("local_pdf", "source_pdf_path", "pdf_path", "document_id")
+    )
+
+
+def _candidate_logical_source_key(row: dict[str, Any]) -> str:
+    doi = _source_doi(row)
+    if doi:
+        return f"doi:{doi}"
+    pii = _source_pii(row)
+    return f"pii:{pii.lower()}" if pii else ""
 
 
 def _queue_local_pdf_proxy_requests_for_metadata_only_sources(
@@ -2853,8 +3547,19 @@ def _candidate_needs_local_pdf_proxy(row: dict[str, Any]) -> bool:
     if not str(row.get("doi") or row.get("url") or row.get("source_ref") or "").strip():
         return False
     status = str(row.get("access_status") or "").strip().lower()
-    if status in {"local_pdf_available", "agent_accessible_full_text", "full_text_available", "open_full_text"}:
+    positive_markers = {
+        "local_pdf_available",
+        "agent_accessible_full_text",
+        "full_text_available",
+        "open_full_text",
+        "pdf_available",
+    }
+    if status in positive_markers:
         return False
+    if any(marker in status for marker in ("full text available", "open full text", "pdf available", "local pdf available")):
+        return False
+    if _candidate_has_real_source(row):
+        return True
     return status in {
         "",
         "metadata_only",
@@ -2866,7 +3571,7 @@ def _candidate_needs_local_pdf_proxy(row: dict[str, Any]) -> bool:
 
 def _agent_access_record_from_metadata_candidate(row: dict[str, Any], *, state: ToolExecutionState) -> dict[str, Any]:
     status = str(row.get("access_status") or "metadata_only").strip()
-    if status == "metadata_only":
+    if status == "metadata_only" or _candidate_needs_local_pdf_proxy(row):
         status = "agent_accessible_metadata_only"
     elif not status.startswith("agent_access"):
         status = "agent_accessible_metadata_only"
@@ -2934,6 +3639,12 @@ def _agent_access_record_key(row: dict[str, Any]) -> str:
 
 
 def _candidate_merge_key(row: dict[str, Any]) -> str:
+    local_pdf = str(row.get("local_pdf") or row.get("source_pdf_path") or row.get("pdf_path") or "").strip().lower()
+    if local_pdf:
+        return f"pdf:{local_pdf}"
+    document_id = str(row.get("document_id") or "").strip().lower()
+    if document_id:
+        return f"document:{document_id}"
     doi = _normalize_doi(str(row.get("doi") or ""))
     if doi:
         return f"doi:{doi}"
@@ -2947,16 +3658,27 @@ def _candidate_merge_key(row: dict[str, Any]) -> str:
         ref_pii = _source_pii({"source_ref": source_ref})
         if ref_pii:
             return f"pii:{ref_pii.lower()}"
-    local_pdf = str(row.get("local_pdf") or "").strip().lower()
-    if local_pdf:
-        return f"pdf:{local_pdf}"
     url = str(row.get("url") or "").strip().lower()
     return url or source_ref
 
 
 def _merge_source_candidate(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     merged = dict(existing)
-    for key in ("doi", "pii", "url", "local_pdf", "source_ref", "title", "source_type", "access_status", "route_sequence_hint"):
+    for key in (
+        "doi",
+        "pii",
+        "url",
+        "local_pdf",
+        "source_pdf_path",
+        "pdf_path",
+        "document_id",
+        "content_scope",
+        "source_ref",
+        "title",
+        "source_type",
+        "access_status",
+        "route_sequence_hint",
+    ):
         value = incoming.get(key)
         if str(value or "").strip() and (key == "local_pdf" or not str(merged.get(key) or "").strip()):
             merged[key] = value
@@ -2964,6 +3686,12 @@ def _merge_source_candidate(existing: dict[str, Any], incoming: dict[str, Any]) 
         value = incoming.get(key)
         if isinstance(value, dict) and value and not isinstance(merged.get(key), dict):
             merged[key] = dict(value)
+    incoming_profile = incoming.get("visual_extraction_profile")
+    if isinstance(incoming_profile, dict) and incoming_profile:
+        merged["visual_extraction_profile"] = {
+            **dict(merged.get("visual_extraction_profile") or {}),
+            **incoming_profile,
+        }
     for key in ("expected_scheme_or_compound_labels", "extraction_task_recommendations"):
         merged[key] = _dedupe(
             [
@@ -3116,6 +3844,7 @@ def _codex_literature_scout_task(
             max_output_bytes=int(payload.get("max_output_bytes") or 120_000),
             max_tool_calls=int(payload.get("max_tool_calls") or 12),
             max_worker_runs=1,
+            reasoning_effort=_codex_scout_reasoning_effort(payload),
         ),
         objective=objective,
         allowed_workdir=str(state.run_dir),
@@ -3217,12 +3946,36 @@ def _planner_source_hints(*, blackboard: dict[str, Any], payload: dict[str, Any]
 
 
 def _codex_scout_timeout_s(state: ToolExecutionState, payload: dict[str, Any]) -> float:
-    explicit = payload.get("codex_timeout_s")
-    if explicit is None:
-        explicit = os.environ.get("AUTOPLANNER_CODEX_SCOUT_TIMEOUT_S")
-    if explicit is not None:
-        return max(5.0, float(explicit))
-    return min(float(state.budget.open_research_timeout_s or 180.0), 180.0)
+    floor = _positive_float(os.environ.get("AUTOPLANNER_CODEX_SCOUT_TIMEOUT_MIN_S")) or 180.0
+    for value in (
+        payload.get("codex_timeout_s"),
+        os.environ.get("AUTOPLANNER_CODEX_SCOUT_TIMEOUT_S"),
+        payload.get("timeout_s"),
+    ):
+        explicit = _positive_float(value)
+        if explicit is not None:
+            return max(floor, explicit)
+    budget_timeout = (
+        _positive_float(getattr(state.budget, "open_research_timeout_s", None))
+        or _positive_float(getattr(state.budget, "timeout_s", None))
+        or floor
+    )
+    return max(floor, budget_timeout)
+
+
+def _codex_scout_reasoning_effort(payload: dict[str, Any]) -> str:
+    explicit = str(payload.get("reasoning_effort") or payload.get("codex_reasoning_effort") or "").strip()
+    if explicit:
+        return explicit
+    return str(os.environ.get("AUTOPLANNER_CODEX_SCOUT_REASONING_EFFORT") or "high").strip() or "high"
+
+
+def _positive_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _local_pdf_cache_match_report(
@@ -3540,12 +4293,20 @@ def _auto_local_pdf_fallback_score(
         ]
     ).lower()
     score = 0
-    for token in ("steroid", "ouabagenin", "ouabain", "cortistatin", "cardenolide", "polycyclic", "total synthesis", "semisynthesis"):
-        if token in haystack:
-            score += 4
-        if token in haystack and token in query_text:
-            score += 2
-    for token in ("synthesis", "studies towards", "towards", "chemistry", "angew", "asian journal"):
+    query_terms = _priority_terms([query_text])
+    score += 6 * sum(1 for token in query_terms if token in haystack)
+    for token in (
+        "total synthesis",
+        "semisynthesis",
+        "synthesis",
+        "preparation",
+        "process",
+        "route",
+        "scheme",
+        "intermediate",
+        "supporting information",
+        "supplementary information",
+    ):
         if token in haystack:
             score += 1
     if str(source.get("doi") or "").strip() or str(source.get("pii") or "").strip():
@@ -3581,6 +4342,8 @@ def _local_pdf_source_candidate(
         "pii": pii,
         "url": str(source.get("url") or (_sciencedirect_url_from_pii(pii) if pii else "")),
         "local_pdf": pdf_path,
+        "document_id": str(source.get("document_id") or ""),
+        "content_scope": str(source.get("content_scope") or source.get("document_type") or ""),
         "source_type": "user_provided_local_pdf_seed" if is_user_seed else "local_pdf",
         "source_role": source_role,
         "user_provided_source_seed": bool(source.get("user_provided_source_seed")),
@@ -3600,6 +4363,11 @@ def _local_pdf_source_candidate(
             "compile_exact_literature_rows",
         ],
         "route_sequence_hint": str(source.get("route_sequence_hint") or source_hints.get("route_sequence_hint") or ""),
+        "visual_extraction_profile": (
+            dict(source.get("visual_extraction_profile") or {})
+            if isinstance(source.get("visual_extraction_profile"), dict)
+            else {}
+        ),
         "no_solved_claim": True,
     }
     if isinstance(source.get("local_pdf_match"), dict):
@@ -3739,6 +4507,8 @@ def _normalize_source_candidate(row: dict[str, Any], *, idx: int, discovery_mode
         "pii": pii,
         "url": url or (f"https://doi.org/{doi}" if doi else (_sciencedirect_url_from_pii(pii) if pii else "")),
         "local_pdf": local_pdf,
+        "document_id": str(row.get("document_id") or ""),
+        "content_scope": str(row.get("content_scope") or row.get("document_type") or ""),
         "source_type": str(row.get("source_type") or ("local_pdf" if local_pdf else "literature_metadata")),
         "source_discovery_mode": str(row.get("source_discovery_mode") or discovery_mode),
         "access_status": str(row.get("access_status") or ("local_pdf_available" if local_pdf else "metadata_only")),
@@ -3750,6 +4520,11 @@ def _normalize_source_candidate(row: dict[str, Any], *, idx: int, discovery_mode
         ],
         "extraction_task_recommendations": tasks,
         "route_sequence_hint": str(row.get("route_sequence_hint") or ""),
+        "visual_extraction_profile": (
+            dict(row.get("visual_extraction_profile") or {})
+            if isinstance(row.get("visual_extraction_profile"), dict)
+            else {}
+        ),
         "no_solved_claim": True,
     }
 
@@ -3784,7 +4559,7 @@ def _literature_scout_queries(*, blackboard: dict[str, Any], state: ToolExecutio
     base = [part for part in [target, family] if part]
     queries = [
         " ".join([*base, "synthesis", "total synthesis", "semisynthesis"]),
-        " ".join([*base, "target proximal intermediate", "steroid"]),
+        " ".join([*base, "target proximal intermediate", "synthetic route"]),
     ]
     for handle in handles[:4]:
         if handle:
@@ -4023,57 +4798,7 @@ def _deterministic_literature_scout(*, blackboard: dict[str, Any], state: ToolEx
 
 
 def _local_pdf_source_hints(*, target: str, source_ref: str, family_hint: str) -> dict[str, Any]:
-    text = " ".join([target, source_ref, family_hint]).lower()
-    if "bufotalin" in text or "10.1016/j.tet.2025.134610" in text:
-        labels = [
-            "bufotalin",
-            "33",
-            "32",
-            "31",
-            "30",
-            "22",
-            "14",
-            "20",
-            "19",
-            "28",
-            "27",
-            "26",
-            "23",
-            "25",
-            "24",
-            "11",
-        ]
-        return {
-            "title": "Construction of advanced intermediate sharing C14-beta-OH for the synthesis of bufotalin",
-            "expected_labels": labels,
-            "route_sequence_hint": (
-                "For bufotalin, inspect Scheme 4 and Scheme 3 as a connected retro chain. "
-                "The source-detail target is bufotalin -> 33 -> 32 -> 31 -> 30 -> 22 -> 14 -> "
-                "20 -> 19 -> 28 -> 27 -> 26 -> 23 -> 25 -> 24 -> 11 when structures are visible."
-            ),
-            "pdf_page_numbers": [3, 4, 5, 6],
-            "pdf_render_zoom": 2.5,
-            "scheme_crops": [
-                {
-                    "crop_id": "scheme3_full_to_20",
-                    "page_number": 3,
-                    "bbox_px": [330, 150, 1160, 650],
-                    "evidence_refs": ["doi:10.1016/j.tet.2025.134610", "scheme:3"],
-                },
-                {
-                    "crop_id": "scheme4_total_synthesis",
-                    "page_number": 3,
-                    "bbox_px": [330, 690, 1165, 1095],
-                    "evidence_refs": ["doi:10.1016/j.tet.2025.134610", "scheme:4"],
-                },
-                {
-                    "crop_id": "table1_allylic_oxidation",
-                    "page_number": 3,
-                    "bbox_px": [80, 1110, 725, 1640],
-                    "evidence_refs": ["doi:10.1016/j.tet.2025.134610", "table:1"],
-                },
-            ],
-        }
+    del target, source_ref, family_hint
     return {"title": "", "expected_labels": [], "route_sequence_hint": ""}
 
 
@@ -4123,8 +4848,15 @@ def _wrap_action_result(value: Any) -> dict[str, Any]:
     return {"accepted": True, "result": {"value": str(value)}, "reasons": []}
 
 
-def _inject_pdf_defaults(payload: dict[str, Any], target_input: dict[str, Any]) -> None:
+def _inject_pdf_defaults(
+    payload: dict[str, Any],
+    target_input: dict[str, Any],
+    *,
+    blackboard: dict[str, Any] | None = None,
+) -> None:
     source = _matching_literature_source(target_input, payload)
+    if blackboard is not None:
+        source = _matching_blackboard_pdf_source(blackboard, payload) or source
     if source:
         if not payload.get("source_ref") and str(source.get("source_ref") or "").strip():
             payload["source_ref"] = str(source.get("source_ref") or "").strip()
@@ -4163,22 +4895,169 @@ def _inject_pdf_defaults(payload: dict[str, Any], target_input: dict[str, Any]) 
         payload["expected_labels"] = list(hints.get("expected_labels") or [])
 
 
+def _matching_blackboard_pdf_source(blackboard: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    evidence = dict((blackboard or {}).get("literature_evidence") or {})
+    candidates = [
+        dict(row)
+        for row in evidence.get("source_candidates") or []
+        if isinstance(row, dict) and str(row.get("local_pdf") or row.get("pdf_path") or row.get("source_pdf_path") or "").strip()
+    ]
+    if not candidates:
+        return {}
+    for row in candidates:
+        if _blackboard_source_matches_payload(row, payload):
+            return row
+    if payload.get("source_ref") or payload.get("doi") or payload.get("pdf_path"):
+        return {}
+    rendered = {_blackboard_source_key(row) for row in evidence.get("pdf_structure_evidence") or [] if isinstance(row, dict)}
+    ranked = _rank_blackboard_pdf_sources(blackboard, candidates, rendered={key for key in rendered if key})
+    return dict(ranked[0]) if ranked else {}
+
+
+def _blackboard_source_matches_payload(row: dict[str, Any], payload: dict[str, Any]) -> bool:
+    payload_key = _blackboard_source_key(payload)
+    row_key = _blackboard_source_key(row)
+    if payload_key and row_key and payload_key == row_key:
+        return True
+    for field in ("source_ref", "doi", "pii", "url"):
+        requested = str(payload.get(field) or "").strip().lower()
+        if requested and requested == str(row.get(field) or "").strip().lower():
+            return True
+    requested_pdf = str(payload.get("pdf_path") or payload.get("local_pdf") or payload.get("source_pdf_path") or "").strip()
+    row_pdf = str(row.get("local_pdf") or row.get("pdf_path") or row.get("source_pdf_path") or "").strip()
+    return bool(requested_pdf and row_pdf and Path(requested_pdf).expanduser().resolve() == Path(row_pdf).expanduser().resolve())
+
+
+def _rank_blackboard_pdf_sources(
+    blackboard: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    *,
+    rendered: set[str],
+) -> list[dict[str, Any]]:
+    target = dict(blackboard.get("target_profile") or {})
+    terms = _priority_terms(
+        [
+            str(target.get("target_name") or ""),
+            str(target.get("family_hint") or ""),
+            *[str(item) for item in target.get("functional_handles") or []],
+        ]
+    )
+
+    def score(row: dict[str, Any]) -> tuple[int, str]:
+        key = _blackboard_source_key(row)
+        text = _priority_source_text(row)
+        pdf_path = str(row.get("local_pdf") or row.get("pdf_path") or row.get("source_pdf_path") or "").strip()
+        value = 0
+        if pdf_path and Path(pdf_path).exists():
+            value += 60
+        if key and key not in rendered:
+            value += 80
+        if str(row.get("access_status") or "").lower() == "local_pdf_available":
+            value += 15
+        if str(row.get("source_role") or "").lower() == "local_pdf_proxy_download":
+            value += 10
+        if str(row.get("doi") or "").strip() or str(row.get("source_ref") or "").lower().startswith("doi:"):
+            value += 18
+            title = str(row.get("title") or row.get("source_title") or "").strip().lower()
+            if not title or title.startswith("pdfreq"):
+                value += 35
+        value += 10 * sum(1 for term in terms if term and term in text)
+        process_terms = (
+            "synthesis",
+            "preparation",
+            "process",
+            "route",
+            "scheme",
+            "intermediate",
+            "kilogram",
+            "kg",
+            "scale",
+        )
+        value += 8 * sum(1 for term in process_terms if term in text)
+        if "improved kilogram-scale preparation" in text:
+            value += 40
+        if "discovery" in text and not any(term in text for term in ("synthesis", "preparation", "process", "scheme")):
+            value -= 10
+        if key and key in rendered:
+            value -= 120
+        return value, key or pdf_path
+
+    return sorted(candidates, key=score, reverse=True)
+
+
+def _blackboard_source_key(row: dict[str, Any]) -> str:
+    pdf = str(row.get("local_pdf") or row.get("source_pdf_path") or row.get("pdf_path") or "").strip().lower()
+    if pdf:
+        return f"pdf:{pdf}"
+    document_id = str(row.get("document_id") or "").strip().lower()
+    if document_id:
+        return f"document:{document_id}"
+    source_ref = str(row.get("source_ref") or "").strip().lower()
+    if source_ref:
+        return f"ref:{source_ref}"
+    doi = str(row.get("doi") or "").strip().lower()
+    if doi:
+        return f"doi:{doi}"
+    pii = str(row.get("pii") or "").strip().lower()
+    if pii:
+        return f"pii:{pii}"
+    title = str(row.get("title") or row.get("source_title") or "").strip().lower()
+    return f"title:{title}" if title else ""
+
+
+def _priority_source_text(row: dict[str, Any]) -> str:
+    return " ".join(
+        str(row.get(key) or "")
+        for key in (
+            "source_ref",
+            "title",
+            "source_title",
+            "doi",
+            "url",
+            "route_sequence_hint",
+            "relevance_rationale",
+        )
+    ).lower()
+
+
+def _priority_terms(values: list[str]) -> list[str]:
+    terms: list[str] = []
+    for value in values:
+        for token in str(value or "").lower().replace(";", " ").replace(",", " ").split():
+            token = token.strip("()[]{}:._-/")
+            if len(token) >= 5 and token not in {"online", "local", "cache", "source", "target"}:
+                terms.append(token)
+    return _dedupe(terms)[:10]
+
+
 def _visual_action_output_dir(action: dict[str, Any]) -> str:
     action_id = str(action.get("action_id") or action.get("action_type") or "visual").strip()
     source = str((action.get("payload") or {}).get("source_ref") or (action.get("payload") or {}).get("pdf_path") or "").strip()
     raw = "__".join(part for part in [action_id, source] if part)
-    safe = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in raw)
-    return f"visual_literature_chain_extraction_{safe or 'visual'}"
+    safe_action = _compact_safe_path_token(action_id, max_len=34) or "visual"
+    safe_source = _compact_safe_path_token(source, max_len=24)
+    digest = hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()[:10]
+    suffix = "__".join(part for part in [safe_action, safe_source, digest] if part)
+    return f"visual_lit_chain_{suffix}"
 
 
 def _structure_resolution_action_output_dir(action: dict[str, Any]) -> str:
     action_id = str(action.get("action_id") or action.get("action_type") or "structure_resolution").strip()
     payload = dict(action.get("payload") or {})
-    source = str(payload.get("source_ref") or payload.get("pdf_path") or "").strip()
     label = str(payload.get("label") or payload.get("compound_label") or "").strip()
+    source = str(payload.get("source_ref") or payload.get("pdf_path") or "").strip()
     raw = "__".join(part for part in [action_id, source, label] if part)
-    safe = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in raw)
-    return f"literature_structure_resolution_{safe or 'structure'}"
+    safe_action = _compact_safe_path_token(action_id, max_len=36) or "structure"
+    safe_label = _compact_safe_path_token(label, max_len=24)
+    digest = hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()[:10]
+    suffix = "__".join(part for part in [safe_action, safe_label, digest] if part)
+    return f"lit_struct_res_{suffix}"
+
+
+def _compact_safe_path_token(value: str, *, max_len: int) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in str(value or "").strip())
+    safe = "_".join(part for part in safe.split("_") if part)
+    return safe[:max_len]
 
 
 def _pdf_action_output_dir(action: dict[str, Any]) -> str:
@@ -4205,7 +5084,13 @@ def _normalize_literature_sources(
         row = dict(raw)
         local_pdf = str(row.get("local_pdf") or row.get("pdf_path") or row.get("path") or "").strip()
         if local_pdf:
-            row["local_pdf"] = str(Path(local_pdf).expanduser().resolve())
+            resolved_pdf = str(Path(local_pdf).expanduser().resolve())
+            row["local_pdf"] = resolved_pdf
+            row.setdefault(
+                "document_id",
+                f"pdf:{hashlib.sha256(resolved_pdf.lower().encode('utf-8')).hexdigest()[:16]}",
+            )
+            row.setdefault("content_scope", _infer_literature_content_scope(resolved_pdf))
         row.setdefault("source_ref", str(row.get("ref") or row.get("source_ref") or "").strip())
         row.setdefault("source_role", "local_cache")
         row.setdefault("candidate_id", f"provided_pdf_{idx}")
@@ -4232,7 +5117,7 @@ def _normalize_literature_sources(
     out: list[dict[str, Any]] = []
     seen: dict[str, int] = {}
     for row in rows:
-        key = str(row.get("doi") or row.get("pii") or row.get("source_ref") or row.get("local_pdf") or row.get("url") or "").strip().lower()
+        key = _literature_document_key(row)
         if not key:
             continue
         if key in seen:
@@ -4243,6 +5128,109 @@ def _normalize_literature_sources(
         seen[key] = len(out)
         out.append(row)
     return out
+
+
+def _refresh_blackboard_from_local_pdf_proxy_downloads(
+    blackboard: dict[str, Any],
+    *,
+    run_dir: Path | None,
+) -> dict[str, Any]:
+    """Merge late browser/local-proxy PDF downloads into an active blackboard."""
+    downloaded_sources = _local_pdf_proxy_download_sources(run_dir)
+    if not downloaded_sources:
+        return blackboard
+
+    board = dict(blackboard)
+    evidence = dict(board.get("literature_evidence") or {})
+    candidates: list[dict[str, Any]] = [
+        dict(row)
+        for row in evidence.get("source_candidates") or []
+        if isinstance(row, dict)
+    ]
+    index: dict[str, int] = {}
+    for pos, candidate in enumerate(candidates):
+        key = _candidate_merge_key(candidate) or f"existing:{pos}"
+        index[key] = pos
+
+    added = 0
+    for source in downloaded_sources:
+        key = _candidate_merge_key(source) or f"download:{len(candidates)}"
+        candidate = {
+            **source,
+            "schema_version": "literature_source_candidate.v1",
+            "source_type": str(source.get("source_type") or "local_pdf"),
+            "source_discovery_mode": "local_pdf_proxy_manifest_refresh",
+            "access_status": "local_pdf_available",
+            "extraction_task_recommendations": _dedupe(
+                [
+                    *[str(item) for item in source.get("extraction_task_recommendations") or []],
+                    "extract_pdf_literature_structures",
+                    "extract_visual_literature_chain",
+                    "compile_exact_literature_rows",
+                ]
+            ),
+            "relevance_rationale": str(
+                source.get("relevance_rationale")
+                or "browser/local-proxy PDF download is now available for source-detail extraction"
+            ),
+            "no_solved_claim": True,
+        }
+        if key in index:
+            pos = index[key]
+            before_pdf = str(candidates[pos].get("local_pdf") or "").strip()
+            candidates[pos] = _merge_source_candidate(candidates[pos], candidate)
+            if not before_pdf and str(candidates[pos].get("local_pdf") or "").strip():
+                added += 1
+            continue
+        index[key] = len(candidates)
+        candidates.append(candidate)
+        added += 1
+
+    evidence["source_candidates"] = candidates
+    evidence["source_refs"] = _dedupe(
+        [
+            *[str(item) for item in evidence.get("source_refs") or []],
+            *[str(row.get("source_ref") or "") for row in downloaded_sources],
+            *[
+                f"doi:{str(row.get('doi') or '').strip()}"
+                for row in downloaded_sources
+                if str(row.get("doi") or "").strip()
+            ],
+        ]
+    )
+    if added:
+        evidence["confidence"] = "local_pdf_available"
+    prior_mode = str(evidence.get("source_discovery_mode") or "").strip()
+    if added:
+        if prior_mode and "local_pdf_proxy_manifest" not in prior_mode:
+            evidence["source_discovery_mode"] = f"{prior_mode}+local_pdf_proxy_manifest"
+        else:
+            evidence["source_discovery_mode"] = prior_mode or "local_pdf_proxy_manifest_refresh"
+    evidence["fallback_order"] = _dedupe(
+        [*[str(item) for item in evidence.get("fallback_order") or []], "codex_online", "local_pdf", "placeholder"]
+    )
+    evidence["local_pdf_proxy_download_count"] = len(downloaded_sources)
+    evidence["late_local_pdf_proxy_downloads_merged"] = int(added)
+    board["literature_evidence"] = evidence
+
+    belief = dict(board.get("current_belief") or {})
+    belief["next_action_bias"] = _dedupe(
+        [
+            *[str(item) for item in belief.get("next_action_bias") or []],
+            "extract_pdf_literature_structures",
+            "extract_visual_literature_chain",
+            "compile_exact_literature_rows",
+        ]
+    )
+    board["current_belief"] = belief
+
+    if run_dir is not None:
+        artifact_refs = dict(board.get("artifact_refs") or {})
+        artifact_refs["local_pdf_proxy_download_manifest"] = str(local_pdf_proxy_download_manifest_path(run_dir).resolve())
+        board["artifact_refs"] = artifact_refs
+
+    _refresh_source_lifecycle(board)
+    return board
 
 
 def _local_pdf_proxy_download_sources(run_dir: Path | None) -> list[dict[str, Any]]:
@@ -4270,6 +5258,8 @@ def _local_pdf_proxy_download_sources(run_dir: Path | None) -> list[dict[str, An
         resolved = Path(pdf_path).expanduser()
         if not resolved.is_file():
             continue
+        if not _local_pdf_file_has_pdf_magic(resolved):
+            continue
         doi = _normalize_doi(str(record.get("doi") or ""))
         pii = _source_pii(record)
         source_ref = str(record.get("source_ref") or "").strip()
@@ -4296,6 +5286,14 @@ def _local_pdf_proxy_download_sources(run_dir: Path | None) -> list[dict[str, An
             }
         )
     return rows
+
+
+def _local_pdf_file_has_pdf_magic(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            return handle.read(1024).lstrip().startswith(b"%PDF-")
+    except OSError:
+        return False
 
 
 def _discover_auto_local_pdf_cache(
@@ -4332,7 +5330,7 @@ def _local_pdf_search_roots(search_dirs: list[str | Path] | None) -> list[Path]:
         raw_dirs.extend(search_dirs)
     else:
         env_dirs = [item for item in os.environ.get("AUTOPLANNER_LOCAL_PDF_SEARCH_DIRS", "").split(os.pathsep) if item.strip()]
-        raw_dirs.extend(env_dirs or [Path.cwd()])
+        raw_dirs.extend(env_dirs)
     roots: list[Path] = []
     seen: set[str] = set()
     for raw in raw_dirs:
@@ -4499,12 +5497,49 @@ def _target_literature_sources(target_input: dict[str, Any], payload: dict[str, 
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for row in rows:
-        key = str(row.get("doi") or row.get("pii") or row.get("source_ref") or row.get("local_pdf") or "").strip().lower()
+        key = _literature_document_key(row)
         if not key or key in seen:
             continue
         seen.add(key)
         out.append(row)
     return out
+
+
+def _literature_document_key(row: dict[str, Any]) -> str:
+    """Identify an extractable document without collapsing article and SI files.
+
+    A DOI identifies a scholarly source, but a source can contain multiple
+    independently extractable documents.  Prefer the concrete PDF/document id
+    and fall back to source-level identifiers only for metadata-only rows.
+    """
+    local_pdf = str(
+        row.get("local_pdf") or row.get("source_pdf_path") or row.get("pdf_path") or ""
+    ).strip().lower()
+    if local_pdf:
+        return f"pdf:{local_pdf}"
+    document_id = str(row.get("document_id") or "").strip().lower()
+    if document_id:
+        return f"document:{document_id}"
+    doi = _source_doi(row)
+    if doi:
+        return f"doi:{doi}"
+    pii = _source_pii(row).strip().lower()
+    if pii:
+        return f"pii:{pii}"
+    source_ref = str(row.get("source_ref") or "").strip().lower()
+    if source_ref:
+        return f"ref:{source_ref}"
+    url = str(row.get("url") or "").strip().lower()
+    return f"url:{url}" if url else ""
+
+
+def _infer_literature_content_scope(path: str) -> str:
+    name = Path(path).name.lower()
+    if any(token in name for token in ("supporting", "supplement", "supp_info", "_si.", "-si.")):
+        return "supplementary_information"
+    if any(token in name for token in ("thesis", "dissertation")):
+        return "thesis"
+    return "article"
 
 
 def _target_literature_cache_sources(target_input: dict[str, Any], payload: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -4582,7 +5617,18 @@ def _invalid_final(preflight: dict[str, Any]) -> FinalVerdict:
 
 def _parent_proof_accepted(blackboard: dict[str, Any]) -> bool:
     proof = dict(blackboard.get("parent_route_proof") or {})
-    return bool(proof.get("accepted") and proof.get("solved"))
+    return _blackboard_parent_proof_solved(blackboard, proof)
+
+
+def _blackboard_parent_proof_solved(
+    blackboard: dict[str, Any],
+    proof: dict[str, Any] | None = None,
+) -> bool:
+    target = dict(blackboard.get("target_profile") or {})
+    return is_solved_parent_route_proof(
+        dict(proof or blackboard.get("parent_route_proof") or {}),
+        expected_target_smiles=str(target.get("target_smiles") or ""),
+    )
 
 
 def _result(
@@ -4596,6 +5642,19 @@ def _result(
     final_verdict: FinalVerdict,
     tool_calls: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    artifact_refs = dict(blackboard.get("artifact_refs") or {})
+    artifacts = {
+        "target_input": str(run_dir / "target_input.json"),
+        "preflight": str(run_dir / "preflight.json"),
+        "agent_blackboard": str(run_dir / "agent_blackboard.json"),
+        "decision_trace": str(run_dir / "decision_trace.jsonl"),
+        "tool_calls": str(run_dir / "tool_calls.jsonl"),
+        "artifact_bundle": str(run_dir / "artifact_bundle.json"),
+        "final_verdict": str(run_dir / "final_verdict.json"),
+    }
+    for key in ("explored_route_forest", "route_forest_html", "route_forest_error"):
+        if artifact_refs.get(key):
+            artifacts[key] = artifact_refs[key]
     return {
         "schema_version": "agentic_blackboard_controller_result.v1",
         "run_dir": str(run_dir),
@@ -4607,15 +5666,7 @@ def _result(
         "tool_calls": tool_calls,
         "artifact_bundle": artifact_bundle.to_dict(),
         "final_verdict": final_verdict.to_dict(),
-        "artifacts": {
-            "target_input": str(run_dir / "target_input.json"),
-            "preflight": str(run_dir / "preflight.json"),
-            "agent_blackboard": str(run_dir / "agent_blackboard.json"),
-            "decision_trace": str(run_dir / "decision_trace.jsonl"),
-            "tool_calls": str(run_dir / "tool_calls.jsonl"),
-            "artifact_bundle": str(run_dir / "artifact_bundle.json"),
-            "final_verdict": str(run_dir / "final_verdict.json"),
-        },
+        "artifacts": artifacts,
     }
 
 

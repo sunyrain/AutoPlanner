@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from cascade_planner.agent.action_contracts import (
-    FORBIDDEN_RAW_REACTION_KEYS,
     contains_raw_reaction_payload as _shared_contains_raw_reaction_payload,
 )
 
@@ -81,6 +80,9 @@ class TargetInput:
     target_smiles: str
     family_hint: str = ""
     case_id: str = ""
+    target_aliases: list[str] = field(default_factory=list)
+    enable_online_anchor_resolution: bool = False
+    advisory_anchor_catalog: list[dict[str, Any]] = field(default_factory=list)
     schema_version: str = TARGET_INPUT_SCHEMA
 
     def to_dict(self) -> dict[str, Any]:
@@ -265,9 +267,13 @@ def _contains_raw_reaction_payload(value: Any) -> bool:
 
 
 def write_json(path: str | Path, data: dict[str, Any]) -> None:
-    Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
 
 
 def append_jsonl(path: str | Path, data: dict[str, Any]) -> None:
-    with Path(path).open("a", encoding="utf-8") as handle:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(data, ensure_ascii=False, sort_keys=True) + "\n")

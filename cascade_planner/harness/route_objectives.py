@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from cascade_planner.harness.parent_route_proof import is_solved_parent_route_proof
+
 try:
     from rdkit import Chem, RDLogger
     from rdkit.Chem import rdMolDescriptors
@@ -178,6 +180,27 @@ def build_broad_transform_templates_from_blackboard(blackboard: dict[str, Any]) 
                 risk_flags=[str(item) for item in row.get("risk_flags") or []],
             )
         )
+    for row in _visual_template_hints_from_blackboard(blackboard)[:8]:
+        templates.append(
+            _broad_template(
+                template_id=str(row.get("template_id") or ""),
+                objective_type="visual_advisory_semisynthesis_template",
+                reaction_center=str(row.get("reaction_center") or ""),
+                preserved_scaffold=str(row.get("preserved_scaffold") or "source visual scaffold"),
+                transform_logic=str(row.get("transform_logic") or ""),
+                required_verification=[
+                    "RDKit-valid reactant/product reconstruction",
+                    "same-core or intended-side-chain audit",
+                    "source/detail or model rerun verification",
+                ],
+                risk_flags=[
+                    "visual_template_not_exact_row",
+                    "stereochemistry_may_be_partial",
+                    *[str(item) for item in row.get("risk_flags") or [] if str(item or "").strip()],
+                ],
+                source_refs=[str(item) for item in row.get("source_refs") or [] if str(item or "").strip()],
+            )
+        )
     templates = _dedupe_templates(templates)
     return {
         "schema_version": "broad_transform_template_report.v1",
@@ -190,6 +213,59 @@ def build_broad_transform_templates_from_blackboard(blackboard: dict[str, Any]) 
         "requires_verifier": True,
         "reasons": [] if templates else ["no_objective_or_hypothesis_material_for_broad_templates"],
     }
+
+
+def _visual_template_hints_from_blackboard(blackboard: dict[str, Any]) -> list[dict[str, Any]]:
+    hints: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    evidence = dict((blackboard or {}).get("literature_evidence") or {})
+    for chain in evidence.get("visual_chains") or []:
+        if not isinstance(chain, dict):
+            continue
+        source_ref = str(chain.get("source_ref") or chain.get("source_title") or chain.get("artifact_ref") or "")
+        for step in chain.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            product = str(step.get("product_label") or step.get("product_smiles") or "").strip()
+            reactants = [
+                str(item).strip()
+                for item in step.get("reactant_labels") or step.get("reactant_smiles") or []
+                if str(item or "").strip()
+            ]
+            if not product and not reactants:
+                continue
+            key = f"{source_ref}:{product}:{'|'.join(reactants[:3])}"
+            if key in seen:
+                continue
+            seen.add(key)
+            hints.append(
+                {
+                    "template_id": f"broad_template:visual:{_safe_token(source_ref or 'source')}:{len(hints) + 1}",
+                    "reaction_center": str(
+                        step.get("reaction_center")
+                        or step.get("disconnection")
+                        or step.get("transform_label")
+                        or step.get("step_id")
+                        or "visible literature transform"
+                    ),
+                    "preserved_scaffold": str(
+                        chain.get("preserved_scaffold")
+                        or step.get("preserved_scaffold")
+                        or "taxane/core scaffold if present"
+                    ),
+                    "transform_logic": str(
+                        step.get("reaction_class")
+                        or step.get("transform_logic")
+                        or f"{', '.join(reactants[:3]) or 'visible precursor'} -> {product or 'visible product'}"
+                    ),
+                    "risk_flags": [str(item) for item in step.get("risk_flags") or [] if str(item or "").strip()],
+                    "source_refs": [
+                        str(source_ref),
+                        str(step.get("source_locator") or ""),
+                    ],
+                }
+            )
+    return hints
 
 
 def compile_route_objective_proof_bundle(
@@ -217,6 +293,7 @@ def compile_route_objective_proof_bundle(
             _objective_proof(
                 objective,
                 parent_route_proof=proof,
+                expected_target_smiles=str((blackboard.get("target_profile") or {}).get("target_smiles") or ""),
                 evidence=evidence,
                 broad_templates=broad_templates,
             )
@@ -272,12 +349,23 @@ def _target_features(target_smiles: str, *, target_name: str, family_hint: str) 
     halogen_atoms = sum(1 for atom in atoms if atom.GetAtomicNum() in {9, 17, 35, 53})
     chiral_centers = len(Chem.FindMolChiralCenters(mol, includeUnassigned=True))
     rings = mol.GetRingInfo().NumRings()
+    fused_ring_system_rings = _largest_ring_system_ring_count(mol)
     carbon_fraction = carbon_atoms / max(1, heavy_atoms)
     formula = rdMolDescriptors.CalcMolFormula(mol) if rdMolDescriptors is not None else ""
+    statin_process_like = any(
+        token in text
+        for token in ("statin", "atorvastatin", "rosuvastatin", "fluvastatin", "pitavastatin", "hmg-coa", "hmg coa")
+    )
     flags = {
         "steroid_like_polycyclic_scaffold": _steroid_like_polycyclic(mol, carbon_fraction=carbon_fraction, text=text),
-        "natural_product_like": rings >= 3 and (chiral_centers >= 2 or carbon_fraction >= 0.75),
-        "high_scaffold_complexity": rings >= 4 or (heavy_atoms >= 28 and chiral_centers >= 2),
+        "natural_product_like": (not statin_process_like)
+        and (
+            (fused_ring_system_rings >= 3 and (chiral_centers >= 2 or carbon_fraction >= 0.72))
+            or (rings >= 3 and chiral_centers >= 4 and carbon_fraction >= 0.70)
+        ),
+        "high_scaffold_complexity": fused_ring_system_rings >= 3 or heavy_atoms >= 40 or (heavy_atoms >= 28 and chiral_centers >= 3),
+        "fused_polycyclic_ring_system": fused_ring_system_rings >= 3,
+        "statin_process_like": statin_process_like,
         "peptide_or_amide_rich": _has(mol, "[NX3][CX3](=O)") and nitrogen_atoms >= 2,
         "glycoside_or_sugar_like": _has(mol, "[OX2][C;R][C;R][C;R][O;R]") or "glycos" in text,
         "oligo_or_bioconjugate_like": any(token in text for token in ("oligo", "peptide", "nucleotide", "rna", "dna", "bioconjugate")),
@@ -290,6 +378,7 @@ def _target_features(target_smiles: str, *, target_name: str, family_hint: str) 
         "valid": True,
         "heavy_atoms": int(heavy_atoms),
         "rings": int(rings),
+        "largest_fused_ring_system_rings": int(fused_ring_system_rings),
         "chiral_centers": int(chiral_centers),
         "carbon_atoms": int(carbon_atoms),
         "hetero_atoms": int(hetero_atoms),
@@ -419,11 +508,14 @@ def _biosynthetic_objective(features: dict[str, Any], failure_set: set[str], evi
 
 
 def _literature_anchor_objective(features: dict[str, Any], failure_set: set[str], evidence_refs: list[str]) -> dict[str, Any]:
+    flags = dict(features.get("flags") or {})
     score = 35
     if int(features.get("rings") or 0) >= 3:
         score += 20
     if int(features.get("heavy_atoms") or 0) >= 25:
         score += 10
+    if flags.get("statin_process_like"):
+        score += 20
     if evidence_refs:
         score += 15
     if "large_atom_jump" in failure_set:
@@ -446,6 +538,8 @@ def _platform_objective(features: dict[str, Any], failure_set: set[str], evidenc
     score = 25
     if flags.get("impurity_or_metabolite_hint"):
         score += 20
+    if flags.get("statin_process_like"):
+        score += 15
     if int(features.get("rings") or 0) >= 3:
         score += 20
     return _objective(
@@ -689,6 +783,8 @@ def _source_search_guidance(selected: list[dict[str, Any]], features: dict[str, 
         ]
         if (features.get("flags") or {}).get("steroid_like_polycyclic_scaffold"):
             terms.extend(["steroid scaffold", "same core intermediate", "biotransformation"])
+        elif (features.get("flags") or {}).get("statin_process_like"):
+            terms.extend(["statin process chemistry", "Paal-Knorr intermediate", "advanced ketal ester"])
         elif (features.get("flags") or {}).get("natural_product_like"):
             terms.extend(["natural product scaffold", "semisynthesis", "same core"])
         rows.append(
@@ -713,8 +809,9 @@ def _broad_template(
     transform_logic: str,
     required_verification: list[str],
     risk_flags: list[str],
+    source_refs: list[str] | None = None,
 ) -> dict[str, Any]:
-    return {
+    row = {
         "schema_version": BROAD_TRANSFORM_TEMPLATE_SCHEMA,
         "template_id": template_id,
         "objective_type": objective_type,
@@ -728,20 +825,29 @@ def _broad_template(
         "not_parent_route_proof": True,
         "no_solved_claim": True,
     }
+    refs = _dedupe([str(item) for item in source_refs or [] if str(item or "").strip()])
+    if refs:
+        row["source_refs"] = refs
+    return row
 
 
 def _objective_proof(
     objective: dict[str, Any],
     *,
     parent_route_proof: dict[str, Any],
+    expected_target_smiles: str,
     evidence: dict[str, Any],
     broad_templates: list[dict[str, Any]],
 ) -> dict[str, Any]:
     objective_type = str(objective.get("objective_type") or "")
-    parent_solved = bool(parent_route_proof.get("accepted") and parent_route_proof.get("solved"))
+    parent_solved = is_solved_parent_route_proof(
+        parent_route_proof,
+        expected_target_smiles=expected_target_smiles,
+    )
     evidence_backed = bool(
         evidence.get("exact_rows")
         or evidence.get("visual_chains")
+        or evidence.get("process_evidence_rows")
         or evidence.get("source_candidates")
         or broad_templates
     )
@@ -783,11 +889,35 @@ def _steroid_like_polycyclic(mol: Any, *, carbon_fraction: float, text: str) -> 
     if any(token in text for token in ("steroid", "sterol", "pregn", "androst", "chol", "cardenolide", "bufadienolide")):
         return True
     return bool(
-        mol.GetRingInfo().NumRings() >= 4
+        _largest_ring_system_ring_count(mol) >= 3
         and mol.GetNumHeavyAtoms() >= 18
         and carbon_fraction >= 0.72
         and not _has(mol, "[NX3][CX3](=O)[NX3]")
     )
+
+
+def _largest_ring_system_ring_count(mol: Any) -> int:
+    rings = [set(ring) for ring in mol.GetRingInfo().AtomRings()]
+    if not rings:
+        return 0
+    seen: set[int] = set()
+    best = 0
+    for start in range(len(rings)):
+        if start in seen:
+            continue
+        stack = [start]
+        component: set[int] = set()
+        while stack:
+            idx = stack.pop()
+            if idx in component:
+                continue
+            component.add(idx)
+            for jdx, other in enumerate(rings):
+                if jdx not in component and rings[idx] & other:
+                    stack.append(jdx)
+        seen.update(component)
+        best = max(best, len(component))
+    return best
 
 
 def _has(mol: Any, smarts: str) -> bool:
@@ -810,6 +940,8 @@ def _text_hints(text: str) -> list[str]:
         "glycoside",
         "peptide",
         "oligo",
+        "statin",
+        "atorvastatin",
     ):
         if token in text:
             hints.append(token.replace(" ", "_"))

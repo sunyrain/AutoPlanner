@@ -69,7 +69,7 @@ class AgentArtifactContractsTest(unittest.TestCase):
                 "schema_version": "agent_action_batch.v1",
                 "case_id": "case",
                 "round_index": 1,
-                "mode": "codex_xhigh_blackboard_planner",
+                "mode": "codex_blackboard_planner",
                 "actions": [],
                 "semantics": {
                     "planner_can_emit_solved": False,

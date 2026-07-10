@@ -241,13 +241,41 @@ def _family_hints(mol: Chem.Mol, family_hint: str) -> list[str]:
         ("polyol", "[OX2H]"),
     ]
     ring_count = mol.GetRingInfo().NumRings()
-    if ring_count >= 4:
+    explicit_polycycle = any(
+        token in str(family_hint or "").lower()
+        for token in ("steroid", "sterol", "pregn", "androst", "bufadienolide", "cage", "polycyclic")
+    )
+    if ring_count >= 4 and (explicit_polycycle or _largest_ring_system_ring_count(mol) >= 3):
         hints.append("polycyclic_or_steroid_like")
     for hint, smarts in smarts_hints:
         patt = Chem.MolFromSmarts(smarts)
         if patt is not None and mol.HasSubstructMatch(patt):
             hints.append(hint)
     return sorted(set(hints))
+
+
+def _largest_ring_system_ring_count(mol: Chem.Mol) -> int:
+    rings = [set(ring) for ring in mol.GetRingInfo().AtomRings()]
+    if not rings:
+        return 0
+    seen: set[int] = set()
+    best = 0
+    for start in range(len(rings)):
+        if start in seen:
+            continue
+        stack = [start]
+        component: set[int] = set()
+        while stack:
+            idx = stack.pop()
+            if idx in component:
+                continue
+            component.add(idx)
+            for jdx, other in enumerate(rings):
+                if jdx not in component and rings[idx] & other:
+                    stack.append(jdx)
+        seen.update(component)
+        best = max(best, len(component))
+    return best
 
 
 def _split_hints(family_hint: str) -> list[str]:

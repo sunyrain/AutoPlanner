@@ -1,0 +1,12 @@
+{
+  "schema_version": "trusted_literature_step_registry.v1",
+  "registry_id": "autoplanner-default-empty",
+  "bindings": [],
+  "policy": {
+    "model_authored_visual_or_text_translation_is_advisory": true,
+    "accepted_authorities": [
+      "human_curator",
+      "deterministic_structure_parser"
+    ]
+  }
+}

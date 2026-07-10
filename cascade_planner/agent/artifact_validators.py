@@ -26,6 +26,7 @@ from cascade_planner.agent.literature_segments import (
 )
 from cascade_planner.agent.strategic_candidate_generation import validate_literature_candidate
 from cascade_planner.agent.terminal_judge import validate_judge_policy
+from cascade_planner.routes.consensus import validate_retrosynthesis_report_payload
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -81,6 +82,8 @@ def validate_typed_artifact(
         reasons.extend(_structure_reasons(payload))
     elif artifact_type == "EvidenceCard":
         reasons.extend(_evidence_reasons(payload))
+    elif artifact_type == "RetrosynthesisProposalReport":
+        reasons.extend(validate_retrosynthesis_report_payload(payload))
     elif artifact_type == "StrategicDisconnectionCard":
         reasons.extend(_strategic_disconnection_reasons(payload, validated_evidence_refs or set()))
     elif artifact_type == "LiteratureRouteSegmentCard":
@@ -601,7 +604,10 @@ def _literature_scout_report_reasons(payload: dict[str, Any]) -> list[str]:
     if fallback_order is not None:
         if not isinstance(fallback_order, list):
             reasons.append("literature_scout_fallback_order_not_list")
-        elif [str(item) for item in fallback_order] != ["codex_online", "local_pdf", "placeholder"]:
+        elif [str(item) for item in fallback_order] not in (
+            ["codex_online", "local_pdf", "placeholder"],
+            ["codex_online", "placeholder"],
+        ):
             reasons.append("literature_scout_invalid_fallback_order")
     attempts = payload.get("scout_attempts")
     if attempts is not None and not isinstance(attempts, list):

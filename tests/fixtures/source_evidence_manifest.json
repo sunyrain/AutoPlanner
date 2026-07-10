@@ -1,0 +1,26 @@
+{
+  "schema_version": "literature_pdf_structure_evidence.v1",
+  "accepted": true,
+  "status": "completed",
+  "source_ref": "doi:10.1000/revalidatable-stitch",
+  "source_title": "Provenance contract fixture",
+  "source_pdf_path": "tests/fixtures/source_evidence_stub.pdf",
+  "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+  "rendered_pages": [
+    {
+      "page_number": 1,
+      "image_path": "tests/fixtures/source_page.ppm",
+      "sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976"
+    }
+  ],
+  "source_binding_audit": {
+    "schema_version": "local_pdf_source_binding_audit.v1",
+    "accepted": true,
+    "source_ref": "doi:10.1000/revalidatable-stitch",
+    "source_pdf_path": "tests/fixtures/source_evidence_stub.pdf",
+    "matched_source_count": 1,
+    "matched_document_ids": ["fixture:revalidatable-stitch"],
+    "reasons": []
+  },
+  "reasons": []
+}

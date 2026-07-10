@@ -18,7 +18,6 @@ from cascade_planner.agent.chem_enzy_policy import (
 )
 from cascade_planner.agent.condition_agent import audit_conditions
 from cascade_planner.agent.evolution_manager import (
-    EvolutionCandidate,
     LayeredKnowledgeBase,
     evolution_candidate_from_dict,
     validate_evolution_candidate,
@@ -35,8 +34,6 @@ from cascade_planner.agent.literature_templates import (
 )
 from cascade_planner.agent.literature_segments import (
     literature_route_segment_from_dict,
-    segment_step_from_dict,
-    validate_segment_step,
     validate_literature_route_segment,
 )
 from cascade_planner.harness.open_research_contract import (
@@ -56,7 +53,8 @@ def compile_downstream_consumables(
     *,
     target_smiles: str = "",
     case_id: str = "",
-    enable_online_anchor_resolution: bool = True,
+    enable_online_anchor_resolution: bool = False,
+    advisory_anchor_catalog: list[dict[str, Any]] | dict[str, Any] | None = None,
     anchor_resolution_timeout_s: float = 5.0,
     anchor_resolution_fetch_json: FetchJson | None = None,
 ) -> dict[str, Any]:
@@ -77,6 +75,7 @@ def compile_downstream_consumables(
         payload,
         case_id=case_id,
         enable_online=enable_online_anchor_resolution,
+        anchor_catalog=advisory_anchor_catalog,
         timeout_s=anchor_resolution_timeout_s,
         fetch_json=anchor_resolution_fetch_json,
     )
@@ -439,64 +438,31 @@ def _compile_route_expansion_tasks(
     }
 
 
-CURATED_ADVISORY_ANCHORS: dict[str, dict[str, Any]] = {
-    "dhea": {
-        "name": "Dehydroepiandrosterone",
-        "aliases": ["dhea", "dehydroepiandrosterone"],
-        "smiles": "C[C@]12CC[C@H]3[C@H]([C@@H]1CCC2=O)CC=C4[C@@]3(CC[C@@H](C4)O)C",
-        "source_ref": "pubchem:5881",
-        "role": "steroid_chiral_pool_anchor",
-    },
-    "dehydroepiandrosterone": {
-        "name": "Dehydroepiandrosterone",
-        "aliases": ["dhea", "dehydroepiandrosterone"],
-        "smiles": "C[C@]12CC[C@H]3[C@H]([C@@H]1CCC2=O)CC=C4[C@@]3(CC[C@@H](C4)O)C",
-        "source_ref": "pubchem:5881",
-        "role": "steroid_chiral_pool_anchor",
-    },
-    "androstenedione": {
-        "name": "Androstenedione",
-        "aliases": ["androstenedione", "androst-4-ene-3,17-dione"],
-        "smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]3[C@@H]2CC[C@]4([C@H]3CCC4=O)C",
-        "source_ref": "pubchem:6128",
-        "role": "steroid_chiral_pool_anchor",
-    },
-    "pregnenolone": {
-        "name": "Pregnenolone",
-        "aliases": ["pregnenolone"],
-        "smiles": "CC(=O)[C@H]1CC[C@@H]2[C@@]1(CC[C@H]3[C@H]2CC=C4[C@@]3(CC[C@@H](C4)O)C)C",
-        "source_ref": "pubchem:8955",
-        "role": "steroid_chiral_pool_anchor",
-    },
-    "progesterone": {
-        "name": "Progesterone",
-        "aliases": ["progesterone"],
-        "smiles": "CC(=O)[C@H]1CC[C@@H]2[C@@]1(CC[C@H]3[C@H]2CCC4=CC(=O)CC[C@]34C)C",
-        "source_ref": "pubchem:5994",
-        "role": "steroid_chiral_pool_anchor",
-    },
-}
-
-
 def _compile_advisory_anchor_resolution(
     payload: dict[str, Any],
     *,
     case_id: str,
     enable_online: bool = False,
+    anchor_catalog: list[dict[str, Any]] | dict[str, Any] | None = None,
     timeout_s: float = 5.0,
     fetch_json: FetchJson | None = None,
 ) -> dict[str, Any]:
     candidates = _advisory_anchor_candidate_terms(payload)
+    configured_anchors, catalog_rejected = _normalize_configured_advisory_anchor_catalog(
+        anchor_catalog
+    )
     resolved: list[dict[str, Any]] = []
     gaps: list[dict[str, Any]] = []
-    rejected: list[dict[str, Any]] = []
-    reasons: list[str] = []
+    rejected: list[dict[str, Any]] = list(catalog_rejected)
+    reasons: list[str] = (
+        ["advisory_anchor_catalog_record_invalid"] if catalog_rejected else []
+    )
     fetch = fetch_json or _fetch_json
     for candidate in candidates:
         term = str(candidate.get("term") or "").strip()
         if not term:
             continue
-        anchor = _resolve_curated_advisory_anchor(term)
+        anchor = _resolve_configured_advisory_anchor(term, configured_anchors)
         if not anchor and enable_online and _online_anchor_lookup_allowed(term):
             anchor = _lookup_pubchem_advisory_anchor(term, timeout_s=timeout_s, fetch_json=fetch)
         if not anchor:
@@ -506,7 +472,7 @@ def _compile_advisory_anchor_resolution(
                     "term": term,
                     "source": str(candidate.get("source") or ""),
                     "evidence_refs": [str(item) for item in candidate.get("evidence_refs") or []],
-                    "reason": "unresolved_advisory_anchor_requires_source_detail_or_curated_smiles",
+                    "reason": "unresolved_advisory_anchor_requires_explicit_catalog_or_online_resolution",
                 })
             continue
         smiles = str(anchor.get("smiles") or "")
@@ -514,10 +480,10 @@ def _compile_advisory_anchor_resolution(
         if not canonical:
             rejected.append({
                 "term": term,
-                "reason": "curated_advisory_anchor_invalid_smiles",
+                "reason": "advisory_anchor_invalid_smiles",
                 "source_ref": str(anchor.get("source_ref") or ""),
             })
-            reasons.append("curated_advisory_anchor_invalid_smiles")
+            reasons.append("advisory_anchor_invalid_smiles")
             continue
         resolved.append({
             "schema_version": "resolved_advisory_anchor_target.v1",
@@ -528,7 +494,7 @@ def _compile_advisory_anchor_resolution(
             "smiles": smiles,
             "canonical_smiles": canonical,
             "source_ref": str(anchor.get("source_ref") or ""),
-            "source": str(anchor.get("source") or "curated_advisory_anchor_dictionary"),
+            "source": str(anchor.get("source") or "explicit_runtime_advisory_anchor_catalog"),
             "role": str(anchor.get("role") or "advisory_anchor"),
             "allowed_use": "anchor_whitelist_and_route_expansion_child_target",
             "resolution_status": "resolved",
@@ -548,7 +514,11 @@ def _compile_advisory_anchor_resolution(
         "unresolved_anchor_gap_count": len(gaps),
         "resolved_anchor_targets": resolved,
         "unresolved_anchor_gaps": gaps,
-        "dictionary_source": "harness_curated_steroid_chiral_pool_v1",
+        "dictionary_source": (
+            "explicit_runtime_advisory_anchor_catalog" if configured_anchors else ""
+        ),
+        "configured_anchor_count": len(configured_anchors),
+        "configured_anchor_rejected_count": len(catalog_rejected),
         "online_resolution_enabled": bool(enable_online),
         "not_raw_reaction_injection": True,
         "no_solved_claim": True,
@@ -626,16 +596,95 @@ def _anchor_terms_from_values(
     return out
 
 
-def _resolve_curated_advisory_anchor(term: str) -> dict[str, Any]:
+def _normalize_configured_advisory_anchor_catalog(
+    value: list[dict[str, Any]] | dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if isinstance(value, dict) and isinstance(value.get("anchors"), list):
+        raw_rows = list(value.get("anchors") or [])
+    elif isinstance(value, dict):
+        raw_rows = []
+        for key, item in value.items():
+            if not isinstance(item, dict):
+                raw_rows.append(item)
+                continue
+            raw_rows.append({**item, "name": str(item.get("name") or key)})
+    elif isinstance(value, list):
+        raw_rows = list(value)
+    else:
+        raw_rows = []
+
+    anchors: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_rows):
+        if not isinstance(raw, dict):
+            rejected.append(
+                {"catalog_index": index, "reason": "anchor_catalog_record_not_object"}
+            )
+            continue
+        name = str(raw.get("name") or "").strip()
+        smiles = str(raw.get("smiles") or "").strip()
+        source_ref = str(raw.get("source_ref") or "").strip()
+        explicitly_enabled = raw.get("allow_as_route_expansion_subgoal") is True
+        record_reasons: list[str] = []
+        if not name:
+            record_reasons.append("anchor_name_missing")
+        if not _valid_smiles(smiles):
+            record_reasons.append("anchor_smiles_invalid")
+        if not source_ref:
+            record_reasons.append("anchor_source_ref_missing")
+        if not explicitly_enabled:
+            record_reasons.append("anchor_route_expansion_consent_missing")
+        if record_reasons:
+            rejected.append(
+                {
+                    "catalog_index": index,
+                    "name": name,
+                    "source_ref": source_ref,
+                    "reasons": record_reasons,
+                    "reason": "anchor_catalog_record_invalid",
+                }
+            )
+            continue
+        aliases = _dedupe_values(
+            [name, *[str(item) for item in raw.get("aliases") or []]]
+        )
+        anchors.append(
+            {
+                "name": name,
+                "aliases": aliases,
+                "smiles": smiles,
+                "source_ref": source_ref,
+                "source": "explicit_runtime_advisory_anchor_catalog",
+                "role": str(raw.get("role") or "advisory_anchor"),
+                "catalog_index": index,
+                "allow_as_route_expansion_subgoal": True,
+            }
+        )
+    return anchors, rejected
+
+
+def _resolve_configured_advisory_anchor(
+    term: str,
+    anchors: list[dict[str, Any]],
+) -> dict[str, Any]:
     normalized = _normalize_anchor_term(term)
-    if normalized in CURATED_ADVISORY_ANCHORS:
-        return dict(CURATED_ADVISORY_ANCHORS[normalized])
-    for key, value in CURATED_ADVISORY_ANCHORS.items():
-        del key
-        aliases = {_normalize_anchor_term(alias) for alias in value.get("aliases") or []}
-        if normalized in aliases:
-            return dict(value)
-    return {}
+    matches = [
+        anchor
+        for anchor in anchors
+        if normalized
+        in {
+            _normalize_anchor_term(alias)
+            for alias in anchor.get("aliases") or []
+        }
+    ]
+    canonical_matches = {
+        _canonical_smiles(str(anchor.get("smiles") or ""))
+        for anchor in matches
+        if _canonical_smiles(str(anchor.get("smiles") or ""))
+    }
+    if len(canonical_matches) != 1:
+        return {}
+    return dict(matches[0])
 
 
 def _online_anchor_lookup_allowed(term: str) -> bool:
@@ -718,20 +767,19 @@ def _normalize_anchor_term(term: str) -> str:
 
 def _anchor_resolution_gap_relevant(term: str) -> bool:
     text = _normalize_anchor_term(term)
-    markers = {
-        "steroid",
-        "steroidal",
-        "bufadienolide",
-        "bufalin",
-        "ketosteroid",
-        "pyrone",
-        "hydroxylated",
-        "oxygenation",
-        "pregnenolone",
-        "androstenedione",
-        "dhea",
+    if not text or len(text) < 3:
+        return False
+    generic_only = {
+        "compound",
+        "intermediate",
+        "product",
+        "reactant",
+        "substrate",
+        "structure",
+        "unknown",
     }
-    return any(marker in text for marker in markers)
+    tokens = {token for token in text.split() if token}
+    return bool(tokens and not tokens.issubset(generic_only))
 
 
 def _dedupe_resolved_advisory_anchors(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -890,6 +938,7 @@ def _compile_template_plugin(payload: dict[str, Any], *, target_smiles: str) -> 
         target_smiles=target_smiles,
     )
     route_segments.extend(source_detail_segments["segments"])
+    cards.extend(source_detail_segments["template_cards"])
     for row in source_detail_segments["one_step_rows"]:
         rows.append(row)
     rejected.extend(source_detail_segments["rejected_items"])
@@ -961,6 +1010,7 @@ def _segments_from_source_detail_steps(
     reasons: list[str] = []
     validations: list[dict[str, Any]] = []
     one_step_rows: list[dict[str, Any]] = []
+    template_cards: list[dict[str, Any]] = []
     for idx, raw in enumerate(steps or []):
         if not isinstance(raw, dict):
             rejected.append({"item_index": idx, "reason": "source_detail_step_not_object"})
@@ -1031,6 +1081,8 @@ def _segments_from_source_detail_steps(
                 else {},
                 "source_excerpt": str(raw.get("source_excerpt") or ""),
                 "curator_record_id": str(raw.get("curator_record_id") or ""),
+                "curation_status": str(raw.get("curation_status") or ""),
+                "validation_status": str(raw.get("validation_status") or ""),
             },
         }
         row_result = _source_detail_exact_step_one_step_row(step_payload)
@@ -1038,11 +1090,24 @@ def _segments_from_source_detail_steps(
         if row_result["accepted"]:
             one_step_rows.append(row_result["row"])
         else:
+            advisory_result = _source_detail_advisory_template_card(
+                step_payload,
+                raw=raw,
+                exact_row_result=row_result,
+            )
+            validations.append(advisory_result["validation"])
+            if advisory_result["accepted"]:
+                template_cards.append(advisory_result["card"])
+                reasons.append("advisory_visual_template_card_available")
+            else:
+                reasons.extend(advisory_result["reasons"])
             rejected.append({
                 "item_index": idx,
                 "step_id": step_id,
                 "reason": "source_detail_exact_step_rejected",
                 "reasons": row_result["reasons"],
+                "advisory_template_card": advisory_result.get("card", {}),
+                "advisory_template_reasons": advisory_result.get("reasons", []),
             })
             reasons.extend(row_result["reasons"])
         grouped.setdefault(group_id, []).append(step_payload)
@@ -1068,6 +1133,7 @@ def _segments_from_source_detail_steps(
     return {
         "segments": segments,
         "one_step_rows": one_step_rows,
+        "template_cards": template_cards,
         "rejected_items": rejected,
         "reasons": reasons,
         "validations": validations,
@@ -1084,6 +1150,10 @@ def _source_detail_exact_step_one_step_row(step: dict[str, Any]) -> dict[str, An
     relation_type = str(step.get("relation_type") or "")
     applicability = dict(step.get("applicability") or {})
     condition = dict(step.get("condition_candidate") or {})
+    source_detail = dict(step.get("source_detail") or {})
+    validation_status = str(source_detail.get("validation_status") or "").strip().lower()
+    curation_status = str(source_detail.get("curation_status") or "").strip().lower()
+    trusted_statuses = {"accepted", "approved", "human_verified", "curator_approved", "deterministically_validated"}
     if not step_id:
         reasons.append("missing_step_id")
     if relation_type != "exact":
@@ -1107,6 +1177,8 @@ def _source_detail_exact_step_one_step_row(step: dict[str, Any]) -> dict[str, An
         reasons.append("condition_gap")
     if condition_audit.get("route_risk") == "high":
         reasons.append("condition_high_risk")
+    if validation_status not in trusted_statuses or curation_status not in trusted_statuses:
+        reasons.append("source_detail_step_not_trusted_curated")
     validation = {
         "kind": "source_detail_exact_step_one_step",
         "schema_version": "source_detail_exact_step_validation.v1",
@@ -1121,7 +1193,6 @@ def _source_detail_exact_step_one_step_row(step: dict[str, Any]) -> dict[str, An
         return {"accepted": False, "reasons": validation["reasons"], "validation": validation, "row": {}}
 
     template_id = f"source_detail_exact_step:{step_id}"
-    source_detail = dict(step.get("source_detail") or {})
     trace = {
         "schema_version": "literature_template_trace.v1",
         "source_model": "autoplanner.literature_template_plugin",
@@ -1222,6 +1293,155 @@ def _source_detail_exact_step_one_step_row(step: dict[str, Any]) -> dict[str, An
     return {"accepted": True, "reasons": [], "validation": validation, "row": row}
 
 
+def _source_detail_advisory_template_card(
+    step: dict[str, Any],
+    *,
+    raw: dict[str, Any],
+    exact_row_result: dict[str, Any],
+) -> dict[str, Any]:
+    step_id = str(step.get("step_id") or "")
+    product = str(step.get("product_smiles") or "")
+    reactants = [str(item) for item in step.get("reactant_smiles") or [] if str(item).strip()]
+    evidence_refs = [str(item) for item in step.get("evidence_refs") or [] if str(item).strip()]
+    source_ref = str(step.get("source_ref") or "")
+    exact_reasons = [str(item) for item in exact_row_result.get("reasons") or []]
+    reasons: list[str] = []
+    if not step_id:
+        reasons.append("missing_step_id")
+    if not _valid_smiles(product):
+        reasons.append("invalid_product_smiles")
+    if not reactants:
+        reasons.append("missing_reactant_smiles")
+    elif not all(_valid_smiles(smiles) for smiles in reactants):
+        reasons.append("invalid_reactant_smiles")
+    if not source_ref:
+        reasons.append("missing_source_ref")
+    if not evidence_refs:
+        reasons.append("missing_evidence_refs")
+
+    source_detail = dict(step.get("source_detail") or {})
+    condition = dict(step.get("condition_candidate") or {})
+    reaction_class = _source_detail_advisory_reaction_class(step, raw=raw)
+    scope_limits = _dedupe_values(
+        [
+            "visual_or_scheme_extraction_hint_not_exact_literature_step",
+            "may_seed_mechanistic_template_extraction",
+            "requires_exact_applicability_and_product_reconstruction_before_one_step",
+            "no_solved_claim",
+            *[f"exact_row_gate:{reason}" for reason in exact_reasons],
+            str(step.get("scope_gap") or ""),
+            str(raw.get("stereochemistry_status") or ""),
+            str(raw.get("allowed_use") or ""),
+        ]
+    )
+    safety_flags = _dedupe_values(
+        [
+            "requires_exact_row_validation_before_one_step",
+            "not_route_proof",
+            "stereochemistry_unresolved_or_partial",
+            *[str(item) for item in raw.get("risk_flags") or []],
+        ]
+    )
+    product_retron = {
+        "retron_type": reaction_class,
+        "description": "visual/source-detail mechanistic template hint; stereochemistry and full atom accounting are not asserted",
+        "product_smiles": product,
+        "product_name": str(source_detail.get("product_name") or raw.get("product_name") or ""),
+        "source_step_id": step_id,
+    }
+    card = {
+        "schema_version": "literature_template_card.v1",
+        "template_id": f"source_detail_visual_hint:{_safe_id(step_id)}",
+        "evidence_refs": evidence_refs,
+        "reaction_class": reaction_class,
+        "template_level": "advisory_strategy",
+        "product_retron": product_retron,
+        "break_bonds": [],
+        "precursor_roles": _dedupe_values(
+            [
+                *[str(item) for item in source_detail.get("reactant_names") or []],
+                *[f"reactant:{smiles}" for smiles in reactants],
+            ]
+        ),
+        "applicability": {
+            "schema_version": "visual_template_hint_applicability.v1",
+            "allowed_use": "mechanistic_template_hint_only",
+            "direct_one_step_consumption": False,
+            "can_seed_template_extraction": True,
+            "can_seed_mechanism_application": True,
+            "must_not_claim_exact_route": True,
+            "source_policy_decision": "advisory_visual_template_hint",
+            "exact_row_gate_reasons": sorted(set(exact_reasons)),
+            "product_smiles": product,
+            "reactant_smiles": reactants,
+            "condition_candidate": condition,
+            "relation_type": str(step.get("relation_type") or ""),
+            "source_ref": source_ref,
+            "source_title": str(source_detail.get("source_title") or raw.get("source_title") or ""),
+            "structure_derivation": dict(source_detail.get("structure_derivation") or {}),
+            "stereochemistry_policy": "ignore_or_mark_unresolved_for_template_hint; do_not_assert_exact_configuration",
+        },
+        "scope_limits": scope_limits,
+        "safety_flags": safety_flags,
+        "promotion_status": "visual_hint_requires_exact_resolution",
+        "source_family": str(source_detail.get("source_title") or raw.get("source_title") or source_ref),
+        "condition_source": source_ref or "visual_source_detail",
+        "not_raw_reaction_injection": True,
+    }
+    card_validation = validate_literature_template_card(card)
+    if not card_validation["accepted"]:
+        reasons.extend(str(reason) for reason in card_validation["reasons"])
+    validation = {
+        "kind": "source_detail_advisory_template_card",
+        "schema_version": "source_detail_advisory_template_card_validation.v1",
+        "accepted": not reasons,
+        "reasons": sorted(set(reasons)),
+        "step_id": step_id,
+        "source_ref": source_ref,
+        "template_id": card["template_id"],
+        "exact_row_gate_reasons": sorted(set(exact_reasons)),
+        "card_validation": card_validation,
+        "allowed_use": "mechanistic_template_hint_only",
+        "direct_one_step_consumption": False,
+    }
+    return {
+        "accepted": not reasons,
+        "reasons": validation["reasons"],
+        "validation": validation,
+        "card": card if not reasons else {},
+    }
+
+
+def _source_detail_advisory_reaction_class(step: dict[str, Any], *, raw: dict[str, Any]) -> str:
+    source_detail = dict(step.get("source_detail") or {})
+    condition = dict(step.get("condition_candidate") or {})
+    haystack = " ".join(
+        [
+            str(step.get("step_id") or ""),
+            str(source_detail.get("product_name") or raw.get("product_name") or ""),
+            " ".join(str(item) for item in source_detail.get("reactant_names") or raw.get("reactant_names") or []),
+            str(source_detail.get("source_excerpt") or raw.get("source_excerpt") or ""),
+            " ".join(str(item) for item in condition.values()),
+            str(step.get("scope_gap") or ""),
+        ]
+    ).lower()
+    checks = [
+        (("dehydrochlor", "elimination"), "elimination"),
+        (("chlorination", "n-chloro", "ncs", "chloride"), "chlorination"),
+        (("glycosyl", "sugar"), "glycosylation"),
+        (("hydrolysis", "saponification", "naoh", "koh"), "hydrolysis"),
+        (("deprotect", "deprotection", "protecting group"), "deprotection"),
+        (("acetyl", "acyl", "anhydride", "esterification"), "acylation"),
+        (("oxid", "mcpba", "pcc", "dess"), "oxidation"),
+        (("reduct", "hydrogenation", "nabh", "lialh"), "reduction"),
+        (("lacton", "macrolacton"), "lactonization"),
+    ]
+    for needles, reaction_class in checks:
+        if any(needle in haystack for needle in needles):
+            return reaction_class
+    return "visual_source_detail_mechanistic_hint"
+
+
 def _compile_agent_followup_actions(
     payload: dict[str, Any],
     *,
@@ -1267,6 +1487,23 @@ def _compile_agent_followup_actions(
                     "literature_template_plugin": plugin_flags,
                 },
                 "one_step_row_count": len(templates.get("one_step_rows") or []),
+                "no_solved_claim": True,
+                "production_write_blocked": True,
+            }
+        )
+    elif templates.get("template_cards"):
+        actions.append(
+            {
+                "schema_version": "agent_followup_action.v1",
+                "action_id": f"{case_id}_refine_advisory_visual_templates",
+                "tool_name": "resolve_literature_structure_task",
+                "reason": "advisory_visual_template_cards_require_exact_resolution",
+                "payload_hint": {
+                    "use_template_cards_as_mechanistic_hints": True,
+                    "template_card_count": len(templates.get("template_cards") or []),
+                    "required_next_gate": "exact source-detail validation before one-step replay",
+                },
+                "template_card_count": len(templates.get("template_cards") or []),
                 "no_solved_claim": True,
                 "production_write_blocked": True,
             }
@@ -1551,6 +1788,12 @@ def _compile_executable_template_maturity(
     source_detail_step_count = len(payload.get("source_detail_route_steps") or [])
     executable_candidate_count = len(payload.get("executable_template_candidates") or [])
     advisory_template_count = len(templates.get("template_cards") or [])
+    mechanistic_hint_template_count = sum(
+        1
+        for card in templates.get("template_cards") or []
+        if str(((card.get("applicability") or {}) if isinstance(card, dict) else {}).get("allowed_use") or "")
+        == "mechanistic_template_hint_only"
+    )
     direct_template_count = sum(
         1
         for card in templates.get("template_cards") or []
@@ -1563,7 +1806,10 @@ def _compile_executable_template_maturity(
     )
     gap_reasons: list[str] = []
     if not one_step_count and advisory_template_count:
-        gap_reasons.append("advisory_templates_lack_source_grounded_reactant_product_smiles")
+        if mechanistic_hint_template_count:
+            gap_reasons.append("advisory_visual_templates_require_exact_validation_before_one_step")
+        else:
+            gap_reasons.append("advisory_templates_lack_source_grounded_reactant_product_smiles")
     if not one_step_count and route_segment_count:
         gap_reasons.append("route_segments_failed_executable_validation")
     if not one_step_count and executable_candidate_count:
@@ -1575,6 +1821,7 @@ def _compile_executable_template_maturity(
         "status": status,
         "one_step_row_count": one_step_count,
         "advisory_template_count": advisory_template_count,
+        "mechanistic_hint_template_count": mechanistic_hint_template_count,
         "direct_template_card_count": direct_template_count,
         "route_segment_count": route_segment_count,
         "source_detail_route_step_count": source_detail_step_count,
@@ -1591,7 +1838,7 @@ def _compile_executable_template_maturity(
             "applicability.product_reconstruction_passed",
             "condition_candidate",
         ],
-        "downstream_path": "literature_route_segments or executable_template_candidates -> one_step_rows -> ChemEnzy literature_template_plugin",
+        "downstream_path": "visual/advisory template hints -> exact source-detail validation -> one_step_rows -> ChemEnzy literature_template_plugin",
         "no_solved_claim": True,
         "production_write_blocked": True,
     }

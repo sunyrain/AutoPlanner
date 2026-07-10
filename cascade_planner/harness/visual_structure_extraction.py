@@ -139,6 +139,9 @@ def _candidate_steps(payload: dict[str, Any]) -> list[dict[str, Any]]:
     raw_steps = payload.get("steps")
     if isinstance(raw_steps, list) and raw_steps:
         return [dict(item) for item in raw_steps if isinstance(item, dict)]
+    route_steps = payload.get("route_steps")
+    if isinstance(route_steps, list) and route_steps:
+        return _steps_with_label_resolved_reactants(route_steps)
     candidate_chain = payload.get("candidate_chain")
     if isinstance(candidate_chain, list) and candidate_chain:
         out: list[dict[str, Any]] = []
@@ -227,6 +230,46 @@ def _candidate_steps(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _steps_with_label_resolved_reactants(raw_steps: list[Any]) -> list[dict[str, Any]]:
+    label_smiles: dict[str, str] = {}
+    for item in raw_steps:
+        if not isinstance(item, dict):
+            continue
+        label = str(
+            item.get("product_label")
+            or item.get("visible_product_label")
+            or item.get("label")
+            or item.get("product_name")
+            or ""
+        ).strip()
+        smiles = str(item.get("product_smiles") or item.get("product") or item.get("smiles") or "").strip()
+        if label and smiles and label not in label_smiles:
+            label_smiles[label] = smiles
+    out: list[dict[str, Any]] = []
+    for item in raw_steps:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        reactants = row.get("reactant_smiles")
+        if not reactants:
+            reactants = row.get("precursor_smiles")
+        labels = row.get("reactant_labels")
+        if not labels:
+            labels = row.get("precursor_labels")
+        if not row.get("reactant_labels") and labels:
+            row["reactant_labels"] = labels
+        if not reactants and labels:
+            if isinstance(labels, str):
+                label_values = [labels]
+            else:
+                label_values = [str(value) for value in labels or [] if str(value).strip()]
+            resolved = [label_smiles[label] for label in label_values if label in label_smiles]
+            if resolved:
+                row["reactant_smiles"] = resolved
+        out.append(row)
+    return out
+
+
 def _normalize_step(raw: dict[str, Any], *, index: int, payload: dict[str, Any]) -> dict[str, Any]:
     reactants = raw.get("reactant_smiles")
     if reactants is None:
@@ -258,6 +301,7 @@ def _normalize_step(raw: dict[str, Any], *, index: int, payload: dict[str, Any])
         "evidence_refs": _string_list(raw.get("evidence_refs") or payload.get("evidence_refs")),
         "source_locator": str(raw.get("source_locator") or payload.get("source_locator") or ""),
         "condition_candidate": raw.get("condition_candidate")
+        or raw.get("visible_conditions")
         or raw.get("condition")
         or raw.get("conditions")
         or payload.get("default_condition_candidate")

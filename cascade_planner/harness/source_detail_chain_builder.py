@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +14,6 @@ from cascade_planner.baselines.literature_one_step_plugin import (
 )
 from cascade_planner.cascadeboard.route_recovery import canonical_smiles
 from cascade_planner.harness.downstream_compiler import (
-    CURATED_ADVISORY_ANCHORS,
     compile_downstream_consumables,
     write_compiled_downstream_artifacts,
 )
@@ -22,7 +22,6 @@ from cascade_planner.harness.source_detail_resolution import (
     resolve_source_detail_extraction_pack,
     source_detail_curator_records_path,
 )
-from rdkit import Chem
 
 
 SOURCE_DETAIL_CHAIN_AUDIT_SCHEMA = "source_detail_route_chain_audit.v1"
@@ -38,7 +37,7 @@ def build_source_detail_curator_records_from_chain(
     evidence_refs: list[str] | None = None,
     record_id: str = "",
     provenance: str = "codex_source_text_translation",
-    main_reactant_only: bool = True,
+    main_reactant_only: bool = False,
     write_file: bool = True,
 ) -> dict[str, Any]:
     payload = _load_jsonish(validation)
@@ -209,10 +208,11 @@ def audit_source_detail_route_chain(
             break
         row = candidates[0]
         trace = _row_trace(row)
+        exact_validation = _row_exact_validation(row)
+        source_evidence = _materialized_source_evidence(trace)
         reactants = [str(item) for item in trace.get("reactant_smiles") or [] if str(item).strip()]
         main = _main_reactant(reactants)
-        chain.append(
-            {
+        chain_step = {
                 "step_index": len(chain) + 1,
                 "source_template_id": str(trace.get("source_template_id") or ""),
                 "step_id": str(trace.get("source_template_id") or "").replace("source_detail_exact_step:", ""),
@@ -222,17 +222,20 @@ def audit_source_detail_route_chain(
                 "source_ref": str(trace.get("source_ref") or ""),
                 "evidence_refs": [str(item) for item in trace.get("evidence_refs") or []],
                 "condition_candidate": dict(trace.get("condition_candidate") or {}),
+                "relation_type": str(trace.get("relation_type") or ""),
+                "source_detail_exact_step": trace.get("source_detail_exact_step") is True,
+                "exact_step_validation": exact_validation,
+                "source_evidence": source_evidence,
             }
-        )
+        chain.append(chain_step)
         if terminal_key and main == terminal_key:
             break
         if not main or main not in product_to_rows:
             break
         current = main
     observed_terminal = _observed_chain_terminal(chain)
-    terminal_repair = _repair_terminal_from_named_anchor(observed_terminal, chain[-1] if chain else {})
-    effective_terminal_smiles = terminal_smiles or str(terminal_repair.get("smiles") or observed_terminal.get("smiles") or "")
-    effective_terminal_name = terminal_name or str(terminal_repair.get("name") or observed_terminal.get("name") or "")
+    effective_terminal_smiles = terminal_smiles or str(observed_terminal.get("smiles") or "")
+    effective_terminal_name = terminal_name or str(observed_terminal.get("name") or "")
     effective_terminal_key = canonical_smiles(effective_terminal_smiles)
     requested_terminal_reached = bool(chain and terminal_key and chain[-1].get("main_reactant_smiles") == terminal_key)
     observed_terminal_reached = bool(chain and not terminal_key and effective_terminal_key)
@@ -255,7 +258,7 @@ def audit_source_detail_route_chain(
         "terminal_reached": terminal_reached,
         "observed_terminal_smiles": observed_terminal.get("smiles") or "",
         "observed_terminal_canonical_smiles": observed_terminal.get("canonical_smiles") or "",
-        "terminal_stereo_repair": terminal_repair,
+        "terminal_stereo_repair": {},
         "step_count": len(chain),
         "chain": chain,
         "summary": {
@@ -269,6 +272,7 @@ def audit_source_detail_route_chain(
             "no_solved_claim": True,
             "production_write_blocked": True,
             "literature_chain_is_baseline_not_mandatory_replacement": True,
+            "automatic_terminal_identity_repair_allowed": False,
         },
         "reasons": sorted(set(reasons)),
     }
@@ -284,42 +288,6 @@ def _observed_chain_terminal(chain: list[dict[str, Any]]) -> dict[str, str]:
         "smiles": smiles,
         "canonical_smiles": canonical_smiles(smiles),
     }
-
-
-def _repair_terminal_from_named_anchor(observed_terminal: dict[str, str], last_step: dict[str, Any]) -> dict[str, Any]:
-    observed_smiles = str(observed_terminal.get("smiles") or "")
-    if not observed_smiles:
-        return {}
-    evidence_text = json.dumps(last_step, ensure_ascii=False, sort_keys=True).lower()
-    anchor_key = ""
-    if "androstenedione" in evidence_text or "androst-4-ene-3,17-dione" in evidence_text:
-        anchor_key = "androstenedione"
-    elif "24_from_11" in evidence_text and "10.1016/j.tet.2025.134610" in evidence_text:
-        anchor_key = "androstenedione"
-    if not anchor_key:
-        return {}
-    anchor = dict(CURATED_ADVISORY_ANCHORS.get(anchor_key) or {})
-    anchor_smiles = str(anchor.get("smiles") or "")
-    if not anchor_smiles or not _same_connectivity(anchor_smiles, observed_smiles):
-        return {}
-    return {
-        "schema_version": "source_detail_terminal_stereo_repair.v1",
-        "accepted": True,
-        "name": str(anchor.get("name") or anchor_key),
-        "smiles": anchor_smiles,
-        "canonical_smiles": canonical_smiles(anchor_smiles),
-        "observed_smiles": observed_smiles,
-        "anchor_source_ref": str(anchor.get("source_ref") or ""),
-        "repair_basis": "named_anchor_evidence_and_connectivity_match",
-    }
-
-
-def _same_connectivity(left: str, right: str) -> bool:
-    left_mol = Chem.MolFromSmiles(left)
-    right_mol = Chem.MolFromSmiles(right)
-    if left_mol is None or right_mol is None:
-        return False
-    return Chem.MolToSmiles(left_mol, isomericSmiles=False) == Chem.MolToSmiles(right_mol, isomericSmiles=False)
 
 
 def probe_literature_plugin_chain(
@@ -394,12 +362,21 @@ def compile_hybrid_route_set(
     verifier = _load_jsonish(verifier_report) if verifier_report else {}
     routes: list[dict[str, Any]] = []
     if chain:
+        chain_accepted = chain.get("accepted") is True
         routes.append(
             {
-                "route_id": f"{case_id}_literature_exact_chain",
-                "route_type": "literature_exact_chain",
-                "status": "baseline" if chain.get("accepted") else "needs_review",
-                "score": 0.9 if chain.get("accepted") else 0.55,
+                "route_id": (
+                    f"{case_id}_literature_exact_chain"
+                    if chain_accepted
+                    else f"{case_id}_literature_advisory_chain"
+                ),
+                "route_type": (
+                    "literature_exact_chain"
+                    if chain_accepted
+                    else "literature_advisory_chain"
+                ),
+                "status": "baseline" if chain_accepted else "needs_exact_curation",
+                "score": 0.9 if chain_accepted else 0.35,
                 "step_count": int(chain.get("step_count") or len(chain.get("chain") or [])),
                 "target_smiles": target_smiles,
                 "chain": chain.get("chain") or [],
@@ -431,6 +408,11 @@ def compile_hybrid_route_set(
         "summary": {
             "route_count": len(routes),
             "literature_route_count": sum(1 for row in routes if row.get("route_type") == "literature_exact_chain"),
+            "literature_advisory_route_count": sum(
+                1
+                for row in routes
+                if row.get("route_type") == "literature_advisory_chain"
+            ),
             "chemenzy_route_count": sum(1 for row in routes if row.get("route_type") == "chemenzy_exploratory"),
             "verifier_accepted": bool(verifier.get("accepted")),
         },
@@ -525,6 +507,104 @@ def _reactant_side_matches(observed_side: str, expected: list[str]) -> bool:
 
 def _row_trace(row: dict[str, Any]) -> dict[str, Any]:
     return dict(row.get("literature_template_trace") or ((row.get("template") or {}).get("literature_template_trace") or {}))
+
+
+def _row_exact_validation(row: dict[str, Any]) -> dict[str, Any]:
+    template = dict(row.get("template") or {})
+    report = dict(
+        row.get("template_validation_report")
+        or template.get("template_validation_report")
+        or {}
+    )
+    return {
+        "schema_version": str(report.get("schema_version") or ""),
+        "accepted": report.get("accepted") is True,
+        "allowed_for_one_step_source": report.get("allowed_for_one_step_source") is True,
+        "source_template_id": str(report.get("source_template_id") or ""),
+        "reasons": [str(item) for item in report.get("reasons") or []],
+    }
+
+
+def _materialized_source_evidence(trace: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    expected_source_ref = str(trace.get("source_ref") or "").strip().lower()
+    for raw_ref in trace.get("evidence_refs") or []:
+        ref = str(raw_ref or "").strip()
+        if not ref:
+            continue
+        candidate = re.split(r"::(?:doi|page|pages?|crop|image):|#page=", ref, maxsplit=1, flags=re.I)[0]
+        path = Path(candidate).expanduser()
+        if not path.is_file() or path.suffix.lower() != ".json":
+            continue
+        try:
+            manifest_bytes = path.read_bytes()
+            manifest = json.loads(manifest_bytes.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(manifest, dict) or manifest.get("schema_version") != "literature_pdf_structure_evidence.v1":
+            continue
+        binding = dict(manifest.get("source_binding_audit") or {})
+        manifest_source_ref = str(manifest.get("source_ref") or binding.get("source_ref") or "").strip().lower()
+        if (
+            manifest.get("accepted") is not True
+            or binding.get("schema_version") != "local_pdf_source_binding_audit.v1"
+            or binding.get("accepted") is not True
+            or int(binding.get("matched_source_count") or 0) <= 0
+            or not expected_source_ref
+            or manifest_source_ref != expected_source_ref
+        ):
+            continue
+        pdf_path = Path(str(manifest.get("source_pdf_path") or "")).expanduser()
+        pdf_sha = str(manifest.get("source_pdf_sha256") or "").lower()
+        if not pdf_path.is_file() or pdf_path.suffix.lower() != ".pdf" or len(pdf_sha) != 64:
+            continue
+        page_filter = re.search(r"(?:#page=|::pages?:)(\d+)", ref, flags=re.I)
+        for page in manifest.get("rendered_pages") or []:
+            if not isinstance(page, dict):
+                continue
+            page_number = int(page.get("page_number") or 0)
+            if page_number <= 0 or (page_filter and page_number != int(page_filter.group(1))):
+                continue
+            image_path = Path(str(page.get("image_path") or "")).expanduser()
+            image_sha = str(page.get("sha256") or "").lower()
+            if not image_path.is_file() or len(image_sha) != 64:
+                continue
+            manifest_digest = hashlib.sha256(manifest_bytes).hexdigest()
+            document_id = str((binding.get("matched_document_ids") or [""])[0] or f"sha256:{pdf_sha}")
+            rows.append(
+                {
+                    "schema_version": "materialized_source_evidence.v1",
+                    "document_id": document_id,
+                    "manifest_path": str(path.resolve()),
+                    "manifest_sha256": manifest_digest,
+                    "source_pdf_path": str(pdf_path.resolve()),
+                    "source_pdf_sha256": pdf_sha,
+                    "page_number": page_number,
+                    "image_path": str(image_path.resolve()),
+                    "image_sha256": image_sha,
+                    "source_ref": manifest_source_ref,
+                }
+            )
+    return rows
+
+
+def _source_detail_chain_step_provenance_valid(step: dict[str, Any]) -> bool:
+    validation = dict(step.get("exact_step_validation") or {})
+    template_id = str(step.get("source_template_id") or "")
+    evidence = [dict(item) for item in step.get("source_evidence") or [] if isinstance(item, dict)]
+    return bool(
+        template_id.startswith("source_detail_exact_step:")
+        and step.get("source_detail_exact_step") is True
+        and step.get("relation_type") == "exact"
+        and str(step.get("source_ref") or "").strip()
+        and validation.get("schema_version") == "template_validation_report.v1"
+        and validation.get("accepted") is True
+        and validation.get("allowed_for_one_step_source") is True
+        and str(validation.get("source_template_id") or "") == template_id
+        and not validation.get("reasons")
+        and evidence
+        and all(Path(str(row.get("path") or "")).is_file() for row in evidence)
+    )
 
 
 def _main_reactant(reactants: list[str]) -> str:

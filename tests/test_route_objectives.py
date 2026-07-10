@@ -1,6 +1,8 @@
 import json
 import unittest
 
+from cascade_planner.harness.parent_route_proof import compile_stitched_parent_route_proof
+from cascade_planner.harness.route_verifier import verify_chemenzy_raw_routes
 from cascade_planner.harness.route_objectives import (
     build_broad_transform_templates_from_blackboard,
     classify_route_objectives,
@@ -9,6 +11,10 @@ from cascade_planner.harness.route_objectives import (
 
 
 C22_STEROID_LIKE = "O=C1CC[C@@]2(C)C(CC[C@]3(O)C2CC[C@@]4(C)C3CCC4[C@@H](CO)C)=C1"
+ATORVASTATIN_FREE_ACID = (
+    "CC(C)C1=C(C(=C(N1CC[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)"
+    "C3=CC=CC=C3)C(=O)NC4=CC=CC=C4"
+)
 
 
 class RouteObjectiveTest(unittest.TestCase):
@@ -43,6 +49,23 @@ class RouteObjectiveTest(unittest.TestCase):
         self.assertNotIn("10.1186/s12934-021-01717-w", payload)
         self.assertNotIn("rxn_smiles", payload)
         self.assertNotIn("reaction_smiles", payload)
+
+    def test_statin_process_target_prefers_literature_and_advanced_intermediate_objectives(self):
+        summary = classify_route_objectives(
+            target_smiles=ATORVASTATIN_FREE_ACID,
+            target_name="atorvastatin",
+            family_hint="statin synthetic atorvastatin Paal-Knorr",
+            case_id="atorvastatin",
+        )
+        selected = {row["objective_type"] for row in summary["selected_objectives"]}
+        flags = summary["target"]["features"]["flags"]
+
+        self.assertTrue(summary["accepted"], summary["reasons"])
+        self.assertTrue(flags["statin_process_like"])
+        self.assertFalse(flags["steroid_like_polycyclic_scaffold"])
+        self.assertFalse(flags["natural_product_like"])
+        self.assertIn("advanced_intermediate_anchor", selected)
+        self.assertIn("literature_known_scaffold_anchor", selected)
 
     def test_broad_templates_are_advisory_not_proof(self):
         summary = classify_route_objectives(
@@ -103,9 +126,42 @@ class RouteObjectiveTest(unittest.TestCase):
         }
 
         plausible = compile_route_objective_proof_bundle(blackboard=blackboard)
+        intermediate = "C" * 12
+        verifier = verify_chemenzy_raw_routes(
+            {
+                "target": C22_STEROID_LIKE,
+                "routes": [
+                    {
+                        "route_rank": 0,
+                        "metrics": {
+                            "terminal_reactants": ["CC", "O"],
+                            "terminal_stock_status": {"CC": True, "O": True},
+                        },
+                        "steps": [
+                            {
+                                "product": intermediate,
+                                "reactant_smiles": ["CC"] * 6,
+                                "stock_status": {"CC": True},
+                            },
+                            {
+                                "product": C22_STEROID_LIKE,
+                                "reactant_smiles": [intermediate] + ["CC"] * 5 + ["O"] * 3,
+                                "stock_status": {"CC": True, "O": True},
+                            },
+                        ],
+                    }
+                ],
+            },
+            target_smiles=C22_STEROID_LIKE,
+        )
+        self.assertTrue(verifier["accepted"], verifier["reasons"])
+        parent_proof = compile_stitched_parent_route_proof(
+            target_smiles=C22_STEROID_LIKE,
+            parent_verifier=verifier,
+        )
         solved = compile_route_objective_proof_bundle(
             blackboard=blackboard,
-            parent_route_proof={"accepted": True, "solved": True, "route_status": "solved"},
+            parent_route_proof=parent_proof,
         )
 
         self.assertFalse(plausible["accepted"])

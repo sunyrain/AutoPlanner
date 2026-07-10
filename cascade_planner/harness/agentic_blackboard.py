@@ -1,6 +1,7 @@
 """Typed blackboard state for policy-driven agentic controller runs."""
 from __future__ import annotations
 
+import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -14,15 +15,21 @@ except Exception:  # pragma: no cover - exercised only in stripped environments.
 from cascade_planner.harness.agent_action_planner import build_guided_chemenzy_payload_from_blackboard
 from cascade_planner.cascadeboard.route_recovery import canonical_smiles
 from cascade_planner.harness.analogical_reaction_templates import compact_template_application_summary
+from cascade_planner.harness.process_evidence import semisynthesis_anchors_from_process_rows
 from cascade_planner.harness.recursive_hypothesis_tasks import (
     recursive_hypothesis_tasks_from_route_expansion,
+)
+from cascade_planner.harness.retrosynthetic_proposals import (
+    compile_retrosynthetic_proposal_bus,
 )
 from cascade_planner.harness.route_objectives import (
     build_broad_transform_templates_from_blackboard,
     classify_route_objectives,
-    compile_route_objective_proof_bundle,
 )
+from cascade_planner.harness.route_verifier import is_accepted_route_verifier_report
 from cascade_planner.harness.schemas import write_json
+from cascade_planner.harness.stitched_route import is_validated_source_detail_literature_step
+from cascade_planner.harness.target_side_strategy import build_target_side_disconnection_hypotheses
 from cascade_planner.agent.action_contracts import PLANNER_SOURCE_HINT_SCHEMA
 
 
@@ -39,19 +46,19 @@ def initialize_agent_blackboard(
 ) -> dict[str, Any]:
     profile = dict(preflight.get("target_profile") or {})
     limits = dict(budget_limits or {})
-    max_scout_calls = _positive_int(limits.get("max_scout_calls"), 3)
-    max_visual_calls = _positive_int(limits.get("max_visual_calls"), 3)
-    max_chemenzy_runs = _positive_int(
-        limits.get("max_guided_chemenzy_runs") or limits.get("max_chemenzy_runs"),
+    max_scout_calls = _nonnegative_int(limits.get("max_scout_calls"), 3)
+    max_visual_calls = _nonnegative_int(limits.get("max_visual_calls"), 3)
+    max_chemenzy_runs = _nonnegative_int(
+        _first_present(limits, "max_guided_chemenzy_runs", "max_chem_enzy_runs", "max_chemenzy_runs"),
         1,
     )
-    max_child_target_runs = _positive_int(
-        limits.get("max_route_expansion_subgoal_runs") or limits.get("max_child_target_runs"),
+    max_child_target_runs = _nonnegative_int(
+        _first_present(limits, "max_route_expansion_subgoal_runs", "max_child_target_runs"),
         2,
     )
-    max_codex_research_runs = _positive_int(limits.get("max_codex_research_runs"), 1)
+    max_codex_research_runs = _nonnegative_int(limits.get("max_codex_research_runs"), 1)
     max_template_applications_per_round = _positive_int(limits.get("max_template_applications_per_round"), 5)
-    return {
+    board = {
         "schema_version": AGENT_BLACKBOARD_SCHEMA,
         "case_id": str(preflight.get("case_id") or target_input.get("case_id") or "target"),
         "target_profile": {
@@ -76,6 +83,7 @@ def initialize_agent_blackboard(
             "source_lifecycle": [],
             "pdf_structure_evidence": [],
             "visual_chains": [],
+            "process_evidence_rows": [],
             "exact_rows": [],
             "terminal_candidates": [],
             "structure_resolution_tasks": [],
@@ -95,9 +103,14 @@ def initialize_agent_blackboard(
         "endpoint_candidates": [],
         "objective_evidence_cards": [],
         "broad_transform_templates": [],
+        "reaction_idea_cards": [],
+        "retrosynthetic_proposals": [],
+        "retrosynthetic_proposal_compile_report": {},
+        "proposal_failure_feedback": [],
         "route_proof_bundle": {},
         "semisynthesis_anchors": [],
         "recursive_hypothesis_tasks": [],
+        "route_expansion_subgoals": [],
         "bridge_tasks": [],
         "terminal_blacklist": [],
         "planner_history": [],
@@ -118,7 +131,7 @@ def initialize_agent_blackboard(
             "max_codex_research_runs": max_codex_research_runs,
             "codex_action_planner_runs": 0,
             "template_application_actions": 0,
-            "max_template_application_actions": _positive_int(limits.get("max_template_application_actions"), 3),
+            "max_template_application_actions": _nonnegative_int(limits.get("max_template_application_actions"), 3),
         },
         "current_belief": {
             "schema_version": "agent_current_belief.v1",
@@ -139,10 +152,283 @@ def initialize_agent_blackboard(
             },
             "stop_candidates": [],
             "child_route_solved": False,
+            "parent_route_verifier": {},
         },
         "artifact_refs": dict((prior_artifacts or {}).get("artifact_refs") or {}),
         "parent_route_proof": {},
     }
+    _seed_target_literature_sources(board, target_input=target_input)
+    return board
+
+
+def refresh_target_derived_blackboard_priors(
+    blackboard: dict[str, Any],
+    *,
+    target_input: dict[str, Any],
+    preflight: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Refresh target-derived priors after code/prompt upgrades.
+
+    The function only rewrites deterministic target-side priors. It preserves
+    acquired source evidence, visual chains, resolved structures, route
+    failures, and historical action/tool records.
+    """
+    board = deepcopy(blackboard)
+    target_profile = dict(board.get("target_profile") or {})
+    target_name = str(target_input.get("target_name") or target_profile.get("target_name") or "")
+    target_smiles = str(target_input.get("target_smiles") or target_profile.get("target_smiles") or "")
+    family_hint = str(target_input.get("family_hint") or target_profile.get("family_hint") or "")
+    case_id = str((preflight or {}).get("case_id") or board.get("case_id") or "")
+    evidence = dict(board.get("literature_evidence") or {})
+    source_refs = [str(item) for item in evidence.get("source_refs") or [] if str(item or "").strip()]
+    failure_reasons = [
+        str(row.get("reason") or "")
+        for row in board.get("route_failures") or []
+        if isinstance(row, dict) and str(row.get("reason") or "").strip()
+    ]
+    objective_summary = classify_route_objectives(
+        target_smiles=target_smiles,
+        target_name=target_name,
+        family_hint=family_hint,
+        failure_reasons=failure_reasons,
+        source_evidence_refs=source_refs,
+        case_id=case_id,
+    )
+    target_side = build_target_side_disconnection_hypotheses(
+        target_smiles=target_smiles,
+        target_name=target_name,
+        family_hint=family_hint,
+        source_evidence_refs=source_refs,
+        case_id=case_id,
+    )
+    current_handles = _target_side_handles(board.get("target_side_disconnection_hypotheses") or {})
+    refreshed_handles = _target_side_handles(target_side)
+    current_objectives = _selected_objective_types(board.get("route_objective_summary") or {})
+    refreshed_objectives = _selected_objective_types(objective_summary)
+    should_refresh_target_side = bool(target_side.get("accepted")) and (
+        not current_handles or current_handles != refreshed_handles
+    )
+    should_refresh_objectives = bool(objective_summary.get("accepted")) and (
+        not current_objectives or current_objectives != refreshed_objectives or should_refresh_target_side
+    )
+    if not (should_refresh_target_side or should_refresh_objectives):
+        return board
+
+    report = {
+        "schema_version": "target_derived_prior_refresh.v1",
+        "target_name": target_name,
+        "target_smiles": target_smiles,
+        "old_handles": sorted(current_handles),
+        "new_handles": sorted(refreshed_handles),
+        "old_objective_types": sorted(current_objectives),
+        "new_objective_types": sorted(refreshed_objectives),
+        "refreshed_target_side": bool(should_refresh_target_side),
+        "refreshed_route_objectives": bool(should_refresh_objectives),
+    }
+    if should_refresh_objectives:
+        board["route_objective_summary"] = _drop_large_fields(objective_summary)
+        board["endpoint_candidates"] = [
+            dict(row)
+            for row in objective_summary.get("endpoint_candidates") or []
+            if isinstance(row, dict)
+        ]
+        _apply_route_scope_to_belief(board, dict(objective_summary.get("route_scope") or {}))
+    if should_refresh_target_side:
+        removed_hypothesis_ids = {
+            str(row.get("hypothesis_id") or "")
+            for row in board.get("analogical_hypotheses") or []
+            if _target_side_hypothesis_row(row)
+        }
+        new_hypothesis_ids = {
+            str(row.get("hypothesis_id") or "")
+            for row in target_side.get("hypotheses") or []
+            if isinstance(row, dict) and str(row.get("hypothesis_id") or "").strip()
+        }
+        board["target_side_disconnection_hypotheses"] = _drop_large_fields(target_side)
+        board["analogical_hypotheses"] = [
+            row
+            for row in board.get("analogical_hypotheses") or []
+            if not _target_side_hypothesis_row(row)
+        ]
+        _extend_unique(board, "analogical_hypotheses", target_side.get("hypotheses") or [], unique_key="hypothesis_id")
+        stale_ranked_ids = _analogical_ranking_hypothesis_ids(board.get("analogical_hypothesis_ranking") or {})
+        if stale_ranked_ids & (removed_hypothesis_ids - new_hypothesis_ids):
+            board["analogical_hypothesis_ranking"] = {}
+        stale_ids = removed_hypothesis_ids - new_hypothesis_ids
+        if stale_ids:
+            _remove_stale_evidence_refs(board, stale_ids)
+        board["bridge_tasks"] = [
+            row
+            for row in board.get("bridge_tasks") or []
+            if not _target_derived_bridge_task(row)
+        ]
+        _extend_unique(board, "bridge_tasks", target_side.get("bridge_tasks") or [], unique_key="task_id")
+        board["semisynthesis_anchors"] = [
+            row
+            for row in board.get("semisynthesis_anchors") or []
+            if not _route_objective_anchor_row(row)
+        ]
+        _extend_unique(board, "semisynthesis_anchors", target_side.get("semisynthesis_anchors") or [], unique_key="anchor_id")
+        _apply_route_scope_to_belief(board, dict(target_side.get("route_scope") or {}))
+        template_report = build_broad_transform_templates_from_blackboard(board)
+        if template_report.get("accepted"):
+            board["broad_transform_templates"] = [
+                dict(row)
+                for row in template_report.get("templates") or []
+                if isinstance(row, dict)
+            ]
+            belief = dict(board.get("current_belief") or {})
+            template_policy = dict(belief.get("template_policy") or {})
+            template_policy["broad_transform_template_count"] = len(board.get("broad_transform_templates") or [])
+            template_policy["broad_templates_are_advisory_only"] = True
+            template_policy["not_parent_route_proof"] = True
+            belief["template_policy"] = template_policy
+            board["current_belief"] = belief
+
+    migrations = [
+        dict(row)
+        for row in board.get("blackboard_migrations") or []
+        if isinstance(row, dict)
+    ]
+    migrations.append(report)
+    board["blackboard_migrations"] = migrations[-20:]
+    return board
+
+
+def _seed_target_literature_sources(board: dict[str, Any], *, target_input: dict[str, Any]) -> None:
+    rows = _target_input_literature_seed_rows(target_input)
+    if not rows:
+        return
+    evidence = dict(board.get("literature_evidence") or {})
+    candidates = list(evidence.get("source_candidates") or [])
+    source_refs = [str(item) for item in evidence.get("source_refs") or [] if str(item or "").strip()]
+    seen = {
+        _literature_seed_key(row)
+        for row in candidates
+        if isinstance(row, dict) and _literature_seed_key(row)
+    }
+    for idx, raw in enumerate(rows, start=1):
+        candidate = _literature_seed_candidate(raw, idx=idx)
+        key = _literature_seed_key(candidate)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        candidates.append(candidate)
+        if str(candidate.get("source_ref") or "").strip() not in source_refs:
+            source_refs.append(str(candidate.get("source_ref") or "").strip())
+    evidence["source_candidates"] = candidates
+    evidence["source_refs"] = source_refs
+    evidence["source_discovery_mode"] = "target_input_local_pdf_seed"
+    evidence["fallback_order"] = ["codex_online", "local_pdf", "placeholder"]
+    evidence["confidence"] = "source_seeded"
+    board["literature_evidence"] = evidence
+    _refresh_source_lifecycle(board)
+
+
+def _target_input_literature_seed_rows(target_input: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key in ("literature_sources", "local_literature_cache"):
+        for raw in target_input.get(key) or []:
+            if isinstance(raw, dict):
+                row = dict(raw)
+                if _literature_seed_is_auto_local_pdf_cache(row):
+                    continue
+                rows.append(row)
+    pdf_path = str(target_input.get("literature_pdf_path") or "").strip()
+    if pdf_path:
+        rows.append(
+            {
+                "candidate_id": "target_input_literature_pdf",
+                "source_ref": str(target_input.get("literature_pdf_source_ref") or "").strip(),
+                "local_pdf": pdf_path,
+                "source_role": "user_provided_local_pdf_seed",
+            }
+        )
+    return rows
+
+
+def _literature_seed_is_auto_local_pdf_cache(row: dict[str, Any]) -> bool:
+    role = str(row.get("source_role") or "").strip().lower()
+    index = dict(row.get("local_pdf_index") or {})
+    return bool(role == "auto_local_pdf_cache" or str(index.get("schema_version") or "") == "auto_local_pdf_index.v1")
+
+
+def _literature_seed_candidate(row: dict[str, Any], *, idx: int) -> dict[str, Any]:
+    local_pdf = str(row.get("local_pdf") or row.get("pdf_path") or row.get("path") or "").strip()
+    doi = _normalize_hint_doi(str(row.get("doi") or ""))
+    source_ref = str(row.get("source_ref") or "").strip()
+    if not source_ref:
+        source_ref = f"doi:{doi}" if doi else (f"local_pdf:{Path(local_pdf).name}" if local_pdf else f"target_input_source:{idx}")
+    role = str(row.get("source_role") or ("user_provided_local_pdf_seed" if local_pdf else "target_input_literature_seed"))
+    tasks = ["extract_pdf_literature_structures", "extract_visual_literature_chain", "compile_exact_literature_rows"] if local_pdf else [
+        "search_literature"
+    ]
+    document_id = str(row.get("document_id") or "").strip()
+    if local_pdf and not document_id:
+        document_id = f"pdf:{hashlib.sha256(str(Path(local_pdf)).lower().encode('utf-8')).hexdigest()[:16]}"
+    content_scope = str(row.get("content_scope") or row.get("document_type") or "").strip()
+    if local_pdf and not content_scope:
+        content_scope = _infer_literature_content_scope(local_pdf)
+    return {
+        "schema_version": "literature_source_candidate.v1",
+        "candidate_id": str(row.get("candidate_id") or f"target_input_source_{idx}"),
+        "source_ref": source_ref,
+        "doi": doi,
+        "pii": str(row.get("pii") or ""),
+        "url": str(row.get("url") or ""),
+        "title": str(row.get("title") or row.get("source_title") or ""),
+        "local_pdf": local_pdf,
+        "document_id": document_id,
+        "content_scope": content_scope,
+        "source_type": str(row.get("source_type") or ("user_provided_local_pdf_seed" if local_pdf else "target_input_literature_seed")),
+        "source_role": role,
+        "source_discovery_mode": "target_input_local_pdf_seed",
+        "access_status": "local_pdf_available" if local_pdf else "metadata_only",
+        "relevance_rationale": str(row.get("relevance_rationale") or "target input supplied literature source"),
+        "expected_scheme_or_compound_labels": [
+            str(item)
+            for item in row.get("expected_scheme_or_compound_labels") or row.get("expected_labels") or []
+            if str(item or "").strip()
+        ],
+        "route_sequence_hint": str(row.get("route_sequence_hint") or ""),
+        "visual_extraction_profile": (
+            dict(row.get("visual_extraction_profile") or {})
+            if isinstance(row.get("visual_extraction_profile"), dict)
+            else {}
+        ),
+        "extraction_task_recommendations": tasks,
+        "user_provided_source_seed": bool(local_pdf) or bool(row.get("user_provided_source_seed")),
+        "no_solved_claim": True,
+    }
+
+
+def _literature_seed_key(row: dict[str, Any]) -> str:
+    local_pdf = str(row.get("local_pdf") or row.get("pdf_path") or "").strip().lower()
+    if local_pdf:
+        return f"pdf:{local_pdf}"
+    document_id = str(row.get("document_id") or "").strip().lower()
+    if document_id:
+        return f"document:{document_id}"
+    doi = _normalize_hint_doi(str(row.get("doi") or ""))
+    if doi:
+        return f"doi:{doi}"
+    source_ref = str(row.get("source_ref") or "").strip().lower()
+    if source_ref:
+        return f"ref:{source_ref}"
+    url = str(row.get("url") or "").strip().lower()
+    if url:
+        return f"url:{url}"
+    title = str(row.get("title") or row.get("source_title") or "").strip().lower()
+    return f"title:{title}" if title else ""
+
+
+def _infer_literature_content_scope(path: str) -> str:
+    name = Path(path).name.lower()
+    if any(token in name for token in ("supporting", "supplement", "supp_info", "_si.", "-si.")):
+        return "supplementary_information"
+    if any(token in name for token in ("thesis", "dissertation")):
+        return "thesis"
+    return "article"
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -151,6 +437,21 @@ def _positive_int(value: Any, default: int) -> int:
     except (TypeError, ValueError):
         parsed = int(default)
     return max(1, parsed)
+
+
+def _nonnegative_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return max(0, parsed)
+
+
+def _first_present(mapping: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in mapping and mapping.get(key) is not None:
+            return mapping.get(key)
+    return None
 
 
 def update_blackboard_from_action_batch(
@@ -446,6 +747,8 @@ def _build_source_lifecycle(evidence: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _merge_lifecycle_identity(row: dict[str, Any], source: dict[str, Any]) -> None:
     identity_fields = {
+        "document_id": str(source.get("document_id") or ""),
+        "content_scope": str(source.get("content_scope") or ""),
         "source_ref": str(source.get("source_ref") or ""),
         "title": str(source.get("title") or source.get("source_title") or ""),
         "doi": _normalize_hint_doi(str(source.get("doi") or "")),
@@ -519,6 +822,17 @@ def _finalize_lifecycle_stage(row: dict[str, Any]) -> None:
 
 
 def _lifecycle_source_key(source: dict[str, Any]) -> str:
+    local_pdf = str(
+        source.get("local_pdf")
+        or source.get("source_pdf_path")
+        or source.get("pdf_path")
+        or ""
+    ).strip().lower()
+    if local_pdf:
+        return f"pdf:{local_pdf}"
+    document_id = str(source.get("document_id") or "").strip().lower()
+    if document_id:
+        return f"document:{document_id}"
     doi = _normalize_hint_doi(str(source.get("doi") or ""))
     if doi:
         return f"doi:{doi}"
@@ -537,9 +851,6 @@ def _lifecycle_source_key(source: dict[str, Any]) -> str:
     url = str(source.get("url") or "").strip().lower()
     if url:
         return f"url:{url}"
-    local_pdf = str(source.get("local_pdf") or source.get("source_pdf_path") or source.get("pdf_path") or "").strip().lower()
-    if local_pdf:
-        return f"pdf:{local_pdf}"
     title = str(source.get("title") or source.get("source_title") or "").strip().lower()
     return f"title:{title}" if title else ""
 
@@ -565,6 +876,8 @@ def update_blackboard_from_action(
         board.setdefault("artifact_refs", {})[artifact_name] = artifact_ref
 
     useful = _normalize_action_output(board, action_type=action_type, result=enriched_result, artifact_ref=artifact_ref)
+    proposal_refresh = _refresh_retrosynthetic_proposal_bus(board)
+    useful = bool(useful or proposal_refresh.get("useful_artifact"))
     _refresh_source_lifecycle(board)
     after_counts = _blackboard_count_summary(board)
     delta = _blackboard_count_delta(before_counts, after_counts)
@@ -605,17 +918,29 @@ def update_budget_for_action(
     if action_type == "run_guided_chemenzy":
         budget["chemenzy_runs"] = int(budget.get("chemenzy_runs") or 0) + 1
     if action_type == "expand_child_target":
-        budget["child_target_runs"] = int(budget.get("child_target_runs") or 0) + 1
+        budget["child_target_runs"] = int(budget.get("child_target_runs") or 0) + _planned_child_target_count(action_payload)
     if action_type in {"apply_analogical_template_to_target", "validate_template_application"}:
         budget["template_application_actions"] = int(budget.get("template_application_actions") or 0) + 1
     board["budget_state"] = budget
     return board
 
 
+def _planned_child_target_count(payload: dict[str, Any]) -> int:
+    rows = payload.get("subgoal_targets") or payload.get("child_targets") or []
+    try:
+        max_targets = max(1, int(payload.get("max_targets") or 2))
+    except (TypeError, ValueError):
+        max_targets = 2
+    if isinstance(rows, list) and rows:
+        return max(1, min(len(rows), max_targets))
+    return max_targets
+
+
 def _blackboard_count_summary(blackboard: dict[str, Any]) -> dict[str, int]:
     evidence = dict(blackboard.get("literature_evidence") or {})
     belief = dict(blackboard.get("current_belief") or {})
     proof = dict(blackboard.get("parent_route_proof") or {})
+    recursive_status_counts = _recursive_hypothesis_task_status_counts(blackboard)
     return {
         "source_candidates": len(evidence.get("source_candidates") or []),
         "planner_source_hints": len(evidence.get("planner_source_hints") or []),
@@ -624,6 +949,7 @@ def _blackboard_count_summary(blackboard: dict[str, Any]) -> dict[str, int]:
         "local_pdf_proxy_requests": len(evidence.get("local_pdf_proxy_requests") or []),
         "pdf_structure_evidence": len(evidence.get("pdf_structure_evidence") or []),
         "visual_chains": len(evidence.get("visual_chains") or []),
+        "process_evidence_rows": len(evidence.get("process_evidence_rows") or []),
         "exact_rows": len(evidence.get("exact_rows") or []),
         "target_relevant_exact_rows": _target_relevant_exact_row_count(evidence.get("exact_rows") or []),
         "exact_chain_audits": len(evidence.get("exact_chain_audits") or []),
@@ -640,8 +966,14 @@ def _blackboard_count_summary(blackboard: dict[str, Any]) -> dict[str, int]:
         "route_objectives": len((blackboard.get("route_objective_summary") or {}).get("objectives") or []),
         "endpoint_candidates": len(blackboard.get("endpoint_candidates") or []),
         "broad_transform_templates": len(blackboard.get("broad_transform_templates") or []),
+        "reaction_idea_cards": len(blackboard.get("reaction_idea_cards") or []),
+        "retrosynthetic_proposals": len(blackboard.get("retrosynthetic_proposals") or []),
+        "proposal_failure_feedback": len(blackboard.get("proposal_failure_feedback") or []),
         "semisynthesis_anchors": len(blackboard.get("semisynthesis_anchors") or []),
         "recursive_hypothesis_tasks": len(blackboard.get("recursive_hypothesis_tasks") or []),
+        "recursive_hypothesis_tasks_pending": recursive_status_counts.get("pending", 0),
+        "recursive_hypothesis_tasks_rejected": recursive_status_counts.get("rejected", 0),
+        "recursive_hypothesis_tasks_accepted": recursive_status_counts.get("accepted_child_route", 0),
         "bridge_tasks": len(blackboard.get("bridge_tasks") or []),
         "terminal_blacklist": len(blackboard.get("terminal_blacklist") or []),
         "blocked_directions": len(belief.get("blocked_directions") or []),
@@ -653,6 +985,24 @@ def _blackboard_count_summary(blackboard: dict[str, Any]) -> dict[str, int]:
     }
 
 
+def _recursive_hypothesis_task_status_counts(blackboard: dict[str, Any]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for task in blackboard.get("recursive_hypothesis_tasks") or []:
+        if not isinstance(task, dict):
+            continue
+        status = str(task.get("status") or "pending").strip() or "pending"
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def _visual_reason_is_runtime_failure(reason: str) -> bool:
+    return str(reason or "") in {
+        "visual_direct_api_failed",
+        "visual_model_unavailable",
+        "visual_api_auth_failed",
+    }
+
+
 def _blackboard_count_delta(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
     keys = sorted(set(before) | set(after))
     return {
@@ -660,6 +1010,66 @@ def _blackboard_count_delta(before: dict[str, int], after: dict[str, int]) -> di
         for key in keys
         if int(after.get(key) or 0) - int(before.get(key) or 0)
     }
+
+
+def _refresh_retrosynthetic_proposal_bus(board: dict[str, Any]) -> dict[str, Any]:
+    """Refresh derived reaction-idea/proposal rows after evidence changes."""
+    before = {
+        "reaction_idea_cards": len(board.get("reaction_idea_cards") or []),
+        "retrosynthetic_proposals": len(board.get("retrosynthetic_proposals") or []),
+        "recursive_hypothesis_tasks": len(board.get("recursive_hypothesis_tasks") or []),
+    }
+    report = compile_retrosynthetic_proposal_bus(board)
+    _extend_unique(board, "reaction_idea_cards", report.get("reaction_idea_cards") or [], unique_key="card_id")
+    _extend_unique(board, "retrosynthetic_proposals", report.get("retrosynthetic_proposals") or [], unique_key="proposal_id")
+    _extend_unique(board, "recursive_hypothesis_tasks", report.get("recursive_hypothesis_tasks") or [], unique_key="task_id")
+    refreshed_counts = {
+        "reaction_idea_cards": len(board.get("reaction_idea_cards") or []),
+        "retrosynthetic_proposals": len(board.get("retrosynthetic_proposals") or []),
+        "recursive_hypothesis_tasks": len(board.get("recursive_hypothesis_tasks") or []),
+    }
+    current_proposals = [row for row in board.get("retrosynthetic_proposals") or [] if isinstance(row, dict)]
+    report_counts = {
+        **refreshed_counts,
+        "executable_or_semi_executable_proposals": sum(
+            1
+            for row in current_proposals
+            if str(row.get("proposal_type") or "") in {"exact_executable", "semi_executable"}
+        ),
+        "strategic_proposals": sum(
+            1 for row in current_proposals if str(row.get("proposal_type") or "") == "strategic"
+        ),
+        "exact_proposals": sum(1 for row in current_proposals if str(row.get("proposal_granularity") or "") == "exact"),
+        "same_core_proposals": sum(1 for row in current_proposals if str(row.get("proposal_granularity") or "") == "same_core"),
+        "mechanism_proposals": sum(1 for row in current_proposals if str(row.get("proposal_granularity") or "") == "mechanism"),
+        "process_proposals": sum(1 for row in current_proposals if str(row.get("proposal_granularity") or "") == "process"),
+        "fallback_proposals": sum(1 for row in current_proposals if str(row.get("proposal_granularity") or "") == "fallback"),
+    }
+    changed = {
+        key: int(refreshed_counts.get(key) or 0) - int(before.get(key) or 0)
+        for key in refreshed_counts
+        if int(refreshed_counts.get(key) or 0) - int(before.get(key) or 0)
+    }
+    board["retrosynthetic_proposal_compile_report"] = {
+        "schema_version": str(report.get("schema_version") or "retrosynthetic_proposal_compile_report.v1"),
+        "accepted": bool(report.get("accepted")),
+        "counts": report_counts,
+        "blackboard_counts_after_refresh": refreshed_counts,
+        "new_counts_this_refresh": changed,
+        "allowed_use": "proposal_bus_and_recursive_search_seed_only",
+        "not_parent_route_proof": True,
+        "no_solved_claim": True,
+    }
+    if changed:
+        belief = dict(board.get("current_belief") or {})
+        _extend_unique(
+            belief,
+            "next_action_bias",
+            ["expand_child_target" if changed.get("recursive_hypothesis_tasks") else "run_guided_chemenzy"],
+            unique_key=None,
+        )
+        board["current_belief"] = belief
+    return {"useful_artifact": bool(changed), "changed": changed}
 
 
 def complete_round(blackboard: dict[str, Any], round_index: int) -> dict[str, Any]:
@@ -736,7 +1146,10 @@ def rank_analogical_hypotheses_from_blackboard(blackboard: dict[str, Any]) -> di
 
 
 def _normalize_action_output(board: dict[str, Any], *, action_type: str, result: dict[str, Any], artifact_ref: str) -> bool:
-    payload = dict(result.get("result") or result.get("artifact") or result)
+    if action_type == "run_guided_chemenzy" and str(result.get("schema_version") or "") == "guided_chemenzy_rerun_result.v1":
+        payload = dict(result)
+    else:
+        payload = dict(result.get("result") or result.get("artifact") or result)
     useful = bool(result.get("accepted", True))
     if action_type == "classify_route_objectives":
         artifact = payload
@@ -861,10 +1274,11 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
 
     if action_type == "search_literature":
         evidence = dict(board.get("literature_evidence") or {})
+        prior_source_mode = str(evidence.get("source_discovery_mode") or "")
         existing_source_keys = {
-            str(row.get("source_ref") or row.get("doi") or row.get("pii") or row.get("url") or "").strip()
+            _source_candidate_merge_key(row)
             for row in evidence.get("source_candidates") or []
-            if isinstance(row, dict)
+            if isinstance(row, dict) and _source_candidate_merge_key(row)
         }
         existing_source_refs = {
             str(item).strip()
@@ -876,7 +1290,10 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
             for row in evidence.get("local_pdf_proxy_requests") or []
             if isinstance(row, dict)
         }
-        _extend_unique(evidence, "source_candidates", payload.get("source_candidates") or [], unique_key="source_ref")
+        evidence["source_candidates"] = _merge_source_candidate_rows(
+            evidence.get("source_candidates") or [],
+            payload.get("source_candidates") or [],
+        )
         _extend_unique(evidence, "source_refs", payload.get("source_refs") or [], unique_key=None)
         real_sources = [
             dict(row)
@@ -905,8 +1322,8 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
         new_real_sources = [
             row
             for row in real_sources
-            if str(row.get("source_ref") or row.get("doi") or row.get("pii") or row.get("url") or "").strip()
-            not in existing_source_keys
+            if _source_candidate_merge_key(row)
+            and _source_candidate_merge_key(row) not in existing_source_keys
         ]
         placeholder_only = bool(payload.get("placeholder_only")) or bool(
             evidence.get("source_candidates")
@@ -942,16 +1359,44 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
                 int(payload.get("codex_research_runs") or 0),
             )
             board["budget_state"] = budget
-        return bool(new_real_sources or new_source_refs or new_proxy_requests)
+        source_mode_changed = str(evidence.get("source_discovery_mode") or "") != prior_source_mode
+        source_mode_upgrade = bool(source_mode_changed and str(evidence.get("source_discovery_mode") or "") != "placeholder")
+        return bool(new_real_sources or new_source_refs or new_proxy_requests or source_mode_upgrade)
 
     if action_type == "extract_pdf_literature_structures":
         evidence = dict(board.get("literature_evidence") or {})
         summary = _pdf_structure_summary(payload, artifact_ref=artifact_ref)
         _extend_unique(evidence, "pdf_structure_evidence", [summary], unique_key="evidence_id")
+        process_rows = [
+            dict(row)
+            for row in payload.get("literature_process_evidence_rows") or payload.get("process_evidence_rows") or []
+            if isinstance(row, dict)
+        ]
+        _extend_unique(evidence, "process_evidence_rows", process_rows, unique_key="row_id")
+        _extend_unique(board, "semisynthesis_anchors", semisynthesis_anchors_from_process_rows(process_rows), unique_key="anchor_id")
+        if process_rows:
+            belief = dict(board.get("current_belief") or {})
+            _extend_unique(
+                belief,
+                "next_action_bias",
+                ["derive_broad_reaction_template", "compile_objective_route_proof"],
+                unique_key=None,
+            )
+            process_policy = dict(belief.get("process_policy") or {})
+            process_policy["process_evidence_row_count"] = len(evidence.get("process_evidence_rows") or [])
+            process_policy["process_evidence_is_not_exact_row"] = True
+            process_policy["process_evidence_is_not_parent_route_proof"] = True
+            belief["process_policy"] = process_policy
+            board["current_belief"] = belief
         evidence["confidence"] = "pdf_rendered" if summary.get("accepted") else evidence.get("confidence", "none")
         board["literature_evidence"] = evidence
         counts = dict(summary.get("summary") or {})
-        return bool(counts.get("rendered_page_count") or counts.get("indexed_image_count") or counts.get("scheme_crop_count"))
+        return bool(
+            counts.get("rendered_page_count")
+            or counts.get("indexed_image_count")
+            or counts.get("scheme_crop_count")
+            or process_rows
+        )
 
     if action_type == "extract_visual_literature_chain":
         evidence = dict(board.get("literature_evidence") or {})
@@ -959,13 +1404,57 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
         if not chain_rows and payload:
             chain_rows = [_compact_artifact(payload, artifact_ref=artifact_ref)]
         _extend_unique(evidence, "visual_chains", chain_rows, unique_key="chain_id")
+        visual_reasons = [
+            str(item)
+            for item in payload.get("reasons") or []
+            if str(item or "").strip() and _visual_reason_is_runtime_failure(str(item))
+        ]
+        if visual_reasons:
+            _extend_unique(
+                board,
+                "plugin_runtime_diagnostics",
+                [
+                    {
+                        "schema_version": "agent_visual_runtime_diagnostic.v1",
+                        "diagnostic_id": "visual_runtime:" + ":".join(visual_reasons[:3]),
+                        "reasons": visual_reasons,
+                        "source_ref": str(payload.get("source_ref") or ""),
+                        "artifact_ref": artifact_ref,
+                        "allowed_use": "blackboard_failure_feedback_only",
+                        "not_parent_route_proof": True,
+                        "no_solved_claim": True,
+                    }
+                ],
+                unique_key="diagnostic_id",
+            )
+        process_rows = [
+            dict(row)
+            for row in payload.get("literature_process_evidence_rows") or payload.get("process_evidence_rows") or []
+            if isinstance(row, dict)
+        ]
+        _extend_unique(evidence, "process_evidence_rows", process_rows, unique_key="row_id")
+        _extend_unique(board, "semisynthesis_anchors", semisynthesis_anchors_from_process_rows(process_rows), unique_key="anchor_id")
+        if process_rows:
+            belief = dict(board.get("current_belief") or {})
+            _extend_unique(
+                belief,
+                "next_action_bias",
+                ["derive_broad_reaction_template", "compile_objective_route_proof"],
+                unique_key=None,
+            )
+            process_policy = dict(belief.get("process_policy") or {})
+            process_policy["process_evidence_row_count"] = len(evidence.get("process_evidence_rows") or [])
+            process_policy["process_evidence_is_not_exact_row"] = True
+            process_policy["process_evidence_is_not_parent_route_proof"] = True
+            belief["process_policy"] = process_policy
+            board["current_belief"] = belief
         structure_tasks: list[dict[str, Any]] = []
         for row in chain_rows:
             if isinstance(row, dict):
                 structure_tasks.extend(_structure_resolution_tasks_from_visual_chain(row))
         _extend_unique(evidence, "structure_resolution_tasks", structure_tasks, unique_key="task_id")
         board["literature_evidence"] = evidence
-        return bool(chain_rows)
+        return bool(chain_rows or process_rows)
 
     if action_type == "resolve_literature_structure_task":
         evidence = dict(board.get("literature_evidence") or {})
@@ -996,13 +1485,37 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
         if resolved or unresolved:
             _update_structure_resolution_task_statuses(evidence, resolved=resolved, unresolved=unresolved)
         board["literature_evidence"] = evidence
+        promoted_anchors = _semisynthesis_anchors_from_resolved_structures(
+            board,
+            resolved,
+            artifact_ref=artifact_ref,
+        )
+        if promoted_anchors:
+            _extend_unique(board, "semisynthesis_anchors", promoted_anchors, unique_key="anchor_id")
+            _extend_unique(
+                board,
+                "bridge_tasks",
+                [
+                    _semisynthesis_bridge_task_from_anchor(board, anchor)
+                    for anchor in promoted_anchors
+                ],
+                unique_key="task_id",
+            )
+            belief = dict(board.get("current_belief") or {})
+            _extend_unique(
+                belief,
+                "next_action_bias",
+                ["run_guided_chemenzy", "compile_objective_route_proof"],
+                unique_key=None,
+            )
+            board["current_belief"] = belief
         new_resolved = [
             row
             for row in resolved
             if str(row.get("structure_id") or "") not in existing_structure_ids
         ]
         new_attempt = bool(attempt and str(attempt.get("attempt_id") or "") not in existing_attempt_ids)
-        return bool(new_resolved or new_attempt)
+        return bool(new_resolved or new_attempt or promoted_anchors)
 
     if action_type == "compile_exact_literature_rows":
         evidence = dict(board.get("literature_evidence") or {})
@@ -1017,21 +1530,30 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
         audit = _exact_chain_audit_summary(payload, artifact_ref=artifact_ref)
         if audit:
             _extend_unique(evidence, "exact_chain_audits", [audit], unique_key="audit_id")
-        terminal = _literature_terminal_candidate_from_payload(payload)
-        if terminal:
-            _extend_unique(evidence, "terminal_candidates", [terminal], unique_key="canonical_smiles")
-            _extend_unique(board, "bridge_tasks", [_literature_terminal_bridge_task(board, terminal)], unique_key="task_id")
+        terminals = _literature_terminal_candidates_from_payload(payload, artifact_ref=artifact_ref)
+        if terminals:
+            _extend_unique(evidence, "terminal_candidates", terminals, unique_key="terminal_id")
+            _extend_unique(
+                board,
+                "bridge_tasks",
+                [_literature_terminal_bridge_task(board, terminal) for terminal in terminals],
+                unique_key="task_id",
+            )
         evidence["confidence"] = "exact_rows" if evidence.get("exact_rows") else evidence.get("confidence", "none")
         board["literature_evidence"] = evidence
         new_row_count = sum(1 for row in rows if str(row.get("row_id") or "") not in existing_row_ids)
-        return bool(new_row_count or terminal)
+        return bool(new_row_count or terminals)
 
     if action_type == "rank_analogical_hypotheses":
         board["analogical_hypothesis_ranking"] = payload
         return bool(payload.get("selected_hypotheses"))
 
     if action_type == "extract_analogical_reaction_templates":
-        _extend_unique(board, "analogical_templates", payload.get("templates") or [], unique_key="template_id")
+        templates = [dict(row) for row in payload.get("templates") or [] if isinstance(row, dict)]
+        board["analogical_templates"] = templates
+        board["analogical_template_ranking"] = {}
+        board["template_applications"] = []
+        board["template_failure_memory"] = []
         return bool(payload.get("templates"))
 
     if action_type == "rank_analogical_reaction_templates":
@@ -1044,7 +1566,8 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
             for row in payload.get("applications") or []
             if isinstance(row, dict)
         ]
-        _extend_unique(board, "template_applications", summaries, unique_key="application_id")
+        if summaries:
+            board["template_applications"] = summaries
         _merge_template_failure_memory(board, payload.get("template_failure_memory") or [])
         cache_key = str(payload.get("target_smiles") or "")
         if cache_key:
@@ -1080,9 +1603,36 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
 
     if action_type == "run_guided_chemenzy":
         _update_from_guided_chemenzy(board, payload, artifact_ref)
-        return bool(payload.get("raw_route_verifier") or payload.get("route_failure_feedback") or payload.get("accepted"))
+        return bool(
+            payload.get("raw_route_verifier")
+            or payload.get("route_failure_feedback")
+            or payload.get("chemenzy_runtime_diagnostic")
+            or payload.get("accepted")
+        )
 
     if action_type == "expand_child_target":
+        board["route_expansion_subgoals"] = _route_expansion_subgoal_summaries(payload)
+        task_status_changed = _mark_recursive_hypothesis_task_attempts(
+            board,
+            route_expansion_result=payload,
+            artifact_ref=artifact_ref,
+        )
+        failure_feedback = _proposal_failure_feedback_from_route_expansion(
+            board,
+            route_expansion_result=payload,
+            artifact_ref=artifact_ref,
+        )
+        existing_feedback_ids = {
+            str(row.get("feedback_id") or "")
+            for row in board.get("proposal_failure_feedback") or []
+            if isinstance(row, dict)
+        }
+        _extend_unique(board, "proposal_failure_feedback", failure_feedback, unique_key="feedback_id")
+        new_feedback_ids = {
+            str(row.get("feedback_id") or "")
+            for row in board.get("proposal_failure_feedback") or []
+            if isinstance(row, dict)
+        } - existing_feedback_ids
         recursive_tasks = recursive_hypothesis_tasks_from_route_expansion(
             blackboard=board,
             route_expansion_result=payload,
@@ -1103,10 +1653,24 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
             _extend_unique(belief, "next_action_bias", ["expand_child_target"], unique_key=None)
             board["current_belief"] = belief
         belief = dict(board.get("current_belief") or {})
-        belief["child_route_solved"] = bool(payload.get("accepted_subgoal_count") or payload.get("solved"))
+        belief["child_route_any_solved"] = bool(payload.get("accepted_subgoal_count") or payload.get("solved"))
+        strict_frontiers = _strict_literature_frontiers(board)
+        accepted_frontiers = {
+            str(row.get("canonical_smiles") or "")
+            for row in board.get("route_expansion_subgoals") or []
+            if isinstance(row, dict) and row.get("accepted") is True
+        }
+        belief["child_route_solved"] = bool(
+            strict_frontiers
+            and any(
+                frontier
+                and all(smiles in accepted_frontiers for smiles in frontier)
+                for frontier in strict_frontiers
+            )
+        ) if strict_frontiers else bool(payload.get("accepted_subgoal_count") or payload.get("solved"))
         board["current_belief"] = belief
         board.setdefault("artifact_refs", {})["route_expansion_subgoal_search"] = artifact_ref
-        return bool(payload.get("subgoals") or payload.get("accepted_subgoal_count") or new_task_ids)
+        return bool(payload.get("accepted_subgoal_count") or payload.get("solved") or new_task_ids or new_feedback_ids or task_status_changed)
 
     if action_type == "stitch_parent_route":
         proof = dict(payload.get("parent_route_proof") or payload)
@@ -1126,6 +1690,253 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
         board["current_belief"] = belief
         return False
     return useful
+
+
+def _proposal_failure_feedback_from_route_expansion(
+    board: dict[str, Any],
+    *,
+    route_expansion_result: dict[str, Any],
+    artifact_ref: str,
+) -> list[dict[str, Any]]:
+    payload = dict(route_expansion_result.get("result") or route_expansion_result or {})
+    target = dict(board.get("target_profile") or {})
+    default_parent = _canonical_or_raw_smiles(str(target.get("target_smiles") or target.get("canonical_smiles") or ""))
+    rows: list[dict[str, Any]] = []
+    for raw in payload.get("subgoals") or []:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        if bool(row.get("accepted") or row.get("solved")):
+            continue
+        verifier = dict(row.get("verifier") or {})
+        subgoal = dict(row.get("subgoal") or {})
+        if not _is_hypothesis_like_subgoal(subgoal):
+            continue
+        failed_smiles = _canonical_or_raw_smiles(str(subgoal.get("smiles") or ""))
+        if not failed_smiles:
+            continue
+        policy = dict(subgoal.get("policy") or subgoal.get("chem_enzy_search_policy") or {})
+        preferred = dict(policy.get("preferred_subgoal") or {})
+        nested_target = dict(preferred.get("hypothetical_precursor_target") or {})
+        precursor_set = _canonical_or_raw_smiles(
+            str(
+                subgoal.get("precursor_set_smiles")
+                or preferred.get("precursor_set_smiles")
+                or nested_target.get("precursor_set_smiles")
+                or ""
+            )
+        )
+        siblings = _dedupe_strings(
+            [
+                *[str(item) for item in subgoal.get("sibling_precursor_smiles") or []],
+                *[str(item) for item in nested_target.get("sibling_precursor_smiles") or []],
+            ]
+        )
+        reasons = _dedupe_strings(
+            [
+                *[str(item) for item in row.get("reasons") or []],
+                *[str(item) for item in verifier.get("reasons") or []],
+                *[str(item) for item in payload.get("reasons") or []],
+            ]
+        )
+        proposal_id = str(
+            subgoal.get("parent_candidate_id")
+            or nested_target.get("parent_candidate_id")
+            or nested_target.get("source_proposal_id")
+            or ""
+        )
+        feedback_id = "proposal_failure:" + _stable_hash(
+            "|".join(
+                [
+                    proposal_id,
+                    str(subgoal.get("recursive_hypothesis_task_id") or ""),
+                    str(subgoal.get("name") or ""),
+                    failed_smiles,
+                    precursor_set,
+                    "|".join(reasons),
+                ]
+            )
+        )
+        rows.append(
+            {
+                "schema_version": "proposal_failure_feedback.v1",
+                "feedback_id": feedback_id,
+                "source": "route_expansion_subgoal_search",
+                "artifact_ref": artifact_ref,
+                "proposal_id": proposal_id,
+                "recursive_hypothesis_task_id": str(subgoal.get("recursive_hypothesis_task_id") or ""),
+                "subgoal_name": str(subgoal.get("name") or ""),
+                "parent_smiles": _canonical_or_raw_smiles(str(subgoal.get("parent_smiles") or "")) or default_parent,
+                "failed_precursor_smiles": failed_smiles,
+                "precursor_set_smiles": precursor_set,
+                "precursor_component_index": int(subgoal.get("precursor_component_index") or nested_target.get("precursor_component_index") or 0),
+                "precursor_component_count": int(subgoal.get("precursor_component_count") or nested_target.get("precursor_component_count") or 1),
+                "sibling_precursor_smiles": siblings,
+                "requires_precursor_set_stitching": bool(
+                    subgoal.get("requires_precursor_set_stitching")
+                    or nested_target.get("requires_precursor_set_stitching")
+                    or precursor_set
+                ),
+                "failure_reasons": reasons,
+                "next_refinement_bias": _proposal_failure_refinement_bias(failed_smiles, precursor_set),
+                "allowed_use": "proposal_refinement_and_recursive_search_seed_only",
+                "not_exact_literature_segment": True,
+                "not_parent_route_proof": True,
+                "requires_verifier": True,
+                "child_route_cannot_promote_parent": True,
+                "no_solved_claim": True,
+            }
+        )
+    return rows
+
+
+def _mark_recursive_hypothesis_task_attempts(
+    board: dict[str, Any],
+    *,
+    route_expansion_result: dict[str, Any],
+    artifact_ref: str,
+) -> bool:
+    tasks = [row for row in board.get("recursive_hypothesis_tasks") or [] if isinstance(row, dict)]
+    if not tasks:
+        return False
+    payload = dict(route_expansion_result.get("result") or route_expansion_result or {})
+    attempts = _recursive_hypothesis_attempts_from_route_expansion(payload)
+    if not attempts:
+        return False
+    by_id: dict[str, dict[str, Any]] = {
+        str(task.get("task_id") or ""): task
+        for task in tasks
+        if str(task.get("task_id") or "")
+    }
+    by_smiles: dict[str, dict[str, Any]] = {}
+    for task in tasks:
+        smiles = _canonical_or_raw_smiles(str(task.get("precursor_smiles") or ""))
+        if smiles and smiles not in by_smiles:
+            by_smiles[smiles] = task
+    status_changed = False
+    for attempt in attempts:
+        task = by_id.get(str(attempt.get("task_id") or ""))
+        if task is None:
+            task = by_smiles.get(str(attempt.get("smiles") or ""))
+        if task is None:
+            continue
+        before_status = str(task.get("status") or "pending")
+        previous_attempts = _nonnegative_int(task.get("attempt_count"), 0)
+        task["attempt_count"] = previous_attempts + 1
+        task["last_attempt_artifact_ref"] = artifact_ref
+        task["last_attempt_smiles"] = str(attempt.get("smiles") or "")
+        task["last_attempt_reasons"] = [str(item) for item in attempt.get("reasons") or [] if str(item or "").strip()]
+        task["last_attempt_accepted"] = bool(attempt.get("accepted"))
+        task["status"] = "accepted_child_route" if attempt.get("accepted") else "rejected"
+        status_changed = status_changed or str(task.get("status") or "") != before_status
+    return status_changed
+
+
+def _recursive_hypothesis_attempts_from_route_expansion(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    attempts: list[dict[str, Any]] = []
+    for raw in payload.get("subgoals") or []:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        subgoal = dict(row.get("subgoal") or {})
+        if not _is_hypothesis_like_subgoal(subgoal):
+            continue
+        task_id = str(subgoal.get("recursive_hypothesis_task_id") or "")
+        smiles = _canonical_or_raw_smiles(str(subgoal.get("smiles") or ""))
+        if not task_id and not smiles:
+            continue
+        verifier = dict(row.get("verifier") or {})
+        accepted = bool(row.get("accepted") or row.get("solved"))
+        reasons = _dedupe_strings(
+            [
+                *[str(item) for item in row.get("reasons") or []],
+                *[str(item) for item in verifier.get("reasons") or []],
+                *[str(item) for item in payload.get("reasons") or []],
+            ]
+        )
+        attempts.append(
+            {
+                "task_id": task_id,
+                "smiles": smiles,
+                "accepted": accepted,
+                "reasons": reasons,
+            }
+        )
+    return attempts
+
+
+def _is_hypothesis_like_subgoal(subgoal: dict[str, Any]) -> bool:
+    policy = dict(subgoal.get("policy") or subgoal.get("chem_enzy_search_policy") or {})
+    compiler = dict(policy.get("compiler_metadata") or {})
+    text = " ".join(
+        str(value or "")
+        for value in (
+            subgoal.get("source"),
+            subgoal.get("name"),
+            subgoal.get("recursive_hypothesis_task_id"),
+            subgoal.get("task_scope"),
+            compiler.get("compiler_schema"),
+            subgoal.get("precursor_set_smiles"),
+        )
+    ).lower()
+    return bool(
+        subgoal.get("hypothesis_only_not_solved")
+        or subgoal.get("recursive_hypothesis_task_id")
+        or subgoal.get("requires_precursor_set_stitching")
+        or compiler.get("hypothesis_only_not_solved")
+        or compiler.get("recursive_hypothesis_frontier")
+        or "hypothesis" in text
+        or "proposal" in text
+    )
+
+
+def _proposal_failure_refinement_bias(failed_smiles: str, precursor_set: str) -> list[str]:
+    bias = ["change_hypothesis_granularity"]
+    smiles_values = [
+        str(failed_smiles or ""),
+        *[part for part in str(precursor_set or "").split(".") if part],
+    ]
+    if any(_smiles_has_substructure(value, "[C](=O)[OX2H]") or _smiles_has_substructure(value, "[C](=O)Cl") for value in smiles_values):
+        bias.append("try_alternate_acyl_activation_state")
+    if any(
+        _smiles_has_substructure(value, "[C](=O)([#6])[#6]")
+        or _smiles_has_substructure(value, "[C](=O)[C]=[C]")
+        or _smiles_has_substructure(value, "[CH]=O")
+        for value in smiles_values
+    ):
+        bias.append("try_redox_or_unsaturation_state_refinement")
+    if any(
+        _smiles_has_substructure(value, "[CX4][OX2H]")
+        or _smiles_has_substructure(value, "[CX4]Cl")
+        or _smiles_has_substructure(value, "[OX2]C(C)=O")
+        for value in smiles_values
+    ):
+        bias.append("try_protection_or_leaving_group_state_refinement")
+    if "." in precursor_set:
+        bias.append("refine_failed_precursor_component")
+    return _dedupe_strings(bias)
+
+
+def _smiles_has_substructure(smiles: str, smarts: str) -> bool:
+    if Chem is None:
+        return False
+    mol = Chem.MolFromSmiles(str(smiles or ""))
+    query = Chem.MolFromSmarts(str(smarts or ""))
+    return bool(mol is not None and query is not None and mol.HasSubstructMatch(query))
+
+
+def _canonical_or_raw_smiles(smiles: str) -> str:
+    text = str(smiles or "").strip()
+    if not text:
+        return ""
+    try:
+        return str(canonical_smiles(text) or text)
+    except Exception:
+        return text
+
+
+def _stable_hash(value: str) -> str:
+    return hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:12]
 
 
 def _merge_template_failure_memory(board: dict[str, Any], rows: list[dict[str, Any]]) -> None:
@@ -1154,9 +1965,294 @@ def _merge_template_failure_memory(board: dict[str, Any], rows: list[dict[str, A
     board["template_failure_memory"] = list(existing.values())
 
 
+def _semisynthesis_anchors_from_resolved_structures(
+    board: dict[str, Any],
+    rows: list[dict[str, Any]],
+    *,
+    artifact_ref: str,
+) -> list[dict[str, Any]]:
+    target = dict(board.get("target_profile") or {})
+    target_smiles = str(target.get("canonical_smiles") or target.get("target_smiles") or "")
+    target_canonical = _canonical_or_raw_smiles(target_smiles)
+    target_heavy = _smiles_heavy_atom_count(target_canonical or target_smiles)
+    existing = {
+        _canonical_or_raw_smiles(str(row.get("smiles") or ""))
+        for row in board.get("semisynthesis_anchors") or []
+        if isinstance(row, dict)
+    }
+    anchors: list[dict[str, Any]] = []
+    for row in rows:
+        smiles = str(row.get("smiles") or "").strip()
+        canonical = _canonical_or_raw_smiles(smiles)
+        if not canonical or canonical in existing:
+            continue
+        text = _resolved_structure_text(row)
+        if _resolved_structure_is_target_like(canonical, target_canonical=target_canonical):
+            continue
+        candidate_heavy = _smiles_heavy_atom_count(canonical or smiles)
+        if not _resolved_structure_is_semisynthesis_anchor_candidate(
+            row,
+            text=text,
+            candidate_heavy=candidate_heavy,
+            target_heavy=target_heavy,
+            candidate_smiles=canonical,
+            target_smiles=target_canonical,
+        ):
+            continue
+        name = _resolved_structure_anchor_name(row)
+        source_ref = str(row.get("source_ref") or "").strip()
+        structure_id = str(row.get("structure_id") or "")
+        anchor_id = "resolved_structure_anchor:" + _safe_anchor_token(
+            f"{source_ref}:{name}:{structure_id or canonical}"
+        )
+        anchor = {
+            "schema_version": "semisynthesis_anchor.v1",
+            "anchor_id": anchor_id,
+            "case_id": str(board.get("case_id") or ""),
+            "anchor_type": "source_resolved_same_scaffold_intermediate",
+            "objective_type": "semisynthesis_from_source_resolved_intermediate",
+            "name": name,
+            "smiles": smiles,
+            "canonical_smiles": canonical,
+            "role": "Source-resolved same-scaffold intermediate for target-proximal semisynthesis or bridge search.",
+            "route_role": "objective_endpoint_candidate",
+            "source_ref": source_ref,
+            "source_locator": str(row.get("source_locator") or ""),
+            "evidence_refs": _dedupe_strings(
+                [
+                    artifact_ref,
+                    source_ref,
+                    str(row.get("task_id") or ""),
+                    structure_id,
+                    *[str(item) for item in row.get("evidence_refs") or []],
+                ]
+            ),
+            "required_verification": [
+                "same_core_anchor_identity",
+                "target_side_conversion_logic",
+                "objective_endpoint_source_validation",
+                "route_verifier_acceptance",
+            ],
+            "allowed_use": "route_objective_anchor_hint_only",
+            "not_exact_literature_segment": True,
+            "not_parent_route_proof": True,
+            "requires_source_validation": True,
+            "no_solved_claim": True,
+            "confidence": str(row.get("confidence") or "low"),
+            "source_structure_id": structure_id,
+        }
+        anchors.append(anchor)
+        existing.add(canonical)
+    return anchors
+
+
+def _semisynthesis_bridge_task_from_anchor(board: dict[str, Any], anchor: dict[str, Any]) -> dict[str, Any]:
+    anchor_id = str(anchor.get("anchor_id") or "")
+    return {
+        "schema_version": "agent_bridge_task.v1",
+        "task_id": f"semisynthesis_bridge:{anchor_id}",
+        "case_id": str(board.get("case_id") or ""),
+        "task_type": "objective_endpoint_anchor_validation",
+        "target_name": str((board.get("target_profile") or {}).get("target_name") or ""),
+        "target_handle": "semisynthesis_from_source_resolved_intermediate",
+        "required_bridge": "Validate and connect the source-resolved same-scaffold intermediate to the parent target.",
+        "source_hypothesis_id": "resolved_structure_semisynthesis_anchor",
+        "anchor_id": anchor_id,
+        "anchor": dict(anchor),
+        "status": "open",
+        "required_verification": [
+            "same_core_anchor_identity",
+            "target_side_conversion_logic",
+            "objective_endpoint_source_validation",
+            "route_verifier_acceptance",
+        ],
+        "no_solved_claim": True,
+    }
+
+
+def _resolved_structure_is_semisynthesis_anchor_candidate(
+    row: dict[str, Any],
+    *,
+    text: str,
+    candidate_heavy: int = 0,
+    target_heavy: int = 0,
+    candidate_smiles: str = "",
+    target_smiles: str = "",
+) -> bool:
+    if not bool(row.get("accepted")):
+        return False
+    if not str(row.get("smiles") or "").strip():
+        return False
+    if row.get("rdkit_valid") is False:
+        return False
+    if candidate_heavy:
+        if target_heavy >= 30:
+            minimum_heavy = 18
+        elif target_heavy:
+            minimum_heavy = max(8, int(target_heavy * 0.35))
+        else:
+            minimum_heavy = 12
+        if candidate_heavy < minimum_heavy:
+            return False
+    explicit_role = str(
+        row.get("route_role")
+        or row.get("structure_role")
+        or row.get("semantic_role")
+        or ""
+    ).strip().lower()
+    anchor_tokens = (
+        "same scaffold",
+        "same-core",
+        "semisynthesis",
+        "advanced intermediate",
+        "advanced precursor",
+        "route intermediate",
+    )
+    role_tokens = {
+        "advanced_intermediate",
+        "advanced_precursor",
+        "route_intermediate",
+        "semisynthesis_anchor",
+        "same_scaffold_intermediate",
+    }
+    semantic_signal = explicit_role in role_tokens or any(token in text for token in anchor_tokens)
+    return bool(
+        semantic_signal
+        and _resolved_structure_shares_target_scaffold(candidate_smiles, target_smiles)
+    )
+
+
+def _resolved_structure_is_target_like(
+    smiles: str,
+    *,
+    target_canonical: str,
+) -> bool:
+    if not target_canonical:
+        return False
+    if smiles == target_canonical:
+        return True
+    if Chem is None:
+        return False
+    candidate = Chem.MolFromSmiles(smiles)
+    target = Chem.MolFromSmiles(target_canonical)
+    if candidate is None or target is None:
+        return False
+    return Chem.MolToSmiles(candidate, isomericSmiles=False) == Chem.MolToSmiles(
+        target,
+        isomericSmiles=False,
+    )
+
+
+def _resolved_structure_anchor_name(row: dict[str, Any]) -> str:
+    label = str(row.get("label") or "").strip()
+    generic_labels = {
+        "all structures",
+        "all route structures",
+        "all intermediates",
+        "advanced intermediate",
+    }
+    if label and label.lower() not in generic_labels:
+        return label
+    return "source-resolved same-scaffold intermediate"
+
+
+def _resolved_structure_shares_target_scaffold(candidate_smiles: str, target_smiles: str) -> bool:
+    if Chem is None or not candidate_smiles or not target_smiles:
+        return False
+    candidate = Chem.MolFromSmiles(candidate_smiles)
+    target = Chem.MolFromSmiles(target_smiles)
+    if candidate is None or target is None:
+        return False
+    try:
+        from rdkit.Chem.Scaffolds import MurckoScaffold
+
+        candidate_scaffold = MurckoScaffold.GetScaffoldForMol(candidate)
+        target_scaffold = MurckoScaffold.GetScaffoldForMol(target)
+    except Exception:
+        return False
+    candidate_atoms = int(candidate_scaffold.GetNumHeavyAtoms())
+    target_atoms = int(target_scaffold.GetNumHeavyAtoms())
+    if candidate_atoms < 6 or target_atoms < 6:
+        return False
+    smaller, larger = (
+        (candidate_scaffold, target_scaffold)
+        if candidate_atoms <= target_atoms
+        else (target_scaffold, candidate_scaffold)
+    )
+    smaller_atoms = min(candidate_atoms, target_atoms)
+    larger_atoms = max(candidate_atoms, target_atoms)
+    return bool(
+        smaller_atoms / max(1, larger_atoms) >= 0.55
+        and larger.HasSubstructMatch(smaller, useChirality=False)
+    )
+
+
+def _resolved_structure_text(row: dict[str, Any]) -> str:
+    return " ".join(
+        [
+            str(row.get("label") or ""),
+            str(row.get("source_locator") or ""),
+            str(row.get("source_ref") or ""),
+            str(row.get("task_id") or ""),
+            str(row.get("derivation_mode") or ""),
+        ]
+    ).lower()
+
+
+def _smiles_heavy_atom_count(smiles: str) -> int:
+    if Chem is None:
+        return 0
+    mol = Chem.MolFromSmiles(str(smiles or ""))
+    return int(mol.GetNumHeavyAtoms()) if mol is not None else 0
+
+
+def _safe_anchor_token(value: str) -> str:
+    text = str(value or "").strip().lower()
+    token = "".join(ch if ch.isalnum() else "_" for ch in text)
+    token = "_".join(part for part in token.split("_") if part)
+    return f"{token[:80]}:{_stable_hash(text)}"
+
+
 def _update_from_guided_chemenzy(board: dict[str, Any], payload: dict[str, Any], artifact_ref: str) -> None:
+    guided_payload = _guided_chemenzy_result_payload(payload)
     verifier = dict(payload.get("raw_route_verifier") or {})
+    if not verifier and guided_payload:
+        verifier = dict(guided_payload.get("raw_route_verifier") or {})
     if verifier:
+        expected_target_smiles = str((board.get("target_profile") or {}).get("target_smiles") or "")
+        belief = dict(board.get("current_belief") or {})
+        belief["parent_route_verifier"] = _compact_parent_route_verifier(
+            verifier,
+            artifact_ref=artifact_ref,
+            expected_target_smiles=expected_target_smiles,
+        )
+        if _parent_route_verifier_solved(
+            verifier,
+            expected_target_smiles=expected_target_smiles,
+        ):
+            _extend_unique(belief, "next_action_bias", ["stitch_parent_route"], unique_key=None)
+        board["current_belief"] = belief
+        if not verifier.get("accepted"):
+            _extend_unique(
+                board,
+                "route_failures",
+                [
+                    {
+                        "schema_version": "agent_route_failure.v1",
+                        "reason": str(reason),
+                        "route_status": str(verifier.get("route_status") or ""),
+                        "artifact_ref": artifact_ref,
+                    }
+                    for reason in verifier.get("reasons") or []
+                ],
+                unique_key="reason",
+            )
+    runtime = dict(payload.get("literature_template_plugin_runtime") or guided_payload.get("literature_template_plugin_runtime") or {})
+    if runtime:
+        _extend_unique(board, "plugin_runtime_diagnostics", [runtime], unique_key="schema_version")
+    chemenzy_runtime = dict(payload.get("chemenzy_runtime_diagnostic") or guided_payload.get("chemenzy_runtime_diagnostic") or {})
+    if chemenzy_runtime:
+        _extend_unique(board, "plugin_runtime_diagnostics", [chemenzy_runtime], unique_key="diagnostic_id")
         _extend_unique(
             board,
             "route_failures",
@@ -1164,19 +2260,123 @@ def _update_from_guided_chemenzy(board: dict[str, Any], payload: dict[str, Any],
                 {
                     "schema_version": "agent_route_failure.v1",
                     "reason": str(reason),
-                    "route_status": str(verifier.get("route_status") or ""),
+                    "route_status": "unresolved",
                     "artifact_ref": artifact_ref,
+                    "failure_class": "chemenzy_runtime_diagnostic",
                 }
-                for reason in verifier.get("reasons") or []
+                for reason in chemenzy_runtime.get("reasons") or []
             ],
             unique_key="reason",
         )
-    runtime = dict(payload.get("literature_template_plugin_runtime") or {})
-    if runtime:
-        _extend_unique(board, "plugin_runtime_diagnostics", [runtime], unique_key="schema_version")
+    unresolved_failures = _guided_chemenzy_unresolved_failures(guided_payload, artifact_ref=artifact_ref)
+    if unresolved_failures:
+        _extend_unique(board, "route_failures", unresolved_failures, unique_key="reason")
+        belief = dict(board.get("current_belief") or {})
+        _extend_unique(belief, "next_action_bias", ["build_failure_critic_report", "search_literature"], unique_key=None)
+        board["current_belief"] = belief
     feedback = dict(payload.get("route_failure_feedback") or {})
     if feedback and isinstance(feedback.get("path"), str):
         board.setdefault("artifact_refs", {})["route_failure_feedback"] = str(feedback.get("path") or "")
+
+
+def _guided_chemenzy_result_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if str(payload.get("schema_version") or "") == "guided_chemenzy_rerun_result.v1":
+        return dict(payload)
+    result = payload.get("result")
+    if isinstance(result, dict) and str(result.get("schema_version") or "") == "guided_chemenzy_rerun_result.v1":
+        return dict(result)
+    return {}
+
+
+def _guided_chemenzy_unresolved_failures(payload: dict[str, Any], *, artifact_ref: str) -> list[dict[str, Any]]:
+    if not payload:
+        return []
+    raw = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    search_status = raw.get("search_status") if isinstance(raw.get("search_status"), dict) else {}
+    route_status = str(payload.get("route_status") or search_status.get("status") or "").strip().lower()
+    solved = bool(payload.get("solved") or search_status.get("solved"))
+    ok = raw.get("ok")
+    n_results = raw.get("n_results")
+    try:
+        n_results_int = int(n_results)
+    except (TypeError, ValueError):
+        n_results_int = -1
+    diagnosis = [
+        str(item)
+        for item in raw.get("failure_diagnosis") or []
+        if str(item or "").strip()
+    ]
+    for item in raw.get("backend_failures") or []:
+        if not isinstance(item, dict):
+            continue
+        reason = str(item.get("reason") or item.get("category") or "").strip()
+        if reason:
+            diagnosis.append(reason)
+    search_failed = str(search_status.get("status") or "").strip().lower() in {"failed", "unresolved", "timeout"}
+    explicit_no_route = any("no_route" in str(item).lower() for item in diagnosis)
+    if solved or not (
+        route_status in {"unresolved", "failed", "timeout"}
+        or search_failed
+        or explicit_no_route
+        or ok is False
+        or n_results_int == 0
+    ):
+        return []
+    reasons = ["no_route_found"] if explicit_no_route or n_results_int == 0 else ["guided_chemenzy_unresolved"]
+    return [
+        {
+            "schema_version": "agent_route_failure.v1",
+            "reason": reason,
+            "route_status": route_status or "unresolved",
+            "artifact_ref": artifact_ref,
+            "failure_class": "guided_chemenzy_search_status",
+            "search_status": str(search_status.get("status") or ""),
+            "n_results": n_results_int if n_results_int >= 0 else None,
+        }
+        for reason in reasons
+    ]
+
+
+def _compact_parent_route_verifier(
+    verifier: dict[str, Any],
+    *,
+    artifact_ref: str,
+    expected_target_smiles: str = "",
+) -> dict[str, Any]:
+    audit = dict(verifier.get("target_equivalence_audit") or {})
+    solved = is_accepted_route_verifier_report(
+        verifier,
+        expected_target_smiles=expected_target_smiles,
+    )
+    return {
+        "schema_version": "agent_parent_route_verifier_summary.v1",
+        "verifier_schema_version": str(verifier.get("schema_version") or ""),
+        "accepted": solved,
+        "solved": solved,
+        "route_status": str(verifier.get("route_status") or ""),
+        "target_match": bool(verifier.get("target_match") or audit.get("target_match")),
+        "accepted_route_count": _nonnegative_int(verifier.get("accepted_route_count"), 0),
+        "best_route_rank": verifier.get("best_route_rank"),
+        "best_route_step_count": _nonnegative_int(verifier.get("best_route_step_count"), 0),
+        "rejected_route_count": _nonnegative_int(verifier.get("rejected_route_count"), 0),
+        "reasons": [str(item) for item in verifier.get("reasons") or []],
+        "warnings": [str(item) for item in verifier.get("warnings") or []],
+        "artifact_ref": artifact_ref,
+        "proof_ready_action": "stitch_parent_route",
+        "final_verdict_authority": "deterministic_parent_route_proof",
+        "raw_route_output_not_embedded": True,
+    }
+
+
+def _parent_route_verifier_solved(
+    verifier: dict[str, Any],
+    *,
+    expected_target_smiles: str = "",
+) -> bool:
+    return is_accepted_route_verifier_report(
+        verifier,
+        expected_target_smiles=expected_target_smiles,
+    )
 
 
 def _exact_rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1189,38 +2389,84 @@ def _exact_rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [_row_summary(row, idx) for idx, row in enumerate(rows, start=1) if isinstance(row, dict)]
 
 
-def _literature_terminal_candidate_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _literature_terminal_candidates_from_payload(
+    payload: dict[str, Any],
+    *,
+    artifact_ref: str,
+) -> list[dict[str, Any]]:
     chain = dict(payload.get("chain_audit") or {})
     if not chain and isinstance(payload.get("result"), dict):
         chain = dict((payload.get("result") or {}).get("chain_audit") or {})
     if not chain:
-        return {}
-    smiles = str(
-        chain.get("terminal_smiles")
-        or chain.get("observed_terminal_smiles")
-        or _last_chain_main_reactant(chain.get("chain") or chain.get("steps") or [])
-        or ""
-    ).strip()
-    canonical = str(chain.get("terminal_canonical_smiles") or canonical_smiles(smiles) or "").strip()
-    if not smiles or not canonical:
-        return {}
-    repair = dict(chain.get("terminal_stereo_repair") or {})
-    return {
-        "schema_version": "agent_literature_terminal_candidate.v1",
-        "terminal_id": f"source_detail_terminal:{canonical}",
-        "name": str(chain.get("terminal_name") or repair.get("name") or "source detail literature terminal"),
-        "smiles": smiles,
-        "canonical_smiles": canonical,
-        "source_ref": _chain_source_ref(chain),
-        "source": "source_detail_chain_route",
-        "step_count": int(chain.get("step_count") or len(chain.get("chain") or [])),
-        "terminal_reached": bool(chain.get("terminal_reached")),
-        "terminal_requested": bool(chain.get("terminal_requested")),
-        "stereo_repair": repair,
-        "exact_target_override": True,
-        "target_equivalence_audit_required": True,
-        "no_solved_claim": True,
+        return []
+    steps = [dict(row) for row in chain.get("chain") or chain.get("steps") or [] if isinstance(row, dict)]
+    products = {
+        canonical_smiles(str(step.get("product_smiles") or ""))
+        for step in steps
+        if canonical_smiles(str(step.get("product_smiles") or ""))
     }
+    reactant_by_key: dict[str, str] = {}
+    for step in steps:
+        for raw in step.get("reactant_smiles") or []:
+            smiles = str(raw or "").strip()
+            canonical = canonical_smiles(smiles)
+            if smiles and canonical:
+                reactant_by_key.setdefault(canonical, smiles)
+    frontier = sorted(key for key in reactant_by_key if key not in products)
+    if not frontier:
+        fallback = str(
+            chain.get("terminal_smiles")
+            or chain.get("observed_terminal_smiles")
+            or _last_chain_main_reactant(steps)
+            or ""
+        ).strip()
+        fallback_key = canonical_smiles(fallback)
+        if fallback and fallback_key:
+            frontier = [fallback_key]
+            reactant_by_key[fallback_key] = fallback
+    if not frontier:
+        return []
+
+    strict_source_proof = _source_detail_chain_strict_proof_eligible(chain)
+    audit_id = str(artifact_ref or chain.get("case_id") or "source_detail_chain_audit")
+    source_ref = _chain_source_ref(chain)
+    repair = dict(chain.get("terminal_stereo_repair") or {})
+    candidates: list[dict[str, Any]] = []
+    for index, canonical in enumerate(frontier, start=1):
+        smiles = reactant_by_key[canonical]
+        is_named_terminal = canonical in {
+            canonical_smiles(str(chain.get("terminal_smiles") or "")),
+            canonical_smiles(str(chain.get("observed_terminal_smiles") or "")),
+        }
+        candidates.append(
+            {
+                "schema_version": "agent_literature_terminal_candidate.v1",
+                "terminal_id": f"source_detail_terminal:{_stable_hash(audit_id + '|' + canonical)}",
+                "name": str(
+                    chain.get("terminal_name") or repair.get("name") or "source detail literature terminal"
+                ) if is_named_terminal else f"source detail frontier {index}",
+                "smiles": smiles,
+                "canonical_smiles": canonical,
+                "source_ref": source_ref,
+                "source": "source_detail_chain_route",
+                "source_chain_audit_id": audit_id,
+                "frontier_index": index,
+                "frontier_count": len(frontier),
+                "step_count": int(chain.get("step_count") or len(steps)),
+                "terminal_reached": bool(chain.get("terminal_reached")),
+                "terminal_requested": bool(chain.get("terminal_requested")),
+                "stereo_repair": repair if is_named_terminal else {},
+                "strict_source_proof_eligible": strict_source_proof,
+                "terminal_candidate_level": (
+                    "strict_source_detail" if strict_source_proof else "advisory_source_detail"
+                ),
+                "requires_all_frontiers_closed": True,
+                "exact_target_override": True,
+                "target_equivalence_audit_required": True,
+                "no_solved_claim": True,
+            }
+        )
+    return candidates
 
 
 def _exact_chain_audit_summary(payload: dict[str, Any], *, artifact_ref: str) -> dict[str, Any]:
@@ -1230,6 +2476,8 @@ def _exact_chain_audit_summary(payload: dict[str, Any], *, artifact_ref: str) ->
     if not chain:
         return {}
     summary = dict(chain.get("summary") or {})
+    frontier = _source_detail_chain_frontier(chain)
+    strict_source_proof = _source_detail_chain_strict_proof_eligible(chain)
     return {
         "schema_version": "agent_exact_chain_audit_summary.v1",
         "audit_id": str(artifact_ref or chain.get("case_id") or "source_detail_chain_audit"),
@@ -1241,8 +2489,95 @@ def _exact_chain_audit_summary(payload: dict[str, Any], *, artifact_ref: str) ->
         "terminal_requested": bool(chain.get("terminal_requested")),
         "observed_terminal_smiles": str(chain.get("observed_terminal_smiles") or ""),
         "target_smiles": str(chain.get("target_smiles") or ""),
+        "chain_schema_version": str(chain.get("schema_version") or ""),
+        "strict_source_proof_eligible": strict_source_proof,
+        "terminal_frontier": frontier,
+        "terminal_frontier_count": len(frontier),
+        "requires_all_frontiers_closed": True,
         "artifact_ref": str(artifact_ref or ""),
     }
+
+
+def _source_detail_chain_strict_proof_eligible(chain: dict[str, Any]) -> bool:
+    steps = [dict(row) for row in chain.get("chain") or chain.get("steps") or [] if isinstance(row, dict)]
+    return bool(
+        chain.get("schema_version") == "source_detail_route_chain_audit.v1"
+        and chain.get("accepted") is True
+        and steps
+        and _source_detail_chain_frontier(chain)
+        and all(is_validated_source_detail_literature_step(step) for step in steps)
+    )
+
+
+def _source_detail_chain_frontier(chain: dict[str, Any]) -> list[str]:
+    steps = [dict(row) for row in chain.get("chain") or chain.get("steps") or [] if isinstance(row, dict)]
+    products = {
+        canonical_smiles(str(step.get("product_smiles") or ""))
+        for step in steps
+        if canonical_smiles(str(step.get("product_smiles") or ""))
+    }
+    reactants = {
+        canonical_smiles(str(smiles or ""))
+        for step in steps
+        for smiles in step.get("reactant_smiles") or []
+        if canonical_smiles(str(smiles or ""))
+    }
+    return sorted(reactants - products)
+
+
+def _strict_literature_frontiers(board: dict[str, Any]) -> list[list[str]]:
+    evidence = dict(board.get("literature_evidence") or {})
+    frontiers: list[list[str]] = []
+    for raw in evidence.get("exact_chain_audits") or []:
+        if not isinstance(raw, dict) or raw.get("strict_source_proof_eligible") is not True:
+            continue
+        frontier = sorted(
+            {
+                canonical_smiles(str(smiles or ""))
+                for smiles in raw.get("terminal_frontier") or []
+                if canonical_smiles(str(smiles or ""))
+            }
+        )
+        if frontier:
+            frontiers.append(frontier)
+    return frontiers
+
+
+def _route_expansion_subgoal_summaries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    result = dict(payload.get("result") or payload)
+    summaries: list[dict[str, Any]] = []
+    for raw in result.get("subgoals") or []:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        subgoal = dict(row.get("subgoal") or {})
+        smiles = str(subgoal.get("smiles") or subgoal.get("target_smiles") or "").strip()
+        canonical = canonical_smiles(smiles)
+        verifier = dict(row.get("verifier") or {})
+        verifier_accepted = is_accepted_route_verifier_report(
+            verifier,
+            expected_target_smiles=smiles,
+        ) if smiles else False
+        summaries.append(
+            {
+                "schema_version": "agent_route_expansion_subgoal_summary.v1",
+                "subgoal_id": str(subgoal.get("child_target_id") or subgoal.get("terminal_id") or canonical or smiles),
+                "name": str(subgoal.get("name") or subgoal.get("target_name") or ""),
+                "smiles": smiles,
+                "canonical_smiles": canonical,
+                "accepted": bool(
+                    row.get("accepted") is True
+                    and row.get("solved") is True
+                    and verifier_accepted
+                ),
+                "verifier_accepted": verifier_accepted,
+                "route_status": str(row.get("route_status") or verifier.get("route_status") or ""),
+                "raw_result_path": str(row.get("raw_result_path") or ""),
+                "request_path": str(row.get("request_path") or ""),
+                "reasons": [str(item) for item in row.get("reasons") or []],
+            }
+        )
+    return summaries
 
 
 def _literature_terminal_bridge_task(board: dict[str, Any], terminal: dict[str, Any]) -> dict[str, Any]:
@@ -1254,8 +2589,15 @@ def _literature_terminal_bridge_task(board: dict[str, Any], terminal: dict[str, 
         "task_type": "upstream_terminal_synthesis",
         "target_name": str(target.get("target_name") or ""),
         "target_handle": "source_detail_literature_terminal",
-        "required_bridge": "Find upstream synthesis for the exact terminal of the accepted source-detail literature chain.",
-        "required_verification": ["child_target_route_verifier", "parent_bridge_connectivity", "exact_terminal_identity"],
+        "required_bridge": "Find an independently verified upstream route for this source-detail frontier component.",
+        "required_verification": [
+            "child_target_route_verifier",
+            "parent_bridge_connectivity",
+            "exact_frontier_identity",
+            "all_source_chain_frontiers_closed",
+        ],
+        "strict_source_proof_eligible": bool(terminal.get("strict_source_proof_eligible")),
+        "requires_all_frontiers_closed": True,
         "priority": "high",
         "status": "open",
         "terminal": dict(terminal),
@@ -1515,7 +2857,7 @@ def _compact_artifact(payload: dict[str, Any], *, artifact_ref: str) -> dict[str
         or candidate_source.get("title")
         or ""
     )
-    steps = candidate.get("steps") or candidate.get("candidate_steps") or []
+    steps = candidate.get("steps") or candidate.get("candidate_steps") or payload.get("steps") or []
     compact_steps = _compact_visual_candidate_steps(steps)
     structure_tasks_preview = _structure_resolution_tasks_from_gaps(
         extraction_gaps,
@@ -1770,6 +3112,198 @@ def _extend_unique(target: dict[str, Any], list_name: str, rows: list[Any], *, u
     target[list_name] = existing
 
 
+def _target_side_handles(target_side: dict[str, Any]) -> set[str]:
+    target = dict(target_side.get("target") or {})
+    handles = {str(item) for item in target.get("handles") or [] if str(item or "").strip()}
+    handles.update(
+        str(row.get("target_handle") or "")
+        for row in target_side.get("hypotheses") or []
+        if isinstance(row, dict) and str(row.get("target_handle") or "").strip()
+    )
+    return handles
+
+
+def _selected_objective_types(summary: dict[str, Any]) -> set[str]:
+    return {
+        str(row.get("objective_type") or "")
+        for row in summary.get("selected_objectives") or []
+        if isinstance(row, dict) and str(row.get("objective_type") or "").strip()
+    }
+
+
+def _analogical_ranking_hypothesis_ids(ranking: dict[str, Any]) -> set[str]:
+    rows = [
+        *[row for row in ranking.get("ranked_hypotheses") or [] if isinstance(row, dict)],
+        *[row for row in ranking.get("selected_hypotheses") or [] if isinstance(row, dict)],
+    ]
+    return {str(row.get("hypothesis_id") or "") for row in rows if str(row.get("hypothesis_id") or "").strip()}
+
+
+def _target_side_hypothesis_row(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    return str(row.get("hypothesis_id") or "").startswith("target_side_")
+
+
+def _target_derived_bridge_task(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    task_id = str(row.get("task_id") or "")
+    source_id = str(row.get("source_hypothesis_id") or "")
+    anchor_id = str(row.get("anchor_id") or "")
+    return bool(
+        task_id.startswith("bridge:")
+        or source_id.startswith("target_side_")
+        or anchor_id.startswith("route_objective_anchor:")
+    )
+
+
+def _route_objective_anchor_row(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    return str(row.get("anchor_id") or "").startswith("route_objective_anchor:")
+
+
+def _remove_stale_evidence_refs(board: dict[str, Any], stale_ids: set[str]) -> None:
+    if not stale_ids:
+        return
+    for list_name in (
+        "retrosynthetic_proposals",
+        "recursive_hypothesis_tasks",
+        "proposal_failure_feedback",
+        "reaction_idea_cards",
+    ):
+        cleaned: list[Any] = []
+        for row in board.get(list_name) or []:
+            if not isinstance(row, dict):
+                cleaned.append(row)
+                continue
+            updated = dict(row)
+            refs = [str(item) for item in updated.get("evidence_refs") or [] if str(item or "").strip()]
+            if refs:
+                updated["evidence_refs"] = [ref for ref in refs if ref not in stale_ids]
+            cleaned.append(updated)
+        board[list_name] = cleaned
+
+
+def _apply_route_scope_to_belief(board: dict[str, Any], route_scope: dict[str, Any]) -> None:
+    if not route_scope:
+        return
+    belief = dict(board.get("current_belief") or {})
+    belief["route_scope"] = route_scope
+    constraints = dict(belief.get("constraints") or {})
+    for key, scope_key in (
+        ("de_novo_core_construction_deprioritized", "de_novo_core_construction_deprioritized"),
+        ("small_molecule_stock_closure_deprioritized", "small_molecule_stock_closure_deprioritized"),
+        ("objective_evidence_validation_required", "objective_evidence_validation_required"),
+    ):
+        constraints[key] = bool(route_scope.get(scope_key))
+    belief["constraints"] = constraints
+    board["current_belief"] = belief
+
+
+def _merge_source_candidate_rows(existing_rows: list[Any], incoming_rows: list[Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    index: dict[str, int] = {}
+
+    def add(row: dict[str, Any], *, incoming: bool) -> None:
+        key = _source_candidate_merge_key(row)
+        if key and key in index:
+            pos = index[key]
+            rows[pos] = _merge_source_candidate_row(rows[pos], row, prefer_incoming=incoming)
+            return
+        if key:
+            index[key] = len(rows)
+        rows.append(dict(row))
+
+    for raw in existing_rows:
+        if isinstance(raw, dict):
+            add(dict(raw), incoming=False)
+    for raw in incoming_rows:
+        if isinstance(raw, dict):
+            add(dict(raw), incoming=True)
+    return rows
+
+
+def _source_candidate_merge_key(row: dict[str, Any]) -> str:
+    local_pdf = str(
+        row.get("local_pdf")
+        or row.get("source_pdf_path")
+        or row.get("pdf_path")
+        or ""
+    ).strip().lower()
+    if local_pdf:
+        return f"pdf:{local_pdf}"
+    document_id = str(row.get("document_id") or "").strip().lower()
+    if document_id:
+        return f"document:{document_id}"
+    doi = _normalize_hint_doi(str(row.get("doi") or ""))
+    if doi:
+        return f"doi:{doi.lower()}"
+    source_ref = str(row.get("source_ref") or "").strip().lower()
+    if source_ref.startswith("doi:"):
+        doi = _normalize_hint_doi(source_ref)
+        if doi:
+            return f"doi:{doi.lower()}"
+    pii = str(row.get("pii") or "").strip().lower()
+    if pii:
+        return f"pii:{pii}"
+    if source_ref.startswith("pii:") and source_ref[4:].strip():
+        return f"pii:{source_ref[4:].strip().lower()}"
+    url = str(row.get("url") or "").strip().lower()
+    if url:
+        return f"url:{url}"
+    if source_ref:
+        return f"ref:{source_ref}"
+    return ""
+
+
+def _merge_source_candidate_row(existing: dict[str, Any], incoming: dict[str, Any], *, prefer_incoming: bool) -> dict[str, Any]:
+    merged = dict(existing)
+    for key in (
+        "doi",
+        "pii",
+        "url",
+        "source_ref",
+        "title",
+        "route_sequence_hint",
+        "document_id",
+        "content_scope",
+        "source_role",
+    ):
+        value = incoming.get(key)
+        if str(value or "").strip() and (prefer_incoming or not str(merged.get(key) or "").strip()):
+            merged[key] = value
+    for key in ("local_pdf", "source_type", "source_discovery_mode", "access_status"):
+        value = incoming.get(key)
+        if str(value or "").strip():
+            merged[key] = value
+    for key in ("local_pdf_index", "local_pdf_match"):
+        value = incoming.get(key)
+        if isinstance(value, dict) and value:
+            merged[key] = dict(value)
+    for key in ("expected_scheme_or_compound_labels", "extraction_task_recommendations"):
+        merged[key] = _dedupe_strings(
+            [
+                *[str(item) for item in merged.get(key) or [] if str(item or "").strip()],
+                *[str(item) for item in incoming.get(key) or [] if str(item or "").strip()],
+            ]
+        )
+    if incoming.get("placeholder_only") is not None:
+        merged["placeholder_only"] = bool(incoming.get("placeholder_only"))
+    if incoming.get("no_solved_claim") is not None:
+        merged["no_solved_claim"] = bool(incoming.get("no_solved_claim"))
+    rationale = _dedupe_strings(
+        [
+            str(existing.get("relevance_rationale") or ""),
+            str(incoming.get("relevance_rationale") or ""),
+        ]
+    )
+    if rationale:
+        merged["relevance_rationale"] = " | ".join(rationale)
+    return merged
+
+
 def _unique_key(row: Any, key: str | None) -> str:
     if isinstance(row, dict) and key:
         value = row.get(key)
@@ -1815,8 +3349,83 @@ def _dedupe_strings(items: list[str]) -> list[str]:
 
 
 def _action_signature(action: dict[str, Any]) -> str:
+    payload = {key: value for key, value in dict(action.get("payload") or {}).items() if key != "timestamp"}
     return json.dumps(
-        {"action_type": action.get("action_type"), "payload": action.get("payload") or {}},
+        {
+            "action_type": action.get("action_type"),
+            "payload": _compact_action_signature_payload(payload),
+            "payload_hash": hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16],
+        },
         sort_keys=True,
         default=str,
     )
+
+
+def _compact_action_signature_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    scalar_keys = [
+        "source_ref",
+        "doi",
+        "pii",
+        "url",
+        "pdf_path",
+        "source_pdf_path",
+        "chain_id",
+        "visual_chain_id",
+        "artifact_ref",
+        "query",
+        "search_intent",
+        "search_mode",
+        "focused_gap_repair",
+        "focused_structure_resolution",
+        "expansion_attempt",
+        "timeout_s",
+        "max_steps",
+        "max_candidates",
+    ]
+    for key in scalar_keys:
+        value = payload.get(key)
+        if isinstance(value, (str, int, float, bool)) and str(value).strip():
+            compact[key] = value
+    for key, limit in {
+        "queries": 4,
+        "search_queries": 4,
+        "expected_labels": 8,
+        "page_numbers": 8,
+        "template_ids": 6,
+        "hypothesis_ids": 6,
+        "selected_analogy_hypothesis_ids": 6,
+    }.items():
+        values = [item for item in payload.get(key) or [] if str(item or "").strip()]
+        if values:
+            compact[key] = values[:limit]
+            if len(values) > limit:
+                compact[f"{key}_count"] = len(values)
+    subgoals = payload.get("subgoal_targets") or payload.get("child_targets") or []
+    if isinstance(subgoals, list) and subgoals:
+        compact["subgoal_targets"] = [_compact_signature_target(row) for row in subgoals[:6] if isinstance(row, dict)]
+        compact["subgoal_target_count"] = len(subgoals)
+    policy = payload.get("search_policy") or payload.get("chem_enzy_search_policy")
+    if isinstance(policy, dict):
+        compact["search_policy_summary"] = {
+            "policy_id": str(policy.get("policy_id") or ""),
+            "mode": str(policy.get("mode") or ""),
+            "active_bridge_tasks": len(policy.get("active_bridge_tasks") or []),
+            "terminal_blacklist": len(policy.get("terminal_blacklist") or []),
+            "accepted_exact_row_ids": len(policy.get("accepted_exact_row_ids") or []),
+        }
+    repair = payload.get("codex_payload_repair")
+    if isinstance(repair, dict):
+        compact["codex_payload_repair"] = {
+            "action_type": str(repair.get("action_type") or ""),
+            "completed_from_blackboard": bool(repair.get("completed_from_blackboard")),
+        }
+    return compact
+
+
+def _compact_signature_target(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: str(row.get(key) or "")
+        for key in ("task_id", "label", "name", "smiles", "canonical_smiles")
+        if str(row.get(key) or "").strip()
+    }

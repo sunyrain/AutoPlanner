@@ -28,6 +28,10 @@ class WebAppTest(unittest.TestCase):
         payload = response.get_json()
         self.assertTrue(payload["ok"])
         self.assertIn("cuda", payload)
+        self.assertEqual(
+            payload["chem_enzy_runtime"]["probe_scope"],
+            "filesystem_only_no_process_or_model_execution",
+        )
         self.assertIn("template_relevance", payload)
         self.assertIn("available_model_names", payload["template_relevance"])
 
@@ -177,22 +181,23 @@ class WebAppTest(unittest.TestCase):
                 "validation_status": "draft",
             },
         )
-        with patch("cascade_planner.web.app.run_codex_worker", return_value=record) as run_worker:
-            response = self.app.post(
-                "/api/worker-trace",
-                json={
-                    "task": {
-                        "schema_version": "worker_task.v1",
-                        "task_id": "api_codex_worker",
-                        "case_id": "case",
-                        "task_type": "target_research",
-                        "required_artifact_type": "ResearchReport",
-                        "input_refs": ["target_profile"],
-                        "budget": {"timeout_s": 5, "max_output_bytes": 20000, "max_tool_calls": 2, "max_worker_runs": 1},
-                        "dry_run": False,
-                    }
-                },
-            )
+        with patch.dict(web_app.os.environ, {"AUTOPLANNER_WEB_ENABLE_REAL_WORKER_TRACE": "1"}):
+            with patch("cascade_planner.web.app.run_codex_worker", return_value=record) as run_worker:
+                response = self.app.post(
+                    "/api/worker-trace",
+                    json={
+                        "task": {
+                            "schema_version": "worker_task.v1",
+                            "task_id": "api_codex_worker",
+                            "case_id": "case",
+                            "task_type": "target_research",
+                            "required_artifact_type": "ResearchReport",
+                            "input_refs": ["target_profile"],
+                            "budget": {"timeout_s": 5, "max_output_bytes": 20000, "max_tool_calls": 2, "max_worker_runs": 1},
+                            "dry_run": False,
+                        }
+                    },
+                )
 
         self.assertEqual(response.status_code, 200, response.data)
         payload = response.get_json()
@@ -200,6 +205,54 @@ class WebAppTest(unittest.TestCase):
         self.assertEqual(payload["worker_trace"]["backend"], "codex_cli")
         self.assertEqual(payload["worker_trace"]["command"][:2], ["codex", "exec"])
         self.assertTrue(run_worker.call_args.kwargs["use_codex_cli"])
+
+    def test_codex_plan_rejects_http_runtime_controls_before_queueing(self):
+        before = set(web_app._JOBS)
+        response = self.app.post(
+            "/api/plan-jobs",
+            json={
+                "planner_backend": "codex_fullflow",
+                "target_smiles": "CCO",
+                "key_path": "key.txt",
+                "base_url": "https://attacker.invalid/v1",
+                "codex_worker_sandbox": "bypassed",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(set(web_app._JOBS), before)
+
+    def test_mutating_api_rejects_non_json_cross_site_requests(self):
+        non_json = self.app.post(
+            "/api/plan-jobs",
+            data='{"planner_backend":"codex_fullflow","target_smiles":"CCO"}',
+            content_type="text/plain",
+        )
+        self.assertEqual(non_json.status_code, 415, non_json.data)
+        cross_site = self.app.post(
+            "/api/plan-jobs",
+            json={"planner_backend": "codex_fullflow", "target_smiles": "CCO"},
+            headers={"Origin": "https://attacker.invalid", "Sec-Fetch-Site": "cross-site"},
+        )
+        self.assertEqual(cross_site.status_code, 403, cross_site.data)
+
+    def test_real_worker_trace_is_disabled_by_default(self):
+        with patch.dict(web_app.os.environ, {}, clear=False):
+            web_app.os.environ.pop("AUTOPLANNER_WEB_ENABLE_REAL_WORKER_TRACE", None)
+            response = self.app.post(
+                "/api/worker-trace",
+                json={
+                    "task": {
+                        "schema_version": "worker_task.v1",
+                        "task_id": "blocked_worker",
+                        "case_id": "case",
+                        "task_type": "target_research",
+                        "required_artifact_type": "ResearchReport",
+                        "input_refs": ["target_profile"],
+                        "budget": {"timeout_s": 5, "max_output_bytes": 20000, "max_tool_calls": 2, "max_worker_runs": 1},
+                    }
+                },
+            )
+        self.assertEqual(response.status_code, 403, response.data)
 
     def test_save_native_raw_output_writes_independent_sidecar(self):
         with tempfile.TemporaryDirectory(dir=web_app.ROOT) as td:

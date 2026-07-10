@@ -1,7 +1,10 @@
+import hashlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from rdkit import Chem
@@ -16,21 +19,32 @@ from cascade_planner.harness.analogical_reaction_templates import (
     rank_analogical_reaction_templates_from_blackboard,
     validate_analogical_reaction_template,
 )
-from cascade_planner.harness.agent_action_planner import plan_action_batch, validate_action_batch
+from cascade_planner.harness.agent_action_planner import (
+    build_child_expansion_payload_from_blackboard,
+    _child_expansion_payload,
+    plan_action_batch,
+    validate_action_batch,
+)
 from cascade_planner.harness.agentic_blackboard import (
     build_agentic_guided_payload,
     initialize_agent_blackboard,
+    refresh_target_derived_blackboard_priors,
     update_blackboard_from_action_batch,
     update_blackboard_from_action,
     update_budget_for_action,
 )
 from cascade_planner.harness.agentic_blackboard_controller import (
+    _blackboard_step_summary,
     _capability_check_planner_history,
     _capability_check_source_acquisition,
+    _codex_scout_timeout_s,
     _codex_literature_scout_task,
     _inject_pdf_defaults,
     _local_pdf_cache_match_report,
+    _merge_local_pdf_scout_report,
+    _refresh_blackboard_from_local_pdf_proxy_downloads,
     _validate_agentic_final_verdict,
+    _visual_action_output_dir,
     emit_agentic_final_verdict,
     run_agentic_blackboard_controller,
 )
@@ -42,6 +56,7 @@ from cascade_planner.harness.hypothesis_execution_report import (
 )
 from cascade_planner.harness.codex_action_planner import (
     _codex_action_planner_task,
+    _normalize_codex_batch,
     _planner_context_summary,
     _write_codex_blackboard_snapshot,
     plan_action_batch_with_codex,
@@ -53,25 +68,40 @@ from cascade_planner.harness.local_pdf_proxy import (
 )
 from cascade_planner.harness.open_research_experience import audit_local_pdf_proxy_fallback
 from cascade_planner.harness.preflight import run_preflight
+from cascade_planner.harness.parent_route_proof import compile_stitched_parent_route_proof
+from cascade_planner.harness.route_verifier import verify_chemenzy_raw_routes
 from cascade_planner.harness.schemas import TargetInput
 from cascade_planner.harness.target_side_strategy import build_target_side_disconnection_hypotheses
 from cascade_planner.harness.tools import (
     HarnessBudget,
     ToolExecutionState,
+    _codex_repaired_or_bounded_timeout_s,
+    _guided_chemenzy_runtime_diagnostic,
     _pdf_evidence_from_payload_or_artifacts,
     _route_expansion_child_targets,
+    _structure_label_matches,
+    _structure_resolution_timeout_s,
     _visual_chain_image_paths,
+    _visual_literature_timeout_s,
     execute_local_tool,
     run_guided_chemenzy_rerun,
 )
 from cascade_planner.harness.visual_literature_chain_agent import (
-    _bufotalin_tet2025_label_anchor_chain,
     _candidate_chain_from_parsed,
     _candidate_quality,
+    _prompt as _visual_literature_prompt,
     _run_codex_visual_prompt,
     _run_direct_visual_prompt,
+    run_visual_literature_chain_agent,
 )
-from cascade_planner.harness.visual_structure_extraction import validate_visual_structure_chain
+from scripts.resume_agentic_blackboard import (
+    _compact_cli_result,
+    _extend_exploration_budget,
+    _extend_round_budget,
+    _load_budget,
+    _load_existing_artifacts,
+    resume_agentic_blackboard_run,
+)
 
 
 MLA_LIKE_SMILES = "CN1CC2CCC1CC2OC(=O)c3ccccc3N4C(=O)CCC4=O"
@@ -81,6 +111,99 @@ BUFOTALIN_SMILES = (
 )
 BUFOTALIN_ACHIRAL_SMILES = "CC(=O)OC1CC2(O)C3CCC4CC(O)CCC4(C)C3CCC2(C)C1c1ccc(=O)oc1"
 C22_9OH_4HP_SMILES = "O=C1CC[C@@]2(C)C(CC[C@]3(O)C2CC[C@@]4(C)C3CCC4[C@@H](CO)C)=C1"
+ATORVASTATIN_FREE_ACID_SMILES = (
+    "CC(C)C1=C(C(=C(N1CC[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)"
+    "C3=CC=CC=C3)C(=O)NC4=CC=CC=C4"
+)
+
+
+def _strict_parent_route_verifier(
+    target_smiles: str,
+    *,
+    reactants: list[str],
+    rejected_sibling: dict | None = None,
+    custom_stock_path: Path | None = None,
+) -> dict:
+    terminals = list(dict.fromkeys(reactants))
+    raw = {
+        "target": target_smiles,
+        "routes": [
+            {
+                "route_rank": 0,
+                "metrics": {
+                    "terminal_reactants": terminals,
+                    "terminal_stock_status": {item: True for item in terminals},
+                },
+                "steps": [
+                    {
+                        "index": 0,
+                        "product": target_smiles,
+                        "reactant_smiles": reactants,
+                        "stock_status": {item: True for item in terminals},
+                    }
+                ],
+            }
+        ],
+    }
+    if rejected_sibling:
+        raw["routes"].append(dict(rejected_sibling))
+    if custom_stock_path is not None:
+        raw["stock_catalog_context"] = {
+            "effective_stock_names": ["controller-test-stock"],
+            "catalog_bindings": [
+                {
+                    "name": "controller-test-stock",
+                    "path": str(custom_stock_path),
+                    "sha256": hashlib.sha256(custom_stock_path.read_bytes()).hexdigest(),
+                }
+            ],
+        }
+    return verify_chemenzy_raw_routes(raw, target_smiles=target_smiles)
+
+_RENDERED_PAGE_FIXTURE = (Path(__file__).parent / "fixtures" / "source_page.ppm").resolve()
+_PDF_FIXTURE = (Path(__file__).parent / "fixtures" / "source_evidence_stub.pdf").resolve()
+
+
+def _rendered_pdf_evidence(
+    *,
+    source_ref: str,
+    pdf_path: str | Path | None = None,
+    document_id: str = "",
+    **overrides,
+) -> dict:
+    """Build proof that a real page image was materialized for one document."""
+    # Preserve the candidate's spelling: document keys intentionally bind to
+    # the exact path string, including POSIX-style fixture paths on Windows.
+    bound_pdf = str(pdf_path) if pdf_path else str(_PDF_FIXTURE)
+    row = {
+        "schema_version": "agent_pdf_structure_evidence_summary.v1",
+        "source_ref": source_ref,
+        "source_pdf_path": bound_pdf,
+        "accepted": True,
+        "rendered_page_count": 1,
+        "rendered_pages": [
+            {
+                "page_number": 1,
+                "image_path": str(_RENDERED_PAGE_FIXTURE),
+            }
+        ],
+        "reasons": [],
+    }
+    if document_id:
+        row["document_id"] = document_id
+    row.update(overrides)
+    return row
+
+
+def _target_handles_from_blackboard(board: dict) -> set[str]:
+    target_side = dict(board.get("target_side_disconnection_hypotheses") or {})
+    handles = {str(item) for item in (target_side.get("target") or {}).get("handles") or [] if str(item or "").strip()}
+    handles.update(
+        str(row.get("target_handle") or "")
+        for row in target_side.get("hypotheses") or []
+        if isinstance(row, dict) and str(row.get("target_handle") or "").strip()
+    )
+    return handles
 
 
 def _test_search_payload(query: str = "target proximal synthesis", **overrides):
@@ -177,6 +300,13 @@ def _test_analogical_template_requirements():
 
 
 class AgenticBlackboardControllerTest(unittest.TestCase):
+    def test_structure_label_match_keeps_baccatin_and_10dab_distinct(self):
+        self.assertTrue(_structure_label_matches("baccatin III", "baccatin III"))
+        self.assertFalse(_structure_label_matches("10-deacetyl baccatin III", "10-DAB"))
+        self.assertFalse(_structure_label_matches("baccatin III", "10-deacetyl baccatin III"))
+        self.assertFalse(_structure_label_matches("10-deacetyl baccatin III", "baccatin III"))
+        self.assertTrue(_structure_label_matches("compound 15", "15"))
+
     def test_blackboard_initialization_writes_target_profile(self):
         target = TargetInput(target_name="ethanol", target_smiles="CCO")
         preflight = run_preflight(target)
@@ -187,6 +317,34 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(board["budget_state"]["max_rounds"], 3)
         self.assertEqual(board["planner_history"], [])
         self.assertEqual(board["budget_state"]["codex_action_planner_runs"], 0)
+
+    def test_blackboard_step_summary_counts_nested_literature_evidence(self):
+        target = TargetInput(target_name="ethanol", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["literature_evidence"]["pdf_structure_evidence"] = [{"evidence_id": "pdf:first"}]
+        board["literature_evidence"]["visual_chains"] = [{"chain_id": "visual:first"}]
+        board["literature_evidence"]["structure_resolution_tasks"] = [{"task_id": "resolve:first"}]
+        board["current_belief"]["blocked_directions"] = [{"reason": "duplicate_frontier"}]
+        board["current_belief"]["next_action_bias"] = [{"action_type": "stop_unresolved"}]
+        board["route_objective_summary"]["objectives"] = [{"objective_id": "objective:first"}]
+
+        summary = _blackboard_step_summary(
+            board,
+            step_index=1,
+            stage="unit_test",
+            round_index=1,
+            action_id="",
+            action_type="",
+            detail={},
+        )
+
+        self.assertEqual(summary["counts"]["pdf_structure_evidence"], 1)
+        self.assertEqual(summary["counts"]["visual_chains"], 1)
+        self.assertEqual(summary["counts"]["structure_resolution_tasks"], 1)
+        self.assertEqual(summary["counts"]["blocked_directions"], 1)
+        self.assertEqual(summary["counts"]["next_action_bias"], 1)
+        self.assertEqual(summary["counts"]["route_objectives"], 1)
 
     def test_hypothesis_only_report_emits_achiral_connectivity_candidates(self):
         target = TargetInput(target_name="target1_steroid", target_smiles=BUFOTALIN_ACHIRAL_SMILES)
@@ -260,6 +418,71 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         validation = validate_typed_artifact(artifact)
         self.assertTrue(validation["accepted"], validation["reasons"])
 
+    def test_hypothesis_report_uses_proposal_and_recursive_frontier_candidates(self):
+        target = TargetInput(target_name="atorvastatin_like", target_smiles=ATORVASTATIN_FREE_ACID_SMILES)
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=4)
+        board["retrosynthetic_proposals"] = [
+            {
+                "proposal_id": "proposal:amide_disconnection",
+                "proposal_type": "semi_executable",
+                "proposal_granularity": "same_core",
+                "recursive_expandable": True,
+                "executable": True,
+                "precursor_smiles": "CC(C)c1c(C(=O)O)c(-c2ccc(F)cc2)n(CC[C@H](O)C[C@H](O)CC(=O)O)c1-c1ccccc1",
+                "confidence": "medium",
+                "risk_flags": ["hypothesis_only"],
+            },
+            {
+                "proposal_id": "proposal:trivial_reagent",
+                "proposal_type": "semi_executable",
+                "recursive_expandable": True,
+                "executable": True,
+                "precursor_smiles": "[OH]",
+            },
+        ]
+        board["recursive_hypothesis_tasks"] = [
+            {
+                "task_id": "recursive_hypothesis:aniline",
+                "status": "pending",
+                "source": "retrosynthetic_proposal",
+                "precursor_smiles": "Nc1ccccc1",
+                "parent_smiles": ATORVASTATIN_FREE_ACID_SMILES,
+                "name": "amide_to_carboxylic_acid_amine_precursors:component:2",
+                "recursive_depth": 1,
+                "risk_flags": ["recursive_hypothesis_only"],
+            }
+        ]
+
+        report = compile_hypothesis_only_retrosynthesis_report(blackboard=board)
+
+        self.assertTrue(report["accepted"], report)
+        self.assertEqual(report["candidate_precursor_count"], 2)
+        source_types = {row["source_type"] for row in report["candidate_precursors"]}
+        self.assertIn("retrosynthetic_proposal", source_types)
+        self.assertIn("recursive_hypothesis_task", source_types)
+        self.assertNotIn("[OH]", {row["precursor_smiles"] for row in report["candidate_precursors"]})
+        artifact = {
+            "schema_version": "hypothesis_only_retrosynthesis_report_artifact.v1",
+            "artifact_type": "HypothesisOnlyRetrosynthesisReport",
+            "artifact_id": "atorvastatin_like:hypothesis_only_retrosynthesis_report",
+            "case_id": "atorvastatin_like",
+            "source": "test",
+            "input_refs": ["agent_blackboard.json"],
+            "evidence_refs": ["proposal_bus"],
+            "validation_status": "accepted",
+            "payload": report,
+        }
+        validation = validate_typed_artifact(artifact)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+        execution = compile_hypothesis_execution_report(
+            blackboard=board,
+            hypothesis_report=artifact,
+        )
+        self.assertEqual(execution["route_status"], "hypothesis_routes_pending_execution")
+        self.assertEqual(execution["pending_candidate_count"], 2)
+
     def test_exhaustive_policy_stops_instead_of_repeating_stale_failure_critic(self):
         target = TargetInput(target_name="target1_steroid", target_smiles=BUFOTALIN_ACHIRAL_SMILES)
         preflight = run_preflight(target)
@@ -316,6 +539,127 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertIn("hypothesis_only_retrosynthesis_available", final["reasons"])
         validation = _validate_agentic_final_verdict(final, blackboard=board, validations=[])
         self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_plausible_route_proof_bundle_surfaces_as_hypothesis_verdict(self):
+        target = TargetInput(target_name="atorvastatin_like", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        route_proof_bundle = {
+            "accepted": True,
+            "result": {
+                "schema_version": "route_proof_bundle.v1",
+                "accepted": False,
+                "solved": False,
+                "route_status": "plausible_hypothesis_route",
+                "reasons": ["deterministic_connected_route_not_proven"],
+                "objective_proofs": [
+                    {
+                        "schema_version": "objective_specific_route_proof.v1",
+                        "accepted": False,
+                        "solved": False,
+                        "route_status": "plausible_hypothesis_route",
+                        "reasons": ["deterministic_connected_route_not_proven"],
+                    }
+                ],
+            },
+        }
+
+        final = emit_agentic_final_verdict(
+            blackboard=board,
+            artifacts={"route_proof_bundle": route_proof_bundle},
+            bundle={"case_id": "atorvastatin_like"},
+        ).to_dict()
+
+        self.assertEqual(final["verdict"], "hypothesis_route_proposed")
+        self.assertEqual(final["route_status"], "plausible_hypothesis_route")
+        self.assertFalse(final["solved"])
+        self.assertIn("hypothesis_only_retrosynthesis_available", final["reasons"])
+        validation = _validate_agentic_final_verdict(final, blackboard=board, validations=[])
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_hypothesis_execution_status_preempts_generic_plausible_proof_status(self):
+        target = TargetInput(target_name="atorvastatin_like", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        route_proof_bundle = {
+            "accepted": True,
+            "result": {
+                "schema_version": "route_proof_bundle.v1",
+                "accepted": False,
+                "solved": False,
+                "route_status": "plausible_hypothesis_route",
+                "reasons": ["deterministic_connected_route_not_proven"],
+                "objective_proofs": [
+                    {
+                        "schema_version": "objective_specific_route_proof.v1",
+                        "accepted": False,
+                        "solved": False,
+                        "route_status": "plausible_hypothesis_route",
+                        "reasons": ["deterministic_connected_route_not_proven"],
+                    }
+                ],
+            },
+        }
+        hypothesis_execution_report = {
+            "schema_version": "hypothesis_execution_report_artifact.v1",
+            "artifact_type": "HypothesisExecutionReport",
+            "artifact_id": "atorvastatin_like:hypothesis_execution_report",
+            "case_id": "atorvastatin_like",
+            "source": "test",
+            "input_refs": ["agent_blackboard.json"],
+            "evidence_refs": ["route_expansion_subgoal_search_result.json"],
+            "validation_status": "accepted",
+            "payload": {
+                "schema_version": "hypothesis_execution_report.v1",
+                "accepted": True,
+                "route_status": "hypothesis_route_execution_partial",
+                "solved": False,
+                "no_parent_solved_claim": True,
+                "hypotheses_must_be_executed": True,
+                "candidate_count": 2,
+                "executed_candidate_count": 1,
+                "verified_child_route_count": 0,
+                "rejected_candidate_count": 1,
+                "pending_candidate_count": 1,
+                "recursive_followup_task_count": 1,
+                "pending_recursive_followup_count": 1,
+                "candidate_executions": [
+                    {
+                        "schema_version": "hypothesis_candidate_execution.v1",
+                        "candidate_id": "hypothesis:1",
+                        "precursor_smiles": "CCO",
+                        "execution_status": "executed_rejected",
+                        "verifier_accepted": False,
+                        "solved": False,
+                        "route_status": "fake_closed_rejected",
+                        "no_parent_solved_claim": True,
+                    },
+                    {
+                        "schema_version": "hypothesis_candidate_execution.v1",
+                        "candidate_id": "hypothesis:2",
+                        "precursor_smiles": "CCN",
+                        "execution_status": "not_executed",
+                        "verifier_accepted": False,
+                        "solved": False,
+                        "route_status": "not_executed",
+                        "no_parent_solved_claim": True,
+                    },
+                ],
+            },
+        }
+
+        final = emit_agentic_final_verdict(
+            blackboard=board,
+            artifacts={
+                "route_proof_bundle": route_proof_bundle,
+                "hypothesis_execution_report": hypothesis_execution_report,
+            },
+            bundle={"case_id": "atorvastatin_like"},
+        ).to_dict()
+
+        self.assertEqual(final["verdict"], "hypothesis_route_proposed")
+        self.assertEqual(final["route_status"], "hypothesis_route_execution_partial")
+        self.assertFalse(final["solved"])
 
     def test_hypothesis_execution_report_tracks_rejected_route_expansion(self):
         target = TargetInput(target_name="target1_steroid", target_smiles=BUFOTALIN_ACHIRAL_SMILES)
@@ -542,6 +886,183 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertTrue(policy["source_budget"]["recursive_hypothesis_frontier"])
         self.assertIn("recursive_failed_hypothesis_frontier_expansion", policy["source_budget"]["preferred_reaction_classes"])
 
+    def test_planner_continues_with_refined_component_after_child_failure(self):
+        target = TargetInput(target_name="phenyl acetate", target_smiles="CC(=O)Oc1ccccc1")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=preflight,
+            max_rounds=6,
+            budget_limits={
+                "max_route_expansion_subgoal_runs": 4,
+                "max_scout_calls": 1,
+                "max_visual_calls": 1,
+            },
+        )
+        board["budget_state"]["scout_calls"] = board["budget_state"]["max_scout_calls"]
+        board["analogical_hypothesis_ranking"] = {"selected_hypotheses": [{"hypothesis_id": "target_side:ester"}]}
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "source_ref": "doi:10.0000/ester",
+                "doi": "10.0000/ester",
+                "title": "Ester disconnection precedent",
+            }
+        ]
+        strategy = {
+            "schema_version": "target_side_disconnection_hypotheses.v1",
+            "accepted": True,
+            "hypotheses": [
+                {
+                    "hypothesis_id": "target_side:ester",
+                    "target_handle": "aryl ester",
+                    "proposed_disconnection_region": "acyl-oxygen ester disconnection",
+                    "expected_precursor_type": "carboxylic acid or activated acyl donor plus phenol",
+                    "must_preserve_substructure": ["aryl fragment"],
+                    "confidence": "medium",
+                    "required_verification": ["route_expansion_verifier"],
+                }
+            ],
+            "bridge_tasks": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            board = update_blackboard_from_action(
+                board,
+                action={"action_id": "r1:strategy", "action_type": "generate_disconnection_hypotheses"},
+                action_result=strategy,
+                round_index=1,
+                run_dir=tmp,
+            )
+            first_batch = plan_action_batch(board, round_index=2, exhaust_round_budget=True)
+            first_expand = next(row for row in first_batch["actions"] if row["action_type"] == "expand_child_target")
+            acid_target = next(
+                row
+                for row in first_expand["payload"]["subgoal_targets"]
+                if row["smiles"] == "CC(=O)O"
+            )
+            route_result = {
+                "schema_version": "route_expansion_subgoal_search_result.v1",
+                "accepted": False,
+                "status": "failed",
+                "solved": False,
+                "subgoals": [
+                    {
+                        "schema_version": "route_expansion_subgoal_result.v1",
+                        "accepted": False,
+                        "solved": False,
+                        "reasons": ["no_route_expansion_subgoal_verified_solved"],
+                        "verifier": {"accepted": False, "reasons": ["target_unresolved"]},
+                        "subgoal": {
+                            "schema_version": "route_expansion_child_target.v1",
+                            "name": acid_target["name"],
+                            "smiles": acid_target["smiles"],
+                            "source": acid_target["source"],
+                            "hypothesis_only_not_solved": True,
+                            "recursive_hypothesis_task_id": acid_target["recursive_hypothesis_task_id"],
+                            "parent_candidate_id": acid_target["parent_candidate_id"],
+                            "parent_smiles": acid_target["parent_smiles"],
+                            "task_scope": acid_target["task_scope"],
+                            "precursor_set_smiles": acid_target["precursor_set_smiles"],
+                            "precursor_component_index": acid_target["precursor_component_index"],
+                            "precursor_component_count": acid_target["precursor_component_count"],
+                            "multi_component_precursor_set": acid_target["multi_component_precursor_set"],
+                            "requires_precursor_set_stitching": acid_target["requires_precursor_set_stitching"],
+                            "sibling_precursor_smiles": acid_target["sibling_precursor_smiles"],
+                            "policy": acid_target["chem_enzy_search_policy"],
+                        },
+                    }
+                ],
+                "reasons": ["no_route_expansion_subgoal_verified_solved"],
+            }
+            board = update_blackboard_from_action(
+                board,
+                action={**first_expand, "action_id": "r2:expand"},
+                action_result={"accepted": True, "result": route_result},
+                round_index=2,
+                run_dir=tmp,
+            )
+
+        self.assertEqual(len(board["proposal_failure_feedback"]), 1)
+        refined = [
+            row
+            for row in board["retrosynthetic_proposals"]
+            if row.get("source_type") == "failure_driven_proposal_refinement"
+        ]
+        self.assertTrue(any(row["precursor_smiles"] == "COC(C)=O.Oc1ccccc1" for row in refined))
+
+        next_batch = plan_action_batch(board, round_index=3, exhaust_round_budget=True)
+        next_action_types = [row["action_type"] for row in next_batch["actions"]]
+        self.assertIn("expand_child_target", next_action_types)
+        self.assertNotIn("stop_unresolved", next_action_types)
+        next_expand = next(row for row in next_batch["actions"] if row["action_type"] == "expand_child_target")
+        next_targets = next_expand["payload"]["subgoal_targets"]
+        next_smiles = [row["smiles"] for row in next_targets]
+        self.assertNotIn("CC(=O)O", next_smiles)
+        self.assertTrue({"CC(=O)Cl", "COC(C)=O"} & set(next_smiles))
+        refined_target = next(row for row in next_targets if row["smiles"] in {"CC(=O)Cl", "COC(C)=O"})
+        self.assertTrue(refined_target["requires_precursor_set_stitching"])
+        self.assertIn("Oc1ccccc1", refined_target["sibling_precursor_smiles"])
+        validation = validate_action_batch(next_batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_parent_relevance_rejection_does_not_accept_recursive_child_task(self):
+        board = initialize_agent_blackboard(
+            target_input={"target_name": "parent", "target_smiles": "CCN"},
+            preflight={"accepted": True, "case_id": "parent"},
+        )
+        board["recursive_hypothesis_tasks"] = [
+            {
+                "task_id": "recursive:child",
+                "precursor_smiles": "CCO",
+                "status": "pending",
+            }
+        ]
+        route_result = {
+            "schema_version": "route_expansion_subgoal_search_result.v1",
+            "accepted": False,
+            "solved": False,
+            "accepted_subgoal_count": 0,
+            "subgoals": [
+                {
+                    "schema_version": "route_expansion_subgoal_result.v1",
+                    "accepted": False,
+                    "solved": False,
+                    "route_status": "child_component_not_parent_proximal",
+                    "reasons": ["child_component_not_parent_proximal"],
+                    "verifier": {"accepted": True, "route_status": "solved", "reasons": []},
+                    "parent_relevance_gate": {
+                        "accepted": False,
+                        "reasons": ["child_component_not_parent_proximal"],
+                    },
+                    "subgoal": {
+                        "name": "child",
+                        "smiles": "CCO",
+                        "source": "hypothesis",
+                        "recursive_hypothesis_task_id": "recursive:child",
+                        "parent_smiles": "CCN",
+                    },
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            board = update_blackboard_from_action(
+                board,
+                action={"action_id": "r1:expand", "action_type": "expand_child_target"},
+                action_result={"accepted": True, "result": route_result},
+                round_index=1,
+                run_dir=tmp,
+            )
+
+        task = board["recursive_hypothesis_tasks"][0]
+        self.assertEqual(task["status"], "rejected")
+        self.assertFalse(task["last_attempt_accepted"])
+        self.assertIn("child_component_not_parent_proximal", task["last_attempt_reasons"])
+        self.assertEqual(len(board["proposal_failure_feedback"]), 1)
+        self.assertIn(
+            "child_component_not_parent_proximal",
+            board["proposal_failure_feedback"][0]["failure_reasons"],
+        )
+
     def test_invalid_input_still_emits_agentic_closing_audit_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = run_agentic_blackboard_controller(
@@ -550,6 +1071,8 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 output_dir=tmp,
                 max_rounds=3,
             )
+            generated_route_html = Path(result["final_verdict"]["artifact_refs"]["route_forest_html"]).exists()
+            generated_route_forest = Path(result["final_verdict"]["artifact_refs"]["explored_route_forest"]).exists()
 
         self.assertEqual(result["final_verdict"]["verdict"], "invalid_input")
         self.assertFalse(result["preflight"]["accepted"])
@@ -560,12 +1083,19 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(artifacts["agentic_final_verdict_validation"]["artifact_type"], "AgenticFinalVerdictValidation")
         self.assertEqual(artifacts["hypothesis_only_retrosynthesis_report"]["artifact_type"], "HypothesisOnlyRetrosynthesisReport")
         self.assertEqual(artifacts["agentic_run_audit"]["artifact_type"], "AgenticRunAudit")
+        self.assertEqual(artifacts["route_forest_display"]["artifact_type"], "ExploredRouteForestDisplay")
         refs = result["final_verdict"]["artifact_refs"]
         self.assertIn("agent_blackboard_snapshot", refs)
         self.assertIn("agentic_capability_audit", refs)
         self.assertIn("agentic_final_verdict_validation", refs)
         self.assertIn("hypothesis_only_retrosynthesis_report", refs)
         self.assertIn("agentic_run_audit", refs)
+        self.assertIn("route_forest_html", refs)
+        self.assertIn("explored_route_forest", refs)
+        self.assertTrue(generated_route_html)
+        self.assertTrue(generated_route_forest)
+        self.assertEqual(result["artifacts"]["route_forest_html"], refs["route_forest_html"])
+        self.assertEqual(result["artifacts"]["explored_route_forest"], refs["explored_route_forest"])
         capability_payload = artifacts["agentic_capability_audit"]["payload"]
         self.assertTrue(capability_payload["accepted"], capability_payload["failed_requirements"])
         capability_checks = {
@@ -918,6 +1448,432 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(after_pdf["budget_state"]["visual_calls"], 2)
         self.assertEqual(after_visual["budget_state"]["visual_calls"], 3)
 
+    def test_zero_tool_budgets_disable_optional_agent_actions(self):
+        target = TargetInput(target_name="phenyl acetate", target_smiles="CC(=O)Oc1ccccc1")
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=run_preflight(target),
+            max_rounds=3,
+            budget_limits={
+                "max_scout_calls": 0,
+                "max_visual_calls": 0,
+                "max_guided_chemenzy_runs": 0,
+                "max_route_expansion_subgoal_runs": 0,
+                "max_template_application_actions": 0,
+            },
+        )
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "target_side:ester"}]}
+        board["analogical_hypothesis_ranking"] = {"selected_hypotheses": [{"hypothesis_id": "target_side:ester"}]}
+        board["bridge_tasks"] = [{"task_id": "bridge:ester", "task_type": "target_proximal_bridge"}]
+        board["recursive_hypothesis_tasks"] = [
+            {
+                "schema_version": "recursive_hypothesis_task.v1",
+                "task_id": "recursive_hypothesis:acid",
+                "task_type": "recursive_hypothesis_frontier_expansion",
+                "status": "pending",
+                "source": "retrosynthetic_proposal",
+                "parent_candidate_id": "proposal:acid",
+                "parent_smiles": "CC(=O)Oc1ccccc1",
+                "precursor_smiles": "CC(=O)O",
+                "name": "acid",
+                "recursive_depth": 1,
+                "no_solved_claim": True,
+            }
+        ]
+
+        batch = plan_action_batch(board, round_index=2, exhaust_round_budget=True)
+        action_types = [row["action_type"] for row in batch["actions"]]
+
+        self.assertEqual(board["budget_state"]["max_scout_calls"], 0)
+        self.assertEqual(board["budget_state"]["max_visual_calls"], 0)
+        self.assertEqual(board["budget_state"]["max_chemenzy_runs"], 0)
+        self.assertEqual(board["budget_state"]["max_child_target_runs"], 0)
+        self.assertNotIn("search_literature", action_types)
+        self.assertNotIn("extract_visual_literature_chain", action_types)
+        self.assertNotIn("run_guided_chemenzy", action_types)
+        self.assertNotIn("expand_child_target", action_types)
+
+    def test_blackboard_accepts_max_chem_enzy_runs_alias_as_guided_budget(self):
+        target = TargetInput(target_name="ethanol", target_smiles="CCO")
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=run_preflight(target),
+            max_rounds=3,
+            budget_limits={"max_chem_enzy_runs": 0},
+        )
+
+        self.assertEqual(board["budget_state"]["max_chemenzy_runs"], 0)
+
+    def test_agentic_cli_max_chem_enzy_runs_alias_disables_guided_when_unset(self):
+        from scripts.run_codex_entry_agentic_blackboard import _budget_from_args
+
+        args = SimpleNamespace(
+            timeout_s=120,
+            max_chem_enzy_runs=0,
+            max_guided_chemenzy_runs=None,
+            guided_chemenzy_timeout_s=None,
+            max_route_expansion_subgoal_runs=None,
+            max_codex_research_runs=None,
+            max_scout_calls=None,
+            max_visual_calls=None,
+            max_template_applications_per_round=5,
+        )
+
+        budget = _budget_from_args(args)
+
+        self.assertEqual(budget.max_chem_enzy_runs, 0)
+        self.assertEqual(budget.max_guided_chemenzy_runs, 0)
+
+    def test_controller_preserves_explicit_zero_guided_and_child_budgets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_agentic_blackboard_controller(
+                target_name="zero_budget_case",
+                target_smiles="CCO",
+                output_dir=tmp,
+                max_rounds=1,
+                use_codex_action_planner=False,
+                budget=HarnessBudget(
+                    max_guided_chemenzy_runs=0,
+                    max_route_expansion_subgoal_runs=0,
+                    max_scout_calls=0,
+                    max_visual_calls=0,
+                ),
+            )
+
+        budget_state = result["agent_blackboard"]["budget_state"]
+        action_types = [
+            row["action_type"]
+            for batch in result["action_batches"]
+            for row in batch.get("actions", [])
+        ]
+
+        self.assertEqual(budget_state["max_chemenzy_runs"], 0)
+        self.assertEqual(budget_state["max_child_target_runs"], 0)
+        self.assertEqual(budget_state["max_scout_calls"], 0)
+        self.assertEqual(budget_state["max_visual_calls"], 0)
+        self.assertNotIn("run_guided_chemenzy", action_types)
+        self.assertNotIn("expand_child_target", action_types)
+        self.assertNotIn("search_literature", action_types)
+
+    def test_child_expansion_budget_counts_planned_subgoal_targets(self):
+        target = TargetInput(target_name="phenyl acetate", target_smiles="CC(=O)Oc1ccccc1")
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=run_preflight(target),
+            max_rounds=3,
+            budget_limits={"max_route_expansion_subgoal_runs": 2},
+        )
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "target_side:ester"}]}
+        board["analogical_hypothesis_ranking"] = {"selected_hypotheses": [{"hypothesis_id": "target_side:ester"}]}
+        board["recursive_hypothesis_tasks"] = [
+            {
+                "schema_version": "recursive_hypothesis_task.v1",
+                "task_id": "recursive_hypothesis:acid",
+                "task_type": "recursive_hypothesis_frontier_expansion",
+                "status": "pending",
+                "source": "retrosynthetic_proposal",
+                "parent_candidate_id": "proposal:acid",
+                "parent_smiles": "CC(=O)Oc1ccccc1",
+                "precursor_smiles": "CC(=O)O",
+                "name": "acid",
+                "recursive_depth": 1,
+                "no_solved_claim": True,
+            },
+            {
+                "schema_version": "recursive_hypothesis_task.v1",
+                "task_id": "recursive_hypothesis:phenol",
+                "task_type": "recursive_hypothesis_frontier_expansion",
+                "status": "pending",
+                "source": "retrosynthetic_proposal",
+                "parent_candidate_id": "proposal:phenol",
+                "parent_smiles": "CC(=O)Oc1ccccc1",
+                "precursor_smiles": "Oc1ccccc1",
+                "name": "phenol",
+                "recursive_depth": 1,
+                "no_solved_claim": True,
+            }
+        ]
+        payload = build_child_expansion_payload_from_blackboard(board)
+        action = {
+            "schema_version": "agent_action.v1",
+            "action_id": "child",
+            "action_type": "expand_child_target",
+            "rationale": "expand two child targets",
+            "expected_artifact": "route_expansion_subgoal_search_result.v1",
+            "success_condition": "child targets are attempted",
+            "payload": payload,
+        }
+        batch = {
+            "schema_version": "agent_action_batch.v1",
+            "case_id": "child_budget",
+            "round_index": 1,
+            "actions": [action],
+        }
+
+        validation = validate_action_batch(batch, blackboard=board)
+        after = update_budget_for_action(board, "expand_child_target", payload=payload)
+
+        self.assertTrue(validation["accepted"], validation["reasons"])
+        self.assertEqual(after["budget_state"]["child_target_runs"], 2)
+        nearly_exhausted = {"budget_state": {"child_target_runs": 1, "max_child_target_runs": 2}}
+        over_budget_validation = validate_action_batch(batch, blackboard=nearly_exhausted)
+        self.assertIn("child_expansion_total_budget_exceeded", over_budget_validation["reasons"])
+
+        exhausted = {
+            **after,
+            "recursive_hypothesis_tasks": [
+                {
+                    "schema_version": "recursive_hypothesis_task.v1",
+                    "task_id": "recursive_hypothesis:extra",
+                    "task_type": "recursive_hypothesis_frontier_expansion",
+                    "status": "pending",
+                    "source": "retrosynthetic_proposal",
+                    "parent_candidate_id": "proposal:extra",
+                    "parent_smiles": "CC(=O)Oc1ccccc1",
+                    "precursor_smiles": "CC(=O)Cl",
+                    "name": "extra",
+                    "recursive_depth": 1,
+                    "no_solved_claim": True,
+                }
+            ],
+            "literature_evidence": {"source_candidates": [], "exact_rows": []},
+            "current_belief": {"constraints": {}, "template_policy": {"enabled": False}},
+        }
+        next_batch = plan_action_batch(exhausted, round_index=2, exhaust_round_budget=True)
+        self.assertNotIn("expand_child_target", [row["action_type"] for row in next_batch["actions"]])
+
+    def test_resume_exploration_budget_unblocks_accepted_template_hints(self):
+        target = TargetInput(
+            target_name="atorvastatin",
+            target_smiles=ATORVASTATIN_FREE_ACID_SMILES,
+            family_hint="statin",
+        )
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=preflight,
+            max_rounds=2,
+            budget_limits={
+                "max_guided_chemenzy_runs": 1,
+                "max_route_expansion_subgoal_runs": 1,
+                "max_visual_calls": 1,
+                "max_scout_calls": 1,
+                "max_codex_research_runs": 1,
+                "max_template_application_actions": 1,
+            },
+        )
+        precursor = "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccc(F)cc2)n(CCC(O)CC(O)CC(=O)OC(C)(C)C)c1-c1ccccc1"
+        board["template_applications"] = [
+            {
+                "application_id": "apply:visual_hydrolysis",
+                "template_id": "visual_hydrolysis",
+                "accepted": True,
+                "executable_candidate_available": True,
+                "hypothetical_precursor_hints": [
+                    {
+                        "precursor_smiles": precursor,
+                        "target_smiles": ATORVASTATIN_FREE_ACID_SMILES,
+                        "allowed_use": "guided_search_subgoal_hint_only",
+                        "not_parent_route_proof": True,
+                        "requires_verifier": True,
+                    }
+                ],
+            }
+        ]
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "target_side:statin"}]}
+        board["analogical_hypotheses"] = [{"hypothesis_id": "target_side:statin"}]
+        board["analogical_hypothesis_ranking"] = {"selected_hypotheses": [{"hypothesis_id": "target_side:statin"}]}
+        board["analogical_templates"] = [
+            {
+                "template_id": "visual_hydrolysis",
+                "reaction_center": {"product_retron_type": "visual_hydrolysis_salt_bridge"},
+                "evidence_refs": ["visual:atorvastatin"],
+            }
+        ]
+        board["analogical_template_ranking"] = {
+            "selected_templates": [{"template_id": "visual_hydrolysis", "rank": 1}]
+        }
+        board["action_history"] = [
+            {"round_index": 1, "action_type": "run_guided_chemenzy", "useful_artifact": True, "stale": False},
+            {
+                "round_index": 2,
+                "action_type": "apply_analogical_template_to_target",
+                "useful_artifact": True,
+                "stale": False,
+            },
+        ]
+        board["budget_state"].update(
+            {
+                "rounds_completed": 2,
+                "max_rounds": 2,
+                "chemenzy_runs": 1,
+                "max_chemenzy_runs": 1,
+                "child_target_runs": 1,
+                "max_child_target_runs": 1,
+                "codex_research_runs": 1,
+                "max_codex_research_runs": 1,
+                "scout_calls": 1,
+                "max_scout_calls": 1,
+                "visual_calls": 1,
+                "max_visual_calls": 1,
+                "template_application_actions": 1,
+                "max_template_application_actions": 1,
+            }
+        )
+
+        exhausted_batch = plan_action_batch(board, round_index=3, exhaust_round_budget=True)
+        self.assertEqual(["stop_unresolved"], [row["action_type"] for row in exhausted_batch["actions"]])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "budget.json").write_text(
+                json.dumps(
+                    {
+                        "max_guided_chemenzy_runs": 1,
+                        "max_route_expansion_subgoal_runs": 1,
+                        "max_visual_calls": 1,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            _extend_round_budget(board, max_new_rounds=1)
+            _extend_exploration_budget(board, extra_guided_runs=2, extra_child_target_runs=2)
+            loaded_budget = _load_budget(Path(tmp), board)
+
+        self.assertGreaterEqual(board["budget_state"]["max_chemenzy_runs"], 3)
+        self.assertGreaterEqual(board["budget_state"]["max_child_target_runs"], 3)
+        self.assertGreaterEqual(loaded_budget.max_guided_chemenzy_runs, 3)
+        self.assertGreaterEqual(loaded_budget.max_route_expansion_subgoal_runs, 3)
+        resumed_batch = plan_action_batch(board, round_index=3, exhaust_round_budget=True)
+        resumed_actions = [row["action_type"] for row in resumed_batch["actions"]]
+
+        self.assertNotEqual(["stop_unresolved"], resumed_actions)
+        self.assertTrue({"run_guided_chemenzy", "expand_child_target"} & set(resumed_actions))
+        child_actions = [row for row in resumed_batch["actions"] if row["action_type"] == "expand_child_target"]
+        if child_actions:
+            child_payload = child_actions[0]["payload"]
+            child_smiles = {
+                str(row.get("smiles") or "")
+                for row in child_payload.get("subgoal_targets") or []
+                if isinstance(row, dict)
+            }
+            self.assertIn(precursor, child_smiles)
+        validation = validate_action_batch(resumed_batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_resume_cli_summary_surfaces_advisory_route_display(self):
+        compact = _compact_cli_result(
+            {
+                "run_dir": "run/atorvastatin",
+                "resume_summary": {"executed_rounds": 2},
+                "final_verdict": {
+                    "verdict": "hypothesis_route_proposed",
+                    "route_status": "hypothesis_route_execution_partial",
+                    "solved": False,
+                    "reasons": ["stock_audit_not_passed"],
+                },
+                "action_batches": [{}, {}],
+                "validations": [],
+                "artifacts": {
+                    "route_forest_html": "run/atorvastatin/route_forest.html",
+                    "explored_route_forest": "run/atorvastatin/explored_route_forest.json",
+                },
+                "artifact_bundle": {
+                    "artifacts": {
+                        "route_forest_display": {
+                            "payload": {
+                                "accepted": True,
+                                "counts": {"branches": 4, "steps": 9, "nodes": 12},
+                                "primary_branch": {
+                                    "branch_id": "branch:recommended_atorvastatin_paal_knorr_process",
+                                    "title": "推荐主线: Paal-Knorr 工艺路线到 atorvastatin",
+                                    "kind": "recommended_strategy",
+                                    "step_count": 5,
+                                },
+                            }
+                        }
+                    }
+                },
+            }
+        )
+
+        self.assertEqual(compact["route_display"]["outcome"], "advisory_route_available_not_solved")
+        self.assertEqual(compact["route_display"]["branch_count"], 4)
+        self.assertEqual(
+            compact["route_display"]["primary_branch"]["title"],
+            "推荐主线: Paal-Knorr 工艺路线到 atorvastatin",
+        )
+        self.assertEqual(compact["route_display"]["html_path"], "run/atorvastatin/route_forest.html")
+
+    def test_child_expansion_prioritizes_visual_literature_precursors_over_failure_feedback(self):
+        target = TargetInput(
+            target_name="atorvastatin",
+            target_smiles=ATORVASTATIN_FREE_ACID_SMILES,
+            family_hint="statin",
+        )
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=run_preflight(target),
+            max_rounds=4,
+            budget_limits={"max_route_expansion_subgoal_runs": 2},
+        )
+        board["recursive_hypothesis_tasks"] = [
+            {
+                "task_id": "recursive_hypothesis:failed_acetate",
+                "status": "pending",
+                "name": "failed_acetate_to_alcohol_component",
+                "precursor_smiles": "CC(=O)O",
+                "parent_candidate_id": "proposal:failed_acetate",
+                "proposal_granularity": "same_core",
+                "proposal_score": 95,
+                "recursive_depth": 1,
+                "risk_flags": ["failure_driven_refinement"],
+            },
+            {
+                "task_id": "recursive_hypothesis:src003_32",
+                "status": "pending",
+                "name": "32",
+                "precursor_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)n(CCC(O)CC(=O)CC(=O)OC(C)(C)C)c1-c1ccc(F)cc1",
+                "parent_candidate_id": "proposal:src003_32",
+                "proposal_granularity": "fallback",
+                "proposal_score": 46,
+                "recursive_depth": 1,
+                "variant_type": "visual_connectivity_candidate",
+                "risk_flags": ["visual_literature_chain_missing_expected_labels", "exploratory_visual_candidate"],
+            },
+            {
+                "task_id": "recursive_hypothesis:bmc_4",
+                "status": "pending",
+                "name": "4",
+                "precursor_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccc(F)cc2)n(CCC2CC(CC(=O)OC(C)(C)C)OC(C)(C)O2)c1-c1ccccc1",
+                "parent_candidate_id": "proposal:bmc_4",
+                "proposal_granularity": "fallback",
+                "proposal_score": 55,
+                "recursive_depth": 1,
+                "variant_type": "visual_connectivity_candidate",
+                "risk_flags": ["exploratory_visual_candidate", "visual_connectivity_approximation"],
+            },
+            {
+                "task_id": "recursive_hypothesis:bmc_5",
+                "status": "pending",
+                "name": "5",
+                "precursor_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccc(F)cc2)n(CCC(O)CC(O)CC(=O)OC(C)(C)C)c1-c1ccccc1",
+                "parent_candidate_id": "proposal:bmc_5",
+                "proposal_granularity": "fallback",
+                "proposal_score": 52,
+                "recursive_depth": 1,
+                "variant_type": "visual_connectivity_candidate",
+                "risk_flags": ["exploratory_visual_candidate", "visual_connectivity_approximation"],
+            },
+        ]
+
+        payload = _child_expansion_payload(board)
+        selected_names = [row["name"] for row in payload["subgoal_targets"]]
+
+        self.assertEqual(selected_names[0], "4")
+        self.assertIn("5", selected_names)
+        self.assertNotIn("failed_acetate_to_alcohol_component", selected_names)
+        self.assertNotIn("32", selected_names)
+
     def test_action_batch_validation_does_not_count_template_actions_as_literature_sources(self):
         action = {
             "schema_version": "agent_action.v1",
@@ -994,6 +1950,32 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             "case_id": board["case_id"],
             "round_index": 1,
             "actions": [action],
+        }
+
+        validation = validate_action_batch(batch, blackboard=board)
+
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_action_batch_validation_accepts_runtime_rebuilt_guided_chemenzy_policy(self):
+        target = TargetInput(target_name="guided_runtime_rebuild", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["bridge_tasks"] = [{"task_id": "bridge:target", "task_type": "target_proximal_bridge"}]
+        batch = {
+            "schema_version": "agent_action_batch.v1",
+            "case_id": board["case_id"],
+            "round_index": 1,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "guided",
+                    "action_type": "run_guided_chemenzy",
+                    "rationale": "try guided search with runtime policy rebuild",
+                    "expected_artifact": "guided_chemenzy_result.v1",
+                    "success_condition": "verifier feedback is recorded",
+                    "payload": {"guided_policy_runtime_rebuild": True},
+                }
+            ],
         }
 
         validation = validate_action_batch(batch, blackboard=board)
@@ -1091,6 +2073,100 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         validation = validate_action_batch(batch, blackboard=board)
 
         self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_action_batch_validation_requires_frontier_after_complex_initial_probe(self):
+        target = TargetInput(target_name="steroid_target", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["action_history"].append(
+            {
+                "schema_version": "agent_action_history_record.v1",
+                "round_index": 1,
+                "action_type": "run_guided_chemenzy",
+                "useful_artifact": True,
+                "stale": False,
+            }
+        )
+        action = {
+            "schema_version": "agent_action.v1",
+            "action_id": "extract_pdf",
+            "action_type": "extract_pdf_literature_structures",
+            "rationale": "continue source extraction",
+            "expected_artifact": "literature_pdf_structure_evidence.v1",
+            "success_condition": "pdf evidence is recorded",
+            "payload": {"pdf_path": "/tmp/source.pdf", "source_ref": "doi:test", "no_solved_claim": True},
+        }
+        batch = {
+            "schema_version": "agent_action_batch.v1",
+            "case_id": board["case_id"],
+            "round_index": 2,
+            "actions": [action],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        validation = validate_action_batch(batch, blackboard=board)
+
+        self.assertFalse(validation["accepted"])
+        self.assertIn("complex_target_requires_frontier_bootstrap_after_initial_probe", validation["reasons"])
+
+    def test_guided_retry_syncs_deep_budget_into_policy(self):
+        target = TargetInput(target_name="steroid_target", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["budget_state"]["max_chemenzy_runs"] = 2
+        board["budget_state"]["chemenzy_runs"] = 1
+        board["route_failures"] = [
+            {
+                "schema_version": "agent_route_failure.v1",
+                "reason": "no_route_found",
+                "route_status": "unresolved",
+            }
+        ]
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "source_ref": "src_open_process",
+                "doi": "10.1186/s13065-015-0082-7",
+                "title": "An improved kilogram-scale preparation of atorvastatin calcium",
+            }
+        ]
+        board["action_history"] = [
+            {
+                "schema_version": "agent_action_history_record.v1",
+                "round_index": 1,
+                "action_type": "run_guided_chemenzy",
+                "useful_artifact": True,
+                "stale": False,
+            },
+            {
+                "schema_version": "agent_action_history_record.v1",
+                "round_index": 2,
+                "action_type": "search_literature",
+                "useful_artifact": True,
+                "stale": False,
+            },
+        ]
+
+        batch = plan_action_batch(board, round_index=3, max_actions=3)
+
+        guided = next(row for row in batch["actions"] if row["action_type"] == "run_guided_chemenzy")
+        payload = guided["payload"]
+        policy_budget = payload["chem_enzy_search_policy"]["budget"]
+        self.assertEqual(payload["search_mode"], "guided_retry_after_initial_probe")
+        self.assertEqual(payload["search_preset"], "bounded_retry")
+        self.assertEqual(payload["max_steps"], 12)
+        self.assertEqual(payload["chem_enzy_iterations"], 60)
+        self.assertEqual(payload["chem_enzy_expansion_topk"], 120)
+        self.assertEqual(payload["timeout_s"], 600)
+        self.assertEqual(policy_budget["max_depth"], 12)
+        self.assertEqual(policy_budget["max_iterations"], payload["chem_enzy_iterations"])
+        self.assertEqual(policy_budget["expansion_topk"], payload["chem_enzy_expansion_topk"])
+        self.assertEqual(policy_budget["timeout_s"], payload["timeout_s"])
+        self.assertFalse(payload["chem_enzy_search_policy"]["source_budget"]["initial_scan_allowed"])
+        self.assertTrue(validate_action_batch(batch, blackboard=board)["accepted"])
 
     def test_action_batch_validation_requires_explicit_child_subgoal_targets(self):
         action = {
@@ -1344,7 +2420,10 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 "source_candidates": [
                     {"source_ref": "doi:first", "doi": "10.1/first", "local_pdf": "/tmp/first.pdf"},
                     {"source_ref": "doi:second", "doi": "10.1/second", "local_pdf": "/tmp/second.pdf"},
-                ]
+                ],
+                "pdf_structure_evidence": [
+                    _rendered_pdf_evidence(source_ref="doi:first", pdf_path="/tmp/first.pdf")
+                ],
             }
         }
         unbound_batch = {
@@ -1357,9 +2436,14 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             **unbound_batch,
             "actions": [{**action, "payload": {"source_ref": "doi:first"}}],
         }
+        unrendered_batch = {
+            **unbound_batch,
+            "actions": [{**action, "payload": {"source_ref": "doi:second"}}],
+        }
 
         unbound_validation = validate_action_batch(unbound_batch, blackboard=board)
         bound_validation = validate_action_batch(bound_batch, blackboard=board)
+        unrendered_validation = validate_action_batch(unrendered_batch, blackboard=board)
 
         self.assertFalse(unbound_validation["accepted"])
         self.assertIn(
@@ -1367,6 +2451,11 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             unbound_validation["reasons"],
         )
         self.assertTrue(bound_validation["accepted"], bound_validation["reasons"])
+        self.assertFalse(unrendered_validation["accepted"])
+        self.assertIn(
+            "extract_visual_literature_chain_requires_rendered_pdf_evidence:0",
+            unrendered_validation["reasons"],
+        )
 
     def test_action_batch_validation_allows_single_source_extraction_default(self):
         action = {
@@ -1511,7 +2600,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             snapshot_context_schema = str((snapshot.get("planner_context") or {}).get("schema_version") or "")
 
         batch = result["action_batches"][0]
-        self.assertEqual(batch["mode"], "codex_xhigh_blackboard_planner")
+        self.assertEqual(batch["mode"], "codex_blackboard_planner")
         self.assertFalse(batch["codex_action_planner"]["fallback_used"])
         self.assertEqual(
             batch["codex_action_planner"]["blackboard_snapshot_ref"],
@@ -1536,7 +2625,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         )
         planner_history = result["agent_blackboard"]["planner_history"]
         self.assertEqual(len(planner_history), 1)
-        self.assertEqual(planner_history[0]["mode"], "codex_xhigh_blackboard_planner")
+        self.assertEqual(planner_history[0]["mode"], "codex_blackboard_planner")
         self.assertEqual(planner_history[0]["planner_source_hint_count"], 1)
         self.assertTrue(planner_history[0]["codex_action_planner"]["attempted"])
         self.assertFalse(planner_history[0]["codex_action_planner"]["fallback_used"])
@@ -1649,7 +2738,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             },
         ]
         board["literature_evidence"]["pdf_structure_evidence"] = [
-            {"schema_version": "agent_pdf_structure_evidence_summary.v1", "source_ref": "doi:first", "accepted": True}
+            _rendered_pdf_evidence(source_ref="doi:first", pdf_path="/tmp/first.pdf")
         ]
         board["action_history"] = [
             {
@@ -1702,7 +2791,9 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             "doi:first",
         )
         guided_requirements = context["action_payload_requirements"]["guided_actions"]["run_guided_chemenzy"]
-        self.assertIn("search_policy", guided_requirements["accepted_payload_fields"])
+        self.assertIn("guided_policy_runtime_rebuild", guided_requirements["accepted_payload_fields"])
+        self.assertTrue(guided_requirements["runtime_policy_rebuild"])
+        self.assertTrue(guided_requirements["do_not_emit_full_policy"])
         self.assertIn("compiler_metadata.requires_verifier", guided_requirements["required_policy_safety_fields"])
         self.assertEqual(guided_requirements["blackboard_guidance"]["exact_row_count"], 0)
         child_requirements = context["action_payload_requirements"]["child_expansion_actions"]["expand_child_target"]
@@ -1741,15 +2832,89 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             snapshot["planner_context"]["planner_tool_policy"]["schema_version"],
             "codex_action_planner_tool_policy.v1",
         )
+        self.assertEqual(snapshot["blackboard"]["schema_version"], "codex_action_planner_blackboard_handoff.v1")
+        self.assertIn("target_profile", snapshot["blackboard"])
+        self.assertIn("evidence_board", snapshot["blackboard"])
+        self.assertIn("route_board", snapshot["blackboard"])
+        self.assertIn("decision_board", snapshot["blackboard"])
+        self.assertNotIn("artifact_refs", snapshot["blackboard"])
         self.assertIn("planner_context", snapshot)
         self.assertIn("action_payload_requirements", task.objective)
         self.assertIn("source_ref", task.objective)
         self.assertIn("chain_id", task.objective)
         self.assertIn("analogical_template_policy", task.objective)
+        self.assertEqual(task.budget.reasoning_effort, "medium")
         self.assertIn("Planner tool policy", task.objective)
         self.assertIn("web_search", task.allowed_tools)
         self.assertGreater(task.budget.max_tool_calls, 0)
         self.assertTrue(_task_allows_cli_search(task))
+
+    def test_codex_planner_handoff_exposes_route_anchor_opportunities_for_agent_choice(self):
+        target = TargetInput(target_name="atorvastatin", target_smiles=ATORVASTATIN_FREE_ACID_SMILES)
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=6)
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "schema_version": "literature_source_candidate.v1",
+                "source_ref": "doi:process",
+                "doi": "10.1186/s13065-015-0082-7",
+                "title": "An improved kilogram-scale preparation of atorvastatin calcium",
+                "local_pdf": "/tmp/atorvastatin_process.pdf",
+            }
+        ]
+        board["literature_evidence"]["process_evidence_rows"] = [
+            {
+                "schema_version": "literature_process_evidence_row.v1",
+                "row_id": "process_evidence:atorvastatin",
+                "source_ref": "doi:process",
+                "process_type": "small_molecule_process_route",
+                "substrate_or_feedstock_labels": ["advanced ketal ester intermediate 4"],
+                "endpoint_labels": ["atorvastatin calcium"],
+                "biocatalyst_or_process_labels": ["Paal-Knorr pyrrole construction", "ester hydrolysis"],
+                "not_exact_literature_segment": True,
+                "no_solved_claim": True,
+            }
+        ]
+        board["literature_evidence"]["structure_resolution_tasks"] = [
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:intermediate_4",
+                "label": "advanced ketal ester intermediate 4",
+                "source_ref": "doi:process",
+                "status": "open",
+                "no_solved_claim": True,
+            }
+        ]
+
+        context = _planner_context_summary(board)
+        opportunities = context["route_anchor_opportunities"]
+        process_opportunity = opportunities["opportunities"][0]
+
+        self.assertEqual(opportunities["schema_version"], "route_anchor_opportunities.v1")
+        self.assertGreaterEqual(opportunities["opportunity_count"], 2)
+        self.assertEqual(process_opportunity["opportunity_type"], "process_or_literature_anchor")
+        self.assertIn("advanced ketal ester intermediate 4", process_opportunity["anchor_labels"])
+        self.assertIn("resolve_literature_structure_task", process_opportunity["plausible_next_actions"])
+        self.assertIn("derive_broad_reaction_template", process_opportunity["plausible_next_actions"])
+        self.assertIn("run_guided_chemenzy", process_opportunity["plausible_next_actions"])
+        self.assertTrue(process_opportunity["no_solved_claim"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            snapshot_path = _write_codex_blackboard_snapshot(board, run_dir=run_dir, round_index=2)
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            task = _codex_action_planner_task(
+                blackboard=board,
+                round_index=2,
+                run_dir=run_dir,
+                snapshot_path=snapshot_path,
+            )
+
+        self.assertIn("route_anchor_opportunities", snapshot["planner_context"])
+        self.assertIn("route_anchor_opportunities", snapshot["blackboard"]["route_board"])
+        self.assertIn("route_anchor_opportunities", task.objective)
+        self.assertIn("Incomplete process/advisory/name-only anchors", task.objective)
+        self.assertIn("Do not choose stop_unresolved while a route_anchor_opportunity", task.objective)
 
     def test_fallback_planner_stops_when_only_waiting_for_local_pdf_proxy(self):
         target = TargetInput(target_name="proxy_wait", target_smiles="CCO")
@@ -1830,6 +2995,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertFalse(_task_allows_cli_search(task))
         self.assertEqual(task.budget.max_tool_calls, 0)
         self.assertFalse(_task_allows_cli_search(task))
+        self.assertEqual(task.budget.reasoning_effort, "medium")
 
     def test_blackboard_records_codex_planner_fallback_as_planner_note(self):
         target = TargetInput(target_name="planner_fallback", target_smiles="CCO")
@@ -1929,7 +3095,12 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         guided_actions = {
             "run_guided_chemenzy": {
                 "currently_required_when_selected": True,
-                "accepted_payload_fields": ["search_policy", "chem_enzy_search_policy"],
+                "accepted_payload_fields": [
+                    "initial_probe",
+                    "search_mode",
+                    "max_steps",
+                    "guided_policy_runtime_rebuild",
+                ],
             }
         }
         child_actions = {
@@ -2087,7 +3258,12 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         guided_actions = {
             "run_guided_chemenzy": {
                 "currently_required_when_selected": True,
-                "accepted_payload_fields": ["search_policy", "chem_enzy_search_policy"],
+                "accepted_payload_fields": [
+                    "initial_probe",
+                    "search_mode",
+                    "max_steps",
+                    "guided_policy_runtime_rebuild",
+                ],
             }
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -2140,7 +3316,12 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         guided_actions = {
             "run_guided_chemenzy": {
                 "currently_required_when_selected": True,
-                "accepted_payload_fields": ["search_policy", "chem_enzy_search_policy"],
+                "accepted_payload_fields": [
+                    "initial_probe",
+                    "search_mode",
+                    "max_steps",
+                    "guided_policy_runtime_rebuild",
+                ],
             }
         }
         child_actions = {
@@ -2200,7 +3381,12 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         guided_actions = {
             "run_guided_chemenzy": {
                 "currently_required_when_selected": True,
-                "accepted_payload_fields": ["search_policy", "chem_enzy_search_policy"],
+                "accepted_payload_fields": [
+                    "initial_probe",
+                    "search_mode",
+                    "max_steps",
+                    "guided_policy_runtime_rebuild",
+                ],
             }
         }
         child_actions = {
@@ -2308,6 +3494,50 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         )
         self.assertNotEqual(batch["actions"][0]["action_type"], "run_guided_chemenzy")
 
+    def test_codex_action_planner_can_fail_closed_without_scientific_fallback(self):
+        target = TargetInput(target_name="fail_closed_codex_plan", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        unsafe_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "round_index": 1,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "unsafe:route",
+                    "action_type": "run_guided_chemenzy",
+                    "rationale": "unsafe",
+                    "expected_artifact": "unsafe",
+                    "success_condition": "unsafe",
+                    "route_status": "solved",
+                    "payload": {"rxn_smiles": "CCO>>CC=O"},
+                }
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=1,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=unsafe_batch,
+                allow_deterministic_fallback=False,
+            )
+
+        self.assertEqual(batch["mode"], "codex_planner_fail_closed")
+        self.assertEqual([row["action_type"] for row in batch["actions"]], ["stop_unresolved"])
+        self.assertFalse(batch["codex_action_planner"]["fallback_used"])
+        self.assertTrue(batch["codex_action_planner"]["fail_closed"])
+        self.assertFalse(
+            batch["actions"][0]["payload"]["deterministic_scientific_fallback_used"]
+        )
+
     def test_codex_action_planner_requires_source_binding_for_multi_source_actions(self):
         target = TargetInput(target_name="codex_multi_source", target_smiles="CCO")
         preflight = run_preflight(target)
@@ -2355,6 +3585,53 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         )
         self.assertNotEqual(batch["actions"][0]["action_type"], "extract_visual_literature_chain")
 
+    def test_codex_action_planner_repairs_visual_payload_timeout_and_single_source_binding(self):
+        target = TargetInput(target_name="codex_visual_repair", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "source_ref": "doi:single",
+                "doi": "10.1/single",
+                "title": "Single available source",
+                "local_pdf": "/tmp/single.pdf",
+                "expected_scheme_or_compound_labels": ["target", "precursor"],
+            }
+        ]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            _rendered_pdf_evidence(source_ref="doi:single", pdf_path="/tmp/single.pdf")
+        ]
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "round_index": 1,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:visual",
+                    "action_type": "extract_visual_literature_chain",
+                    "rationale": "extract the available source",
+                    "expected_artifact": "visual_literature_chain.v1",
+                    "success_condition": "a chain is extracted",
+                    "payload": {"timeout_s": 0},
+                }
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        batch = _normalize_codex_batch(codex_batch, blackboard=board, round_index=1)
+        payload = batch["actions"][0]["payload"]
+
+        self.assertEqual(payload["source_ref"], "doi:single")
+        self.assertEqual(payload["pdf_path"], "/tmp/single.pdf")
+        self.assertGreaterEqual(payload["timeout_s"], 120)
+        self.assertIn("target", payload["expected_labels"])
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
     def test_codex_action_planner_repairs_literature_search_policy_from_blackboard(self):
         target = TargetInput(target_name="codex_search_policy", target_smiles="CCO")
         preflight = run_preflight(target)
@@ -2394,7 +3671,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 mock_output=codex_batch,
             )
 
-        self.assertEqual(batch["mode"], "codex_xhigh_blackboard_planner")
+        self.assertEqual(batch["mode"], "codex_blackboard_planner")
         self.assertFalse(batch["codex_action_planner"]["fallback_used"])
         payload = batch["actions"][0]["payload"]
         self.assertEqual(payload["queries"], ["ethanol synthesis DOI", "ethanol retrosynthesis source"])
@@ -2402,6 +3679,189 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(payload["source_acquisition_policy"]["fallback_order"], ["codex_online", "local_pdf", "placeholder"])
         self.assertTrue(payload["source_acquisition_policy"]["no_solved_claim"])
         self.assertTrue(payload["codex_payload_repair"]["completed_from_blackboard"])
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_codex_action_planner_does_not_retry_timeout_worker(self):
+        class TimeoutRecord:
+            status = "timeout"
+            backend = "codex_cli"
+            output_artifact = {}
+            output_validation = {"accepted": False, "reasons": ["timeout"]}
+
+            def to_dict(self):
+                return {
+                    "schema_version": "worker_run_record.v1",
+                    "status": self.status,
+                    "backend": self.backend,
+                    "output_artifact": self.output_artifact,
+                    "output_validation": self.output_validation,
+                    "timed_out": True,
+                    "stderr": "worker timeout after 5s",
+                }
+
+        target = TargetInput(target_name="codex_timeout", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ,
+            {"AUTOPLANNER_CODEX_ACTION_PLANNER_MAX_WORKER_ATTEMPTS": "3"},
+        ), patch(
+            "cascade_planner.harness.codex_action_planner.run_codex_worker",
+            return_value=TimeoutRecord(),
+        ) as run_worker:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=1,
+                run_dir=Path(tmp),
+                enabled=True,
+            )
+
+        self.assertEqual(run_worker.call_count, 1)
+        self.assertEqual(batch["mode"], "deterministic_policy_fallback_after_codex_planner")
+        self.assertEqual(batch["codex_action_planner"]["record_status"], "timeout")
+        self.assertEqual(batch["codex_action_planner"]["fallback_reason"], "codex_action_planner_worker_rejected")
+
+    def test_codex_action_planner_drops_failure_critic_without_failure_evidence(self):
+        target = TargetInput(target_name="fresh_steroid", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=preflight,
+            max_rounds=1,
+            budget_limits={"max_scout_calls": 0},
+        )
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "case_id": "fresh_steroid",
+            "round_index": 1,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:critic",
+                    "action_type": "build_failure_critic_report",
+                    "rationale": "record missing scout budget",
+                    "expected_artifact": "failure_critic_report.v1",
+                    "success_condition": "blocker recorded",
+                    "payload": {"no_solved_claim": True},
+                },
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:objectives",
+                    "action_type": "classify_route_objectives",
+                    "rationale": "classify steroid route objectives",
+                    "expected_artifact": "route_objective_summary.v1",
+                    "success_condition": "objectives available",
+                    "payload": {"no_solved_claim": True},
+                },
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:disconnections",
+                    "action_type": "generate_disconnection_hypotheses",
+                    "rationale": "generate bounded target-side hypotheses",
+                    "expected_artifact": "target_side_disconnection_hypotheses.v1",
+                    "success_condition": "hypotheses available",
+                    "payload": {"no_solved_claim": True},
+                },
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=1,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=codex_batch,
+            )
+
+        action_types = [row["action_type"] for row in batch["actions"]]
+        self.assertEqual(batch["mode"], "codex_blackboard_planner_repaired")
+        self.assertFalse(batch["codex_action_planner"]["fallback_used"])
+        self.assertNotIn("build_failure_critic_report", action_types)
+        self.assertEqual(action_types, ["classify_route_objectives", "generate_disconnection_hypotheses"])
+        self.assertIn(
+            "failure_critic_requires_failure_evidence:0",
+            batch["codex_action_planner"]["initial_validation"]["reasons"],
+        )
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_codex_action_planner_drops_pdf_extraction_without_local_pdf_binding(self):
+        target = TargetInput(target_name="source_no_pdf", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=2)
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "schema_version": "literature_source_candidate.v1",
+                "candidate_id": "cand:source_no_pdf",
+                "source_ref": "doi:10.example/source-no-pdf",
+                "doi": "10.example/source-no-pdf",
+                "title": "Source without local PDF binding",
+                "url": "https://example.org/source-no-pdf",
+                "local_pdf": "",
+                "no_solved_claim": True,
+            }
+        ]
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "case_id": "source_no_pdf",
+            "round_index": 2,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:pdf",
+                    "action_type": "extract_pdf_literature_structures",
+                    "rationale": "extract the source PDF",
+                    "expected_artifact": "literature_pdf_structure_evidence.v1",
+                    "success_condition": "pdf rendered",
+                    "payload": {
+                        "source_ref": "doi:10.example/source-no-pdf",
+                        "source_title": "Source without local PDF binding",
+                        "no_solved_claim": True,
+                    },
+                },
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:objectives",
+                    "action_type": "classify_route_objectives",
+                    "rationale": "classify route objectives while waiting for PDF",
+                    "expected_artifact": "route_objective_summary.v1",
+                    "success_condition": "objectives available",
+                    "payload": {"no_solved_claim": True},
+                },
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        initial_validation = validate_action_batch(codex_batch, blackboard=board)
+        self.assertFalse(initial_validation["accepted"])
+        self.assertIn("extract_pdf_literature_structures_requires_pdf_binding:0", initial_validation["reasons"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=2,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=codex_batch,
+            )
+
+        action_types = [row["action_type"] for row in batch["actions"]]
+        self.assertIn(batch["mode"], {"codex_blackboard_planner", "codex_blackboard_planner_repaired"})
+        self.assertFalse(batch["codex_action_planner"]["fallback_used"])
+        self.assertNotIn("extract_pdf_literature_structures", action_types)
+        self.assertEqual(action_types, ["classify_route_objectives"])
         validation = validate_action_batch(batch, blackboard=board)
         self.assertTrue(validation["accepted"], validation["reasons"])
 
@@ -2458,7 +3918,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             )
 
         action_types = [row["action_type"] for row in batch["actions"]]
-        self.assertEqual(batch["mode"], "codex_xhigh_blackboard_planner_repaired")
+        self.assertIn(batch["mode"], {"codex_blackboard_planner", "codex_blackboard_planner_repaired"})
         self.assertFalse(batch["codex_action_planner"]["fallback_used"])
         self.assertIn("search_literature", action_types)
         self.assertIn("generate_disconnection_hypotheses", action_types)
@@ -2513,12 +3973,83 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             )
 
         payload = batch["actions"][0]["payload"]
-        policy = payload["search_policy"]
-        self.assertEqual(batch["mode"], "codex_xhigh_blackboard_planner")
+        self.assertEqual(batch["mode"], "codex_blackboard_planner")
         self.assertFalse(batch["codex_action_planner"]["fallback_used"])
-        self.assertTrue(policy["source_budget"]["initial_scan_allowed"])
-        self.assertEqual(policy["source_budget"]["max_candidates"], 3)
-        self.assertTrue(policy["compiler_metadata"]["initial_scan_probe"])
+        self.assertNotIn("search_policy", payload)
+        self.assertTrue(payload["guided_policy_runtime_rebuild"])
+        policy = payload["guided_policy_summary"]
+        self.assertTrue(policy["source_flags"]["initial_scan_allowed"])
+        self.assertEqual(policy["budget"]["max_depth"], 4)
+        self.assertEqual(policy["budget"]["max_iterations"], 6)
+        self.assertEqual(policy["budget"]["expansion_topk"], 12)
+        self.assertEqual(policy["budget"]["timeout_s"], 60.0)
+        self.assertTrue(policy["compiler_flags"]["initial_scan_probe"])
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_codex_action_planner_inserts_frontier_bootstrap_after_complex_probe(self):
+        target = TargetInput(target_name="steroid_target", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["action_history"].append(
+            {
+                "schema_version": "agent_action_history_record.v1",
+                "round_index": 1,
+                "action_type": "run_guided_chemenzy",
+                "useful_artifact": True,
+                "stale": False,
+            }
+        )
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "schema_version": "literature_source_candidate.v1",
+                "candidate_id": "cand:test",
+                "source_ref": "doi:test",
+                "doi": "10.example/test",
+                "title": "Complex target source",
+                "local_pdf": "/tmp/source.pdf",
+                "no_solved_claim": True,
+            }
+        ]
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "round_index": 2,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:pdf",
+                    "action_type": "extract_pdf_literature_structures",
+                    "rationale": "extract source PDF",
+                    "expected_artifact": "literature_pdf_structure_evidence.v1",
+                    "success_condition": "pdf evidence is recorded",
+                    "payload": {"source_ref": "doi:test", "pdf_path": "/tmp/source.pdf"},
+                }
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=2,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=codex_batch,
+            )
+
+        action_types = [row["action_type"] for row in batch["actions"]]
+        self.assertEqual(batch["mode"], "codex_blackboard_planner_repaired")
+        self.assertFalse(batch["codex_action_planner"]["fallback_used"])
+        self.assertEqual(action_types[0], "generate_disconnection_hypotheses")
+        self.assertIn("extract_pdf_literature_structures", action_types)
+        self.assertIn(
+            "complex_target_requires_frontier_bootstrap_after_initial_probe",
+            batch["codex_action_planner"]["initial_validation"]["reasons"],
+        )
         validation = validate_action_batch(batch, blackboard=board)
         self.assertTrue(validation["accepted"], validation["reasons"])
 
@@ -2557,12 +4088,477 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 mock_output=codex_batch,
             )
 
-        self.assertEqual(batch["mode"], "codex_xhigh_blackboard_planner")
+        self.assertEqual(batch["mode"], "codex_blackboard_planner")
         self.assertFalse(batch["codex_action_planner"]["fallback_used"])
         payload = batch["actions"][0]["payload"]
-        self.assertTrue(payload["search_policy"]["compiler_metadata"]["requires_verifier"])
-        self.assertTrue(payload["search_policy"]["source_budget"]["require_target_core_retention"])
+        self.assertNotIn("search_policy", payload)
+        self.assertTrue(payload["guided_policy_runtime_rebuild"])
+        self.assertTrue(payload["guided_policy_summary"]["compiler_flags"]["requires_verifier"])
+        self.assertTrue(payload["guided_policy_summary"]["source_flags"]["require_target_core_retention"])
         self.assertTrue(payload["codex_payload_repair"]["completed_from_blackboard"])
+        self.assertTrue(payload["codex_payload_repair"]["runtime_policy_rebuild"])
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_codex_action_planner_salvages_guided_probe_when_structure_task_invalid(self):
+        target = TargetInput(target_name="codex_guided_salvage", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["bridge_tasks"] = [{"task_id": "bridge:target", "task_type": "target_proximal_bridge"}]
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "h1"}]}
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "round_index": 2,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:guided",
+                    "action_type": "run_guided_chemenzy",
+                    "rationale": "run a bounded bridge probe",
+                    "expected_artifact": "guided_chemenzy_result.v1",
+                    "success_condition": "verifier feedback is recorded",
+                    "payload": {
+                        "initial_probe": True,
+                        "search_mode": "target_proximal_bridge",
+                        "max_steps": 6,
+                        "chem_enzy_iterations": 10,
+                        "chem_enzy_expansion_topk": 20,
+                        "timeout_s": 120,
+                        "max_candidates": 5,
+                        "no_solved_claim": True,
+                    },
+                },
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:bad_resolution",
+                    "action_type": "resolve_literature_structure_task",
+                    "rationale": "try resolving a source label",
+                    "expected_artifact": "structure resolution draft",
+                    "success_condition": "label resolved or rejected",
+                    "payload": {"expected_labels": ["17alpha-hydroxyprogesterone"], "no_solved_claim": True},
+                },
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=2,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=codex_batch,
+            )
+
+        self.assertEqual(batch["mode"], "codex_blackboard_planner_repaired")
+        self.assertFalse(batch["codex_action_planner"]["fallback_used"])
+        action_types = [row["action_type"] for row in batch["actions"]]
+        self.assertEqual(action_types, ["run_guided_chemenzy"])
+        payload = batch["actions"][0]["payload"]
+        self.assertNotIn("search_policy", payload)
+        self.assertTrue(payload["guided_policy_runtime_rebuild"])
+        self.assertTrue(payload["guided_policy_summary"]["source_flags"]["initial_scan_allowed"])
+        self.assertEqual(payload["guided_policy_summary"]["budget"]["max_depth"], 6)
+        self.assertIn(
+            "resolve_literature_structure_task_payload:1:missing_task_id",
+            batch["codex_action_planner"]["initial_validation"]["reasons"],
+        )
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_codex_action_planner_repairs_structure_task_from_expected_labels(self):
+        target = TargetInput(target_name="codex_structure_expected_label", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "source_ref": "doi:10.1021/ja952692a",
+                "title": "Total Synthesis of Baccatin III and Taxol",
+                "local_pdf": "danishefsky.pdf",
+            }
+        ]
+        board["literature_evidence"]["structure_resolution_tasks"] = [
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:danishefsky_baccatin_iii_1",
+                "task_type": "resolve_literature_structure",
+                "label": "baccatin III 1",
+                "source_ref": "doi:10.1021/ja952692a",
+                "source_title": "Total Synthesis of Baccatin III and Taxol",
+                "status": "open",
+                "no_solved_claim": True,
+            }
+        ]
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "round_index": 2,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:resolve_baccatin",
+                    "action_type": "resolve_literature_structure_task",
+                    "rationale": "resolve the Danishefsky baccatin III anchor",
+                    "expected_artifact": "structure resolution draft",
+                    "success_condition": "label resolved or rejected",
+                    "payload": {
+                        "expected_labels": ["baccatin III 1"],
+                        "source_ref": "doi:10.1021/ja952692a",
+                        "no_solved_claim": True,
+                    },
+                }
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=2,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=codex_batch,
+            )
+
+        self.assertIn(batch["mode"], {"codex_blackboard_planner", "codex_blackboard_planner_repaired"})
+        self.assertFalse(batch["codex_action_planner"]["fallback_used"])
+        self.assertEqual([row["action_type"] for row in batch["actions"]], ["resolve_literature_structure_task"])
+        payload = batch["actions"][0]["payload"]
+        self.assertEqual(payload["task_id"], "resolve_structure:danishefsky_baccatin_iii_1")
+        self.assertEqual(payload["label"], "baccatin III 1")
+        self.assertEqual(payload["source_ref"], "doi:10.1021/ja952692a")
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_codex_action_planner_keeps_explicit_structure_labels_distinct(self):
+        target = TargetInput(target_name="codex_structure_10dab_label", target_smiles=BUFOTALIN_SMILES, family_hint="taxane")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "source_ref": "doi:10.1021/np990040k",
+                "title": "A New Semisynthesis of Paclitaxel from Baccatin III",
+                "local_pdf": "baloglu_kingston.pdf",
+            }
+        ]
+        board["literature_evidence"]["structure_resolution_tasks"] = [
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:np990040k_baccatin_iii",
+                "task_type": "resolve_literature_structure",
+                "label": "baccatin III",
+                "source_ref": "doi:10.1021/np990040k",
+                "source_title": "A New Semisynthesis of Paclitaxel from Baccatin III",
+                "status": "open",
+                "no_solved_claim": True,
+            },
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:np990040k_10_deacetyl_baccatin_iii",
+                "task_type": "resolve_literature_structure",
+                "label": "10-deacetyl baccatin III",
+                "source_ref": "doi:10.1021/np990040k",
+                "source_title": "A New Semisynthesis of Paclitaxel from Baccatin III",
+                "status": "open",
+                "no_solved_claim": True,
+            },
+        ]
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "round_index": 2,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:resolve_10dab",
+                    "action_type": "resolve_literature_structure_task",
+                    "rationale": "resolve 10-DAB anchor before applying the paclitaxel semisynthesis template",
+                    "expected_artifact": "structure resolution record",
+                    "success_condition": "10-DAB label resolved or rejected",
+                    "payload": {
+                        "expected_labels": ["10-deacetyl baccatin III"],
+                        "source_ref": "doi:10.1021/np990040k",
+                        "no_solved_claim": True,
+                    },
+                }
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=2,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=codex_batch,
+            )
+
+        self.assertFalse(batch["codex_action_planner"]["fallback_used"])
+        payload = batch["actions"][0]["payload"]
+        self.assertEqual(payload["task_id"], "resolve_structure:np990040k_10_deacetyl_baccatin_iii")
+        self.assertEqual(payload["label"], "10-deacetyl baccatin III")
+        self.assertEqual(payload["source_ref"], "doi:10.1021/np990040k")
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_codex_action_planner_keeps_structure_resolution_bound_to_requested_source(self):
+        target = TargetInput(target_name="codex_structure_source_bound", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "source_ref": "doi:10.1021/ja00083a066",
+                "title": "A synthesis of taxol",
+                "local_pdf": "holton.pdf",
+            },
+            {
+                "source_ref": "doi:10.1021/ja952692a",
+                "title": "Total Synthesis of Baccatin III and Taxol",
+                "local_pdf": "danishefsky.pdf",
+            },
+        ]
+        board["literature_evidence"]["structure_resolution_tasks"] = [
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:doi_10_1021_ja00083a066_taxol_1_to_lactone_carbonate_15",
+                "task_type": "resolve_literature_structure",
+                "label": "taxol 1 to lactone carbonate 15 continuation",
+                "source_ref": "doi:10.1021/ja00083a066",
+                "source_title": "A synthesis of taxol",
+                "status": "open",
+                "no_solved_claim": True,
+            },
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:doi_10_1021_ja952692a_1_baccatin_iii",
+                "task_type": "resolve_literature_structure",
+                "label": "1 baccatin III",
+                "source_ref": "doi:10.1021/ja952692a",
+                "source_title": "Total Synthesis of Baccatin III and Taxol",
+                "status": "open",
+                "no_solved_claim": True,
+            },
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:doi_10_1021_ja952692a_taxol",
+                "task_type": "resolve_literature_structure",
+                "label": "taxol",
+                "source_ref": "doi:10.1021/ja952692a",
+                "source_title": "Total Synthesis of Baccatin III and Taxol",
+                "status": "open",
+                "no_solved_claim": True,
+            },
+        ]
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "round_index": 4,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "r4_resolve_danishefsky_baccatin_label_1",
+                    "action_type": "resolve_literature_structure_task",
+                    "rationale": "Resolve the Danishefsky baccatin label 1 before retrying exact-row compilation.",
+                    "expected_artifact": "structure resolution record",
+                    "success_condition": "Label resolved or failure is auditable.",
+                    "payload": {
+                        "expected_labels": ["taxol", "baccatin III"],
+                        "source_ref": "doi:10.1021/ja952692a",
+                        "source_title": "Total Synthesis of Baccatin III and Taxol",
+                        "no_solved_claim": True,
+                    },
+                }
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=4,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=codex_batch,
+            )
+
+        self.assertFalse(batch["codex_action_planner"]["fallback_used"])
+        payload = batch["actions"][0]["payload"]
+        self.assertEqual(payload["task_id"], "resolve_structure:doi_10_1021_ja952692a_1_baccatin_iii")
+        self.assertEqual(payload["label"], "1 baccatin III")
+        self.assertEqual(payload["source_ref"], "doi:10.1021/ja952692a")
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_codex_action_planner_recovers_numeric_structure_label_from_action_id(self):
+        target = TargetInput(target_name="codex_structure_numeric_label", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "source_ref": "doi:10.1021/ja952692a",
+                "title": "Total Synthesis of Baccatin III and Taxol",
+                "local_pdf": "danishefsky.pdf",
+            }
+        ]
+        board["literature_evidence"]["structure_resolution_tasks"] = [
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:doi_10_1021_ja952692a_49",
+                "task_type": "resolve_literature_structure",
+                "label": "49",
+                "source_ref": "doi:10.1021/ja952692a",
+                "source_title": "Total Synthesis of Baccatin III and Taxol",
+                "status": "open",
+                "no_solved_claim": True,
+            }
+        ]
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "round_index": 8,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "r8_resolve_danishefsky_label_49",
+                    "action_type": "resolve_literature_structure_task",
+                    "rationale": "Scheme 15 label remains target-proximal and unresolved.",
+                    "expected_artifact": "structure resolution record",
+                    "success_condition": "Label resolved or failure is auditable.",
+                    "payload": {
+                        "expected_labels": [],
+                        "source_ref": "doi:10.1021/ja952692a",
+                        "source_title": "Total Synthesis of Baccatin III and Taxol",
+                        "no_solved_claim": True,
+                    },
+                }
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=8,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=codex_batch,
+            )
+
+        self.assertFalse(batch["codex_action_planner"]["fallback_used"])
+        payload = batch["actions"][0]["payload"]
+        self.assertEqual(payload["task_id"], "resolve_structure:doi_10_1021_ja952692a_49")
+        self.assertEqual(payload["label"], "49")
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_codex_action_planner_keeps_anchor_resolution_when_visual_budget_tight(self):
+        target = TargetInput(target_name="codex_structure_budget_trim", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=preflight,
+            max_rounds=3,
+            budget_limits={"max_visual_calls": 6},
+        )
+        board["budget_state"]["visual_calls"] = 5
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "source_ref": "doi:10.1021/ja952692a",
+                "title": "Total Synthesis of Baccatin III and Taxol",
+                "local_pdf": "danishefsky.pdf",
+            }
+        ]
+        board["literature_evidence"]["structure_resolution_tasks"] = [
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:danishefsky_downstream",
+                "task_type": "resolve_literature_structure",
+                "label": "compound 5 to downstream baccatin/taxol sequence",
+                "source_ref": "doi:10.1021/ja952692a",
+                "source_title": "Total Synthesis of Baccatin III and Taxol",
+                "status": "open",
+                "visual_budget_priority": 8,
+                "no_solved_claim": True,
+            },
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:danishefsky_baccatin_iii_1",
+                "task_type": "resolve_literature_structure",
+                "label": "baccatin III 1",
+                "source_ref": "doi:10.1021/ja952692a",
+                "source_title": "Total Synthesis of Baccatin III and Taxol",
+                "status": "open",
+                "visual_budget_priority": 0,
+                "no_solved_claim": True,
+            },
+        ]
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "round_index": 2,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:resolve_downstream",
+                    "action_type": "resolve_literature_structure_task",
+                    "rationale": "resolve downstream sequence",
+                    "expected_artifact": "structure resolution draft",
+                    "success_condition": "label resolved or rejected",
+                    "payload": {
+                        "expected_labels": ["compound 5 to downstream baccatin/taxol sequence"],
+                        "source_ref": "doi:10.1021/ja952692a",
+                        "no_solved_claim": True,
+                    },
+                },
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:resolve_baccatin",
+                    "action_type": "resolve_literature_structure_task",
+                    "rationale": "resolve baccatin III anchor",
+                    "expected_artifact": "structure resolution draft",
+                    "success_condition": "label resolved or rejected",
+                    "payload": {
+                        "expected_labels": ["baccatin III 1"],
+                        "source_ref": "doi:10.1021/ja952692a",
+                        "no_solved_claim": True,
+                    },
+                },
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=2,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=codex_batch,
+            )
+
+        self.assertEqual(batch["mode"], "codex_blackboard_planner_repaired")
+        payloads = [row["payload"] for row in batch["actions"]]
+        self.assertEqual([payload["task_id"] for payload in payloads], ["resolve_structure:danishefsky_baccatin_iii_1"])
         validation = validate_action_batch(batch, blackboard=board)
         self.assertTrue(validation["accepted"], validation["reasons"])
 
@@ -2601,14 +4597,77 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 mock_output=codex_batch,
             )
 
-        self.assertEqual(batch["mode"], "codex_xhigh_blackboard_planner")
+        self.assertEqual(batch["mode"], "codex_blackboard_planner")
         self.assertFalse(batch["codex_action_planner"]["fallback_used"])
         child = batch["actions"][0]["payload"]["subgoal_targets"][0]
         self.assertEqual(child["smiles"], "CCO")
         self.assertTrue(child["target_equivalence_audit_required"])
         self.assertTrue(child["child_route_cannot_promote_parent"])
-        self.assertTrue(child["chem_enzy_search_policy"]["compiler_metadata"]["requires_verifier"])
-        self.assertTrue(child["chem_enzy_search_policy"]["compiler_metadata"]["child_route_cannot_promote_parent"])
+        self.assertTrue(child["policy_runtime_rebuild"])
+        self.assertTrue(child["policy_summary"]["compiler_flags"]["requires_verifier"])
+        self.assertTrue(child["policy_summary"]["compiler_flags"]["child_route_cannot_promote_parent"])
+        self.assertNotIn("chem_enzy_search_policy", child)
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_codex_compile_exact_rows_payload_is_whitelisted(self):
+        target = TargetInput(target_name="codex_compile_compact", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["literature_evidence"]["source_candidates"] = [
+            {"source_ref": "doi:10.1/source", "title": "source", "local_pdf": "/tmp/source.pdf"}
+        ]
+        board["literature_evidence"]["visual_chains"] = [
+            {
+                "chain_id": "visual:1",
+                "source_ref": "doi:10.1/source",
+                "source_title": "source",
+                "step_count": 1,
+                "steps": [{"product_smiles": "CCO", "reactant_smiles": ["CC"]}],
+            }
+        ]
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "round_index": 1,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex:compile",
+                    "action_type": "compile_exact_literature_rows",
+                    "rationale": "compile visual rows",
+                    "expected_artifact": "exact rows",
+                    "success_condition": "rows",
+                    "payload": {
+                        "source_ref": "doi:10.1/source",
+                        "chem_enzy_expansion_topk": 300,
+                        "chem_enzy_iterations": 200,
+                        "queries": ["noise"],
+                        "route_objectives": [{"objective_id": "noise"}],
+                    },
+                }
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=1,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=codex_batch,
+            )
+
+        payload = batch["actions"][0]["payload"]
+        self.assertEqual(payload["source_ref"], "doi:10.1/source")
+        self.assertEqual(payload["chain_id"], "visual:1")
+        self.assertNotIn("chem_enzy_expansion_topk", payload)
+        self.assertNotIn("queries", payload)
+        self.assertNotIn("route_objectives", payload)
         validation = validate_action_batch(batch, blackboard=board)
         self.assertTrue(validation["accepted"], validation["reasons"])
 
@@ -2658,6 +4717,143 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             batch["codex_action_planner"]["batch_validation"]["reasons"],
         )
 
+    def test_simple_target_planner_runs_bounded_direct_guided_probe_first(self):
+        target = TargetInput(
+            target_name="ibuprofen",
+            target_smiles="CC(C)Cc1ccc([C@@H](C)C(=O)O)cc1",
+        )
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+
+        batch = plan_action_batch(board, round_index=1)
+
+        self.assertEqual([row["action_type"] for row in batch["actions"]], ["run_guided_chemenzy"])
+        payload = batch["actions"][0]["payload"]
+        self.assertTrue(payload["initial_probe"])
+        self.assertEqual(payload["search_mode"], "direct_parent_initial_probe")
+        self.assertEqual(payload["search_policy"]["budget"]["max_depth"], 6)
+        self.assertEqual(payload["search_policy"]["budget"]["max_iterations"], 10)
+        self.assertEqual(payload["search_policy"]["budget"]["expansion_topk"], 20)
+        self.assertTrue(validate_action_batch(batch, blackboard=board)["accepted"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            disabled_batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=1,
+                run_dir=Path(tmp),
+                enabled=False,
+            )
+        self.assertEqual(disabled_batch["mode"], "deterministic_policy")
+        self.assertFalse(disabled_batch["codex_action_planner"]["fallback_used"])
+        self.assertTrue(disabled_batch["codex_action_planner"]["planner_disabled"])
+
+    def test_accepted_parent_verifier_warning_does_not_create_route_failure(self):
+        target = TargetInput(target_name="ibuprofen", target_smiles="CC(C)Cc1ccc([C@@H](C)C(=O)O)cc1")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            advanced = "CC(C)Cc1ccc([C@@H](C)C=O)cc1"
+            stock_path = Path(tmp) / "controller_test_stock.csv"
+            stock_path.write_text(
+                Chem.MolToSmiles(Chem.MolFromSmiles(advanced), isomericSmiles=True) + "\n",
+                encoding="utf-8",
+            )
+            verifier = _strict_parent_route_verifier(
+                target.target_smiles,
+                reactants=["CC"] * 6 + ["C", "O", "O"],
+                rejected_sibling={
+                    "route_rank": 1,
+                    "metrics": {
+                        "terminal_reactants": [advanced, "O"],
+                        "terminal_stock_status": {advanced: True, "O": True},
+                    },
+                    "steps": [
+                        {
+                            "index": 0,
+                            "product": target.target_smiles,
+                            "reactant_smiles": [advanced, "O"],
+                            "stock_status": {advanced: True, "O": True},
+                        }
+                    ],
+                },
+                custom_stock_path=stock_path,
+            )
+            self.assertTrue(verifier["accepted"], verifier["reasons"])
+            self.assertIn("advanced_same_scaffold_terminal", verifier["warnings"])
+            updated = update_blackboard_from_action(
+                board,
+                action={"action_id": "r1:guided", "action_type": "run_guided_chemenzy", "payload": {}},
+                action_result={
+                    "accepted": True,
+                    "result": {
+                        "schema_version": "guided_chemenzy_rerun_result.v1",
+                        "accepted": True,
+                        "raw_route_verifier": verifier,
+                    },
+                    "reasons": [],
+                },
+                round_index=1,
+                run_dir=tmp,
+            )
+
+        self.assertEqual(updated["route_failures"], [])
+        self.assertEqual(updated["current_belief"]["next_action_bias"], ["stitch_parent_route"])
+        self.assertEqual(
+            updated["current_belief"]["parent_route_verifier"]["warnings"],
+            ["advanced_same_scaffold_terminal"],
+        )
+
+    def test_direct_parent_verifier_drives_deterministic_stitch_fast_path(self):
+        target = TargetInput(
+            target_name="ibuprofen",
+            target_smiles="CC(C)Cc1ccc([C@@H](C)C(=O)O)cc1",
+        )
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        with tempfile.TemporaryDirectory() as tmp:
+            verifier = _strict_parent_route_verifier(
+                target.target_smiles,
+                reactants=["CC"] * 6 + ["C", "O", "O"],
+            )
+            self.assertTrue(verifier["accepted"], verifier["reasons"])
+            board = update_blackboard_from_action(
+                board,
+                action={"action_id": "r1:guided", "action_type": "run_guided_chemenzy", "payload": {}},
+                action_result={
+                    "accepted": True,
+                    "result": {
+                        "schema_version": "guided_chemenzy_rerun_result.v1",
+                        "accepted": True,
+                        "raw_route_verifier": verifier,
+                    },
+                    "reasons": [],
+                },
+                round_index=1,
+                run_dir=tmp,
+            )
+            batch = plan_action_batch(board, round_index=2)
+            self.assertEqual([row["action_type"] for row in batch["actions"]], ["stitch_parent_route"])
+            payload = batch["actions"][0]["payload"]
+            self.assertEqual(payload["proof_binding"]["proof_mode"], "direct_parent_route")
+            self.assertFalse(payload["proof_policy"]["child_route_connectivity_required"])
+            self.assertTrue(validate_action_batch(batch, blackboard=board)["accepted"])
+
+            codex_batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=2,
+                run_dir=Path(tmp),
+                enabled=True,
+            )
+
+        self.assertEqual(codex_batch["mode"], "deterministic_policy_fast_path_before_codex_planner")
+        self.assertFalse(codex_batch["codex_action_planner"]["fallback_used"])
+        self.assertTrue(codex_batch["codex_action_planner"]["fast_path_used"])
+        self.assertEqual(
+            codex_batch["codex_action_planner"]["fast_path_reason"],
+            "deterministic_direct_parent_route_proof_ready",
+        )
+
     def test_codex_action_planner_repairs_analogical_template_policy(self):
         target = TargetInput(target_name="codex_template_policy", target_smiles=MLA_LIKE_SMILES)
         preflight = run_preflight(target)
@@ -2693,7 +4889,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 mock_output=codex_batch,
             )
 
-        self.assertEqual(batch["mode"], "codex_xhigh_blackboard_planner")
+        self.assertEqual(batch["mode"], "codex_blackboard_planner")
         self.assertFalse(batch["codex_action_planner"]["fallback_used"])
         policy = batch["actions"][0]["payload"]["analogical_template_policy"]
         self.assertTrue(policy["analogy_is_advisory_only"])
@@ -2783,6 +4979,174 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertTrue(result["no_solved_claim"])
         self.assertNotIn("rxn_smiles", payload)
         self.assertNotIn("reaction_smiles", payload)
+
+    def test_target_side_strategy_for_atorvastatin_does_not_enter_cage_or_steroid_mode(self):
+        result = build_target_side_disconnection_hypotheses(
+            target_smiles=ATORVASTATIN_FREE_ACID_SMILES,
+            target_name="atorvastatin",
+            family_hint="statin synthetic atorvastatin Paal-Knorr process route",
+            case_id="atorvastatin",
+        )
+        handles = {row["target_handle"] for row in result["hypotheses"]}
+        selected_objectives = {
+            row["objective_type"]
+            for row in result["route_objective_summary"]["selected_objectives"]
+        }
+
+        self.assertTrue(result["accepted"], result["reasons"])
+        self.assertNotIn("polycyclic_cage_core", handles)
+        self.assertNotIn("steroid_core", handles)
+        self.assertIn("protecting_group_level_transformations", handles)
+        self.assertIn("advanced_intermediate_anchor", selected_objectives)
+        self.assertIn("literature_known_scaffold_anchor", selected_objectives)
+
+    def test_refresh_target_priors_removes_stale_atorvastatin_cage_bias(self):
+        target = TargetInput(
+            target_name="atorvastatin",
+            target_smiles=ATORVASTATIN_FREE_ACID_SMILES,
+            family_hint="statin synthetic atorvastatin Paal-Knorr process route",
+        )
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
+        board["target_side_disconnection_hypotheses"] = {
+            "schema_version": "target_side_disconnection_hypotheses.v1",
+            "target": {"handles": ["polycyclic_cage_core", "steroid_core"]},
+            "hypotheses": [
+                {
+                    "hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+                    "target_handle": "polycyclic_cage_core",
+                    "must_preserve_substructure": ["polycyclic_cage_core"],
+                }
+            ],
+        }
+        board["analogical_hypotheses"] = [
+            {
+                "hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+                "target_handle": "polycyclic_cage_core",
+            },
+            {"hypothesis_id": "external_hypothesis", "target_handle": "external"},
+        ]
+        board["analogical_hypothesis_ranking"] = {
+            "selected_hypotheses": [{"hypothesis_id": "target_side_polycyclic_cage_core_preservation"}]
+        }
+        board["bridge_tasks"] = [
+            {
+                "task_id": "bridge:polycyclic_cage_core",
+                "source_hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+                "target_handle": "polycyclic_cage_core",
+            },
+            {
+                "task_id": "semisynthesis_bridge:resolved_anchor",
+                "source_hypothesis_id": "resolved_structure_semisynthesis_anchor",
+                "target_handle": "semisynthesis_from_source_resolved_intermediate",
+            },
+        ]
+        board["literature_evidence"]["process_evidence_rows"] = [
+            {
+                "row_id": "process:atorvastatin",
+                "source_ref": "doi:10.1186/s13065-015-0082-7",
+                "substrate_or_feedstock_labels": ["advanced ketal ester intermediate 4"],
+            }
+        ]
+        board["literature_evidence"]["resolved_structures"] = [
+            {
+                "accepted": True,
+                "label": "2",
+                "smiles": "CC(C)C(=O)C(C(=O)Nc1ccccc1)C(c1ccccc1)C(=O)c1ccc(F)cc1",
+            }
+        ]
+
+        refreshed = refresh_target_derived_blackboard_priors(
+            board,
+            target_input=target.to_dict(),
+            preflight=preflight,
+        )
+        handles = _target_handles_from_blackboard(refreshed)
+        bridge_handles = {str(row.get("target_handle") or "") for row in refreshed.get("bridge_tasks") or []}
+        guided_refs = "\n".join(
+            str(item)
+            for item in (build_agentic_guided_payload(refreshed).get("chem_enzy_search_policy") or {}).get("evidence_refs") or []
+        )
+
+        self.assertIn("blackboard_migrations", refreshed)
+        self.assertNotIn("polycyclic_cage_core", handles)
+        self.assertNotIn("steroid_core", handles)
+        self.assertIn("protecting_group_level_transformations", handles)
+        self.assertNotIn("polycyclic_cage_core", bridge_handles)
+        self.assertIn("semisynthesis_from_source_resolved_intermediate", bridge_handles)
+        self.assertEqual(refreshed["analogical_hypothesis_ranking"], {})
+        self.assertEqual(len(refreshed["literature_evidence"]["process_evidence_rows"]), 1)
+        self.assertEqual(len(refreshed["literature_evidence"]["resolved_structures"]), 1)
+        self.assertNotIn("target_side_polycyclic_cage_core_preservation", guided_refs)
+
+    def test_resume_plan_refreshes_stale_target_priors_before_planning(self):
+        target = TargetInput(
+            target_name="atorvastatin",
+            target_smiles=ATORVASTATIN_FREE_ACID_SMILES,
+            family_hint="statin synthetic atorvastatin Paal-Knorr process route",
+        )
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=2)
+        board["target_side_disconnection_hypotheses"] = {
+            "schema_version": "target_side_disconnection_hypotheses.v1",
+            "target": {"handles": ["polycyclic_cage_core"]},
+            "hypotheses": [
+                {
+                    "hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+                    "target_handle": "polycyclic_cage_core",
+                    "must_preserve_substructure": ["polycyclic_cage_core"],
+                }
+            ],
+        }
+        board["analogical_hypotheses"] = [
+            {
+                "hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+                "target_handle": "polycyclic_cage_core",
+            }
+        ]
+        board["analogical_hypothesis_ranking"] = {
+            "selected_hypotheses": [{"hypothesis_id": "target_side_polycyclic_cage_core_preservation"}]
+        }
+        board["bridge_tasks"] = [
+            {
+                "task_id": "bridge:polycyclic_cage_core",
+                "source_hypothesis_id": "target_side_polycyclic_cage_core_preservation",
+                "target_handle": "polycyclic_cage_core",
+            }
+        ]
+        board["retrosynthetic_proposals"] = [
+            {
+                "proposal_id": "proposal:stale_cage",
+                "precursor_smiles": "CCO",
+                "recursive_expandable": True,
+                "evidence_refs": ["target_side_polycyclic_cage_core_preservation"],
+            }
+        ]
+        board["budget_state"]["chemenzy_runs"] = 1
+        board["budget_state"]["max_chemenzy_runs"] = 2
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "agent_blackboard.json").write_text(json.dumps(board), encoding="utf-8")
+            (root / "target_input.json").write_text(json.dumps(target.to_dict()), encoding="utf-8")
+            (root / "preflight.json").write_text(json.dumps(preflight), encoding="utf-8")
+
+            preview = resume_agentic_blackboard_run(
+                root,
+                plan_only=True,
+                extend_exploration_budget=True,
+                extra_guided_runs=1,
+                extra_child_target_runs=1,
+                extra_codex_research_runs=0,
+                extra_scout_calls=0,
+                extra_visual_calls=0,
+                extra_template_actions=0,
+            )
+
+        action_payload = json.dumps(preview["action_batch"]["actions"], sort_keys=True)
+        self.assertTrue(preview["accepted"], preview["validation"]["reasons"])
+        self.assertNotIn("polycyclic_cage_core", action_payload)
+        self.assertNotIn("target_side_polycyclic_cage_core_preservation", action_payload)
 
     def test_target_side_strategy_for_9oh4hp_prefers_generic_objective_endpoints(self):
         result = build_target_side_disconnection_hypotheses(
@@ -3007,6 +5371,58 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertIn("agentic_run_audit", result["agent_blackboard"]["artifact_refs"])
         self.assertIn("agentic_final_verdict_validation", result["agent_blackboard"]["artifact_refs"])
 
+    def test_prior_analogical_source_pair_seeds_pair_transfer_proposals(self):
+        prior_artifacts = {
+            "analogical_hypotheses": [
+                {
+                    "schema_version": "analogical_hypothesis.v1",
+                    "hypothesis_id": "analogy:enone_pair",
+                    "reaction_family": "enone redox transfer",
+                    "source_ref": "doi:10.example/analog-enone",
+                    "source_product_smiles": "O=C1C=CCCC1",
+                    "source_reactant_smiles": ["O=C1CCCCC1"],
+                    "analogy_strength": "medium",
+                    "evidence_refs": ["scheme:1"],
+                    "risk_flags": ["analog_scope_unknown"],
+                }
+            ]
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run_agentic_blackboard_controller(
+                target_name="enone analog",
+                target_smiles="O=C1C=CCCC1",
+                family_hint="analogical reaction-center transfer",
+                output_dir=tmp,
+                max_rounds=1,
+                use_codex_action_planner=False,
+                budget=HarnessBudget(
+                    max_chem_enzy_runs=0,
+                    max_guided_chemenzy_runs=0,
+                    max_route_expansion_subgoal_runs=0,
+                    max_scout_calls=0,
+                    max_visual_calls=0,
+                ),
+                prior_artifacts=prior_artifacts,
+            )
+            board = json.loads((Path(tmp) / "agent_blackboard.json").read_text(encoding="utf-8"))
+
+        transferred = [
+            row
+            for row in board["retrosynthetic_proposals"]
+            if row["source_type"] == "analogical_reaction_pair_transfer"
+        ]
+        self.assertTrue(
+            any(
+                row["proposal_label"] == "enone_to_saturated_ketone_precursor"
+                and row["precursor_smiles"] == "O=C1CCCCC1"
+                for row in transferred
+            )
+        )
+        self.assertTrue(board["retrosynthetic_proposal_compile_report"]["not_parent_route_proof"])
+        task_precursors = {row["precursor_smiles"] for row in board["recursive_hypothesis_tasks"]}
+        self.assertIn("O=C1CCCCC1", task_precursors)
+
     def test_failure_critic_bias_enters_blackboard_and_duplicate_critic_is_stale(self):
         target = TargetInput(target_name="critic_target", target_smiles="CCO")
         preflight = run_preflight(target)
@@ -3083,7 +5499,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         validation = validate_action_batch(batch, blackboard=board)
         self.assertTrue(validation["accepted"], validation["reasons"])
 
-    def test_codex_literature_scout_default_timeout_is_action_bounded(self):
+    def test_codex_literature_scout_default_timeout_respects_open_research_budget(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = TargetInput(target_name="steroid", target_smiles="CCO")
             preflight = run_preflight(target)
@@ -3102,11 +5518,29 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 max_sources=3,
             )
 
-        self.assertEqual(task.budget.timeout_s, 180.0)
+        self.assertEqual(_codex_scout_timeout_s(state, {}), 900.0)
+        self.assertEqual(task.budget.timeout_s, 900.0)
+        self.assertEqual(task.budget.reasoning_effort, "high")
         self.assertIn("web_search", task.allowed_tools)
         self.assertIn("browser", task.allowed_tools)
         self.assertGreater(task.budget.max_tool_calls, 0)
         self.assertTrue(_task_allows_cli_search(task))
+
+    def test_codex_repaired_guided_timeout_uses_harness_budget(self):
+        self.assertEqual(
+            _codex_repaired_or_bounded_timeout_s(
+                {
+                    "timeout_s": 180,
+                    "codex_payload_repair": {
+                        "schema_version": "codex_action_payload_repair.v1",
+                        "action_type": "run_guided_chemenzy",
+                    },
+                },
+                1200,
+            ),
+            1200.0,
+        )
+        self.assertEqual(_codex_repaired_or_bounded_timeout_s({"timeout_s": 180}, 1200), 180.0)
 
     def test_local_pdf_cache_match_prefers_exact_doi_over_same_title(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3163,6 +5597,70 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(candidate["local_pdf_match"]["match_basis"], "doi")
         self.assertEqual(candidate["local_pdf_match"]["cache_doi"], "10.1002/asia.200800429")
 
+    def test_dynamic_scout_merge_preserves_article_and_si_sharing_one_doi(self):
+        doi = "10.1000/article-with-si"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            article = root / "article.pdf"
+            si = root / "article_si.pdf"
+            article.write_bytes(b"%PDF-1.4\narticle\n%%EOF\n")
+            si.write_bytes(b"%PDF-1.4\nsupplementary information\n%%EOF\n")
+            codex_report = {
+                "schema_version": "literature_scout_report.v1",
+                "accepted": True,
+                "source_candidates": [
+                    {
+                        "source_ref": f"doi:{doi}",
+                        "doi": doi,
+                        "title": "A synthesis article with supporting information",
+                        "url": f"https://doi.org/{doi}",
+                        "access_status": "metadata_only",
+                    }
+                ],
+                "source_refs": [f"doi:{doi}"],
+            }
+            local_report = {
+                "schema_version": "literature_scout_report.v1",
+                "accepted": True,
+                "source_candidates": [
+                    {
+                        "source_ref": f"doi:{doi}",
+                        "doi": doi,
+                        "local_pdf": str(article),
+                        "document_id": "article-document",
+                        "content_scope": "article",
+                        "access_status": "local_pdf_available",
+                    },
+                    {
+                        "source_ref": f"doi:{doi}",
+                        "doi": doi,
+                        "local_pdf": str(si),
+                        "document_id": "si-document",
+                        "content_scope": "supplementary_information",
+                        "access_status": "local_pdf_available",
+                    },
+                ],
+                "source_refs": [f"doi:{doi}"],
+            }
+
+            merged = _merge_local_pdf_scout_report(
+                codex_report,
+                local_report,
+                max_sources=2,
+            )
+
+        candidates = merged["source_candidates"]
+        self.assertEqual(len(candidates), 2)
+        self.assertEqual(
+            {row["local_pdf"] for row in candidates},
+            {str(article), str(si)},
+        )
+        self.assertEqual(
+            {row["content_scope"] for row in candidates},
+            {"article", "supplementary_information"},
+        )
+        self.assertTrue(all(row["title"] == "A synthesis article with supporting information" for row in candidates))
+
     def test_search_literature_uses_codex_online_source_before_fallbacks(self):
         def planner(**kwargs):
             return {
@@ -3199,7 +5697,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                     "relevance_rationale": "target-proximal source",
                     "expected_scheme_or_compound_labels": ["1", "2"],
                     "extraction_task_recommendations": ["resolve_source_material_or_provide_pdf"],
-                    "access_status": "metadata_only",
+                    "access_status": "ACS DOI page found by web search; direct article fetch may require licensed access.",
                     "no_solved_claim": True,
                 }
             ],
@@ -3344,6 +5842,65 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(evidence["source_candidates"][0]["local_pdf"], str(pdf_path.resolve()))
         self.assertEqual(evidence["source_candidates"][0]["access_status"], "local_pdf_available")
         self.assertEqual(evidence["source_lifecycle"][0]["stage"], "local_pdf_available")
+
+    def test_late_local_pdf_proxy_download_refreshes_active_blackboard(self):
+        doi = "10.1000/late.browser.download"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pdf_dir = root / "evidence" / "local_pdf_proxy" / "pdfs"
+            pdf_dir.mkdir(parents=True)
+            pdf_path = pdf_dir / "late_download.pdf"
+            pdf_path.write_bytes(f"%PDF-1.4\nDOI {doi}\n%%EOF\n".encode("latin-1"))
+            local_pdf_proxy_download_manifest_path(root).write_text(
+                json.dumps(
+                    {
+                        "schema_version": "local_pdf_proxy_result.v1",
+                        "request_id": "late-browser-download",
+                        "case_id": "late_pdf_refresh",
+                        "source_ref": f"doi:{doi}",
+                        "doi": doi,
+                        "url": f"https://doi.org/{doi}",
+                        "title": "Late browser downloaded synthesis source",
+                        "status": "downloaded",
+                        "accepted": True,
+                        "pdf_path": str(pdf_path),
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            target = TargetInput(
+                target_name="late_pdf_refresh",
+                target_smiles="CCO",
+                family_hint="",
+                case_id="",
+            )
+            preflight = run_preflight(target)
+            board = initialize_agent_blackboard(
+                target_input=target.to_dict(),
+                preflight=preflight,
+                max_rounds=3,
+                budget_limits={"max_visual_calls": 3},
+            )
+            refreshed = _refresh_blackboard_from_local_pdf_proxy_downloads(board, run_dir=root)
+
+        evidence = refreshed["literature_evidence"]
+        self.assertEqual(evidence["source_candidates"][0]["doi"], doi)
+        self.assertEqual(evidence["source_candidates"][0]["local_pdf"], str(pdf_path.resolve()))
+        self.assertEqual(evidence["source_lifecycle"][0]["stage"], "local_pdf_available")
+        self.assertIn("extract_pdf_literature_structures", refreshed["current_belief"]["next_action_bias"])
+        refreshed["action_history"] = [
+            {"action_type": "search_literature", "useful_artifact": False},
+            {"action_type": "run_guided_chemenzy", "useful_artifact": False},
+        ]
+        batch = plan_action_batch(refreshed, round_index=2, max_actions=3)
+        self.assertIn(
+            "extract_pdf_literature_structures",
+            [str(action.get("action_type") or "") for action in batch.get("actions") or []],
+        )
 
     def test_planner_source_hint_can_trigger_auto_local_pdf_cache_match_after_scout_failure(self):
         doi = "10.4242/plannerhint2026"
@@ -4012,13 +6569,14 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertNotIn("typed_artifact_validation_failed:literature_scout_report", result["artifact_bundle"]["safety_flags"])
 
     def test_parent_proof_mock_is_required_for_agentic_solved(self):
-        proof = {
-            "schema_version": "stitched_parent_route_proof.v1",
-            "accepted": True,
-            "solved": True,
-            "route_status": "solved",
-            "reasons": [],
-        }
+        verifier = _strict_parent_route_verifier("CCO", reactants=["CC", "O"])
+        proof = compile_stitched_parent_route_proof(
+            target_smiles="CCO",
+            target_name="proof_case",
+            case_id="proof_case",
+            parent_verifier=verifier,
+        )
+        self.assertTrue(proof["accepted"], proof["reasons"])
         stitch_payload = {
             "proof_binding": {
                 "schema_version": "agentic_parent_stitch_binding.v1",
@@ -4254,6 +6812,100 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(first["payload"]["source_ref"], "doi:second")
         self.assertEqual(first["payload"]["pdf_path"], "/tmp/second.pdf")
 
+    def test_pdf_extraction_prefers_downloaded_doi_process_anchor_over_weaker_pdf(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            acs_pdf = tmp_path / "acs.pdf"
+            process_pdf = tmp_path / "process.pdf"
+            lecture_pdf = tmp_path / "lecture.pdf"
+            for path in (acs_pdf, process_pdf, lecture_pdf):
+                path.write_bytes(b"%PDF-1.4\n% test\n")
+            board = {
+                "case_id": "atorvastatin_case",
+                "target_profile": {
+                    "valid": True,
+                    "target_name": "atorvastatin",
+                    "family_hint": "statin atorvastatin free acid",
+                    "functional_handles": ["statin", "atorvastatin"],
+                },
+                "target_side_disconnection_hypotheses": {"hypotheses": [{"hypothesis_id": "h1"}]},
+                "current_belief": {"next_action_bias": ["extract_pdf_literature_structures"]},
+                "literature_evidence": {
+                    "source_candidates": [
+                        {
+                            "source_ref": "src_003",
+                            "doi": "10.1021/jm00105a056",
+                            "title": "Inhibitors of Cholesterol Biosynthesis. 3. Pyrrole HMG-CoA reductase inhibitors",
+                            "local_pdf": str(acs_pdf),
+                            "access_status": "local_pdf_available",
+                            "expected_scheme_or_compound_labels": ["atorvastatin precursor pharmacophore"],
+                        },
+                        {
+                            "source_ref": "doi:10.1186/s13065-015-0082-7",
+                            "doi": "10.1186/s13065-015-0082-7",
+                            "title": "pdfreq_10.1186_s13065-015-0082-7",
+                            "local_pdf": str(process_pdf),
+                            "access_status": "local_pdf_available",
+                            "source_role": "local_pdf_proxy_download",
+                        },
+                        {
+                            "source_ref": "src_web_003",
+                            "title": "The Story of LIPITOR - A Peek into the World of Pharmaceutical Process Chemistry",
+                            "local_pdf": str(lecture_pdf),
+                            "access_status": "local_pdf_available",
+                            "source_role": "local_pdf_proxy_download",
+                        },
+                    ],
+                    "pdf_structure_evidence": [],
+                },
+            }
+
+            batch = plan_action_batch(board, round_index=2, max_actions=1)
+
+        self.assertEqual(batch["actions"][0]["action_type"], "extract_pdf_literature_structures")
+        self.assertEqual(batch["actions"][0]["payload"]["source_ref"], "doi:10.1186/s13065-015-0082-7")
+        self.assertEqual(batch["actions"][0]["payload"]["pdf_path"], str(process_pdf))
+
+    def test_pdf_default_injection_binds_best_blackboard_downloaded_pdf(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            process_pdf = tmp_path / "process.pdf"
+            lecture_pdf = tmp_path / "lecture.pdf"
+            for path in (process_pdf, lecture_pdf):
+                path.write_bytes(b"%PDF-1.4\n% test\n")
+            board = {
+                "target_profile": {
+                    "target_name": "atorvastatin",
+                    "family_hint": "statin atorvastatin free acid",
+                    "functional_handles": ["statin", "atorvastatin"],
+                },
+                "literature_evidence": {
+                    "source_candidates": [
+                        {
+                            "source_ref": "src_web_003",
+                            "title": "The Story of LIPITOR - A Peek into the World of Pharmaceutical Process Chemistry",
+                            "local_pdf": str(lecture_pdf),
+                            "access_status": "local_pdf_available",
+                            "source_role": "local_pdf_proxy_download",
+                        },
+                        {
+                            "source_ref": "doi:10.1186/s13065-015-0082-7",
+                            "doi": "10.1186/s13065-015-0082-7",
+                            "title": "pdfreq_10.1186_s13065-015-0082-7",
+                            "local_pdf": str(process_pdf),
+                            "access_status": "local_pdf_available",
+                            "source_role": "local_pdf_proxy_download",
+                        },
+                    ]
+                },
+            }
+            payload = {}
+
+            _inject_pdf_defaults(payload, {"target_name": "atorvastatin"}, blackboard=board)
+
+        self.assertEqual(payload["source_ref"], "doi:10.1186/s13065-015-0082-7")
+        self.assertEqual(payload["pdf_path"], str(process_pdf))
+
     def test_agentic_guided_payload_is_valid_chemenzy_policy(self):
         target = TargetInput(target_name="bufotalin", target_smiles=MLA_LIKE_SMILES)
         preflight = run_preflight(target)
@@ -4472,11 +7124,10 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             }
         ]
         board["literature_evidence"]["pdf_structure_evidence"] = [
-            {
-                "schema_version": "agent_pdf_structure_evidence_summary.v1",
-                "source_ref": "cortistatin_total_synthesis",
-                "accepted": True,
-            }
+            _rendered_pdf_evidence(
+                source_ref="cortistatin_total_synthesis",
+                pdf_path="/tmp/cortistatin.pdf",
+            )
         ]
         board["literature_evidence"]["visual_chains"] = [
             {
@@ -4582,6 +7233,66 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         ]
         self.assertTrue(any(hint.get("precursor_smiles") == visual_precursor_canonical for hint in precursor_hints))
         self.assertTrue(all(hint.get("not_exact_literature_segment") for hint in precursor_hints))
+
+    def test_atorvastatin_visual_chain_does_not_generate_steroid_templates(self):
+        visual_precursor = "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccc(F)cc2)n(CCC(O)CC(O)CC(=O)OC(C)(C)C)c1-c1ccccc1"
+        visual_precursor_canonical = Chem.MolToSmiles(Chem.MolFromSmiles(visual_precursor), isomericSmiles=True)
+        target = TargetInput(target_name="atorvastatin", target_smiles=ATORVASTATIN_FREE_ACID_SMILES)
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=5)
+        board["literature_evidence"]["source_refs"] = ["doi:10.1186/s13065-015-0082-7"]
+        board["literature_evidence"]["source_candidates"] = [
+            {"source_ref": "doi:10.1186/s13065-015-0082-7", "source_type": "reaction_precedent"}
+        ]
+        board["literature_evidence"]["visual_chains"] = [
+            {
+                "source_ref": "doi:10.1186/s13065-015-0082-7",
+                "accepted": True,
+                "candidate_step_count": 1,
+                "acceptance_level": "exploratory_connectivity_candidate",
+                "exact_ready": False,
+                "exploratory_accepted": True,
+                "steps": [
+                    {
+                        "product_label": "atorvastatin acid",
+                        "product_smiles": ATORVASTATIN_FREE_ACID_SMILES,
+                        "reactant_smiles": [visual_precursor],
+                        "source_locator": "Scheme 2, conversion of 5 to 1",
+                        "condition_candidate": {"reagent": "NaOH, then calcium acetate monohydrate"},
+                        "allowed_use": "exploratory_template_and_guided_hint_only",
+                        "not_exact_literature_segment": True,
+                    }
+                ],
+            }
+        ]
+
+        extracted = extract_analogical_reaction_templates_from_blackboard(
+            blackboard=board,
+            case_id=str(preflight["case_id"]),
+            target_smiles=ATORVASTATIN_FREE_ACID_SMILES,
+            max_templates=6,
+            radius_policy="broad",
+        )
+        board["analogical_templates"] = extracted["templates"]
+        ranking = rank_analogical_reaction_templates_from_blackboard(board)
+        board["analogical_template_ranking"] = ranking
+        applied = apply_analogical_templates_to_target(
+            blackboard=board,
+            target_smiles=ATORVASTATIN_FREE_ACID_SMILES,
+            confidence_threshold="low",
+        )
+
+        retrons = [(row.get("reaction_center") or {}).get("product_retron_type") for row in extracted["templates"]]
+        self.assertIn("visual_hydrolysis_salt_bridge", retrons)
+        self.assertFalse(any("steroid" in str(retron or "") for retron in retrons))
+        accepted = [row for row in applied["applications"] if row.get("accepted")]
+        precursor_hints = [
+            hint
+            for row in accepted
+            for hint in row.get("hypothetical_precursor_hints") or []
+            if isinstance(hint, dict)
+        ]
+        self.assertTrue(any(hint.get("precursor_smiles") == visual_precursor_canonical for hint in precursor_hints))
 
     def test_planner_selects_analogical_template_actions_before_guided(self):
         target = TargetInput(target_name="MLA analog", target_smiles=MLA_LIKE_SMILES, family_hint="MLA alkaloid")
@@ -5003,6 +7714,242 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertIn("extract_pdf_literature_structures", action_types)
         self.assertNotIn("run_guided_chemenzy", action_types)
 
+    def test_failed_zero_step_visual_chain_does_not_block_visual_retry(self):
+        target = TargetInput(target_name="single_pdf_retry", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=5)
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "h1"}]}
+        board["current_belief"]["next_action_bias"] = ["extract_visual_literature_chain"]
+        board["literature_evidence"]["source_candidates"] = [
+            {"schema_version": "literature_source_candidate.v1", "source_ref": "doi:source", "local_pdf": "/tmp/source.pdf"}
+        ]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            _rendered_pdf_evidence(source_ref="doi:source", pdf_path="/tmp/source.pdf")
+        ]
+        board["literature_evidence"]["visual_chains"] = [
+            {
+                "schema_version": "agent_visual_chain_summary.v1",
+                "source_ref": "doi:source",
+                "accepted": False,
+                "candidate_step_count": 0,
+                "step_count": 0,
+                "reasons": ["visual_input_images_missing"],
+            }
+        ]
+
+        batch = plan_action_batch(board, round_index=4, exhaust_round_budget=True)
+        action_types = [row["action_type"] for row in batch["actions"]]
+
+        self.assertIn("extract_visual_literature_chain", action_types)
+        visual = next(row for row in batch["actions"] if row["action_type"] == "extract_visual_literature_chain")
+        self.assertEqual(visual["payload"]["source_ref"], "doi:source")
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_resume_indexes_legacy_pdf_evidence_for_visual_reuse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image_dir = root / "pages"
+            image_dir.mkdir()
+            image_path = image_dir / "page_001.png"
+            image_path.write_bytes(b"not-a-real-png-but-path-exists")
+            pdf_result = {
+                "accepted": True,
+                "result": {
+                    "schema_version": "literature_pdf_structure_evidence.v1",
+                    "accepted": True,
+                    "source_ref": "doi:source",
+                    "source_pdf_path": str(root / "source.pdf"),
+                    "rendered_pages": [
+                        {"page_number": 1, "image_path": str(image_path)}
+                    ],
+                    "scheme_crops": [],
+                    "compound_text_snippets": [],
+                },
+            }
+            (root / "r1_extract_pdf_literature_structures_literature_pdf_structure_evidence_v1.json").write_text(
+                json.dumps(pdf_result),
+                encoding="utf-8",
+            )
+
+            artifacts = _load_existing_artifacts(root, {"artifact_refs": {}})
+
+        self.assertIn("literature_pdf_structure_evidence_history", artifacts)
+        self.assertIn("literature_pdf_structure_evidence_by_source", artifacts)
+        self.assertEqual(len(artifacts["literature_pdf_structure_evidence_history"]), 1)
+        self.assertIn("ref:doi:source", artifacts["literature_pdf_structure_evidence_by_source"])
+
+    def test_planner_expands_frontier_even_when_more_pdf_extraction_is_pending(self):
+        target = TargetInput(target_name="atorvastatin", target_smiles=ATORVASTATIN_FREE_ACID_SMILES)
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=preflight,
+            max_rounds=8,
+            budget_limits={"max_route_expansion_subgoal_runs": 4, "max_visual_calls": 4},
+        )
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "h1"}]}
+        board["analogical_hypothesis_ranking"] = {"selected_hypotheses": [{"hypothesis_id": "h1"}]}
+        board["current_belief"]["next_action_bias"] = [
+            "extract_pdf_literature_structures",
+            "extract_visual_literature_chain",
+            "expand_child_target",
+        ]
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "schema_version": "literature_source_candidate.v1",
+                "source_ref": "doi:process",
+                "doi": "10.1186/s13065-015-0082-7",
+                "title": "process anchor",
+                "local_pdf": "/tmp/process.pdf",
+                "access_status": "local_pdf_available",
+            },
+            {
+                "schema_version": "literature_source_candidate.v1",
+                "source_ref": "doi:followup",
+                "doi": "10.1021/jm00105a056",
+                "title": "follow-up source",
+                "local_pdf": "/tmp/followup.pdf",
+                "access_status": "local_pdf_available",
+            },
+        ]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            {
+                "schema_version": "agent_pdf_structure_evidence_summary.v1",
+                "source_ref": "doi:process",
+                "accepted": True,
+            }
+        ]
+        board["literature_evidence"]["process_evidence_rows"] = [
+            {
+                "schema_version": "process_evidence_row.v1",
+                "process_id": "process:atorvastatin_side_chain",
+                "source_ref": "doi:process",
+                "process_type": "statin_side_chain_installation",
+                "accepted": True,
+            }
+        ]
+        board["retrosynthetic_proposals"] = [
+            {
+                "schema_version": "retrosynthetic_proposal.v1",
+                "proposal_id": "proposal:atorvastatin_side_chain",
+                "proposal_type": "process_anchor",
+                "proposal_granularity": "process",
+                "precursor_smiles": "CC(C)c1ccccc1",
+                "recursive_expandable": True,
+                "executable": True,
+                "not_exact_literature_segment": True,
+            }
+        ]
+        board["recursive_hypothesis_tasks"] = [
+            {
+                "schema_version": "recursive_hypothesis_task.v1",
+                "task_id": "recursive_hypothesis:proposal:atorvastatin_side_chain:1",
+                "task_type": "recursive_hypothesis_frontier_expansion",
+                "status": "pending",
+                "source": "retrosynthetic_proposal",
+                "parent_candidate_id": "proposal:atorvastatin_side_chain",
+                "parent_smiles": ATORVASTATIN_FREE_ACID_SMILES,
+                "precursor_smiles": "CC(C)c1ccccc1",
+                "name": "atorvastatin side-chain frontier",
+                "recursive_depth": 1,
+                "operation_idea": "test process-derived side-chain precursor as a child target",
+                "proposal_granularity": "process",
+                "proposal_score": 80,
+                "allowed_use": "route_expansion_subgoal_hint_only",
+                "not_exact_literature_segment": True,
+                "not_parent_route_proof": True,
+                "requires_verifier": True,
+                "child_route_cannot_promote_parent": True,
+                "no_solved_claim": True,
+            }
+        ]
+
+        batch = plan_action_batch(board, round_index=4, exhaust_round_budget=True)
+        action_types = [row["action_type"] for row in batch["actions"]]
+
+        self.assertEqual(action_types[0], "expand_child_target")
+        self.assertIn("extract_pdf_literature_structures", action_types)
+        child_action = next(row for row in batch["actions"] if row["action_type"] == "expand_child_target")
+        child_target = child_action["payload"]["subgoal_targets"][0]
+        self.assertEqual(child_target["smiles"], "CC(C)c1ccccc1")
+        self.assertEqual(child_target["source"], "recursive_hypothesis_task")
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_process_evidence_does_not_block_open_structure_resolution_task(self):
+        target = TargetInput(
+            target_name="atorvastatin",
+            target_smiles=ATORVASTATIN_FREE_ACID_SMILES,
+            family_hint="statin synthetic atorvastatin",
+        )
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=preflight,
+            max_rounds=8,
+            budget_limits={"max_visual_calls": 3},
+        )
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "atorvastatin_process_anchor"}]}
+        board["analogical_hypothesis_ranking"] = {"selected_hypotheses": [{"hypothesis_id": "atorvastatin_process_anchor"}]}
+        board["literature_evidence"]["source_candidates"] = [
+            {
+                "schema_version": "literature_source_candidate.v1",
+                "source_ref": "doi:10.1186/s13065-015-0082-7",
+                "doi": "10.1186/s13065-015-0082-7",
+                "title": "An improved kilogram-scale preparation of atorvastatin calcium",
+                "local_pdf": "/tmp/atorvastatin_bmc.pdf",
+                "access_status": "local_pdf_available",
+            }
+        ]
+        board["literature_evidence"]["process_evidence_rows"] = [
+            {
+                "schema_version": "literature_process_evidence_row.v1",
+                "row_id": "process_evidence:atorvastatin",
+                "process_type": "small_molecule_process_route",
+                "source_ref": "doi:10.1186/s13065-015-0082-7",
+                "substrate_or_feedstock_labels": ["advanced ketal ester intermediate 4"],
+                "endpoint_labels": ["atorvastatin calcium"],
+                "no_solved_claim": True,
+            }
+        ]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            _rendered_pdf_evidence(
+                source_ref="doi:10.1186/s13065-015-0082-7",
+                pdf_path="/tmp/atorvastatin_bmc.pdf",
+            )
+        ]
+        board["literature_evidence"]["visual_chains"] = [
+            {
+                "schema_version": "agent_visual_chain_summary.v1",
+                "source_ref": "doi:10.1186/s13065-015-0082-7",
+                "accepted": True,
+                "candidate_step_count": 0,
+                "steps": [],
+            }
+        ]
+        board["literature_evidence"]["structure_resolution_tasks"] = [
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:bmc_intermediate_4",
+                "task_type": "resolve_literature_structure",
+                "label": "advanced ketal ester intermediate 4",
+                "source_ref": "doi:10.1186/s13065-015-0082-7",
+                "source_title": "An improved kilogram-scale preparation of atorvastatin calcium",
+                "status": "open",
+                "no_solved_claim": True,
+            }
+        ]
+
+        batch = plan_action_batch(board, round_index=4, max_actions=1)
+
+        self.assertEqual([row["action_type"] for row in batch["actions"]], ["resolve_literature_structure_task"])
+        payload = batch["actions"][0]["payload"]
+        self.assertEqual(payload["task_id"], "resolve_structure:bmc_intermediate_4")
+        self.assertEqual(payload["label"], "advanced ketal ester intermediate 4")
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
     def test_planner_processes_multiple_local_pdfs_in_one_blackboard(self):
         target = TargetInput(target_name="multi_pdf_case", target_smiles="CCO")
         preflight = run_preflight(target)
@@ -5014,12 +7961,11 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             {"schema_version": "literature_source_candidate.v1", "source_ref": "doi:second", "local_pdf": "/tmp/second.pdf"},
         ]
         board["literature_evidence"]["pdf_structure_evidence"] = [
-            {
-                "schema_version": "agent_pdf_structure_evidence_summary.v1",
-                "evidence_id": "doi:first",
-                "source_ref": "doi:first",
-                "accepted": True,
-            }
+            _rendered_pdf_evidence(
+                source_ref="doi:first",
+                pdf_path="/tmp/first.pdf",
+                evidence_id="doi:first",
+            )
         ]
 
         batch = plan_action_batch(board, round_index=3, exhaust_round_budget=True)
@@ -5040,8 +7986,8 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             {"schema_version": "literature_source_candidate.v1", "source_ref": "doi:second", "local_pdf": "/tmp/second.pdf"},
         ]
         board["literature_evidence"]["pdf_structure_evidence"] = [
-            {"schema_version": "agent_pdf_structure_evidence_summary.v1", "source_ref": "doi:first", "accepted": True},
-            {"schema_version": "agent_pdf_structure_evidence_summary.v1", "source_ref": "doi:second", "accepted": True},
+            _rendered_pdf_evidence(source_ref="doi:first", pdf_path="/tmp/first.pdf"),
+            _rendered_pdf_evidence(source_ref="doi:second", pdf_path="/tmp/second.pdf"),
         ]
         board["literature_evidence"]["visual_chains"] = [
             {
@@ -5233,6 +8179,22 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertIn("web_search = false", captured["config"])
         self.assertNotIn("web_search = true", captured["config"])
 
+    def test_visual_prompt_standardizes_conditions_under_condition_candidate(self):
+        prompt = _visual_literature_prompt(
+            target_name="target",
+            target_smiles="CCO",
+            source_ref="doi:10.example/visual",
+            source_title="Visual source",
+            expected_labels=["compound 1"],
+            route_sequence_hint="",
+            text_snippets=[],
+        )
+
+        self.assertIn("condition_candidate only", prompt)
+        self.assertIn("Do not emit parallel condition aliases", prompt)
+        self.assertIn("condition_text, reaction_conditions, visible_conditions, conditions, condition, or forward_conditions", prompt)
+        self.assertIn('"condition_candidate"', prompt)
+
     def test_direct_visual_prompt_uses_api_payload_without_codex_subprocess(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -5331,10 +8293,12 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(len(chain["steps"]), 2)
         self.assertEqual(chain["steps"][0]["product_label"], "cortistatinone")
         self.assertEqual(chain["steps"][0]["condition_candidate"]["reagent"], "Dess-Martin periodinane")
-        self.assertTrue(chain["steps"][0]["structure_derivation"]["structure_gap"])
+        self.assertTrue(chain["steps"][0]["structure_derivation"]["visual_structure_anchor_only"])
         self.assertEqual(quality["smiles_precheck"]["invalid_smiles_count"], 0)
-        self.assertEqual(quality["structure_gap_count"], 2)
-        self.assertFalse(quality["accepted"])
+        self.assertEqual(quality["structure_gap_count"], 0)
+        self.assertEqual(quality["rdkit_structure_anchor_count"], 2)
+        self.assertFalse(quality["exact_ready"])
+        self.assertTrue(quality["accepted"])
 
     def test_visual_parser_accepts_achiral_connectivity_candidate_as_exploratory(self):
         parsed = {
@@ -5423,7 +8387,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(summary["steps"][0]["allowed_use"], "exploratory_template_and_guided_hint_only")
         self.assertTrue(summary["steps"][0]["not_exact_literature_segment"])
 
-    def test_guided_chemenzy_large_atom_jump_overrides_backend_solved(self):
+    def test_guided_chemenzy_large_atom_jump_overrides_backend_solved_when_no_route_accepted(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
             state = ToolExecutionState(
@@ -5448,8 +8412,9 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             backend_result = {"ok": True, "routes": [{"route_id": "r1"}], "search_status": {"solved": True}}
             verifier = {
                 "schema_version": "harness_route_verifier_report.v1",
-                "accepted": True,
-                "route_status": "solved",
+                "accepted": False,
+                "route_status": "fake_closed_rejected",
+                "accepted_route_count": 0,
                 "reasons": ["large_atom_jump"],
                 "failure_events": [{"reason": "large_atom_jump", "details": {"jumps": [{"delta_heavy_atoms": 24}]}}],
             }
@@ -5470,6 +8435,408 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(result["route_status"], "fake_closed_rejected")
         self.assertIn("guided_route_verifier_rejected_large_atom_jump", result["reasons"])
         self.assertTrue(result["route_failure_feedback"]["accepted"])
+
+    def test_guided_chemenzy_preserves_solved_verifier_with_rejected_sibling_routes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            state = ToolExecutionState(
+                run_dir=run_dir,
+                target_input={"target_name": "atorvastatin", "target_smiles": ATORVASTATIN_FREE_ACID_SMILES},
+                preflight={"case_id": "atorvastatin"},
+                budget=HarnessBudget(max_guided_chemenzy_runs=1),
+            )
+            payload = {
+                "chem_enzy_search_policy": {
+                    "schema_version": "chem_enzy_search_policy.v1",
+                    "policy_id": "test_policy",
+                    "operator_id": "test",
+                    "case_id": "atorvastatin",
+                    "preferred_subgoal": {},
+                    "source_budget": {},
+                    "budget": {"max_depth": 3, "max_iterations": 3, "expansion_topk": 3},
+                    "mode": "guided",
+                    "compiler_metadata": {"requires_verifier": True},
+                }
+            }
+            backend_result = {"ok": True, "routes": [{"route_id": "r1"}, {"route_id": "r2"}], "search_status": {"solved": True}}
+            verifier = {
+                "schema_version": "harness_route_verifier_report.v1",
+                "accepted": True,
+                "route_status": "solved",
+                "target_match": True,
+                "target_equivalence_audit": {"target_match": True},
+                "route_count": 3,
+                "accepted_route_count": 2,
+                "rejected_route_count": 1,
+                "best_route_rank": 0,
+                "best_route_step_count": 1,
+                "reasons": [],
+                "warnings": ["large_atom_jump"],
+                "failure_events": [{"reason": "large_atom_jump", "details": {"jumps": [{"delta_heavy_atoms": 24}]}}],
+            }
+
+            with patch(
+                "cascade_planner.harness.tools._execute_chemenzy_request",
+                return_value=backend_result,
+            ), patch(
+                "cascade_planner.harness.tools.verify_chemenzy_raw_routes",
+                return_value=verifier,
+            ):
+                output = run_guided_chemenzy_rerun(state, payload)
+
+        result = output["result"]
+        self.assertTrue(output["accepted"])
+        self.assertTrue(result["accepted"])
+        self.assertTrue(result["solved"])
+        self.assertEqual(result["route_status"], "solved")
+        self.assertNotIn("route_proof_blockers", result)
+
+    def test_guided_chemenzy_timeout_is_blackboard_feedback_not_tool_failure(self):
+        target = TargetInput(target_name="timeout_case", target_smiles=BUFOTALIN_ACHIRAL_SMILES)
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            state = ToolExecutionState(
+                run_dir=run_dir,
+                target_input=target.to_dict(),
+                preflight={"case_id": "timeout_case"},
+                budget=HarnessBudget(max_guided_chemenzy_runs=1, guided_chemenzy_timeout_s=5),
+            )
+            payload = {
+                "chem_enzy_search_policy": {
+                    "schema_version": "chem_enzy_search_policy.v1",
+                    "policy_id": "timeout_policy",
+                    "operator_id": "test",
+                    "case_id": "timeout_case",
+                    "terminal_blacklist": [],
+                    "active_bridge_tasks": [],
+                    "accepted_exact_row_ids": [],
+                    "selected_analogical_hypothesis_ids": [],
+                    "selected_analogical_template_ids": [],
+                    "forbidden_template_ids": [],
+                    "preferred_subgoal": {},
+                    "source_budget": {"require_target_core_retention": True, "max_unexplained_heavy_atom_jump": 12},
+                    "budget": {"max_depth": 3, "max_iterations": 3, "expansion_topk": 3},
+                    "mode": "guided",
+                    "compiler_metadata": {"requires_verifier": True, "no_solved_claim": True},
+                }
+            }
+            backend_result = {
+                "schema_version": "chemenzy_run_result.v1",
+                "accepted": False,
+                "status": "timeout",
+                "exit_code": -15,
+                "reasons": ["chem_enzy_timeout"],
+                "timeout_s": 5,
+            }
+
+            with patch("cascade_planner.harness.tools._execute_chemenzy_request", return_value=backend_result):
+                output = run_guided_chemenzy_rerun(state, payload)
+
+            self.assertTrue(output["accepted"])
+            result = output["result"]
+            self.assertFalse(result["accepted"])
+            self.assertEqual(result["chemenzy_runtime_diagnostic"]["reasons"], ["chem_enzy_timeout"])
+
+            board = initialize_agent_blackboard(
+                target_input=target.to_dict(),
+                preflight=run_preflight(target),
+                max_rounds=2,
+            )
+            board = update_blackboard_from_action(
+                board,
+                action={"action_id": "r1:guided", "action_type": "run_guided_chemenzy"},
+                action_result=result,
+                round_index=1,
+                run_dir=run_dir,
+            )
+
+        self.assertTrue(board["action_history"][-1]["useful_artifact"])
+        self.assertIn("plugin_runtime_diagnostics", board["action_history"][-1]["changed_blackboard_fields"])
+        self.assertIn("route_failures", board["action_history"][-1]["changed_blackboard_fields"])
+        self.assertTrue(any(row.get("reason") == "chem_enzy_timeout" for row in board["route_failures"]))
+
+    def test_guided_chemenzy_detects_onmt_runtime_error_from_logs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stdout = Path(tmp) / "guided_chemenzy_raw_result.json.stdout.log"
+            stdout.write_text(
+                "'Vocab' object has no attribute 'stoi'\n"
+                "onmt_models.bionav_native_one_step\n",
+                encoding="utf-8",
+            )
+            diagnostic = _guided_chemenzy_runtime_diagnostic(
+                {
+                    "ok": False,
+                    "exit_code": 0,
+                    "stdout_path": str(stdout),
+                    "search_status": {"status": "failed"},
+                }
+            )
+
+        self.assertEqual(diagnostic["status"], "one_step_model_runtime_error")
+        self.assertIn("onmt_one_step_model_runtime_error", diagnostic["reasons"])
+        self.assertIn("torchtext_vocab_legacy_api_mismatch", diagnostic["reasons"])
+
+    def test_guided_chemenzy_no_route_is_blackboard_failure_evidence(self):
+        target = TargetInput(target_name="no_route_case", target_smiles=BUFOTALIN_ACHIRAL_SMILES)
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            board = initialize_agent_blackboard(
+                target_input=target.to_dict(),
+                preflight=run_preflight(target),
+                max_rounds=2,
+            )
+            board = update_blackboard_from_action(
+                board,
+                action={"action_id": "r1:guided", "action_type": "run_guided_chemenzy"},
+                action_result={
+                    "accepted": True,
+                    "reasons": [],
+                    "result": {
+                        "schema_version": "guided_chemenzy_rerun_result.v1",
+                        "accepted": True,
+                        "solved": False,
+                        "route_status": "unresolved",
+                        "raw_route_verifier": {},
+                        "result": {
+                            "ok": False,
+                            "n_results": 0,
+                            "failure_diagnosis": ["no_route_found"],
+                            "search_status": {
+                                "status": "failed",
+                                "solved": False,
+                                "message": "ChemEnzy native core search returned no route",
+                            },
+                        },
+                    },
+                },
+                round_index=1,
+                run_dir=run_dir,
+            )
+
+        self.assertTrue(board["action_history"][-1]["useful_artifact"])
+        self.assertIn("route_failures", board["action_history"][-1]["changed_blackboard_fields"])
+        self.assertTrue(any(row.get("reason") == "no_route_found" for row in board["route_failures"]))
+        self.assertIn("build_failure_critic_report", board["current_belief"]["next_action_bias"])
+
+    def test_visual_direct_api_failure_is_auditable_tool_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            image = run_dir / "page.jpg"
+            image.write_bytes(b"not-really-an-image")
+            state = ToolExecutionState(
+                run_dir=run_dir,
+                target_input={"target_name": "visual_case", "target_smiles": "CCO"},
+                preflight={"case_id": "visual_case", "target_profile": {"heavy_atoms": 3}},
+            )
+            visual_result = {
+                "schema_version": "visual_literature_chain_extraction_result.v1",
+                "accepted": False,
+                "status": "error",
+                "reasons": ["visual_direct_api_failed"],
+                "attempts": [{"status": "error", "reasons": ["visual_direct_api_failed"]}],
+                "image_paths": [str(image)],
+                "no_solved_claim": True,
+            }
+
+            with patch(
+                "cascade_planner.harness.tools._visual_chain_image_paths",
+                return_value=[image],
+            ), patch(
+                "cascade_planner.harness.tools.run_visual_literature_chain_agent",
+                return_value=visual_result,
+            ):
+                record = execute_local_tool("extract_visual_literature_chain", {"source_ref": "doi:test"}, state)
+
+        self.assertEqual(record.status, "accepted")
+        self.assertFalse(record.output["result"]["accepted"])
+        self.assertIn("visual_direct_api_failed", record.reasons)
+
+    def test_visual_partial_candidate_is_salvaged_when_standard_result_file_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            image = run_dir / "page.jpg"
+            image.write_bytes(b"not-really-an-image")
+            out = run_dir / "visual_out"
+            out.mkdir()
+            candidate = {
+                "schema_version": "visual_structure_candidate_chain.v1",
+                "steps": [
+                    {
+                        "step_id": "scheme_step_1",
+                        "product_smiles": "CCO",
+                        "reactant_smiles": ["CC=O"],
+                        "source_ref": "doi:test",
+                        "evidence_refs": ["current_image:page.jpg"],
+                    }
+                ],
+            }
+            (out / "visual_structure_candidate_chain.json").write_text(
+                json.dumps(candidate, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            state = ToolExecutionState(
+                run_dir=run_dir,
+                target_input={"target_name": "visual_case", "target_smiles": "CCO"},
+                preflight={"case_id": "visual_case", "target_profile": {"heavy_atoms": 3}},
+            )
+
+            with patch(
+                "cascade_planner.harness.tools._visual_chain_image_paths",
+                return_value=[image],
+            ), patch(
+                "cascade_planner.harness.tools.run_visual_literature_chain_agent",
+                side_effect=FileNotFoundError(str(out / "visual_literature_chain_extraction_result.json")),
+            ):
+                record = execute_local_tool(
+                    "extract_visual_literature_chain",
+                    {"source_ref": "doi:test", "source_title": "Test source", "output_dir": "visual_out"},
+                    state,
+                )
+            self.assertTrue((out / "visual_literature_chain_extraction_result.json").exists())
+
+        result = record.output["result"]
+        self.assertEqual(record.status, "accepted")
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["status"], "partial_candidate_salvaged")
+        self.assertIn("visual_result_file_missing_salvaged_candidate", record.reasons)
+        self.assertEqual(result["candidate_step_count"], 1)
+
+    def test_visual_partial_candidate_is_salvaged_when_tool_cleanup_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            image = run_dir / "page.jpg"
+            image.write_bytes(b"not-really-an-image")
+            out = run_dir / "visual_out"
+            out.mkdir()
+            candidate = {
+                "schema_version": "visual_structure_candidate_chain.v1",
+                "steps": [
+                    {
+                        "step_id": "scheme_step_1",
+                        "product_smiles": "CCO",
+                        "reactant_smiles": ["CC=O"],
+                        "source_ref": "doi:test",
+                        "evidence_refs": ["current_image:page.jpg"],
+                    }
+                ],
+            }
+            (out / "visual_structure_candidate_chain.json").write_text(
+                json.dumps(candidate, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            state = ToolExecutionState(
+                run_dir=run_dir,
+                target_input={"target_name": "visual_case", "target_smiles": "CCO"},
+                preflight={"case_id": "visual_case", "target_profile": {"heavy_atoms": 3}},
+            )
+
+            with patch(
+                "cascade_planner.harness.tools._visual_chain_image_paths",
+                return_value=[image],
+            ), patch(
+                "cascade_planner.harness.tools.run_visual_literature_chain_agent",
+                side_effect=OSError("[WinError 145] directory is not empty"),
+            ):
+                record = execute_local_tool(
+                    "extract_visual_literature_chain",
+                    {"source_ref": "doi:test", "source_title": "Test source", "output_dir": "visual_out"},
+                    state,
+                )
+
+        result = record.output["result"]
+        self.assertEqual(record.status, "accepted")
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["status"], "partial_candidate_salvaged")
+        self.assertIn("visual_tool_error_salvaged_candidate", record.reasons)
+        self.assertEqual(result["candidate_step_count"], 1)
+
+    def test_visual_action_output_dir_is_short_enough_for_windows_paths(self):
+        output_dir = _visual_action_output_dir(
+            {
+                "action_id": "r2_extract_danishefsky_visual_chain_after_bootstrap",
+                "action_type": "extract_visual_literature_chain",
+                "payload": {"source_ref": "doi:10.1021/ja952692a"},
+            }
+        )
+
+        self.assertLessEqual(len(output_dir), 90)
+        self.assertTrue(output_dir.startswith("visual_lit_chain_"))
+        self.assertNotIn("visual_literature_chain_extraction_r2_extract", output_dir)
+
+    def test_visual_partial_candidate_is_salvaged_when_packaging_missing_result_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            image = run_dir / "page.jpg"
+            image.write_bytes(b"not-really-an-image")
+            out = run_dir / "visual_out"
+            out.mkdir()
+            candidate = {
+                "schema_version": "visual_structure_candidate_chain.v1",
+                "steps": [
+                    {
+                        "step_id": "scheme_step_1",
+                        "product_smiles": "CCO",
+                        "reactant_smiles": ["CC=O"],
+                        "source_ref": "doi:test",
+                        "evidence_refs": ["current_image:page.jpg"],
+                    }
+                ],
+            }
+            candidate_path = out / "visual_structure_candidate_chain.json"
+            candidate_path.write_text(json.dumps(candidate, ensure_ascii=False), encoding="utf-8")
+            visual_result = {
+                "schema_version": "visual_literature_chain_extraction_result.v1",
+                "accepted": True,
+                "status": "completed",
+                "candidate_chain_path": str(candidate_path),
+                "candidate_chain": candidate,
+                "candidate_step_count": 1,
+                "reasons": [],
+                "no_solved_claim": True,
+            }
+            state = ToolExecutionState(
+                run_dir=run_dir,
+                target_input={"target_name": "visual_case", "target_smiles": "CCO"},
+                preflight={"case_id": "visual_case", "target_profile": {"heavy_atoms": 3}},
+            )
+
+            with patch(
+                "cascade_planner.harness.tools._visual_chain_image_paths",
+                return_value=[image],
+            ), patch(
+                "cascade_planner.harness.tools.run_visual_literature_chain_agent",
+                return_value=visual_result,
+            ), patch(
+                "cascade_planner.harness.tools._attach_process_evidence_rows_to_visual_result",
+                side_effect=FileNotFoundError(str(out / "visual_literature_chain_extraction_result.json")),
+            ):
+                record = execute_local_tool(
+                    "extract_visual_literature_chain",
+                    {"source_ref": "doi:test", "source_title": "Test source", "output_dir": "visual_out"},
+                    state,
+                )
+
+        result = record.output["result"]
+        self.assertEqual(record.status, "accepted")
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["status"], "partial_candidate_salvaged")
+        self.assertIn("visual_result_file_missing_salvaged_candidate", record.reasons)
+        self.assertEqual(result["candidate_step_count"], 1)
+
+    def test_visual_timeout_zero_inherits_open_research_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ToolExecutionState(
+                run_dir=Path(tmp),
+                target_input={"target_name": "visual_timeout", "target_smiles": "CCO"},
+                preflight={"case_id": "visual_timeout"},
+                budget=HarnessBudget(open_research_timeout_s=900.0),
+            )
+
+            visual_timeout = _visual_literature_timeout_s(state, {"timeout_s": 0})
+            structure_timeout = _structure_resolution_timeout_s(state, {"timeout_s": 0})
+
+        self.assertEqual(visual_timeout, 900.0)
+        self.assertEqual(structure_timeout, 900.0)
 
     def test_planner_does_not_visual_extract_placeholder_or_metadata_only_sources(self):
         target = TargetInput(target_name="metadata_case", target_smiles="CCO")
@@ -5527,7 +8894,13 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 "expected_scheme_or_compound_labels": ["bufotalin", "33", "24", "11"],
             }
         ]
-        board["literature_evidence"]["pdf_structure_evidence"] = [{"evidence_id": "pdf", "accepted": True}]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            _rendered_pdf_evidence(
+                source_ref="doi:source",
+                pdf_path="/tmp/source.pdf",
+                evidence_id="pdf",
+            )
+        ]
         board["literature_evidence"]["visual_chains"] = [
             {
                 "schema_version": "agent_visual_chain_summary.v1",
@@ -5569,7 +8942,13 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 "expected_scheme_or_compound_labels": ["bufotalin", "33", "24", "11"],
             }
         ]
-        board["literature_evidence"]["pdf_structure_evidence"] = [{"evidence_id": "pdf", "accepted": True}]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            _rendered_pdf_evidence(
+                source_ref="doi:source",
+                pdf_path="/tmp/source.pdf",
+                evidence_id="pdf",
+            )
+        ]
         board["literature_evidence"]["visual_chains"] = [
             {
                 "schema_version": "agent_visual_chain_summary.v1",
@@ -5614,7 +8993,13 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 "expected_scheme_or_compound_labels": ["target", "27", "26", "23"],
             }
         ]
-        board["literature_evidence"]["pdf_structure_evidence"] = [{"evidence_id": "pdf", "accepted": True}]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            _rendered_pdf_evidence(
+                source_ref="doi:source",
+                pdf_path="/tmp/source.pdf",
+                evidence_id="pdf",
+            )
+        ]
         board["literature_evidence"]["visual_chains"] = [
             {
                 "schema_version": "agent_visual_chain_summary.v1",
@@ -5779,7 +9164,13 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 "expected_scheme_or_compound_labels": ["bufotalin", "33", "32", "11"],
             }
         ]
-        board["literature_evidence"]["pdf_structure_evidence"] = [{"evidence_id": "pdf", "accepted": True}]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            _rendered_pdf_evidence(
+                source_ref="doi:source",
+                pdf_path="/tmp/source.pdf",
+                evidence_id="pdf",
+            )
+        ]
         board["literature_evidence"]["visual_chains"] = [
             {
                 "schema_version": "agent_visual_chain_summary.v1",
@@ -5901,6 +9292,28 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
 
         self.assertNotIn("expand_child_target", action_types)
 
+    def test_planner_does_not_stitch_without_parent_and_child_or_exact_refs(self):
+        target = TargetInput(target_name="bufotalin", target_smiles=BUFOTALIN_SMILES)
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=6)
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "h1"}]}
+        board["route_failures"].append({"reason": "chem_enzy_timeout", "route_status": "unresolved"})
+        board["literature_evidence"]["visual_chains"] = [{"chain_id": "visual:1"}]
+        board["action_history"].append(
+            {
+                "schema_version": "agent_action_history_record.v1",
+                "round_index": 1,
+                "action_type": "run_guided_chemenzy",
+                "useful_artifact": True,
+                "stale": False,
+            }
+        )
+
+        batch = plan_action_batch(board, round_index=2, exhaust_round_budget=True)
+        action_types = [row["action_type"] for row in batch["actions"]]
+
+        self.assertNotIn("stitch_parent_route", action_types)
+
     def test_planner_stitches_parent_after_exact_terminal_child_solved(self):
         target = TargetInput(target_name="bufotalin", target_smiles=BUFOTALIN_SMILES)
         preflight = run_preflight(target)
@@ -5908,15 +9321,31 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "h1"}]}
         board["analogical_hypothesis_ranking"] = {"selected_hypotheses": [{"hypothesis_id": "h1"}]}
         board["literature_evidence"]["exact_rows"] = [{"row_id": "source_detail_exact_step:24_from_11"}]
+        terminal_smiles = "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12"
         board["literature_evidence"]["terminal_candidates"] = [
             {
                 "schema_version": "agent_literature_terminal_candidate.v1",
                 "name": "Androstenedione",
-                "smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
-                "canonical_smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+                "smiles": terminal_smiles,
+                "canonical_smiles": terminal_smiles,
+                "strict_source_proof_eligible": True,
             }
         ]
+        board["literature_evidence"]["exact_chain_audits"] = [
+            {
+                "audit_id": "strict-chain",
+                "artifact_ref": "/tmp/strict_chain.json",
+                "strict_source_proof_eligible": True,
+                "terminal_frontier": [terminal_smiles],
+            }
+        ]
+        board["route_expansion_subgoals"] = [
+            {"canonical_smiles": terminal_smiles, "accepted": True}
+        ]
         board["current_belief"]["child_route_solved"] = True
+        board["artifact_refs"]["guided_chemenzy"] = "/tmp/parent_route.json"
+        board["artifact_refs"]["route_expansion_subgoal_search"] = "/tmp/child_route.json"
+        board["artifact_refs"]["compile_source_detail_chain_route"] = "/tmp/strict_chain.json"
         board["action_history"].append(
             {
                 "schema_version": "agent_action_history_record.v1",
@@ -5939,6 +9368,187 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertTrue(stitch_payload["proof_policy"]["analogy_is_not_proof"])
         validation = validate_action_batch(batch, blackboard=board)
         self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_planner_never_uses_advisory_visual_chain_as_parent_stitch_proof(self):
+        target = TargetInput(target_name="paclitaxel analogue", target_smiles="CC1CCC(O)C=C2CCCC(=O)C12")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=8)
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "h1"}]}
+        board["literature_evidence"]["visual_chains"] = [
+            {
+                "accepted": True,
+                "chain_id": "visual:danishefsky",
+                "source_ref": "doi:10.1021/ja952692a",
+                "step_count": 2,
+                "steps": [
+                    {
+                        "step_id": "compound8_from_5",
+                        "product_smiles": "CC1CCC(O)C=C2CCCC(=O)C12",
+                        "main_reactant_smiles": "CC1CCC(=O)C=C2CCCC(=O)C12",
+                    },
+                    {
+                        "step_id": "compound5_from_7",
+                        "product_smiles": "CC1CCC(=O)C=C2CCCC(=O)C12",
+                        "main_reactant_smiles": "CC(=O)CCC1C(=O)CCCC(=O)1",
+                    },
+                ],
+            }
+        ]
+        board["current_belief"]["child_route_solved"] = True
+        board["artifact_refs"]["route_expansion_subgoal_search"] = "/tmp/child_route.json"
+        board["action_history"].append(
+            {
+                "schema_version": "agent_action_history_record.v1",
+                "round_index": 5,
+                "action_type": "expand_child_target",
+                "useful_artifact": True,
+                "stale": False,
+            }
+        )
+
+        batch = plan_action_batch(board, round_index=6, exhaust_round_budget=True)
+        action_types = [row["action_type"] for row in batch["actions"]]
+
+        self.assertNotIn("stitch_parent_route", action_types)
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_parent_stitch_waits_until_every_strict_source_frontier_is_closed(self):
+        target = TargetInput(target_name="generic target", target_smiles="CCOO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=8)
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "h1"}]}
+        board["literature_evidence"]["exact_rows"] = [{"row_id": "source_detail_exact_step:s1"}]
+        board["literature_evidence"]["exact_chain_audits"] = [
+            {
+                "audit_id": "strict-multifrontier",
+                "artifact_ref": "/tmp/strict_multifrontier.json",
+                "strict_source_proof_eligible": True,
+                "terminal_frontier": ["CCO", "O"],
+            }
+        ]
+        board["artifact_refs"].update(
+            {
+                "compile_source_detail_chain_route": "/tmp/strict_multifrontier.json",
+                "route_expansion_subgoal_search": "/tmp/children.json",
+            }
+        )
+        board["route_expansion_subgoals"] = [{"canonical_smiles": "CCO", "accepted": True}]
+
+        incomplete = plan_action_batch(board, round_index=6, exhaust_round_budget=True)
+        self.assertNotIn("stitch_parent_route", [row["action_type"] for row in incomplete["actions"]])
+
+        board["route_expansion_subgoals"].append({"canonical_smiles": "O", "accepted": True})
+        complete = plan_action_batch(board, round_index=7, exhaust_round_budget=True)
+        self.assertEqual(complete["actions"][0]["action_type"], "stitch_parent_route")
+        binding = complete["actions"][0]["payload"]["proof_binding"]
+        self.assertTrue(binding["all_terminal_frontiers_closed"])
+        self.assertEqual(binding["missing_terminal_frontier"], [])
+
+    def test_source_detail_reaction_promotes_every_terminal_frontier_for_expansion(self):
+        target = TargetInput(target_name="generic target", target_smiles="CCOO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=4)
+
+        board = update_blackboard_from_action(
+            board,
+            action={
+                "schema_version": "agent_action.v1",
+                "action_id": "compile:multifrontier",
+                "action_type": "compile_exact_literature_rows",
+                "rationale": "compile a source-detail reaction graph",
+                "expected_artifact": "source-detail chain",
+                "success_condition": "frontiers are materialized",
+                "payload": {},
+            },
+            action_result={
+                "accepted": True,
+                "result": {
+                    "schema_version": "compiled_source_detail_chain_route.v1",
+                    "accepted": True,
+                    "chain_audit": {
+                        "schema_version": "source_detail_route_chain_audit.v1",
+                        "accepted": True,
+                        "case_id": "generic",
+                        "target_smiles": "CCOO",
+                        "source_ref": "doi:10.0000/advisory",
+                        "step_count": 1,
+                        "terminal_reached": True,
+                        "chain": [
+                            {
+                                "step_id": "s1",
+                                "product_smiles": "CCOO",
+                                "reactant_smiles": ["CCO", "O"],
+                                "source_ref": "doi:10.0000/advisory",
+                            }
+                        ],
+                    },
+                },
+            },
+            round_index=2,
+            run_dir="/tmp",
+        )
+
+        terminals = board["literature_evidence"]["terminal_candidates"]
+        self.assertEqual({row["canonical_smiles"] for row in terminals}, {"CCO", "O"})
+        self.assertEqual(len({row["terminal_id"] for row in terminals}), 2)
+        self.assertTrue(all(row["requires_all_frontiers_closed"] for row in terminals))
+        self.assertTrue(all(row["strict_source_proof_eligible"] is False for row in terminals))
+        frontier_tasks = [row for row in board["bridge_tasks"] if row.get("task_type") == "upstream_terminal_synthesis"]
+        self.assertEqual(len(frontier_tasks), 2)
+
+    def test_planner_does_not_repeat_stitch_without_new_bridge_signal(self):
+        target = TargetInput(target_name="paclitaxel analogue", target_smiles="CC1CCC(O)C=C2CCCC(=O)C12")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=8)
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "h1"}]}
+        board["literature_evidence"]["visual_chains"] = [
+            {
+                "accepted": True,
+                "chain_id": "visual:danishefsky",
+                "source_ref": "doi:10.1021/ja952692a",
+                "step_count": 2,
+                "steps": [
+                    {
+                        "step_id": "compound8_from_5",
+                        "product_smiles": "CC1CCC(O)C=C2CCCC(=O)C12",
+                        "main_reactant_smiles": "CC1CCC(=O)C=C2CCCC(=O)C12",
+                    },
+                    {
+                        "step_id": "compound5_from_7",
+                        "product_smiles": "CC1CCC(=O)C=C2CCCC(=O)C12",
+                        "main_reactant_smiles": "CC(=O)CCC1C(=O)CCCC(=O)1",
+                    },
+                ],
+            }
+        ]
+        board["current_belief"]["child_route_solved"] = True
+        board["artifact_refs"]["route_expansion_subgoal_search"] = "/tmp/child_route.json"
+        board["action_history"].extend(
+            [
+                {
+                    "schema_version": "agent_action_history_record.v1",
+                    "round_index": 5,
+                    "action_type": "expand_child_target",
+                    "useful_artifact": True,
+                    "stale": False,
+                },
+                {
+                    "schema_version": "agent_action_history_record.v1",
+                    "round_index": 6,
+                    "action_type": "stitch_parent_route",
+                    "status": "rejected",
+                    "useful_artifact": False,
+                    "stale": False,
+                    "reasons": ["child_target_route_not_connected_to_parent_bridge"],
+                },
+            ]
+        )
+
+        batch = plan_action_batch(board, round_index=7, exhaust_round_budget=True)
+        action_types = [row["action_type"] for row in batch["actions"]]
+
+        self.assertNotIn("stitch_parent_route", action_types)
 
     def test_blackboard_records_stereo_ambiguity_as_visual_warning(self):
         target = TargetInput(target_name="bufotalin", target_smiles="CCO")
@@ -6096,6 +9706,148 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(evidence["structure_resolution_tasks"][0]["last_resolution_status"], "resolved")
         self.assertTrue(board["action_history"][-1]["useful_artifact"])
 
+    def test_explicit_source_resolved_same_scaffold_structure_promotes_semisynthesis_anchor(self):
+        target = TargetInput(target_name="generic cyclic target", target_smiles="CC(=O)OC1CCC(CC1)OC(C)=O")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=4)
+        board["literature_evidence"]["structure_resolution_tasks"] = [
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:doi_source_advanced_intermediate",
+                "task_type": "resolve_literature_structure",
+                "label": "advanced cyclic diol",
+                "source_ref": "doi:source",
+                "status": "open",
+            }
+        ]
+
+        board = update_blackboard_from_action(
+            board,
+            action={
+                "schema_version": "agent_action.v1",
+                "action_id": "resolve:advanced_intermediate",
+                "action_type": "resolve_literature_structure_task",
+                "rationale": "resolve one label",
+                "expected_artifact": "structure resolution",
+                "success_condition": "resolved or unresolved",
+                "payload": {
+                    "task_id": "resolve_structure:doi_source_advanced_intermediate",
+                    "label": "advanced cyclic diol",
+                    "source_ref": "doi:source",
+                },
+            },
+            action_result={
+                "accepted": True,
+                "result": {
+                    "schema_version": "literature_structure_resolution_result.v1",
+                    "accepted": True,
+                    "status": "resolved",
+                    "task_id": "resolve_structure:doi_source_advanced_intermediate",
+                    "label": "advanced cyclic diol",
+                    "source_ref": "doi:source",
+                    "resolved_structures": [
+                        {
+                            "schema_version": "literature_resolved_structure_candidate.v1",
+                            "structure_id": "resolve_structure_doi_source_advanced_intermediate:1",
+                            "task_id": "resolve_structure:doi_source_advanced_intermediate",
+                            "label": "advanced cyclic diol",
+                            "smiles": "OC1CCC(CC1)O",
+                            "structure_role": "advanced_intermediate",
+                            "source_ref": "doi:source",
+                            "source_locator": "scheme identifies this as an advanced intermediate",
+                            "accepted": True,
+                            "rdkit_valid": True,
+                            "no_solved_claim": True,
+                        }
+                    ],
+                    "unresolved_tasks": [],
+                    "reasons": [],
+                    "no_solved_claim": True,
+                },
+            },
+            round_index=4,
+            run_dir="/tmp",
+        )
+
+        anchors = board["semisynthesis_anchors"]
+        self.assertEqual(len(anchors), 1)
+        self.assertEqual(anchors[0]["name"], "advanced cyclic diol")
+        self.assertEqual(anchors[0]["source_ref"], "doi:source")
+        self.assertTrue(anchors[0]["smiles"])
+        bridge_tasks = [row for row in board["bridge_tasks"] if str(row.get("task_id") or "").startswith("semisynthesis_bridge:")]
+        self.assertEqual(len(bridge_tasks), 1)
+        guided_payload = build_agentic_guided_payload(board)
+        self.assertIn(
+            anchors[0]["smiles"],
+            guided_payload["search_policy"]["source_budget"]["semisynthesis_anchor_smiles"],
+        )
+
+    def test_resolved_small_taxane_fragment_is_not_promoted_as_semisynthesis_anchor(self):
+        target = TargetInput(target_name="bufotalin_like_complex_target", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=4)
+        board["literature_evidence"]["structure_resolution_tasks"] = [
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:doi_source_taxane_intermediates",
+                "task_type": "resolve_literature_structure",
+                "label": "all taxane intermediates 5b-15",
+                "source_ref": "doi:source",
+                "status": "open",
+            }
+        ]
+
+        board = update_blackboard_from_action(
+            board,
+            action={
+                "schema_version": "agent_action.v1",
+                "action_id": "resolve:taxane_intermediates",
+                "action_type": "resolve_literature_structure_task",
+                "rationale": "resolve source taxane intermediates",
+                "expected_artifact": "structure resolution",
+                "success_condition": "resolved or unresolved",
+                "payload": {
+                    "task_id": "resolve_structure:doi_source_taxane_intermediates",
+                    "label": "all taxane intermediates 5b-15",
+                    "source_ref": "doi:source",
+                },
+            },
+            action_result={
+                "accepted": True,
+                "result": {
+                    "schema_version": "literature_structure_resolution_result.v1",
+                    "accepted": True,
+                    "status": "resolved",
+                    "task_id": "resolve_structure:doi_source_taxane_intermediates",
+                    "label": "all taxane intermediates 5b-15",
+                    "source_ref": "doi:source",
+                    "resolved_structures": [
+                        {
+                            "schema_version": "literature_resolved_structure_candidate.v1",
+                            "structure_id": "resolve_structure_doi_source_taxane_intermediates:small",
+                            "task_id": "resolve_structure:doi_source_taxane_intermediates",
+                            "label": "all taxane intermediates 5b-15",
+                            "smiles": "CC1=CC(=O)CCC1=O",
+                            "source_ref": "doi:source",
+                            "source_locator": "source reported taxane intermediate panel",
+                            "accepted": True,
+                            "rdkit_valid": True,
+                            "no_solved_claim": True,
+                        }
+                    ],
+                    "unresolved_tasks": [],
+                    "reasons": [],
+                    "no_solved_claim": True,
+                },
+            },
+            round_index=4,
+            run_dir="/tmp",
+        )
+
+        self.assertEqual(board["semisynthesis_anchors"], [])
+        bridge_tasks = [row for row in board["bridge_tasks"] if str(row.get("task_id") or "").startswith("semisynthesis_bridge:")]
+        self.assertEqual(bridge_tasks, [])
+
     def test_blackboard_records_unresolved_structure_attempt_keeps_task_open(self):
         target = TargetInput(target_name="steroid", target_smiles="CCO")
         preflight = run_preflight(target)
@@ -6174,7 +9926,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             {"schema_version": "literature_source_candidate.v1", "source_ref": "doi:source", "local_pdf": "/tmp/source.pdf"}
         ]
         board["literature_evidence"]["pdf_structure_evidence"] = [
-            {"schema_version": "agent_pdf_structure_evidence_summary.v1", "source_ref": "doi:source", "accepted": True}
+            _rendered_pdf_evidence(source_ref="doi:source", pdf_path="/tmp/source.pdf")
         ]
         board["literature_evidence"]["visual_chains"] = [
             {
@@ -6230,7 +9982,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             {"schema_version": "literature_source_candidate.v1", "source_ref": "doi:source", "local_pdf": "/tmp/source.pdf"}
         ]
         board["literature_evidence"]["pdf_structure_evidence"] = [
-            {"schema_version": "agent_pdf_structure_evidence_summary.v1", "source_ref": "doi:source", "accepted": True}
+            _rendered_pdf_evidence(source_ref="doi:source", pdf_path="/tmp/source.pdf")
         ]
         board["literature_evidence"]["visual_chains"] = [
             {
@@ -6274,6 +10026,247 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(first["action_type"], "search_literature")
         self.assertTrue(first["payload"]["focused_structure_resolution"])
         self.assertIn("resolve_structure:doi_source_compound_15", first["payload"]["structure_resolution_task_ids"])
+
+    def test_planner_scouts_structure_resolution_after_stale_compile_even_with_uncompiled_visual_steps(self):
+        target = TargetInput(target_name="steroid", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=preflight,
+            max_rounds=8,
+            budget_limits={"max_visual_calls": 2, "max_scout_calls": 4},
+        )
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "h1"}]}
+        board["analogical_hypotheses"] = [{"hypothesis_id": "h1"}]
+        board["analogical_hypothesis_ranking"] = {"selected_hypotheses": [{"hypothesis_id": "h1"}]}
+        board["budget_state"]["visual_calls"] = 2
+        board["literature_evidence"]["source_candidates"] = [
+            {"schema_version": "literature_source_candidate.v1", "source_ref": "doi:source", "local_pdf": "/tmp/source.pdf"}
+        ]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            {"schema_version": "agent_pdf_structure_evidence_summary.v1", "source_ref": "doi:source", "accepted": True}
+        ]
+        board["literature_evidence"]["visual_chains"] = [
+            {
+                "schema_version": "agent_visual_chain_summary.v1",
+                "chain_id": "visual1",
+                "source_ref": "doi:source",
+                "accepted": True,
+                "candidate_step_count": 3,
+                "step_count": 3,
+            }
+        ]
+        board["literature_evidence"]["exact_chain_audits"] = [
+            {
+                "schema_version": "agent_exact_chain_audit_summary.v1",
+                "accepted": False,
+                "source_ref": "doi:source",
+                "reasons": ["missing_one_step_row_for_product", "no_chain_unrolled"],
+            }
+        ]
+        board["literature_evidence"]["structure_resolution_tasks"] = [
+            {
+                "schema_version": "agent_structure_resolution_task.v1",
+                "task_id": "resolve_structure:doi_source_compound_15",
+                "task_type": "resolve_literature_structure",
+                "label": "compound 15",
+                "source_ref": "doi:source",
+                "status": "open",
+            }
+        ]
+        board["action_history"] = [
+            {"round_index": 1, "action_type": "search_literature", "action_signature": "{}", "useful_artifact": True, "stale": False},
+            {"round_index": 2, "action_type": "extract_pdf_literature_structures", "action_signature": "{}", "useful_artifact": True, "stale": False},
+            {"round_index": 3, "action_type": "extract_visual_literature_chain", "action_signature": "{}", "useful_artifact": True, "stale": False},
+            {"round_index": 4, "action_type": "compile_exact_literature_rows", "action_signature": "{}", "useful_artifact": False, "stale": True},
+        ]
+
+        batch = plan_action_batch(board, round_index=5, exhaust_round_budget=True)
+        first = batch["actions"][0]
+
+        self.assertEqual(first["action_type"], "search_literature")
+        self.assertTrue(first["payload"]["focused_structure_resolution"])
+        self.assertIn("resolve_structure:doi_source_compound_15", first["payload"]["structure_resolution_task_ids"])
+        action_types = [row["action_type"] for row in batch["actions"]]
+        self.assertIn("derive_broad_reaction_template", action_types)
+        self.assertNotIn("compile_exact_literature_rows", action_types)
+
+    def test_advisory_exact_compile_audit_turns_visual_chain_into_broad_template(self):
+        target = TargetInput(target_name="paclitaxel_like", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=8)
+        board["literature_evidence"]["source_candidates"] = [
+            {"schema_version": "literature_source_candidate.v1", "source_ref": "doi:source", "local_pdf": "/tmp/source.pdf"}
+        ]
+        board["literature_evidence"]["visual_chains"] = [
+            {
+                "schema_version": "agent_visual_chain_summary.v1",
+                "chain_id": "visual:source",
+                "source_ref": "doi:source",
+                "accepted": True,
+                "candidate_step_count": 1,
+                "steps": [
+                    {
+                        "step_id": "scheme_step",
+                        "product_label": "paclitaxel",
+                        "reactant_labels": ["baccatin III", "side chain"],
+                        "reaction_class": "side-chain installation",
+                    }
+                ],
+            }
+        ]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            _rendered_pdf_evidence(
+                source_ref="doi:source",
+                pdf_path="/tmp/source.pdf",
+                schema_version="literature_pdf_structure_evidence.v1",
+            )
+        ]
+        board["literature_evidence"]["exact_chain_audits"] = [
+            {
+                "schema_version": "agent_exact_chain_audit_summary.v1",
+                "audit_id": "audit:advisory",
+                "accepted": False,
+                "reasons": [
+                    "advisory_visual_template_card_available",
+                    "source_detail_step_not_exact",
+                    "no_chain_unrolled",
+                ],
+            }
+        ]
+
+        batch = plan_action_batch(board, round_index=5, exhaust_round_budget=False)
+        action_types = [row["action_type"] for row in batch["actions"]]
+
+        self.assertIn("derive_broad_reaction_template", action_types)
+        self.assertNotIn("compile_exact_literature_rows", action_types)
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_codex_batch_missing_required_advisory_broad_template_is_salvaged_locally(self):
+        target = TargetInput(target_name="paclitaxel_like_codex_advisory", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=8)
+        board["literature_evidence"]["source_candidates"] = [
+            {"schema_version": "literature_source_candidate.v1", "source_ref": "doi:source", "local_pdf": "/tmp/source.pdf"}
+        ]
+        board["literature_evidence"]["visual_chains"] = [
+            {
+                "schema_version": "agent_visual_chain_summary.v1",
+                "chain_id": "visual:source",
+                "source_ref": "doi:source",
+                "accepted": True,
+                "candidate_step_count": 1,
+                "steps": [
+                    {
+                        "step_id": "scheme_step",
+                        "product_label": "paclitaxel",
+                        "reactant_labels": ["baccatin III", "side chain"],
+                        "reaction_class": "side-chain installation",
+                    }
+                ],
+            }
+        ]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            _rendered_pdf_evidence(
+                source_ref="doi:source",
+                pdf_path="/tmp/source.pdf",
+                schema_version="literature_pdf_structure_evidence.v1",
+            )
+        ]
+        board["literature_evidence"]["exact_chain_audits"] = [
+            {
+                "schema_version": "agent_exact_chain_audit_summary.v1",
+                "audit_id": "audit:advisory",
+                "accepted": False,
+                "reasons": ["advisory_visual_template_card_available", "no_chain_unrolled"],
+            }
+        ]
+        codex_batch = {
+            "schema_version": "agent_action_batch.v1",
+            "round_index": 6,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "codex_extract_more_visual",
+                    "action_type": "extract_visual_literature_chain",
+                    "rationale": "inspect the same source for more visual detail",
+                    "expected_artifact": "visual chain",
+                    "success_condition": "chain or failure",
+                    "payload": {"source_ref": "doi:source", "pdf_path": "/tmp/source.pdf", "no_solved_claim": True},
+                }
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        initial_validation = validate_action_batch(codex_batch, blackboard=board)
+        self.assertIn("advisory_visual_template_requires_broad_template", initial_validation["reasons"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = plan_action_batch_with_codex(
+                blackboard=board,
+                round_index=6,
+                run_dir=Path(tmp),
+                enabled=True,
+                mock_output=codex_batch,
+            )
+
+        action_types = [row["action_type"] for row in batch["actions"]]
+        self.assertIn("derive_broad_reaction_template", action_types)
+        self.assertTrue(batch["codex_action_planner"]["repair_used"])
+        self.assertEqual(batch["codex_action_planner"]["repair_source"], "guarded_budget_salvage_of_codex_batch")
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_compile_exact_rejected_after_broad_templates_without_uncompiled_visual_steps(self):
+        target = TargetInput(target_name="broad_template_no_more_exact", target_smiles="CCO")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=8)
+        board["literature_evidence"]["visual_chains"] = [
+            {
+                "schema_version": "agent_visual_chain_summary.v1",
+                "chain_id": "visual:advisory",
+                "source_ref": "doi:source",
+                "accepted": True,
+                "candidate_step_count": 0,
+            }
+        ]
+        board["broad_transform_templates"] = [
+            {
+                "schema_version": "broad_transform_template.v1",
+                "template_id": "broad:side_chain_installation",
+                "allowed_use": "planner_priority_and_guided_search_hint_only",
+                "no_solved_claim": True,
+            }
+        ]
+        batch = {
+            "schema_version": "agent_action_batch.v1",
+            "case_id": board["case_id"],
+            "round_index": 7,
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "try_exact_again",
+                    "action_type": "compile_exact_literature_rows",
+                    "rationale": "retry exact rows",
+                    "expected_artifact": "exact rows",
+                    "success_condition": "rows",
+                    "payload": {"source_ref": "doi:source", "no_solved_claim": True},
+                }
+            ],
+            "semantics": {
+                "planner_can_emit_solved": False,
+                "raw_reaction_output_allowed": False,
+                "deterministic_validator_required": True,
+            },
+        }
+
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertIn("compile_exact_literature_rows_requires_uncompiled_visual_steps:0", validation["reasons"])
 
     def test_planner_scouts_structure_resolution_after_all_visual_sources_have_only_gaps(self):
         target = TargetInput(target_name="steroid", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
@@ -6520,7 +10513,39 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
 
         self.assertNotIn("run_guided_chemenzy", action_types)
 
-    def test_compile_exact_rows_promotes_visual_candidate_steps(self):
+    def test_planner_does_not_repeat_guided_without_new_signal_after_unresolved_probe(self):
+        target = TargetInput(target_name="steroid_target", target_smiles=BUFOTALIN_SMILES, family_hint="steroid")
+        preflight = run_preflight(target)
+        board = initialize_agent_blackboard(
+            target_input=target.to_dict(),
+            preflight=preflight,
+            max_rounds=8,
+            budget_limits={"max_guided_chemenzy_runs": 3},
+        )
+        board["target_side_disconnection_hypotheses"] = {"hypotheses": [{"hypothesis_id": "h1"}]}
+        board["analogical_hypotheses"] = list(board["target_side_disconnection_hypotheses"]["hypotheses"])
+        board["analogical_hypothesis_ranking"] = {"selected_hypotheses": [{"hypothesis_id": "h1"}]}
+        board["bridge_tasks"] = [{"task_id": "bridge:core", "task_type": "target_proximal_bridge"}]
+        board["broad_transform_templates"] = [{"template_id": "broad:core", "objective_type": "same_core"}]
+        board["action_history"] = [
+            {
+                "round_index": 4,
+                "action_type": "run_guided_chemenzy",
+                "useful_artifact": True,
+                "stale": False,
+                "blackboard_delta": {"artifact_refs": 1},
+            }
+        ]
+        board["budget_state"]["chemenzy_runs"] = 1
+
+        batch = plan_action_batch(board, round_index=5, exhaust_round_budget=True)
+        action_types = [row["action_type"] for row in batch["actions"]]
+
+        self.assertNotIn("run_guided_chemenzy", action_types)
+        validation = validate_action_batch(batch, blackboard=board)
+        self.assertTrue(validation["accepted"], validation["reasons"])
+
+    def test_compile_exact_rows_keeps_untrusted_visual_candidate_steps_advisory(self):
         target = TargetInput(target_name="ethanol", target_smiles="CCO")
         preflight = run_preflight(target)
         target.case_id = str(preflight.get("case_id") or "")
@@ -6578,12 +10603,13 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             record = execute_local_tool("compile_source_detail_chain_route", {}, state)
 
         result = record.output["result"]
-        rows = (result["compiled_downstream"]["literature_template_plugin"] or {})["one_step_rows"]
-        self.assertTrue(result["accepted"], result["reasons"])
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(result["chain_audit"]["summary"]["chain_step_count"], 2)
+        plugin = result["compiled_downstream"]["literature_template_plugin"] or {}
+        self.assertFalse(result["accepted"])
+        self.assertIn("source_detail_step_not_trusted_curated", result["reasons"])
+        self.assertEqual(plugin["one_step_rows"], [])
+        self.assertEqual(len(plugin["template_cards"]), 2)
 
-    def test_compile_exact_rows_repairs_bufotalin_literature_terminal_stereo(self):
+    def test_compile_exact_rows_does_not_promote_untrusted_bufotalin_stereo_repair(self):
         target_smiles = "CC12CCC(=O)C=C1CCC1C2CCC2(C)C1CCC21OCCO1"
         achiral_androstenedione = "CC12CCC3C(C1CCC2=O)CCC4=CC(=O)CCC34C"
         target = TargetInput(target_name="compound_24", target_smiles=target_smiles)
@@ -6623,11 +10649,12 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             state.artifacts["visual_structure_candidate_chain"] = candidate_chain
             record = execute_local_tool("compile_source_detail_chain_route", {}, state)
 
-        audit = record.output["result"]["chain_audit"]
-        self.assertTrue(record.output["result"]["accepted"], record.output["result"]["reasons"])
-        self.assertTrue(audit["terminal_reached"])
-        self.assertEqual(audit["terminal_stereo_repair"]["repair_basis"], "named_anchor_evidence_and_connectivity_match")
-        self.assertIn("@", audit["terminal_smiles"])
+        result = record.output["result"]
+        self.assertFalse(result["accepted"])
+        self.assertIn("source_detail_step_not_trusted_curated", result["reasons"])
+        plugin = result["compiled_downstream"]["literature_template_plugin"] or {}
+        self.assertEqual(plugin["one_step_rows"], [])
+        self.assertEqual(len(plugin["template_cards"]), 1)
 
     def test_blackboard_promotes_literature_terminal_to_upstream_child_task(self):
         target = TargetInput(target_name="bufotalin", target_smiles=BUFOTALIN_SMILES)
@@ -6687,7 +10714,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(tasks[0]["task_type"], "upstream_terminal_synthesis")
         self.assertEqual(tasks[0]["terminal"]["smiles"], terminal_smiles)
 
-    def test_compile_exact_rows_promotes_visual_candidate_chain_shape(self):
+    def test_compile_exact_rows_keeps_visual_candidate_chain_shape_advisory(self):
         target = TargetInput(target_name="ethanol", target_smiles="CCO")
         preflight = run_preflight(target)
         target.case_id = str(preflight.get("case_id") or "")
@@ -6734,12 +10761,13 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             record = execute_local_tool("compile_source_detail_chain_route", {}, state)
 
         result = record.output["result"]
-        rows = (result["compiled_downstream"]["literature_template_plugin"] or {})["one_step_rows"]
-        self.assertTrue(result["accepted"], result["reasons"])
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(result["chain_audit"]["summary"]["chain_step_count"], 2)
+        plugin = result["compiled_downstream"]["literature_template_plugin"] or {}
+        self.assertFalse(result["accepted"])
+        self.assertIn("source_detail_step_not_trusted_curated", result["reasons"])
+        self.assertEqual(plugin["one_step_rows"], [])
+        self.assertEqual(len(plugin["template_cards"]), 2)
 
-    def test_compile_exact_rows_promotes_visual_reaction_chain_shape(self):
+    def test_compile_exact_rows_keeps_visual_reaction_chain_shape_advisory(self):
         target = TargetInput(target_name="ethanol", target_smiles="CCO")
         preflight = run_preflight(target)
         target.case_id = str(preflight.get("case_id") or "")
@@ -6780,12 +10808,13 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             record = execute_local_tool("compile_source_detail_chain_route", {}, state)
 
         result = record.output["result"]
-        rows = (result["compiled_downstream"]["literature_template_plugin"] or {})["one_step_rows"]
-        self.assertTrue(result["accepted"], result["reasons"])
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(result["chain_audit"]["summary"]["chain_step_count"], 2)
+        plugin = result["compiled_downstream"]["literature_template_plugin"] or {}
+        self.assertFalse(result["accepted"])
+        self.assertIn("source_detail_step_not_trusted_curated", result["reasons"])
+        self.assertEqual(plugin["one_step_rows"], [])
+        self.assertEqual(len(plugin["template_cards"]), 2)
 
-    def test_compile_exact_rows_prefers_source_backed_candidate_over_history_draft(self):
+    def test_compile_exact_rows_keeps_source_backed_visual_candidate_advisory(self):
         target = TargetInput(target_name="ethanol", target_smiles="CCO")
         preflight = run_preflight(target)
         target.case_id = str(preflight.get("case_id") or "")
@@ -6820,13 +10849,13 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             record = execute_local_tool("compile_source_detail_chain_route", {}, state)
 
         result = record.output["result"]
-        rows = (result["compiled_downstream"]["literature_template_plugin"] or {})["one_step_rows"]
-        self.assertTrue(result["accepted"], result["reasons"])
-        self.assertEqual(len(rows), 1)
-        trace = rows[0]["template"]["literature_template_trace"]
-        self.assertEqual(trace["source_ref"], "doi:10.0000/source")
+        plugin = result["compiled_downstream"]["literature_template_plugin"] or {}
+        self.assertFalse(result["accepted"])
+        self.assertIn("source_detail_step_not_trusted_curated", result["reasons"])
+        self.assertEqual(plugin["one_step_rows"], [])
+        self.assertEqual(plugin["template_cards"][0]["condition_source"], "doi:10.0000/source")
 
-    def test_compile_exact_rows_enriches_visual_parsed_output_from_result_metadata(self):
+    def test_compile_exact_rows_enriches_but_does_not_promote_untrusted_visual_output(self):
         target = TargetInput(target_name="ethanol", target_smiles="CCO")
         preflight = run_preflight(target)
         target.case_id = str(preflight.get("case_id") or "")
@@ -6861,12 +10890,13 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             record = execute_local_tool("compile_source_detail_chain_route", {}, state)
 
         result = record.output["result"]
-        rows = (result["compiled_downstream"]["literature_template_plugin"] or {})["one_step_rows"]
-        self.assertTrue(result["accepted"], result["reasons"])
-        self.assertEqual(len(rows), 1)
-        trace = rows[0]["template"]["literature_template_trace"]
-        self.assertEqual(trace["source_ref"], "doi:10.0000/source")
-        self.assertIn("current_image:/tmp/scheme1.png", trace["evidence_refs"])
+        plugin = result["compiled_downstream"]["literature_template_plugin"] or {}
+        self.assertFalse(result["accepted"])
+        self.assertIn("source_detail_step_not_trusted_curated", result["reasons"])
+        self.assertEqual(plugin["one_step_rows"], [])
+        card = plugin["template_cards"][0]
+        self.assertEqual(card["condition_source"], "doi:10.0000/source")
+        self.assertIn("current_image:/tmp/scheme1.png", card["evidence_refs"])
 
     def test_route_expansion_prioritizes_literature_starting_material_over_near_target_intermediate(self):
         target = TargetInput(target_name="bufotalin", target_smiles="CCO")
@@ -7047,7 +11077,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(chain["steps"][0]["reactant_smiles"], ["CC"])
         self.assertEqual(chain["steps"][0]["reactant_labels"], ["ethane"])
 
-    def test_bufotalin_pdf_defaults_add_focused_pages_crops_and_labels(self):
+    def test_pdf_defaults_do_not_infer_focus_from_target_or_doi(self):
         payload = {}
         _inject_pdf_defaults(
             payload,
@@ -7060,15 +11090,13 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         )
 
         self.assertEqual(payload["pdf_path"], "/tmp/bufotalin.pdf")
-        self.assertEqual(payload["page_numbers"], [3, 4, 5, 6])
-        self.assertEqual(payload["render_zoom"], 2.5)
-        self.assertEqual([row["crop_id"] for row in payload["scheme_crops"]], [
-            "scheme3_full_to_20",
-            "scheme4_total_synthesis",
-            "table1_allylic_oxidation",
-        ])
-        self.assertIn("bufotalin", payload["compound_labels"])
-        self.assertIn("11", payload["expected_labels"])
+        self.assertEqual(payload["source_ref"], "doi:10.1016/j.tet.2025.134610")
+        self.assertNotIn("page_numbers", payload)
+        self.assertNotIn("render_zoom", payload)
+        self.assertNotIn("scheme_crops", payload)
+        self.assertNotIn("compound_labels", payload)
+        self.assertNotIn("expected_labels", payload)
+        self.assertNotIn("route_sequence_hint", payload)
 
     def test_visual_quality_flags_condition_gaps(self):
         chain = _candidate_chain_from_parsed(
@@ -7100,9 +11128,65 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
 
         quality = _candidate_quality(chain, expected_labels=["ethanol"])
 
-        self.assertFalse(quality["accepted"])
+        self.assertTrue(quality["accepted"])
+        self.assertFalse(quality["exact_ready"])
+        self.assertTrue(quality["exploratory_accepted"])
         self.assertEqual(quality["condition_gap_labels"], ["ethanol"])
         self.assertEqual(quality["condition_gap_count"], 1)
+
+    def test_visual_structure_anchors_are_exploratory_without_precursor_or_conditions(self):
+        parsed = {
+            "schema_version": "visual_structure_candidate_chain.v1",
+            "route_order": "retro_target_to_start",
+            "source_ref": "src_web_003",
+            "source_title": "The Story of LIPITOR",
+            "steps": [
+                {
+                    "visible_label": "Lipitor / atorvastatin acid connectivity corresponding to calcium salt",
+                    "product_smiles": ATORVASTATIN_FREE_ACID_SMILES,
+                    "conditions_from_source": {
+                        "other_visible_process_text": ["Chemical Synthesis", "Biocatalysis"],
+                    },
+                    "not_exact_literature_segment": True,
+                    "allowed_use": "exploratory_template_and_guided_hint_only",
+                    "visual_evidence": ["The source shows the atorvastatin calcium connectivity."],
+                },
+                {
+                    "visible_label": "pyrrole template / atorvastatin pyrrole core",
+                    "product_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccc(F)cc2)[nH]c1-c1ccccc1",
+                    "not_exact_literature_segment": True,
+                    "allowed_use": "exploratory_template_and_guided_hint_only",
+                    "visual_evidence": ["The pyrrole core is visible inside atorvastatin."],
+                },
+            ],
+            "extraction_gaps": [
+                {
+                    "label": "process development",
+                    "gap_type": "label_visibility_gap",
+                    "reason": "label not visible in the supplied images",
+                }
+            ],
+        }
+
+        chain = _candidate_chain_from_parsed(
+            parsed,
+            target_name="atorvastatin",
+            target_smiles=ATORVASTATIN_FREE_ACID_SMILES,
+            source_ref="src_web_003",
+            source_title="The Story of LIPITOR",
+            image_paths=[],
+        )
+        quality = _candidate_quality(
+            chain,
+            expected_labels=["Lipitor", "pyrrole template", "process development"],
+        )
+
+        self.assertEqual(chain["steps"][0]["product_label"], "Lipitor / atorvastatin acid connectivity corresponding to calcium salt")
+        self.assertTrue(chain["steps"][0]["structure_derivation"]["visual_structure_anchor_only"])
+        self.assertEqual(quality["structure_gap_count"], 0)
+        self.assertEqual(quality["rdkit_structure_anchor_count"], 2)
+        self.assertEqual(quality["acceptance_level"], "exploratory_connectivity_candidate")
+        self.assertTrue(quality["accepted"], quality)
 
     def test_visual_target_label_uses_input_target_smiles_when_visual_target_smiles_is_malformed(self):
         chain = _candidate_chain_from_parsed(
@@ -7191,30 +11275,42 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(chain["steps"][0]["reactant_labels"], ["ethene"])
         self.assertEqual(chain["steps"][0]["condition_candidate"]["reagent"], "hydration")
 
-    def test_bufotalin_tet2025_label_anchor_chain_is_valid_but_not_solved_proof(self):
+    def test_bufotalin_visual_path_does_not_use_target_specific_hardcoded_route(self):
         with tempfile.TemporaryDirectory() as tmp:
             image = Path(tmp) / "scheme4_total_synthesis.png"
             image.write_bytes(b"not a real image; path existence is enough for this unit test")
-            chain = _bufotalin_tet2025_label_anchor_chain(
-                image_paths=[image],
-                target_name="bufotalin",
-                target_smiles=BUFOTALIN_SMILES,
-                source_ref="doi:10.1016/j.tet.2025.134610",
-                source_title="Tetrahedron bufotalin total synthesis",
-                expected_labels=["bufotalin", "33", "32", "31", "30", "24", "11"],
-                route_sequence_hint="bufotalin <= 33 <= 32 <= 31 <= 30 <= 24 <= 11",
-            )
+            with patch(
+                "cascade_planner.harness.visual_literature_chain_agent._read_key",
+                return_value="test-key",
+            ), patch(
+                "cascade_planner.harness.visual_literature_chain_agent._run_visual_json_prompt",
+                return_value={
+                    "status": "error",
+                    "returncode": 1,
+                    "raw_last_message": "",
+                    "reasons": ["visual_backend_unavailable"],
+                    "event_log_path": "",
+                    "stderr_log_path": "",
+                },
+            ) as backend:
+                result = run_visual_literature_chain_agent(
+                    image_paths=[image],
+                    output_dir=Path(tmp) / "out",
+                    target_name="bufotalin",
+                    target_smiles=BUFOTALIN_SMILES,
+                    source_ref="doi:10.1016/j.tet.2025.134610",
+                    source_title="Tetrahedron bufotalin total synthesis",
+                    expected_labels=["bufotalin", "33", "32", "31", "30", "24", "11"],
+                    route_sequence_hint="bufotalin <= 33 <= 32 <= 31 <= 30 <= 24 <= 11",
+                    key_path=Path(tmp) / "key.txt",
+                    base_url="https://example.invalid/v1",
+                    model="test-model",
+                )
 
-            quality = _candidate_quality(chain, expected_labels=["bufotalin", "33", "32", "31", "30", "24", "11"])
-            validation = validate_visual_structure_chain(chain, target_smiles=BUFOTALIN_SMILES)
-
-        self.assertEqual(len(chain["steps"]), 15)
-        self.assertTrue(quality["accepted"], quality)
-        self.assertTrue(validation["accepted"], validation["reasons"])
-        self.assertTrue(chain["candidate_generation_audit"]["no_solved_claim"])
-        self.assertTrue(chain["source_policy"]["requires_source_detail_chain_audit"])
-        self.assertEqual(chain["steps"][-1]["product_label"], "24")
-        self.assertEqual(chain["steps"][-1]["reactant_labels"], ["11"])
+        backend.assert_called_once()
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["status"], "error")
+        self.assertFalse((Path(tmp) / "out" / "visual_structure_candidate_chain.json").exists())
 
     def test_blackboard_condition_gaps_trigger_focused_visual_repair(self):
         target = TargetInput(target_name="bufotalin", target_smiles="CCO")
@@ -7229,7 +11325,13 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 "expected_scheme_or_compound_labels": ["bufotalin", "33", "11"],
             }
         ]
-        board["literature_evidence"]["pdf_structure_evidence"] = [{"evidence_id": "pdf", "accepted": True}]
+        board["literature_evidence"]["pdf_structure_evidence"] = [
+            _rendered_pdf_evidence(
+                source_ref="doi:10.1016/j.tet.2025.134610",
+                pdf_path="/tmp/bufotalin.pdf",
+                evidence_id="pdf",
+            )
+        ]
         board = update_blackboard_from_action(
             board,
             action={

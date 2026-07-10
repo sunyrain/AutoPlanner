@@ -438,6 +438,46 @@ def collect_pdf_candidates(page: Any, limit: int) -> list[PdfCandidate]:
     return sorted(dedup.values(), key=lambda item: item.score, reverse=True)[:limit]
 
 
+def click_pdf_candidate(
+    page: Any,
+    candidate: PdfCandidate,
+    target: Target,
+    out_dir: Path,
+    timeout_ms: int,
+) -> DownloadOutcome | None:
+    handle = page.evaluate_handle(
+        """url => {
+          for (const el of document.querySelectorAll('a[href], area[href]')) {
+            try {
+              if (new URL(el.getAttribute('href'), window.location.href).href === url) {
+                return el;
+              }
+            } catch (_) {}
+          }
+          return null;
+        }""",
+        candidate.url,
+    )
+    element = handle.as_element()
+    if element is None:
+        return None
+    try:
+        with page.expect_download(timeout=timeout_ms) as download_info:
+            element.click(timeout=timeout_ms)
+        download = download_info.value
+        path = unique_pdf_path(out_dir, stem_for_target(target, candidate.url))
+        download.save_as(str(path))
+        return DownloadOutcome(
+            ok=True,
+            target=target,
+            final_url=page.url,
+            pdf_path=str(path),
+            status=200,
+        )
+    except Exception:
+        return None
+
+
 def download_one(
     context: Any,
     target: Target,
@@ -451,6 +491,22 @@ def download_one(
 
     page = context.new_page()
     try:
+        if score_candidate(target.url, "", "") > 0:
+            try:
+                with page.expect_download(timeout=timeout_ms) as download_info:
+                    page.goto(target.url, wait_until="domcontentloaded", timeout=timeout_ms)
+                download = download_info.value
+                path = unique_pdf_path(out_dir, stem_for_target(target, target.url))
+                download.save_as(str(path))
+                return DownloadOutcome(
+                    ok=True,
+                    target=target,
+                    final_url=download.url or target.url,
+                    pdf_path=str(path),
+                    status=200,
+                )
+            except Exception:
+                pass
         response = page.goto(target.url, wait_until="domcontentloaded", timeout=timeout_ms)
         try:
             page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 15000))
@@ -481,6 +537,9 @@ def download_one(
             outcome = try_request_pdf(context, candidate.url, target, out_dir, timeout_ms)
             if outcome and outcome.ok:
                 return outcome
+            clicked = click_pdf_candidate(page, candidate, target, out_dir, timeout_ms)
+            if clicked and clicked.ok:
+                return clicked
 
         return DownloadOutcome(
             ok=False,

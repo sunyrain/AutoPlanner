@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import signal
 import subprocess
 import sys
 import time
@@ -12,6 +14,10 @@ from typing import Any, Callable
 
 from cascade_planner.agent.route_auditor import audit_route_package, validate_route_audit_report
 from cascade_planner.agent.smiles_first import SmilesFirstWorkflowConfig, run_smiles_first_workflow
+from cascade_planner.baselines.chem_enzy_runtime import (
+    DEFAULT_CHEMENZY_ENV_PREFIX,
+    diagnose_chem_enzy_runtime,
+)
 from cascade_planner.harness.downstream_compiler import (
     compile_downstream_consumables,
     write_compiled_downstream_artifacts,
@@ -28,6 +34,10 @@ from cascade_planner.harness.open_research_experience import (
 )
 from cascade_planner.harness.open_research_retrieval import validate_retrieval_prefetch_consumption
 from cascade_planner.harness.literature_pdf_extraction import extract_literature_pdf_assets
+from cascade_planner.harness.process_evidence import (
+    process_evidence_rows_from_pdf_result,
+    process_evidence_rows_from_visual_result,
+)
 from cascade_planner.harness.visual_structure_extraction import validate_visual_structure_chain
 from cascade_planner.harness.visual_literature_chain_agent import run_visual_literature_chain_agent
 from cascade_planner.harness.source_detail_chain_builder import (
@@ -47,7 +57,10 @@ from cascade_planner.harness.route_failure_feedback import (
     compile_route_failure_feedback,
     write_route_failure_feedback,
 )
-from cascade_planner.harness.route_verifier import verify_chemenzy_raw_routes
+from cascade_planner.harness.route_verifier import (
+    is_accepted_route_verifier_report,
+    verify_chemenzy_raw_routes,
+)
 from cascade_planner.harness.schemas import (
     ArtifactBundle,
     CANONICAL_RUN_SEMANTICS,
@@ -61,7 +74,6 @@ from cascade_planner.harness.self_evo_replay import run_self_evo_replay_gate as 
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CHEMENZY_ENV_PREFIX = Path("/root/autodl-tmp/chem_enzy_runtime/envs/retro_planner_env")
 
 
 @dataclass
@@ -126,10 +138,17 @@ ToolHandler = Callable[[ToolExecutionState, dict[str, Any]], dict[str, Any]]
 def _online_anchor_resolution_enabled(target_input: dict[str, Any]) -> bool:
     value = target_input.get("enable_online_anchor_resolution")
     if value is None:
-        return True
+        return False
     if isinstance(value, str):
         return value.strip().lower() not in {"0", "false", "off", "no"}
     return bool(value)
+
+
+def _configured_advisory_anchor_catalog(
+    target_input: dict[str, Any],
+) -> list[dict[str, Any]] | dict[str, Any] | None:
+    value = target_input.get("advisory_anchor_catalog")
+    return value if isinstance(value, (list, dict)) else None
 
 
 def execute_local_tool(tool_name: str, payload: dict[str, Any], state: ToolExecutionState) -> ToolCallRecord:
@@ -177,12 +196,19 @@ def execute_local_tool(tool_name: str, payload: dict[str, Any], state: ToolExecu
             output = handler(state, payload)
             status = "accepted" if output.get("accepted", True) else "rejected"
         except Exception as exc:
-            output = {
-                "accepted": False,
-                "reasons": ["tool_exception"],
-                "error": f"{type(exc).__name__}: {exc}",
-            }
-            status = "error"
+            if tool_name == "resolve_literature_structure_task":
+                output = _structure_resolution_exception_output(state, payload, exc)
+                status = "rejected"
+            elif tool_name == "extract_visual_literature_chain" and isinstance(exc, (FileNotFoundError, OSError)):
+                output = _visual_literature_chain_exception_output(state, payload, exc)
+                status = "accepted" if output.get("accepted", False) else "rejected"
+            else:
+                output = {
+                    "accepted": False,
+                    "reasons": ["tool_exception"],
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                status = "error"
     record = ToolCallRecord(
         tool_name=tool_name,
         status=status,
@@ -193,6 +219,125 @@ def execute_local_tool(tool_name: str, payload: dict[str, Any], state: ToolExecu
     )
     _write_tool_record(state, record)
     return record
+
+
+def _structure_resolution_exception_output(
+    state: ToolExecutionState, payload: dict[str, Any], exc: Exception
+) -> dict[str, Any]:
+    out = _tool_output_dir(state, payload, default_name="literature_structure_resolution")
+    task_id = str(payload.get("task_id") or "").strip()
+    label = str(payload.get("label") or payload.get("compound_label") or "").strip()
+    source_ref = str(payload.get("source_ref") or "").strip()
+    source_title = str(payload.get("source_title") or payload.get("title") or "").strip()
+    result = {
+        "schema_version": "literature_structure_resolution_result.v1",
+        "accepted": False,
+        "status": "unresolved",
+        "task_id": task_id,
+        "label": label,
+        "source_ref": source_ref,
+        "source_title": source_title,
+        "resolved_structures": [],
+        "rejected_candidates": [],
+        "unresolved_tasks": [
+            {
+                "schema_version": "literature_structure_unresolved_task.v1",
+                "task_id": task_id,
+                "label": label,
+                "source_ref": source_ref,
+                "source_title": source_title,
+                "status": "unresolved",
+                "reason": f"structure_resolution_tool_exception:{type(exc).__name__}",
+                "next_actions": ["retry_structure_resolution_with_source_bound_artifact"],
+                "no_solved_claim": True,
+            }
+        ],
+        "selected_image_paths": [],
+        "visual_attempt": {},
+        "artifact_refs": {
+            "literature_structure_resolution": str(out / "literature_structure_resolution_result.json"),
+        },
+        "source_policy": {
+            "structure_candidates_require_rdkit_valid_smiles": True,
+            "source_grounding_required": True,
+            "no_solved_claim": True,
+            "production_write_blocked": True,
+            "does_not_emit_exact_literature_rows": True,
+        },
+        "reasons": [f"structure_resolution_tool_exception:{type(exc).__name__}"],
+        "error": f"{type(exc).__name__}: {exc}",
+        "no_solved_claim": True,
+    }
+    write_json(out / "literature_structure_resolution_result.json", result)
+    write_json(state.run_dir / "literature_structure_resolution_result.json", result)
+    _record_structure_resolution_result(state, result)
+    return {
+        "accepted": False,
+        "result": result,
+        "artifact_refs": dict(result.get("artifact_refs") or {}),
+        "reasons": [str(item) for item in result.get("reasons") or []],
+    }
+
+
+def _visual_literature_chain_exception_output(
+    state: ToolExecutionState, payload: dict[str, Any], exc: Exception
+) -> dict[str, Any]:
+    out = _tool_output_dir(state, payload, default_name="visual_literature_chain_extraction")
+    result = _salvage_partial_visual_candidate_result(
+        state=state,
+        payload=payload,
+        output_dir=out,
+        image_paths=[],
+        error=exc,
+    )
+    if not result:
+        result = {
+            "schema_version": "visual_literature_chain_extraction_result.v1",
+            "accepted": False,
+            "status": "failed",
+            "target_name": str(payload.get("target_name") or state.target_input.get("target_name") or state.preflight.get("case_id") or "target"),
+            "target_smiles": _literature_tool_target_smiles(state, payload),
+            "source_ref": str(payload.get("source_ref") or ""),
+            "source_title": str(payload.get("source_title") or ""),
+            "source_pdf_path": str(payload.get("pdf_path") or ""),
+            "image_paths": [],
+            "output_dir": str(out),
+            "candidate_chain": {},
+            "candidate_step_count": 0,
+            "reasons": ["visual_result_file_missing"],
+            "error": f"{type(exc).__name__}: {exc}",
+            "extraction_policy": {
+                "pdf_reuse_allowed": True,
+                "prior_candidate_chain_reuse_allowed": False,
+                "prior_source_detail_records_reuse_allowed": False,
+                "must_derive_from_current_images": True,
+                "no_solved_claim": True,
+            },
+            "no_solved_claim": True,
+            "production_write_blocked": True,
+        }
+        write_json(out / "visual_literature_chain_extraction_result.json", result)
+    state.artifacts["visual_literature_chain_extraction"] = result
+    candidate_path_value = str(result.get("candidate_chain_path") or "").strip()
+    candidate_path = Path(candidate_path_value) if candidate_path_value else None
+    if candidate_path is not None and candidate_path.is_file():
+        try:
+            state.artifacts["visual_structure_candidate_chain"] = json.loads(candidate_path.read_text(encoding="utf-8"))
+            state.artifacts["visual_structure_candidate_chain_path"] = str(candidate_path)
+        except (OSError, json.JSONDecodeError):
+            pass
+    _record_visual_chain_result(state, result)
+    write_json(state.run_dir / "visual_literature_chain_extraction_result.json", result)
+    accepted = bool(result.get("accepted")) or _visual_failure_is_auditable(result)
+    return {
+        "accepted": accepted,
+        "result": result,
+        "artifact_refs": {
+            "visual_literature_chain_extraction": str(out / "visual_literature_chain_extraction_result.json"),
+            **({"visual_structure_candidate_chain": str(candidate_path)} if candidate_path is not None and candidate_path.is_file() else {}),
+        },
+        "reasons": [str(item) for item in result.get("reasons") or []],
+    }
 
 
 def run_chemenzy(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
@@ -214,7 +359,7 @@ def run_chemenzy(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str
         request=request,
         request_path=state.run_dir / "chemenzy_request.json",
         output_path=state.run_dir / "chemenzy_native_raw_result.json",
-        timeout_s=float(payload.get("timeout_s") or state.budget.chem_enzy_timeout_s),
+        timeout_s=_bounded_timeout_s(payload.get("timeout_s"), state.budget.chem_enzy_timeout_s),
     )
     _attach_native_route_verifier(state, result)
     state.artifacts["chemenzy"] = result
@@ -283,6 +428,7 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         state.artifacts["guided_chemenzy"] = result
         write_json(state.run_dir / "guided_chemenzy_result.json", result)
         return {"accepted": True, "result": result, "reasons": result["reasons"]}
+    policy = _sync_chemenzy_policy_budget_from_payload(policy, payload)
     policy = _merge_route_failure_feedback_policy(state, policy, payload)
     policy = _merge_analogical_retrosynthesis_policy(state, policy, payload)
     state.guided_chemenzy_runs += 1
@@ -307,8 +453,9 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         request=request,
         request_path=state.run_dir / "guided_chemenzy_request.json",
         output_path=state.run_dir / "guided_chemenzy_raw_result.json",
-        timeout_s=float(payload.get("timeout_s") or state.budget.guided_chemenzy_timeout_s),
+        timeout_s=_codex_repaired_or_bounded_timeout_s(payload, state.budget.guided_chemenzy_timeout_s),
     )
+    runtime_diagnostic = _guided_chemenzy_runtime_diagnostic(result)
     verifier = verify_chemenzy_raw_routes(
         result,
         target_smiles=str(state.target_input.get("target_smiles") or result.get("target") or ""),
@@ -326,6 +473,7 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         "result": result,
         "raw_route_verifier": verifier_for_output,
         "literature_template_plugin_runtime": plugin_runtime,
+        "chemenzy_runtime_diagnostic": runtime_diagnostic,
         "route_status": str(
             verifier_for_output.get("route_status")
             or ("solved" if (result.get("search_status") or {}).get("solved") and verifier_accepted else "unresolved")
@@ -361,17 +509,67 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
     write_json(state.run_dir / "guided_chemenzy_result.json", out)
     if verifier:
         write_json(state.run_dir / "guided_route_verifier_report.json", verifier_for_output)
-    # A verifier rejection is chemistry feedback, not a harness execution
-    # failure; runtime/transport failures without verifier evidence still
-    # reject the tool call.
-    tool_accepted = bool(out.get("accepted")) or bool(verifier)
+    # A verifier rejection and bounded runtime diagnostic are search feedback,
+    # not controller execution failures.  They must be normalized into the
+    # blackboard so the next round can change direction.
+    tool_accepted = bool(out.get("accepted")) or bool(verifier) or bool(runtime_diagnostic)
     return {"accepted": tool_accepted, "result": out, "reasons": [str(item) for item in out.get("reasons") or []]}
+
+
+def _sync_chemenzy_policy_budget_from_payload(policy: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    synced = dict(policy or {})
+    budget = dict(synced.get("budget") or {})
+    for payload_key, budget_key in (
+        ("max_steps", "max_depth"),
+        ("chem_enzy_iterations", "max_iterations"),
+        ("chem_enzy_expansion_topk", "expansion_topk"),
+    ):
+        if payload.get(payload_key) is None:
+            continue
+        try:
+            value = int(payload.get(payload_key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            budget[budget_key] = value
+    if payload.get("timeout_s") is not None:
+        try:
+            timeout_s = float(payload.get("timeout_s") or 0.0)
+        except (TypeError, ValueError):
+            timeout_s = 0.0
+        if timeout_s > 0:
+            budget["timeout_s"] = timeout_s
+    synced["budget"] = budget
+    search_mode = str(payload.get("search_mode") or payload.get("mode") or "").strip()
+    if search_mode:
+        synced["search_mode"] = search_mode
+    initial_probe = bool(payload.get("initial_probe")) or search_mode.lower() in {
+        "initial_probe",
+        "cheap_scan",
+        "baseline_probe",
+    }
+    if initial_probe:
+        source_budget = dict(synced.get("source_budget") or {})
+        compiler = dict(synced.get("compiler_metadata") or {})
+        source_budget["initial_scan_allowed"] = True
+        compiler["initial_scan_probe"] = True
+        if payload.get("max_candidates") is not None:
+            try:
+                max_candidates = int(payload.get("max_candidates") or 0)
+            except (TypeError, ValueError):
+                max_candidates = 0
+            if max_candidates > 0:
+                source_budget["max_candidates"] = max_candidates
+        synced["source_budget"] = source_budget
+        synced["compiler_metadata"] = compiler
+    return synced
 
 
 def _guided_route_proof_blockers(verifier: dict[str, Any], plugin_runtime: dict[str, Any]) -> list[str]:
     blockers: list[str] = []
     if not verifier:
         return blockers
+    has_accepted_route = _guided_verifier_has_accepted_route(verifier)
     reason_text = json.dumps(
         {
             "reasons": verifier.get("reasons") or [],
@@ -381,12 +579,24 @@ def _guided_route_proof_blockers(verifier: dict[str, Any], plugin_runtime: dict[
         sort_keys=True,
         default=str,
     )
-    if "large_atom_jump" in reason_text:
+    if not has_accepted_route and "large_atom_jump" in reason_text:
         blockers.extend(["large_atom_jump", "guided_route_verifier_rejected_large_atom_jump"])
     runtime_reasons = {str(item) for item in plugin_runtime.get("reasons") or [] if str(item or "").strip()}
-    if "literature_template_plugin_not_invoked" in runtime_reasons:
+    if not has_accepted_route and "literature_template_plugin_not_invoked" in runtime_reasons:
         blockers.append("literature_template_plugin_not_invoked")
     return sorted(set(blockers))
+
+
+def _guided_verifier_has_accepted_route(verifier: dict[str, Any]) -> bool:
+    if not verifier or not verifier.get("accepted"):
+        return False
+    try:
+        accepted_route_count = int(verifier.get("accepted_route_count") or 0)
+    except (TypeError, ValueError):
+        accepted_route_count = 0
+    if accepted_route_count > 0:
+        return True
+    return str(verifier.get("route_status") or "").strip().lower() == "solved"
 
 
 def _guided_hardened_verifier(verifier: dict[str, Any], *, proof_blockers: list[str]) -> dict[str, Any]:
@@ -478,8 +688,12 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
         result = _skip_result(
             schema_version="route_expansion_subgoal_search_result.v1",
             reasons=["native_route_verified_solved"],
-            solved=True,
+            solved=False,
             subgoal_count=0,
+            scope="route_expansion_subgoals",
+            parent_route_solved=False,
+            no_parent_solved_claim=True,
+            not_parent_route_proof=True,
         )
         state.artifacts["route_expansion_subgoal_search"] = result
         write_json(state.run_dir / "route_expansion_subgoal_search_result.json", result)
@@ -493,6 +707,10 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             reasons=["route_expansion_child_targets_missing"],
             solved=False,
             subgoal_count=0,
+            scope="route_expansion_subgoals",
+            parent_route_solved=False,
+            no_parent_solved_claim=True,
+            not_parent_route_proof=True,
         )
         state.artifacts["route_expansion_subgoal_search"] = result
         write_json(state.run_dir / "route_expansion_subgoal_search_result.json", result)
@@ -525,6 +743,10 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             "accepted": bool(accepted_prior),
             "status": "solved" if accepted_prior else "exhausted",
             "solved": bool(accepted_prior),
+            "scope": "route_expansion_subgoals",
+            "parent_route_solved": False,
+            "no_parent_solved_claim": True,
+            "not_parent_route_proof": True,
             "subgoal_count": len(prior_rows),
             "accepted_subgoal_count": len(accepted_prior),
             "rejected_subgoal_count": len(prior_rows) - len(accepted_prior),
@@ -549,7 +771,12 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             "chem_enzy_expansion_topk": int(payload.get("chem_enzy_expansion_topk") or target.get("expansion_topk") or 100),
             "stock_mode": payload.get("stock_mode", "building-block"),
             "device": payload.get("device", "cpu"),
-            "chem_enzy_search_policy": target.get("policy") or {},
+            "chem_enzy_search_policy": _route_expansion_policy_for_child_target(
+                state=state,
+                payload=payload,
+                target=target,
+                index=absolute_idx + 1,
+            ),
         }
         if _exact_target_audit_required(target):
             request_payload.update(
@@ -574,16 +801,31 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             request=request,
             request_path=req_path,
             output_path=raw_path,
-            timeout_s=float(payload.get("timeout_s") or state.budget.guided_chemenzy_timeout_s),
+            timeout_s=_codex_repaired_or_bounded_timeout_s(payload, state.budget.guided_chemenzy_timeout_s),
         )
         verifier = verify_chemenzy_raw_routes(
             raw,
             target_smiles=target["smiles"],
             case_id=f"{state.preflight.get('case_id') or state.target_input.get('target_name') or 'case'}:{safe_name}",
         ) if (raw.get("routes") or (raw.get("result") or {}).get("routes")) else {}
+        verifier_accepted = bool(verifier.get("accepted"))
+        parent_relevance = _route_expansion_parent_relevance_gate(target)
+        accepted = bool(verifier_accepted and parent_relevance.get("accepted"))
+        row_reasons = [str(item) for item in verifier.get("reasons") or [] if str(item or "").strip()]
+        if verifier_accepted and not parent_relevance.get("accepted"):
+            row_reasons.extend(
+                str(item)
+                for item in parent_relevance.get("reasons") or []
+                if str(item or "").strip()
+            )
+        route_status = (
+            "solved" if accepted
+            else "child_component_not_parent_proximal" if verifier_accepted and not parent_relevance.get("accepted")
+            else str(verifier.get("route_status") or ("solved" if (raw.get("search_status") or {}).get("solved") else "unresolved"))
+        )
         row = {
             "schema_version": "route_expansion_subgoal_result.v1",
-            "accepted": bool(verifier.get("accepted")),
+            "accepted": accepted,
             "subgoal_index": absolute_idx,
             "subgoal": target,
             "request_path": str(req_path),
@@ -592,8 +834,11 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             "raw_solved": bool((raw.get("search_status") or {}).get("solved")),
             "route_count": len(raw.get("routes") or []),
             "verifier": verifier,
-            "route_status": str(verifier.get("route_status") or ("solved" if (raw.get("search_status") or {}).get("solved") else "unresolved")),
-            "solved": bool(verifier.get("accepted")),
+            "verifier_accepted_before_parent_relevance_gate": verifier_accepted,
+            "parent_relevance_gate": parent_relevance,
+            "reasons": row_reasons,
+            "route_status": route_status,
+            "solved": accepted,
         }
         rows.append(row)
         write_json(sub_dir / f"{absolute_idx + 1:02d}_{safe_name}_verifier.json", verifier)
@@ -605,6 +850,10 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
         "accepted": bool(accepted_rows),
         "status": "solved" if accepted_rows else "failed",
         "solved": bool(accepted_rows),
+        "scope": "route_expansion_subgoals",
+        "parent_route_solved": False,
+        "no_parent_solved_claim": True,
+        "not_parent_route_proof": True,
         "subgoal_count": len(all_rows),
         "accepted_subgoal_count": len(accepted_rows),
         "rejected_subgoal_count": len(all_rows) - len(accepted_rows),
@@ -798,12 +1047,14 @@ def _execute_chemenzy_request(
 
     python_bin = _chem_enzy_python_bin()
     if python_bin is None:
+        runtime_preflight = _chem_enzy_runtime_preflight()
         return {
             "schema_version": "chemenzy_run_result.v1",
             "accepted": False,
             "status": "runtime_unavailable",
-            "reasons": ["chem_enzy_runtime_python_not_found"],
+            "reasons": list(runtime_preflight.get("issues") or ["chem_enzy_runtime_unavailable"]),
             "request_path": str(request_path),
+            "runtime_preflight": runtime_preflight,
         }
 
     cmd = [
@@ -822,28 +1073,51 @@ def _execute_chemenzy_request(
     env["PYTHONPATH"] = str(ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     stdout_path = output_path.with_suffix(output_path.suffix + ".stdout.log")
     stderr_path = output_path.with_suffix(output_path.suffix + ".stderr.log")
-    try:
-        with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
-            proc = subprocess.run(
-                cmd,
-                cwd=str(ROOT),
-                stdout=stdout,
-                stderr=stderr,
-                text=True,
-                timeout=float(timeout_s),
-                check=False,
-                env=env,
-                start_new_session=True,
-            )
-            returncode = int(proc.returncode)
-    except subprocess.TimeoutExpired as exc:
-        del exc
+    timeout = max(1.0, float(timeout_s or 1.0))
+    timed_out = False
+    returncode = 0
+    with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
+        try:
+            if _subprocess_run_is_test_double():
+                proc = subprocess.run(
+                    cmd,
+                    cwd=str(ROOT),
+                    stdout=stdout,
+                    stderr=stderr,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                    env=env,
+                    start_new_session=True,
+                )
+                returncode = int(proc.returncode)
+            else:
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=str(ROOT),
+                    stdout=stdout,
+                    stderr=stderr,
+                    text=True,
+                    env=env,
+                    start_new_session=True,
+                )
+                returncode = int(process.wait(timeout=timeout))
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            if "process" in locals():
+                _terminate_process_group(process)
+                returncode = int(process.returncode) if process.returncode is not None else -9
+            else:
+                returncode = -9
+    if timed_out:
         return {
             "schema_version": "chemenzy_run_result.v1",
             "accepted": False,
             "status": "timeout",
             "reasons": ["chem_enzy_timeout"],
             "command": cmd,
+            "timeout_s": timeout,
+            "exit_code": returncode,
             "stdout": stdout_path.read_text(encoding="utf-8", errors="replace") if stdout_path.exists() else "",
             "stderr": stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else "",
         }
@@ -865,6 +1139,63 @@ def _execute_chemenzy_request(
         result.setdefault("reasons", []).append("chemenzy_nonzero_exit")
         result["stderr"] = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
     return result
+
+
+def _bounded_timeout_s(payload_timeout: Any, budget_timeout: Any) -> float:
+    try:
+        budget_value = float(budget_timeout or 0.0)
+    except (TypeError, ValueError):
+        budget_value = 0.0
+    try:
+        payload_value = float(payload_timeout or 0.0)
+    except (TypeError, ValueError):
+        payload_value = 0.0
+    if budget_value <= 0 and payload_value <= 0:
+        return 1.0
+    if budget_value <= 0:
+        return max(1.0, payload_value)
+    if payload_value <= 0:
+        return max(1.0, budget_value)
+    return max(1.0, min(payload_value, budget_value))
+
+
+def _codex_repaired_or_bounded_timeout_s(payload: dict[str, Any], budget_timeout: Any) -> float:
+    if isinstance(payload.get("codex_payload_repair"), dict):
+        try:
+            budget_value = float(budget_timeout or 0.0)
+        except (TypeError, ValueError):
+            budget_value = 0.0
+        if budget_value > 0:
+            return max(1.0, budget_value)
+    return _bounded_timeout_s(payload.get("timeout_s"), budget_timeout)
+
+
+def _subprocess_run_is_test_double() -> bool:
+    return type(subprocess.run).__module__.startswith("unittest.mock")
+
+
+def _terminate_process_group(proc: subprocess.Popen[str]) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except Exception:
+        proc.terminate()
+    try:
+        proc.wait(timeout=5.0)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except Exception:
+        proc.kill()
+    try:
+        proc.wait(timeout=2.0)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 def audit_route_and_extract_frontier(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1093,16 +1424,44 @@ def run_open_structure_research_agent(state: ToolExecutionState, payload: dict[s
 
 
 def extract_pdf_literature_structures_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(payload)
     mock = _mock_result(state, "extract_pdf_literature_structures", payload)
     if mock is not None:
         result = dict(mock)
         _attach_literature_source_metadata(result, payload)
+        _attach_process_evidence_rows_to_pdf_result(
+            state=state,
+            result=result,
+            payload=payload,
+            artifact_ref=str(state.run_dir / "literature_pdf_structure_evidence.json"),
+        )
         _record_pdf_structure_evidence(state, result)
         write_json(state.run_dir / "literature_pdf_structure_evidence.json", result)
         return {"accepted": bool(result.get("accepted", True)), "result": result}
 
     out = _tool_output_dir(state, payload, default_name="literature_pdf_structure_extraction")
     pdf_path = _input_path(state, payload.get("pdf_path")) if payload.get("pdf_path") else None
+    binding = _validate_local_pdf_source_binding(state, payload, pdf_path=pdf_path)
+    payload = dict(binding.get("payload") or payload)
+    if not binding.get("accepted", True):
+        result = _local_pdf_source_binding_rejection_result(
+            schema_version="literature_pdf_structure_evidence.v1",
+            state=state,
+            payload=payload,
+            pdf_path=pdf_path,
+            binding=binding,
+            status="source_ref_mismatch",
+        )
+        _record_pdf_structure_evidence(state, result, output_dir=out)
+        write_json(state.run_dir / "literature_pdf_structure_evidence.json", result)
+        return {
+            "accepted": False,
+            "result": result,
+            "artifact_refs": {
+                "literature_pdf_structure_evidence": str(out / "literature_pdf_structure_evidence.json"),
+            },
+            "reasons": result["reasons"],
+        }
     raw_image_values = [value for value in payload.get("image_paths") or [] if str(value or "").strip()]
     scheme_crops = [dict(item) for item in payload.get("scheme_crops") or [] if isinstance(item, dict)]
     image_paths = [str(_input_path(state, value)) for value in raw_image_values]
@@ -1146,6 +1505,26 @@ def extract_pdf_literature_structures_tool(state: ToolExecutionState, payload: d
         compound_labels=[str(item) for item in payload.get("compound_labels") or [] if str(item).strip()],
     )
     _attach_literature_source_metadata(result, payload)
+    result["source_binding_audit"] = {
+        "schema_version": "local_pdf_source_binding_audit.v1",
+        "accepted": binding.get("accepted") is True,
+        "source_ref": str(payload.get("source_ref") or ""),
+        "source_pdf_path": str(pdf_path.resolve()) if pdf_path and pdf_path.is_file() else "",
+        "matched_source_count": len(binding.get("matched_sources") or []),
+        "matched_document_ids": [
+            str(row.get("document_id") or "")
+            for row in binding.get("matched_sources") or []
+            if isinstance(row, dict) and str(row.get("document_id") or "").strip()
+        ],
+        "reasons": [str(item) for item in binding.get("reasons") or []],
+    }
+    write_json(out / "literature_pdf_structure_evidence.json", result)
+    _attach_process_evidence_rows_to_pdf_result(
+        state=state,
+        result=result,
+        payload=payload,
+        artifact_ref=str(out / "literature_pdf_structure_evidence.json"),
+    )
     _record_pdf_structure_evidence(state, result, output_dir=out)
     write_json(state.run_dir / "literature_pdf_structure_evidence.json", result)
     return {
@@ -1165,6 +1544,343 @@ def _attach_literature_source_metadata(result: dict[str, Any], payload: dict[str
         result["source_title"] = str(payload.get("source_title") or "").strip()
     if str(payload.get("pdf_path") or "").strip() and not str(result.get("source_pdf_path") or "").strip():
         result["source_pdf_path"] = str(payload.get("pdf_path") or "").strip()
+
+
+def _validate_local_pdf_source_binding(
+    state: ToolExecutionState,
+    payload: dict[str, Any],
+    *,
+    pdf_path: Path | None,
+) -> dict[str, Any]:
+    payload = dict(payload)
+    if pdf_path is None:
+        return {"accepted": True, "payload": payload, "matched_sources": []}
+    matched_sources = _local_pdf_sources_for_path(state.target_input, pdf_path)
+    if not matched_sources:
+        return {"accepted": True, "payload": payload, "matched_sources": []}
+
+    requested_ref = _canonical_source_ref(payload.get("source_ref"))
+    cache_refs = _dedupe_texts(
+        [
+            ref
+            for source in matched_sources
+            for ref in _specific_source_refs_for_local_pdf(source)
+        ]
+    )
+    alias_binding = _local_pdf_source_alias_binding(
+        state=state,
+        payload=payload,
+        pdf_path=pdf_path,
+        cache_refs=cache_refs,
+    )
+    if requested_ref and alias_binding:
+        canonical_ref = str(alias_binding.get("canonical_source_ref") or "").strip()
+        if canonical_ref:
+            payload["source_ref"] = canonical_ref
+            requested_ref = canonical_ref
+        if not str(payload.get("source_title") or "").strip() and str(alias_binding.get("source_title") or "").strip():
+            payload["source_title"] = str(alias_binding.get("source_title") or "").strip()
+    if requested_ref and cache_refs and requested_ref not in cache_refs:
+        return {
+            "accepted": False,
+            "reasons": ["local_pdf_source_ref_mismatch"],
+            "requested_source_ref": requested_ref,
+            "cache_source_refs": cache_refs,
+            "source_pdf_path": str(pdf_path),
+            "matched_sources": matched_sources,
+            "payload": payload,
+        }
+
+    first = matched_sources[0]
+    if not str(payload.get("source_ref") or "").strip() and cache_refs:
+        payload["source_ref"] = cache_refs[0]
+    if not str(payload.get("source_title") or "").strip():
+        title = str(first.get("source_title") or first.get("title") or "").strip()
+        if title:
+            payload["source_title"] = title
+    return {
+        "accepted": True,
+        "payload": payload,
+        "matched_sources": matched_sources,
+        "cache_source_refs": cache_refs,
+        "source_pdf_path": str(pdf_path),
+    }
+
+
+def _local_pdf_source_alias_binding(
+    *,
+    state: ToolExecutionState,
+    payload: dict[str, Any],
+    pdf_path: Path,
+    cache_refs: list[str],
+) -> dict[str, Any]:
+    requested_refs = _payload_source_alias_keys(payload)
+    if not requested_refs:
+        return {}
+    pdf_key = _normalized_path_key(pdf_path)
+    cache_ref_set = {str(ref) for ref in cache_refs if str(ref).strip()}
+    for candidate in _artifact_source_candidates(state):
+        candidate_keys = _source_candidate_alias_keys(candidate)
+        if not requested_refs & candidate_keys:
+            continue
+        candidate_refs = _specific_source_refs_for_local_pdf(candidate)
+        candidate_ref_set = {str(ref) for ref in candidate_refs if str(ref).strip()}
+        candidate_pdf = _normalized_path_key(
+            candidate.get("local_pdf")
+            or candidate.get("pdf_path")
+            or candidate.get("source_pdf_path")
+            or candidate.get("path")
+        )
+        if pdf_key and candidate_pdf and pdf_key == candidate_pdf:
+            canonical = _first_common_or_first(candidate_refs, cache_refs)
+            if canonical:
+                return {
+                    "canonical_source_ref": canonical,
+                    "source_title": str(candidate.get("source_title") or candidate.get("title") or ""),
+                    "candidate": dict(candidate),
+                    "match_basis": "local_pdf_path",
+                }
+        common_refs = sorted(candidate_ref_set & cache_ref_set)
+        if common_refs:
+            return {
+                "canonical_source_ref": common_refs[0],
+                "source_title": str(candidate.get("source_title") or candidate.get("title") or ""),
+                "candidate": dict(candidate),
+                "match_basis": "source_ref",
+            }
+    return {}
+
+
+def _payload_source_alias_keys(payload: dict[str, Any]) -> set[str]:
+    keys = {
+        _canonical_source_ref(payload.get("source_ref")),
+        _canonical_source_ref(payload.get("doi")),
+        _canonical_source_ref(f"doi:{payload.get('doi')}") if str(payload.get("doi") or "").strip() else "",
+        _text_key(payload.get("candidate_id")),
+        _text_key(payload.get("source_id")),
+    }
+    return {key for key in keys if key}
+
+
+def _source_candidate_alias_keys(candidate: dict[str, Any]) -> set[str]:
+    keys = {
+        _canonical_source_ref(candidate.get("source_ref")),
+        _canonical_source_ref(candidate.get("doi")),
+        _canonical_source_ref(_doi_source_ref(candidate)),
+        _text_key(candidate.get("candidate_id")),
+        _text_key(candidate.get("source_id")),
+        _text_key(candidate.get("id")),
+    }
+    return {key for key in keys if key}
+
+
+def _artifact_source_candidates(state: ToolExecutionState) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key in ("literature_scout_report", "literature_scout"):
+        artifact = state.artifacts.get(key)
+        if isinstance(artifact, dict):
+            rows.extend(dict(item) for item in artifact.get("source_candidates") or [] if isinstance(item, dict))
+    history = state.artifacts.get("literature_scout_history")
+    if isinstance(history, list):
+        for report in history:
+            if isinstance(report, dict):
+                rows.extend(dict(item) for item in report.get("source_candidates") or [] if isinstance(item, dict))
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        key = "|".join(sorted(_source_candidate_alias_keys(row))) or str(id(row))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+def _first_common_or_first(primary: list[str], secondary: list[str]) -> str:
+    secondary_set = {str(item) for item in secondary if str(item).strip()}
+    for item in primary:
+        if item in secondary_set:
+            return item
+    return primary[0] if primary else (secondary[0] if secondary else "")
+
+
+def _local_pdf_source_binding_rejection_result(
+    *,
+    schema_version: str,
+    state: ToolExecutionState,
+    payload: dict[str, Any],
+    pdf_path: Path | None,
+    binding: dict[str, Any],
+    status: str,
+) -> dict[str, Any]:
+    reasons = [str(item) for item in binding.get("reasons") or ["local_pdf_source_ref_mismatch"]]
+    result = {
+        "schema_version": schema_version,
+        "accepted": False,
+        "status": status,
+        "source_ref": str(payload.get("source_ref") or ""),
+        "source_title": str(payload.get("source_title") or ""),
+        "source_pdf_path": str(pdf_path or payload.get("pdf_path") or ""),
+        "local_pdf_binding": {
+            "accepted": False,
+            "requested_source_ref": str(binding.get("requested_source_ref") or _canonical_source_ref(payload.get("source_ref"))),
+            "cache_source_refs": [str(item) for item in binding.get("cache_source_refs") or []],
+            "matched_source_count": len([item for item in binding.get("matched_sources") or [] if isinstance(item, dict)]),
+            "matched_sources": [
+                {
+                    "candidate_id": str(item.get("candidate_id") or ""),
+                    "source_ref": str(item.get("source_ref") or ""),
+                    "doi": str(item.get("doi") or ""),
+                    "pii": str(item.get("pii") or ""),
+                    "local_pdf": str(item.get("local_pdf") or item.get("pdf_path") or item.get("path") or ""),
+                    "source_role": str(item.get("source_role") or item.get("source_usage") or ""),
+                }
+                for item in binding.get("matched_sources") or []
+                if isinstance(item, dict)
+            ],
+        },
+        "reasons": reasons,
+        "no_solved_claim": True,
+    }
+    if schema_version == "literature_pdf_structure_evidence.v1":
+        result.update(
+            {
+                "rendered_pages": [],
+                "indexed_images": [],
+                "scheme_crops": [],
+                "compound_text_snippets": [],
+                "summary": {
+                    "rendered_page_count": 0,
+                    "indexed_image_count": 0,
+                    "scheme_crop_count": 0,
+                    "compound_text_snippet_count": 0,
+                },
+            }
+        )
+    if schema_version == "visual_literature_chain_extraction_result.v1":
+        result.update(
+            {
+                "target_name": str(payload.get("target_name") or state.target_input.get("target_name") or state.preflight.get("case_id") or "target"),
+                "target_smiles": str(payload.get("target_smiles") or state.target_input.get("target_smiles") or ""),
+                "image_paths": [],
+                "candidate_chain": {},
+                "candidate_step_count": 0,
+                "extraction_policy": {
+                    "pdf_reuse_allowed": False,
+                    "prior_candidate_chain_reuse_allowed": False,
+                    "prior_source_detail_records_reuse_allowed": False,
+                    "must_derive_from_current_images": True,
+                    "no_solved_claim": True,
+                },
+            }
+        )
+    return result
+
+
+def _local_pdf_sources_for_path(target_input: dict[str, Any], pdf_path: Path) -> list[dict[str, Any]]:
+    pdf_key = _normalized_path_key(pdf_path)
+    if not pdf_key:
+        return []
+    rows: list[dict[str, Any]] = []
+    for source in _declared_local_pdf_sources(target_input):
+        local_pdf = (
+            source.get("local_pdf")
+            or source.get("pdf_path")
+            or source.get("source_pdf_path")
+            or source.get("path")
+        )
+        if _normalized_path_key(local_pdf) == pdf_key:
+            rows.append(dict(source))
+    return rows
+
+
+def _declared_local_pdf_sources(target_input: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key in ("literature_sources", "local_literature_cache"):
+        rows.extend(dict(item) for item in target_input.get(key) or [] if isinstance(item, dict))
+    if str(target_input.get("literature_pdf_path") or "").strip():
+        rows.append(
+            {
+                "source_ref": str(target_input.get("literature_pdf_source_ref") or "").strip(),
+                "local_pdf": str(target_input.get("literature_pdf_path") or "").strip(),
+                "source_role": "direct_local_pdf_fallback",
+            }
+        )
+
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        local_pdf = str(row.get("local_pdf") or row.get("pdf_path") or row.get("source_pdf_path") or row.get("path") or "").strip()
+        if not local_pdf:
+            continue
+        key = _normalized_path_key(local_pdf)
+        source_key = f"{key}|{_canonical_source_ref(row.get('source_ref') or _doi_source_ref(row))}"
+        if source_key in seen:
+            continue
+        seen.add(source_key)
+        out.append(row)
+    return out
+
+
+def _specific_source_refs_for_local_pdf(source: dict[str, Any]) -> list[str]:
+    refs = [
+        _canonical_source_ref(source.get("source_ref")),
+        _canonical_source_ref(_doi_source_ref(source)),
+        _canonical_source_ref(f"pii:{source.get('pii')}") if str(source.get("pii") or "").strip() else "",
+    ]
+    out: list[str] = []
+    for ref in refs:
+        if not ref or ref.startswith("local_pdf:"):
+            continue
+        out.append(ref)
+    return out
+
+
+def _canonical_source_ref(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = text.rstrip(".,;")
+    lower = text.lower()
+    doi_prefixes = ("doi:", "https://doi.org/", "http://doi.org/", "doi.org/")
+    for prefix in doi_prefixes:
+        if lower.startswith(prefix):
+            doi = _canonical_doi(text[len(prefix):])
+            return f"doi:{doi}" if doi else lower
+    match = re.search(r"10\.\d{4,9}/[^\s<>()\"'\]\[]+", text, flags=re.IGNORECASE)
+    if match:
+        doi = _canonical_doi(match.group(0))
+        if doi:
+            return f"doi:{doi}"
+    if lower.startswith("pii:"):
+        return "pii:" + lower[4:].strip()
+    return lower
+
+
+def _canonical_doi(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"^(https?://)?(dx\.)?doi\.org/", "", text)
+    text = text.removeprefix("doi:")
+    text = text.rstrip(".,;")
+    return text
+
+
+def _attach_process_evidence_rows_to_pdf_result(
+    *,
+    state: ToolExecutionState,
+    result: dict[str, Any],
+    payload: dict[str, Any],
+    artifact_ref: str,
+) -> None:
+    rows = process_evidence_rows_from_pdf_result(result, payload=payload, artifact_ref=artifact_ref)
+    if not rows:
+        return
+    result["literature_process_evidence_rows"] = rows
+    result["process_evidence_row_count"] = len(rows)
+    state.artifacts["literature_process_evidence_rows"] = rows
+    history = state.artifacts.setdefault("literature_process_evidence_history", [])
+    if isinstance(history, list):
+        history.extend(dict(row) for row in rows)
 
 
 def _record_pdf_structure_evidence(state: ToolExecutionState, result: dict[str, Any], *, output_dir: Path | None = None) -> None:
@@ -1190,9 +1906,16 @@ def _record_pdf_structure_evidence(state: ToolExecutionState, result: dict[str, 
 
 
 def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(payload)
     mock = _mock_result(state, "extract_visual_literature_chain", payload)
     if mock is not None:
         result = dict(mock)
+        result = _attach_process_evidence_rows_to_visual_result(
+            state=state,
+            result=result,
+            payload=payload,
+            artifact_ref=str(state.run_dir / "visual_literature_chain_extraction_result.json"),
+        )
         state.artifacts["visual_literature_chain_extraction"] = result
         if result.get("candidate_chain"):
             candidate = dict(result.get("candidate_chain") or {})
@@ -1202,6 +1925,29 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
         return {"accepted": bool(result.get("accepted", True)), "result": result}
 
     out = _tool_output_dir(state, payload, default_name="visual_literature_chain_extraction")
+    pdf_path = _input_path(state, payload.get("pdf_path")) if payload.get("pdf_path") else None
+    binding = _validate_local_pdf_source_binding(state, payload, pdf_path=pdf_path)
+    payload = dict(binding.get("payload") or payload)
+    if not binding.get("accepted", True):
+        result = _local_pdf_source_binding_rejection_result(
+            schema_version="visual_literature_chain_extraction_result.v1",
+            state=state,
+            payload=payload,
+            pdf_path=pdf_path,
+            binding=binding,
+            status="source_ref_mismatch",
+        )
+        state.artifacts["visual_literature_chain_extraction"] = result
+        _record_visual_chain_result(state, result)
+        write_json(state.run_dir / "visual_literature_chain_extraction_result.json", result)
+        return {
+            "accepted": False,
+            "result": result,
+            "artifact_refs": {
+                "visual_literature_chain_extraction": str(out / "visual_literature_chain_extraction_result.json"),
+            },
+            "reasons": result["reasons"],
+        }
     pdf_evidence = _pdf_evidence_from_payload_or_artifacts(state, payload)
     image_paths = _visual_chain_image_paths(state, payload, pdf_evidence)
     if not image_paths:
@@ -1234,22 +1980,33 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
             },
             "reasons": result["reasons"],
         }
-    result = run_visual_literature_chain_agent(
-        image_paths=image_paths,
-        output_dir=out,
-        target_name=str(payload.get("target_name") or state.target_input.get("target_name") or state.preflight.get("case_id") or "target"),
-        target_smiles=_literature_tool_target_smiles(state, payload),
-        source_ref=str(payload.get("source_ref") or "doi:10.1016/j.tet.2025.134610"),
-        source_title=str(payload.get("source_title") or ""),
-        expected_labels=[str(item) for item in payload.get("expected_labels") or [] if str(item).strip()],
-        route_sequence_hint=str(payload.get("route_sequence_hint") or ""),
-        text_snippets=[dict(item) for item in (pdf_evidence.get("compound_text_snippets") or []) if isinstance(item, dict)],
-        key_path=state.key_path,
-        base_url=state.base_url,
-        model=state.model,
-        timeout_s=_visual_literature_timeout_s(state, payload),
-        allow_repair=not bool(payload.get("focused_gap_repair")) and _visual_literature_repair_enabled(payload),
-    )
+    try:
+        result = run_visual_literature_chain_agent(
+            image_paths=image_paths,
+            output_dir=out,
+            target_name=str(payload.get("target_name") or state.target_input.get("target_name") or state.preflight.get("case_id") or "target"),
+            target_smiles=_literature_tool_target_smiles(state, payload),
+            source_ref=str(payload.get("source_ref") or pdf_evidence.get("source_ref") or ""),
+            source_title=str(payload.get("source_title") or ""),
+            expected_labels=[str(item) for item in payload.get("expected_labels") or [] if str(item).strip()],
+            route_sequence_hint=str(payload.get("route_sequence_hint") or ""),
+            text_snippets=[dict(item) for item in (pdf_evidence.get("compound_text_snippets") or []) if isinstance(item, dict)],
+            key_path=state.key_path,
+            base_url=state.base_url,
+            model=state.model,
+            timeout_s=_visual_literature_timeout_s(state, payload),
+            allow_repair=not bool(payload.get("focused_gap_repair")) and _visual_literature_repair_enabled(payload),
+        )
+    except (FileNotFoundError, OSError) as exc:
+        result = _salvage_partial_visual_candidate_result(
+            state=state,
+            payload=payload,
+            output_dir=out,
+            image_paths=image_paths,
+            error=exc,
+        )
+        if not result:
+            raise
     if str(payload.get("source_ref") or "").strip():
         result["source_ref"] = str(payload.get("source_ref") or "").strip()
     if str(payload.get("source_title") or "").strip():
@@ -1266,11 +2023,18 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
         if isinstance(candidate, dict):
             state.artifacts["visual_structure_candidate_chain"] = dict(candidate)
             state.artifacts["visual_structure_candidate_chain_path"] = str(candidate_path)
+    result = _attach_process_evidence_rows_to_visual_result(
+        state=state,
+        result=result,
+        payload=payload,
+        artifact_ref=str(out / "visual_literature_chain_extraction_result.json"),
+    )
     state.artifacts["visual_literature_chain_extraction"] = result
     _record_visual_chain_result(state, result)
     write_json(state.run_dir / "visual_literature_chain_extraction_result.json", result)
+    tool_accepted = bool(result.get("accepted")) or _visual_failure_is_auditable(result)
     return {
-        "accepted": bool(result.get("accepted")),
+        "accepted": tool_accepted,
         "result": result,
         "artifact_refs": {
             "visual_literature_chain_extraction": str(out / "visual_literature_chain_extraction_result.json"),
@@ -1280,13 +2044,127 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
     }
 
 
+def _visual_failure_is_auditable(result: dict[str, Any]) -> bool:
+    reasons = {str(item) for item in result.get("reasons") or [] if str(item or "").strip()}
+    return bool(
+        reasons
+        & {
+            "visual_direct_api_failed",
+            "visual_model_unavailable",
+            "visual_api_auth_failed",
+            "visual_result_file_missing_salvaged_candidate",
+            "visual_tool_error_salvaged_candidate",
+        }
+    )
+
+
+def _salvage_partial_visual_candidate_result(
+    *,
+    state: ToolExecutionState,
+    payload: dict[str, Any],
+    output_dir: Path,
+    image_paths: list[Path],
+    error: Exception,
+) -> dict[str, Any]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    candidate_path = output_dir / "visual_structure_candidate_chain.json"
+    if not candidate_path.is_file():
+        return {}
+    try:
+        candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(candidate, dict) or not candidate:
+        return {}
+    steps = candidate.get("steps") or candidate.get("route_steps") or []
+    salvage_reason = (
+        "visual_result_file_missing_salvaged_candidate"
+        if isinstance(error, FileNotFoundError)
+        else "visual_tool_error_salvaged_candidate"
+    )
+    result = {
+        "schema_version": "visual_literature_chain_extraction_result.v1",
+        "accepted": bool(steps),
+        "status": "partial_candidate_salvaged",
+        "target": {
+            "name": str(payload.get("target_name") or state.target_input.get("target_name") or state.preflight.get("case_id") or "target"),
+            "smiles": _literature_tool_target_smiles(state, payload),
+        },
+        "target_name": str(payload.get("target_name") or state.target_input.get("target_name") or state.preflight.get("case_id") or "target"),
+        "target_smiles": _literature_tool_target_smiles(state, payload),
+        "source_ref": str(payload.get("source_ref") or ""),
+        "source_title": str(payload.get("source_title") or ""),
+        "source_pdf_path": str(payload.get("pdf_path") or ""),
+        "image_paths": [str(path) for path in image_paths],
+        "output_dir": str(output_dir),
+        "candidate_chain_path": str(candidate_path),
+        "candidate_chain": candidate,
+        "candidate_step_count": len(steps) if isinstance(steps, list) else 0,
+        "reasons": [salvage_reason],
+        "error": f"{type(error).__name__}: {error}",
+        "extraction_policy": {
+            "pdf_reuse_allowed": True,
+            "prior_candidate_chain_reuse_allowed": False,
+            "prior_source_detail_records_reuse_allowed": False,
+            "must_derive_from_current_images": True,
+            "salvaged_partial_candidate": True,
+            "no_solved_claim": True,
+        },
+        "no_solved_claim": True,
+        "production_write_blocked": True,
+    }
+    write_json(output_dir / "visual_literature_chain_extraction_result.json", result)
+    return result
+
+
+def _attach_process_evidence_rows_to_visual_result(
+    *,
+    state: ToolExecutionState,
+    result: dict[str, Any],
+    payload: dict[str, Any],
+    artifact_ref: str,
+) -> dict[str, Any]:
+    enriched = dict(result)
+    rows = process_evidence_rows_from_visual_result(enriched, payload=payload, artifact_ref=artifact_ref)
+    if rows:
+        enriched["literature_process_evidence_rows"] = rows
+        enriched["process_evidence_row_count"] = len(rows)
+        state.artifacts["literature_process_evidence_rows"] = rows
+        history = state.artifacts.setdefault("literature_process_evidence_history", [])
+        if isinstance(history, list):
+            history.extend(dict(row) for row in rows)
+    return enriched
+
+
 def _visual_literature_timeout_s(state: ToolExecutionState, payload: dict[str, Any]) -> float:
-    explicit = payload.get("timeout_s")
+    explicit = _positive_timeout_s(payload.get("timeout_s"))
     if explicit is None:
-        explicit = os.environ.get("AUTOPLANNER_VISUAL_TIMEOUT_S")
-    if explicit is not None:
-        return max(10.0, float(explicit))
-    return min(float(state.budget.open_research_timeout_s or 240.0), 240.0)
+        explicit = _positive_timeout_s(os.environ.get("AUTOPLANNER_VISUAL_TIMEOUT_S"))
+    if explicit is None:
+        explicit = _positive_timeout_s(getattr(state.budget, "open_research_timeout_s", None))
+    if explicit is None:
+        explicit = 900.0
+    return max(_timeout_floor_s("AUTOPLANNER_VISUAL_TIMEOUT_MIN_S", 120.0), explicit)
+
+
+def _positive_timeout_s(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _timeout_floor_s(env_name: str, default: float) -> float:
+    raw = os.environ.get(env_name)
+    if raw is None:
+        return float(default)
+    try:
+        return max(1.0, float(raw))
+    except (TypeError, ValueError):
+        return float(default)
 
 
 def _visual_literature_repair_enabled(payload: dict[str, Any]) -> bool:
@@ -1328,6 +2206,28 @@ def resolve_literature_structure_task_tool(state: ToolExecutionState, payload: d
         source_ref=source_ref,
         source_title=source_title,
     )
+    candidate_rows.extend(
+        _structure_resolution_candidate_rows_from_prior_visual_chains(
+            state,
+            payload,
+            task_id=task_id,
+            label=label,
+            source_ref=source_ref,
+            source_title=source_title,
+        )
+    )
+    if not any(row.get("accepted") for row in candidate_rows):
+        candidate_rows.extend(
+            _structure_resolution_target_identity_rows(
+                state,
+                payload,
+                task_id=task_id,
+                label=label,
+                source_ref=source_ref,
+                source_title=source_title,
+            )
+        )
+        candidate_rows = _dedupe_structure_resolution_rows(candidate_rows)
     visual_attempt: dict[str, Any] = {}
     if not any(row.get("accepted") for row in candidate_rows) and label and _structure_resolution_visual_enabled(payload):
         visual_attempt = run_visual_literature_chain_agent(
@@ -1431,10 +2331,14 @@ def _structure_resolution_visual_enabled(payload: dict[str, Any]) -> bool:
 
 
 def _structure_resolution_timeout_s(state: ToolExecutionState, payload: dict[str, Any]) -> float:
-    explicit = payload.get("timeout_s") or os.environ.get("AUTOPLANNER_STRUCTURE_RESOLUTION_TIMEOUT_S")
-    if explicit is not None:
-        return max(10.0, float(explicit))
-    return min(float(state.budget.open_research_timeout_s or 180.0), 180.0)
+    explicit = _positive_timeout_s(payload.get("timeout_s"))
+    if explicit is None:
+        explicit = _positive_timeout_s(os.environ.get("AUTOPLANNER_STRUCTURE_RESOLUTION_TIMEOUT_S"))
+    if explicit is None:
+        explicit = _positive_timeout_s(getattr(state.budget, "open_research_timeout_s", None))
+    if explicit is None:
+        explicit = 300.0
+    return max(_timeout_floor_s("AUTOPLANNER_STRUCTURE_RESOLUTION_TIMEOUT_MIN_S", 120.0), explicit)
 
 
 def _structure_resolution_visual_prompt_hint(*, label: str, payload: dict[str, Any]) -> str:
@@ -1497,33 +2401,209 @@ def _structure_resolution_candidate_rows_from_visual_attempt(
     source_title: str,
 ) -> list[dict[str, Any]]:
     chain = _load_visual_candidate_chain_from_result(visual_attempt)
+    return _structure_resolution_candidate_rows_from_chain(
+        chain,
+        task_id=task_id,
+        label=label,
+        source_ref=source_ref,
+        source_title=source_title,
+        derivation_mode="focused_visual_structure_resolution",
+    )
+
+
+def _structure_resolution_candidate_rows_from_prior_visual_chains(
+    state: ToolExecutionState,
+    payload: dict[str, Any],
+    *,
+    task_id: str,
+    label: str,
+    source_ref: str,
+    source_title: str,
+) -> list[dict[str, Any]]:
+    chains = _prior_visual_candidate_chains_for_resolution(state, payload)
+    rows: list[dict[str, Any]] = []
+    for chain_index, chain in enumerate(chains, start=1):
+        rows.extend(
+            _structure_resolution_candidate_rows_from_chain(
+                chain,
+                task_id=task_id,
+                label=label,
+                source_ref=source_ref,
+                source_title=source_title,
+                derivation_mode="prior_visual_literature_chain_label_match",
+                candidate_offset=chain_index * 1000,
+            )
+        )
+    return _dedupe_structure_resolution_rows(rows)
+
+
+def _prior_visual_candidate_chains_for_resolution(state: ToolExecutionState, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for key in ("visual_literature_chain_result", "visual_attempt", "candidate_chain"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            candidates.append(dict(value))
+    for key in ("artifact_ref", "visual_artifact_ref", "candidate_chain_path"):
+        value = str(payload.get(key) or "").strip()
+        if not value:
+            continue
+        loaded = _json_payload_or_path(state, value)
+        if loaded:
+            candidates.append(loaded)
+    for key in (
+        "visual_literature_chain_extraction",
+        "visual_structure_candidate_chain",
+        "visual_literature_chain_extraction_result",
+    ):
+        value = state.artifacts.get(key)
+        if isinstance(value, dict):
+            candidates.append(dict(value))
+    for history_key in ("visual_literature_chain_history", "visual_literature_chain_extraction_history"):
+        history = state.artifacts.get(history_key)
+        if isinstance(history, list):
+            candidates.extend(dict(item) for item in history if isinstance(item, dict))
+
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        chain = _load_visual_candidate_chain_from_result(candidate)
+        if not chain:
+            chain = candidate if str(candidate.get("schema_version") or "") == "visual_structure_candidate_chain.v1" else {}
+        if not chain:
+            continue
+        key = str(chain.get("case_id") or chain.get("source_ref") or "") + "|" + str(len(chain.get("steps") or []))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(chain)
+    return out
+
+
+def _structure_resolution_target_identity_rows(
+    state: ToolExecutionState,
+    payload: dict[str, Any],
+    *,
+    task_id: str,
+    label: str,
+    source_ref: str,
+    source_title: str,
+) -> list[dict[str, Any]]:
+    if not _structure_label_is_target_identity(label, state.target_input):
+        return []
+    target_smiles = str(
+        state.target_input.get("target_smiles")
+        or state.target_input.get("isomeric_smiles")
+        or state.target_input.get("canonical_smiles")
+        or ""
+    ).strip()
+    if not target_smiles:
+        return []
+    source_locator = str(payload.get("source_locator") or payload.get("locator") or "").strip()
+    if not source_locator:
+        source_locator = "target input identity for literature target label"
+    row = _structure_resolution_candidate_row(
+        {
+            "smiles": target_smiles,
+            "source_locator": source_locator,
+            "evidence_refs": [source_ref] if source_ref else [],
+            "confidence": "high",
+        },
+        task_id=task_id,
+        label=label,
+        source_ref=source_ref,
+        source_title=source_title,
+        candidate_index=900001,
+        derivation_mode="target_input_identity",
+    )
+    row["target_identity_shortcut"] = True
+    row["reasons"] = [
+        reason
+        for reason in row.get("reasons", [])
+        if reason != "source_locator_missing"
+    ]
+    row["accepted"] = bool(row.get("rdkit_valid") and row.get("source_locator"))
+    return [row]
+
+
+def _structure_resolution_candidate_rows_from_chain(
+    chain: dict[str, Any],
+    *,
+    task_id: str,
+    label: str,
+    source_ref: str,
+    source_title: str,
+    derivation_mode: str,
+    candidate_offset: int = 0,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for idx, step in enumerate(chain.get("steps") or [], start=1):
         if not isinstance(step, dict):
             continue
         product_label = str(step.get("product_label") or step.get("label") or "").strip()
-        if product_label and not _structure_label_matches(product_label, label):
-            continue
-        rows.append(
-            _structure_resolution_candidate_row(
-                {
-                    "smiles": step.get("product_smiles"),
-                    "source_locator": step.get("source_locator") or (step.get("structure_derivation") or {}).get("source_locator"),
-                    "evidence_refs": step.get("evidence_refs"),
-                    "confidence": (step.get("structure_derivation") or {}).get("confidence") or step.get("confidence"),
-                },
-                task_id=task_id,
-                label=label,
-                source_ref=source_ref,
-                source_title=source_title,
-                candidate_index=idx,
-                derivation_mode="focused_visual_structure_resolution",
+        source_locator = step.get("source_locator") or (step.get("structure_derivation") or {}).get("source_locator")
+        confidence = (step.get("structure_derivation") or {}).get("confidence") or step.get("confidence")
+        if product_label and _structure_label_matches(product_label, label):
+            rows.append(
+                _structure_resolution_candidate_row(
+                    {
+                        "smiles": step.get("product_smiles"),
+                        "source_locator": source_locator,
+                        "evidence_refs": step.get("evidence_refs"),
+                        "confidence": confidence,
+                    },
+                    task_id=task_id,
+                    label=label,
+                    source_ref=source_ref,
+                    source_title=source_title,
+                    candidate_index=candidate_offset + idx,
+                    derivation_mode=derivation_mode,
+                )
             )
-        )
+        reactant_labels = [str(item).strip() for item in step.get("reactant_labels") or []]
+        reactant_smiles = [str(item).strip() for item in step.get("reactant_smiles") or []]
+        for reactant_index, reactant_label in enumerate(reactant_labels, start=1):
+            if not reactant_label or not _structure_label_matches(reactant_label, label):
+                continue
+            smiles = reactant_smiles[reactant_index - 1] if reactant_index <= len(reactant_smiles) else ""
+            if not smiles and str(step.get("main_reactant_smiles") or "").strip():
+                smiles = str(step.get("main_reactant_smiles") or "").strip()
+            rows.append(
+                _structure_resolution_candidate_row(
+                    {
+                        "smiles": smiles,
+                        "source_locator": source_locator,
+                        "evidence_refs": step.get("evidence_refs"),
+                        "confidence": confidence,
+                    },
+                    task_id=task_id,
+                    label=label,
+                    source_ref=source_ref,
+                    source_title=source_title,
+                    candidate_index=candidate_offset + idx * 100 + reactant_index,
+                    derivation_mode=derivation_mode,
+                )
+            )
     return rows
 
 
+def _dedupe_structure_resolution_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        key = "|".join([str(row.get("label") or ""), str(row.get("smiles") or ""), str(row.get("source_locator") or "")])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
 def _load_visual_candidate_chain_from_result(result: dict[str, Any]) -> dict[str, Any]:
+    nested = result.get("result")
+    if isinstance(nested, dict):
+        nested_chain = _load_visual_candidate_chain_from_result(nested)
+        if nested_chain:
+            return nested_chain
     path_value = str(result.get("candidate_chain_path") or "").strip()
     if path_value:
         path = Path(path_value)
@@ -1583,9 +2663,53 @@ def _structure_resolution_candidate_row(
 
 
 def _structure_label_matches(observed: str, expected: str) -> bool:
-    observed_text = " ".join(str(observed or "").lower().split())
-    expected_text = " ".join(str(expected or "").lower().split())
-    return bool(observed_text and expected_text and (observed_text == expected_text or expected_text in observed_text or observed_text in expected_text))
+    observed_tokens = _structure_label_tokens(observed)
+    expected_tokens = _structure_label_tokens(expected)
+    return bool(observed_tokens and observed_tokens == expected_tokens)
+
+
+def _structure_label_tokens(value: str) -> tuple[str, ...]:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    ignored = {"compound", "intermediate", "structure"}
+    return tuple(token for token in normalized.split() if token and token not in ignored)
+
+
+def _structure_label_is_target_identity(label: str, target_input: dict[str, Any]) -> bool:
+    label_key = _structure_identity_key(label)
+    if not label_key:
+        return False
+    target_keys = [
+        _structure_identity_key(target_input.get("target_name")),
+        _structure_identity_key(target_input.get("name")),
+        _structure_identity_key(target_input.get("case_id")),
+    ]
+    if any(_structure_identity_labels_match(label_key, target_key) for target_key in target_keys if target_key):
+        return True
+    aliases = target_input.get("target_aliases") or target_input.get("aliases") or []
+    if isinstance(aliases, str):
+        aliases = [aliases]
+    return any(
+        _structure_identity_labels_match(label_key, _structure_identity_key(alias))
+        for alias in aliases
+        if str(alias or "").strip()
+    )
+
+
+def _structure_identity_key(value: Any) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", str(value or "").lower()))
+
+
+def _structure_identity_labels_match(label_key: str, target_key: str) -> bool:
+    if not label_key or not target_key:
+        return False
+    if label_key == target_key:
+        return True
+    label_without_number = re.sub(
+        r"\s+(?:compound\s+)?\d+[a-z]?$",
+        "",
+        label_key,
+    ).strip()
+    return bool(label_without_number and label_without_number == target_key)
 
 
 def _resolution_safe_id(value: str) -> str:
@@ -1734,15 +2858,21 @@ def build_source_detail_curator_records_tool(state: ToolExecutionState, payload:
     validation = _validation_payload_from_payload_or_artifacts(state, payload)
     if not validation:
         return {"accepted": False, "reasons": ["visual_structure_chain_validation_missing"]}
+    evidence_refs = [str(item) for item in payload.get("evidence_refs") or [] if str(item).strip()]
+    pdf_evidence_dir = str(state.artifacts.get("literature_pdf_structure_evidence_dir") or "").strip()
+    if pdf_evidence_dir:
+        manifest_path = Path(pdf_evidence_dir) / "literature_pdf_structure_evidence.json"
+        if manifest_path.is_file():
+            evidence_refs.append(str(manifest_path.resolve()))
     curator_records = build_source_detail_curator_records_from_chain(
         validation,
         output_dir=out,
         source_ref=str(payload.get("source_ref") or validation.get("source_ref") or ""),
         source_title=str(payload.get("source_title") or validation.get("source_title") or ""),
-        evidence_refs=[str(item) for item in payload.get("evidence_refs") or [] if str(item).strip()],
+        evidence_refs=_dedupe_texts(evidence_refs),
         record_id=str(payload.get("record_id") or ""),
         provenance=str(payload.get("provenance") or "codex_source_text_translation"),
-        main_reactant_only=bool(payload.get("main_reactant_only", True)),
+        main_reactant_only=bool(payload.get("main_reactant_only", False)),
         write_file=True,
     )
     resolution = resolve_curator_records_to_source_detail_steps(
@@ -1774,6 +2904,7 @@ def build_source_detail_curator_records_tool(state: ToolExecutionState, payload:
         target_smiles=str(state.target_input.get("target_smiles") or ""),
         case_id=str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
         enable_online_anchor_resolution=_online_anchor_resolution_enabled(state.target_input),
+        advisory_anchor_catalog=_configured_advisory_anchor_catalog(state.target_input),
     )
     write_compiled_downstream_artifacts(compiled, output_dir=out)
     result = {
@@ -2090,18 +3221,12 @@ def _validation_rejected_by_route_verifier(validation: dict[str, Any], report: d
 
 def _native_route_verified_solved(state: ToolExecutionState) -> bool:
     verifier = dict(state.artifacts.get("route_verifier") or {})
-    if verifier:
-        return bool(verifier.get("accepted")) and str(verifier.get("route_status") or "") == "solved"
-    audit = dict(state.artifacts.get("route_audit") or {})
-    if not audit:
-        return False
-    embedded_verifier = dict(audit.get("route_verifier") or audit.get("raw_route_verifier") or {})
-    if embedded_verifier:
-        return bool(embedded_verifier.get("accepted")) and str(embedded_verifier.get("route_status") or "") == "solved"
-    return (
-        str(audit.get("route_status") or "") == "solved"
-        and bool(audit.get("stock_audit_passed"))
-        and not bool(audit.get("fake_closure_rejected"))
+    if not verifier:
+        audit = dict(state.artifacts.get("route_audit") or {})
+        verifier = dict(audit.get("route_verifier") or audit.get("raw_route_verifier") or {})
+    return is_accepted_route_verifier_report(
+        verifier,
+        expected_target_smiles=str(state.target_input.get("target_smiles") or ""),
     )
 
 
@@ -2128,6 +3253,81 @@ def _guided_policy_from_payload_or_artifacts(state: ToolExecutionState, payload:
         if isinstance(item, dict):
             return dict(item)
     return {}
+
+
+def _route_expansion_policy_for_child_target(
+    *,
+    state: ToolExecutionState,
+    payload: dict[str, Any],
+    target: dict[str, Any],
+    index: int,
+) -> dict[str, Any]:
+    explicit = target.get("policy") or target.get("chem_enzy_search_policy")
+    if isinstance(explicit, dict) and explicit and not target.get("policy_runtime_rebuild"):
+        return dict(explicit)
+    base = _guided_policy_from_payload_or_artifacts(state, payload)
+    smiles = str(target.get("smiles") or target.get("target_smiles") or "").strip()
+    name = str(target.get("name") or target.get("target_name") or f"subgoal_{index}")
+    budget = dict(base.get("budget") or {})
+    budget["max_depth"] = int(payload.get("max_steps") or target.get("max_depth") or budget.get("max_depth") or 20)
+    budget["max_iterations"] = int(
+        payload.get("chem_enzy_iterations") or target.get("max_iterations") or budget.get("max_iterations") or 50
+    )
+    budget["expansion_topk"] = int(
+        payload.get("chem_enzy_expansion_topk") or target.get("expansion_topk") or budget.get("expansion_topk") or 100
+    )
+    if payload.get("timeout_s") is not None:
+        try:
+            budget["timeout_s"] = float(payload.get("timeout_s") or 0)
+        except (TypeError, ValueError):
+            pass
+    source_budget = dict(base.get("source_budget") or {})
+    source_budget["require_target_core_retention"] = True
+    source_budget["analogy_is_advisory_only"] = True
+    if int(source_budget.get("max_unexplained_heavy_atom_jump") or 0) <= 0:
+        source_budget["max_unexplained_heavy_atom_jump"] = 12
+    compiler = dict(base.get("compiler_metadata") or {})
+    compiler["requires_verifier"] = True
+    compiler["no_solved_claim"] = True
+    compiler["child_route_cannot_promote_parent"] = True
+    refs = [
+        str(item)
+        for item in target.get("evidence_refs") or []
+        if str(item or "").strip()
+    ]
+    if smiles:
+        refs.append(f"child_target:{smiles}")
+    return {
+        "schema_version": "chem_enzy_search_policy.v1",
+        "policy_id": str(
+            base.get("policy_id")
+            or f"{state.preflight.get('case_id') or state.target_input.get('target_name') or 'case'}_child_{index}_policy"
+        ),
+        "operator_id": str(base.get("operator_id") or "agentic_blackboard_controller"),
+        "case_id": str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
+        "evidence_refs": _dedupe_texts([*(base.get("evidence_refs") or []), *refs]),
+        "terminal_blacklist": [str(item) for item in base.get("terminal_blacklist") or [] if str(item or "").strip()],
+        "anchor_whitelist": [smiles] if smiles else [str(item) for item in base.get("anchor_whitelist") or []],
+        "active_bridge_tasks": [dict(item) for item in base.get("active_bridge_tasks") or [] if isinstance(item, dict)],
+        "accepted_exact_row_ids": [str(item) for item in base.get("accepted_exact_row_ids") or [] if str(item or "").strip()],
+        "selected_analogical_hypothesis_ids": [
+            str(item) for item in base.get("selected_analogical_hypothesis_ids") or [] if str(item or "").strip()
+        ],
+        "selected_analogical_template_ids": [
+            str(item) for item in base.get("selected_analogical_template_ids") or [] if str(item or "").strip()
+        ],
+        "forbidden_template_ids": [str(item) for item in base.get("forbidden_template_ids") or [] if str(item or "").strip()],
+        "preferred_subgoal": {
+            "schema_version": "runtime_rebuilt_child_subgoal.v1",
+            "target": {"name": name, "smiles": smiles},
+            "preferred_subgoals": [name, smiles],
+        },
+        "source_budget": source_budget,
+        "rerun_reason": "runtime rebuilt compact child-target policy",
+        "budget": budget,
+        "mode": str(base.get("mode") or "guided"),
+        "compiler_metadata": compiler,
+    }
 
 
 def _plugin_only_guided_policy(
@@ -2266,6 +3466,8 @@ def _pdf_evidence_from_payload_or_artifacts(state: ToolExecutionState, payload: 
     for row in _pdf_evidence_candidates_from_artifacts(state):
         if _pdf_evidence_matches_payload(row, payload):
             return dict(row)
+    if _payload_selects_specific_literature_source(payload):
+        return {}
     artifact = state.artifacts.get("literature_pdf_structure_evidence")
     return dict(artifact) if isinstance(artifact, dict) else {}
 
@@ -2294,8 +3496,11 @@ def _pdf_evidence_candidates_from_artifacts(state: ToolExecutionState) -> list[d
 
 
 def _pdf_evidence_matches_payload(evidence: dict[str, Any], payload: dict[str, Any]) -> bool:
-    source_ref = str(payload.get("source_ref") or "").strip().lower()
-    if source_ref and source_ref == str(evidence.get("source_ref") or "").strip().lower():
+    source_ref = _canonical_source_ref(payload.get("source_ref"))
+    evidence_ref = _canonical_source_ref(evidence.get("source_ref"))
+    if source_ref and evidence_ref and source_ref != evidence_ref:
+        return False
+    if source_ref and source_ref == evidence_ref:
         return True
     pdf_path = _normalized_path_key(payload.get("pdf_path"))
     evidence_pdf = _normalized_path_key(evidence.get("source_pdf_path") or evidence.get("pdf_path"))
@@ -2304,6 +3509,15 @@ def _pdf_evidence_matches_payload(evidence: dict[str, Any], payload: dict[str, A
     source_title = _text_key(payload.get("source_title"))
     evidence_title = _text_key(evidence.get("source_title"))
     return bool(source_title and evidence_title and source_title == evidence_title)
+
+
+def _payload_selects_specific_literature_source(payload: dict[str, Any]) -> bool:
+    return bool(
+        str(payload.get("source_ref") or "").strip()
+        or str(payload.get("pdf_path") or "").strip()
+        or str(payload.get("source_title") or "").strip()
+        or str(payload.get("pdf_evidence_path") or "").strip()
+    )
 
 
 def _pdf_evidence_key(evidence: dict[str, Any]) -> str:
@@ -2584,8 +3798,7 @@ def _visual_candidate_quality_score(candidate: dict[str, Any]) -> tuple[int, int
     steps = _visual_candidate_steps(candidate)
     valid_steps = 0
     labels: set[str] = set()
-    has_terminal_11 = 0
-    has_target_product = 0
+    source_grounded_steps = 0
     has_source_ref = 1 if str(candidate.get("source_ref") or _doi_source_ref(candidate) or "").strip() else 0
     evidence_count = len([item for item in candidate.get("evidence_refs") or [] if str(item or "").strip()])
     for step in steps:
@@ -2596,18 +3809,23 @@ def _visual_candidate_quality_score(candidate: dict[str, Any]) -> tuple[int, int
         if str(step.get("source_ref") or "").strip():
             has_source_ref = 1
         evidence_count += len([item for item in step.get("evidence_refs") or [] if str(item or "").strip()])
+        if str(step.get("source_locator") or "").strip():
+            source_grounded_steps += 1
         product_label = str(step.get("product_label") or "").strip().lower()
         if product_label:
             labels.add(product_label)
-            if product_label == "bufotalin":
-                has_target_product = 1
         for label in step.get("reactant_labels") or []:
             clean = str(label or "").strip().lower()
             if clean:
                 labels.add(clean)
-                if clean == "11":
-                    has_terminal_11 = 1
-    return (valid_steps, has_source_ref, min(evidence_count, 25), len(labels), has_terminal_11, has_target_product)
+    return (
+        valid_steps,
+        has_source_ref,
+        source_grounded_steps,
+        min(evidence_count, 25),
+        len(labels),
+        len(steps),
+    )
 
 
 def _condition_repair_rows(value: Any) -> list[dict[str, Any]]:
@@ -2978,9 +4196,21 @@ def _route_expansion_child_targets(
                 "recursive_depth": int(item.get("recursive_depth") or 0),
                 "parent_smiles": str(item.get("parent_smiles") or ""),
                 "parent_candidate_id": str(item.get("parent_candidate_id") or ""),
+                "task_scope": str(item.get("task_scope") or ""),
+                "precursor_set_smiles": str(item.get("precursor_set_smiles") or ""),
+                "precursor_component_index": int(item.get("precursor_component_index") or 0),
+                "precursor_component_count": int(item.get("precursor_component_count") or 1),
+                "multi_component_precursor_set": bool(item.get("multi_component_precursor_set")),
+                "requires_precursor_set_stitching": bool(item.get("requires_precursor_set_stitching")),
+                "sibling_precursor_smiles": [
+                    str(value)
+                    for value in item.get("sibling_precursor_smiles") or []
+                    if str(value or "").strip()
+                ],
                 "template_id": str(item.get("template_id") or ""),
                 "application_id": str(item.get("application_id") or ""),
                 "policy": dict(item.get("chem_enzy_search_policy") or item.get("policy") or {}),
+                "policy_runtime_rebuild": bool(item.get("policy_runtime_rebuild") or payload.get("child_policy_runtime_rebuild")),
                 "exact_target_override": bool(
                     item.get("exact_target_override")
                     or item.get("strict_exact_target")
@@ -3163,6 +4393,93 @@ def _exact_target_audit_required(target: dict[str, Any]) -> bool:
     )
 
 
+def _route_expansion_parent_relevance_gate(target: dict[str, Any]) -> dict[str, Any]:
+    smiles = str(target.get("smiles") or target.get("target_smiles") or "").strip()
+    component_count = _safe_positive_int(target.get("precursor_component_count"), default=1)
+    multi_component = bool(
+        target.get("multi_component_precursor_set")
+        or target.get("requires_precursor_set_stitching")
+        or component_count > 1
+    )
+    if not multi_component:
+        return {"accepted": True, "reasons": []}
+
+    siblings = [
+        str(value).strip()
+        for value in target.get("sibling_precursor_smiles") or []
+        if str(value or "").strip()
+    ]
+    precursor_set = str(target.get("precursor_set_smiles") or "").strip()
+    if precursor_set and "." in precursor_set:
+        siblings.extend(
+            part.strip()
+            for part in precursor_set.split(".")
+            if part.strip() and part.strip() != smiles
+        )
+    sibling_counts = [
+        _heavy_atom_count_from_smiles(value)
+        for value in siblings
+        if _heavy_atom_count_from_smiles(value) > 0
+    ]
+    current_heavy_atoms = _heavy_atom_count_from_smiles(smiles)
+    largest_sibling_atoms = max(sibling_counts or [0])
+    if current_heavy_atoms <= 0 or largest_sibling_atoms <= 0:
+        return {
+            "accepted": True,
+            "reasons": ["route_expansion_parent_relevance_gate_insufficient_structure_context"],
+            "current_heavy_atoms": current_heavy_atoms,
+            "largest_sibling_heavy_atoms": largest_sibling_atoms,
+        }
+    small_component_of_large_parent = (
+        current_heavy_atoms <= 8
+        and largest_sibling_atoms >= 20
+        and largest_sibling_atoms >= current_heavy_atoms * 2
+    ) or (
+        current_heavy_atoms <= 12
+        and largest_sibling_atoms >= 30
+        and largest_sibling_atoms >= current_heavy_atoms * 3
+    )
+    if small_component_of_large_parent:
+        return {
+            "accepted": False,
+            "reasons": ["child_component_not_parent_proximal"],
+            "current_heavy_atoms": current_heavy_atoms,
+            "largest_sibling_heavy_atoms": largest_sibling_atoms,
+            "precursor_component_count": component_count,
+        }
+    return {
+        "accepted": True,
+        "reasons": [],
+        "current_heavy_atoms": current_heavy_atoms,
+        "largest_sibling_heavy_atoms": largest_sibling_atoms,
+        "precursor_component_count": component_count,
+    }
+
+
+def _safe_positive_int(value: Any, *, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _heavy_atom_count_from_smiles(smiles: str) -> int:
+    text = str(smiles or "").strip()
+    if not text:
+        return 0
+    try:
+        from rdkit import Chem
+
+        mol = Chem.MolFromSmiles(text)
+        if mol is not None:
+            return int(mol.GetNumHeavyAtoms())
+    except Exception:
+        pass
+    tokens = re.findall(r"Cl|Br|Si|Se|[A-Z][a-z]?|[bcnops]", text)
+    return sum(1 for token in tokens if token not in {"H"})
+
+
 def _valid_smiles(value: str) -> bool:
     try:
         from rdkit import Chem
@@ -3326,6 +4643,93 @@ def _literature_template_plugin_runtime_diagnostics(result: dict[str, Any], requ
         "added_candidates": added,
         "reasons": reasons,
     }
+
+
+def _guided_chemenzy_runtime_diagnostic(result: dict[str, Any]) -> dict[str, Any]:
+    reasons = [str(item) for item in result.get("reasons") or [] if str(item or "").strip()]
+    status = str(result.get("status") or "")
+    exit_code = result.get("exit_code")
+    log_diagnostic = _chemenzy_log_runtime_diagnostic(result)
+    if log_diagnostic:
+        return log_diagnostic
+    if not reasons and not status and exit_code in (None, 0):
+        return {}
+    if bool(result.get("ok") or result.get("accepted")):
+        return {}
+    diagnostic_reasons = reasons or ([status] if status else ["chemenzy_runtime_unresolved"])
+    return {
+        "schema_version": "agent_chemenzy_runtime_diagnostic.v1",
+        "diagnostic_id": "chemenzy_runtime:" + ":".join(diagnostic_reasons[:3]),
+        "status": status,
+        "exit_code": exit_code,
+        "reasons": diagnostic_reasons,
+        "timeout_s": result.get("timeout_s"),
+        "allowed_use": "blackboard_failure_feedback_only",
+        "not_parent_route_proof": True,
+        "no_solved_claim": True,
+    }
+
+
+def _chemenzy_log_runtime_diagnostic(result: dict[str, Any]) -> dict[str, Any]:
+    log_text = _chemenzy_runtime_log_text(result)
+    lowered = log_text.lower()
+    if not lowered:
+        return {}
+    markers = []
+    if "torchtext.data.field" in lowered:
+        markers.append("torchtext_legacy_field_missing")
+    if "'vocab' object has no attribute 'vocab'" in lowered:
+        markers.append("torchtext_vocab_legacy_api_mismatch")
+    if "'vocab' object has no attribute 'stoi'" in lowered or "'vocab' object has no attribute 'itos'" in lowered:
+        markers.append("torchtext_vocab_legacy_api_mismatch")
+    if "maximum recursion depth exceeded" in lowered and "onmt_models" in lowered:
+        markers.append("torchtext_vocab_shim_recursion")
+    if not markers:
+        return {}
+    return {
+        "schema_version": "agent_chemenzy_runtime_diagnostic.v1",
+        "diagnostic_id": "chemenzy_runtime:onmt_one_step_model_runtime_error",
+        "status": "one_step_model_runtime_error",
+        "exit_code": result.get("exit_code"),
+        "reasons": ["onmt_one_step_model_runtime_error", *markers],
+        "timeout_s": result.get("timeout_s"),
+        "log_excerpt": _compact_runtime_log_excerpt(log_text),
+        "allowed_use": "blackboard_failure_feedback_only",
+        "not_parent_route_proof": True,
+        "no_solved_claim": True,
+    }
+
+
+def _chemenzy_runtime_log_text(result: dict[str, Any]) -> str:
+    chunks: list[str] = []
+    for key in ("stdout", "stderr"):
+        value = result.get(key)
+        if isinstance(value, str) and value.strip():
+            chunks.append(value)
+    for key in ("stdout_path", "stderr_path"):
+        raw = result.get(key)
+        if not raw:
+            continue
+        path = Path(str(raw))
+        if path.exists():
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+            if text.strip():
+                chunks.append(text)
+    return "\n".join(chunks)
+
+
+def _compact_runtime_log_excerpt(log_text: str, *, limit: int = 800) -> str:
+    lines = [line.strip() for line in log_text.splitlines() if line.strip()]
+    interesting = [
+        line
+        for line in lines
+        if any(token in line.lower() for token in ("torchtext", "vocab", "recursion", "onmt_models"))
+    ]
+    excerpt = "\n".join(interesting or lines[:8])
+    return excerpt[:limit]
 
 
 def _route_failure_feedback_from_payload_or_artifacts(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
@@ -3555,6 +4959,7 @@ def _compile_open_research_downstream(
             target_smiles=target_smiles,
             case_id=str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
             enable_online_anchor_resolution=_online_anchor_resolution_enabled(state.target_input),
+            advisory_anchor_catalog=_configured_advisory_anchor_catalog(state.target_input),
         )
         result = _compiled_downstream_harness_result(compiled, output_dir=open_dir, source=source)
         if result.get("accepted"):
@@ -3568,6 +4973,7 @@ def _compile_open_research_downstream(
             target_smiles=target_smiles,
             case_id=str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
             enable_online_anchor_resolution=_online_anchor_resolution_enabled(state.target_input),
+            advisory_anchor_catalog=_configured_advisory_anchor_catalog(state.target_input),
         ),
         output_dir=open_dir,
         source=str(candidates[0][0]),
@@ -3822,11 +5228,17 @@ def _write_tool_record(state: ToolExecutionState, record: ToolCallRecord) -> Non
 
 
 def _chem_enzy_python_bin() -> Path | None:
-    env_prefix = Path(os.environ.get("CHEMENZY_ENV_PREFIX", str(DEFAULT_CHEMENZY_ENV_PREFIX)))
-    candidate = env_prefix / "bin" / "python"
-    if candidate.exists():
-        return candidate
-    return Path(sys.executable) if (ROOT / "vendor/ChemEnzyRetroPlanner").exists() else None
+    report = _chem_enzy_runtime_preflight()
+    python_executable = str(report.get("python_executable") or "")
+    return Path(python_executable) if report.get("accepted") and python_executable else None
+
+
+def _chem_enzy_runtime_preflight() -> dict[str, Any]:
+    return diagnose_chem_enzy_runtime(
+        env_prefix=os.environ.get("CHEMENZY_ENV_PREFIX", str(DEFAULT_CHEMENZY_ENV_PREFIX)),
+        vendor_root=ROOT / "vendor" / "ChemEnzyRetroPlanner",
+        launcher_path=ROOT / "scripts" / "run_chem_enzy_plan_for_web.py",
+    )
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

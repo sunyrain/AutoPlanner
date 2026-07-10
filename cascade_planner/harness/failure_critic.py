@@ -21,11 +21,17 @@ def compile_failure_critic_report(
     target = str(target_name or ((board.get("target_profile") or {}).get("target_name")) or "")
     verifier = _latest_verifier(artifact_map)
     plugin_runtime = _latest_plugin_runtime(artifact_map)
+    blackboard_failures = _blackboard_failure_reasons(board)
+    blackboard_runtime = _blackboard_runtime_reasons(board)
+    blackboard_exact_audits = _blackboard_exact_chain_audit_reasons(board)
     compiled = _compiled_downstream(artifact_map)
 
     source_reasons = _dedupe(
         [str(item) for item in verifier.get("reasons") or []]
         + [str(item) for item in plugin_runtime.get("reasons") or []]
+        + blackboard_failures
+        + blackboard_runtime
+        + blackboard_exact_audits
     )
     if _plugin_product_hits_zero(plugin_runtime, compiled):
         source_reasons.append("plugin_product_hits=0")
@@ -127,6 +133,77 @@ def compile_failure_critic_report(
         next_action_bias.extend(["generate_disconnection_hypotheses", "search_literature"])
         constraints["literature_rows_connected"] = False
 
+    if "chem_enzy_timeout" in source_reasons:
+        route_failures.append(_failure("chem_enzy_timeout", {"route_status": "unresolved"}, "guided Chemenzy search timed out within the configured budget"))
+        next_action_bias.extend(["expand_child_target", "extract_pdf_literature_structures"])
+        blocked_directions.append(
+            {
+                "schema_version": "agent_blocked_direction.v1",
+                "direction": "repeat_same_guided_chemenzy_budget_without_new_signal",
+                "reason": "chem_enzy_timeout",
+            }
+        )
+
+    if any(reason in source_reasons for reason in ("no_route_found", "guided_chemenzy_no_route_found", "guided_chemenzy_unresolved")):
+        route_failures.append(_failure("no_route_found", {"route_status": "unresolved"}, "guided Chemenzy returned no route for the parent target"))
+        bridge_tasks.append(
+            _bridge_task(
+                case,
+                target,
+                "target_side_bridge_before_guided_retry",
+                "Acquire or resolve a target-side semisynthesis bridge before repeating the same guided parent scan.",
+                priority="high",
+            )
+        )
+        next_action_bias.extend(["search_literature", "generate_disconnection_hypotheses", "expand_child_target"])
+        blocked_directions.append(
+            {
+                "schema_version": "agent_blocked_direction.v1",
+                "direction": "repeat_same_guided_chemenzy_without_new_bridge_signal",
+                "reason": "no_route_found",
+            }
+        )
+        constraints["guided_parent_scan_requires_new_bridge_signal"] = True
+
+    exact_audit_reasons = [reason for reason in source_reasons if reason.startswith("exact_chain_audit:")]
+    if exact_audit_reasons:
+        route_failures.append(
+            _failure(
+                "exact_chain_audit_rejected",
+                {"route_status": "unresolved", "reasons": exact_audit_reasons},
+                "source-detail exact-row compilation did not produce an auditable one-step chain",
+            )
+        )
+        bridge_tasks.append(
+            _bridge_task(
+                case,
+                target,
+                "exact_source_rows_need_structured_target_bridge",
+                "Resolve exact target-side bridge rows or source-detail structures before compiling the same visual chain again.",
+                priority="medium",
+            )
+        )
+        next_action_bias.extend(["search_literature", "extract_pdf_literature_structures", "resolve_literature_structure_task"])
+        blocked_directions.append(
+            {
+                "schema_version": "agent_blocked_direction.v1",
+                "direction": "repeat_visual_exact_row_compile_without_new_exact_structure",
+                "reason": "exact_chain_audit_rejected",
+            }
+        )
+        constraints["repeat_exact_row_compile_requires_new_source_detail_signal"] = True
+
+    if "visual_direct_api_failed" in source_reasons:
+        route_failures.append(_failure("visual_direct_api_failed", {"route_status": "unresolved"}, "visual extraction API was unavailable or rejected the request"))
+        next_action_bias.extend(["extract_pdf_literature_structures", "derive_broad_reaction_template", "expand_child_target"])
+        blocked_directions.append(
+            {
+                "schema_version": "agent_blocked_direction.v1",
+                "direction": "visual_exact_row_extraction_until_visual_api_available",
+                "reason": "visual_direct_api_failed",
+            }
+        )
+
     accepted = bool(route_failures or bridge_tasks or terminal_blacklist or source_reasons)
     return {
         "schema_version": FAILURE_CRITIC_SCHEMA,
@@ -183,6 +260,40 @@ def _latest_plugin_runtime(artifacts: dict[str, Any]) -> dict[str, Any]:
         if isinstance(result, dict) and isinstance(result.get("literature_template_plugin_runtime"), dict):
             return dict(result["literature_template_plugin_runtime"])
     return {}
+
+
+def _blackboard_failure_reasons(blackboard: dict[str, Any]) -> list[str]:
+    return _dedupe(
+        [
+            str(row.get("reason") or "")
+            for row in blackboard.get("route_failures") or []
+            if isinstance(row, dict) and str(row.get("reason") or "").strip()
+        ]
+    )
+
+
+def _blackboard_runtime_reasons(blackboard: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    for row in blackboard.get("plugin_runtime_diagnostics") or []:
+        if not isinstance(row, dict):
+            continue
+        reasons.extend(str(item) for item in row.get("reasons") or [] if str(item or "").strip())
+    return _dedupe(reasons)
+
+
+def _blackboard_exact_chain_audit_reasons(blackboard: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    evidence = blackboard.get("literature_evidence") or {}
+    if not isinstance(evidence, dict):
+        return []
+    for row in evidence.get("exact_chain_audits") or []:
+        if not isinstance(row, dict) or row.get("accepted"):
+            continue
+        for reason in row.get("reasons") or []:
+            text = str(reason or "").strip()
+            if text:
+                reasons.append(f"exact_chain_audit:{text}")
+    return _dedupe(reasons)
 
 
 def _compiled_downstream(artifacts: dict[str, Any]) -> dict[str, Any]:

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import subprocess
@@ -7,6 +8,8 @@ import unittest
 from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
+
+from rdkit import Chem
 
 from cascade_planner.harness.codex_plan import _workflow_plan_normalization_audit, deterministic_workflow_plan
 from cascade_planner.harness.preflight import run_preflight
@@ -35,7 +38,10 @@ from cascade_planner.harness.tools import (
 from cascade_planner.harness.open_research_retrieval import prefetch_open_research_evidence
 from cascade_planner.harness.source_detail_chain_builder import resolve_curator_records_to_source_detail_steps
 from cascade_planner.harness.source_detail_resolution import source_detail_curator_records_path
-from scripts.run_codex_entry_agentic_blackboard import _codex_action_planner_env_overrides
+from scripts.run_codex_entry_agentic_blackboard import (
+    _codex_action_planner_env_overrides,
+    _codex_agent_team_runtime_args,
+)
 from scripts.run_codex_entry_controller import _resolve_cli_targets
 from scripts.run_chem_enzy_plan_for_web import _stock_names_from_payload
 from scripts.run_open_structure_template_agent import _read_or_build_prompt, _validate_open_agent_outputs
@@ -50,9 +56,41 @@ ATORVASTATIN_SMILES = (
     "CC(C)C1=C(C(=C(N1CC[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)"
     "C3=CC=CC=C3)C(=O)NC4=CC=CC=C4"
 )
+ATORVASTATIN_REGIOISOMER_SMILES = (
+    "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccc(F)cc2)"
+    "n(CC[C@H](O)C[C@H](O)CC(=O)O)c1-c1ccccc1"
+)
+_SOURCE_FIXTURE = Path(__file__).parent / "fixtures" / "source_evidence_stub.pdf"
+_SOURCE_PAGE_FIXTURE = Path(__file__).parent / "fixtures" / "source_page.ppm"
+_SOURCE_MANIFEST_FIXTURE = Path(__file__).parent / "fixtures" / "source_evidence_manifest.json"
+_TRUSTED_REGISTRY_FIXTURE = Path(__file__).parent / "fixtures" / "trusted_literature_step_registry.json"
+SOURCE_EVIDENCE_MANIFEST_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "source_evidence_manifest.json"
+).resolve()
+TRUSTED_LITERATURE_REGISTRY_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "trusted_literature_step_registry.json"
+).resolve()
 
 
 class CodexEntryHarnessContractTest(unittest.TestCase):
+    def test_preflight_rejects_known_target_name_smiles_mismatch(self):
+        correct = run_preflight(TargetInput(target_name="atorvastatin", target_smiles=ATORVASTATIN_SMILES))
+        wrong = run_preflight(TargetInput(target_name="atorvastatin", target_smiles=ATORVASTATIN_REGIOISOMER_SMILES))
+        wrong_renamed = run_preflight(
+            TargetInput(target_name="atorvastatin_latest_small_stock_depth20_real", target_smiles=ATORVASTATIN_REGIOISOMER_SMILES)
+        )
+        analog_probe = run_preflight(TargetInput(target_name="atorvastatin_like", target_smiles="CCO"))
+
+        self.assertTrue(correct["accepted"], correct["reasons"])
+        self.assertEqual(correct["known_target_identity_audit"]["observed_inchi_key"], "XUKUURHRXDUEBC-KAYWLYCHSA-N")
+        self.assertFalse(wrong["accepted"])
+        self.assertIn("known_target_identity_mismatch:atorvastatin", wrong["reasons"])
+        self.assertEqual(wrong["known_target_identity_audit"]["observed_inchi_key"], "OYBJITKZFDHGHP-SVBPBHIXSA-N")
+        self.assertFalse(wrong_renamed["accepted"])
+        self.assertIn("known_target_identity_mismatch:atorvastatin", wrong_renamed["reasons"])
+        self.assertTrue(analog_probe["accepted"], analog_probe["reasons"])
+        self.assertEqual(analog_probe["known_target_identity_audit"], {})
+
     def test_cli_accepts_positional_smiles_and_creates_batch_run_dirs(self):
         with tempfile.TemporaryDirectory() as tmp:
             proc = subprocess.run(
@@ -103,6 +141,12 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         args = Namespace(
             codex_action_planner_tools="web_search,browser,literature_search",
             codex_action_planner_max_tool_calls=6,
+            codex_action_planner_timeout_s=420.0,
+            codex_scout_timeout_s=240.0,
+            codex_scout_reasoning_effort="medium",
+            timeout_s=300.0,
+            codex_worker_auth="ambient",
+            codex_worker_sandbox="bypassed",
         )
 
         overrides = _codex_action_planner_env_overrides(args)
@@ -112,6 +156,53 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
             "web_search,browser,literature_search",
         )
         self.assertEqual(overrides["AUTOPLANNER_CODEX_ACTION_PLANNER_MAX_TOOL_CALLS"], "6")
+        self.assertEqual(overrides["AUTOPLANNER_CODEX_ACTION_PLANNER_TIMEOUT_S"], "420.0")
+        self.assertEqual(overrides["AUTOPLANNER_CODEX_SCOUT_TIMEOUT_S"], "240.0")
+        self.assertEqual(overrides["AUTOPLANNER_CODEX_SCOUT_REASONING_EFFORT"], "medium")
+        self.assertEqual(overrides["AUTOPLANNER_CODEX_WORKER_AUTH"], "ambient")
+        self.assertEqual(overrides["AUTOPLANNER_CODEX_WORKER_SANDBOX"], "bypassed")
+
+    def test_agentic_blackboard_cli_defaults_codex_planner_timeout_to_total_timeout(self):
+        args = Namespace(
+            codex_action_planner_tools=None,
+            codex_action_planner_max_tool_calls=None,
+            codex_action_planner_timeout_s=None,
+            codex_scout_timeout_s=None,
+            codex_scout_reasoning_effort=None,
+            timeout_s=300.0,
+            codex_worker_auth="auto",
+            codex_worker_sandbox=None,
+        )
+
+        overrides = _codex_action_planner_env_overrides(args)
+
+        self.assertEqual(overrides["AUTOPLANNER_CODEX_ACTION_PLANNER_TIMEOUT_S"], "300.0")
+
+    def test_agent_team_inherits_global_model_and_worker_auth(self):
+        model, auth = _codex_agent_team_runtime_args(
+            Namespace(
+                codex_agent_team_model="",
+                codex_agent_team_auth_mode=None,
+                model="gpt-5.5",
+                codex_worker_auth="key",
+            )
+        )
+
+        self.assertEqual(model, "gpt-5.5")
+        self.assertEqual(auth, "api_key")
+
+    def test_explicit_agent_team_runtime_settings_override_global_values(self):
+        model, auth = _codex_agent_team_runtime_args(
+            Namespace(
+                codex_agent_team_model="team-model",
+                codex_agent_team_auth_mode="ambient_codex_cli",
+                model="global-model",
+                codex_worker_auth="key",
+            )
+        )
+
+        self.assertEqual(model, "team-model")
+        self.assertEqual(auth, "ambient_codex_cli")
 
     def test_invalid_smiles_stops_before_codex_research_and_emits_invalid_input(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -341,7 +432,44 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertEqual(visual_record.status, "rejected")
         self.assertIn("visual_input_images_missing", visual_record.reasons)
 
-    def test_literature_visual_chain_tools_are_allowed_and_chain_artifacts_connect(self):
+    def test_structure_resolution_uses_target_identity_without_visual_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ToolExecutionState(
+                run_dir=Path(tmp),
+                target_input={
+                    "target_name": "paclitaxel_case",
+                    "target_smiles": "CCO",
+                    "family_hint": "taxane paclitaxel",
+                    "target_aliases": ["Taxol"],
+                },
+                preflight={"case_id": "paclitaxel_case", "target_profile": {"heavy_atoms": 3}},
+            )
+            with patch("cascade_planner.harness.tools.run_visual_literature_chain_agent") as visual_mock:
+                record = execute_local_tool(
+                    "resolve_literature_structure_task",
+                    {
+                        "schema_version": "literature_structure_resolution_payload.v1",
+                        "task_id": "resolve_structure:doi_source_taxol",
+                        "label": "Taxol",
+                        "source_ref": "doi:source",
+                        "source_title": "Taxol paper",
+                        "source_locator": "Figure 1, compound Taxol",
+                        "run_visual": True,
+                        "no_solved_claim": True,
+                    },
+                    state,
+                )
+
+        visual_mock.assert_not_called()
+        result = record.output
+        self.assertEqual(record.status, "accepted")
+        self.assertEqual(result["status"], "resolved")
+        self.assertEqual(result["visual_attempt"], {})
+        self.assertEqual(result["resolved_structures"][0]["smiles"], "CCO")
+        self.assertEqual(result["resolved_structures"][0]["derivation_mode"], "target_input_identity")
+        self.assertTrue(result["resolved_structures"][0]["target_identity_shortcut"])
+
+    def test_visual_chain_drafts_connect_as_advisory_without_materialized_evidence(self):
         target = {
             "schema_version": "codex_entry_target_input.v1",
             "case_id": "visual_chain_case",
@@ -429,11 +557,18 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertIn("visual_structure_candidate_chain", state.artifacts)
         self.assertEqual(chain_record.status, "accepted")
         self.assertEqual(curator_record.status, "accepted")
-        self.assertEqual(route_record.status, "accepted")
+        self.assertEqual(route_record.status, "rejected")
+        self.assertIn("source_detail_step_not_trusted_curated", route_record.reasons)
         self.assertEqual(hybrid_record.status, "accepted")
-        self.assertEqual(curator_record.output["summary"]["one_step_row_count"], 2)
-        self.assertTrue(route_record.output["result"]["chain_audit"]["terminal_reached"])
-        self.assertEqual(hybrid_record.output["result"]["summary"]["literature_route_count"], 1)
+        self.assertEqual(curator_record.output["summary"]["one_step_row_count"], 0)
+        plugin = route_record.output["result"]["compiled_downstream"]["literature_template_plugin"]
+        self.assertEqual(plugin["one_step_rows"], [])
+        self.assertEqual(len(plugin["template_cards"]), 2)
+        self.assertFalse(route_record.output["result"]["chain_audit"]["terminal_reached"])
+        self.assertEqual(hybrid_record.output["result"]["summary"]["literature_route_count"], 0)
+        literature_route = hybrid_record.output["result"]["routes"][0]
+        self.assertEqual(literature_route["status"], "needs_exact_curation")
+        self.assertEqual(literature_route["step_count"], 0)
 
     def test_source_text_condition_repair_preserves_visual_smiles_for_partial_chain(self):
         target = {
@@ -720,16 +855,16 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
                         "metrics": {
                             "route_solved": True,
                             "strict_stock_solve": True,
-                            "terminal_reactants": ["CCO", "O"],
-                            "terminal_stock_status": {"CCO": True, "O": True},
+                            "terminal_reactants": ["CCO", "C", "O"],
+                            "terminal_stock_status": {"CCO": True, "C": True, "O": True},
                         },
                         "steps": [
                             {
                                 "index": 0,
                                 "main_reactant": "CCO",
-                                "aux_reactants": ["O"],
+                                "aux_reactants": ["C", "O", "O"],
                                 "product": request_target,
-                                "stock_status": {"CCO": True, "O": True},
+                                "stock_status": {"CCO": True, "C": True, "O": True},
                             }
                         ],
                     }
@@ -794,25 +929,24 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(verdict.verdict, "needs_followup")
+        self.assertEqual(verdict.verdict, "unresolved")
         self.assertFalse(verdict.solved)
-        self.assertIn("noncanonical_run_cannot_claim_solved", verdict.reasons)
+        self.assertIn("solved_requires_deterministic_parent_route_proof", verdict.reasons)
 
     def test_guided_chemenzy_verified_route_can_drive_final_solved_verdict(self):
+        raw = _accepted_ethanol_chemenzy_result_for_target("CCO")
+        verifier = verify_chemenzy_raw_routes(raw, target_smiles="CCO")
+        self.assertTrue(verifier["accepted"], verifier["reasons"])
         verdict = emit_final_verdict(
             {
                 "case_id": "guided_success",
+                "target_input": {"target_name": "ethanol", "target_smiles": "CCO"},
                 "preflight": {"accepted": True},
                 "artifacts": {
                     "guided_chemenzy": {
                         "schema_version": "guided_chemenzy_rerun_result.v1",
                         "accepted": True,
-                        "raw_route_verifier": {
-                            "schema_version": "harness_route_verifier_report.v1",
-                            "accepted": True,
-                            "route_status": "solved",
-                            "reasons": [],
-                        },
+                        "raw_route_verifier": verifier,
                     }
                 },
                 "tool_calls": [],
@@ -1430,7 +1564,7 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertEqual(result["summary"]["guided_policy_count"], 2)
         self.assertEqual(result["summary"]["route_expansion_task_count"], 1)
 
-    def test_open_research_downstream_compiler_prefers_curator_augmented_steps(self):
+    def test_open_research_manual_curator_draft_is_advisory_without_page_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             evidence_dir = root / "evidence"
@@ -1503,9 +1637,14 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
 
         self.assertTrue(result["accepted"], result["reasons"])
         self.assertEqual(result["source"], "curator_augmented_downstream")
-        self.assertEqual(result["summary"]["one_step_row_count"], 1)
-        self.assertEqual(plugin["one_step_rows"][0]["reactants"], "CC.O")
-        self.assertEqual(plugin["one_step_rows"][0]["template"]["source_policy_decision"], "enabled_literature_template_plugin")
+        self.assertIn("source_detail_step_not_trusted_curated", result["reasons"])
+        self.assertEqual(result["summary"]["one_step_row_count"], 0)
+        self.assertEqual(result["summary"]["template_card_count"], 1)
+        self.assertEqual(plugin["one_step_rows"], [])
+        self.assertEqual(len(plugin["template_cards"]), 1)
+        card = plugin["template_cards"][0]
+        self.assertEqual(card["applicability"]["allowed_use"], "mechanistic_template_hint_only")
+        self.assertFalse(card["applicability"]["direct_one_step_consumption"])
 
     def test_open_agent_output_validation_requires_retrieval_prefetch_consumption(self):
         def fake_fetch(url, headers, timeout_s):
@@ -2270,7 +2409,7 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertIn("literature_template_plugin_not_invoked", result["reasons"])
         self.assertEqual(result["literature_template_plugin_runtime"]["calls"], 0)
 
-    def test_compile_source_detail_chain_route_publishes_compiled_downstream_state(self):
+    def test_untrusted_source_detail_draft_publishes_advisory_downstream_state(self):
         step = {
             "schema_version": "source_detail_route_step.v1",
             "step_id": "ethanol_step",
@@ -2308,32 +2447,40 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
                 state,
             )
 
-        self.assertEqual(result.status, "accepted")
+        self.assertEqual(result.status, "rejected")
+        self.assertIn("source_detail_step_not_trusted_curated", result.reasons)
         compiled = state.artifacts["compiled_downstream"]
         self.assertEqual(compiled["schema_version"], "compiled_downstream_consumables.v1")
         self.assertTrue(compiled["literature_template_plugin"]["plugin_flags"]["enabled"])
+        plugin = state.artifacts["compiled_downstream_payload"]["literature_template_plugin"]["plugin_flags"]
+        self.assertEqual(plugin["one_step_rows"], [])
+        self.assertEqual(len(plugin["template_cards"]), 1)
+        self.assertFalse(plugin["template_cards"][0]["applicability"]["direct_one_step_consumption"])
         self.assertEqual(
-            state.artifacts["compiled_downstream_payload"]["literature_template_plugin"]["plugin_flags"]["one_step_rows"][0]["reactants"],
-            "CC",
+            plugin["template_cards"][0]["applicability"]["source_policy_decision"],
+            "advisory_visual_template_hint",
         )
 
-    def test_exact_codex_curator_record_resolves_and_publishes_one_step_row(self):
+    def test_human_reviewed_codex_record_with_materialized_evidence_publishes_exact_row(self):
         curator_records = {
             "schema_version": "source_detail_curator_records.v1",
             "records": [
                 {
                     "schema_version": "source_detail_curator_record.v1",
-                    "record_id": "exact_codex_curator_record",
-                    "source_ref": "doi:10.0000/exact-source-text",
-                    "source_title": "Exact source text route step",
-                    "evidence_refs": ["scheme:1"],
+                    "record_id": "human_reviewed_codex_curator_record",
+                    "source_ref": "doi:10.1000/revalidatable-stitch",
+                    "source_title": "Human-reviewed source text route step",
+                    "evidence_refs": [f"{SOURCE_EVIDENCE_MANIFEST_FIXTURE}::page:1"],
                     "provenance": "codex_source_text_translation",
-                    "source_excerpt": "Compound 3 was converted to ethanol 4.",
+                    "curation_status": "human_verified",
+                    "validation_status": "deterministically_validated",
+                    "authority": {"type": "human_curator", "id": "autoplanner-test-fixture"},
+                    "source_excerpt": "Ethanol was converted to ethyl acetate.",
                     "structure_derivation": {
                         "basis": "codex_source_text_translation",
                         "source_locator": {
-                            "source_ref": "doi:10.0000/exact-source-text",
-                            "source_title": "Exact source text route step",
+                            "source_ref": "doi:10.1000/revalidatable-stitch",
+                            "source_title": "Human-reviewed source text route step",
                         },
                         "confidence": "medium_high_for_structure_and_route",
                         "tool_checks": {
@@ -2345,17 +2492,17 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
                     "procedure_text_stored": False,
                     "steps": [
                         {
-                            "step_id": "exact_codex_step_1",
+                            "step_id": "ethyl_acetate",
                             "segment_id": "exact_codex_segment",
-                            "product_smiles": "CCO",
-                            "reactant_smiles": ["CC", "O"],
+                            "product_smiles": "CCOC(C)=O",
+                            "reactant_smiles": ["CCO"],
                             "relation_type": "exact",
                             "condition_candidate": {
                                 "schema_version": "condition_candidate.v1",
                                 "source_type": "exact",
                                 "condition_status": "evidence_backed",
-                                "reagent": "water",
-                                "evidence_refs": ["scheme:1"],
+                                "reagent": "acetylation conditions",
+                                "evidence_refs": [f"{SOURCE_EVIDENCE_MANIFEST_FIXTURE}::page:1"],
                             },
                         }
                     ],
@@ -2363,26 +2510,29 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
             ],
         }
 
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            os.environ,
+            {"AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY": str(TRUSTED_LITERATURE_REGISTRY_FIXTURE)},
+        ):
             root = Path(tmp)
             resolution = resolve_curator_records_to_source_detail_steps(
                 curator_records,
                 output_dir=root / "open_structure_research",
-                target_name="ethanol",
-                target_smiles="CCO",
-                source_ref="doi:10.0000/exact-source-text",
+                target_name="ethyl acetate",
+                target_smiles="CCOC(C)=O",
+                source_ref="doi:10.1000/revalidatable-stitch",
             )
             state = ToolExecutionState(
                 run_dir=root,
-                target_input={"target_name": "ethanol", "target_smiles": "CCO", "family_hint": ""},
-                preflight={"case_id": "ethanol"},
+                target_input={"target_name": "ethyl acetate", "target_smiles": "CCOC(C)=O", "family_hint": ""},
+                preflight={"case_id": "ethyl_acetate"},
             )
             result = execute_local_tool(
                 "compile_source_detail_chain_route",
                 {
                     "source_detail_steps": resolution["source_detail_route_steps"],
-                    "terminal_smiles": "CC",
-                    "terminal_name": "ethane",
+                    "terminal_smiles": "CCO",
+                    "terminal_name": "ethanol",
                 },
                 state,
             )
@@ -2392,10 +2542,16 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertEqual(result.status, "accepted", result.reasons)
         rows = state.artifacts["compiled_downstream"]["literature_template_plugin"]["one_step_rows"]
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["reactants"], "CC.O")
+        self.assertEqual(rows[0]["reactants"], "CCO")
         trace = rows[0]["literature_template_trace"]
-        self.assertEqual(trace["source_template_id"], "source_detail_exact_step:exact_codex_step_1")
-        self.assertEqual(trace["structure_derivation"]["source_locator"]["source_ref"], "doi:10.0000/exact-source-text")
+        self.assertEqual(trace["source_template_id"], "source_detail_exact_step:ethyl_acetate")
+        self.assertEqual(
+            trace["structure_derivation"]["source_locator"]["source_ref"],
+            "doi:10.1000/revalidatable-stitch",
+        )
+        chain_step = result.output["result"]["chain_audit"]["chain"][0]
+        self.assertTrue(chain_step["source_evidence"])
+        self.assertEqual(chain_step["source_evidence"][0]["page_number"], 1)
 
     def test_guided_chemenzy_rerun_merges_self_evo_memory_plugin_rows(self):
         def fake_run(cmd, **kwargs):
@@ -2601,7 +2757,71 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertEqual(request["chem_enzy_iterations"], 22)
         self.assertEqual(request["chem_enzy_expansion_topk"], 44)
         self.assertEqual(persisted["accepted_subgoal_count"], 1)
+        self.assertEqual(persisted["scope"], "route_expansion_subgoals")
+        self.assertFalse(persisted["parent_route_solved"])
+        self.assertTrue(persisted["no_parent_solved_claim"])
+        self.assertTrue(persisted["not_parent_route_proof"])
         self.assertTrue(persisted["subgoals"][0]["verifier"]["accepted"])
+
+    def test_route_expansion_subgoal_search_does_not_accept_small_multicomponent_reagent_as_parent_route(self):
+        def fake_run(cmd, **kwargs):
+            del kwargs
+            request_path = Path(cmd[cmd.index("--input") + 1])
+            output_path = Path(cmd[cmd.index("--output") + 1])
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            output_path.write_text(
+                json.dumps(_accepted_ethanol_chemenzy_result_for_target(request["target_smiles"])),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = ToolExecutionState(
+                run_dir=root,
+                target_input={"target_name": "large_parent", "target_smiles": BUFOTALIN_SMILES, "family_hint": ""},
+                preflight={"case_id": "large_parent_case"},
+                budget=HarnessBudget(max_route_expansion_subgoal_runs=1),
+            )
+            state.artifacts["compiled_downstream"] = {
+                "schema_version": "compiled_downstream_consumables.v1",
+                "accepted": True,
+            }
+            child_target = {
+                "schema_version": "route_expansion_child_target.v1",
+                "name": "acetic_acid_component",
+                "smiles": "CC(=O)O",
+                "task_scope": "precursor_component",
+                "precursor_set_smiles": f"{BUFOTALIN_SMILES}.CC(=O)O",
+                "precursor_component_index": 1,
+                "precursor_component_count": 2,
+                "multi_component_precursor_set": True,
+                "requires_precursor_set_stitching": True,
+                "sibling_precursor_smiles": [BUFOTALIN_SMILES],
+            }
+            with patch("cascade_planner.harness.tools._chem_enzy_python_bin", return_value=Path("/usr/bin/python3")):
+                with patch("cascade_planner.harness.tools.subprocess.run", side_effect=fake_run):
+                    with patch(
+                        "cascade_planner.harness.tools.verify_chemenzy_raw_routes",
+                        return_value={"accepted": True, "route_status": "solved", "reasons": []},
+                    ):
+                        record = execute_local_tool(
+                            "run_route_expansion_subgoal_search",
+                            {"child_targets": [child_target]},
+                            state,
+                        )
+            persisted = json.loads((root / "route_expansion_subgoal_search_result.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(record.status, "accepted")
+        self.assertFalse(persisted["accepted"])
+        self.assertFalse(persisted["solved"])
+        self.assertEqual(persisted["accepted_subgoal_count"], 0)
+        row = persisted["subgoals"][0]
+        self.assertTrue(row["verifier_accepted_before_parent_relevance_gate"])
+        self.assertFalse(row["accepted"])
+        self.assertFalse(row["solved"])
+        self.assertEqual(row["route_status"], "child_component_not_parent_proximal")
+        self.assertIn("child_component_not_parent_proximal", row["reasons"])
 
     def test_route_expansion_subgoal_search_unwraps_compiled_downstream_harness_result(self):
         def fake_run(cmd, **kwargs):
@@ -3090,6 +3310,61 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertEqual(persisted["status"], "skipped")
         self.assertIn("guided_policy_missing", persisted["reasons"])
 
+    def test_native_solved_gate_rejects_bare_stock_audit_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ToolExecutionState(
+                run_dir=Path(tmp),
+                target_input={"target_name": "ethanol", "target_smiles": "CCO", "family_hint": ""},
+                preflight={"accepted": True, "case_id": "ethanol"},
+            )
+            audit_record = execute_local_tool(
+                "audit_route_and_extract_frontier",
+                {"stock_audit_passed": True},
+                state,
+            )
+            guided_record = execute_local_tool("run_guided_chemenzy_rerun", {}, state)
+
+        self.assertEqual(audit_record.output["audit"]["route_status"], "solved")
+        self.assertEqual(guided_record.status, "accepted")
+        self.assertIn("guided_policy_missing", guided_record.output["result"]["reasons"])
+        self.assertNotIn("native_route_verified_solved", guided_record.output["result"]["reasons"])
+
+    def test_native_solved_gate_rejects_cross_target_verifier(self):
+        verifier = verify_chemenzy_raw_routes(
+            {
+                "target": "CCO",
+                "routes": [
+                    {
+                        "route_rank": 0,
+                        "metrics": {"terminal_reactants": ["CC", "O"]},
+                        "steps": [
+                            {
+                                "main_reactant": "CC",
+                                "aux_reactants": ["O"],
+                                "product": "CCO",
+                                "stock_status": {"CC": True, "O": True},
+                            }
+                        ],
+                    }
+                ],
+            },
+            target_smiles="CCO",
+        )
+        self.assertTrue(verifier["accepted"], verifier["reasons"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ToolExecutionState(
+                run_dir=Path(tmp),
+                target_input={"target_name": "ethylamine", "target_smiles": "CCN", "family_hint": ""},
+                preflight={"accepted": True, "case_id": "ethylamine"},
+            )
+            state.artifacts["route_verifier"] = verifier
+            guided_record = execute_local_tool("run_guided_chemenzy_rerun", {}, state)
+
+        self.assertEqual(guided_record.status, "accepted")
+        self.assertIn("guided_policy_missing", guided_record.output["result"]["reasons"])
+        self.assertNotIn("native_route_verified_solved", guided_record.output["result"]["reasons"])
+
     def test_self_evo_missing_staging_is_auditable_skip(self):
         with tempfile.TemporaryDirectory() as tmp:
             state = ToolExecutionState(
@@ -3147,39 +3422,50 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
                 "terminal_name": "ethanol",
                 "terminal_reached": True,
                 "step_count": 1,
-                "chain": [{"main_reactant_smiles": literature_terminal}],
+                "source_ref": "doi:10.1000/revalidatable-stitch",
+                "chain": [
+                    _strict_literature_step(
+                        step_id="ethyl_acetate",
+                        reactants=[literature_terminal],
+                        product="CCOC(C)=O",
+                    )
+                ],
             }
             subgoal = verify_chemenzy_raw_routes(
                 _accepted_ethanol_chemenzy_result_for_target(literature_terminal),
                 target_smiles=literature_terminal,
                 case_id="stitched_case:ethanol",
             )
-            record = execute_local_tool(
-                "stitch_literature_chain_with_subgoal_route",
-                {
-                    "literature_chain_audit": literature_chain,
-                    "subgoal_verifier": subgoal,
-                    "subgoal_raw_result": _accepted_ethanol_chemenzy_result_for_target(literature_terminal),
-                },
-                state,
-            )
-            verdict = emit_final_verdict(
-                {
-                    "case_id": "stitched_case",
-                    "target_input": state.target_input,
-                    "preflight": state.preflight,
-                    "workflow_plan": _plan(
-                        "stitched_case",
-                        strategy="hybrid",
-                        tools=[
-                            {"tool_name": "stitch_literature_chain_with_subgoal_route", "payload": {}},
-                            {"tool_name": "emit_final_verdict", "payload": {}},
-                        ],
-                    ),
-                    "artifacts": state.artifacts,
-                    "validations": [],
-                }
-            )
+            with patch.dict(
+                os.environ,
+                {"AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY": str(_TRUSTED_REGISTRY_FIXTURE)},
+            ):
+                record = execute_local_tool(
+                    "stitch_literature_chain_with_subgoal_route",
+                    {
+                        "literature_chain_audit": literature_chain,
+                        "subgoal_verifier": subgoal,
+                        "subgoal_raw_result": _accepted_ethanol_chemenzy_result_for_target(literature_terminal),
+                    },
+                    state,
+                )
+                verdict = emit_final_verdict(
+                    {
+                        "case_id": "stitched_case",
+                        "target_input": state.target_input,
+                        "preflight": state.preflight,
+                        "workflow_plan": _plan(
+                            "stitched_case",
+                            strategy="hybrid",
+                            tools=[
+                                {"tool_name": "stitch_literature_chain_with_subgoal_route", "payload": {}},
+                                {"tool_name": "emit_final_verdict", "payload": {}},
+                            ],
+                        ),
+                        "artifacts": state.artifacts,
+                        "validations": [],
+                    }
+                )
 
         self.assertEqual(record.status, "accepted")
         self.assertTrue(record.output["result"]["accepted"])
@@ -3199,46 +3485,58 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
                 "accepted": True,
                 "case_id": "stitched_mismatch_case",
                 "target_smiles": "CCOC(C)=O",
-                "terminal_smiles": "CCN",
-                "terminal_name": "ethylamine",
+                "terminal_smiles": "CCO",
+                "terminal_name": "ethanol",
                 "terminal_reached": True,
                 "step_count": 1,
-                "chain": [{"main_reactant_smiles": "CCN"}],
+                "source_ref": "doi:10.1000/revalidatable-stitch",
+                "chain": [
+                    _strict_literature_step(
+                        step_id="ethyl_acetate",
+                        reactants=["CCO"],
+                        product="CCOC(C)=O",
+                    )
+                ],
             }
             subgoal = verify_chemenzy_raw_routes(
-                _accepted_ethanol_chemenzy_result_for_target("CCO"),
-                target_smiles="CCO",
-                case_id="stitched_mismatch_case:ethanol",
+                _accepted_ethanol_chemenzy_result_for_target("CCN"),
+                target_smiles="CCN",
+                case_id="stitched_mismatch_case:ethylamine",
             )
-            record = execute_local_tool(
-                "stitch_literature_chain_with_subgoal_route",
-                {
-                    "literature_chain_audit": literature_chain,
-                    "subgoal_verifier": subgoal,
-                    "subgoal_raw_result": _accepted_ethanol_chemenzy_result_for_target("CCO"),
-                },
-                state,
-            )
-            verdict = emit_final_verdict(
-                {
-                    "case_id": "stitched_mismatch_case",
-                    "target_input": state.target_input,
-                    "preflight": state.preflight,
-                    "workflow_plan": _plan(
-                        "stitched_mismatch_case",
-                        strategy="hybrid",
-                        tools=[
-                            {"tool_name": "stitch_literature_chain_with_subgoal_route", "payload": {}},
-                            {"tool_name": "emit_final_verdict", "payload": {}},
-                        ],
-                    ),
-                    "artifacts": state.artifacts,
-                    "validations": [],
-                }
-            )
+            with patch.dict(
+                os.environ,
+                {"AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY": str(_TRUSTED_REGISTRY_FIXTURE)},
+            ):
+                record = execute_local_tool(
+                    "stitch_literature_chain_with_subgoal_route",
+                    {
+                        "literature_chain_audit": literature_chain,
+                        "subgoal_verifier": subgoal,
+                        "subgoal_raw_result": _accepted_ethanol_chemenzy_result_for_target("CCN"),
+                    },
+                    state,
+                )
+                verdict = emit_final_verdict(
+                    {
+                        "case_id": "stitched_mismatch_case",
+                        "target_input": state.target_input,
+                        "preflight": state.preflight,
+                        "workflow_plan": _plan(
+                            "stitched_mismatch_case",
+                            strategy="hybrid",
+                            tools=[
+                                {"tool_name": "stitch_literature_chain_with_subgoal_route", "payload": {}},
+                                {"tool_name": "emit_final_verdict", "payload": {}},
+                            ],
+                        ),
+                        "artifacts": state.artifacts,
+                        "validations": [],
+                    }
+                )
 
         self.assertEqual(record.status, "rejected")
-        self.assertIn("literature_terminal_subgoal_target_mismatch", record.reasons)
+        self.assertIn("subgoal_target_not_verified", record.reasons)
+        self.assertIn("subgoal_verifier_not_accepted", record.reasons)
         self.assertNotEqual(verdict.verdict, "solved")
 
 
@@ -3308,7 +3606,32 @@ def _accepted_ethanol_chemenzy_result() -> dict:
     return _accepted_ethanol_chemenzy_result_for_target("CCO")
 
 
+def _common_element_inventory_reactants(target_smiles: str) -> list[str]:
+    mol = Chem.MolFromSmiles(target_smiles)
+    if mol is None:
+        raise AssertionError(f"invalid test target: {target_smiles}")
+    counts: dict[int, int] = {}
+    for atom in mol.GetAtoms():
+        atomic_number = atom.GetAtomicNum()
+        if atomic_number != 1:
+            counts[atomic_number] = counts.get(atomic_number, 0) + 1
+    unsupported = set(counts) - {6, 7, 8, 17, 35}
+    if unsupported:
+        raise AssertionError(f"unsupported common-inventory elements: {sorted(unsupported)}")
+    carbon_count = counts.get(6, 0)
+    reactants = ["CC"] * (carbon_count // 2)
+    if carbon_count % 2:
+        reactants.append("C")
+    reactants.extend(["N"] * counts.get(7, 0))
+    reactants.extend(["O"] * counts.get(8, 0))
+    reactants.extend(["Cl"] * counts.get(17, 0))
+    reactants.extend(["Br"] * counts.get(35, 0))
+    return reactants
+
+
 def _accepted_ethanol_chemenzy_result_for_target(target_smiles: str) -> dict:
+    reactants = _common_element_inventory_reactants(target_smiles)
+    terminal_reactants = list(dict.fromkeys(reactants))
     return {
         "schema_version": "chemenzy_web_result.v1",
         "ok": True,
@@ -3320,21 +3643,61 @@ def _accepted_ethanol_chemenzy_result_for_target(target_smiles: str) -> dict:
                 "route_rank": 0,
                 "score": 0.99,
                 "n_steps": 1,
+                "stock_closed": True,
                 "metrics": {
                     "route_solved": True,
                     "strict_stock_solve": True,
-                    "terminal_reactants": ["CC", "O"],
-                    "terminal_stock_status": {"CC": True, "O": True},
+                    "stock_closed": True,
+                    "terminal_reactants": terminal_reactants,
+                    "terminal_stock_status": {item: True for item in terminal_reactants},
                 },
                 "steps": [
                     {
                         "index": 0,
-                        "main_reactant": "CC",
-                        "aux_reactants": ["O"],
                         "product": target_smiles,
-                        "stock_status": {"CC": True, "O": True},
+                        "reactant_smiles": reactants,
+                        "stock_status": {item: True for item in terminal_reactants},
                     }
                 ],
+            }
+        ],
+    }
+
+
+def _strict_literature_step(*, step_id: str, reactants: list[str], product: str) -> dict:
+    pdf_digest = hashlib.sha256(_SOURCE_FIXTURE.read_bytes()).hexdigest()
+    image_digest = hashlib.sha256(_SOURCE_PAGE_FIXTURE.read_bytes()).hexdigest()
+    manifest_digest = hashlib.sha256(_SOURCE_MANIFEST_FIXTURE.read_bytes()).hexdigest()
+    template_id = f"source_detail_exact_step:{step_id}"
+    return {
+        "step_id": step_id,
+        "source_template_id": template_id,
+        "product_smiles": product,
+        "reactant_smiles": reactants,
+        "main_reactant_smiles": reactants[0],
+        "source_ref": "doi:10.1000/revalidatable-stitch",
+        "evidence_refs": [f"{_SOURCE_MANIFEST_FIXTURE}::page:1"],
+        "relation_type": "exact",
+        "source_detail_exact_step": True,
+        "exact_step_validation": {
+            "schema_version": "template_validation_report.v1",
+            "accepted": True,
+            "allowed_for_one_step_source": True,
+            "source_template_id": template_id,
+            "reasons": [],
+        },
+        "source_evidence": [
+            {
+                "schema_version": "materialized_source_evidence.v1",
+                "document_id": "fixture:revalidatable-stitch",
+                "manifest_path": str(_SOURCE_MANIFEST_FIXTURE.resolve()),
+                "manifest_sha256": manifest_digest,
+                "source_pdf_path": str(_SOURCE_FIXTURE.resolve()),
+                "source_pdf_sha256": pdf_digest,
+                "page_number": 1,
+                "image_path": str(_SOURCE_PAGE_FIXTURE.resolve()),
+                "image_sha256": image_digest,
+                "source_ref": "doi:10.1000/revalidatable-stitch",
             }
         ],
     }

@@ -4,13 +4,20 @@ Active repository utilities for the Codex-entry harness direction only.
 
 | Script | Run semantics | Purpose |
 |---|---|---|
-| `run_codex_entry_controller.py` | `canonical_agent_controller` | Production mainline: Codex/agent chooses ChemEnzy, literature, hybrid follow-up, and deterministic validators emit the only canonical final verdict. |
+| `run_codex_entry_agentic_blackboard.py` | `canonical_multi_agent_controller` | Active mainline: Codex coordinators directly spawn specialist agents for the target and bounded precursor frontiers, assemble a typed multi-source route graph, and delegate final proof authority to deterministic validators. |
+| `run_codex_entry_controller.py` | `compatibility_controller` | Older controller entry retained for saved-run and integration compatibility; new orchestration belongs in the agentic-blackboard launcher. |
 | `run_open_structure_template_agent.py` | `probe` tool surface | Codex/WellAU structure-template research launcher used by the canonical controller after a literature/source-detail gate. It is not a standalone solved-route authority. |
 | `run_bufotalin_fullflow_wellau.py` | `showcase` | Bufotalin-focused fullflow runner used as the current hard-case replay/report surface. |
 | `run_statin_panel_literature_self_evo.py` | `replay` | Nine-statin literature/fullflow/self-evolution replay runner with optional PubMed, closure follow-up, access-probe, and PMC signal-count execution. It must not write production KB by default. |
 | `run_smiles_first_literature_workflow.py` | `probe` tool surface | Deterministic SMILES-first workflow runner for target profiling, ChemEnzy audit, literature evidence, and guarded route package output. |
-| `run_chem_enzy_plan_for_web.py` | `probe` tool surface | Execute one ChemEnzy native route search from a WebUI JSON request and emit Web-compatible audited JSON. |
+| `run_chem_enzy_plan_for_web.py` | `probe` tool surface | Execute one ChemEnzy native route search from a WebUI JSON request and emit Web-compatible audited JSON. Legacy molecule-specific semisynthesis rescue is loaded only for an explicit `enable_semisynthesis_rescue=true` historical replay. |
 | `run_chem_enzy_smoke.py` | Run or dry-run the external ChemEnzyRetroPlanner baseline and write normalized JSON. |
+| `validate_example_runs.py` | Validate representative saved runs, including final verdict expectations and generated route-forest HTML. |
+| `validate_legacy_example_runs.py` | Validate older non-blackboard saved examples such as Codex-entry statin runs, statin-panel dossiers, and retrieval/latest probes. |
+| `smoke_route_forest_history.py` | Read-only broad smoke over saved `agent_blackboard.json` histories; compiles and renders route forests in memory. |
+| `evaluate_agentic_run.py` | Standard-library-only evaluator for one saved agentic run, or a baseline/final comparison with fail-closed parent-proof and advisory-route semantics. |
+| `refresh_agentic_closeout_artifacts.py` | Recompute hypothesis reports and final verdicts for a saved agentic run without rerunning model/PDF/ChemEnzy work. |
+| `resume_agentic_blackboard.py` | Continue a saved agentic run from `agent_blackboard.json`, preserving existing artifacts, budget counters, and closeout auditing. |
 | `monitor_autoplanner_web.py` | Poll the local WebUI service, queue state, CUDA status, and recent output/rejected artifacts. |
 | `run_autoplanner_web_waitress.py` | Start the local Waitress-backed WebUI service. |
 | `reaudit_route_pool.py` | Refresh product/condition audit metadata for an exported route-pool JSON after audit-rule changes. |
@@ -28,10 +35,88 @@ were moved locally under `archive/harness_prep_20260605/scripts/`.
 
 ## Current Boundary
 
-Codex should enter at the workflow controller level and decide which tool to
-call next. The local scripts above provide deterministic tool execution,
-persistence, and validation surfaces; Codex research/planning output is not a
-solved-route authority by itself.
+Codex enters through the multi-agent coordinator and then the workflow action
+planner. Specialist children produce typed draft candidates; the consensus
+layer retains independent source records and conflicts. Local code owns tool
+execution, persistence, validation, stock audit, and parent-route proof. Codex
+research/planning output is never solved-route authority by itself.
+
+For a stitched parent route, each exact literature edge must be bound to a
+trusted PDF page and every terminal reactant frontier must have its own
+reverified stock closure. A child route, consensus DAG, or accepted visual chain
+is displayable evidence but not parent-route proof. The route forest creates a
+`stitched_verified_route` only by replaying the accepted proof's embedded
+inputs.
+
+## Validation Gates
+
+Run these checks after changing blackboard, final-verdict, or route-forest
+logic:
+
+```powershell
+D:\conda\envs\py312\python.exe scripts\validate_example_runs.py --summary-output results\shared\example_run_validation_extended_default_20260705.json
+D:\conda\envs\py312\python.exe scripts\validate_legacy_example_runs.py --summary-output results\shared\legacy_example_run_validation_20260705.json
+D:\conda\envs\py312\python.exe scripts\smoke_route_forest_history.py --root results\shared --summary-output results\shared\route_forest_broad_smoke_20260705.json
+D:\conda\envs\py312\python.exe -m pytest -q
+```
+
+`validate_example_runs.py` checks the current representative examples against
+expected final verdicts, solved flags, route status, and route-forest HTML
+fragments. `validate_legacy_example_runs.py` covers saved artifacts that predate
+`agent_blackboard.json`, so old Codex-entry/statin-panel examples do not fall
+out of regression coverage. `smoke_route_forest_history.py` is broader and
+read-only: it scans saved blackboard histories, compiles route-forest data,
+renders HTML in memory, and reports cases where a non-empty run would otherwise
+produce no displayable branch.
+
+Evaluate one run as JSON, or compare a baseline with a candidate/final run:
+
+```powershell
+D:\conda\envs\py312\python.exe scripts\evaluate_agentic_run.py results\shared\RUN_DIR --human
+D:\conda\envs\py312\python.exe scripts\evaluate_agentic_run.py results\shared\BASELINE --compare-to results\shared\FINAL --output results\shared\agentic_run_comparison.json --human
+```
+
+The evaluator reports model/runtime claims separately from deterministic proof
+status. Advisory, consensus, process-evidence, and otherwise unverified route
+branches never contribute to its strictly usable solved-route count.
+
+When the local, git-ignored paclitaxel run directories are present, compare
+them with:
+
+```powershell
+D:\conda\envs\py312\python.exe scripts\evaluate_agentic_run.py `
+  results\shared\paclitaxel_codex_baseline_20260710 `
+  --compare-to results\shared\paclitaxel_codex_improved_20260710 `
+  --output results\shared\paclitaxel_codex_improved_20260710\evaluation_vs_baseline.json `
+  --human
+```
+
+Its final status is intentionally unresolved: two child targets closed, but no
+strict literature-to-parent proof survived deterministic verification.
+
+When only closeout/reporting logic changes, refresh a saved run without
+rerunning expensive tools:
+
+```powershell
+D:\conda\envs\py312\python.exe scripts\refresh_agentic_closeout_artifacts.py results\shared\RUN_DIR
+```
+
+The refresh recomputes `hypothesis_only_retrosynthesis_report.json`,
+`hypothesis_execution_report.json`, `final_verdict.json`, and
+`agentic_final_verdict_validation.json` from the current blackboard and existing
+route-expansion/proof artifacts. It is intended for projection/verdict fixes,
+not for creating new evidence.
+
+To continue a saved blackboard run with new evidence-producing actions:
+
+```powershell
+D:\conda\envs\py312\python.exe scripts\resume_agentic_blackboard.py results\shared\RUN_DIR --plan-only --exhaust-round-budget
+D:\conda\envs\py312\python.exe scripts\resume_agentic_blackboard.py results\shared\RUN_DIR --max-new-rounds 1 --exhaust-round-budget --emit-blackboard-steps
+```
+
+The resume path rebuilds PDF-evidence indexes from existing artifacts before
+planning, so visual extraction can reuse rendered pages from earlier rounds.
+Use `--plan-only` first when auditing what the next action batch will do.
 
 ## Local PDF Proxy
 

@@ -154,6 +154,36 @@ class LocalPdfProxyTest(unittest.TestCase):
         self.assertEqual(row["status"], "needs_manual_access")
         self.assertFalse(row["accepted"])
 
+    def test_pdf_content_type_with_html_body_is_not_downloaded(self):
+        def fake_fetch(url, headers, timeout_s, max_bytes):
+            del url, headers, timeout_s, max_bytes
+            return {
+                "status": 200,
+                "final_url": "https://publisher.example/viewer",
+                "headers": {"content-type": "application/pdf"},
+                "body": b"<!doctype html><html>PDF viewer shell</html>",
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "requests.jsonl"
+            manifest = root / "manifest.jsonl"
+            request = build_pdf_request({"url": "https://publisher.example/article"}, case_id="case")
+            write_pdf_request_queue([request], queue, append=False)
+
+            result = download_pdf_requests(
+                queue_path=queue,
+                pdf_dir=root / "pdfs",
+                manifest_path=manifest,
+                fetch_url=fake_fetch,
+                delay_s=0,
+            )
+            row = json.loads(manifest.read_text(encoding="utf-8").strip())
+
+        self.assertEqual(result["downloaded_count"], 0)
+        self.assertEqual(row["status"], "failed")
+        self.assertFalse(row["accepted"])
+
 
 if __name__ == "__main__":
     unittest.main()

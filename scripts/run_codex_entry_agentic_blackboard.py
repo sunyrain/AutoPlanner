@@ -14,9 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from cascade_planner.agent.target_profile import build_target_profile
-from cascade_planner.harness.agentic_blackboard_controller import run_agentic_blackboard_controller
-from cascade_planner.harness.tools import HarnessBudget
+from cascade_planner.agent.target_profile import build_target_profile  # noqa: E402
+from cascade_planner.harness.agentic_blackboard_controller import run_agentic_blackboard_controller  # noqa: E402
+from cascade_planner.harness.tools import HarnessBudget  # noqa: E402
 
 
 DEFAULT_OUTPUT_ROOT = ROOT / "results" / "shared"
@@ -49,8 +49,8 @@ def main() -> None:
     parser.add_argument(
         "--auto-local-pdf-discovery",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Automatically index local PDFs as a metadata-matched cache. Auto cache is not used as blind fallback.",
+        default=False,
+        help="Automatically index local PDFs as a metadata-matched cache. Disabled by default; online source acquisition is primary.",
     )
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
@@ -63,17 +63,45 @@ def main() -> None:
         help="Stop immediately on fallback planning, invalid action batch, rejected action, or stale/no-useful-artifact action.",
     )
     parser.add_argument(
+        "--emit-blackboard-steps",
+        action="store_true",
+        help="Write full blackboard snapshots and compact summaries after each planner/action/round step.",
+    )
+    parser.add_argument(
         "--codex-action-planner",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Use Codex as the blackboard action planner; deterministic policy remains the validator fallback.",
+        help=(
+            "Use Codex as the blackboard action planner. When --codex-agent-team is enabled, "
+            "Codex failures stop unresolved instead of invoking a deterministic scientific planner."
+        ),
+    )
+    parser.add_argument(
+        "--codex-agent-team",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run a Codex coordinator that must directly spawn specialist retrosynthesis child agents.",
+    )
+    parser.add_argument("--codex-agent-team-max-depth", type=int, default=2)
+    parser.add_argument("--codex-agent-team-max-expansions", type=int, default=4)
+    parser.add_argument("--codex-agent-team-frontier-batch-size", type=int, default=2)
+    parser.add_argument(
+        "--codex-agent-team-model",
+        default="",
+        help="Coordinator/child model; empty inherits --model.",
+    )
+    parser.add_argument(
+        "--codex-agent-team-auth-mode",
+        choices=("ambient_codex_cli", "auto", "api_key"),
+        default=None,
+        help="Coordinator/child auth; omitted inherits --codex-worker-auth.",
     )
     parser.add_argument(
         "--codex-action-planner-tools",
         default=None,
         help=(
             "Comma-separated audited tools for Codex action planning "
-            "(default: web_search,browser,literature_search,local_search; use 'none' to disable planner tools)."
+            "(default: web_search,browser,literature_search; use 'none' to disable planner tools)."
         ),
     )
     parser.add_argument(
@@ -81,6 +109,36 @@ def main() -> None:
         type=int,
         default=None,
         help="Maximum tool calls for each Codex action-planner worker run.",
+    )
+    parser.add_argument(
+        "--codex-action-planner-timeout-s",
+        type=float,
+        default=None,
+        help="Timeout for each Codex action-planner worker run; defaults to --timeout-s.",
+    )
+    parser.add_argument(
+        "--codex-scout-timeout-s",
+        type=float,
+        default=None,
+        help="Timeout for each Codex literature scout worker run.",
+    )
+    parser.add_argument(
+        "--codex-scout-reasoning-effort",
+        choices=["minimal", "low", "medium", "high", "xhigh"],
+        default=None,
+        help="Reasoning effort for Codex literature scout workers.",
+    )
+    parser.add_argument(
+        "--codex-worker-auth",
+        choices=["auto", "ambient", "key"],
+        default="auto",
+        help="Auth source for Codex CLI workers. Use ambient to reuse the current Codex login.",
+    )
+    parser.add_argument(
+        "--codex-worker-sandbox",
+        choices=["read-only", "workspace-write", "danger-full-access", "bypassed"],
+        default=None,
+        help="Sandbox mode passed to Codex CLI workers; use bypassed on hosts without user namespace support.",
     )
     parser.add_argument("--timeout-s", type=float, default=1800.0)
     parser.add_argument("--guided-chemenzy-timeout-s", type=float, default=None)
@@ -128,6 +186,7 @@ def _resolve_targets(args: argparse.Namespace) -> list[dict[str, str | Path]]:
 
 def _run_one(target: dict[str, str | Path], args: argparse.Namespace) -> dict:
     overrides = _codex_action_planner_env_overrides(args)
+    team_model, team_auth_mode = _codex_agent_team_runtime_args(args)
     previous = {key: os.environ.get(key) for key in overrides}
     try:
         for key, value in overrides.items():
@@ -153,8 +212,15 @@ def _run_one(target: dict[str, str | Path], args: argparse.Namespace) -> dict:
             template_radius_policy=str(args.template_radius_policy or "auto"),
             analog_template_confidence_threshold=str(args.analog_template_confidence_threshold or "medium"),
             use_codex_action_planner=bool(args.codex_action_planner),
+            use_codex_agent_team=bool(args.codex_agent_team),
+            codex_agent_team_max_depth=max(1, int(args.codex_agent_team_max_depth or 1)),
+            codex_agent_team_max_expansions=max(1, int(args.codex_agent_team_max_expansions or 1)),
+            codex_agent_team_frontier_batch_size=max(1, int(args.codex_agent_team_frontier_batch_size or 1)),
+            codex_agent_team_model=team_model,
+            codex_agent_team_auth_mode=team_auth_mode,
             stop_on_problem=bool(args.stop_on_problem),
             budget=_budget_from_args(args),
+            emit_blackboard_steps=bool(args.emit_blackboard_steps),
         )
     finally:
         for key, value in previous.items():
@@ -172,7 +238,49 @@ def _codex_action_planner_env_overrides(args: argparse.Namespace) -> dict[str, s
     max_calls = getattr(args, "codex_action_planner_max_tool_calls", None)
     if max_calls is not None:
         overrides["AUTOPLANNER_CODEX_ACTION_PLANNER_MAX_TOOL_CALLS"] = str(int(max_calls))
+    planner_timeout = getattr(args, "codex_action_planner_timeout_s", None)
+    if planner_timeout is None:
+        planner_timeout = getattr(args, "timeout_s", None)
+    if planner_timeout is not None:
+        overrides["AUTOPLANNER_CODEX_ACTION_PLANNER_TIMEOUT_S"] = str(float(planner_timeout))
+    scout_timeout = getattr(args, "codex_scout_timeout_s", None)
+    if scout_timeout is not None:
+        overrides["AUTOPLANNER_CODEX_SCOUT_TIMEOUT_S"] = str(float(scout_timeout))
+    scout_effort = str(getattr(args, "codex_scout_reasoning_effort", "") or "").strip()
+    if scout_effort:
+        overrides["AUTOPLANNER_CODEX_SCOUT_REASONING_EFFORT"] = scout_effort
+    worker_auth = str(getattr(args, "codex_worker_auth", "") or "").strip().lower()
+    if worker_auth and worker_auth != "auto":
+        overrides["AUTOPLANNER_CODEX_WORKER_AUTH"] = worker_auth
+    worker_sandbox = getattr(args, "codex_worker_sandbox", None)
+    if worker_sandbox:
+        overrides["AUTOPLANNER_CODEX_WORKER_SANDBOX"] = str(worker_sandbox)
+    local_pdf_seeded = bool(
+        getattr(args, "literature_pdf_path", None)
+        or getattr(args, "literature_source", None)
+        or (getattr(args, "auto_local_pdf_discovery", False) and getattr(args, "local_pdf_search_dir", None))
+    )
+    overrides["AUTOPLANNER_CODEX_ACTION_PLANNER_LOCAL_PDF_FALLBACK_ALLOWED"] = "1" if local_pdf_seeded else "0"
     return overrides
+
+
+def _codex_agent_team_runtime_args(args: argparse.Namespace) -> tuple[str, str]:
+    """Keep coordinator workers on the same model/auth policy as other Codex workers."""
+    model = str(
+        getattr(args, "codex_agent_team_model", "")
+        or getattr(args, "model", "")
+        or ""
+    ).strip()
+    explicit_auth = str(getattr(args, "codex_agent_team_auth_mode", "") or "").strip()
+    if explicit_auth:
+        return model, explicit_auth
+    worker_auth = str(getattr(args, "codex_worker_auth", "auto") or "auto").strip().lower()
+    inherited = {
+        "ambient": "ambient_codex_cli",
+        "key": "api_key",
+        "auto": "auto",
+    }.get(worker_auth, "auto")
+    return model, inherited
 
 
 def _budget_from_args(args: argparse.Namespace) -> HarnessBudget:
@@ -181,6 +289,8 @@ def _budget_from_args(args: argparse.Namespace) -> HarnessBudget:
         budget.max_chem_enzy_runs = int(args.max_chem_enzy_runs)
     if args.max_guided_chemenzy_runs is not None:
         budget.max_guided_chemenzy_runs = int(args.max_guided_chemenzy_runs)
+    elif args.max_chem_enzy_runs is not None:
+        budget.max_guided_chemenzy_runs = int(args.max_chem_enzy_runs)
     if args.guided_chemenzy_timeout_s is not None:
         budget.guided_chemenzy_timeout_s = float(args.guided_chemenzy_timeout_s)
     if args.max_route_expansion_subgoal_runs is not None:

@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -54,6 +55,35 @@ from cascade_planner.harness.source_material_locator import (
     write_source_material_locator_error,
 )
 from cascade_planner.harness.visual_structure_extraction import validate_visual_structure_chain
+
+
+def _explicit_steroid_anchor_catalog():
+    return [
+        {
+            "name": "Dehydroepiandrosterone",
+            "aliases": ["DHEA", "dehydroepiandrosterone"],
+            "smiles": "C[C@]12CC[C@H]3[C@H]([C@@H]1CCC2=O)CC=C4[C@@]3(CC[C@@H](C4)O)C",
+            "source_ref": "pubchem:5881",
+            "role": "steroid_chiral_pool_anchor",
+            "allow_as_route_expansion_subgoal": True,
+        },
+        {
+            "name": "Androstenedione",
+            "aliases": ["androstenedione", "androst-4-ene-3,17-dione"],
+            "smiles": "C[C@]12CCC(=O)C=C1CC[C@@H]3[C@@H]2CC[C@]4([C@H]3CCC4=O)C",
+            "source_ref": "pubchem:6128",
+            "role": "steroid_chiral_pool_anchor",
+            "allow_as_route_expansion_subgoal": True,
+        },
+        {
+            "name": "Pregnenolone",
+            "aliases": ["pregnenolone"],
+            "smiles": "CC(=O)[C@H]1CC[C@@H]2[C@@]1(CC[C@H]3[C@H]2CC=C4[C@@]3(CC[C@@H](C4)O)C)C",
+            "source_ref": "pubchem:8955",
+            "role": "steroid_chiral_pool_anchor",
+            "allow_as_route_expansion_subgoal": True,
+        },
+    ]
 
 
 class OpenResearchExperienceTest(unittest.TestCase):
@@ -1018,8 +1048,13 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(persisted["summary"]["source_detail_route_step_count"], 2)
         self.assertEqual(entry["schema"], "source_detail_resolution_pack.v1")
         self.assertTrue(compiled["accepted"], compiled["reasons"])
-        self.assertEqual(compiled["executable_template_maturity"]["status"], "executable_ready")
-        self.assertEqual(len(compiled["literature_template_plugin"]["one_step_rows"]), 2)
+        self.assertEqual(
+            compiled["executable_template_maturity"]["status"],
+            "needs_structured_extraction",
+        )
+        self.assertEqual(compiled["literature_template_plugin"]["one_step_rows"], [])
+        self.assertEqual(len(compiled["literature_template_plugin"]["template_cards"]), 2)
+        self.assertIn("source_detail_step_not_trusted_curated", compiled["reasons"])
 
     def test_source_detail_resolution_records_gap_for_metadata_only_or_no_pmc(self):
         def fake_json(url, headers, timeout_s):
@@ -1208,8 +1243,13 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(step["source_ref"], "doi:10.0000/curated")
         self.assertEqual(step["applicability"]["source_detail_resolution"], "structured_curator_record")
         self.assertTrue(compiled["accepted"], compiled["reasons"])
-        self.assertEqual(compiled["executable_template_maturity"]["status"], "executable_ready")
-        self.assertEqual(len(compiled["literature_template_plugin"]["one_step_rows"]), 1)
+        self.assertEqual(
+            compiled["executable_template_maturity"]["status"],
+            "needs_structured_extraction",
+        )
+        self.assertEqual(compiled["literature_template_plugin"]["one_step_rows"], [])
+        self.assertEqual(len(compiled["literature_template_plugin"]["template_cards"]), 1)
+        self.assertIn("source_detail_step_not_trusted_curated", compiled["reasons"])
 
     def test_source_detail_resolution_accepts_step_shaped_curator_records(self):
         pack = {
@@ -1337,7 +1377,12 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(step["structure_derivation"]["source_locator"], "Scheme 1, compounds 3 and 4")
         self.assertEqual(step["source_excerpt"], "Compound 3 was converted to ethanol 4.")
         self.assertTrue(compiled["accepted"], compiled["reasons"])
-        self.assertEqual(len(compiled["literature_template_plugin"]["one_step_rows"]), 1)
+        self.assertEqual(compiled["literature_template_plugin"]["one_step_rows"], [])
+        self.assertEqual(len(compiled["literature_template_plugin"]["template_cards"]), 1)
+        self.assertEqual(
+            compiled["executable_template_maturity"]["status"],
+            "needs_structured_extraction",
+        )
 
     def test_source_detail_resolution_accepts_steroid_exact_target_curator_record_shape(self):
         product = "C[C@]12CCC(=O)C=C1CCC1C2C[C@H](Cl)[C@]2(C)C(=O)CCC12"
@@ -1424,7 +1469,9 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(step["condition_candidate"]["duration"], "about 30 minutes")
         self.assertEqual(step["condition_candidate"]["reported_yield"], "60%")
         self.assertTrue(compiled["accepted"], compiled["reasons"])
-        self.assertEqual(len(compiled["literature_template_plugin"]["one_step_rows"]), 1)
+        self.assertEqual(compiled["literature_template_plugin"]["one_step_rows"], [])
+        self.assertEqual(len(compiled["literature_template_plugin"]["template_cards"]), 1)
+        self.assertIn("source_detail_step_not_trusted_curated", compiled["reasons"])
 
     def test_source_detail_resolution_accepts_current_pdf_image_to_smiles_basis(self):
         pack = {
@@ -1494,7 +1541,9 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(resolution["summary"]["source_detail_route_step_count"], 1)
         self.assertEqual(resolution["summary"]["gap_count"], 0)
         self.assertTrue(compiled["accepted"], compiled["reasons"])
-        self.assertEqual(len(compiled["literature_template_plugin"]["one_step_rows"]), 1)
+        self.assertEqual(compiled["literature_template_plugin"]["one_step_rows"], [])
+        self.assertEqual(len(compiled["literature_template_plugin"]["template_cards"]), 1)
+        self.assertIn("source_detail_step_not_trusted_curated", compiled["reasons"])
 
     def test_visual_literature_chain_builds_source_detail_rows_and_plugin_probe(self):
         candidate_chain = {
@@ -1560,13 +1609,19 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(validation["summary"]["step_count"], 2)
         self.assertEqual(len(curator["records"]), 2)
         self.assertEqual(resolution["summary"]["source_detail_route_step_count"], 2)
-        self.assertTrue(compiled_route["accepted"], compiled_route["reasons"])
-        self.assertEqual(compiled_route["chain_audit"]["step_count"], 2)
-        self.assertTrue(compiled_route["chain_audit"]["terminal_reached"])
-        self.assertTrue(plugin_probe["accepted"], plugin_probe["reasons"])
-        self.assertEqual(plugin_probe["matched_count"], 2)
+        self.assertFalse(compiled_route["accepted"])
+        self.assertIn("source_detail_step_not_trusted_curated", compiled_route["reasons"])
+        self.assertEqual(
+            compiled_route["compiled_downstream"]["literature_template_plugin"]["one_step_rows"],
+            [],
+        )
+        self.assertEqual(compiled_route["chain_audit"]["step_count"], 0)
+        self.assertFalse(compiled_route["chain_audit"]["terminal_reached"])
+        self.assertFalse(plugin_probe["accepted"])
+        self.assertEqual(plugin_probe["matched_count"], 0)
         self.assertTrue(hybrid["accepted"])
-        self.assertEqual(hybrid["summary"]["literature_route_count"], 1)
+        self.assertEqual(hybrid["summary"]["literature_route_count"], 0)
+        self.assertEqual(hybrid["summary"]["literature_advisory_route_count"], 1)
 
     def test_source_detail_resolution_rejects_unsubstantiated_codex_translation(self):
         pack = {
@@ -1747,8 +1802,13 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(seed["source_detail_route_step_count"], 2)
         self.assertEqual(seed["source_detail_resolution_gap_count"], 1)
         self.assertTrue(compiled["accepted"], compiled["reasons"])
-        self.assertEqual(compiled["executable_template_maturity"]["status"], "executable_ready")
-        self.assertEqual(len(compiled["literature_template_plugin"]["one_step_rows"]), 2)
+        self.assertEqual(
+            compiled["executable_template_maturity"]["status"],
+            "needs_structured_extraction",
+        )
+        self.assertEqual(compiled["literature_template_plugin"]["one_step_rows"], [])
+        self.assertEqual(len(compiled["literature_template_plugin"]["template_cards"]), 3)
+        self.assertIn("source_detail_step_not_trusted_curated", compiled["reasons"])
 
     def test_local_downstream_seed_treats_missing_evidence_cards_path_as_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1989,6 +2049,10 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertIn("product_smiles", first_task["required_structured_fields"])
         self.assertTrue(first_task["extraction_policy"]["do_not_fabricate_smiles"])
 
+    @unittest.skipUnless(
+        os.environ.get("AUTOPLANNER_LIVE_RETRIEVAL_SMOKE") == "1",
+        "set AUTOPLANNER_LIVE_RETRIEVAL_SMOKE=1 for live retrieval smoke",
+    )
     def test_retrieval_prefetch_live_fluvastatin_smoke(self):
         with tempfile.TemporaryDirectory() as tmp:
             prefetch = prefetch_open_research_evidence(
@@ -2478,8 +2542,8 @@ class OpenResearchExperienceTest(unittest.TestCase):
             "literature_route_segments": [],
             "executable_template_candidates": [],
             "source_detail_route_steps": [
-                _source_detail_step("detail_step_1", segment_id="detail_segment"),
-                _source_detail_step("detail_step_2", segment_id="detail_segment"),
+                _trusted_source_detail_step("detail_step_1", segment_id="detail_segment"),
+                _trusted_source_detail_step("detail_step_2", segment_id="detail_segment"),
             ],
             "route_expansion_tasks": [],
             "evolution_candidates": [],
@@ -2497,11 +2561,11 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertTrue(any(report["kind"] == "source_detail_route_segment_draft" for report in compiled["literature_template_plugin"]["validation_reports"]))
 
     def test_source_detail_child_targets_prioritize_direct_target_precursor(self):
-        early = _source_detail_step("early_step", segment_id="detail_segment")
+        early = _trusted_source_detail_step("early_step", segment_id="detail_segment")
         early["product_smiles"] = "CCO"
         early["reactant_smiles"] = ["CC"]
         early["applicability"]["reconstructed_product_smiles"] = "CCO"
-        late = _source_detail_step("late_step", segment_id="detail_segment")
+        late = _trusted_source_detail_step("late_step", segment_id="detail_segment")
         late["product_smiles"] = "CCCC"
         late["reactant_smiles"] = ["CCC"]
         late["applicability"]["reconstructed_product_smiles"] = "CCCC"
@@ -2530,7 +2594,76 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(child_targets[0]["smiles"], "CCC")
         self.assertEqual(child_targets[0]["target_proximal_rank"], 0)
 
-    def test_downstream_compiler_accepts_codex_source_text_translation_step(self):
+    def test_downstream_compiler_preserves_visual_source_detail_step_as_advisory_template(self):
+        visual_step = _source_detail_step("visual_step_1", segment_id="visual_segment")
+        visual_step.update(
+            {
+                "relation_type": "visual_inferred",
+                "source_title": "Scheme-derived erythromycin visual chain",
+                "product_name": "erythromycin intermediate",
+                "reactant_names": ["upstream macrolide intermediate"],
+                "source_excerpt": "Scheme image indicates a late-stage modification.",
+                "scope_gap": "stereochemistry unresolved from figure",
+                "allowed_use": "exploratory_template_and_guided_hint_only",
+                "risk_flags": ["stereochemistry_unspecified"],
+                "applicability": {
+                    "status": "exploratory",
+                    "product_reconstruction_passed": False,
+                    "reconstructed_product_smiles": "",
+                },
+                "condition_candidate": {
+                    "step_id": "visual_step_1",
+                    "source_type": "visual_scheme",
+                    "condition_status": "partial",
+                    "reagent": "NCS",
+                    "evidence_refs": ["ev_source_detail"],
+                },
+            }
+        )
+        payload = {
+            "schema_version": "open_downstream_consumables.v1",
+            "case_id": "visual_hint_case",
+            "planner_handoff": {
+                "next_action": "route_segment_unroll",
+                "solved": False,
+                "production_kb_promotion": False,
+            },
+            "guided_rerun_requests": [],
+            "literature_template_cards": [],
+            "literature_route_segments": [],
+            "executable_template_candidates": [],
+            "source_detail_route_steps": [visual_step],
+            "route_expansion_tasks": [],
+            "evolution_candidates": [],
+            "rejected_consumables": [],
+        }
+
+        compiled = compile_downstream_consumables(payload, target_smiles="CCO", case_id="visual_hint_case")
+
+        self.assertTrue(compiled["accepted"], compiled["reasons"])
+        self.assertIn("advisory_visual_template_card_available", compiled["reasons"])
+        self.assertEqual(compiled["literature_template_plugin"]["one_step_rows"], [])
+        cards = compiled["literature_template_plugin"]["template_cards"]
+        self.assertEqual(len(cards), 1)
+        card = cards[0]
+        self.assertEqual(card["template_level"], "advisory_strategy")
+        self.assertEqual(card["promotion_status"], "visual_hint_requires_exact_resolution")
+        self.assertEqual(card["reaction_class"], "chlorination")
+        self.assertEqual(card["applicability"]["allowed_use"], "mechanistic_template_hint_only")
+        self.assertFalse(card["applicability"]["direct_one_step_consumption"])
+        self.assertIn("source_detail_step_not_exact", card["applicability"]["exact_row_gate_reasons"])
+        self.assertEqual(compiled["executable_template_maturity"]["status"], "needs_structured_extraction")
+        self.assertEqual(compiled["executable_template_maturity"]["mechanistic_hint_template_count"], 1)
+        self.assertIn(
+            "advisory_visual_templates_require_exact_validation_before_one_step",
+            compiled["executable_template_maturity"]["gap_reasons"],
+        )
+        followups = compiled["agent_followup_actions"]
+        self.assertTrue(
+            any(action["reason"] == "advisory_visual_template_cards_require_exact_resolution" for action in followups)
+        )
+
+    def test_downstream_compiler_keeps_codex_source_text_translation_advisory(self):
         payload = {
             "schema_version": "open_downstream_consumables.v1",
             "case_id": "source_text_case",
@@ -2557,10 +2690,15 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(reasons, [])
         self.assertTrue(compiled["accepted"], compiled["reasons"])
         rows = compiled["literature_template_plugin"]["one_step_rows"]
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(compiled["executable_template_maturity"]["status"], "executable_ready")
+        self.assertEqual(rows, [])
+        self.assertEqual(len(compiled["literature_template_plugin"]["template_cards"]), 1)
+        self.assertIn("source_detail_step_not_trusted_curated", compiled["reasons"])
+        self.assertEqual(
+            compiled["executable_template_maturity"]["status"],
+            "needs_structured_extraction",
+        )
 
-    def test_downstream_compiler_accepts_source_detail_salt_step_without_fragment_accounting(self):
+    def test_downstream_compiler_keeps_untrusted_salt_step_advisory(self):
         payload = {
             "schema_version": "open_downstream_consumables.v1",
             "case_id": "statin_salt_endgame_case",
@@ -2609,21 +2747,14 @@ class OpenResearchExperienceTest(unittest.TestCase):
         )
 
         self.assertTrue(compiled["accepted"], compiled["reasons"])
-        self.assertEqual(compiled["reasons"], [])
+        self.assertIn("source_detail_step_not_trusted_curated", compiled["reasons"])
         rows = compiled["literature_template_plugin"]["one_step_rows"]
-        self.assertEqual(len(rows), 1)
-        row = rows[0]
-        self.assertEqual(row["reactants"], "CC(=O)OC")
-        self.assertTrue(row["template"]["template_validation_report"]["allowed_for_one_step_source"])
+        self.assertEqual(rows, [])
+        self.assertEqual(len(compiled["literature_template_plugin"]["template_cards"]), 1)
         self.assertEqual(
-            row["literature_template_trace"]["atom_accounting_policy"],
-            "source_detail_exact_step_allows_reagent_or_byproduct_atoms_outside_precursor_list",
+            compiled["executable_template_maturity"]["status"],
+            "needs_structured_extraction",
         )
-        condition = row["literature_template_trace"]["condition_candidate"]
-        self.assertEqual(condition["source_type"], "exact")
-        self.assertEqual(condition["reagent"], "sodium hydroxide")
-        self.assertEqual(condition["solvent"], "methanol; water")
-        self.assertEqual(compiled["executable_template_maturity"]["status"], "executable_ready")
 
     def test_downstream_consumables_rejects_unsubstantiated_codex_source_text_step(self):
         payload = {
@@ -2744,7 +2875,7 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertTrue(task["production_write_blocked"])
         self.assertTrue(task["not_raw_reaction_injection"])
 
-    def test_downstream_compiler_resolves_steroid_advisory_subgoals_to_anchor_targets(self):
+    def test_downstream_compiler_resolves_explicit_advisory_subgoals_to_anchor_targets(self):
         payload = {
             "schema_version": "open_downstream_consumables.v1",
             "case_id": "bufotalin",
@@ -2812,6 +2943,7 @@ class OpenResearchExperienceTest(unittest.TestCase):
             target_smiles="CCO",
             case_id="bufotalin",
             enable_online_anchor_resolution=False,
+            advisory_anchor_catalog=_explicit_steroid_anchor_catalog(),
         )
 
         self.assertTrue(compiled["accepted"], compiled["reasons"])
@@ -2868,6 +3000,7 @@ class OpenResearchExperienceTest(unittest.TestCase):
             target_smiles="CCO",
             case_id="bufotalin_overlap",
             enable_online_anchor_resolution=False,
+            advisory_anchor_catalog=_explicit_steroid_anchor_catalog(),
         )
 
         self.assertTrue(compiled["accepted"], compiled["reasons"])
@@ -2881,6 +3014,91 @@ class OpenResearchExperienceTest(unittest.TestCase):
         )
         self.assertEqual(compiled["advisory_anchor_resolution"]["resolved_anchor_count"], 1)
         self.assertEqual(compiled["route_expansion"]["child_targets"], [])
+
+    def test_downstream_compiler_does_not_resolve_named_anchor_without_explicit_catalog(self):
+        payload = {
+            "schema_version": "open_downstream_consumables.v1",
+            "case_id": "no_implicit_anchor_dictionary",
+            "planner_handoff": {
+                "next_action": "guided_chemenzy_rerun",
+                "solved": False,
+                "production_kb_promotion": False,
+            },
+            "guided_rerun_requests": [
+                {
+                    "request_id": "named_anchor_only",
+                    "target": "stuck_node",
+                    "preferred_subgoals": ["DHEA"],
+                    "evidence_refs": ["source:named-anchor-only"],
+                }
+            ],
+            "literature_template_cards": [],
+            "literature_route_segments": [],
+            "executable_template_candidates": [],
+            "route_expansion_tasks": [],
+            "evolution_candidates": [],
+            "rejected_consumables": [],
+        }
+
+        compiled = compile_downstream_consumables(
+            payload,
+            target_smiles="CCO",
+            case_id="no_implicit_anchor_dictionary",
+            enable_online_anchor_resolution=False,
+        )
+
+        resolution = compiled["advisory_anchor_resolution"]
+        self.assertEqual(resolution["resolved_anchor_count"], 0)
+        self.assertEqual(resolution["configured_anchor_count"], 0)
+        self.assertEqual(
+            compiled["guided_chemenzy"]["policy_payloads"][0]["anchor_whitelist"],
+            [],
+        )
+        self.assertEqual(compiled["route_expansion"]["child_targets"], [])
+
+    def test_downstream_compiler_rejects_catalog_without_explicit_subgoal_consent(self):
+        payload = {
+            "schema_version": "open_downstream_consumables.v1",
+            "case_id": "catalog_consent_required",
+            "planner_handoff": {
+                "next_action": "guided_chemenzy_rerun",
+                "solved": False,
+                "production_kb_promotion": False,
+            },
+            "guided_rerun_requests": [
+                {
+                    "request_id": "catalog_without_consent",
+                    "target": "stuck_node",
+                    "preferred_subgoals": ["candidate anchor"],
+                    "evidence_refs": ["source:catalog"],
+                }
+            ],
+            "literature_template_cards": [],
+            "literature_route_segments": [],
+            "executable_template_candidates": [],
+            "route_expansion_tasks": [],
+            "evolution_candidates": [],
+            "rejected_consumables": [],
+        }
+        catalog = [
+            {
+                "name": "candidate anchor",
+                "smiles": "CCO",
+                "source_ref": "source:catalog",
+            }
+        ]
+
+        compiled = compile_downstream_consumables(
+            payload,
+            target_smiles="CC",
+            case_id="catalog_consent_required",
+            advisory_anchor_catalog=catalog,
+        )
+
+        resolution = compiled["advisory_anchor_resolution"]
+        self.assertEqual(resolution["resolved_anchor_count"], 0)
+        self.assertEqual(resolution["configured_anchor_rejected_count"], 1)
+        self.assertIn("advisory_anchor_catalog_record_invalid", compiled["reasons"])
 
     def test_chem_enzy_policy_validation_rejects_terminal_blacklist_anchor_overlap(self):
         policy = {
@@ -2978,7 +3196,7 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(len(compiled["guided_chemenzy"]["policy_payloads"][0]["anchor_whitelist"]), 1)
         self.assertEqual(len(calls), 2)
 
-    def test_downstream_compiler_online_anchor_resolution_is_default(self):
+    def test_downstream_compiler_online_anchor_resolution_is_opt_in(self):
         calls = []
 
         def fake_fetch(url, headers, timeout_s):
@@ -3032,9 +3250,9 @@ class OpenResearchExperienceTest(unittest.TestCase):
             anchor_resolution_fetch_json=fake_fetch,
         )
 
-        self.assertTrue(compiled["advisory_anchor_resolution"]["online_resolution_enabled"])
-        self.assertEqual(compiled["advisory_anchor_resolution"]["resolved_anchor_targets"][0]["name"], "Estrone")
-        self.assertEqual(len(calls), 2)
+        self.assertFalse(compiled["advisory_anchor_resolution"]["online_resolution_enabled"])
+        self.assertEqual(compiled["advisory_anchor_resolution"]["resolved_anchor_count"], 0)
+        self.assertEqual(calls, [])
 
     def test_downstream_compiler_online_anchor_resolution_rejects_generic_terms_before_network(self):
         calls = []
@@ -3298,6 +3516,19 @@ def _codex_source_text_step(step_id: str, *, segment_id: str) -> dict:
                 "confidence": "medium_high",
                 "tool_checks": ["RDKit parsed product and reactant SMILES"],
             },
+        }
+    )
+    return row
+
+
+def _trusted_source_detail_step(step_id: str, *, segment_id: str) -> dict:
+    row = _source_detail_step(step_id, segment_id=segment_id)
+    row.update(
+        {
+            "validation_status": "curator_approved",
+            "curation_status": "curator_approved",
+            "curator_record_id": f"trusted_registry:{step_id}",
+            "provenance": "explicit_trusted_test_fixture",
         }
     )
     return row

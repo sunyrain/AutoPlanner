@@ -107,6 +107,13 @@ class ResearchReport(ArtifactBase):
     schema_version = "research_report.v1"
 
 
+class RetrosynthesisProposalReport(ArtifactBase):
+    """Draft route candidates produced by one independent child agent."""
+
+    artifact_type = "RetrosynthesisProposalReport"
+    schema_version = "retrosynthesis_proposal_report_artifact.v1"
+
+
 class LiteratureScoutReport(ArtifactBase):
     artifact_type = "LiteratureScoutReport"
     schema_version = "literature_scout_report_artifact.v1"
@@ -287,6 +294,7 @@ ARTIFACT_CLASSES: dict[str, type[ArtifactBase]] = {
         HypothesisOnlyRetrosynthesisReport,
         HypothesisExecutionReport,
         ResearchReport,
+        RetrosynthesisProposalReport,
         LiteratureScoutReport,
         EvidenceCard,
         StrategicDisconnectionCard,

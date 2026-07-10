@@ -9,6 +9,7 @@ drfp==0.2.6
 scikit-learn>=1.2
 pandas>=2.2
 numpy>=1.26,<2.0
+pyarrow>=15,<25
 onnxruntime-gpu>=1.20
 onnx>=1.16
 huggingface-hub>=0.24
@@ -16,4 +17,5 @@ tqdm
 matplotlib
 pyyaml
 requests
+PyMuPDF>=1.24,<2
 flask>=3.0,<4

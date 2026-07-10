@@ -19,10 +19,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from cascade_planner.web.app import create_app
+from cascade_planner.web.app import create_app  # noqa: E402
 
 
 if __name__ == "__main__":
-    host = os.environ.get("AUTOPLANNER_WEB_HOST", "0.0.0.0")
+    # This service has no built-in user authentication.  Network exposure must
+    # be an explicit operator choice behind an authenticated reverse proxy.
+    host = os.environ.get("AUTOPLANNER_WEB_HOST", "127.0.0.1")
     port = int(os.environ.get("AUTOPLANNER_WEB_PORT", "7860"))
     serve(create_app(), host=host, port=port, threads=2, channel_timeout=30)

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
+import hashlib
+from pathlib import Path
 from typing import Any
 
 from cascade_planner.agent.action_contracts import (
@@ -11,6 +14,7 @@ from cascade_planner.agent.action_contracts import (
     planner_source_hint_reasons,
 )
 from cascade_planner.agent.chem_enzy_policy import validate_chem_enzy_search_policy
+from cascade_planner.harness.parent_route_proof import is_solved_parent_route_proof
 
 
 def plan_action_batch(
@@ -39,7 +43,53 @@ def plan_action_batch(
         )
         return _batch(case_id, round_index, actions[:max_actions], mode="deterministic_policy")
 
-    if _two_recent_rounds_without_useful_artifact(blackboard) and not exhaust_round_budget:
+    mode = "deterministic_policy_budget_exhaustive" if exhaust_round_budget else "deterministic_policy"
+
+    if _direct_parent_route_proof_ready(blackboard) and _can_stitch_parent_route(blackboard):
+        actions.append(
+            _action(
+                round_index,
+                "stitch_parent_route",
+                "guided parent route verifier is already solved; compile deterministic direct parent-route proof",
+                "stitched_parent_route_proof.v1",
+                "direct parent proof accepted or explicit verifier rejection",
+                _stitch_retry_payload(blackboard),
+            )
+        )
+        return _batch(case_id, round_index, actions[:max_actions], mode=mode)
+
+    if _can_stitch_parent_route(blackboard):
+        actions.append(
+            _action(
+                round_index,
+                "stitch_parent_route",
+                "child route and literature bridge artifacts are ready for deterministic parent connectivity proof",
+                "stitched_parent_route_proof.v1",
+                "parent proof accepted or explicit connectivity rejection",
+                _stitch_retry_payload(blackboard),
+            )
+        )
+        return _batch(case_id, round_index, actions[:max_actions], mode=mode)
+
+    if _simple_direct_guided_probe_ready(blackboard):
+        actions.append(
+            _action(
+                round_index,
+                "run_guided_chemenzy",
+                "simple target has no deterministic parent proof; run one bounded direct retrosynthesis probe",
+                "guided_chemenzy_result plus verifier report",
+                "route verifier accepts or returns actionable failure evidence",
+                _direct_initial_guided_payload(blackboard),
+            )
+        )
+        return _batch(case_id, round_index, actions[:max_actions], mode=mode)
+
+    if (
+        _two_recent_rounds_without_useful_artifact(blackboard)
+        and not exhaust_round_budget
+        and not _next_local_pdf_source_for_pdf_extraction(blackboard)
+        and not _next_local_pdf_source_for_visual_extraction(blackboard)
+    ):
         actions.append(
             _action(
                 round_index,
@@ -50,8 +100,6 @@ def plan_action_batch(
             )
         )
         return _batch(case_id, round_index, actions[:max_actions], mode="deterministic_policy")
-
-    mode = "deterministic_policy_budget_exhaustive" if exhaust_round_budget else "deterministic_policy"
 
     if not blackboard.get("target_side_disconnection_hypotheses"):
         actions.append(
@@ -150,6 +198,7 @@ def plan_action_batch(
         and _visual_chain_available(blackboard)
         and (not _exact_rows_available(blackboard) or _exact_rows_incomplete(blackboard))
         and _visual_gap_repair_needed(blackboard)
+        and not _process_evidence_available(blackboard)
         and _visual_gap_repair_budget_remaining(blackboard)
         and (_condition_gap_repair_needed(blackboard) or not _uncompiled_visual_steps_available(blackboard))
         and _budget_remaining(blackboard, "visual_calls")
@@ -170,6 +219,8 @@ def plan_action_batch(
         and _visual_chain_available(blackboard)
         and (not _exact_rows_available(blackboard) or _exact_rows_incomplete(blackboard))
         and _uncompiled_visual_steps_available(blackboard)
+        and not _compile_exact_rows_exhausted_to_advisory(blackboard)
+        and not _stale_compile_requires_structure_resolution(blackboard)
     ):
         actions.append(
             _action(
@@ -179,6 +230,25 @@ def plan_action_batch(
                 "compiled exact literature rows",
                 "one or more exact row summaries",
                 _compile_exact_rows_payload(blackboard),
+            )
+        )
+
+    if (
+        not actions
+        and _analogical_templates_enabled(blackboard)
+        and _compile_exact_rows_exhausted_to_advisory(blackboard)
+        and _broad_template_derivation_ready(blackboard)
+        and not _open_structure_resolution_tasks(blackboard)
+        and not _round_has_action(actions, "derive_broad_reaction_template")
+    ):
+        actions.append(
+            _action(
+                round_index,
+                "derive_broad_reaction_template",
+                "exact row compilation found advisory visual chemistry rather than exact rows; convert it into broad templates for guided search",
+                "broad_transform_template_report.v1",
+                "one or more advisory broad templates are available without solved claim",
+                _broad_template_payload(blackboard),
             )
         )
 
@@ -218,6 +288,25 @@ def plan_action_batch(
         )
 
     if (
+        _analogical_templates_enabled(blackboard)
+        and len(actions) < max_actions
+        and _compile_exact_rows_exhausted_to_advisory(blackboard)
+        and _broad_template_derivation_ready(blackboard)
+        and (actions or not _structure_resolution_scout_needed(blackboard))
+        and not _round_has_action(actions, "derive_broad_reaction_template")
+    ):
+        actions.append(
+            _action(
+                round_index,
+                "derive_broad_reaction_template",
+                "exact row compilation reached an advisory visual-template state; convert the visual chemistry into broad templates before more expansion",
+                "broad_transform_template_report.v1",
+                "one or more advisory broad templates are available without solved claim",
+                _broad_template_payload(blackboard),
+            )
+        )
+
+    if (
         len(actions) < max_actions
         and _hypotheses_available(blackboard)
         and not blackboard.get("analogical_hypothesis_ranking")
@@ -246,6 +335,24 @@ def plan_action_batch(
                 "structure_resolution_source_scout_report.v1",
                 "new structure-resolution source candidate or explicit unresolved task evidence",
                 _structure_resolution_scout_payload(blackboard),
+            )
+        )
+
+    if (
+        _analogical_templates_enabled(blackboard)
+        and len(actions) < max_actions
+        and _compile_exact_rows_exhausted_to_advisory(blackboard)
+        and _broad_template_derivation_ready(blackboard)
+        and not _round_has_action(actions, "derive_broad_reaction_template")
+    ):
+        actions.append(
+            _action(
+                round_index,
+                "derive_broad_reaction_template",
+                "structure-resolution scouting can proceed, but advisory visual chemistry should also become broad templates in this round",
+                "broad_transform_template_report.v1",
+                "one or more advisory broad templates are available without solved claim",
+                _broad_template_payload(blackboard),
             )
         )
 
@@ -291,8 +398,11 @@ def plan_action_batch(
         and len(actions) < max_actions
         and _analogical_template_sources_available(blackboard)
         and not _exact_literature_segment_usable(blackboard)
-        and not blackboard.get("analogical_templates")
-        and not _failed_action_seen(blackboard, "extract_analogical_reaction_templates")
+        and (not blackboard.get("analogical_templates") or _analogical_templates_need_refresh(blackboard))
+        and (
+            _analogical_templates_need_refresh(blackboard)
+            or not _failed_action_seen(blackboard, "extract_analogical_reaction_templates")
+        )
         and not _round_has_action(actions, "extract_analogical_reaction_templates")
         and not _literature_extraction_pending(blackboard, actions)
         and not _deterministic_route_action_ready(blackboard)
@@ -313,7 +423,8 @@ def plan_action_batch(
         and len(actions) < max_actions
         and blackboard.get("analogical_templates")
         and not _exact_literature_segment_usable(blackboard)
-        and not blackboard.get("analogical_template_ranking")
+        and (not blackboard.get("analogical_template_ranking") or _analogical_template_ranking_needs_refresh(blackboard))
+        and not _round_has_action(actions, "extract_analogical_reaction_templates")
         and not _round_has_action(actions, "rank_analogical_reaction_templates")
         and not _deterministic_route_action_ready(blackboard)
     ):
@@ -332,9 +443,12 @@ def plan_action_batch(
         _analogical_templates_enabled(blackboard)
         and len(actions) < max_actions
         and _ranked_analogical_templates_available(blackboard)
+        and not _analogical_template_ranking_needs_refresh(blackboard)
         and not _exact_literature_segment_usable(blackboard)
         and not _template_applications_available(blackboard)
         and _budget_remaining(blackboard, "template_application_actions")
+        and not _round_has_action(actions, "extract_analogical_reaction_templates")
+        and not _round_has_action(actions, "rank_analogical_reaction_templates")
         and not _round_has_action(actions, "apply_analogical_template_to_target")
         and not _deterministic_route_action_ready(blackboard)
     ):
@@ -411,7 +525,7 @@ def plan_action_batch(
             _action(
                 round_index,
                 "expand_child_target",
-                "an exact literature terminal or hypothesis-only same-core precursor subgoal exists",
+                _child_expansion_rationale(blackboard),
                 "route_expansion_subgoal_search_result.v1",
                 "child target verifier result is recorded without parent solved claim",
                 _child_expansion_payload(blackboard),
@@ -526,15 +640,23 @@ def validate_action_batch(
                 for reason in _guided_chemenzy_payload_reasons(payload, blackboard=board)
             )
         if action_type == "expand_child_target":
-            child_count += 1
+            child_count += _planned_child_target_count(payload)
             reasons.extend(f"child_expansion_payload:{idx}:{reason}" for reason in _child_expansion_payload_reasons(payload))
         if action_type == "stitch_parent_route":
             reasons.extend(f"stitch_parent_route_payload:{idx}:{reason}" for reason in _stitch_parent_route_payload_reasons(payload))
         if action_type == "search_literature":
             scout_action_count += 1
             reasons.extend(f"search_literature_payload:{idx}:{reason}" for reason in _search_literature_payload_reasons(payload))
+        if action_type == "build_failure_critic_report" and not _failure_evidence_available(board):
+            reasons.append(f"failure_critic_requires_failure_evidence:{idx}")
+        if action_type == "extract_pdf_literature_structures" and _pdf_extraction_binding_missing(payload, board):
+            reasons.append(f"extract_pdf_literature_structures_requires_pdf_binding:{idx}")
         if action_type == "extract_visual_literature_chain":
             visual_action_count += 1
+            if not _visual_extraction_has_rendered_input(payload, board):
+                reasons.append(
+                    f"extract_visual_literature_chain_requires_rendered_pdf_evidence:{idx}"
+                )
         if action_type == "resolve_literature_structure_task" and bool(payload.get("run_visual", True)):
             visual_action_count += 1
         if action_type == "resolve_literature_structure_task":
@@ -542,6 +664,13 @@ def validate_action_batch(
                 f"resolve_literature_structure_task_payload:{idx}:{reason}"
                 for reason in _structure_resolution_payload_reasons(payload)
             )
+        if action_type == "compile_exact_literature_rows" and (
+            not _visual_chain_available(board)
+            or (_process_evidence_available(board) and not _uncompiled_visual_steps_available(board))
+            or _compile_exact_rows_exhausted_to_advisory(board)
+            or (bool(board.get("broad_transform_templates")) and not _uncompiled_visual_steps_available(board))
+        ):
+            reasons.append(f"compile_exact_literature_rows_requires_uncompiled_visual_steps:{idx}")
         if action_type in {"apply_analogical_template_to_target", "validate_template_application"}:
             template_action_count += 1
         if action_type in {
@@ -562,12 +691,19 @@ def validate_action_batch(
             "compile_exact_literature_rows",
         }:
             source_count += max(1, int(payload.get("max_sources") or 1))
-            if _source_binding_required(board, action_type) and not _payload_has_source_binding(payload):
+            if _source_binding_required(board, action_type) and not _payload_has_source_binding(
+                payload,
+                blackboard=board,
+            ):
                 reasons.append(f"source_sensitive_action_missing_source_binding:{idx}:{action_type}")
         if _stale_action_repeated(board, action):
             reasons.append(f"stale_action_repeated:{idx}:{action_type}")
     if _must_stop_or_change_direction(board, actions):
         reasons.append("planner_must_stop_or_change_direction_after_two_unproductive_rounds")
+    if _advisory_broad_template_required(board, actions):
+        reasons.append("advisory_visual_template_requires_broad_template")
+    if _complex_target_frontier_bootstrap_required(board, actions):
+        reasons.append("complex_target_requires_frontier_bootstrap_after_initial_probe")
     if chemenzy_count > max_chemenzy_per_round:
         reasons.append("guided_chemenzy_round_budget_exceeded")
     if child_count > max_child_expansions_per_round:
@@ -650,7 +786,11 @@ def _source_binding_required(blackboard: dict[str, Any], action_type: str) -> bo
     return False
 
 
-def _payload_has_source_binding(payload: dict[str, Any]) -> bool:
+def _payload_has_source_binding(
+    payload: dict[str, Any],
+    *,
+    blackboard: dict[str, Any] | None = None,
+) -> bool:
     binding_fields = {
         "source_ref",
         "doi",
@@ -661,11 +801,56 @@ def _payload_has_source_binding(payload: dict[str, Any]) -> bool:
         "pdf_path",
         "local_pdf",
         "source_pdf_path",
+        "document_id",
         "chain_id",
         "visual_chain_id",
         "artifact_ref",
     }
-    return any(str(payload.get(field) or "").strip() for field in binding_fields)
+    if not any(str(payload.get(field) or "").strip() for field in binding_fields):
+        return False
+    if any(
+        str(payload.get(field) or "").strip()
+        for field in (
+            "pdf_path",
+            "local_pdf",
+            "source_pdf_path",
+            "document_id",
+            "chain_id",
+            "visual_chain_id",
+            "artifact_ref",
+        )
+    ):
+        return True
+    if blackboard:
+        matches = _matching_local_pdf_document_keys(payload, blackboard)
+        if len(matches) > 1:
+            return False
+    return True
+
+
+def _payload_has_local_pdf_binding(payload: dict[str, Any]) -> bool:
+    return any(
+        str(payload.get(field) or "").strip()
+        for field in ("pdf_path", "local_pdf", "source_pdf_path")
+    )
+
+
+def _pdf_extraction_binding_missing(payload: dict[str, Any], blackboard: dict[str, Any]) -> bool:
+    if _payload_has_local_pdf_binding(payload):
+        return False
+    if not _payload_has_source_metadata(payload):
+        return False
+    local_pdf_candidates = _local_pdf_source_candidates(blackboard)
+    if not local_pdf_candidates:
+        return True
+    return len(_matching_local_pdf_document_keys(payload, blackboard)) != 1
+
+
+def _payload_has_source_metadata(payload: dict[str, Any]) -> bool:
+    return any(
+        str(payload.get(field) or "").strip()
+        for field in ("source_ref", "doi", "pii", "url", "source_title", "title")
+    )
 
 
 def _distinct_source_keys(rows: list[dict[str, Any]]) -> set[str]:
@@ -693,7 +878,11 @@ def _guided_chemenzy_payload_reasons(
     board = dict(blackboard or {})
     policy = payload.get("chem_enzy_search_policy") or payload.get("search_policy")
     if not isinstance(policy, dict) or not policy:
-        return ["missing_search_policy"]
+        if payload.get("guided_policy_runtime_rebuild") and board:
+            rebuilt = build_guided_chemenzy_payload_from_blackboard(board)
+            policy = rebuilt.get("chem_enzy_search_policy") or rebuilt.get("search_policy")
+        if not isinstance(policy, dict) or not policy:
+            return ["missing_search_policy"]
     validation = validate_chem_enzy_search_policy(policy)
     if not validation.get("accepted"):
         reasons.extend(f"invalid_search_policy:{reason}" for reason in validation.get("reasons") or [])
@@ -749,6 +938,7 @@ def _guided_policy_has_consumable_signal(policy: dict[str, Any], blackboard: dic
         "route_objectives",
         "endpoint_candidates",
         "broad_transform_templates",
+        "source_candidates",
         "visual_exploratory_hints",
     ):
         if source_budget.get(field):
@@ -765,6 +955,7 @@ def _guided_policy_has_consumable_signal(policy: dict[str, Any], blackboard: dic
         or blackboard.get("template_applications")
         or blackboard.get("broad_transform_templates")
         or blackboard.get("endpoint_candidates")
+        or _source_candidates_have_real_source(blackboard)
         or hypotheses
         or route_objectives
         or template_rows
@@ -791,6 +982,116 @@ def _simple_direct_chemenzy_target(blackboard: dict[str, Any]) -> bool:
         and rings <= 2
         and stereocenters <= 2
         and not any(token in hints for token in complex_tokens)
+    )
+
+
+def _simple_direct_guided_probe_ready(blackboard: dict[str, Any]) -> bool:
+    if _action_count(blackboard, "run_guided_chemenzy") > 0:
+        return False
+    if blackboard.get("action_history"):
+        return False
+    evidence = dict(blackboard.get("literature_evidence") or {})
+    if any(
+        evidence.get(key)
+        for key in (
+            "source_candidates",
+            "planner_source_hints",
+            "pdf_structure_evidence",
+            "visual_chains",
+            "exact_rows",
+            "structure_resolution_tasks",
+            "process_evidence_rows",
+        )
+    ):
+        return False
+    if blackboard.get("route_failures") or blackboard.get("bridge_tasks"):
+        return False
+    budget = dict(blackboard.get("budget_state") or {})
+    if int(budget.get("chemenzy_runs") or 0) >= _budget_limit(budget, "max_chemenzy_runs", default=1):
+        return False
+    if blackboard.get("parent_route_proof"):
+        return False
+    return _simple_direct_chemenzy_target(blackboard)
+
+
+def _complex_target_frontier_bootstrap_required(blackboard: dict[str, Any], actions: list[dict[str, Any]]) -> bool:
+    """Require proposal-frontier bootstrapping after a complex-target exploratory probe."""
+    action_types = [str(row.get("action_type") or "") for row in actions if isinstance(row, dict)]
+    if not action_types:
+        return False
+    if all(action_type == "stop_unresolved" for action_type in action_types):
+        return False
+    if "generate_disconnection_hypotheses" in action_types:
+        return False
+    if _frontier_bootstrap_available(blackboard):
+        return False
+    if _simple_direct_chemenzy_target(blackboard):
+        return False
+    if not _target_is_complex_for_frontier_bootstrap(blackboard):
+        return False
+    prior_exploration = any(
+        _action_seen(blackboard, action_type)
+        for action_type in (
+            "run_guided_chemenzy",
+            "extract_pdf_literature_structures",
+            "extract_visual_literature_chain",
+            "compile_exact_literature_rows",
+            "resolve_literature_structure_task",
+            "expand_child_target",
+        )
+    )
+    if not prior_exploration:
+        return False
+    exploratory_actions = {
+        "search_literature",
+        "extract_pdf_literature_structures",
+        "extract_visual_literature_chain",
+        "compile_exact_literature_rows",
+        "resolve_literature_structure_task",
+        "run_guided_chemenzy",
+        "expand_child_target",
+        "derive_broad_reaction_template",
+        "extract_analogical_reaction_templates",
+        "rank_analogical_reaction_templates",
+        "apply_analogical_template_to_target",
+        "validate_template_application",
+        "stitch_parent_route",
+    }
+    return any(action_type in exploratory_actions for action_type in action_types)
+
+
+def _frontier_bootstrap_available(blackboard: dict[str, Any]) -> bool:
+    return bool(
+        blackboard.get("target_side_disconnection_hypotheses")
+        or blackboard.get("reaction_idea_cards")
+        or _retrosynthetic_proposals_available(blackboard)
+        or blackboard.get("recursive_hypothesis_tasks")
+        or blackboard.get("broad_transform_templates")
+    )
+
+
+def _target_is_complex_for_frontier_bootstrap(blackboard: dict[str, Any]) -> bool:
+    target = dict(blackboard.get("target_profile") or {})
+    try:
+        heavy_atoms = int(target.get("heavy_atoms") or 0)
+        rings = int(target.get("rings") or 0)
+        stereocenters = int(target.get("stereocenters") or 0)
+    except (TypeError, ValueError):
+        heavy_atoms = rings = stereocenters = 0
+    hints = " ".join(
+        [
+            str(target.get("target_name") or ""),
+            str(target.get("family_hint") or ""),
+            *[str(item) for item in target.get("family_hints") or []],
+            *[str(item) for item in target.get("initial_risk_flags") or []],
+        ]
+    ).lower()
+    complex_tokens = ("steroid", "polycyclic", "macrocycle", "peptide", "glycoside", "natural product")
+    return bool(
+        rings >= 3
+        or heavy_atoms >= 24
+        or stereocenters >= 4
+        or any(token in hints for token in complex_tokens)
     )
 
 
@@ -844,6 +1145,24 @@ def _positive_float(value: Any) -> float:
         return 0.0
 
 
+def _bounded_int_env(name: str, default: int, *, lo: int, hi: int) -> int:
+    raw = os.environ.get(name)
+    try:
+        value = int(raw) if raw not in (None, "") else int(default)
+    except (TypeError, ValueError):
+        value = int(default)
+    return max(int(lo), min(int(hi), value))
+
+
+def _guided_retry_runtime_budget() -> dict[str, int]:
+    return {
+        "max_steps": _bounded_int_env("AUTOPLANNER_GUIDED_RETRY_MAX_STEPS", 12, lo=1, hi=20),
+        "iterations": _bounded_int_env("AUTOPLANNER_GUIDED_RETRY_ITERATIONS", 60, lo=1, hi=200),
+        "expansion_topk": _bounded_int_env("AUTOPLANNER_GUIDED_RETRY_TOPK", 120, lo=1, hi=300),
+        "timeout_s": _bounded_int_env("AUTOPLANNER_GUIDED_RETRY_TIMEOUT_S", 600, lo=30, hi=3600),
+    }
+
+
 def _child_expansion_payload_reasons(payload: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     targets = payload.get("subgoal_targets") or payload.get("child_targets")
@@ -866,6 +1185,8 @@ def _child_expansion_payload_reasons(payload: dict[str, Any]) -> list[str]:
             reasons.append(f"target_missing_child_parent_boundary:{idx}")
         policy = target.get("chem_enzy_search_policy") or target.get("policy")
         if not isinstance(policy, dict) or not policy:
+            if target.get("policy_runtime_rebuild") or payload.get("child_policy_runtime_rebuild"):
+                continue
             reasons.append(f"target_missing_search_policy:{idx}")
             continue
         validation = validate_chem_enzy_search_policy(policy)
@@ -886,17 +1207,29 @@ def _stitch_parent_route_payload_reasons(payload: dict[str, Any]) -> list[str]:
     binding = dict(payload.get("proof_binding") or {})
     if not binding:
         return ["missing_proof_binding"]
+    direct_parent_mode = (
+        str(binding.get("proof_mode") or "") == "direct_parent_route"
+        or bool(binding.get("direct_parent_route_verifier_ready"))
+    )
     if binding.get("schema_version") != "agentic_parent_stitch_binding.v1":
         reasons.append("invalid_proof_binding_schema")
     input_refs = binding.get("input_refs")
     exact_rows = binding.get("exact_literature_row_ids")
+    visual_rows = binding.get("visual_literature_chain_ids")
     missing_inputs = {str(item) for item in binding.get("missing_inputs") or [] if str(item or "").strip()}
     if not isinstance(input_refs, list) or not [item for item in input_refs if str(item or "").strip()]:
         reasons.append("proof_binding_missing_input_refs")
     if not isinstance(exact_rows, list):
         reasons.append("proof_binding_exact_rows_not_list")
-    elif not exact_rows and "exact_literature_rows_missing" not in missing_inputs:
+    elif (
+        not direct_parent_mode
+        and not exact_rows
+        and not [item for item in visual_rows or [] if str(item or "").strip()]
+        and "exact_literature_rows_missing" not in missing_inputs
+    ):
         reasons.append("proof_binding_missing_exact_rows_without_reason")
+    if visual_rows is not None and not isinstance(visual_rows, list):
+        reasons.append("proof_binding_visual_chains_not_list")
     if not str(binding.get("child_route_ref") or "").strip() and "child_route_ref_missing" not in missing_inputs:
         reasons.append("proof_binding_missing_child_route_ref_without_reason")
     if not str(binding.get("parent_route_ref") or "").strip() and "parent_route_ref_missing" not in missing_inputs:
@@ -905,16 +1238,27 @@ def _stitch_parent_route_payload_reasons(payload: dict[str, Any]) -> list[str]:
     policy = dict(payload.get("proof_policy") or {})
     if not policy:
         reasons.append("missing_proof_policy")
+    direct_parent_mode = direct_parent_mode or (
+        str(policy.get("proof_mode") or "") == "direct_parent_route"
+        or bool(policy.get("direct_parent_route_verifier_allowed"))
+    )
     required_true = [
         "target_equivalence_required",
         "parent_route_verifier_required",
         "stock_audit_required",
         "no_unexplained_large_atom_jump_required",
-        "child_route_connectivity_required",
-        "exact_literature_connectivity_required",
         "analogy_is_not_proof",
         "child_route_cannot_promote_parent",
     ]
+    if direct_parent_mode:
+        required_true.append("direct_parent_route_verifier_allowed")
+    else:
+        required_true.extend(
+            [
+                "child_route_connectivity_required",
+                "exact_literature_connectivity_required",
+            ]
+        )
     for field in required_true:
         if policy.get(field) is not True:
             reasons.append(f"proof_policy_missing_{field}")
@@ -978,8 +1322,9 @@ def _search_literature_payload_reasons(payload: dict[str, Any]) -> list[str]:
         reasons.append("invalid_source_acquisition_policy_schema")
     if policy.get("codex_online_first") is not True:
         reasons.append("source_policy_missing_codex_online_first")
-    if policy.get("local_pdf_fallback_allowed") is not True:
-        reasons.append("source_policy_missing_local_pdf_fallback")
+    local_pdf_allowed = policy.get("local_pdf_fallback_allowed")
+    if local_pdf_allowed not in {True, False}:
+        reasons.append("source_policy_invalid_local_pdf_fallback_flag")
     if policy.get("placeholder_allowed_after_failures") is not True:
         reasons.append("source_policy_missing_placeholder_fallback")
     if policy.get("auto_local_pdf_requires_agent_discovered_metadata") is not True:
@@ -987,7 +1332,8 @@ def _search_literature_payload_reasons(payload: dict[str, Any]) -> list[str]:
     if policy.get("no_solved_claim") is not True:
         reasons.append("source_policy_missing_no_solved_claim")
     fallback_order = [str(item) for item in policy.get("fallback_order") or []]
-    if fallback_order != ["codex_online", "local_pdf", "placeholder"]:
+    expected_order = ["codex_online", *(["local_pdf"] if local_pdf_allowed is not False else []), "placeholder"]
+    if fallback_order != expected_order:
         reasons.append("source_policy_invalid_fallback_order")
     return reasons
 
@@ -1020,9 +1366,26 @@ def _must_stop_or_change_direction(blackboard: dict[str, Any], actions: list[Any
         return False
     if any(str(action.get("action_type") or "") == "stop_unresolved" for action in rows):
         return False
-    planned_signatures = {_action_signature(action) for action in rows}
     recent_signatures = _recent_unproductive_action_signatures(blackboard, round_count=2)
-    return bool(planned_signatures) and planned_signatures <= recent_signatures
+    return bool(recent_signatures) and all(
+        bool(_action_signature_variants(action) & recent_signatures)
+        for action in rows
+    )
+
+
+def _advisory_broad_template_required(blackboard: dict[str, Any], actions: list[Any]) -> bool:
+    if not _analogical_templates_enabled(blackboard):
+        return False
+    if not _compile_exact_rows_exhausted_to_advisory(blackboard):
+        return False
+    if not _broad_template_derivation_ready(blackboard):
+        return False
+    rows = [dict(row) for row in actions if isinstance(row, dict)]
+    if any(str(row.get("action_type") or "") == "derive_broad_reaction_template" for row in rows):
+        return False
+    if any(str(row.get("action_type") or "") in {"stitch_parent_route", "stop_unresolved"} for row in rows):
+        return False
+    return True
 
 
 def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) -> dict[str, Any]:
@@ -1096,8 +1459,15 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
     )
     visual_exploratory_hints = _visual_exploratory_hints_for_policy(blackboard)
     visual_precursor_targets = _visual_precursor_targets_from_hints(visual_exploratory_hints, limit=8)
+    proposal_rows = [
+        dict(row)
+        for row in blackboard.get("retrosynthetic_proposals") or []
+        if isinstance(row, dict)
+    ][:12]
+    proposal_precursor_targets = _precursor_targets_from_retrosynthetic_proposals(proposal_rows, limit=12)
     hypothetical_precursor_smiles = [str(row.get("smiles") or "") for row in hypothetical_precursor_targets]
     visual_precursor_smiles = [str(row.get("smiles") or "") for row in visual_precursor_targets]
+    proposal_precursor_smiles = [str(row.get("smiles") or "") for row in proposal_precursor_targets]
     forbidden_template_ids = [
         str(row.get("template_id") or "")
         for row in blackboard.get("template_failure_memory") or []
@@ -1119,6 +1489,16 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
         for row in blackboard.get("broad_transform_templates") or []
         if isinstance(row, dict)
     ]
+    process_evidence_rows = [
+        dict(row)
+        for row in (blackboard.get("literature_evidence") or {}).get("process_evidence_rows") or []
+        if isinstance(row, dict)
+    ]
+    source_candidates = [
+        _compact_source_candidate_for_policy(row)
+        for row in (blackboard.get("literature_evidence") or {}).get("source_candidates") or []
+        if isinstance(row, dict) and _candidate_has_real_source(row)
+    ][:8]
     semisynthesis_anchors = [
         dict(row)
         for row in blackboard.get("semisynthesis_anchors") or []
@@ -1178,6 +1558,11 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
                             for row in broad_templates[:6]
                             if str(row.get("objective_type") or "").strip()
                         ],
+                        *[
+                            str(row.get("process_type") or "").replace("_", " ")
+                            for row in process_evidence_rows[:6]
+                            if str(row.get("process_type") or "").strip()
+                        ],
                         "target_proximal_bridge_search",
                         *(
                             ["visual_connectivity_approximation"]
@@ -1194,6 +1579,8 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
                 "hypothetical_route_hints_are_not_proof": True,
                 "hypothesis_precursor_hints_are_not_proof": True,
                 "visual_connectivity_hints_are_not_proof": bool(visual_exploratory_hints),
+                "retrosynthetic_proposals_are_not_proof": bool(proposal_rows),
+                "process_evidence_hints_are_not_proof": bool(process_evidence_rows),
                 "semisynthesis_anchor_hints_are_not_proof": bool(semisynthesis_anchors),
                 "route_objective_hints_are_not_proof": bool(route_objectives),
                 "broad_transform_templates_are_not_proof": bool(broad_templates),
@@ -1203,12 +1590,17 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
                 "small_molecule_stock_closure_deprioritized": bool(
                     constraints.get("small_molecule_stock_closure_deprioritized")
                 ),
-                "preferred_precursor_smiles": _dedupe([*hypothetical_precursor_smiles, *visual_precursor_smiles]),
+                "preferred_precursor_smiles": _dedupe(
+                    [*hypothetical_precursor_smiles, *visual_precursor_smiles, *proposal_precursor_smiles]
+                ),
+                "retrosynthetic_proposals": proposal_rows,
                 "semisynthesis_anchor_smiles": _dedupe(semisynthesis_anchor_smiles),
                 "semisynthesis_anchors": semisynthesis_anchors,
                 "route_objectives": route_objectives,
                 "endpoint_candidates": endpoint_candidates,
                 "broad_transform_templates": broad_templates,
+                "process_evidence_rows": process_evidence_rows[:8],
+                "source_candidates": source_candidates,
                 "visual_exploratory_hints": visual_exploratory_hints,
             },
             "preferred_subgoal": {
@@ -1219,13 +1611,21 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
                         *semisynthesis_anchor_smiles,
                         *hypothetical_precursor_smiles,
                         *visual_precursor_smiles,
+                        *proposal_precursor_smiles,
                     ]
                 ),
                 "semisynthesis_anchors": semisynthesis_anchors,
                 "route_objectives": route_objectives,
                 "endpoint_candidates": endpoint_candidates,
                 "broad_transform_templates": broad_templates,
-                "hypothetical_precursor_targets": [*hypothetical_precursor_targets, *visual_precursor_targets],
+                "process_evidence_rows": process_evidence_rows[:8],
+                "source_candidates": source_candidates,
+                "hypothetical_precursor_targets": [
+                    *hypothetical_precursor_targets,
+                    *visual_precursor_targets,
+                    *proposal_precursor_targets,
+                ],
+                "retrosynthetic_proposals": proposal_rows,
                 "template_application_hints": template_hints,
                 "hypothetical_reaction_center_hints": hypothetical_route_hints,
                 "visual_connectivity_hints": visual_exploratory_hints,
@@ -1325,6 +1725,103 @@ def _hypothetical_precursor_targets_from_template_applications(
     return out
 
 
+def _precursor_targets_from_retrosynthetic_proposals(
+    proposals: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for proposal in proposals:
+        if not isinstance(proposal, dict):
+            continue
+        smiles = str(proposal.get("precursor_smiles") or "").strip()
+        if not smiles:
+            continue
+        if not bool(proposal.get("recursive_expandable") or proposal.get("executable")):
+            continue
+        target_rows = [
+            _retrosynthetic_proposal_precursor_target(
+                proposal,
+                smiles=smiles,
+                source="retrosynthetic_proposal",
+                component_index=0,
+                component_count=int(proposal.get("precursor_component_count") or 1),
+                precursor_set_smiles=smiles if bool(proposal.get("multi_component_precursor_set")) else "",
+            )
+        ]
+        components = _precursor_components_from_smiles(smiles)
+        if len(components) > 1:
+            target_rows.extend(
+                _retrosynthetic_proposal_precursor_target(
+                    proposal,
+                    smiles=component,
+                    source="retrosynthetic_proposal_component",
+                    component_index=idx,
+                    component_count=len(components),
+                    precursor_set_smiles=smiles,
+                )
+                for idx, component in enumerate(components, start=1)
+            )
+        for target_row in target_rows:
+            target_smiles = str(target_row.get("smiles") or "").strip()
+            if not target_smiles or target_smiles in seen:
+                continue
+            seen.add(target_smiles)
+            out.append(target_row)
+            if len(out) >= max(1, int(limit or 1)):
+                return out
+    return out
+
+
+def _retrosynthetic_proposal_precursor_target(
+    proposal: dict[str, Any],
+    *,
+    smiles: str,
+    source: str,
+    component_index: int,
+    component_count: int,
+    precursor_set_smiles: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": "guided_search_hypothetical_precursor_target.v1",
+        "smiles": smiles,
+        "role": str(proposal.get("proposal_label") or proposal.get("source_type") or "retrosynthetic proposal"),
+        "source": source,
+        "source_proposal_id": str(proposal.get("proposal_id") or ""),
+        "proposal_type": str(proposal.get("proposal_type") or ""),
+        "proposal_granularity": str(proposal.get("proposal_granularity") or ""),
+        "route_objective_type": str(proposal.get("route_objective_type") or ""),
+        "failure_response_policy": dict(proposal.get("failure_response_policy") or {}),
+        "transformation_idea": str(proposal.get("transformation_idea") or ""),
+        "precursor_set_smiles": precursor_set_smiles,
+        "precursor_component_index": int(component_index or 0),
+        "precursor_component_count": int(component_count or 1),
+        "multi_component_precursor_set": int(component_count or 1) > 1,
+        "requires_precursor_set_stitching": source == "retrosynthetic_proposal_component",
+        "allowed_use": "guided_search_subgoal_hint_only",
+        "analogy_is_advisory_only": str(proposal.get("source_type") or "").startswith("analogical"),
+        "not_exact_literature_segment": bool(proposal.get("not_exact_literature_segment", True)),
+        "not_parent_route_proof": True,
+        "requires_verifier": True,
+        "no_solved_claim": True,
+    }
+
+
+def _precursor_components_from_smiles(smiles: str) -> list[str]:
+    components = [part for part in str(smiles or "").split(".") if part]
+    if not components:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in components:
+        if part in seen:
+            continue
+        seen.add(part)
+        out.append(part)
+    return out
+
+
 def _visual_exploratory_hints_for_policy(blackboard: dict[str, Any]) -> list[dict[str, Any]]:
     hints: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -1415,6 +1912,18 @@ def _guided_evidence_refs(
 ) -> list[str]:
     evidence = dict(blackboard.get("literature_evidence") or {})
     refs = [str(item) for item in evidence.get("source_refs") or [] if str(item or "").strip()]
+    refs.extend(
+        str(
+            row.get("source_ref")
+            or row.get("doi")
+            or row.get("pii")
+            or row.get("url")
+            or row.get("local_pdf")
+            or ""
+        )
+        for row in evidence.get("source_candidates") or []
+        if isinstance(row, dict)
+    )
     refs.extend(str(item) for item in exact_rows if str(item or "").strip())
     refs.extend(str(item) for item in selected_analogy_ids if str(item or "").strip())
     refs.extend(str(item) for item in selected_template_ids if str(item or "").strip())
@@ -1479,7 +1988,10 @@ def _action(
 
 def _parent_proof_accepted(blackboard: dict[str, Any]) -> bool:
     proof = dict(blackboard.get("parent_route_proof") or {})
-    return bool(proof.get("accepted") and proof.get("solved"))
+    return is_solved_parent_route_proof(
+        proof,
+        expected_target_smiles=str((blackboard.get("target_profile") or {}).get("target_smiles") or ""),
+    )
 
 
 def _append_next_action_bias_actions(
@@ -1505,7 +2017,18 @@ def _append_next_action_bias_actions(
 
 def _next_action_biases(blackboard: dict[str, Any]) -> list[str]:
     belief = dict(blackboard.get("current_belief") or {})
-    return _dedupe([str(item) for item in belief.get("next_action_bias") or [] if str(item or "").strip()])
+    biases = _dedupe([str(item) for item in belief.get("next_action_bias") or [] if str(item or "").strip()])
+    if _process_evidence_available(blackboard):
+        route_first = [
+            "derive_broad_reaction_template",
+            "compile_objective_route_proof",
+            "run_guided_chemenzy",
+            "expand_child_target",
+        ]
+        promoted = [item for item in route_first if item in biases]
+        if promoted:
+            return _dedupe([*promoted, *[item for item in biases if item not in promoted]])
+    return biases
 
 
 def _biased_action_candidate(
@@ -1589,6 +2112,8 @@ def _biased_action_candidate(
             _visual_chain_available(blackboard)
             and (not _exact_rows_available(blackboard) or _exact_rows_incomplete(blackboard))
             and _uncompiled_visual_steps_available(blackboard)
+            and not _compile_exact_rows_exhausted_to_advisory(blackboard)
+            and not _stale_compile_requires_structure_resolution(blackboard)
         ):
             return {}
         return _action(
@@ -1637,7 +2162,7 @@ def _biased_action_candidate(
         return _action(
             round_index,
             "expand_child_target",
-            "blackboard bias requests upstream synthesis of an exact literature terminal",
+            _child_expansion_rationale(blackboard),
             "route_expansion_subgoal_search_result.v1",
             "child target verifier result is recorded without parent solved claim",
             _child_expansion_payload(blackboard),
@@ -1656,6 +2181,8 @@ def _biased_action_candidate(
     if action_type == "compile_objective_route_proof":
         if not _route_objective_proof_ready(blackboard):
             return {}
+        if not _new_objective_proof_signal_since_last_compile(blackboard):
+            return {}
         return _action(
             round_index,
             "compile_objective_route_proof",
@@ -1669,6 +2196,68 @@ def _biased_action_candidate(
 
 def _failure_evidence_available(blackboard: dict[str, Any]) -> bool:
     return bool((blackboard.get("route_failures") or []) or (blackboard.get("plugin_runtime_diagnostics") or []))
+
+
+def _new_objective_proof_signal_since_last_compile(blackboard: dict[str, Any]) -> bool:
+    history = [row for row in blackboard.get("action_history") or [] if isinstance(row, dict)]
+    last_compile_index = -1
+    for idx, row in enumerate(history):
+        if str(row.get("action_type") or "") == "compile_objective_route_proof":
+            last_compile_index = idx
+    if last_compile_index < 0:
+        return True
+    if not blackboard.get("route_proof_bundle"):
+        return True
+    signal_fields = {
+        "broad_transform_templates",
+        "exact_rows",
+        "parent_route_proof_present",
+        "pdf_structure_evidence",
+        "process_evidence_rows",
+        "reaction_idea_cards",
+        "resolved_structures",
+        "retrosynthetic_proposals",
+        "semisynthesis_anchors",
+        "template_applications",
+        "visual_chains",
+    }
+    for row in history[last_compile_index + 1 :]:
+        changed = {str(item) for item in row.get("changed_blackboard_fields") or [] if str(item or "").strip()}
+        if changed & signal_fields:
+            return True
+    return False
+
+
+def _visual_extraction_has_rendered_input(
+    payload: dict[str, Any],
+    blackboard: dict[str, Any],
+) -> bool:
+    """Require materialized images before a visual-call budget is consumed."""
+    image_paths = [
+        str(item or "").strip()
+        for item in payload.get("image_paths") or []
+        if str(item or "").strip()
+    ]
+    if image_paths:
+        if not all(Path(item).expanduser().is_file() for item in image_paths):
+            return False
+        rendered = _pdf_structure_source_keys(blackboard)
+        key = _source_key(payload)
+        return bool(key and key in rendered)
+    rendered = _pdf_structure_source_keys(blackboard)
+    key = _source_key(payload)
+    if any(
+        str(payload.get(field) or "").strip()
+        for field in ("pdf_path", "local_pdf", "source_pdf_path", "document_id")
+    ):
+        return key in rendered
+    matches = _matching_local_pdf_document_keys(payload, blackboard)
+    if matches:
+        return len(matches) == 1 and matches <= rendered
+    if key:
+        return key in rendered
+    candidates = _local_pdf_source_candidates(blackboard)
+    return len(candidates) == 1 and bool(rendered)
 
 
 def _needs_literature_bridge(blackboard: dict[str, Any]) -> bool:
@@ -1754,6 +2343,10 @@ def _broad_template_derivation_ready(blackboard: dict[str, Any]) -> bool:
         return False
     if _exact_literature_segment_usable(blackboard):
         return False
+    if _compile_exact_rows_exhausted_to_advisory(blackboard):
+        return True
+    if _visual_exploratory_hints_available(blackboard):
+        return True
     if blackboard.get("route_objective_summary") and (
         blackboard.get("target_side_disconnection_hypotheses")
         or blackboard.get("analogical_hypotheses")
@@ -1788,7 +2381,12 @@ def _route_objective_proof_ready(blackboard: dict[str, Any]) -> bool:
     if blackboard.get("parent_route_proof") or blackboard.get("broad_transform_templates"):
         return True
     evidence = dict(blackboard.get("literature_evidence") or {})
-    return bool(evidence.get("source_candidates") or evidence.get("visual_chains") or evidence.get("exact_rows"))
+    return bool(
+        evidence.get("source_candidates")
+        or evidence.get("visual_chains")
+        or evidence.get("process_evidence_rows")
+        or evidence.get("exact_rows")
+    )
 
 
 def _awaiting_local_pdf_proxy_download(blackboard: dict[str, Any]) -> bool:
@@ -1809,6 +2407,28 @@ def _candidate_has_real_source(row: dict[str, Any]) -> bool:
     return bool(str(row.get("doi") or row.get("pii") or row.get("url") or row.get("local_pdf") or "").strip())
 
 
+def _compact_source_candidate_for_policy(row: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "source_ref": str(row.get("source_ref") or ""),
+        "title": str(row.get("title") or row.get("source_title") or ""),
+        "doi": str(row.get("doi") or ""),
+        "pii": str(row.get("pii") or ""),
+        "url": str(row.get("url") or ""),
+        "source_role": str(row.get("source_role") or ""),
+        "source_usage_policy": str(row.get("source_usage_policy") or ""),
+        "no_solved_claim": True,
+    }
+    if str(row.get("local_pdf") or "").strip():
+        out["local_pdf"] = str(row.get("local_pdf") or "")
+    labels = [str(item) for item in row.get("expected_scheme_or_compound_labels") or [] if str(item or "").strip()]
+    if labels:
+        out["expected_scheme_or_compound_labels"] = labels[:12]
+    route_hint = str(row.get("route_sequence_hint") or "").strip()
+    if route_hint:
+        out["route_sequence_hint"] = route_hint[:500]
+    return {key: value for key, value in out.items() if value not in ("", [], {})}
+
+
 def _source_candidates_visual_ready(blackboard: dict[str, Any]) -> bool:
     if _source_candidates_include_local_pdf(blackboard):
         return True
@@ -1825,10 +2445,8 @@ def _local_pdf_source_candidates(blackboard: dict[str, Any]) -> list[dict[str, A
 
 def _next_local_pdf_source_for_pdf_extraction(blackboard: dict[str, Any]) -> dict[str, Any]:
     candidates = _local_pdf_source_candidates(blackboard)
-    if len(candidates) == 1 and _pdf_structure_evidence_available(blackboard):
-        return {}
     rendered = _pdf_structure_source_keys(blackboard)
-    for row in candidates:
+    for row in _rank_local_pdf_sources_for_extraction(blackboard, candidates, rendered=rendered):
         key = _source_key(row)
         if key and key not in rendered:
             return row
@@ -1837,15 +2455,13 @@ def _next_local_pdf_source_for_pdf_extraction(blackboard: dict[str, Any]) -> dic
 
 def _next_local_pdf_source_for_visual_extraction(blackboard: dict[str, Any]) -> dict[str, Any]:
     candidates = _local_pdf_source_candidates(blackboard)
-    if len(candidates) == 1 and _visual_chain_available(blackboard):
-        return {}
     rendered = _pdf_structure_source_keys(blackboard)
     visualized = _visual_chain_source_keys(blackboard)
     for row in candidates:
         key = _source_key(row)
         if not key or key in visualized:
             continue
-        if key in rendered or (len(candidates) == 1 and _pdf_structure_evidence_available(blackboard)):
+        if key in rendered:
             return row
     return {}
 
@@ -1855,10 +2471,56 @@ def _pdf_structure_source_keys(blackboard: dict[str, Any]) -> set[str]:
     for row in (blackboard.get("literature_evidence") or {}).get("pdf_structure_evidence") or []:
         if not isinstance(row, dict):
             continue
-        key = _source_key(row)
-        if key:
-            keys.add(key)
+        if not _pdf_evidence_has_materialized_render(row):
+            continue
+        keys.update(_evidence_document_source_keys(row, blackboard))
     return keys
+
+
+def _pdf_evidence_has_materialized_render(row: dict[str, Any]) -> bool:
+    summary = dict(row.get("summary") or {})
+    try:
+        rendered_count = int(
+            row.get("rendered_page_count")
+            or summary.get("rendered_page_count")
+            or 0
+        )
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        row.get("accepted") is True
+        and rendered_count > 0
+        and not [str(item) for item in row.get("reasons") or [] if str(item or "").strip()]
+        and _pdf_evidence_render_paths(row)
+    )
+
+
+def _pdf_evidence_render_paths(row: dict[str, Any]) -> list[str]:
+    candidates: list[str] = []
+    for field in ("rendered_pages", "scheme_crops", "indexed_images"):
+        for item in row.get(field) or []:
+            if isinstance(item, dict):
+                candidates.extend(
+                    str(item.get(key) or "")
+                    for key in ("image_path", "source_image_path", "path")
+                )
+    candidates.extend(str(item or "") for item in row.get("image_paths") or [])
+    artifact_ref = str(row.get("artifact_ref") or "").strip()
+    if not candidates and artifact_ref:
+        path = Path(artifact_ref).expanduser()
+        if path.is_file() and path.suffix.lower() == ".json":
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = {}
+            nested = dict(payload.get("result") or payload) if isinstance(payload, dict) else {}
+            if nested != row:
+                candidates.extend(_pdf_evidence_render_paths(nested))
+    return _dedupe(
+        str(Path(value).expanduser().resolve())
+        for value in candidates
+        if str(value or "").strip() and Path(str(value)).expanduser().is_file()
+    )
 
 
 def _visual_chain_source_keys(blackboard: dict[str, Any]) -> set[str]:
@@ -1866,13 +2528,203 @@ def _visual_chain_source_keys(blackboard: dict[str, Any]) -> set[str]:
     for row in (blackboard.get("literature_evidence") or {}).get("visual_chains") or []:
         if not isinstance(row, dict):
             continue
-        key = _source_key(row)
-        if key:
-            keys.add(key)
+        if (
+            not bool(row.get("accepted"))
+            and _visual_chain_candidate_step_count(dict(row)) <= 0
+            and "visual_input_images_missing" in {str(item) for item in row.get("reasons") or []}
+        ):
+            continue
+        keys.update(_evidence_document_source_keys(row, blackboard))
     return keys
 
 
+def _evidence_document_source_keys(
+    row: dict[str, Any],
+    blackboard: dict[str, Any],
+) -> set[str]:
+    """Resolve legacy source-only evidence only when it names one document.
+
+    Current extractor artifacts carry ``source_pdf_path`` and therefore have
+    an exact document key.  Older artifacts can carry only DOI/source_ref; in
+    that case a logical source may be upgraded to a document key only when the
+    blackboard has exactly one matching local document.  This keeps legacy
+    single-document runs usable without letting one DOI-level record consume
+    every article/SI document attached to that DOI.
+    """
+    key = _source_key(row)
+    keys = {key} if key else set()
+    if any(
+        str(row.get(field) or "").strip()
+        for field in ("local_pdf", "source_pdf_path", "pdf_path", "document_id")
+    ):
+        return keys
+    matches = _matching_local_pdf_document_keys(row, blackboard)
+    if len(matches) == 1:
+        keys.update(matches)
+    elif not key and not matches:
+        candidate_keys = {
+            _source_key(candidate)
+            for candidate in _local_pdf_source_candidates(blackboard)
+            if _source_key(candidate)
+        }
+        if len(candidate_keys) == 1:
+            keys.update(candidate_keys)
+    return keys
+
+
+def _matching_local_pdf_document_keys(
+    row: dict[str, Any],
+    blackboard: dict[str, Any],
+) -> set[str]:
+    logical_keys = _logical_source_identifiers(row)
+    if not logical_keys:
+        return set()
+    matches: set[str] = set()
+    for candidate in _local_pdf_source_candidates(blackboard):
+        if not (logical_keys & _logical_source_identifiers(candidate)):
+            continue
+        key = _source_key(candidate)
+        if key:
+            matches.add(key)
+    return matches
+
+
+def _logical_source_identifiers(row: dict[str, Any]) -> set[str]:
+    identifiers: set[str] = set()
+    for field in ("doi", "source_ref", "url"):
+        doi = _logical_source_doi(str(row.get(field) or ""))
+        if doi:
+            identifiers.add(f"doi:{doi}")
+    pii = str(row.get("pii") or "").strip().lower()
+    if pii:
+        identifiers.add(f"pii:{pii}")
+    source_ref = str(row.get("source_ref") or "").strip().lower()
+    if source_ref and not _logical_source_doi(source_ref):
+        identifiers.add(f"ref:{source_ref}")
+    url = str(row.get("url") or "").strip().lower()
+    if url and not _logical_source_doi(url):
+        identifiers.add(f"url:{url}")
+    title = str(row.get("title") or row.get("source_title") or "").strip().lower()
+    if title:
+        identifiers.add(f"title:{' '.join(title.split())}")
+    return identifiers
+
+
+def _logical_source_doi(value: str) -> str:
+    text = str(value or "").strip().lower()
+    for prefix in (
+        "https://doi.org/",
+        "http://doi.org/",
+        "https://dx.doi.org/",
+        "http://dx.doi.org/",
+        "doi:",
+    ):
+        if text.startswith(prefix):
+            text = text[len(prefix) :]
+            break
+    if not text.startswith("10.") or "/" not in text:
+        return ""
+    for separator in ("&", "?", "#"):
+        if separator in text:
+            text = text.split(separator, 1)[0]
+    return text.strip().strip(".,;:)]}'\"")
+
+
+def _rank_local_pdf_sources_for_extraction(
+    blackboard: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    *,
+    rendered: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    rendered = set(rendered or set())
+    target = dict(blackboard.get("target_profile") or {})
+    target_terms = _source_priority_terms(
+        [
+            str(target.get("target_name") or ""),
+            str(target.get("family_hint") or ""),
+            *[str(item) for item in target.get("functional_handles") or []],
+        ]
+    )
+
+    def score(row: dict[str, Any]) -> tuple[int, str]:
+        key = _source_key(row)
+        text = _source_priority_text(row)
+        value = 0
+        pdf_path = str(row.get("local_pdf") or row.get("pdf_path") or row.get("source_pdf_path") or "").strip()
+        if pdf_path and os.path.exists(pdf_path):
+            value += 60
+        if key and key not in rendered:
+            value += 80
+        if str(row.get("access_status") or "").lower() == "local_pdf_available":
+            value += 15
+        if str(row.get("source_role") or "").lower() == "local_pdf_proxy_download":
+            value += 10
+        if str(row.get("doi") or "").strip() or str(row.get("source_ref") or "").lower().startswith("doi:"):
+            value += 18
+            title = str(row.get("title") or row.get("source_title") or "").strip().lower()
+            if not title or title.startswith("pdfreq"):
+                value += 35
+        value += 10 * sum(1 for term in target_terms if term and term in text)
+        process_terms = (
+            "synthesis",
+            "preparation",
+            "process",
+            "route",
+            "scheme",
+            "intermediate",
+            "kilogram",
+            "kg",
+            "scale",
+        )
+        value += 8 * sum(1 for term in process_terms if term in text)
+        if "improved kilogram-scale preparation" in text:
+            value += 40
+        if "discovery" in text and not any(term in text for term in ("synthesis", "preparation", "process", "scheme")):
+            value -= 10
+        if key and key in rendered:
+            value -= 120
+        return value, key or str(
+            row.get("local_pdf") or row.get("source_pdf_path") or row.get("pdf_path") or ""
+        ).strip().lower()
+
+    return sorted(candidates, key=score, reverse=True)
+
+
+def _source_priority_text(row: dict[str, Any]) -> str:
+    return " ".join(
+        str(row.get(key) or "")
+        for key in (
+            "source_ref",
+            "title",
+            "source_title",
+            "doi",
+            "url",
+            "route_sequence_hint",
+            "relevance_rationale",
+        )
+    ).lower()
+
+
+def _source_priority_terms(values: list[str]) -> list[str]:
+    terms: list[str] = []
+    for value in values:
+        for token in str(value or "").lower().replace(";", " ").replace(",", " ").split():
+            token = token.strip("()[]{}:._-/")
+            if len(token) >= 5 and token not in {"online", "local", "cache", "source", "target"}:
+                terms.append(token)
+    return _dedupe(terms)[:10]
+
+
 def _source_key(row: dict[str, Any]) -> str:
+    # One DOI can own several extractable documents (article, SI, corrections).
+    # Prefer a concrete document identity so rendering one file does not mark
+    # every document attached to that DOI as already processed.
+    local_pdf = str(row.get("local_pdf") or row.get("source_pdf_path") or row.get("pdf_path") or "").strip().lower()
+    if local_pdf:
+        return f"pdf:{local_pdf}"
+    document_id = str(row.get("document_id") or "").strip().lower()
+    if document_id:
+        return f"document:{document_id}"
     source_ref = str(row.get("source_ref") or "").strip().lower()
     if source_ref:
         return f"ref:{source_ref}"
@@ -1882,9 +2734,6 @@ def _source_key(row: dict[str, Any]) -> str:
     pii = str(row.get("pii") or "").strip().lower()
     if pii:
         return f"pii:{pii}"
-    local_pdf = str(row.get("local_pdf") or row.get("source_pdf_path") or row.get("pdf_path") or "").strip().lower()
-    if local_pdf:
-        return f"pdf:{local_pdf}"
     title = str(row.get("title") or row.get("source_title") or "").strip().lower()
     return f"title:{title}" if title else ""
 
@@ -1902,36 +2751,59 @@ def _source_candidate_payload(row: dict[str, Any]) -> dict[str, Any]:
         payload.setdefault("max_images", 6)
         payload.setdefault("visual_max_side_px", 1400)
         payload.setdefault("visual_jpeg_quality", 70)
+        payload.setdefault("timeout_s", _default_visual_timeout_s())
+    if row.get("document_id"):
+        payload["document_id"] = str(row.get("document_id") or "")
+    if row.get("content_scope"):
+        payload["content_scope"] = str(row.get("content_scope") or "")
     if row.get("route_sequence_hint"):
         payload["route_sequence_hint"] = str(row.get("route_sequence_hint") or "")
     labels = [str(item) for item in row.get("expected_scheme_or_compound_labels") or [] if str(item or "").strip()]
     if labels:
         payload["expected_labels"] = labels
         payload["compound_labels"] = labels
-    _add_source_visual_focus_defaults(payload, row)
+    _apply_source_visual_extraction_profile(payload, row)
     return payload
 
 
-def _add_source_visual_focus_defaults(payload: dict[str, Any], row: dict[str, Any]) -> None:
-    text = " ".join(
-        str(row.get(key) or payload.get(key) or "")
-        for key in ("title", "source_title", "source_ref", "doi", "local_pdf", "pdf_path")
-    ).lower()
-    if "ouabagenin" in text or "ouabain" in text or any(doi in text for doi in ("10.1002/asia.200800429", "10.1002/anie.200704959", "10.1139/v05-042")):
-        payload.setdefault("compress_images", True)
-        payload.setdefault("max_images", 6)
-        payload.setdefault("visual_max_side_px", 1400)
-        payload.setdefault("visual_jpeg_quality", 70)
-        payload.setdefault("route_sequence_hint", "")
-        payload["route_sequence_hint"] = " ".join(
-            part
-            for part in [
-                str(payload.get("route_sequence_hint") or ""),
-                "For ouabagenin/ouabain sources, inspect source-detail schemes for target-proximal steroid-core intermediates. "
-                "Use only visible labels and structures; unresolved labels must remain extraction gaps.",
-            ]
-            if part
-        )
+def _default_visual_timeout_s() -> int:
+    raw = os.environ.get("AUTOPLANNER_VISUAL_TIMEOUT_S")
+    try:
+        value = float(raw) if raw not in (None, "") else 900.0
+    except (TypeError, ValueError):
+        value = 900.0
+    return int(max(120.0, value))
+
+
+def _apply_source_visual_extraction_profile(payload: dict[str, Any], row: dict[str, Any]) -> None:
+    """Apply only caller-supplied rendering/focus policy.
+
+    Source titles and identifiers are evidence locators, not configuration.
+    A source may opt into specialized page selection or route-focus prompts by
+    carrying an explicit ``visual_extraction_profile``; otherwise the generic
+    extraction defaults above remain unchanged.
+    """
+    profile = row.get("visual_extraction_profile")
+    if not isinstance(profile, dict):
+        return
+    for key in (
+        "compress_images",
+        "max_images",
+        "visual_max_side_px",
+        "visual_jpeg_quality",
+        "render_zoom",
+        "timeout_s",
+        "route_sequence_hint",
+    ):
+        value = profile.get(key)
+        if value not in (None, ""):
+            if key == "route_sequence_hint" and str(row.get(key) or "").strip():
+                continue
+            payload[key] = value
+    for key in ("page_numbers", "scheme_crops", "expected_labels", "compound_labels"):
+        values = profile.get(key)
+        if isinstance(values, list) and values:
+            payload.setdefault(key, list(values))
 
 
 def _literature_search_payload(blackboard: dict[str, Any], *, intent: str) -> dict[str, Any]:
@@ -2101,11 +2973,62 @@ def _visual_chain_available(blackboard: dict[str, Any]) -> bool:
     return bool((blackboard.get("literature_evidence") or {}).get("visual_chains"))
 
 
+def _process_evidence_available(blackboard: dict[str, Any]) -> bool:
+    return bool((blackboard.get("literature_evidence") or {}).get("process_evidence_rows"))
+
+
 def _uncompiled_visual_steps_available(blackboard: dict[str, Any]) -> bool:
     for row in (blackboard.get("literature_evidence") or {}).get("visual_chains") or []:
         if not isinstance(row, dict):
             continue
         if _visual_chain_uncompiled_step_count(blackboard, dict(row)) > 0:
+            return True
+    return False
+
+
+def _stale_compile_requires_structure_resolution(blackboard: dict[str, Any]) -> bool:
+    evidence = dict((blackboard or {}).get("literature_evidence") or {})
+    if evidence.get("exact_rows"):
+        return False
+    if not _open_structure_resolution_tasks(blackboard):
+        return False
+    compile_attempt_count = _action_count(blackboard, "compile_exact_literature_rows")
+    stale_compile_history = sum(
+        1
+        for row in blackboard.get("action_history") or []
+        if isinstance(row, dict)
+        and str(row.get("action_type") or "") == "compile_exact_literature_rows"
+        and (row.get("useful_artifact") is False or row.get("stale") is True)
+    )
+    stale_audits = 0
+    for audit in evidence.get("exact_chain_audits") or []:
+        if not isinstance(audit, dict) or audit.get("accepted"):
+            continue
+        reasons = {str(item) for item in audit.get("reasons") or []}
+        if reasons & {"no_chain_unrolled", "missing_one_step_row_for_product"}:
+            stale_audits += 1
+    return bool(compile_attempt_count >= 2 or stale_compile_history >= 1 or stale_audits >= 1)
+
+
+def _compile_exact_rows_exhausted_to_advisory(blackboard: dict[str, Any]) -> bool:
+    evidence = dict((blackboard or {}).get("literature_evidence") or {})
+    if evidence.get("exact_rows"):
+        return False
+    if blackboard.get("broad_transform_templates"):
+        return False
+    advisory_reason_tokens = {
+        "advisory_visual_template_card_available",
+        "applicability_failed",
+        "product_reconstruction_failed",
+        "source_detail_step_not_exact",
+        "missing_one_step_row_for_product",
+        "no_chain_unrolled",
+    }
+    for audit in evidence.get("exact_chain_audits") or []:
+        if not isinstance(audit, dict) or audit.get("accepted"):
+            continue
+        reasons = {str(item) for item in audit.get("reasons") or [] if str(item or "").strip()}
+        if reasons & advisory_reason_tokens:
             return True
     return False
 
@@ -2299,6 +3222,7 @@ def _literature_extraction_pending(blackboard: dict[str, Any], actions: list[dic
         _visual_chain_available(blackboard)
         and (not _exact_rows_available(blackboard) or _exact_rows_incomplete(blackboard))
         and _visual_gap_repair_needed(blackboard)
+        and not _process_evidence_available(blackboard)
         and _visual_gap_repair_budget_remaining(blackboard)
         and (_condition_gap_repair_needed(blackboard) or not _uncompiled_visual_steps_available(blackboard))
             and _budget_remaining(blackboard, "visual_calls")
@@ -2396,6 +3320,8 @@ def _expected_labels_from_source_candidates(blackboard: dict[str, Any], *, sourc
 
 
 def _structure_resolution_scout_needed(blackboard: dict[str, Any]) -> bool:
+    if _process_evidence_available(blackboard):
+        return False
     if _next_structure_resolution_task_for_local_resolve(blackboard) and _budget_remaining(blackboard, "visual_calls"):
         return False
     if (
@@ -2403,7 +3329,7 @@ def _structure_resolution_scout_needed(blackboard: dict[str, Any]) -> bool:
         and (_next_local_pdf_source_for_pdf_extraction(blackboard) or _next_local_pdf_source_for_visual_extraction(blackboard))
     ):
         return False
-    if _uncompiled_visual_steps_available(blackboard):
+    if _uncompiled_visual_steps_available(blackboard) and not _stale_compile_requires_structure_resolution(blackboard):
         return False
     if _structure_resolution_scout_seen(blackboard):
         return False
@@ -2421,13 +3347,54 @@ def _open_structure_resolution_tasks(blackboard: dict[str, Any]) -> list[dict[st
 def _next_structure_resolution_task_for_local_resolve(blackboard: dict[str, Any]) -> dict[str, Any]:
     if _next_local_pdf_source_for_pdf_extraction(blackboard) or _next_local_pdf_source_for_visual_extraction(blackboard):
         return {}
-    if _uncompiled_visual_steps_available(blackboard):
+    if _uncompiled_visual_steps_available(blackboard) and not _stale_compile_requires_structure_resolution(blackboard):
         return {}
-    for task in _open_structure_resolution_tasks(blackboard):
+    for task in _prioritized_structure_resolution_tasks(blackboard):
         if _structure_resolution_task_locally_attempted(blackboard, task):
             continue
         return task
     return {}
+
+
+def _prioritized_structure_resolution_tasks(blackboard: dict[str, Any]) -> list[dict[str, Any]]:
+    tasks = _open_structure_resolution_tasks(blackboard)
+    visual_labels = _structure_labels_available_from_visual_chains(blackboard)
+    if not visual_labels:
+        return tasks
+    return sorted(
+        tasks,
+        key=lambda task: (
+            0 if _structure_task_label_in_set(task, visual_labels) else 1,
+            str(task.get("label") or ""),
+        ),
+    )
+
+
+def _structure_labels_available_from_visual_chains(blackboard: dict[str, Any]) -> set[str]:
+    labels: set[str] = set()
+    for chain in (blackboard.get("literature_evidence") or {}).get("visual_chains") or []:
+        if not isinstance(chain, dict):
+            continue
+        for step in chain.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            product_label = str(step.get("product_label") or step.get("label") or "").strip()
+            if product_label:
+                labels.add(_structure_label_key(product_label))
+            for reactant_label in step.get("reactant_labels") or []:
+                text = str(reactant_label or "").strip()
+                if text:
+                    labels.add(_structure_label_key(text))
+    return labels
+
+
+def _structure_task_label_in_set(task: dict[str, Any], labels: set[str]) -> bool:
+    label = _structure_label_key(str(task.get("label") or ""))
+    return bool(label and label in labels)
+
+
+def _structure_label_key(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
 
 
 def _structure_resolution_task_locally_attempted(blackboard: dict[str, Any], task: dict[str, Any]) -> bool:
@@ -2652,7 +3619,7 @@ def _exact_literature_segment_usable(blackboard: dict[str, Any]) -> bool:
         return True
     evidence = dict(blackboard.get("literature_evidence") or {})
     for audit in evidence.get("exact_chain_audits") or []:
-        if isinstance(audit, dict) and bool(audit.get("accepted")):
+        if isinstance(audit, dict) and audit.get("strict_source_proof_eligible") is True:
             return True
     return False
 
@@ -2683,12 +3650,130 @@ def _analogical_template_sources_available(blackboard: dict[str, Any]) -> bool:
     )
 
 
+def _analogical_templates_need_refresh(blackboard: dict[str, Any]) -> bool:
+    templates = [dict(row) for row in blackboard.get("analogical_templates") or [] if isinstance(row, dict)]
+    if not templates:
+        return False
+    if _nonsteroid_target_has_steroid_templates(blackboard, templates):
+        return True
+    latest_visual = _latest_accepted_visual_chain_with_steps(blackboard)
+    if not latest_visual:
+        return False
+    visual_source = _source_key(latest_visual)
+    if not visual_source:
+        return False
+    return not any(_template_covers_visual_source(template, visual_source) for template in templates)
+
+
+def _nonsteroid_target_has_steroid_templates(blackboard: dict[str, Any], templates: list[dict[str, Any]]) -> bool:
+    target_text = " ".join(
+        [
+            str((blackboard.get("target_input") or {}).get("target_name") or ""),
+            str((blackboard.get("target_input") or {}).get("family_hint") or ""),
+            str((blackboard.get("target_profile") or {}).get("target_name") or ""),
+            str((blackboard.get("target_profile") or {}).get("family_hint") or ""),
+        ]
+    ).lower()
+    target_is_steroid_family = any(
+        token in target_text
+        for token in ("steroid", "bufadienolide", "cardenolide", "taxane")
+    )
+    if target_is_steroid_family:
+        return False
+    return any(
+        "steroid" in str((template.get("reaction_center") or {}).get("product_retron_type") or "").lower()
+        or "steroid" in str(template.get("reaction_class") or "").lower()
+        for template in templates
+    )
+
+
+def _latest_accepted_visual_chain_with_steps(blackboard: dict[str, Any]) -> dict[str, Any]:
+    rows = [
+        dict(row)
+        for row in (blackboard.get("literature_evidence") or {}).get("visual_chains") or []
+        if isinstance(row, dict)
+        and bool(row.get("accepted"))
+        and _visual_chain_candidate_step_count(dict(row)) > 0
+    ]
+    return rows[-1] if rows else {}
+
+
+def _template_covers_visual_source(template: dict[str, Any], visual_source: str) -> bool:
+    retron = str((template.get("reaction_center") or {}).get("product_retron_type") or "")
+    if not retron.startswith("visual_") and retron != "steroid_visual_unsaturation_adjustment":
+        return False
+    hint = dict(template.get("visual_connectivity_hint") or {})
+    hint_source = str(hint.get("source_ref") or "")
+    return bool(hint_source and _source_keys_match(hint_source, visual_source))
+
+
+def _source_keys_match(left: str, right: str) -> bool:
+    left_key = _normalized_source_key_text(left)
+    right_key = _normalized_source_key_text(right)
+    return bool(left_key and right_key and left_key == right_key)
+
+
+def _normalized_source_key_text(value: str) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    if text.startswith("ref:"):
+        return text
+    if text.startswith(("doi:", "pii:")):
+        return f"ref:{text}"
+    if text.startswith(("pdf:", "title:")):
+        return text
+    return _source_key({"source_ref": text})
+
+
 def _ranked_analogical_templates_available(blackboard: dict[str, Any]) -> bool:
     return bool((blackboard.get("analogical_template_ranking") or {}).get("selected_templates"))
 
 
+def _analogical_template_ranking_needs_refresh(blackboard: dict[str, Any]) -> bool:
+    ranking = dict(blackboard.get("analogical_template_ranking") or {})
+    selected = [dict(row) for row in ranking.get("selected_templates") or [] if isinstance(row, dict)]
+    if not selected:
+        return False
+    current_template_ids = {
+        str(row.get("template_id") or "")
+        for row in blackboard.get("analogical_templates") or []
+        if isinstance(row, dict)
+    }
+    selected_ids = {str(row.get("template_id") or "") for row in selected if str(row.get("template_id") or "").strip()}
+    if selected_ids and current_template_ids and not selected_ids <= current_template_ids:
+        return True
+    latest_visual = _latest_accepted_visual_chain_with_steps(blackboard)
+    if not latest_visual:
+        return False
+    visual_source = _source_key(latest_visual)
+    if not visual_source:
+        return False
+    selected_templates = [
+        dict(row)
+        for row in blackboard.get("analogical_templates") or []
+        if isinstance(row, dict) and str(row.get("template_id") or "") in selected_ids
+    ]
+    if not selected_templates:
+        return False
+    return not any(_template_covers_visual_source(template, visual_source) for template in selected_templates)
+
+
 def _template_applications_available(blackboard: dict[str, Any]) -> bool:
-    return bool(blackboard.get("template_applications"))
+    applications = [dict(row) for row in blackboard.get("template_applications") or [] if isinstance(row, dict)]
+    if not applications:
+        return False
+    if _template_applications_only_threshold_rejected(applications) and _selected_templates_are_visual_hints(blackboard):
+        return False
+    return True
+
+
+def _template_applications_only_threshold_rejected(applications: list[dict[str, Any]]) -> bool:
+    return bool(applications) and all(
+        not bool(row.get("accepted"))
+        and "template_confidence_below_threshold" in {str(item) for item in row.get("reasons") or []}
+        for row in applications
+    )
 
 
 def _template_applications_need_validation(blackboard: dict[str, Any]) -> bool:
@@ -2720,13 +3805,22 @@ def _analogical_template_work_pending(blackboard: dict[str, Any], actions: list[
         return False
     if (
         _analogical_template_sources_available(blackboard)
-        and not blackboard.get("analogical_templates")
-        and not _failed_action_seen(blackboard, "extract_analogical_reaction_templates")
+        and (not blackboard.get("analogical_templates") or _analogical_templates_need_refresh(blackboard))
+        and (
+            _analogical_templates_need_refresh(blackboard)
+            or not _failed_action_seen(blackboard, "extract_analogical_reaction_templates")
+        )
     ):
         return True
-    if blackboard.get("analogical_templates") and not blackboard.get("analogical_template_ranking"):
+    if blackboard.get("analogical_templates") and (
+        not blackboard.get("analogical_template_ranking") or _analogical_template_ranking_needs_refresh(blackboard)
+    ):
         return True
-    if _ranked_analogical_templates_available(blackboard) and not _template_applications_available(blackboard):
+    if (
+        _ranked_analogical_templates_available(blackboard)
+        and not _analogical_template_ranking_needs_refresh(blackboard)
+        and not _template_applications_available(blackboard)
+    ):
         return True
     if _template_applications_need_validation(blackboard):
         return True
@@ -2735,11 +3829,14 @@ def _analogical_template_work_pending(blackboard: dict[str, Any], actions: list[
 
 def _analogical_template_payload(blackboard: dict[str, Any], *, action_type: str = "analogical_template_action") -> dict[str, Any]:
     policy = dict((blackboard.get("current_belief") or {}).get("template_policy") or {})
+    threshold = str(policy.get("analog_template_confidence_threshold") or "medium")
+    if action_type == "apply_analogical_template_to_target" and _selected_templates_are_visual_hints(blackboard):
+        threshold = "low"
     return {
         "max_templates": min(12, max(1, int(policy.get("max_template_applications_per_round") or 5) * 2)),
         "max_applications": max(1, int(policy.get("max_template_applications_per_round") or 5)),
         "template_radius_policy": str(policy.get("template_radius_policy") or "auto"),
-        "analog_template_confidence_threshold": str(policy.get("analog_template_confidence_threshold") or "medium"),
+        "analog_template_confidence_threshold": threshold,
         "analogical_template_policy": {
             "schema_version": "agentic_analogical_template_action_policy.v1",
             "action_type": str(action_type or "analogical_template_action"),
@@ -2754,6 +3851,26 @@ def _analogical_template_payload(blackboard: dict[str, Any], *, action_type: str
             "deterministic_template_validation_required": True,
         },
     }
+
+
+def _selected_templates_are_visual_hints(blackboard: dict[str, Any]) -> bool:
+    selected_ids = {
+        str(row.get("template_id") or "")
+        for row in (blackboard.get("analogical_template_ranking") or {}).get("selected_templates") or []
+        if isinstance(row, dict) and str(row.get("template_id") or "").strip()
+    }
+    if not selected_ids:
+        return False
+    templates = [
+        dict(row)
+        for row in blackboard.get("analogical_templates") or []
+        if isinstance(row, dict) and str(row.get("template_id") or "") in selected_ids
+    ]
+    return bool(templates) and all(
+        str((template.get("reaction_center") or {}).get("product_retron_type") or "").startswith("visual_")
+        or str((template.get("reaction_center") or {}).get("product_retron_type") or "") == "steroid_visual_unsaturation_adjustment"
+        for template in templates
+    )
 
 
 def _deterministic_route_action_ready(blackboard: dict[str, Any]) -> bool:
@@ -2811,11 +3928,15 @@ def _new_strong_guided_signal_since_last_run(blackboard: dict[str, Any]) -> bool
         return True
     if not (
         _target_relevant_exact_rows_available(blackboard)
+        or _semisynthesis_anchor_smiles_available(blackboard)
         or _validated_template_rows_available(blackboard)
         or _accepted_template_applications_available(blackboard)
         or _visual_exploratory_hints_available(blackboard)
         or _literature_terminal_candidates(blackboard)
+        or _process_evidence_available(blackboard)
+        or _retrosynthetic_proposals_available(blackboard)
         or blackboard.get("broad_transform_templates")
+        or _source_candidates_have_real_source(blackboard)
     ):
         return False
     signal_actions = {
@@ -2826,6 +3947,8 @@ def _new_strong_guided_signal_since_last_run(blackboard: dict[str, Any]) -> bool
         "rank_analogical_reaction_templates",
         "derive_broad_reaction_template",
         "extract_visual_literature_chain",
+        "resolve_literature_structure_task",
+        "search_literature",
         "expand_child_target",
     }
     for row in blackboard.get("action_history") or []:
@@ -2838,6 +3961,13 @@ def _new_strong_guided_signal_since_last_run(blackboard: dict[str, Any]) -> bool
         if round_index > last_round and str(row.get("action_type") or "") in signal_actions:
             return True
     return False
+
+
+def _semisynthesis_anchor_smiles_available(blackboard: dict[str, Any]) -> bool:
+    return any(
+        isinstance(row, dict) and bool(str(row.get("smiles") or "").strip())
+        for row in blackboard.get("semisynthesis_anchors") or []
+    )
 
 
 def _last_action_round(blackboard: dict[str, Any], action_type: str) -> int:
@@ -2870,38 +4000,60 @@ def _visual_exploratory_hints_available(blackboard: dict[str, Any]) -> bool:
     return bool(_visual_exploratory_hints_for_policy(blackboard))
 
 
+def _retrosynthetic_proposals_available(blackboard: dict[str, Any]) -> bool:
+    return any(
+        isinstance(row, dict)
+        and bool(row.get("recursive_expandable") or row.get("executable"))
+        and str(row.get("precursor_smiles") or "").strip()
+        for row in blackboard.get("retrosynthetic_proposals") or []
+    )
+
+
 def _can_run_guided_chemenzy(blackboard: dict[str, Any]) -> bool:
     budget = dict(blackboard.get("budget_state") or {})
-    if int(budget.get("chemenzy_runs") or 0) >= int(budget.get("max_chemenzy_runs") or 1):
+    if int(budget.get("chemenzy_runs") or 0) >= _budget_limit(budget, "max_chemenzy_runs", default=1):
         return False
-    if _semisynthesis_anchor_validation_needed(blackboard):
+    if _semisynthesis_anchor_validation_needed(blackboard) and not _hypothesis_only_search_signal_available(blackboard):
         return False
     if _can_stitch_parent_route(blackboard):
         return False
-    if _action_count(blackboard, "run_guided_chemenzy") > 0 and _guided_failure_requires_new_signal(blackboard):
-        return _new_strong_guided_signal_since_last_run(blackboard)
+    if _action_count(blackboard, "run_guided_chemenzy") > 0:
+        if _guided_failure_requires_new_signal(blackboard) or not _simple_direct_chemenzy_target(blackboard):
+            return _new_strong_guided_signal_since_last_run(blackboard)
     template_rows = int(((blackboard.get("current_belief") or {}).get("template_policy") or {}).get("validated_one_step_row_count") or 0)
     return bool(
         blackboard.get("bridge_tasks")
         or _target_relevant_exact_rows_available(blackboard)
         or blackboard.get("analogical_hypothesis_ranking")
         or template_rows
+        or _accepted_template_applications_available(blackboard)
         or _visual_exploratory_hints_available(blackboard)
+        or _retrosynthetic_proposals_available(blackboard)
         or blackboard.get("broad_transform_templates")
+        or _source_candidates_have_real_source(blackboard)
     )
 
 
 
 def _can_expand_child_target(blackboard: dict[str, Any]) -> bool:
-    budget = dict(blackboard.get("budget_state") or {})
-    if int(budget.get("child_target_runs") or 0) >= int(budget.get("max_child_target_runs") or 2):
-        return False
-    if _semisynthesis_anchor_validation_needed(blackboard):
-        return False
-    if _can_stitch_parent_route(blackboard):
+    if _remaining_child_target_budget(blackboard) <= 0:
         return False
     unattempted_terminals = _unattempted_literature_terminal_candidates(blackboard)
     unattempted_hypothetical = _unattempted_hypothetical_precursor_candidates(blackboard)
+    if (
+        _semisynthesis_anchor_validation_needed(blackboard)
+        and not unattempted_terminals
+        and not _hypothesis_frontier_rows_available(unattempted_hypothetical)
+    ):
+        return False
+    if _can_stitch_parent_route(blackboard):
+        return False
+    if _literature_extraction_pending(blackboard, []) and not _child_expansion_can_run_with_pending_literature(
+        blackboard,
+        unattempted_terminals=unattempted_terminals,
+        unattempted_hypothetical=unattempted_hypothetical,
+    ):
+        return False
     if _child_expansion_repeated_terminal_blocked(blackboard) and not (unattempted_terminals or unattempted_hypothetical):
         return False
     if unattempted_terminals:
@@ -2911,26 +4063,217 @@ def _can_expand_child_target(blackboard: dict[str, Any]) -> bool:
     return False
 
 
-def _can_stitch_parent_route(blackboard: dict[str, Any]) -> bool:
-    belief = dict(blackboard.get("current_belief") or {})
-    evidence = dict(blackboard.get("literature_evidence") or {})
-    stitch_count = _action_count(blackboard, "stitch_parent_route")
-    child_count = _action_count(blackboard, "expand_child_target")
-    target_relevant_rows = _target_relevant_exact_literature_rows(blackboard)
-    if belief.get("child_route_solved") and target_relevant_rows and stitch_count < max(1, child_count):
-        return True
-    if target_relevant_rows and child_count and stitch_count < child_count:
-        return True
-    parent_artifacts_attempted = _action_seen(blackboard, "run_guided_chemenzy") or _action_seen(blackboard, "expand_child_target")
-    return bool(
-        stitch_count == 0
-        and parent_artifacts_attempted
-        and (evidence.get("visual_chains") or target_relevant_rows or blackboard.get("route_failures"))
+def _child_expansion_rationale(blackboard: dict[str, Any]) -> str:
+    if _unattempted_literature_terminal_candidates(blackboard):
+        return "an exact literature terminal needs upstream child-target expansion"
+    hypothetical = _unattempted_hypothetical_precursor_candidates(blackboard)
+    if any(str(row.get("source") or "") == "recursive_hypothesis_task" for row in hypothetical):
+        return "a pending recursive hypothesis frontier should be tested as a child target"
+    if hypothetical:
+        return "a hypothesis-only same-core precursor should be tested as a child target"
+    return "a child target expansion candidate is available"
+
+
+def _hypothesis_frontier_available(blackboard: dict[str, Any]) -> bool:
+    return _hypothesis_frontier_rows_available(_unattempted_hypothetical_precursor_candidates(blackboard))
+
+
+def _hypothesis_frontier_rows_available(rows: list[dict[str, Any]]) -> bool:
+    return any(
+        _hypothesis_frontier_can_bypass_endpoint_validation(row)
+        for row in rows
     )
 
 
+def _hypothesis_only_search_signal_available(blackboard: dict[str, Any]) -> bool:
+    return bool(_hypothesis_frontier_available(blackboard) or _retrosynthetic_proposals_available(blackboard))
+
+
+def _child_expansion_can_run_with_pending_literature(
+    blackboard: dict[str, Any],
+    *,
+    unattempted_terminals: list[dict[str, Any]],
+    unattempted_hypothetical: list[dict[str, Any]],
+) -> bool:
+    if unattempted_terminals:
+        return True
+    if not unattempted_hypothetical:
+        return False
+    if _process_evidence_available(blackboard) or blackboard.get("semisynthesis_anchors"):
+        return True
+    return any(
+        _hypothetical_precursor_has_source_backed_anchor(row)
+        for row in unattempted_hypothetical
+    )
+
+
+def _hypothetical_precursor_has_source_backed_anchor(row: dict[str, Any]) -> bool:
+    if str(row.get("source") or "") == "semisynthesis_anchor":
+        return True
+    if str(row.get("source_ref") or row.get("source_locator") or "").strip():
+        return True
+    refs = [str(item).strip().lower() for item in row.get("evidence_refs") or [] if str(item or "").strip()]
+    source_prefixes = ("doi:", "http://", "https://", "local_pdf:", "process:", "source:", "visual:", "pdf:")
+    return any(ref.startswith(source_prefixes) for ref in refs)
+
+
+def _hypothesis_frontier_can_bypass_endpoint_validation(row: dict[str, Any]) -> bool:
+    if str(row.get("source") or "") == "semisynthesis_anchor":
+        return bool(str(row.get("smiles") or "").strip() and (row.get("evidence_refs") or row.get("source_ref")))
+    parent_id = str(row.get("parent_candidate_id") or "")
+    task_id = str(row.get("recursive_hypothesis_task_id") or "")
+    return bool(
+        parent_id.startswith("proposal:")
+        or ":proposal:" in task_id
+        or str(row.get("proposal_id") or "").startswith("proposal:")
+        or bool(row.get("requires_precursor_set_stitching"))
+        or bool(str(row.get("precursor_set_smiles") or "").strip())
+    )
+
+
+def _can_stitch_parent_route(blackboard: dict[str, Any]) -> bool:
+    stitch_count = _action_count(blackboard, "stitch_parent_route")
+    binding = _stitch_parent_route_binding(blackboard)
+    has_parent_route = bool(str(binding.get("parent_route_ref") or "").strip())
+    if _direct_parent_route_proof_ready(blackboard):
+        return bool(has_parent_route and stitch_count == 0)
+    has_child_and_literature_segment = bool(
+        str(binding.get("child_route_ref") or "").strip()
+        and str(binding.get("strict_literature_chain_ref") or "").strip()
+        and binding.get("all_terminal_frontiers_closed") is True
+    )
+    if not has_child_and_literature_segment:
+        return False
+    if stitch_count > 0 and not _new_stitch_signal_since_last_stitch(blackboard):
+        return False
+    return True
+
+
+def _new_stitch_signal_since_last_stitch(blackboard: dict[str, Any]) -> bool:
+    history = [dict(row) for row in blackboard.get("action_history") or [] if isinstance(row, dict)]
+    last_stitch_index = -1
+    for idx, row in enumerate(history):
+        if str(row.get("action_type") or "") == "stitch_parent_route":
+            last_stitch_index = idx
+    if last_stitch_index < 0:
+        return True
+
+    signal_action_types = {
+        "compile_exact_literature_rows",
+        "compile_objective_route_proof",
+        "derive_broad_reaction_template",
+        "expand_child_target",
+        "extract_pdf_literature_structures",
+        "extract_visual_literature_chain",
+        "resolve_literature_structure_task",
+        "run_guided_chemenzy",
+        "run_chemenzy",
+    }
+    for row in history[last_stitch_index + 1 :]:
+        action_type = str(row.get("action_type") or "")
+        if action_type not in signal_action_types:
+            continue
+        if row.get("stale"):
+            continue
+        if bool(row.get("useful_artifact")):
+            return True
+        delta = dict(row.get("blackboard_delta") or {})
+        if any(_positive_delta_value(value) for value in delta.values()):
+            return True
+    return False
+
+
+def _positive_delta_value(value: Any) -> bool:
+    try:
+        return int(value) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _stitchable_visual_literature_chains(blackboard: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in (blackboard.get("literature_evidence") or {}).get("visual_chains") or []:
+        if not isinstance(row, dict):
+            continue
+        visual = dict(row)
+        if not bool(visual.get("accepted")):
+            continue
+        if _visual_chain_candidate_step_count(visual) <= 0:
+            continue
+        rows.append(visual)
+    return rows
+
+
+def _best_stitchable_visual_chain(blackboard: dict[str, Any]) -> dict[str, Any]:
+    rows = _stitchable_visual_literature_chains(blackboard)
+    if not rows:
+        return {}
+    return sorted(
+        rows,
+        key=lambda row: (
+            -int(row.get("step_count") or _visual_chain_candidate_step_count(row)),
+            str(row.get("source_ref") or ""),
+        ),
+    )[0]
+
+
+def _visual_chain_identifier(row: dict[str, Any]) -> str:
+    return str(
+        row.get("chain_id")
+        or row.get("artifact_ref")
+        or row.get("source_ref")
+        or row.get("source_title")
+        or ""
+    ).strip()
+
+
+def _visual_chain_as_literature_chain_audit(row: dict[str, Any], *, blackboard: dict[str, Any]) -> dict[str, Any]:
+    steps = [dict(step) for step in row.get("steps") or row.get("chain") or [] if isinstance(step, dict)]
+    chain_target_smiles = str(row.get("target_smiles") or row.get("product_smiles") or "").strip()
+    chain_target_name = str(row.get("target_name") or row.get("product_label") or "").strip()
+    if steps and not chain_target_smiles:
+        first = steps[0]
+        chain_target_smiles = str(first.get("product_smiles") or "").strip()
+        chain_target_name = str(first.get("product_label") or first.get("product_name") or chain_target_name)
+    terminal_smiles = ""
+    terminal_name = ""
+    if steps:
+        last = steps[-1]
+        terminal_smiles = str(
+            last.get("main_reactant_smiles")
+            or (last.get("reactant_smiles") or [""])[0]
+            or last.get("final_reactant_smiles")
+            or ""
+        )
+        terminal_name = str(
+            last.get("main_reactant_name")
+            or (last.get("reactant_labels") or [""])[0]
+            or last.get("final_reactant_name")
+            or ""
+        )
+    return {
+        "schema_version": "advisory_visual_literature_chain_audit.v1",
+        "accepted": bool(row.get("accepted")),
+        "case_id": str(blackboard.get("case_id") or ""),
+        "target_smiles": chain_target_smiles,
+        "target_name": chain_target_name,
+        "source_ref": str(row.get("source_ref") or ""),
+        "source_title": str(row.get("source_title") or ""),
+        "terminal_smiles": terminal_smiles,
+        "terminal_name": terminal_name,
+        "terminal_reached": bool(terminal_smiles),
+        "step_count": int(row.get("step_count") or len(steps)),
+        "chain": steps,
+        "acceptance_level": str(row.get("acceptance_level") or "advisory_visual_template"),
+        "allowed_use": "mechanistic_template_parent_stitch_candidate",
+        "not_exact_literature_segment": True,
+        "no_solved_claim": True,
+        "reasons": [str(item) for item in row.get("reasons") or []],
+    }
+
+
 def _literature_terminal_expansion_pending(blackboard: dict[str, Any]) -> bool:
-    return bool(_literature_terminal_candidates(blackboard) and not _action_seen(blackboard, "expand_child_target"))
+    return bool(_unattempted_literature_terminal_candidates(blackboard))
 
 
 def _literature_terminal_candidates(blackboard: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2962,6 +4305,8 @@ def _hypothetical_precursor_candidates(blackboard: dict[str, Any]) -> list[dict[
     for task in blackboard.get("recursive_hypothesis_tasks") or []:
         if not isinstance(task, dict):
             continue
+        if not _recursive_hypothesis_task_is_available(task):
+            continue
         smiles = str(task.get("precursor_smiles") or "").strip()
         if not smiles:
             continue
@@ -2978,8 +4323,59 @@ def _hypothetical_precursor_candidates(blackboard: dict[str, Any]) -> list[dict[
                 "recursive_depth": int(task.get("recursive_depth") or 1),
                 "operation_idea": str(task.get("operation_idea") or ""),
                 "variant_type": str(task.get("variant_type") or ""),
+                "proposal_granularity": str(task.get("proposal_granularity") or ""),
+                "proposal_score": int(task.get("proposal_score") or 0),
+                "route_objective_type": str(task.get("route_objective_type") or ""),
+                "source_ref": str(task.get("source_ref") or ""),
+                "source_locator": str(task.get("source_locator") or ""),
+                "evidence_refs": [str(item) for item in task.get("evidence_refs") or [] if str(item or "").strip()],
+                "failure_response_policy": dict(task.get("failure_response_policy") or {}),
+                "task_scope": str(task.get("task_scope") or "precursor"),
+                "precursor_set_smiles": str(task.get("precursor_set_smiles") or ""),
+                "precursor_component_index": int(task.get("precursor_component_index") or 0),
+                "precursor_component_count": int(task.get("precursor_component_count") or 1),
+                "multi_component_precursor_set": bool(task.get("multi_component_precursor_set")),
+                "requires_precursor_set_stitching": bool(task.get("requires_precursor_set_stitching")),
+                "sibling_precursor_smiles": [
+                    str(item)
+                    for item in task.get("sibling_precursor_smiles") or []
+                    if str(item or "").strip()
+                ],
                 "failure_reasons": [str(item) for item in task.get("failure_reasons") or [] if str(item or "").strip()],
                 "risk_flags": [str(item) for item in task.get("risk_flags") or [] if str(item or "").strip()],
+                "allowed_use": "route_expansion_subgoal_hint_only",
+                "not_exact_literature_segment": True,
+                "not_parent_route_proof": True,
+                "requires_verifier": True,
+                "child_route_cannot_promote_parent": True,
+                "no_solved_claim": True,
+            }
+        )
+    for anchor in blackboard.get("semisynthesis_anchors") or []:
+        if not isinstance(anchor, dict):
+            continue
+        smiles = str(anchor.get("smiles") or "").strip()
+        if not smiles:
+            continue
+        candidates.append(
+            {
+                "schema_version": "agentic_semisynthesis_anchor_child_target.v1",
+                "name": str(anchor.get("name") or "semisynthesis anchor"),
+                "smiles": smiles,
+                "source": "semisynthesis_anchor",
+                "anchor_id": str(anchor.get("anchor_id") or ""),
+                "source_ref": str(anchor.get("source_ref") or ""),
+                "source_locator": str(anchor.get("source_locator") or ""),
+                "evidence_refs": [str(item) for item in anchor.get("evidence_refs") or [] if str(item or "").strip()],
+                "route_objective_type": str(anchor.get("objective_type") or "semisynthesis_anchor"),
+                "proposal_granularity": "same_core",
+                "proposal_score": 100,
+                "task_scope": "source_resolved_semisynthesis_anchor",
+                "failure_response_policy": {
+                    "on_reject": "search_target_side_conversion_or_source_conditions",
+                    "anchor_requires_source_validation": True,
+                },
+                "risk_flags": ["semisynthesis_anchor_not_parent_proof"],
                 "allowed_use": "route_expansion_subgoal_hint_only",
                 "not_exact_literature_segment": True,
                 "not_parent_route_proof": True,
@@ -3030,6 +4426,13 @@ def _hypothetical_precursor_candidates(blackboard: dict[str, Any]) -> list[dict[
     return out
 
 
+def _recursive_hypothesis_task_is_available(task: dict[str, Any]) -> bool:
+    status = str(task.get("status") or "pending").strip().lower()
+    if status in {"", "pending", "ready", "queued"}:
+        return True
+    return False
+
+
 def _unattempted_literature_terminal_candidates(blackboard: dict[str, Any]) -> list[dict[str, Any]]:
     attempted = set(_attempted_child_target_smiles(blackboard))
     return [
@@ -3041,15 +4444,64 @@ def _unattempted_literature_terminal_candidates(blackboard: dict[str, Any]) -> l
 
 def _unattempted_hypothetical_precursor_candidates(blackboard: dict[str, Any]) -> list[dict[str, Any]]:
     attempted = set(_attempted_child_target_smiles(blackboard))
-    return [
+    rows = [
         row
         for row in _hypothetical_precursor_candidates(blackboard)
         if _child_target_smiles(row) not in attempted
     ]
+    return sorted(rows, key=_hypothetical_precursor_sort_key)
+
+
+def _hypothetical_precursor_sort_key(row: dict[str, Any]) -> tuple[int, int, int, int, int, str]:
+    source = str(row.get("source") or "")
+    granularity = str(row.get("proposal_granularity") or "")
+    if source == "semisynthesis_anchor":
+        source_rank = 0
+    elif _visual_or_source_grounded_precursor_candidate(row):
+        source_rank = 1
+    elif source == "recursive_hypothesis_task":
+        source_rank = 2
+    else:
+        source_rank = 3
+    granularity_rank = {"exact": 0, "process": 1, "same_core": 2, "mechanism": 3, "fallback": 4}.get(granularity, 5)
+    gap_penalty = 1 if _visual_candidate_has_source_gap_penalty(row) else 0
+    return (
+        source_rank,
+        gap_penalty,
+        granularity_rank,
+        -int(row.get("proposal_score") or 0),
+        int(row.get("recursive_depth") or 0),
+        str(row.get("smiles") or ""),
+    )
+
+
+def _visual_or_source_grounded_precursor_candidate(row: dict[str, Any]) -> bool:
+    variant = str(row.get("variant_type") or "").lower()
+    if "visual_connectivity" in variant or "source_grounded" in variant:
+        return True
+    flags = " ".join(str(item).lower() for item in row.get("risk_flags") or [])
+    if "visual_connectivity" in flags or "exploratory_visual_candidate" in flags:
+        return True
+    refs = [str(item).strip().lower() for item in row.get("evidence_refs") or [] if str(item or "").strip()]
+    return any(ref.startswith(("doi:", "http://", "https://", "visual:", "pdf:", "source:")) for ref in refs)
+
+
+def _visual_candidate_has_source_gap_penalty(row: dict[str, Any]) -> bool:
+    flags = {str(item).strip().lower() for item in row.get("risk_flags") or [] if str(item or "").strip()}
+    gap_tokens = {
+        "visual_literature_chain_missing_expected_labels",
+        "visual_literature_chain_extraction_gaps",
+        "intermediate_31_omitted_structure_gap",
+    }
+    return bool(flags & gap_tokens)
 
 
 def _attempted_child_target_smiles(blackboard: dict[str, Any]) -> list[str]:
-    values: list[str] = []
+    values: list[str] = [
+        str(row.get("canonical_smiles") or row.get("smiles") or "")
+        for row in blackboard.get("route_expansion_subgoals") or []
+        if isinstance(row, dict)
+    ]
     for row in blackboard.get("action_history") or []:
         if not isinstance(row, dict) or str(row.get("action_type") or "") != "expand_child_target":
             continue
@@ -3165,14 +4617,107 @@ def _guided_retry_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
         "failure_mode_focus": failures[:6],
     })
     if attempt > 1:
+        retry_budget = _guided_retry_runtime_budget()
+        max_steps = retry_budget["max_steps"]
+        iterations = retry_budget["iterations"]
+        expansion_topk = retry_budget["expansion_topk"]
+        timeout_s = retry_budget["timeout_s"]
         payload.update(
             {
-                "search_preset": "thorough",
-                "max_steps": 20,
-                "chem_enzy_iterations": min(200, 75 + 25 * attempt),
-                "chem_enzy_expansion_topk": min(300, 120 + 30 * attempt),
+                "search_preset": "bounded_retry",
+                "search_mode": "guided_retry_after_initial_probe",
+                "max_steps": max_steps,
+                "chem_enzy_iterations": iterations,
+                "chem_enzy_expansion_topk": expansion_topk,
+                "timeout_s": timeout_s,
             }
         )
+        _sync_guided_policy_budget(
+            payload,
+            max_steps=max_steps,
+            iterations=iterations,
+            expansion_topk=expansion_topk,
+            timeout_s=timeout_s,
+            search_mode="guided_retry_after_initial_probe",
+        )
+    return payload
+
+
+def _sync_guided_policy_budget(
+    payload: dict[str, Any],
+    *,
+    max_steps: int,
+    iterations: int,
+    expansion_topk: int,
+    timeout_s: int | None = None,
+    search_mode: str,
+) -> None:
+    policy = dict(payload.get("chem_enzy_search_policy") or payload.get("search_policy") or {})
+    if not policy:
+        return
+    budget = dict(policy.get("budget") or {})
+    budget.update(
+        {
+            "max_depth": int(max_steps),
+            "max_iterations": int(iterations),
+            "expansion_topk": int(expansion_topk),
+        }
+    )
+    if timeout_s:
+        budget["timeout_s"] = int(timeout_s)
+    policy["budget"] = budget
+    source_budget = dict(policy.get("source_budget") or {})
+    source_budget["initial_scan_allowed"] = False
+    policy["source_budget"] = source_budget
+    compiler = dict(policy.get("compiler_metadata") or {})
+    compiler["initial_scan_probe"] = False
+    compiler["high_budget_retry_after_initial_probe"] = True
+    compiler["requires_verifier"] = True
+    compiler["no_solved_claim"] = True
+    policy["compiler_metadata"] = compiler
+    policy["search_mode"] = str(search_mode or "guided_retry")
+    payload["search_policy"] = policy
+    payload["chem_enzy_search_policy"] = policy
+
+
+def _direct_initial_guided_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
+    payload = _guided_retry_payload(blackboard)
+    payload.update(
+        {
+            "initial_probe": True,
+            "search_mode": "direct_parent_initial_probe",
+            "search_intent": "bounded direct parent-side retrosynthesis",
+            "max_steps": 6,
+            "chem_enzy_iterations": 10,
+            "chem_enzy_expansion_topk": 20,
+            "timeout_s": 180,
+            "max_candidates": 5,
+            "no_solved_claim": True,
+        }
+    )
+    policy = dict(payload.get("search_policy") or payload.get("chem_enzy_search_policy") or {})
+    budget = dict(policy.get("budget") or {})
+    budget.update(
+        {
+            "max_depth": 6,
+            "max_iterations": 10,
+            "expansion_topk": 20,
+            "timeout_s": 180,
+        }
+    )
+    policy["budget"] = budget
+    source_budget = dict(policy.get("source_budget") or {})
+    source_budget["initial_scan_allowed"] = True
+    source_budget["max_candidates"] = 5
+    policy["source_budget"] = source_budget
+    compiler = dict(policy.get("compiler_metadata") or {})
+    compiler["initial_scan_probe"] = True
+    compiler["requires_verifier"] = True
+    compiler["no_solved_claim"] = True
+    policy["compiler_metadata"] = compiler
+    policy["search_mode"] = "direct_parent_initial_probe"
+    payload["search_policy"] = policy
+    payload["chem_enzy_search_policy"] = policy
     return payload
 
 
@@ -3204,13 +4749,17 @@ def _terminal_blacklist_from_blackboard(blackboard: dict[str, Any]) -> list[str]
 
 def _child_expansion_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
     attempt = _action_count(blackboard, "expand_child_target") + 1
+    remaining_budget = _remaining_child_target_budget(blackboard)
+    target_limit = max(1, min(2, remaining_budget))
+    retry_budget = _guided_retry_runtime_budget()
     payload: dict[str, Any] = {
         "expansion_attempt": attempt,
         "target_offset": max(0, (attempt - 1) * 2),
-        "max_targets": 2,
-        "search_preset": "thorough",
-        "chem_enzy_iterations": min(200, 75 + 25 * attempt),
-        "chem_enzy_expansion_topk": min(300, 120 + 30 * attempt),
+        "max_targets": target_limit,
+        "search_preset": "bounded_retry",
+        "chem_enzy_iterations": retry_budget["iterations"],
+        "chem_enzy_expansion_topk": retry_budget["expansion_topk"],
+        "timeout_s": retry_budget["timeout_s"],
         "max_unexplained_heavy_atom_jump": 12,
     }
     terminal_blacklist = _terminal_blacklist_from_blackboard(blackboard)
@@ -3219,7 +4768,7 @@ def _child_expansion_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
     terminals = _unattempted_literature_terminal_candidates(blackboard)
     if terminals:
         payload["target_offset"] = 0
-        payload["max_targets"] = min(2, len(terminals))
+        payload["max_targets"] = min(target_limit, len(terminals))
         payload["subgoal_targets"] = [
             {
                 "name": str(row.get("name") or "source detail literature terminal"),
@@ -3239,11 +4788,13 @@ def _child_expansion_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
                     "preferred_subgoal": {
                         "schema_version": "source_detail_literature_terminal_subgoal.v1",
                         "preferred_subgoals": [str(row.get("name") or ""), str(row.get("smiles") or "")],
-                        "terminal_candidate": dict(row),
+                        "terminal_candidate": _compact_child_policy_row(row),
                     },
                     "source_budget": {
-                        "preferred_reaction_classes": ["steroid_semisynthesis", "source_detail_terminal_upstream_expansion"],
-                        "exact_literature_terminal": True,
+                        "preferred_reaction_classes": ["source_detail_terminal_upstream_expansion"],
+                        "strict_source_detail_terminal": bool(row.get("strict_source_proof_eligible")),
+                        "advisory_source_detail_terminal": not bool(row.get("strict_source_proof_eligible")),
+                        "requires_all_source_frontiers_closed": True,
                         "max_unexplained_heavy_atom_jump": 12,
                     },
                     "rerun_reason": "explore upstream route to exact source-detail literature terminal",
@@ -3257,13 +4808,13 @@ def _child_expansion_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
                     },
                 },
             }
-            for idx, row in enumerate(terminals[:2], start=1)
+            for idx, row in enumerate(terminals[: payload["max_targets"]], start=1)
         ]
     else:
         hypothetical_precursors = _unattempted_hypothetical_precursor_candidates(blackboard)
         if hypothetical_precursors:
             payload["target_offset"] = 0
-            payload["max_targets"] = min(2, len(hypothetical_precursors))
+            payload["max_targets"] = min(target_limit, len(hypothetical_precursors))
             payload["subgoal_targets"] = [
                 {
                     "name": str(row.get("name") or f"hypothetical precursor {idx}"),
@@ -3277,9 +4828,28 @@ def _child_expansion_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
                     "template_id": str(row.get("template_id") or ""),
                     "application_id": str(row.get("application_id") or ""),
                     "recursive_hypothesis_task_id": str(row.get("recursive_hypothesis_task_id") or ""),
+                    "anchor_id": str(row.get("anchor_id") or ""),
+                    "source_ref": str(row.get("source_ref") or ""),
+                    "source_locator": str(row.get("source_locator") or ""),
+                    "evidence_refs": [str(item) for item in row.get("evidence_refs") or [] if str(item or "").strip()],
                     "recursive_depth": int(row.get("recursive_depth") or 0),
                     "parent_smiles": str(row.get("parent_smiles") or ""),
                     "parent_candidate_id": str(row.get("parent_candidate_id") or ""),
+                    "proposal_granularity": str(row.get("proposal_granularity") or ""),
+                    "proposal_score": int(row.get("proposal_score") or 0),
+                    "route_objective_type": str(row.get("route_objective_type") or ""),
+                    "failure_response_policy": dict(row.get("failure_response_policy") or {}),
+                    "task_scope": str(row.get("task_scope") or ""),
+                    "precursor_set_smiles": str(row.get("precursor_set_smiles") or ""),
+                    "precursor_component_index": int(row.get("precursor_component_index") or 0),
+                    "precursor_component_count": int(row.get("precursor_component_count") or 1),
+                    "multi_component_precursor_set": bool(row.get("multi_component_precursor_set")),
+                    "requires_precursor_set_stitching": bool(row.get("requires_precursor_set_stitching")),
+                    "sibling_precursor_smiles": [
+                        str(item)
+                        for item in row.get("sibling_precursor_smiles") or []
+                        if str(item or "").strip()
+                    ],
                     "chem_enzy_search_policy": {
                         "schema_version": "chem_enzy_search_policy.v1",
                         "policy_id": (
@@ -3291,13 +4861,28 @@ def _child_expansion_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
                         "case_id": str(blackboard.get("case_id") or ""),
                         "evidence_refs": _hypothetical_precursor_evidence_refs(blackboard, row),
                         "terminal_blacklist": terminal_blacklist,
-                        "anchor_whitelist": [],
+                        "anchor_whitelist": [str(row.get("smiles") or "")]
+                        if str(row.get("source") or "") == "semisynthesis_anchor"
+                        else [],
                         "preferred_subgoal": {
                             "schema_version": "hypothetical_precursor_subgoal.v1",
                             "preferred_subgoals": [str(row.get("name") or ""), str(row.get("smiles") or "")],
-                            "hypothetical_precursor_target": dict(row),
-                            "recursive_hypothesis_task": dict(row) if str(row.get("source") or "") == "recursive_hypothesis_task" else {},
+                            "hypothetical_precursor_target": _compact_child_policy_row(row),
+                            "recursive_hypothesis_task": (
+                                _compact_child_policy_row(row)
+                                if str(row.get("source") or "") == "recursive_hypothesis_task"
+                                else {}
+                            ),
+                            "semisynthesis_anchor": (
+                                _compact_child_policy_row(row)
+                                if str(row.get("source") or "") == "semisynthesis_anchor"
+                                else {}
+                            ),
                             "analogy_is_advisory_only": True,
+                            "precursor_set_smiles": str(row.get("precursor_set_smiles") or ""),
+                            "precursor_component_index": int(row.get("precursor_component_index") or 0),
+                            "precursor_component_count": int(row.get("precursor_component_count") or 1),
+                            "requires_precursor_set_stitching": bool(row.get("requires_precursor_set_stitching")),
                             "not_exact_literature_segment": True,
                             "not_parent_route_proof": True,
                             "no_solved_claim": True,
@@ -3312,13 +4897,24 @@ def _child_expansion_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
                                     ),
                                     str(row.get("derived_from_retron") or ""),
                                     str(row.get("variant_type") or ""),
+                                    str(row.get("proposal_granularity") or ""),
+                                    str(row.get("route_objective_type") or ""),
                                 ]
                             ),
                             "hypothesis_precursor_hint": True,
                             "hypothesis_precursor_hints_are_not_proof": True,
+                            "semisynthesis_anchor_hint": str(row.get("source") or "") == "semisynthesis_anchor",
+                            "source_ref": str(row.get("source_ref") or ""),
                             "recursive_hypothesis_frontier": str(row.get("source") or "") == "recursive_hypothesis_task",
                             "recursive_depth": int(row.get("recursive_depth") or 0),
                             "parent_smiles": str(row.get("parent_smiles") or ""),
+                            "proposal_granularity": str(row.get("proposal_granularity") or ""),
+                            "route_objective_type": str(row.get("route_objective_type") or ""),
+                            "failure_response_policy": dict(row.get("failure_response_policy") or {}),
+                            "precursor_set_smiles": str(row.get("precursor_set_smiles") or ""),
+                            "precursor_component_index": int(row.get("precursor_component_index") or 0),
+                            "precursor_component_count": int(row.get("precursor_component_count") or 1),
+                            "requires_precursor_set_stitching": bool(row.get("requires_precursor_set_stitching")),
                             "require_target_core_retention": True,
                             "max_unexplained_heavy_atom_jump": 12,
                         },
@@ -3335,13 +4931,62 @@ def _child_expansion_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
                             "no_solved_claim": True,
                             "child_route_cannot_promote_parent": True,
                             "hypothesis_only_not_solved": True,
+                            "semisynthesis_anchor_hint": str(row.get("source") or "") == "semisynthesis_anchor",
                             "recursive_hypothesis_frontier": str(row.get("source") or "") == "recursive_hypothesis_task",
                         },
                     },
                 }
-                for idx, row in enumerate(hypothetical_precursors[:2], start=1)
+                for idx, row in enumerate(hypothetical_precursors[: payload["max_targets"]], start=1)
             ]
     return payload
+
+
+def _compact_child_policy_row(row: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {
+        "name": str(row.get("name") or row.get("target_name") or ""),
+        "smiles": str(row.get("smiles") or row.get("precursor_smiles") or row.get("target_smiles") or ""),
+        "source": str(row.get("source") or ""),
+        "source_ref": str(row.get("source_ref") or ""),
+        "source_locator": str(row.get("source_locator") or ""),
+        "recursive_hypothesis_task_id": str(row.get("recursive_hypothesis_task_id") or row.get("task_id") or ""),
+        "parent_candidate_id": str(row.get("parent_candidate_id") or ""),
+        "parent_smiles": str(row.get("parent_smiles") or ""),
+        "template_id": str(row.get("template_id") or ""),
+        "application_id": str(row.get("application_id") or ""),
+        "anchor_id": str(row.get("anchor_id") or ""),
+        "proposal_granularity": str(row.get("proposal_granularity") or ""),
+        "task_scope": str(row.get("task_scope") or ""),
+        "precursor_set_smiles": str(row.get("precursor_set_smiles") or ""),
+        "precursor_component_index": int(row.get("precursor_component_index") or 0),
+        "precursor_component_count": int(row.get("precursor_component_count") or 1),
+        "requires_precursor_set_stitching": bool(row.get("requires_precursor_set_stitching")),
+        "no_solved_claim": True,
+    }
+    evidence_refs = [str(item) for item in row.get("evidence_refs") or [] if str(item or "").strip()]
+    if evidence_refs:
+        compact["evidence_refs"] = evidence_refs[:6]
+    return {key: value for key, value in compact.items() if value not in ("", [], {})}
+
+
+def _remaining_child_target_budget(blackboard: dict[str, Any]) -> int:
+    budget = dict(blackboard.get("budget_state") or {})
+    try:
+        used = int(budget.get("child_target_runs") or 0)
+    except (TypeError, ValueError):
+        return 0
+    maximum = _budget_limit(budget, "max_child_target_runs", default=2)
+    return max(0, maximum - used)
+
+
+def _planned_child_target_count(payload: dict[str, Any]) -> int:
+    rows = payload.get("subgoal_targets") or payload.get("child_targets") or []
+    try:
+        max_targets = max(1, int(payload.get("max_targets") or 2))
+    except (TypeError, ValueError):
+        max_targets = 2
+    if isinstance(rows, list) and rows:
+        return max(1, min(len(rows), max_targets))
+    return max_targets
 
 
 def _hypothetical_precursor_evidence_refs(blackboard: dict[str, Any], row: dict[str, Any]) -> list[str]:
@@ -3349,6 +4994,7 @@ def _hypothetical_precursor_evidence_refs(blackboard: dict[str, Any], row: dict[
         str(row.get("recursive_hypothesis_task_id") or ""),
         str(row.get("parent_candidate_id") or ""),
         str(row.get("parent_subgoal_name") or ""),
+        str(row.get("precursor_set_smiles") or ""),
         str(row.get("application_id") or ""),
         str(row.get("template_id") or ""),
         str(row.get("derived_from_retron") or ""),
@@ -3390,7 +5036,8 @@ def _child_terminal_evidence_refs(blackboard: dict[str, Any], row: dict[str, Any
 
 def _stitch_retry_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
     binding = _stitch_parent_route_binding(blackboard)
-    return {
+    direct_parent_mode = _direct_parent_route_proof_ready(blackboard)
+    payload = {
         "stitch_attempt": _action_count(blackboard, "stitch_parent_route") + 1,
         "exact_row_count_at_attempt": _exact_row_count(blackboard),
         "child_attempt_count_at_attempt": _action_count(blackboard, "expand_child_target"),
@@ -3402,8 +5049,10 @@ def _stitch_retry_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
             "parent_route_verifier_required": True,
             "stock_audit_required": True,
             "no_unexplained_large_atom_jump_required": True,
-            "child_route_connectivity_required": True,
-            "exact_literature_connectivity_required": True,
+            "child_route_connectivity_required": not direct_parent_mode,
+            "exact_literature_connectivity_required": not direct_parent_mode,
+            "direct_parent_route_verifier_allowed": direct_parent_mode,
+            "proof_mode": "direct_parent_route" if direct_parent_mode else "stitched_parent_route",
             "analogy_is_not_proof": True,
             "child_route_cannot_promote_parent": True,
             "final_verdict_authority": "deterministic_parent_route_proof",
@@ -3414,15 +5063,21 @@ def _stitch_retry_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
             if isinstance(row, dict)
         ],
     }
+    return payload
 
 
 def _stitch_parent_route_binding(blackboard: dict[str, Any]) -> dict[str, Any]:
     refs = dict(blackboard.get("artifact_refs") or {})
-    evidence = dict(blackboard.get("literature_evidence") or {})
+    direct_parent_mode = _direct_parent_route_proof_ready(blackboard)
     exact_row_ids = [
         str(row.get("row_id") or row.get("source_template_id") or row.get("template_id") or "")
         for row in _target_relevant_exact_literature_rows(blackboard)
         if isinstance(row, dict) and str(row.get("row_id") or row.get("source_template_id") or row.get("template_id") or "").strip()
+    ]
+    visual_chain_ids = [
+        _visual_chain_identifier(row)
+        for row in _stitchable_visual_literature_chains(blackboard)
+        if _visual_chain_identifier(row)
     ]
     child_ref = str(refs.get("route_expansion_subgoal_search") or _first_ref_containing(refs, "route_expansion") or "")
     parent_ref = str(refs.get("guided_chemenzy") or _first_ref_containing(refs, "guided_chemenzy") or _first_ref_containing(refs, "route_verifier") or "")
@@ -3432,30 +5087,131 @@ def _stitch_parent_route_binding(blackboard: dict[str, Any]) -> dict[str, Any]:
         or _first_ref_containing(refs, "compiled_source_detail")
         or ""
     )
+    strict_audits = _strict_source_detail_chain_audits(blackboard)
+    ready_audits = [audit for audit in strict_audits if _strict_chain_frontier_coverage(blackboard, audit)["accepted"]]
+    selected_strict_audit = dict(ready_audits[0]) if ready_audits else {}
+    coverage = _strict_chain_frontier_coverage(blackboard, selected_strict_audit) if selected_strict_audit else {
+        "accepted": False,
+        "terminal_frontier": [],
+        "accepted_frontier": [],
+        "missing_frontier": [],
+    }
+    strict_ref = str(selected_strict_audit.get("artifact_ref") or exact_ref or "")
     missing_inputs: list[str] = []
     if not child_ref:
         missing_inputs.append("child_route_ref_missing")
     if not parent_ref:
         missing_inputs.append("parent_route_ref_missing")
-    if not exact_row_ids:
-        missing_inputs.append("exact_literature_rows_missing")
+    if not strict_audits:
+        missing_inputs.append("strict_source_detail_chain_missing")
+    elif not selected_strict_audit:
+        missing_inputs.append("source_detail_terminal_frontier_coverage_incomplete")
     input_refs = _dedupe(
         [
             child_ref,
             parent_ref,
             exact_ref,
+            strict_ref,
             *[f"exact_row:{row_id}" for row_id in exact_row_ids],
+            *[f"visual_chain:{chain_id}" for chain_id in visual_chain_ids],
         ]
     )
     return {
         "schema_version": "agentic_parent_stitch_binding.v1",
+        "proof_mode": "direct_parent_route" if direct_parent_mode else "stitched_parent_route",
+        "direct_parent_route_verifier_ready": direct_parent_mode,
         "child_route_ref": child_ref,
         "parent_route_ref": parent_ref,
         "exact_literature_segment_ref": exact_ref,
+        "strict_literature_chain_ref": strict_ref,
+        "strict_literature_chain_audit_id": str(selected_strict_audit.get("audit_id") or ""),
         "exact_literature_row_ids": _dedupe(exact_row_ids),
+        "visual_literature_chain_ids": _dedupe(visual_chain_ids),
+        "visual_literature_chains_are_advisory_only": True,
+        "literature_segment_level": (
+            "strict_source_detail"
+            if selected_strict_audit
+            else "advisory_visual_template"
+            if visual_chain_ids
+            else "missing"
+        ),
+        "all_terminal_frontiers_closed": bool(coverage.get("accepted")),
+        "terminal_frontier": list(coverage.get("terminal_frontier") or []),
+        "accepted_terminal_frontier": list(coverage.get("accepted_frontier") or []),
+        "missing_terminal_frontier": list(coverage.get("missing_frontier") or []),
         "input_refs": [str(item) for item in input_refs if str(item or "").strip()],
         "missing_inputs": missing_inputs,
     }
+
+
+def _strict_source_detail_chain_audits(blackboard: dict[str, Any]) -> list[dict[str, Any]]:
+    evidence = dict(blackboard.get("literature_evidence") or {})
+    return [
+        dict(audit)
+        for audit in evidence.get("exact_chain_audits") or []
+        if isinstance(audit, dict)
+        and audit.get("strict_source_proof_eligible") is True
+        and [str(item) for item in audit.get("terminal_frontier") or [] if str(item or "").strip()]
+        and str(audit.get("artifact_ref") or "").strip()
+    ]
+
+
+def _strict_chain_frontier_coverage(
+    blackboard: dict[str, Any],
+    audit: dict[str, Any],
+) -> dict[str, Any]:
+    frontier = _dedupe(
+        [str(item).strip() for item in audit.get("terminal_frontier") or [] if str(item or "").strip()]
+    )
+    accepted = {
+        str(row.get("canonical_smiles") or row.get("smiles") or "").strip()
+        for row in blackboard.get("route_expansion_subgoals") or []
+        if isinstance(row, dict) and row.get("accepted") is True
+    }
+    accepted_frontier = [smiles for smiles in frontier if smiles in accepted]
+    missing_frontier = [smiles for smiles in frontier if smiles not in accepted]
+    return {
+        "schema_version": "agent_source_detail_frontier_coverage.v1",
+        "accepted": bool(frontier) and not missing_frontier,
+        "terminal_frontier": frontier,
+        "accepted_frontier": accepted_frontier,
+        "missing_frontier": missing_frontier,
+        "requires_all_frontiers_closed": True,
+    }
+
+
+def _direct_parent_route_proof_ready(blackboard: dict[str, Any]) -> bool:
+    belief = dict(blackboard.get("current_belief") or {})
+    verifier = dict(belief.get("parent_route_verifier") or {})
+    if not verifier:
+        return False
+    reasons = {str(item) for item in verifier.get("reasons") or [] if str(item or "").strip()}
+    try:
+        accepted_route_count = int(verifier.get("accepted_route_count") or 0)
+        best_route_step_count = int(verifier.get("best_route_step_count") or 0)
+    except (TypeError, ValueError):
+        accepted_route_count = 0
+        best_route_step_count = 0
+    reason_blocked = (
+        accepted_route_count <= 0
+        and ("large_atom_jump" in reasons or "unexplained_large_atom_jump" in reasons)
+    )
+    return bool(
+        verifier.get("schema_version") == "agent_parent_route_verifier_summary.v1"
+        and verifier.get("verifier_schema_version") == "harness_route_verifier_report.v1"
+        and verifier.get("accepted") is True
+        and verifier.get("solved") is True
+        and str(verifier.get("route_status") or "") == "solved"
+        and verifier.get("target_match") is True
+        and accepted_route_count > 0
+        and verifier.get("best_route_rank") is not None
+        and best_route_step_count > 0
+        and isinstance(verifier.get("reasons"), list)
+        and not verifier["reasons"]
+        and isinstance(verifier.get("warnings"), list)
+        and not reason_blocked
+        and str(verifier.get("artifact_ref") or "").strip()
+    )
 
 
 def _first_ref_containing(refs: dict[str, Any], token: str) -> str:
@@ -3498,18 +5254,24 @@ def _budget_remaining(blackboard: dict[str, Any], field: str) -> bool:
     budget = dict(blackboard.get("budget_state") or {})
     max_field = f"max_{field}"
     fallback = 3 if field == "scout_calls" else 1
-    return int(budget.get(field) or 0) < int(budget.get(max_field) or fallback)
+    return int(budget.get(field) or 0) < _budget_limit(budget, max_field, default=fallback)
+
+
+def _budget_limit(budget: dict[str, Any], key: str, *, default: int) -> int:
+    try:
+        parsed = int(budget[key]) if key in budget and budget.get(key) is not None else int(default)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return max(0, parsed)
 
 
 def _stale_action_repeated(blackboard: dict[str, Any], action: dict[str, Any]) -> bool:
-    if str(action.get("action_type") or "") == "search_literature" and _stale_literature_search_repeated(blackboard):
-        return True
-    signature = _action_signature(action)
+    signatures = _action_signature_variants(action)
     stale_count = 0
     for row in blackboard.get("action_history") or []:
         if not isinstance(row, dict):
             continue
-        if row.get("stale") and row.get("action_signature") == signature:
+        if row.get("stale") and row.get("action_signature") in signatures:
             stale_count += 1
     return stale_count > 1
 
@@ -3545,7 +5307,93 @@ def _empty_literature_search_history_row(row: dict[str, Any]) -> bool:
 
 def _action_signature(action: dict[str, Any]) -> str:
     payload = {key: value for key, value in dict(action.get("payload") or {}).items() if key != "timestamp"}
-    return json.dumps({"action_type": action.get("action_type"), "payload": payload}, sort_keys=True, default=str)
+    return json.dumps(
+        {
+            "action_type": action.get("action_type"),
+            "payload": _compact_action_signature_payload(payload),
+            "payload_hash": hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16],
+        },
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _action_signature_variants(action: dict[str, Any]) -> set[str]:
+    payload = {key: value for key, value in dict(action.get("payload") or {}).items() if key != "timestamp"}
+    return {
+        _action_signature(action),
+        json.dumps({"action_type": action.get("action_type"), "payload": payload}, sort_keys=True, default=str),
+    }
+
+
+def _compact_action_signature_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    scalar_keys = [
+        "source_ref",
+        "doi",
+        "pii",
+        "url",
+        "pdf_path",
+        "source_pdf_path",
+        "chain_id",
+        "visual_chain_id",
+        "artifact_ref",
+        "query",
+        "search_intent",
+        "search_mode",
+        "focused_gap_repair",
+        "focused_structure_resolution",
+        "expansion_attempt",
+        "timeout_s",
+        "max_steps",
+        "max_candidates",
+    ]
+    for key in scalar_keys:
+        value = payload.get(key)
+        if isinstance(value, (str, int, float, bool)) and str(value).strip():
+            compact[key] = value
+    for key, limit in {
+        "queries": 4,
+        "search_queries": 4,
+        "expected_labels": 8,
+        "page_numbers": 8,
+        "template_ids": 6,
+        "hypothesis_ids": 6,
+        "selected_analogy_hypothesis_ids": 6,
+    }.items():
+        values = [item for item in payload.get(key) or [] if str(item or "").strip()]
+        if values:
+            compact[key] = values[:limit]
+            if len(values) > limit:
+                compact[f"{key}_count"] = len(values)
+    subgoals = payload.get("subgoal_targets") or payload.get("child_targets") or []
+    if isinstance(subgoals, list) and subgoals:
+        compact["subgoal_targets"] = [_compact_signature_target(row) for row in subgoals[:6] if isinstance(row, dict)]
+        compact["subgoal_target_count"] = len(subgoals)
+    policy = payload.get("search_policy") or payload.get("chem_enzy_search_policy")
+    if isinstance(policy, dict):
+        compact["search_policy_summary"] = {
+            "policy_id": str(policy.get("policy_id") or ""),
+            "mode": str(policy.get("mode") or ""),
+            "active_bridge_tasks": len(policy.get("active_bridge_tasks") or []),
+            "terminal_blacklist": len(policy.get("terminal_blacklist") or []),
+            "accepted_exact_row_ids": len(policy.get("accepted_exact_row_ids") or []),
+        }
+    repair = payload.get("codex_payload_repair")
+    if isinstance(repair, dict):
+        compact["codex_payload_repair"] = {
+            "action_type": str(repair.get("action_type") or ""),
+            "completed_from_blackboard": bool(repair.get("completed_from_blackboard")),
+        }
+    return compact
+
+
+def _compact_signature_target(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: str(row.get(key) or "")
+        for key in ("task_id", "label", "name", "smiles", "canonical_smiles")
+        if str(row.get(key) or "").strip()
+    }
 
 
 def _dedupe(items: list[str]) -> list[str]:

@@ -54,7 +54,7 @@ def build_target_side_disconnection_hypotheses(
                 "target_side_aryl_ester_or_anthranilate_disconnection",
                 target_handle="aryl_ester_or_anthranilate_sidechain",
                 proposed_disconnection_region="late-stage aryl ester/anthranilate sidechain attachment",
-                must_preserve=["polycyclic_cage_core", "tertiary_amine_state"],
+                must_preserve=["target_core_or_largest_scaffold", "tertiary_amine_state"],
                 expected_precursor_type="core alcohol or phenol plus activated anthranilate/imide acid fragment",
                 evidence_refs=evidence_refs,
                 risk_flags=["sidechain_exact_replay_requires_target_proximal_core_bridge"],
@@ -71,7 +71,7 @@ def build_target_side_disconnection_hypotheses(
                 "target_side_imide_fragment_preparation",
                 target_handle="imide_or_succinimide_fragment",
                 proposed_disconnection_region="imide/succinimide substituent preparation before final coupling",
-                must_preserve=["polycyclic_cage_core"],
+                must_preserve=["target_core_or_largest_scaffold"],
                 expected_precursor_type="preassembled imide or succinimide-containing acid/activated fragment",
                 evidence_refs=evidence_refs,
                 risk_flags=["fragment_synthesis_cannot_close_parent_without_stitch"],
@@ -101,7 +101,7 @@ def build_target_side_disconnection_hypotheses(
                 "target_side_tertiary_amine_state_adjustment",
                 target_handle="tertiary_amine",
                 proposed_disconnection_region="amine-state or N-substitution adjustment",
-                must_preserve=["polycyclic_cage_core"],
+                must_preserve=["target_core_or_largest_scaffold"],
                 expected_precursor_type="same-core secondary/tertiary amine state precursor",
                 evidence_refs=evidence_refs,
                 risk_flags=["amine_state_change_is_advisory_only"],
@@ -114,7 +114,7 @@ def build_target_side_disconnection_hypotheses(
                 "target_side_protecting_group_level_transformations",
                 target_handle="protecting_group_level_transformations",
                 proposed_disconnection_region="alcohol/phenol protection-state adjustments",
-                must_preserve=["polycyclic_cage_core"],
+                must_preserve=["target_core_or_largest_scaffold"],
                 expected_precursor_type="same-core alcohol/phenol protection-state analog",
                 evidence_refs=evidence_refs,
                 risk_flags=["protecting_group_logic_not_parent_route_proof"],
@@ -236,6 +236,9 @@ def _detect_handles(mol: Chem.Mol | None, *, target_name: str, family_hint: str)
     if mol is None:
         return []
     handles: list[str] = []
+    text = f"{target_name} {family_hint}".lower()
+    compact_polycyclic = _largest_ring_system_ring_count(mol) >= 3
+    explicit_cage_like = any(key in text for key in ["mla", "methyllycaconitine", "lycoctonine", "aconitine", "alkaloid"])
     if _has(mol, "[OX2][CX3](=O)c") or _has(mol, "c[CX3](=O)[OX2]"):
         handles.append("aryl_ester_or_anthranilate_sidechain")
     if _has(mol, "[NX3]([CX3](=O))[CX3](=O)") or _has(mol, "N1C(=O)CCC1=O"):
@@ -245,12 +248,11 @@ def _detect_handles(mol: Chem.Mol | None, *, target_name: str, family_hint: str)
     oxygen_count = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() == 8)
     if oxygen_count >= 4:
         handles.append("protecting_group_level_transformations")
-    text = f"{target_name} {family_hint}".lower()
     if any(key in text for key in ["bufotalin", "bufadienolide", "pyrone"]) or _has(mol, "C1=COC(=O)C=C1"):
         handles.append("bufadienolide_c17_pyrone_sidechain")
-    if mol.GetRingInfo().NumRings() >= 4 or any(key in text for key in ["mla", "methyllycaconitine", "lycoctonine", "aconitine"]):
+    if compact_polycyclic or explicit_cage_like:
         handles.append("polycyclic_cage_core")
-    if any(key in text for key in ["mla", "methyllycaconitine", "lycoctonine", "aconitine", "alkaloid"]) or mol.GetRingInfo().NumRings() >= 4:
+    if explicit_cage_like or compact_polycyclic:
         handles.append("analogue_diene_iminium_scaffold_inspiration")
     if _is_steroid_or_terpenoid_polycyclic(mol, text=text):
         handles.extend(
@@ -380,7 +382,31 @@ def _is_steroid_or_terpenoid_polycyclic(mol: Chem.Mol, *, text: str) -> bool:
     heavy_atoms = max(1, int(mol.GetNumHeavyAtoms()))
     carbon_atoms = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() == 6)
     carbon_fraction = carbon_atoms / heavy_atoms
-    return bool(mol.GetRingInfo().NumRings() >= 4 and heavy_atoms >= 18 and carbon_fraction >= 0.72)
+    return bool(_largest_ring_system_ring_count(mol) >= 3 and heavy_atoms >= 18 and carbon_fraction >= 0.72)
+
+
+def _largest_ring_system_ring_count(mol: Chem.Mol) -> int:
+    rings = [set(ring) for ring in mol.GetRingInfo().AtomRings()]
+    if not rings:
+        return 0
+    seen: set[int] = set()
+    best = 0
+    for start in range(len(rings)):
+        if start in seen:
+            continue
+        stack = [start]
+        component: set[int] = set()
+        while stack:
+            idx = stack.pop()
+            if idx in component:
+                continue
+            component.add(idx)
+            for jdx, other in enumerate(rings):
+                if jdx not in component and rings[idx] & other:
+                    stack.append(jdx)
+        seen.update(component)
+        best = max(best, len(component))
+    return best
 
 
 def _has(mol: Chem.Mol, smarts: str) -> bool:

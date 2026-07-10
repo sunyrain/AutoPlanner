@@ -1,0 +1,48 @@
+{
+  "schema_version": "trusted_literature_step_registry.v1",
+  "registry_id": "autoplanner-test-fixture",
+  "bindings": [
+    {
+      "binding_id": "fixture:ethanol_to_ethyl_acetate",
+      "reaction_digest": "ab4c8e26110f47780949845d69ece67672c20fdde839d4a04681069fb2a31ee4",
+      "source_ref": "doi:10.1000/revalidatable-stitch",
+      "document_id": "fixture:revalidatable-stitch",
+      "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+      "page_number": 1,
+      "image_sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976",
+      "status": "approved",
+      "authority": {
+        "type": "human_curator",
+        "id": "autoplanner-test-fixture"
+      }
+    },
+    {
+      "binding_id": "fixture:unclosed_coreactant",
+      "reaction_digest": "f312e00f6867ea1465b454e7849d9ea83c12e416a751ed76e9f02b113e9de983",
+      "source_ref": "doi:10.1000/revalidatable-stitch",
+      "document_id": "fixture:revalidatable-stitch",
+      "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+      "page_number": 1,
+      "image_sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976",
+      "status": "approved",
+      "authority": {
+        "type": "human_curator",
+        "id": "autoplanner-test-fixture"
+      }
+    },
+    {
+      "binding_id": "fixture:multi_frontier",
+      "reaction_digest": "f0f0a632f0ab591b07661894f17689e20e9b99cd7eac39d158776c9b6e1c5f9c",
+      "source_ref": "doi:10.1000/revalidatable-stitch",
+      "document_id": "fixture:revalidatable-stitch",
+      "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+      "page_number": 1,
+      "image_sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976",
+      "status": "approved",
+      "authority": {
+        "type": "human_curator",
+        "id": "autoplanner-test-fixture"
+      }
+    }
+  ]
+}

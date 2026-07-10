@@ -27,6 +27,19 @@ class SmilesFirstWorkflowTest(unittest.TestCase):
         self.assertIn("target_as_initial_frontier", report["frontiers"][0]["flags"])
         self.assertNotIn("no_complexity_drop", report["frontiers"][0]["flags"])
 
+    def test_separate_statin_aromatic_rings_are_not_polycyclic_steroid_hint(self):
+        target = (
+            "CC(C)C1=C(C(=C(N1CC[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)"
+            "C3=CC=CC=C3)C(=O)NC4=CC=CC=C4"
+        )
+        profile = build_target_profile(target, target_name="atorvastatin", family_hint="statin synthetic atorvastatin")
+
+        self.assertTrue(profile.valid)
+        self.assertGreaterEqual(profile.rings, 4)
+        self.assertNotIn("polycyclic_or_steroid_like", profile.family_hints)
+        self.assertIn("aromatic_or_heteroaromatic", profile.family_hints)
+        self.assertIn("polyol", profile.family_hints)
+
     def test_full_workflow_writes_required_artifacts_and_guarded_status(self):
         target = "CC(C)CCCC(C)C1CCC2C3CCC4CC(O)CCC4(C)C3CCC12C"
         with tempfile.TemporaryDirectory() as tmp:

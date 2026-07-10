@@ -29,6 +29,8 @@ def compile_hypothesis_only_retrosynthesis_report(
     target_smiles = str(target.get("target_smiles") or "")
     candidates = _dedupe_candidates(
         [
+            *_candidates_from_retrosynthetic_proposals(blackboard, target_smiles=target_smiles),
+            *_candidates_from_recursive_tasks(blackboard, target_smiles=target_smiles),
             *_candidates_from_template_applications(blackboard, target_smiles=target_smiles),
             *_candidates_from_visual_chains(blackboard, target_smiles=target_smiles),
         ]
@@ -73,6 +75,93 @@ def compile_hypothesis_only_retrosynthesis_report(
             "compile_parent_route_proof",
         ],
     }
+
+
+def _candidates_from_retrosynthetic_proposals(blackboard: dict[str, Any], *, target_smiles: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in blackboard.get("retrosynthetic_proposals") or []:
+        if not isinstance(row, dict):
+            continue
+        precursor = str(row.get("precursor_smiles") or "").strip()
+        if not _usable_hypothesis_precursor(precursor):
+            continue
+        if not (row.get("recursive_expandable") or row.get("executable")):
+            continue
+        source_refs = [str(item) for item in row.get("evidence_refs") or [] if str(item or "").strip()]
+        proposal_id = str(row.get("proposal_id") or "")
+        if proposal_id:
+            source_refs.append(proposal_id)
+        out.append(
+            _candidate_row(
+                source_type="retrosynthetic_proposal",
+                target_smiles=str(row.get("target_smiles") or target_smiles),
+                precursor_smiles=precursor,
+                precursor_role=str(
+                    row.get("name")
+                    or row.get("proposal_granularity")
+                    or row.get("proposal_type")
+                    or "proposal_precursor"
+                ),
+                operation_idea=str(
+                    row.get("operation_idea")
+                    or row.get("transform_logic")
+                    or row.get("rationale")
+                    or "proposal-bus same-core or mechanism-level precursor"
+                ),
+                confidence=str(row.get("confidence") or "medium"),
+                evidence_refs=source_refs,
+                risk_flags=[
+                    *[str(item) for item in row.get("risk_flags") or []],
+                    "proposal_bus_hypothesis_not_exact_literature",
+                ],
+                stereochemistry_status=str(row.get("stereochemistry_status") or "partial_or_unverified"),
+                source_locator=proposal_id,
+                source_ref=str(row.get("source_ref") or ""),
+            )
+        )
+    return out
+
+
+def _candidates_from_recursive_tasks(blackboard: dict[str, Any], *, target_smiles: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in blackboard.get("recursive_hypothesis_tasks") or []:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "pending")
+        if status not in {"", "pending", "rejected", "accepted_child_route"}:
+            continue
+        precursor = str(row.get("precursor_smiles") or "").strip()
+        if not _usable_hypothesis_precursor(precursor):
+            continue
+        task_id = str(row.get("task_id") or "")
+        out.append(
+            _candidate_row(
+                source_type="recursive_hypothesis_task",
+                target_smiles=str(row.get("parent_smiles") or target_smiles),
+                precursor_smiles=precursor,
+                precursor_role=str(row.get("name") or row.get("task_type") or "recursive_hypothesis_frontier"),
+                operation_idea=str(
+                    row.get("operation_idea")
+                    or row.get("variant_type")
+                    or "continue upstream from a failed hypothesis precursor"
+                ),
+                confidence=str(row.get("confidence") or "medium"),
+                evidence_refs=[
+                    task_id,
+                    str(row.get("parent_candidate_id") or ""),
+                    str(row.get("precursor_set_smiles") or ""),
+                    *[str(item) for item in row.get("evidence_refs") or []],
+                ],
+                risk_flags=[
+                    *[str(item) for item in row.get("risk_flags") or []],
+                    f"recursive_task_status:{status or 'pending'}",
+                ],
+                stereochemistry_status=str(row.get("stereochemistry_status") or "partial_or_unverified"),
+                source_locator=task_id,
+                source_ref=str(row.get("source_ref") or ""),
+            )
+        )
+    return out
 
 
 def _candidates_from_template_applications(blackboard: dict[str, Any], *, target_smiles: str) -> list[dict[str, Any]]:
@@ -157,6 +246,15 @@ def _candidates_from_visual_chains(blackboard: dict[str, Any], *, target_smiles:
                 )
             )
     return out
+
+
+def _usable_hypothesis_precursor(smiles: str) -> bool:
+    if not str(smiles or "").strip():
+        return False
+    heavy = _heavy_atoms(smiles)
+    if "." in str(smiles):
+        return heavy >= 4
+    return heavy >= 3
 
 
 def _candidate_row(

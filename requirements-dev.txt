@@ -1,0 +1,4 @@
+# Test tooling only. Install alongside requirements.txt for a full development
+# environment; keeping this file separate avoids pulling the inference stack
+# into documentation-only or repository-audit jobs.
+pytest>=8.2,<10

@@ -1,4 +1,5 @@
 """Run one ChemEnzyRetroPlanner native search and emit web-compatible JSON."""
+# ruff: noqa: E402
 from __future__ import annotations
 
 import argparse
@@ -22,7 +23,6 @@ from cascade_planner.baselines.chem_enzy_adapter import (
 )
 from cascade_planner.baselines.chem_enzy_step_quality import evaluate_enzyme_step_quality
 from cascade_planner.baselines.route_contract import RouteCandidate, RouteSearchConfig, RouteStepCandidate
-from cascade_planner.baselines.semisynthesis_rescue import semisynthesis_rescue_routes, summarize_semisynthesis_rescue
 from cascade_planner.baselines.template_relevance_runtime import missing_template_relevance_models
 from cascade_planner.agent.chem_enzy_policy import apply_chem_enzy_search_policy
 from cascade_planner.cascade_search.enzyme_coverage_sidecar import (
@@ -263,8 +263,17 @@ def _web_payload_from_result(
     verifier_gate = _cascade_verifier_gate_enabled(request_payload)
     routes, verifier_gate_report = _apply_cascade_verifier_gate(raw_routes, enabled=verifier_gate)
     strict_solved = any(bool((route.get("metrics") or {}).get("route_solved")) for route in routes)
-    rescue_report = summarize_semisynthesis_rescue(rescue_candidates)
-    rescue_report["enabled"] = request_payload.get("enable_semisynthesis_rescue") is not False
+    rescue_report = {
+        "enabled": request_payload.get("enable_semisynthesis_rescue") is True,
+        "route_count": len(rescue_candidates),
+        "rescue_types": sorted(
+            {
+                str((route.raw_backend_metadata or {}).get("rescue_type") or "")
+                for route in rescue_candidates
+                if (route.raw_backend_metadata or {}).get("rescue_type")
+            }
+        ),
+    }
     rescue_report["input_native_routes"] = len(native_raw_routes)
     rescue_report["displayed_routes"] = sum(
         1 for route in routes if ((route.get("raw_backend_metadata") or {}).get("rescue_type"))
@@ -399,8 +408,13 @@ def _attach_enzyme_coverage_sidecar(output: dict[str, Any], request_payload: dic
 
 
 def _semisynthesis_rescue_candidates(result: Any, request_payload: dict[str, Any]) -> list[RouteCandidate]:
-    if request_payload.get("enable_semisynthesis_rescue") is False:
+    # Legacy molecule-specific rescue tables are excluded from the generic
+    # agentic mainline.  They remain opt-in only for explicit historical
+    # replays and can never be activated by a missing/default field.
+    if request_payload.get("enable_semisynthesis_rescue") is not True:
         return []
+    from cascade_planner.baselines.semisynthesis_rescue import semisynthesis_rescue_routes
+
     target = str(result.target_smiles or request_payload.get("target_smiles") or "")
     return semisynthesis_rescue_routes(target)
 

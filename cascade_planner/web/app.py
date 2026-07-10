@@ -10,7 +10,7 @@ import argparse
 import contextlib
 import copy
 import html
-import io
+import hmac
 import json
 import os
 import signal
@@ -20,7 +20,7 @@ import threading
 import time
 import uuid
 from collections import Counter, deque
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -44,8 +44,14 @@ from cascade_planner.baselines.proposal_gate import (
     normalize_proposal_gate_mode,
     summarize_route_gate_reports,
 )
+from cascade_planner.baselines.chem_enzy_runtime import (
+    diagnose_chem_enzy_runtime,
+    format_chem_enzy_runtime_diagnostic,
+)
 from cascade_planner.baselines.route_contract import RouteSearchConfig
 from cascade_planner.baselines.template_relevance_runtime import check_template_relevance
+from cascade_planner.harness.agentic_blackboard_controller import run_agentic_blackboard_controller
+from cascade_planner.harness.tools import HarnessBudget
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -53,6 +59,7 @@ RDLogger.DisableLog("rdApp.*")
 ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 RESULTS_DIR = ROOT / "results" / "v2"
+SHARED_RESULTS_DIR = ROOT / "results" / "shared"
 DATA_DIR = ROOT / "data"
 STATIN_SHOWCASE_PATH = ROOT / "results" / "shared" / "statin_panel_20260520" / "web_showcase" / "statin_showcase_routes.json"
 DEFAULT_MODEL = "results/shared/skeleton_inpainter/best.pt"
@@ -70,6 +77,14 @@ _STATIN_SHOWCASE_CACHE: tuple[float, dict[str, Any]] | None = None
 _LOCK = threading.Lock()
 _PLAN_JOB_QUEUE: deque[str] = deque()
 _PLAN_WORKER_THREAD: threading.Thread | None = None
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _utc_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 _PLAN_CURRENT_JOB_ID: str | None = None
 _PLAN_PROCESS_BY_JOB: dict[str, subprocess.Popen] = {}
 _TERMINAL_JOB_STATUSES = {"complete", "failed", "cancelled"}
@@ -83,9 +98,39 @@ def create_app() -> Flask:
     app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
+    @app.before_request
+    def protect_mutating_api() -> None:
+        if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+            return None
+        if not request.is_json:
+            abort(415, description="mutating API requests require application/json")
+        configured_token = str(os.environ.get("AUTOPLANNER_WEB_API_TOKEN") or "")
+        if configured_token:
+            supplied = str(request.headers.get("X-Autoplanner-Token") or "")
+            if not hmac.compare_digest(configured_token, supplied):
+                abort(401, description="missing or invalid API token")
+        fetch_site = str(request.headers.get("Sec-Fetch-Site") or "").lower()
+        if fetch_site in {"cross-site", "same-site"}:
+            abort(403, description="cross-site mutation rejected")
+        origin = str(request.headers.get("Origin") or "").rstrip("/")
+        if origin and origin != request.host_url.rstrip("/"):
+            abort(403, description="origin does not match this AutoPlanner service")
+        return None
+
+    @app.after_request
+    def add_security_headers(response: Response) -> Response:
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        return response
+
     @app.get("/")
     def index():
         return send_from_directory(STATIC_DIR, "index.html")
+
+    @app.get("/agent")
+    def agent_workbench():
+        return send_from_directory(STATIC_DIR, "agent.html")
 
     @app.get("/statins")
     def statins_showcase():
@@ -99,6 +144,7 @@ def create_app() -> Flask:
             "model_exists": (ROOT / DEFAULT_MODEL).exists(),
             "retrochimera_model_exists": (ROOT / "data_external/retrochimera_model").exists(),
             "cuda": _cuda_status(),
+            "chem_enzy_runtime": _chem_enzy_runtime_status(),
             "template_relevance": _template_relevance_status(),
             "artifacts": _artifact_summary(),
         })
@@ -185,12 +231,45 @@ def create_app() -> Flask:
     @app.get("/api/artifact")
     def artifact():
         rel_path = request.args.get("path", "")
-        path = _safe_path(rel_path, allowed_roots=[RESULTS_DIR, DATA_DIR])
+        path = _safe_path(rel_path, allowed_roots=[RESULTS_DIR, SHARED_RESULTS_DIR, DATA_DIR])
         if not path.exists() or not path.is_file():
             abort(404)
         if path.suffix.lower() == ".json":
             return jsonify(json.loads(path.read_text(encoding="utf-8")))
         return Response(path.read_text(encoding="utf-8", errors="replace"), mimetype="text/plain")
+
+    @app.get("/api/result-file")
+    def result_file():
+        rel_path = request.args.get("path", "")
+        path = _safe_path(rel_path, allowed_roots=[RESULTS_DIR, SHARED_RESULTS_DIR, DATA_DIR])
+        if not path.exists() or not path.is_file():
+            abort(404)
+        suffix = path.suffix.lower()
+        mimetype = {
+            ".html": "text/html; charset=utf-8",
+            ".htm": "text/html; charset=utf-8",
+            ".json": "application/json; charset=utf-8",
+            ".jsonl": "application/x-ndjson; charset=utf-8",
+            ".svg": "image/svg+xml",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".pdf": "application/pdf",
+            ".txt": "text/plain; charset=utf-8",
+            ".log": "text/plain; charset=utf-8",
+            ".md": "text/markdown; charset=utf-8",
+        }.get(suffix, "application/octet-stream")
+        if mimetype.startswith("text/") or "json" in mimetype:
+            response = Response(path.read_text(encoding="utf-8", errors="replace"), mimetype=mimetype)
+        else:
+            response = Response(path.read_bytes(), mimetype=mimetype)
+        if suffix in {".html", ".htm"}:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                "img-src data:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'"
+            )
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/api/mol.svg")
     def mol_svg():
@@ -280,12 +359,12 @@ def _run_chem_enzy_native_plan(payload: dict[str, Any], *, job_id: str | None = 
         )
     if _plan_job_cancel_requested(job_id):
         raise _PlanJobCancelled("route search cancelled before ChemEnzy launch")
-    env_prefix = Path(os.environ.get("CHEMENZY_ENV_PREFIX", "/root/autodl-tmp/chem_enzy_runtime/envs/retro_planner_env"))
-    python_bin = env_prefix / "bin" / "python"
-    if not python_bin.exists():
-        abort(500, description=f"ChemEnzy runtime python not found: {python_bin}")
+    runtime_preflight = _chem_enzy_runtime_status()
+    if not runtime_preflight["accepted"]:
+        abort(500, description=format_chem_enzy_runtime_diagnostic(runtime_preflight))
+    python_bin = Path(runtime_preflight["python_executable"])
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    stamp = _utc_stamp()
     run_id = uuid.uuid4().hex[:6]
     req_path = RESULTS_DIR / f"ui_chem_enzy_request_{stamp}_{run_id}.json"
     out_path = RESULTS_DIR / f"ui_chem_enzy_plan_{stamp}_{run_id}.json"
@@ -324,7 +403,7 @@ def _run_chem_enzy_native_plan(payload: dict[str, Any], *, job_id: str | None = 
             with _LOCK:
                 _PLAN_PROCESS_BY_JOB[job_id] = proc
         stdout, stderr = proc.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
         if proc is not None:
             _terminate_process(proc)
             stdout, stderr = proc.communicate()
@@ -366,6 +445,252 @@ def _run_chem_enzy_native_plan(payload: dict[str, Any], *, job_id: str | None = 
     _apply_product_audit_post_filter(output, payload, rejected_out_path=rejected_out_path)
     out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
     return output
+
+
+def _run_codex_fullflow_plan(payload: dict[str, Any], *, job_id: str | None = None) -> dict[str, Any]:
+    _validate_web_codex_controls(payload)
+    target = str(payload.get("target_smiles") or "").strip()
+    if Chem.MolFromSmiles(target) is None:
+        abort(400, description="target_smiles is not a valid SMILES")
+    run_dir = _codex_fullflow_run_dir(payload)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    request_path = run_dir / "web_request.json"
+    request_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if job_id:
+        with _LOCK:
+            if job_id in _JOBS:
+                _JOBS[job_id].update(
+                    {
+                        "run_dir": _rel(run_dir),
+                        "request_json": _rel(request_path),
+                        "agent_blackboard": _rel(run_dir / "agent_blackboard.json"),
+                        "route_forest_html": _rel(run_dir / "route_forest.html"),
+                        "explored_route_forest": _rel(run_dir / "explored_route_forest.json"),
+                        "final_verdict": _rel(run_dir / "final_verdict.json"),
+                    }
+                )
+    if _plan_job_cancel_requested(job_id):
+        raise _PlanJobCancelled("agent fullflow cancelled before launch")
+
+    timeout_s = _as_float(payload.get("timeout_s"), 1800.0, lo=30.0, hi=24 * 3600.0)
+    started = time.monotonic()
+    env_overrides = _codex_fullflow_env_overrides(payload)
+    previous_env = {key: os.environ.get(key) for key in env_overrides}
+    try:
+        for key, value in env_overrides.items():
+            os.environ[key] = value
+        result = run_agentic_blackboard_controller(
+            target_name=str(payload.get("target_name") or _safe_label(str(payload.get("family_hint") or "target"))),
+            target_smiles=target,
+            family_hint=str(payload.get("family_hint") or ""),
+            output_dir=run_dir,
+            literature_pdf_path=str(payload.get("literature_pdf_path") or ""),
+            literature_pdf_source_ref=str(payload.get("literature_pdf_source_ref") or ""),
+            literature_sources=[dict(row) for row in payload.get("literature_sources") or [] if isinstance(row, dict)],
+            auto_discover_local_pdfs=_as_bool(payload.get("auto_local_pdf_discovery"), False),
+            local_pdf_search_dirs=[Path(item) for item in payload.get("local_pdf_search_dirs") or []],
+            timeout_s=timeout_s,
+            # Credentials and provider endpoints are server-owned.  Accepting
+            # either from an unauthenticated HTTP payload would turn a route
+            # request into a credential-forwarding primitive.
+            key_path=str(os.environ.get("AUTOPLANNER_CODEX_KEY_PATH") or ROOT / "key.txt"),
+            base_url=str(os.environ.get("AUTOPLANNER_CODEX_BASE_URL") or "https://api.wellau.com/v1"),
+            model=str(payload.get("model") or "gpt-5.5"),
+            max_rounds=_as_int(payload.get("max_rounds"), 3, lo=1, hi=30),
+            exhaust_round_budget=_as_bool(payload.get("exhaust_round_budget"), False),
+            enable_analogical_templates=_as_bool(payload.get("enable_analogical_templates"), True),
+            max_template_applications_per_round=_as_int(payload.get("max_template_applications_per_round"), 5, lo=0, hi=50),
+            template_radius_policy=str(payload.get("template_radius_policy") or "auto"),
+            analog_template_confidence_threshold=str(payload.get("analog_template_confidence_threshold") or "medium"),
+            use_codex_action_planner=_as_bool(payload.get("codex_action_planner"), True),
+            use_codex_agent_team=_as_bool(payload.get("codex_agent_team"), True),
+            codex_agent_team_max_depth=_as_int(payload.get("codex_agent_team_max_depth"), 2, lo=1, hi=6),
+            codex_agent_team_max_expansions=_as_int(payload.get("codex_agent_team_max_expansions"), 4, lo=1, hi=24),
+            codex_agent_team_frontier_batch_size=_as_int(payload.get("codex_agent_team_frontier_batch_size"), 2, lo=1, hi=8),
+            codex_agent_team_model=str(
+                payload.get("codex_agent_team_model") or payload.get("model") or "gpt-5.5"
+            ),
+            codex_agent_team_auth_mode="auto",
+            stop_on_problem=_as_bool(payload.get("stop_on_problem"), False),
+            budget=_codex_fullflow_budget(payload, timeout_s=timeout_s),
+            emit_blackboard_steps=True,
+        )
+    finally:
+        for key, value in previous_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    final = dict(result.get("final_verdict") or {})
+    artifacts = dict(result.get("artifacts") or {})
+    forest_counts = _route_forest_counts(artifacts.get("explored_route_forest") or run_dir / "explored_route_forest.json")
+    compact = {
+        "schema_version": "web_agent_fullflow_result.v1",
+        "ok": bool(final.get("solved") or final.get("verdict") == "solved"),
+        "target": target,
+        "run_dir": str(run_dir),
+        "final_verdict": final,
+        "artifacts": artifacts,
+        "preflight": result.get("preflight") or {},
+        "target_input": result.get("target_input") or {},
+        "blackboard_steps": _read_blackboard_step_summary(run_dir),
+        "forest_counts": forest_counts,
+        "time_s": round(time.monotonic() - started, 3),
+        "routes": [],
+        "search_status": {
+            "status": final.get("route_status") or final.get("verdict") or "unknown",
+            "solved": bool(final.get("solved") or final.get("verdict") == "solved"),
+            "best_depth": forest_counts.get("steps"),
+            "message": final.get("verdict") or final.get("route_status") or "agent fullflow finished",
+        },
+        "ui_metadata": {
+            "backend": "AgenticBlackboard",
+            "engine": "Codex action planner + ChemEnzy/literature/tools",
+            "planner_strategy": "Agentic blackboard fullflow with per-step blackboard snapshots and final route forest.",
+            "search_mode": "codex_fullflow",
+            "run_dir": _rel(run_dir),
+            "saved_at": "",
+            "request_path": _rel(request_path),
+            "agent_blackboard": _rel(Path(artifacts.get("agent_blackboard") or run_dir / "agent_blackboard.json")),
+            "route_forest_html": _rel(Path(artifacts.get("route_forest_html") or run_dir / "route_forest.html")),
+            "explored_route_forest": _rel(Path(artifacts.get("explored_route_forest") or run_dir / "explored_route_forest.json")),
+            "final_verdict": _rel(Path(artifacts.get("final_verdict") or run_dir / "final_verdict.json")),
+        },
+    }
+    out_path = run_dir / "web_agent_fullflow_result.json"
+    compact["ui_metadata"]["saved_at"] = _rel(out_path)
+    out_path.write_text(json.dumps(compact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return compact
+
+
+def _codex_fullflow_run_dir(payload: dict[str, Any]) -> Path:
+    raw = str(payload.get("output_dir") or "").strip()
+    if raw:
+        return _safe_path(raw, allowed_roots=[RESULTS_DIR, SHARED_RESULTS_DIR])
+    label = _safe_label(str(payload.get("target_name") or payload.get("family_hint") or "agent_target"))
+    prefix = _safe_label(str(payload.get("run_prefix") or "ui_agent_fullflow"))
+    return SHARED_RESULTS_DIR / "ui_agent_runs" / f"{prefix}_{label}_{_utc_stamp()}_{uuid.uuid4().hex[:6]}"
+
+
+def _codex_fullflow_budget(payload: dict[str, Any], *, timeout_s: float) -> HarnessBudget:
+    budget = HarnessBudget(timeout_s=float(timeout_s))
+    budget.max_chem_enzy_runs = _as_int(payload.get("max_chem_enzy_runs"), 1, lo=0, hi=20)
+    budget.max_guided_chemenzy_runs = _as_int(payload.get("max_guided_chemenzy_runs"), budget.max_chem_enzy_runs, lo=0, hi=20)
+    budget.guided_chemenzy_timeout_s = _as_float(
+        payload.get("guided_chemenzy_timeout_s"),
+        min(max(timeout_s / 2, 300.0), timeout_s),
+        lo=30.0,
+        hi=24 * 3600.0,
+    )
+    budget.max_route_expansion_subgoal_runs = _as_int(payload.get("max_route_expansion_subgoal_runs"), 1, lo=0, hi=20)
+    budget.max_codex_research_runs = _as_int(payload.get("max_codex_research_runs"), 1, lo=0, hi=20)
+    budget.max_scout_calls = _as_int(payload.get("max_scout_calls"), 1, lo=0, hi=50)
+    budget.max_visual_calls = _as_int(payload.get("max_visual_calls"), 1, lo=0, hi=50)
+    budget.max_template_applications_per_round = _as_int(payload.get("max_template_applications_per_round"), 5, lo=0, hi=50)
+    return budget
+
+
+def _codex_fullflow_env_overrides(payload: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if payload.get("codex_action_planner_tools") is not None:
+        requested = {
+            item.strip().lower()
+            for item in str(payload.get("codex_action_planner_tools") or "").split(",")
+            if item.strip()
+        }
+        allowed = requested & {"web_search", "browser", "literature_search"}
+        out["AUTOPLANNER_CODEX_ACTION_PLANNER_ALLOWED_TOOLS"] = ",".join(sorted(allowed))
+    if payload.get("codex_action_planner_max_tool_calls") is not None:
+        out["AUTOPLANNER_CODEX_ACTION_PLANNER_MAX_TOOL_CALLS"] = str(_as_int(payload.get("codex_action_planner_max_tool_calls"), 8, lo=0, hi=100))
+    if payload.get("codex_action_planner_timeout_s") is not None:
+        out["AUTOPLANNER_CODEX_ACTION_PLANNER_TIMEOUT_S"] = str(_as_float(payload.get("codex_action_planner_timeout_s"), 900.0, lo=30.0, hi=24 * 3600.0))
+    if payload.get("codex_scout_timeout_s") is not None:
+        out["AUTOPLANNER_CODEX_SCOUT_TIMEOUT_S"] = str(_as_float(payload.get("codex_scout_timeout_s"), 900.0, lo=30.0, hi=24 * 3600.0))
+    effort = str(payload.get("codex_scout_reasoning_effort") or "").strip()
+    if effort:
+        out["AUTOPLANNER_CODEX_SCOUT_REASONING_EFFORT"] = effort
+    # Web-launched Codex children are always read-only.  Deterministic harness
+    # tools own all writes after validating typed output.
+    out["AUTOPLANNER_CODEX_WORKER_SANDBOX"] = "read-only"
+    local_seeded = bool(
+        payload.get("literature_pdf_path")
+        or payload.get("literature_sources")
+        or (payload.get("auto_local_pdf_discovery") and payload.get("local_pdf_search_dirs"))
+    )
+    out["AUTOPLANNER_CODEX_ACTION_PLANNER_LOCAL_PDF_FALLBACK_ALLOWED"] = "1" if local_seeded else "0"
+    return out
+
+
+def _validate_web_codex_controls(payload: dict[str, Any]) -> None:
+    """Reject process-level controls that must never cross the HTTP boundary."""
+    forbidden = [
+        key
+        for key in ("key_path", "base_url", "codex_worker_sandbox")
+        if str(payload.get(key) or "").strip()
+    ]
+    worker_auth = str(payload.get("codex_worker_auth") or "").strip().lower()
+    if worker_auth not in {"", "auto"}:
+        forbidden.append("codex_worker_auth")
+    if forbidden:
+        abort(400, description=f"server-controlled Codex settings: {', '.join(sorted(set(forbidden)))}")
+
+
+def _validate_web_literature_inputs(payload: dict[str, Any]) -> None:
+    """Constrain HTTP-selected local source files to an operator-owned root."""
+    path_values: list[tuple[str, str, bool]] = []
+    if str(payload.get("literature_pdf_path") or "").strip():
+        path_values.append(("literature_pdf_path", str(payload["literature_pdf_path"]), True))
+    for value in payload.get("local_pdf_search_dirs") or []:
+        if str(value or "").strip():
+            path_values.append(("local_pdf_search_dirs", str(value), False))
+    for index, row in enumerate(payload.get("literature_sources") or []):
+        if not isinstance(row, dict):
+            continue
+        for key in ("local_pdf", "path", "local_ref"):
+            value = str(row.get(key) or "").strip()
+            if value and (key != "local_ref" or Path(value).suffix.lower() == ".pdf"):
+                path_values.append((f"literature_sources[{index}].{key}", value, True))
+    if not path_values:
+        return
+    configured_root = str(os.environ.get("AUTOPLANNER_WEB_LITERATURE_ROOT") or "").strip()
+    if not configured_root:
+        abort(400, description="local literature inputs are disabled; configure AUTOPLANNER_WEB_LITERATURE_ROOT")
+    root = Path(configured_root).expanduser().resolve()
+    for field, raw, require_pdf in path_values:
+        candidate = Path(raw).expanduser()
+        candidate = candidate if candidate.is_absolute() else root / candidate
+        resolved = candidate.resolve()
+        if resolved != root and not resolved.is_relative_to(root):
+            abort(400, description=f"{field} is outside AUTOPLANNER_WEB_LITERATURE_ROOT")
+        if require_pdf and resolved.suffix.lower() != ".pdf":
+            abort(400, description=f"{field} must reference a PDF")
+
+
+def _read_blackboard_step_summary(run_dir: Path | str, *, limit: int = 120) -> list[dict[str, Any]]:
+    path = Path(run_dir) / "blackboard_steps" / "summary.jsonl"
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines()[-limit:]:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def _route_forest_counts(path_value: Any) -> dict[str, Any]:
+    try:
+        path = Path(path_value)
+        if not path.is_absolute():
+            path = ROOT / path
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return dict(data.get("counts") or {})
+    except Exception:
+        return {}
 
 
 def _apply_proposal_gate_post_filter(output: dict[str, Any], payload: dict[str, Any]) -> None:
@@ -1343,10 +1668,13 @@ def _start_plan_job(payload: dict[str, Any]) -> dict[str, Any]:
     if Chem.MolFromSmiles(target) is None:
         abort(400, description="target_smiles is not a valid SMILES")
     backend = str(payload.get("planner_backend") or payload.get("planner_mode") or "chem_enzy_native").strip().lower()
-    if backend not in {"chem_enzy", "chem_enzy_native", "chemenzy", "chemenzy_native"}:
-        abort(400, description="planner_backend must be chem_enzy_native")
+    if backend not in CHEMENZY_NATIVE_BACKENDS | CODEX_FULLFLOW_BACKENDS:
+        abort(400, description="planner_backend must be chem_enzy_native or codex_fullflow")
+    if backend in CODEX_FULLFLOW_BACKENDS:
+        _validate_web_codex_controls(payload)
+        _validate_web_literature_inputs(payload)
 
-    job_id = "plan_" + datetime.utcnow().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+    job_id = "plan_" + _utc_stamp() + "_" + uuid.uuid4().hex[:8]
     log_dir = RESULTS_DIR / "ui_jobs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{job_id}.log"
@@ -1356,8 +1684,10 @@ def _start_plan_job(payload: dict[str, Any]) -> dict[str, Any]:
         "job_id": job_id,
         "kind": "plan",
         "status": "queued",
+        "planner_backend": backend,
         "label": f"Route search · {preset}",
         "target_smiles": target,
+        "target_name": str(payload.get("target_name") or ""),
         "target_preview": _target_preview(target),
         "search_preset": preset,
         "stock_mode": str(payload.get("stock_mode") or "building-block"),
@@ -1372,17 +1702,31 @@ def _start_plan_job(payload: dict[str, Any]) -> dict[str, Any]:
         "raw_output_json": None,
         "rejected_output_json": None,
         "request_json": None,
+        "run_dir": None,
+        "agent_blackboard": None,
+        "route_forest_html": None,
+        "explored_route_forest": None,
+        "final_verdict": None,
         "summary": None,
         "return_code": None,
         "error": None,
         "cancel_requested": False,
         "queue_position": None,
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": _utc_now_iso(),
         "started_at": None,
         "finished_at": None,
         "elapsed_s": None,
     }
+    job["label"] = f"{'Agent fullflow' if backend in CODEX_FULLFLOW_BACKENDS else 'Route search'} · {preset}"
     with _LOCK:
+        max_active = _as_int(os.environ.get("AUTOPLANNER_WEB_MAX_ACTIVE_JOBS"), 2, lo=1, hi=32)
+        active = sum(
+            1
+            for row in _JOBS.values()
+            if str(row.get("status") or "") not in _TERMINAL_JOB_STATUSES
+        )
+        if active >= max_active:
+            abort(429, description=f"active job limit reached ({max_active})")
         _JOBS[job_id] = dict(job)
         _PLAN_JOB_QUEUE.append(job_id)
         _refresh_plan_queue_positions_locked()
@@ -1448,12 +1792,12 @@ def _run_plan_job(job_id: str, payload: dict[str, Any], log_path: Path) -> None:
             _append_job_log(log_path, "route search cancelled before start")
             return
         _JOBS[job_id]["status"] = "running"
-        _JOBS[job_id]["started_at"] = datetime.utcnow().isoformat() + "Z"
+        _JOBS[job_id]["started_at"] = _utc_now_iso()
         _JOBS[job_id]["queue_position"] = 0
         _JOBS[job_id]["_started_monotonic"] = started
     try:
         with log_path.open("w", encoding="utf-8") as log:
-            log.write(f"[{datetime.utcnow().isoformat()}Z] route search started\n")
+            log.write(f"[{_utc_now_iso()}] route search started\n")
             log.write(f"preset={payload.get('search_preset', 'quick')} max_depth={payload.get('max_steps')} iterations={payload.get('chem_enzy_iterations')} topk={payload.get('chem_enzy_expansion_topk')}\n")
             log.write(f"target={str(payload.get('target_smiles') or '')[:220]}\n")
             log.flush()
@@ -1462,8 +1806,13 @@ def _run_plan_job(job_id: str, payload: dict[str, Any], log_path: Path) -> None:
             request_path = ((output.get("ui_metadata") or {}).get("request_path"))
             raw_output_path = ((output.get("ui_metadata") or {}).get("raw_saved_at"))
             rejected_output_path = ((output.get("ui_metadata") or {}).get("rejected_saved_at"))
+            run_dir_path = ((output.get("ui_metadata") or {}).get("run_dir"))
+            agent_blackboard_path = ((output.get("ui_metadata") or {}).get("agent_blackboard"))
+            route_forest_html_path = ((output.get("ui_metadata") or {}).get("route_forest_html"))
+            explored_route_forest_path = ((output.get("ui_metadata") or {}).get("explored_route_forest"))
+            final_verdict_path = ((output.get("ui_metadata") or {}).get("final_verdict"))
             summary = _plan_output_summary(output)
-            log.write(f"[{datetime.utcnow().isoformat()}Z] route search finished status={summary['status']} routes={summary['routes']}\n")
+            log.write(f"[{_utc_now_iso()}] route search finished status={summary['status']} routes={summary['routes']}\n")
             if output_path:
                 log.write(f"output_json={output_path}\n")
             if request_path:
@@ -1486,23 +1835,33 @@ def _run_plan_job(job_id: str, payload: dict[str, Any], log_path: Path) -> None:
         request_path = None
         raw_output_path = None
         rejected_output_path = None
+        run_dir_path = None
+        agent_blackboard_path = None
+        route_forest_html_path = None
+        explored_route_forest_path = None
+        final_verdict_path = None
         summary = {"status": "cancelled", "message": str(exc), "routes": 0, "solved": False}
         status = "cancelled"
         error = None
         return_code = -15
         with log_path.open("a", encoding="utf-8") as log:
-            log.write(f"[{datetime.utcnow().isoformat()}Z] route search cancelled: {exc}\n")
+            log.write(f"[{_utc_now_iso()}] route search cancelled: {exc}\n")
     except Exception as exc:
         output_path = None
         request_path = None
         raw_output_path = None
         rejected_output_path = None
+        run_dir_path = None
+        agent_blackboard_path = None
+        route_forest_html_path = None
+        explored_route_forest_path = None
+        final_verdict_path = None
         summary = None
         status = "failed"
         error = getattr(exc, "description", None) or str(exc)
         return_code = 1
         with log_path.open("a", encoding="utf-8") as log:
-            log.write(f"[{datetime.utcnow().isoformat()}Z] route search failed: {error}\n")
+            log.write(f"[{_utc_now_iso()}] route search failed: {error}\n")
     with _LOCK:
         if job_id in _JOBS:
             _JOBS[job_id].update({
@@ -1514,8 +1873,13 @@ def _run_plan_job(job_id: str, payload: dict[str, Any], log_path: Path) -> None:
                 "raw_output_json": raw_output_path,
                 "rejected_output_json": rejected_output_path,
                 "request_json": request_path,
+                "run_dir": run_dir_path or _JOBS[job_id].get("run_dir"),
+                "agent_blackboard": agent_blackboard_path or _JOBS[job_id].get("agent_blackboard"),
+                "route_forest_html": route_forest_html_path or _JOBS[job_id].get("route_forest_html"),
+                "explored_route_forest": explored_route_forest_path or _JOBS[job_id].get("explored_route_forest"),
+                "final_verdict": final_verdict_path or _JOBS[job_id].get("final_verdict"),
                 "elapsed_s": round(time.monotonic() - started, 3),
-                "finished_at": datetime.utcnow().isoformat() + "Z",
+                "finished_at": _utc_now_iso(),
                 "queue_position": None,
             })
             _JOBS[job_id].pop("_started_monotonic", None)
@@ -1533,7 +1897,7 @@ def _cancel_job(job_id: str) -> dict[str, Any]:
         if job.get("status") in _TERMINAL_JOB_STATUSES:
             return _job_response(dict(job), include_log=True)
         job["cancel_requested"] = True
-        job["cancel_requested_at"] = datetime.utcnow().isoformat() + "Z"
+        job["cancel_requested_at"] = _utc_now_iso()
         log_path = _rooted_path(str(job.get("log_path") or ""))
         if job.get("status") == "queued":
             _remove_from_plan_queue_locked(job_id)
@@ -1566,7 +1930,7 @@ def _mark_plan_job_cancelled_locked(job_id: str, message: str) -> None:
         "return_code": None,
         "summary": {"status": "cancelled", "message": message, "routes": 0, "solved": False},
         "error": None,
-        "finished_at": datetime.utcnow().isoformat() + "Z",
+        "finished_at": _utc_now_iso(),
         "elapsed_s": elapsed,
         "queue_position": None,
     })
@@ -1628,7 +1992,7 @@ def _terminate_process(proc: subprocess.Popen) -> None:
 def _append_job_log(log_path: Path, message: str) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as log:
-        log.write(f"[{datetime.utcnow().isoformat()}Z] {message}\n")
+        log.write(f"[{_utc_now_iso()}] {message}\n")
 
 
 def _rooted_path(value: str) -> Path:
@@ -1650,10 +2014,54 @@ def _job_response(job: dict[str, Any], *, include_log: bool) -> dict[str, Any]:
         if include_log and log_path.is_file():
             lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
             out["log_tail"] = lines[-80:]
+    if include_log:
+        out.update(_agent_runtime_payload(out))
     return out
 
 
+def _agent_runtime_payload(job: dict[str, Any]) -> dict[str, Any]:
+    raw_run_dir = str(job.get("run_dir") or "")
+    if not raw_run_dir:
+        return {"agent_steps": []}
+    run_dir = Path(raw_run_dir)
+    if not run_dir.is_absolute():
+        run_dir = ROOT / run_dir
+    payload: dict[str, Any] = {"agent_steps": _read_blackboard_step_summary(run_dir)}
+    for key, filename in {
+        "agent_blackboard": "agent_blackboard.json",
+        "route_forest_html": "route_forest.html",
+        "explored_route_forest": "explored_route_forest.json",
+        "final_verdict": "final_verdict.json",
+    }.items():
+        value = str(job.get(key) or "")
+        path = Path(value) if value else run_dir / filename
+        if not path.is_absolute():
+            path = ROOT / path
+        if path.exists():
+            payload[key] = _rel(path)
+    return payload
+
+
 def _plan_output_summary(output: dict[str, Any]) -> dict[str, Any]:
+    if output.get("schema_version") == "web_agent_fullflow_result.v1" or output.get("final_verdict"):
+        final = dict(output.get("final_verdict") or {})
+        counts = dict(output.get("forest_counts") or {})
+        ui_metadata = dict(output.get("ui_metadata") or {})
+        return {
+            "status": (output.get("search_status") or {}).get("status") or final.get("route_status") or final.get("verdict"),
+            "message": (output.get("search_status") or {}).get("message") or final.get("verdict") or "agent fullflow finished",
+            "routes": int(counts.get("branches") or 0),
+            "steps": int(counts.get("steps") or 0),
+            "solved": bool(final.get("solved") or final.get("verdict") == "solved"),
+            "best_depth": counts.get("steps"),
+            "time_s": output.get("time_s"),
+            "output_json": ui_metadata.get("saved_at"),
+            "run_dir": ui_metadata.get("run_dir"),
+            "route_forest_html": ui_metadata.get("route_forest_html"),
+            "explored_route_forest": ui_metadata.get("explored_route_forest"),
+            "agent_blackboard": ui_metadata.get("agent_blackboard"),
+            "final_verdict": ui_metadata.get("final_verdict"),
+        }
     routes = output.get("routes") or []
     search_status = output.get("search_status") or {}
     failure_analysis = output.get("failure_analysis") or {}
@@ -1962,7 +2370,7 @@ def _plan_failure_diagnosis(
 
 
 def _start_eval_job(payload: dict[str, Any]) -> dict[str, Any]:
-    job_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+    job_id = _utc_stamp() + "_" + uuid.uuid4().hex[:8]
     bench = str(payload.get("bench") or "data/benchmark_v2_100.json")
     bench_path = _safe_path(bench, allowed_roots=[DATA_DIR, RESULTS_DIR, ROOT])
     if not bench_path.exists():
@@ -2036,7 +2444,7 @@ def _run_eval_job(job_id: str, cmd: list[str], log_path: Path) -> None:
     env["PYTHONPATH"] = str(ROOT)
     with _LOCK:
         _JOBS[job_id]["status"] = "running"
-        _JOBS[job_id]["started_at"] = datetime.utcnow().isoformat() + "Z"
+        _JOBS[job_id]["started_at"] = _utc_now_iso()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w", encoding="utf-8") as log:
         proc = subprocess.Popen(
@@ -2068,7 +2476,7 @@ def _run_eval_job(job_id: str, cmd: list[str], log_path: Path) -> None:
             "status": status,
             "return_code": return_code,
             "summary": summary,
-            "finished_at": datetime.utcnow().isoformat() + "Z",
+            "finished_at": _utc_now_iso(),
         })
 
 
@@ -2168,6 +2576,13 @@ def _template_relevance_status() -> dict[str, Any]:
         return check_template_relevance(ROOT / "vendor/ChemEnzyRetroPlanner")
     except Exception as exc:
         return {"available_count": 0, "models": [], "error": str(exc)}
+
+
+def _chem_enzy_runtime_status() -> dict[str, Any]:
+    return diagnose_chem_enzy_runtime(
+        vendor_root=ROOT / "vendor" / "ChemEnzyRetroPlanner",
+        launcher_path=ROOT / "scripts" / "run_chem_enzy_plan_for_web.py",
+    )
 
 
 def _missing_selected_template_relevance_models(payload: dict[str, Any]) -> list[str]:
@@ -2284,7 +2699,7 @@ def _cascade_demo_payload() -> dict[str, Any]:
     state_action_report_data = _read_json_or_empty(state_action_report)
     return {
         "ok": True,
-        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "generated_at": _utc_now_iso(),
         "headline": {
             "title": "AutoPlanner-Cascade",
             "subtitle": "Cascade-native program search around ChemEnzyRetroPlanner multi-step traces",
@@ -2348,7 +2763,6 @@ def _cascade_demo_cards(
     stage2 = stage2_data.get("summary") or {}
     state_action = state_action_data.get("summary") or {}
     state_action_metrics = state_action_report.get("final_metrics") or {}
-    stage2_targets = stage2_data.get("targets") or []
     state_action_targets = state_action_data.get("targets") or []
     state_action_topk_exact = _topk_result_rate(state_action_targets, "exact_reaction_hit_count")
     state_action_topk_react = _topk_result_rate(state_action_targets, "gt_reactant_hit_count")
@@ -2570,7 +2984,7 @@ def _case_summary(source: str, target: dict[str, Any]) -> dict[str, Any]:
 
 def _write_result_artifact(prefix: str, payload: dict[str, Any]) -> Path:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    stamp = _utc_stamp()
     out = RESULTS_DIR / f"{prefix}_{stamp}_{uuid.uuid4().hex[:6]}.json"
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out
@@ -2585,7 +2999,7 @@ def _api_run_smiles_first_case(payload: dict[str, Any]) -> dict[str, Any]:
     if output_dir:
         out_dir = _safe_path(str(output_dir), allowed_roots=[RESULTS_DIR, DATA_DIR])
     else:
-        stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        stamp = _utc_stamp()
         out_dir = RESULTS_DIR / "agent_cases" / f"{label}_{stamp}_{uuid.uuid4().hex[:6]}"
     result = run_smiles_first_workflow(
         SmilesFirstWorkflowConfig(
@@ -2674,7 +3088,11 @@ def _api_worker_trace(payload: dict[str, Any]) -> dict[str, Any]:
     if mock_output is None and payload.get("mock_output_path"):
         mock_output = _read_json_or_empty(_safe_path(str(payload["mock_output_path"]), allowed_roots=[RESULTS_DIR, DATA_DIR]))
     task = worker_task_from_dict(task_payload)
+    task.allowed_workdir = str(ROOT)
     backend = str(payload.get("backend") or os.environ.get("AUTOPLANNER_CODEX_WORKER_BACKEND") or "codex").lower()
+    real_execution = backend in {"codex", "api_json"} and mock_output is None and not task.dry_run
+    if real_execution and not _as_bool(os.environ.get("AUTOPLANNER_WEB_ENABLE_REAL_WORKER_TRACE"), False):
+        abort(403, description="real worker trace execution is disabled on the unauthenticated web surface")
     mock = dict(mock_output) if isinstance(mock_output, dict) else None
     use_codex_cli = backend == "codex" and mock is None and not task.dry_run
     use_api_json = backend == "api_json" and mock is None and not task.dry_run
@@ -2816,6 +3234,14 @@ def _as_int(value: Any, default: int, *, lo: int, hi: int) -> int:
     except (TypeError, ValueError):
         out = default
     return max(lo, min(hi, out))
+
+
+def _as_float(value: Any, default: float, *, lo: float, hi: float) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        out = float(default)
+    return max(float(lo), min(float(hi), out))
 
 
 def _as_bounded_steps(value: Any, default: int, *, field: str) -> int:

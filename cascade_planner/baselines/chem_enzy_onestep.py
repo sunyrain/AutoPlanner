@@ -22,7 +22,6 @@ from cascade_planner.baselines.chem_enzy_adapter import (
 )
 from cascade_planner.baselines.proposal_gate import evaluate_step_candidate
 from cascade_planner.baselines.route_contract import RouteSearchConfig
-from cascade_planner.baselines.semisynthesis_rescue import semisynthesis_rescue_routes
 from cascade_planner.baselines.template_relevance_runtime import missing_template_relevance_models
 from cascade_planner.agent.literature_templates import (
     LITERATURE_TEMPLATE_PLUGIN_MODEL,
@@ -274,6 +273,11 @@ def _one_step_rows(product: str, raw: dict[str, Any], *, limit: int) -> list[dic
 
 
 def _rescue_one_step_rows(product: str) -> list[dict[str, Any]]:
+    enabled = str(os.environ.get("AUTOPLANNER_ENABLE_SEMISYNTHESIS_RESCUE_PROPOSALS") or "").lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        return []
+    from cascade_planner.baselines.semisynthesis_rescue import semisynthesis_rescue_routes
+
     rows: list[dict[str, Any]] = []
     for route in semisynthesis_rescue_routes(product):
         if not route.steps:

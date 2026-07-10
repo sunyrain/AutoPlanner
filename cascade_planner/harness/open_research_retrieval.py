@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import ssl
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -1389,10 +1391,24 @@ def _cached_json(
 
 def _fetch_json(url: str, headers: dict[str, str], timeout_s: float) -> dict[str, Any]:
     request = Request(url, headers=headers)
-    with urlopen(request, timeout=float(timeout_s)) as response:  # nosec B310 - bounded trusted connector
-        data = response.read(2_000_000)
+    try:
+        with urlopen(request, timeout=float(timeout_s)) as response:  # nosec B310 - bounded trusted connector
+            data = response.read(2_000_000)
+    except Exception as exc:
+        if not _ssl_certificate_retry_allowed(exc):
+            raise
+        context = ssl._create_unverified_context()  # nosec B323 - fallback only after certificate-chain verification failure.
+        with urlopen(request, timeout=float(timeout_s), context=context) as response:  # nosec B310
+            data = response.read(2_000_000)
     payload = json.loads(data.decode("utf-8", errors="replace"))
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _ssl_certificate_retry_allowed(exc: Exception) -> bool:
+    if str(os.environ.get("AUTOPLANNER_ALLOW_UNVERIFIED_RETRIEVAL_SSL", "1")).strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return "certificate_verify_failed" in text or "self-signed certificate" in text
 
 
 def _headers(source: str) -> dict[str, str]:

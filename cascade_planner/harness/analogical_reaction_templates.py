@@ -6,11 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from rdkit import Chem, RDLogger
+from rdkit import Chem, DataStructs, RDLogger
 from rdkit.Chem import AllChem
 
 from cascade_planner.agent.action_contracts import (
-    FORBIDDEN_RAW_REACTION_KEYS,
     contains_raw_reaction_payload,
 )
 from cascade_planner.agent.executable_template_validation import instantiate_literature_template
@@ -55,6 +54,17 @@ HYPOTHETICAL_REACTION_CENTER_RETRONS = {
     "steroid_alcohol_protection_redox_adjustment",
 }
 
+STEROID_REACTION_CENTER_RETRONS = set(HYPOTHETICAL_REACTION_CENTER_RETRONS)
+
+SOURCE_GROUNDED_VISUAL_RETRONS = {
+    "visual_hydrolysis_salt_bridge",
+    "visual_deprotection_unmasking",
+    "visual_paal_knorr_pyrrole_assembly",
+    "visual_source_grounded_connectivity_bridge",
+}
+
+HYPOTHETICAL_REACTION_CENTER_RETRONS.update(SOURCE_GROUNDED_VISUAL_RETRONS)
+
 
 def extract_analogical_reaction_templates_from_blackboard(
     *,
@@ -86,8 +96,10 @@ def extract_analogical_reaction_templates_from_blackboard(
     seed_rows: list[dict[str, str]] = []
     for hypothesis in hypotheses:
         seed_rows.extend(_template_seeds_from_hypothesis(hypothesis))
-    seed_rows.extend(_template_seeds_from_visual_candidates(blackboard))
+    seed_rows.extend(_template_seeds_from_visual_candidates(blackboard, target_smiles=target_smiles))
     seed_rows.extend(_template_seeds_from_target_functional_centers(target_smiles, target_profile=target_profile))
+    if not _target_has_fused_steroid_like_core(target_smiles):
+        seed_rows = [seed for seed in seed_rows if not _seed_is_steroid_like(seed)]
     for seed in seed_rows:
         template = _template_from_seed(
             seed,
@@ -656,8 +668,9 @@ def _sanitize_application(row: dict[str, Any]) -> dict[str, Any]:
     return sanitized
 
 
-def _template_seeds_from_visual_candidates(blackboard: dict[str, Any]) -> list[dict[str, str]]:
+def _template_seeds_from_visual_candidates(blackboard: dict[str, Any], *, target_smiles: str) -> list[dict[str, str]]:
     seeds: list[dict[str, str]] = []
+    target_mol = Chem.MolFromSmiles(str(target_smiles or ""))
     for chain in (blackboard.get("literature_evidence") or {}).get("visual_chains") or []:
         if not isinstance(chain, dict) or not _visual_chain_is_exploratory(chain):
             continue
@@ -677,27 +690,123 @@ def _template_seeds_from_visual_candidates(blackboard: dict[str, Any]) -> list[d
             precursor_mol = Chem.MolFromSmiles(reactants[0])
             if product_mol is None or precursor_mol is None:
                 continue
-            if int(product_mol.GetRingInfo().NumRings()) < 3 or int(precursor_mol.GetRingInfo().NumRings()) < 3:
+            if not _visual_step_matches_target(product_mol, precursor_mol, target_mol):
                 continue
-            seeds.append(
-                {
-                    "target_handle": "visual_same_core_steroid_precursor",
-                    "reaction_class": "visual_steroid_same_core_unsaturation_or_redox_adjustment",
-                    "mechanistic_class": "visual_connectivity_reaction_center_transfer",
-                    "product_retron_type": "steroid_visual_unsaturation_adjustment",
-                    "scope_gap": "visual extraction supplied an achiral/connectivity-only same-core precursor; stereochemistry and exact literature identity are not proven",
-                    "confidence": "low",
-                    "target_proximal": "true",
-                    "visual_source_ref": source_ref,
-                    "visual_source_locator": str(step.get("source_locator") or ""),
-                    "visual_product_smiles": product,
-                    "visual_precursor_smiles": reactants[0],
-                    "visual_stereochemistry_status": str(step.get("stereochemistry_status") or "unspecified_or_partial"),
-                }
-            )
+            if _mol_has_fused_steroid_like_core(product_mol) and _mol_has_fused_steroid_like_core(precursor_mol):
+                seeds.append(
+                    {
+                        "target_handle": "visual_same_core_steroid_precursor",
+                        "reaction_class": "visual_steroid_same_core_unsaturation_or_redox_adjustment",
+                        "mechanistic_class": "visual_connectivity_reaction_center_transfer",
+                        "product_retron_type": "steroid_visual_unsaturation_adjustment",
+                        "scope_gap": "visual extraction supplied an achiral/connectivity-only same-core precursor; stereochemistry and exact literature identity are not proven",
+                        "confidence": "low",
+                        "target_proximal": "true",
+                        "visual_source_ref": source_ref,
+                        "visual_source_locator": str(step.get("source_locator") or ""),
+                        "visual_product_smiles": product,
+                        "visual_precursor_smiles": reactants[0],
+                        "visual_stereochemistry_status": str(step.get("stereochemistry_status") or "unspecified_or_partial"),
+                    }
+                )
+            else:
+                seeds.append(
+                    _visual_source_grounded_seed_from_step(
+                        step,
+                        product_smiles=product,
+                        precursor_smiles=reactants[0],
+                        reactant_count=len(reactants),
+                        source_ref=source_ref,
+                    )
+                )
             if len(seeds) >= 4:
                 return seeds
     return seeds
+
+
+def _visual_step_matches_target(product_mol: Any, precursor_mol: Any, target_mol: Any) -> bool:
+    if target_mol is None:
+        return True
+    return max(
+        _fingerprint_similarity(product_mol, target_mol),
+        _fingerprint_similarity(precursor_mol, target_mol),
+    ) >= 0.35
+
+
+def _fingerprint_similarity(left: Any, right: Any) -> float:
+    if left is None or right is None:
+        return 0.0
+    try:
+        left_fp = Chem.RDKFingerprint(left)
+        right_fp = Chem.RDKFingerprint(right)
+        return float(DataStructs.TanimotoSimilarity(left_fp, right_fp))
+    except Exception:
+        return 0.0
+
+
+def _visual_source_grounded_seed_from_step(
+    step: dict[str, Any],
+    *,
+    product_smiles: str,
+    precursor_smiles: str,
+    reactant_count: int,
+    source_ref: str,
+) -> dict[str, str]:
+    text = _visual_step_text(step)
+    if "paal" in text or "pyrrole" in text or reactant_count > 1:
+        retron_type = "visual_paal_knorr_pyrrole_assembly"
+        reaction_class = "visual_paal_knorr_or_pyrrole_assembly"
+        mechanistic_class = "visual_source_grounded_condensation"
+        target_handle = "visual_pyrrole_core_assembly"
+        scope_gap = "visual source suggests pyrrole-core assembly, but stereochemistry and exact atom mapping require verifier review"
+    elif "naoh" in text or "hydrolysis" in text or "calcium" in text or "salt" in text:
+        retron_type = "visual_hydrolysis_salt_bridge"
+        reaction_class = "visual_ester_hydrolysis_or_salt_formation"
+        mechanistic_class = "visual_source_grounded_deprotection_salt_formation"
+        target_handle = "visual_carboxylate_or_salt_state"
+        scope_gap = "visual source suggests hydrolysis/salt formation, but salt state and exact stoichiometry are not proof"
+    elif "hcl" in text or "hydrochloric" in text or "deprotect" in text or "acetonide" in text or "dihydroxy" in text:
+        retron_type = "visual_deprotection_unmasking"
+        reaction_class = "visual_acetal_or_protecting_group_deprotection"
+        mechanistic_class = "visual_source_grounded_deprotection"
+        target_handle = "visual_protecting_group_unmasking"
+        scope_gap = "visual source suggests deprotection/unmasking, but exact stereochemistry and protecting-group identity require verifier review"
+    else:
+        retron_type = "visual_source_grounded_connectivity_bridge"
+        reaction_class = "visual_source_grounded_connectivity_transform"
+        mechanistic_class = "visual_connectivity_reaction_center_transfer"
+        target_handle = "visual_source_grounded_precursor"
+        scope_gap = "visual extraction supplied a connectivity-only literature step; exact source-detail proof still requires verifier review"
+    return {
+        "target_handle": target_handle,
+        "reaction_class": reaction_class,
+        "mechanistic_class": mechanistic_class,
+        "product_retron_type": retron_type,
+        "scope_gap": scope_gap,
+        "confidence": "low",
+        "target_proximal": "true",
+        "visual_source_ref": source_ref,
+        "visual_source_locator": str(step.get("source_locator") or ""),
+        "visual_product_smiles": product_smiles,
+        "visual_precursor_smiles": precursor_smiles,
+        "visual_stereochemistry_status": str(step.get("stereochemistry_status") or "unspecified_or_partial"),
+    }
+
+
+def _visual_step_text(step: dict[str, Any]) -> str:
+    condition = dict(step.get("condition_candidate") or {})
+    values = [
+        str(step.get("step_id") or ""),
+        str(step.get("product_label") or ""),
+        str(step.get("source_locator") or ""),
+        str(step.get("source_excerpt") or ""),
+        str(condition.get("reagent") or ""),
+        str(condition.get("catalyst") or ""),
+        str(condition.get("solvent") or ""),
+        str(condition.get("source_grounding") or ""),
+        str(condition.get("condition_text_transcribed") or ""),
+    ]
+    return " ".join(values).lower()
 
 
 def _visual_chain_is_exploratory(chain: dict[str, Any]) -> bool:
@@ -819,9 +928,7 @@ def _template_seeds_from_target_functional_centers(
     mol = Chem.MolFromSmiles(str(target_smiles or ""))
     if mol is None:
         return []
-    rings = int(target_profile.get("rings") or mol.GetRingInfo().NumRings() or 0)
-    steroid_like = rings >= 4
-    if not steroid_like:
+    if not _mol_has_fused_steroid_like_core(mol):
         return []
     seeds: list[dict[str, str]] = []
     seeds.append(
@@ -872,6 +979,57 @@ def _template_seeds_from_target_functional_centers(
             }
         )
     return seeds
+
+
+def _target_has_fused_steroid_like_core(target_smiles: str) -> bool:
+    mol = Chem.MolFromSmiles(str(target_smiles or ""))
+    return bool(mol is not None and _mol_has_fused_steroid_like_core(mol))
+
+
+def _mol_has_fused_steroid_like_core(mol: Any) -> bool:
+    return _largest_fused_ring_system_size(mol) >= 4
+
+
+def _largest_fused_ring_system_size(mol: Any) -> int:
+    if mol is None:
+        return 0
+    rings = [set(ring) for ring in mol.GetRingInfo().AtomRings()]
+    if not rings:
+        return 0
+    graph: dict[int, set[int]] = {idx: set() for idx in range(len(rings))}
+    for left_idx, left in enumerate(rings):
+        for right_idx in range(left_idx + 1, len(rings)):
+            if len(left & rings[right_idx]) >= 2:
+                graph[left_idx].add(right_idx)
+                graph[right_idx].add(left_idx)
+    seen: set[int] = set()
+    largest = 0
+    for start in graph:
+        if start in seen:
+            continue
+        stack = [start]
+        seen.add(start)
+        size = 0
+        while stack:
+            current = stack.pop()
+            size += 1
+            for nxt in graph[current]:
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        largest = max(largest, size)
+    return largest
+
+
+def _seed_is_steroid_like(seed: dict[str, str]) -> bool:
+    retron_type = str(seed.get("product_retron_type") or "")
+    if retron_type in STEROID_REACTION_CENTER_RETRONS:
+        return True
+    text = " ".join(
+        str(seed.get(key) or "")
+        for key in ("target_handle", "reaction_class", "mechanistic_class", "scope_gap")
+    ).lower()
+    return "steroid" in text
 
 
 def _template_from_seed(
@@ -1024,32 +1182,40 @@ def _hypothetical_reaction_center_application(
     center_summary = _target_reaction_center_summary(mol)
     hypothesis = _hypothesis_for_retron(retron_type, center_summary=center_summary)
     reasons: list[str] = []
-    if not center_summary.get("polycyclic_core_like"):
+    source_grounded_visual = retron_type in SOURCE_GROUNDED_VISUAL_RETRONS
+    steroid_retron = retron_type in STEROID_REACTION_CENTER_RETRONS
+    if steroid_retron and not center_summary.get("polycyclic_core_like"):
         reasons.append("target_not_polycyclic_core_like")
-    if retron_type == "steroid_enone_redox_adjustment" and int(center_summary.get("enone_count") or 0) <= 0:
+    if source_grounded_visual and not template.get("visual_connectivity_hint"):
+        reasons.append("missing_visual_connectivity_hint")
+    if steroid_retron and retron_type == "steroid_enone_redox_adjustment" and int(center_summary.get("enone_count") or 0) <= 0:
         reasons.append("target_enone_retron_not_detected")
-    if retron_type == "steroid_enone_alcohol_adjustment" and not (
+    if steroid_retron and retron_type == "steroid_enone_alcohol_adjustment" and not (
         int(center_summary.get("enone_count") or 0) > 0 or int(center_summary.get("alcohol_count") or 0) > 0
     ):
         reasons.append("target_enone_or_alcohol_retron_not_detected")
-    if retron_type == "steroid_carbonyl_redox_adjustment" and int(center_summary.get("carbonyl_count") or 0) <= 0:
+    if steroid_retron and retron_type == "steroid_carbonyl_redox_adjustment" and int(center_summary.get("carbonyl_count") or 0) <= 0:
         reasons.append("target_carbonyl_retron_not_detected")
-    if retron_type == "steroid_alcohol_protection_redox_adjustment" and int(center_summary.get("alcohol_count") or 0) <= 0:
+    if steroid_retron and retron_type == "steroid_alcohol_protection_redox_adjustment" and int(center_summary.get("alcohol_count") or 0) <= 0:
         reasons.append("target_alcohol_retron_not_detected")
     accepted = not reasons
     if not accepted:
         reasons.append("hypothetical_reaction_center_rejected_by_target_scan")
-    precursor_hints = (
-        _hypothetical_precursor_hints(
+    if accepted and source_grounded_visual:
+        precursor_hints = _visual_precursor_hints_from_template(
+            template,
+            target_smiles=target_smiles,
+            retron_type=retron_type,
+            application_id=application_id,
+        )
+    else:
+        precursor_hints = _hypothetical_precursor_hints(
             target_smiles=target_smiles,
             retron_type=retron_type,
             application_id=application_id,
             hypothesis=hypothesis,
         )
-        if accepted
-        else []
-    )
-    if accepted:
+    if accepted and not source_grounded_visual:
         precursor_hints.extend(
             _visual_precursor_hints_from_template(
                 template,
@@ -1431,6 +1597,16 @@ def _hypothesis_for_retron(retron_type: str, *, center_summary: dict[str, Any]) 
             "expected_precursor_type": "same-core protected alcohol, primary alcohol surrogate, or oxidized aldehyde/ester-level precursor",
             "template_application": "search same-core precursors that differ only in alcohol protection or oxidation state",
         }
+    if retron_type in SOURCE_GROUNDED_VISUAL_RETRONS:
+        return {
+            **common,
+            "must_preserve": ["target_core_or_named_visual_scaffold"],
+            "hypothesis_type": "source_grounded_visual_connectivity_hint",
+            "reaction_center_idea": "use the visually extracted literature step as a connectivity-only template for guided search",
+            "expected_precursor_type": "visual source precursor or named intermediate requiring verifier review",
+            "template_application": "pass the visual precursor to guided search as a preferred subgoal, not as exact proof",
+            "risk_flags": ["visual_connectivity_approximation", "not_literature_exact_row", "requires_verifier"],
+        }
     return {
         **common,
         "hypothesis_type": "generic_reaction_center_transfer",
@@ -1510,6 +1686,8 @@ def _risk_flags(retron_type: str) -> list[str]:
         flags.append("steric_or_acyl_migration_risk")
     if retron_type == "steroid_visual_unsaturation_adjustment":
         flags.extend(["visual_connectivity_approximation", "stereochemistry_unresolved"])
+    if retron_type in SOURCE_GROUNDED_VISUAL_RETRONS:
+        flags.extend(["visual_connectivity_approximation", "source_grounded_visual_template", "stereochemistry_unresolved"])
     return flags
 
 

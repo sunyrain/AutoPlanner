@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoPlanner Agent Workbench</title>
+  <link rel="stylesheet" href="/static/agent.css?v=20260708-resume">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">AutoPlanner</div>
+      <h1>逆合成 Agent 工作台</h1>
+      <p>输入目标分子，实时观察黑板状态；完成后生成一条核心路线，并在每个中间步骤挂载可替换备选。</p>
+    </div>
+    <div class="top-actions">
+      <a class="ghost-link" href="/">ChemEnzy UI</a>
+      <button id="refresh-status" class="icon-button" type="button" title="刷新服务状态">刷新</button>
+      <span id="server-status" class="status-pill muted">checking</span>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="control-panel">
+      <section class="panel">
+        <div class="panel-title">
+          <h2>目标分子</h2>
+          <span class="mini-badge">input</span>
+        </div>
+        <label for="target-name">名称</label>
+        <input id="target-name" value="atorvastatin" autocomplete="off">
+
+        <label for="family-hint">化学背景</label>
+        <input id="family-hint" value="statin, HMG-CoA reductase inhibitor" autocomplete="off">
+
+        <label for="target-smiles">目标 SMILES</label>
+        <textarea id="target-smiles" spellcheck="false">CC(C)C1=C(C(=C(N1CC[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)C3=CC=CC=C3)C(=O)NC4=CC=CC=C4</textarea>
+
+        <div class="sample-grid">
+          <button class="sample" type="button" data-sample="atorvastatin">atorvastatin</button>
+          <button class="sample" type="button" data-sample="bufotalin">bufotalin</button>
+          <button class="sample" type="button" data-sample="paclitaxel">paclitaxel</button>
+          <button class="sample" type="button" data-sample="ibuprofen">ibuprofen</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h2>运行预算</h2>
+          <span class="mini-badge">agentic</span>
+        </div>
+        <div class="two-col">
+          <div>
+            <label for="max-rounds">黑板轮数</label>
+            <input id="max-rounds" type="number" min="1" max="30" value="5">
+          </div>
+          <div>
+            <label for="codex-team-depth">Codex 路线深度</label>
+            <input id="codex-team-depth" type="number" min="1" max="6" value="2">
+          </div>
+          <div>
+            <label for="codex-team-expansions">Codex frontier 次数</label>
+            <input id="codex-team-expansions" type="number" min="1" max="24" value="4">
+          </div>
+          <div>
+            <label for="timeout-s">总超时秒</label>
+            <input id="timeout-s" type="number" min="60" max="86400" value="3600">
+          </div>
+          <div>
+            <label for="chemenzy-runs">ChemEnzy</label>
+            <input id="chemenzy-runs" type="number" min="0" max="20" value="2">
+          </div>
+          <div>
+            <label for="subgoal-runs">子目标展开</label>
+            <input id="subgoal-runs" type="number" min="0" max="20" value="2">
+          </div>
+          <div>
+            <label for="scout-calls">文献检索</label>
+            <input id="scout-calls" type="number" min="0" max="50" value="2">
+          </div>
+          <div>
+            <label for="visual-calls">PDF/视觉</label>
+            <input id="visual-calls" type="number" min="0" max="50" value="2">
+          </div>
+        </div>
+
+        <label for="model">模型</label>
+        <input id="model" value="gpt-5.5" autocomplete="off">
+
+        <label for="codex-team-model">Codex 子 agent 模型（空值沿用主模型）</label>
+        <input id="codex-team-model" value="" placeholder="沿用主模型" autocomplete="off">
+
+        <label for="planner-tools">规划器工具</label>
+        <select id="planner-tools">
+          <option value="">默认工具</option>
+          <option value="web_search,browser,literature_search">联网检索 + 浏览器 + 文献</option>
+          <option value="none">不使用规划器外部工具</option>
+        </select>
+
+        <div class="check-row">
+          <label><input id="codex-action-planner" type="checkbox" checked> Codex action planner</label>
+          <label><input id="codex-agent-team" type="checkbox" checked> Codex direct sub-agent team</label>
+          <label><input id="exhaust-round-budget" type="checkbox"> 穷尽本轮可用动作</label>
+          <label><input id="auto-local-pdf" type="checkbox"> 允许本地 PDF 自动匹配</label>
+        </div>
+
+        <button id="start-run" class="primary-button" type="button">启动 Agent 全流程</button>
+        <button id="cancel-run" class="secondary-button" type="button" disabled>取消当前任务</button>
+      </section>
+
+      <section class="panel compact">
+        <div class="panel-title">
+          <h2>已有结果</h2>
+          <span class="mini-badge">demo</span>
+        </div>
+        <select id="demo-route">
+          <option value="results/shared/bufotalin_full_exact_stitch_rerun_20260622_073847/route_forest.html">bufotalin solved mixed route</option>
+          <option value="results/shared/atorvastatin_online_zero_20260704_202940/route_forest.html">atorvastatin online run</option>
+          <option value="results/shared/atorvastatin_blackboard_correct_identity_runtime_fixed_parent_proof_20260706/route_forest.html">atorvastatin proof run</option>
+        </select>
+        <input id="existing-route" value="results/shared/bufotalin_full_exact_stitch_rerun_20260622_073847/route_forest.html">
+        <button id="load-existing" class="secondary-button" type="button">打开路线图</button>
+      </section>
+    </aside>
+
+    <section class="run-panel">
+      <div class="status-grid">
+        <article class="status-card">
+          <span>任务</span>
+          <strong id="job-title">尚未启动</strong>
+          <small id="job-subtitle">选择目标分子后启动 agent fullflow。</small>
+        </article>
+        <article class="status-card">
+          <span>状态</span>
+          <strong id="job-status">idle</strong>
+          <small id="job-progress">等待输入</small>
+        </article>
+        <article class="status-card">
+          <span>黑板步骤</span>
+          <strong id="step-total">0</strong>
+          <small id="step-last">暂无记录</small>
+        </article>
+        <article class="status-card">
+          <span>路线结果</span>
+          <strong id="route-state">未生成</strong>
+          <small id="route-counts">等待 route forest</small>
+        </article>
+      </div>
+
+      <section class="panel timeline-panel">
+        <div class="panel-title">
+          <h2>黑板运行过程</h2>
+          <span id="timeline-hint" class="mini-badge">live</span>
+        </div>
+        <div id="timeline" class="timeline">
+          <div class="empty">任务启动后会显示初始化、动作规划、工具执行、审计与最终汇总。</div>
+        </div>
+      </section>
+
+      <section class="panel artifact-panel">
+        <div class="panel-title">
+          <h2>产物与日志</h2>
+          <span class="mini-badge">artifacts</span>
+        </div>
+        <div id="artifact-links" class="artifact-links"></div>
+        <pre id="log-tail" class="log-tail">暂无日志</pre>
+      </section>
+    </section>
+
+    <section class="route-panel">
+      <div class="route-head">
+        <div>
+          <h2>最终路线图与备选模块</h2>
+          <p>主画布只展示黑板最终收束的一条核心路线；点击步骤后，在内页检查器中切换备选并预览后续分支。</p>
+        </div>
+        <a id="open-route" class="ghost-link disabled" href="#" target="_blank" rel="noreferrer">新窗口打开</a>
+      </div>
+      <iframe id="route-frame" title="route forest" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+      <div id="route-empty" class="route-empty">尚未载入路线图</div>
+    </section>
+  </main>
+
+  <script src="/static/agent.js?v=20260708-resume"></script>
+</body>
+</html>

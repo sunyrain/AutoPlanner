@@ -1,5 +1,10 @@
 import json
+import os
+import signal
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -29,9 +34,13 @@ from cascade_planner.agent.codex_worker import (
     WorkerTask,
     WorkerTimeoutError,
     _api_json_config,
+    _codex_cli_runtime_environment,
     _codex_cli_worker_environment,
     _codex_cli_command,
+    _run_worker_command,
+    _worker_output_json_schema,
     _task_allows_cli_search,
+    _task_reasoning_effort,
     run_codex_worker,
 )
 from cascade_planner.agent.evolution_manager import (
@@ -112,6 +121,60 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertIn("worker_direct_solved_claim", unsafe.output_validation["reasons"])
         self.assertIn("worker_raw_reaction_injection", unsafe.output_validation["reasons"])
         self.assertIn("tool_call_budget_exceeded", tool_budget.output_validation["reasons"])
+
+    def test_worker_accepts_current_cli_wait_tool_as_wait_agent_alias(self):
+        task = WorkerTask(
+            task_id="coordinator_wait_alias",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            input_refs=["target_profile"],
+            allowed_tools=["spawn_agent", "wait_agent"],
+            budget=WorkerBudget(max_tool_calls=2),
+        )
+        artifact = {
+            "schema_version": "research_report.draft.v1",
+            "artifact_id": "wait_alias",
+            "artifact_type": "ResearchReport",
+            "case_id": "case",
+            "source": "codex_cli",
+            "input_refs": ["target_profile"],
+            "evidence_refs": [],
+            "validation_status": "draft",
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(artifact),
+                exit_code=0,
+                tool_calls=[{"tool": "wait"}],
+            ),
+        )
+
+        self.assertEqual(record.status, "accepted_draft")
+        self.assertNotIn("tool_not_allowed", record.output_validation["reasons"])
+
+    def test_worker_command_timeout_does_not_hang_when_descendant_keeps_pipe_open(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pid_path = root / "descendant.pid"
+            script = (
+                "import pathlib, subprocess, sys, time\n"
+                f"pid_path = pathlib.Path({str(pid_path)!r})\n"
+                "desc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)\n"
+                "pid_path.write_text(str(desc.pid), encoding='utf-8')\n"
+                "time.sleep(30)\n"
+            )
+
+            started = time.monotonic()
+            with self.assertRaises(subprocess.TimeoutExpired):
+                _run_worker_command([sys.executable, "-c", script], cwd=root, timeout_s=0.2)
+            elapsed = time.monotonic() - started
+
+            self.assertLess(elapsed, 4.0)
+            if pid_path.exists():
+                _kill_test_process_tree(int(pid_path.read_text(encoding="utf-8")))
 
     def test_worker_output_cannot_self_validate_for_consumption_layer(self):
         task = WorkerTask(
@@ -199,6 +262,14 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
             schema_path=Path("/tmp/autoplanner-worker/schema.json"),
             search_enabled=True,
         )
+        effort_command = _codex_cli_command(
+            executable="codex",
+            workdir=Path("/tmp/autoplanner-case"),
+            output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+            schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+            runtime_metadata={"codex_home": "ambient", "model_reasoning_effort": "medium"},
+            search_enabled=False,
+        )
 
         self.assertEqual(command[0], "codex")
         self.assertIn("exec", command)
@@ -209,6 +280,7 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertGreater(command.index("--sandbox"), exec_index)
         self.assertNotIn("--search", no_search_command)
         self.assertIn("--search", search_command)
+        self.assertIn('model_reasoning_effort="medium"', effort_command)
         self.assertLess(search_command.index("--search"), search_command.index("exec"))
 
     def test_codex_cli_command_allows_unsandboxed_worker_modes(self):
@@ -231,6 +303,36 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertEqual(danger_command[danger_command.index("--sandbox") + 1], "danger-full-access")
         self.assertIn("--dangerously-bypass-approvals-and-sandbox", bypass_command)
         self.assertNotIn("--sandbox", bypass_command)
+
+    def test_agent_action_batch_schema_uses_supported_json_schema_keywords(self):
+        task = WorkerTask(
+            task_id="planner",
+            case_id="case",
+            task_type="strategic_disconnection_mining",
+            required_artifact_type="AgentActionBatch",
+            allowed_tools=["web_search"],
+        )
+
+        schema_text = json.dumps(_worker_output_json_schema(task), sort_keys=True)
+        schema = _worker_output_json_schema(task)
+        batch_payload_schema = schema["properties"]["payload"]
+        action_payload_schema = (
+            batch_payload_schema["properties"]["actions"]["items"]["properties"]["payload"]
+        )
+
+        self.assertNotIn("maxProperties", schema_text)
+        self.assertNotIn("maxItems", schema_text)
+        self.assertNotIn("maxLength", schema_text)
+        self.assertFalse(action_payload_schema["additionalProperties"])
+        self.assertEqual(
+            set(batch_payload_schema["required"]),
+            set(batch_payload_schema["properties"]),
+        )
+        self.assertIn("queries", action_payload_schema["properties"])
+        self.assertEqual(
+            set(action_payload_schema["required"]),
+            set(action_payload_schema["properties"]),
+        )
 
     def test_codex_cli_search_is_task_gated(self):
         planner_task = WorkerTask(
@@ -303,6 +405,36 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
                     self.assertEqual(metadata["codex_home"], "ephemeral")
                     self.assertNotIn("file-worker-key", json.dumps(metadata))
 
+    def test_codex_cli_worker_can_use_ambient_codex_auth(self):
+        task = WorkerTask(
+            task_id="codex_cli_worker_ambient",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            input_refs=["target_profile"],
+            dry_run=False,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with patch.dict(
+                "os.environ",
+                {
+                    "AUTOPLANNER_CODEX_WORKER_AUTH": "ambient",
+                    "CODEX_HOME": str(tmp_path / "should_not_leak"),
+                },
+                clear=False,
+            ):
+                env, metadata = _codex_cli_runtime_environment(
+                    tmp_path / "runtime",
+                    Path("/tmp/autoplanner-case"),
+                    task,
+                )
+
+        self.assertNotIn("CODEX_HOME", env)
+        self.assertEqual(metadata["provider"], "ambient_codex_cli")
+        self.assertEqual(metadata["auth_source"], "ambient_codex_cli")
+        self.assertEqual(metadata["codex_home"], "ambient")
+
     def test_codex_cli_worker_passes_ephemeral_home_to_subprocess(self):
         task = WorkerTask(
             task_id="codex_cli_worker_subprocess_env",
@@ -370,10 +502,35 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertEqual(record.metadata["codex_home"], "ephemeral")
         self.assertEqual(record.metadata["auth_source"], str(key_path))
         self.assertEqual(captured["auth"]["OPENAI_API_KEY"], "subprocess-worker-key")
+        self.assertIn("--ignore-user-config", captured["argv"])
+        self.assertIn('openai_base_url="https://api.example.test/v1"', captured["argv"])
+        self.assertIn('model_reasoning_effort="xhigh"', captured["argv"])
         self.assertIn('openai_base_url = "https://api.example.test/v1"', captured["config"])
         self.assertIn('model = "test-model"', captured["config"])
         self.assertNotIn("--search", captured["argv"])
         self.assertNotIn("subprocess-worker-key", json.dumps(record.metadata))
+
+    def test_codex_cli_worker_task_can_override_reasoning_effort(self):
+        task = WorkerTask(
+            task_id="codex_cli_worker_effort",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            input_refs=["target_profile"],
+            budget=WorkerBudget(reasoning_effort="high"),
+            dry_run=False,
+        )
+        command = _codex_cli_command(
+            executable="codex",
+            workdir=Path("/tmp/autoplanner-case"),
+            output_path=Path("/tmp/autoplanner-worker/last_message.json"),
+            schema_path=Path("/tmp/autoplanner-worker/schema.json"),
+            runtime_metadata={"codex_home": "ambient", "model_reasoning_effort": _task_reasoning_effort(task)},
+            search_enabled=False,
+        )
+
+        self.assertEqual(_task_reasoning_effort(task), "high")
+        self.assertIn('model_reasoning_effort="high"', command)
 
     def test_worker_timeout_preserves_backend_and_command(self):
         task = WorkerTask(
@@ -810,6 +967,36 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertIn("anchor_candidate", kb.layers["production"])
         kb.rollback("anchor_candidate")
         self.assertNotIn("anchor_candidate", kb.layers["production"])
+
+
+def _kill_test_process_tree(pid: int) -> None:
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(int(pid)), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        # taskkill can return just before Windows releases the process current
+        # directory and inherited pipe handles. Poll briefly so TemporaryDirectory
+        # cleanup verifies the production timeout path instead of a kernel race.
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            probe = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {int(pid)}", "/NH"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                check=False,
+            )
+            if str(int(pid)) not in str(probe.stdout or ""):
+                break
+            time.sleep(0.02)
+        return
+    try:
+        os.kill(int(pid), getattr(signal, "SIGKILL", signal.SIGTERM))
+    except ProcessLookupError:
+        pass
 
 
 if __name__ == "__main__":

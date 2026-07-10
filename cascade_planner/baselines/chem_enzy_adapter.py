@@ -82,6 +82,21 @@ _RUNTIME_SEARCH_FLAGS = {
 }
 
 
+def _windows_extended_path(path: Path) -> Path:
+    if os.name != "nt":
+        return path
+    raw = str(path)
+    if raw.startswith("\\\\?\\") or raw.startswith("\\\\.\\"):
+        return path
+    absolute = path if path.is_absolute() else path.resolve()
+    text = str(absolute)
+    if text.startswith("\\\\?\\") or text.startswith("\\\\.\\"):
+        return Path(text)
+    if text.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + text.lstrip("\\"))
+    return Path("\\\\?\\" + text)
+
+
 @dataclass
 class ChemEnzyBackendAdapter:
     """Run ChemEnzyRetroPlanner core search and normalize its route output."""
@@ -96,11 +111,11 @@ class ChemEnzyBackendAdapter:
     onmt_model_path: Path | str | Iterable[Path | str] | None = None
 
     def __post_init__(self) -> None:
-        self.vendor_root = Path(self.vendor_root)
+        self.vendor_root = _windows_extended_path(Path(self.vendor_root))
         if self.config_path is None:
             self.config_path = self.vendor_root / DEFAULT_CONFIG_RELATIVE
         else:
-            self.config_path = Path(self.config_path)
+            self.config_path = _windows_extended_path(Path(self.config_path))
 
     def preflight(self) -> list[BackendFailure]:
         """Return setup failures that would prevent a real backend run."""
@@ -259,6 +274,7 @@ class ChemEnzyBackendAdapter:
         annotation_metadata: dict[str, Any] = {}
         started = time.monotonic()
         policy_trace = chem_enzy_policy_trace_from_search_flags(config.search_flags)
+        availability_report = config.search_flags.get("one_step_model_availability")
         try:
             _apply_runtime_search_flags(planner, config)
             reset_native_enzyme_plugin_state(planner, config.target_smiles)
@@ -285,6 +301,7 @@ class ChemEnzyBackendAdapter:
                     "elapsed_s": round(time.monotonic() - started, 3),
                     "exception_traceback": traceback_text,
                     **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
+                    **({"one_step_model_availability": availability_report} if availability_report is not None else {}),
                     **({"native_enzyme_plugin": enzyme_plugin_stats} if enzyme_plugin_stats is not None else {}),
                     **({"native_chemical_plugin": chemical_plugin_stats} if chemical_plugin_stats is not None else {}),
                     **({"literature_template_plugin": literature_template_plugin_stats} if literature_template_plugin_stats is not None else {}),
@@ -310,6 +327,7 @@ class ChemEnzyBackendAdapter:
                 raw_backend_metadata={
                     "elapsed_s": round(elapsed_s, 3),
                     **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
+                    **({"one_step_model_availability": availability_report} if availability_report is not None else {}),
                     **({"native_enzyme_plugin": enzyme_plugin_stats} if enzyme_plugin_stats is not None else {}),
                     **({"native_chemical_plugin": chemical_plugin_stats} if chemical_plugin_stats is not None else {}),
                     **({"literature_template_plugin": literature_template_plugin_stats} if literature_template_plugin_stats is not None else {}),
@@ -359,6 +377,7 @@ class ChemEnzyBackendAdapter:
                 "rxn_annotation": annotation_metadata,
                 "cascade_expansion_trace": trace_metadata,
                 **({"chem_enzy_policy_trace": policy_trace} if policy_trace is not None else {}),
+                **({"one_step_model_availability": availability_report} if availability_report is not None else {}),
                 **({"native_enzyme_plugin": enzyme_plugin_stats} if enzyme_plugin_stats is not None else {}),
                 **({"native_chemical_plugin": chemical_plugin_stats} if chemical_plugin_stats is not None else {}),
                 **({"literature_template_plugin": literature_template_plugin_stats} if literature_template_plugin_stats is not None else {}),
@@ -368,9 +387,24 @@ class ChemEnzyBackendAdapter:
     def _build_planner(self, search_config: RouteSearchConfig) -> Any:
         search_config = chem_enzy_step_strengthened_config(search_config)
         vendor_config = self._vendor_config(search_config)
+        selected_one_step_models = list(search_config.one_step_models or DEFAULT_ONE_STEP_MODELS)
+        selected_one_step_models, availability_report = _prune_unavailable_one_step_models(
+            selected_one_step_models,
+            vendor_config=vendor_config,
+            vendor_root=self.vendor_root,
+        )
+        if availability_report:
+            flags = dict(search_config.search_flags or {})
+            flags["one_step_model_availability"] = availability_report
+            search_config = replace(
+                search_config,
+                one_step_models=selected_one_step_models,
+                search_flags=flags,
+            )
         with _vendor_pythonpath(self.vendor_root):
             _patch_numpy_legacy_aliases()
             _patch_torchdata_legacy_aliases()
+            _patch_torchtext_legacy_aliases()
             _patch_dgl_graphbolt_optional_import()
             _patch_optional_easifa_import(self.enable_easifa)
             _patch_optional_graphviz_import(bool(search_config.search_flags.get("viz", False)))
@@ -381,7 +415,7 @@ class ChemEnzyBackendAdapter:
             literature_plugin_config = literature_plugin_config_from_flags(search_config.search_flags)
             chemical_plugin_config = _chemical_plugin_config_with_base_model(
                 chemical_plugin_config,
-                search_config.one_step_models or DEFAULT_ONE_STEP_MODELS,
+                selected_one_step_models,
             )
             plugin_states = _configure_native_autoplanner_plugins(
                 api,
@@ -392,7 +426,7 @@ class ChemEnzyBackendAdapter:
             enzyme_plugin_state, chemical_plugin_state, literature_plugin_state = plugin_states
             planner = api.RSPlanner(vendor_config)
             planner.select_stocks(search_config.stock_names or DEFAULT_STOCKS)
-            planner.select_one_step_model(search_config.one_step_models or DEFAULT_ONE_STEP_MODELS)
+            planner.select_one_step_model(selected_one_step_models)
             if self.enable_condition_prediction:
                 planner.select_condition_predictor(str(search_config.search_flags.get("condition_model", "rcr")))
             planner.prepare_plan(
@@ -594,6 +628,88 @@ def _chemical_plugin_config_with_base_model(
     if len(names) == 1:
         return replace(config, base_model_full_name=names[0])
     return config
+
+
+def _prune_unavailable_one_step_models(
+    one_step_models: list[str],
+    *,
+    vendor_config: dict[str, Any],
+    vendor_root: Path | str,
+) -> tuple[list[str], dict[str, Any] | None]:
+    """Skip selected ONMT models whose configured checkpoints are unavailable.
+
+    ChemEnzy supports selecting an ensemble of one-step models. A locally
+    trained ONMT checkpoint can be useful when present, but one missing
+    checkpoint should not prevent an otherwise usable native ensemble from
+    running.
+    """
+    selected = [str(name) for name in one_step_models or [] if str(name or "")]
+    if not selected:
+        return selected, None
+    available: list[str] = []
+    unavailable: list[dict[str, Any]] = []
+    for full_name in selected:
+        missing_paths = _missing_one_step_checkpoint_paths(
+            full_name,
+            vendor_config=vendor_config,
+            vendor_root=vendor_root,
+        )
+        if missing_paths:
+            unavailable.append(
+                {
+                    "model": full_name,
+                    "missing_paths": missing_paths,
+                    "reason": "configured_checkpoint_missing",
+                }
+            )
+            continue
+        available.append(full_name)
+    if not unavailable:
+        return selected, None
+    report = {
+        "schema_version": "chem_enzy_one_step_model_availability.v1",
+        "selected_before": selected,
+        "unavailable": unavailable,
+        "selected_after": available if available else selected,
+        "action": "pruned_unavailable_models" if available else "all_selected_models_unavailable_no_prune",
+    }
+    if not available:
+        return selected, report
+    return available, report
+
+
+def _missing_one_step_checkpoint_paths(
+    full_name: str,
+    *,
+    vendor_config: dict[str, Any],
+    vendor_root: Path | str,
+) -> list[str]:
+    try:
+        model_type, model_subname = str(full_name).split(".", 1)
+    except ValueError:
+        return []
+    if model_type != "onmt_models":
+        return []
+    one_step_configs = vendor_config.get("one_step_model_configs") or {}
+    model_config = (one_step_configs.get(model_type) or {}).get(model_subname)
+    if not isinstance(model_config, dict):
+        return []
+    raw_paths = model_config.get("model_path") or []
+    if isinstance(raw_paths, (str, os.PathLike)):
+        raw_paths = [raw_paths]
+    missing: list[str] = []
+    for raw in raw_paths:
+        path = _resolve_vendor_model_path(raw, vendor_root=vendor_root)
+        if not path.exists():
+            missing.append(str(path))
+    return missing
+
+
+def _resolve_vendor_model_path(raw_path: Any, *, vendor_root: Path | str) -> Path:
+    path = Path(str(raw_path)).expanduser()
+    if path.is_absolute():
+        return path
+    return (Path(vendor_root) / "retro_planner" / path).resolve()
 
 
 def _default_enzyme_strengthening_cost_weights() -> dict[str, float]:
@@ -1218,9 +1334,399 @@ def _patch_torchdata_legacy_aliases() -> None:
         common.DILL_AVAILABLE = False
 
 
+def _patch_torchtext_legacy_aliases() -> None:
+    """Let unused legacy ONMT imports pass on modern torchtext builds.
+
+    ChemEnzy imports its vendored OpenNMT package eagerly, even when the active
+    one-step model list is graphfp-only. Modern torchtext removed
+    ``torchtext.data.Field`` and friends, so provide import-time placeholders.
+    The graphfp path should not instantiate these placeholders for inference.
+    """
+    try:
+        import torchtext.data as data_mod
+    except Exception:
+        return
+    try:
+        import torch
+    except Exception:
+        return
+    _patch_torchtext_vocab_legacy_api()
+    if hasattr(data_mod, "Field") and hasattr(data_mod, "Iterator"):
+        return
+
+    class _LegacyField:
+        def __init__(self, *_args: Any, **kwargs: Any) -> None:
+            self.tokenize = kwargs.get("tokenize", str.split)
+            self.preprocessing = kwargs.get("preprocessing")
+            self.postprocessing = kwargs.get("postprocessing")
+            self.include_lengths = bool(kwargs.get("include_lengths", False))
+            self.pad_token = kwargs.get("pad_token", "<pad>")
+            self.unk_token = kwargs.get("unk_token", "<unk>")
+            self.init_token = kwargs.get("init_token")
+            self.eos_token = kwargs.get("eos_token")
+            self.use_vocab = kwargs.get("use_vocab", True)
+            self.dtype = _legacy_torch_dtype(torch, kwargs.get("dtype", torch.long))
+            self.sequential = kwargs.get("sequential", True)
+            self.vocab = kwargs.get("vocab")
+            self.batch_first = bool(kwargs.get("batch_first", False))
+
+        def preprocess(self, value: Any) -> Any:
+            if self.preprocessing is not None:
+                value = self.preprocessing(value)
+            if not self.sequential:
+                return value
+            if callable(self.tokenize):
+                return self.tokenize(str(value).strip())
+            return str(value).strip().split()
+
+        def pad(self, batch: Any) -> Any:
+            if not self.sequential:
+                return batch
+            rows = []
+            lengths = []
+            for value in batch:
+                tokens = list(value or [])
+                if self.init_token is not None:
+                    tokens = [self.init_token, *tokens]
+                if self.eos_token is not None:
+                    tokens = [*tokens, self.eos_token]
+                lengths.append(len(tokens))
+                rows.append(tokens)
+            max_len = max(lengths or [0])
+            padded = [tokens + [self.pad_token] * (max_len - len(tokens)) for tokens in rows]
+            return (padded, lengths) if self.include_lengths else padded
+
+        def numericalize(self, arr: Any, device: Any = None, **_kwargs: Any) -> Any:
+            include_lengths = self.include_lengths and isinstance(arr, tuple)
+            values = arr[0] if include_lengths else arr
+            lengths = arr[1] if include_lengths else None
+            if self.postprocessing is not None:
+                values = self.postprocessing(values, self.vocab)
+            if self.use_vocab:
+                values = [[self.vocab.stoi[token] for token in row] for row in values]
+            tensor = torch.tensor(values, dtype=_legacy_torch_dtype(torch, getattr(self, "dtype", torch.long)), device=device)
+            if self.sequential and not self.batch_first:
+                tensor = tensor.t().contiguous()
+            if include_lengths:
+                return tensor, torch.tensor(lengths, dtype=torch.long, device=device)
+            return tensor
+
+        def process(self, batch: Any, device: Any = None, *_args: Any, **_kwargs: Any) -> Any:
+            if not self.sequential:
+                values = list(batch or [])
+                if self.postprocessing is not None:
+                    values = self.postprocessing(values, None)
+                try:
+                    return torch.tensor(
+                        values,
+                        dtype=_legacy_torch_dtype(torch, getattr(self, "dtype", torch.long)),
+                        device=device,
+                    )
+                except Exception:
+                    return values
+            return self.numericalize(self.pad(batch), device=device)
+
+    class _LegacyRawField:
+        def __init__(self, *_args: Any, **kwargs: Any) -> None:
+            self.preprocessing = kwargs.get("preprocessing")
+            self.postprocessing = kwargs.get("postprocessing")
+
+        def preprocess(self, value: Any) -> Any:
+            if self.preprocessing is not None:
+                return self.preprocessing(value)
+            return value
+
+        def process(self, batch: Any, *_args: Any, **_kwargs: Any) -> Any:
+            if self.postprocessing is not None:
+                return self.postprocessing(batch, None)
+            return batch
+
+    class _LegacyLabelField(_LegacyField):
+        pass
+
+    class _LegacyDataset:
+        def __init__(
+            self,
+            examples: Any = None,
+            fields: Any = None,
+            filter_pred: Any = None,
+            **kwargs: Any,
+        ) -> None:
+            rows = list(examples or [])
+            if callable(filter_pred):
+                rows = [row for row in rows if filter_pred(row)]
+            self.examples = rows
+            self.fields = dict(fields or [])
+            self.sort_key = kwargs.get("sort_key")
+
+    class _LegacyExample:
+        @classmethod
+        def fromdict(cls, data: dict[str, Any], fields: Any) -> Any:
+            obj = cls()
+            for key, field_rows in (fields or {}).items():
+                value = data.get(key)
+                if not field_rows:
+                    setattr(obj, key, value)
+                    continue
+                if len(field_rows) == 1:
+                    name, field_obj = field_rows[0]
+                    setattr(obj, name, field_obj.preprocess(value))
+                    continue
+                for name, field_obj in field_rows:
+                    setattr(obj, name, field_obj.preprocess(value))
+            setattr(obj, "_fields", fields)
+            return obj
+
+    class _LegacyBatch:
+        def __init__(self, data: Any = None, dataset: Any = None, device: Any = None) -> None:
+            rows = list(data or [])
+            self.batch_size = len(rows)
+            self.dataset = dataset
+            self.device = device
+            for name, field_obj in (getattr(dataset, "fields", {}) or {}).items():
+                values = [getattr(row, name) for row in rows]
+                setattr(self, name, field_obj.process(values, device=device))
+
+    class _LegacyIterator:
+        def __init__(self, dataset: Any = None, batch_size: int = 1, **kwargs: Any) -> None:
+            self.dataset = dataset
+            self.batch_size = batch_size
+            self.batch_size_fn = kwargs.get("batch_size_fn")
+            self.device = kwargs.get("device")
+            self.train = bool(kwargs.get("train", True))
+            self.repeat = bool(kwargs.get("repeat", self.train))
+            self.sort = kwargs.get("sort", False)
+            self.sort_within_batch = kwargs.get("sort_within_batch", False)
+            self.shuffle = kwargs.get("shuffle", False)
+            self.sort_key = kwargs.get("sort_key") or getattr(dataset, "sort_key", None) or (lambda row: 0)
+            self.random_shuffler = _LegacyRandomShuffler()
+            self.iterations = 0
+            self._iterations_this_epoch = 0
+            self.batches: list[Any] = []
+
+        def __iter__(self) -> Any:
+            return iter(())
+
+        def data(self) -> list[Any]:
+            rows = list(getattr(self.dataset, "examples", []) or [])
+            if self.sort:
+                rows = sorted(rows, key=self.sort_key)
+            return rows
+
+        def init_epoch(self) -> None:
+            self._iterations_this_epoch = 0
+            self.create_batches()
+
+        def create_batches(self) -> None:
+            rows = self.data()
+            self.batches = [
+                rows[idx:idx + max(1, int(self.batch_size or 1))]
+                for idx in range(0, len(rows), max(1, int(self.batch_size or 1)))
+            ]
+
+    def _legacy_torch_dtype(torch_mod: Any, raw: Any) -> Any:
+        if raw is None:
+            return torch_mod.long
+        if isinstance(raw, str):
+            name = raw.split(".")[-1]
+            return getattr(torch_mod, name, torch_mod.long)
+        return raw
+
+    def _legacy_batch(data: Any, batch_size: int, *_args: Any, **_kwargs: Any) -> Any:
+        rows = list(data or [])
+        for idx in range(0, len(rows), max(1, int(batch_size or 1))):
+            yield rows[idx:idx + max(1, int(batch_size or 1))]
+
+    class _LegacyRandomShuffler:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def __call__(self, data: Any) -> Any:
+            return list(data or [])
+
+    data_mod.Field = getattr(data_mod, "Field", _LegacyField)
+    data_mod.RawField = getattr(data_mod, "RawField", _LegacyRawField)
+    data_mod.LabelField = getattr(data_mod, "LabelField", _LegacyLabelField)
+    data_mod.Dataset = getattr(data_mod, "Dataset", _LegacyDataset)
+    data_mod.Example = getattr(data_mod, "Example", _LegacyExample)
+    data_mod.Batch = getattr(data_mod, "Batch", _LegacyBatch)
+    data_mod.Iterator = getattr(data_mod, "Iterator", _LegacyIterator)
+    data_mod.batch = getattr(data_mod, "batch", _legacy_batch)
+    _install_torchtext_legacy_submodule(
+        "torchtext.data.field",
+        {
+            "Field": data_mod.Field,
+            "RawField": data_mod.RawField,
+            "LabelField": data_mod.LabelField,
+        },
+    )
+    _install_torchtext_legacy_submodule(
+        "torchtext.data.iterator",
+        {
+            "Iterator": data_mod.Iterator,
+            "Batch": data_mod.Batch,
+            "batch": data_mod.batch,
+        },
+    )
+    _install_torchtext_legacy_submodule("torchtext.data.dataset", {"Dataset": data_mod.Dataset})
+    _install_torchtext_legacy_submodule("torchtext.data.example", {"Example": data_mod.Example})
+    utils_mod = sys.modules.get("torchtext.data.utils")
+    if utils_mod is None:
+        utils_mod = types.ModuleType("torchtext.data.utils")
+        sys.modules["torchtext.data.utils"] = utils_mod
+    if not hasattr(utils_mod, "RandomShuffler"):
+        utils_mod.RandomShuffler = _LegacyRandomShuffler
+
+
+def _install_torchtext_legacy_submodule(module_name: str, attrs: dict[str, Any]) -> None:
+    module = sys.modules.get(module_name)
+    if module is None:
+        module = types.ModuleType(module_name)
+        sys.modules[module_name] = module
+    for name, value in attrs.items():
+        if not hasattr(module, name):
+            setattr(module, name, value)
+
+
+def _patch_torchtext_vocab_legacy_api() -> None:
+    try:
+        from torchtext.vocab import Vocab
+    except Exception:
+        return
+    if not hasattr(Vocab, "_autoplanner_original_len"):
+        Vocab._autoplanner_original_len = Vocab.__len__  # type: ignore[attr-defined]
+    if not hasattr(Vocab, "_autoplanner_original_contains"):
+        Vocab._autoplanner_original_contains = Vocab.__contains__  # type: ignore[attr-defined]
+    if not hasattr(Vocab, "_autoplanner_original_getitem"):
+        Vocab._autoplanner_original_getitem = Vocab.__getitem__  # type: ignore[attr-defined]
+    if not hasattr(Vocab, "_autoplanner_original_lookup_token"):
+        Vocab._autoplanner_original_lookup_token = Vocab.lookup_token  # type: ignore[attr-defined]
+    if not hasattr(Vocab, "_autoplanner_original_lookup_tokens"):
+        Vocab._autoplanner_original_lookup_tokens = Vocab.lookup_tokens  # type: ignore[attr-defined]
+    if not hasattr(Vocab, "_autoplanner_original_lookup_indices"):
+        Vocab._autoplanner_original_lookup_indices = Vocab.lookup_indices  # type: ignore[attr-defined]
+    if not hasattr(Vocab, "_autoplanner_original_get_stoi"):
+        Vocab._autoplanner_original_get_stoi = Vocab.get_stoi  # type: ignore[attr-defined]
+    if not hasattr(Vocab, "_autoplanner_original_get_itos"):
+        Vocab._autoplanner_original_get_itos = Vocab.get_itos  # type: ignore[attr-defined]
+
+    Vocab.__len__ = _legacy_vocab_len  # type: ignore[method-assign]
+    Vocab.__contains__ = _legacy_vocab_contains  # type: ignore[method-assign]
+    Vocab.__getitem__ = _legacy_vocab_getitem  # type: ignore[method-assign]
+    Vocab.lookup_token = _legacy_vocab_lookup_token  # type: ignore[method-assign]
+    Vocab.lookup_tokens = _legacy_vocab_lookup_tokens  # type: ignore[method-assign]
+    Vocab.lookup_indices = _legacy_vocab_lookup_indices  # type: ignore[method-assign]
+    Vocab.get_stoi = _legacy_vocab_get_stoi  # type: ignore[method-assign]
+    Vocab.get_itos = _legacy_vocab_get_itos  # type: ignore[method-assign]
+
+    if (not hasattr(Vocab, "stoi") or isinstance(getattr(Vocab, "stoi", None), property)) and hasattr(Vocab, "get_stoi"):
+        Vocab.stoi = property(_legacy_vocab_stoi, _set_legacy_vocab_stoi)  # type: ignore[attr-defined]
+    if (not hasattr(Vocab, "itos") or isinstance(getattr(Vocab, "itos", None), property)) and hasattr(Vocab, "get_itos"):
+        Vocab.itos = property(_legacy_vocab_itos, _set_legacy_vocab_itos)  # type: ignore[attr-defined]
+    if not hasattr(Vocab, "freqs") or isinstance(getattr(Vocab, "freqs", None), property):
+        Vocab.freqs = property(_legacy_vocab_freqs, _set_legacy_vocab_freqs)  # type: ignore[attr-defined]
+    for attr, value in {
+        "pad_token": "<blank>",
+        "unk_token": "<unk>",
+        "init_token": "<s>",
+        "eos_token": "</s>",
+    }.items():
+        if not hasattr(Vocab, attr):
+            setattr(Vocab, attr, value)
+
+
+def _legacy_vocab_has_python_state(vocab: Any) -> bool:
+    state = getattr(vocab, "__dict__", {})
+    return "stoi" in state or "itos" in state
+
+
+def _legacy_vocab_len(vocab: Any) -> int:
+    state = getattr(vocab, "__dict__", {})
+    if "itos" in state:
+        return len(state["itos"])
+    if "stoi" in state:
+        return len(state["stoi"])
+    return vocab._autoplanner_original_len()  # type: ignore[attr-defined]
+
+
+def _legacy_vocab_contains(vocab: Any, token: str) -> bool:
+    state = getattr(vocab, "__dict__", {})
+    if "stoi" in state:
+        return token in state["stoi"]
+    return vocab._autoplanner_original_contains(token)  # type: ignore[attr-defined]
+
+
+def _legacy_vocab_getitem(vocab: Any, token: str) -> int:
+    state = getattr(vocab, "__dict__", {})
+    if "stoi" in state:
+        return state["stoi"][token]
+    return vocab._autoplanner_original_getitem(token)  # type: ignore[attr-defined]
+
+
+def _legacy_vocab_lookup_token(vocab: Any, index: int) -> str:
+    state = getattr(vocab, "__dict__", {})
+    if "itos" in state:
+        return state["itos"][index]
+    return vocab._autoplanner_original_lookup_token(index)  # type: ignore[attr-defined]
+
+
+def _legacy_vocab_lookup_tokens(vocab: Any, indices: list[int]) -> list[str]:
+    if _legacy_vocab_has_python_state(vocab):
+        return [_legacy_vocab_lookup_token(vocab, int(index)) for index in indices]
+    return vocab._autoplanner_original_lookup_tokens(indices)  # type: ignore[attr-defined]
+
+
+def _legacy_vocab_lookup_indices(vocab: Any, tokens: list[str]) -> list[int]:
+    if _legacy_vocab_has_python_state(vocab):
+        return [_legacy_vocab_getitem(vocab, str(token)) for token in tokens]
+    return vocab._autoplanner_original_lookup_indices(tokens)  # type: ignore[attr-defined]
+
+
+def _legacy_vocab_get_stoi(vocab: Any) -> Any:
+    state = getattr(vocab, "__dict__", {})
+    if "stoi" in state:
+        return state["stoi"]
+    return vocab._autoplanner_original_get_stoi()  # type: ignore[attr-defined]
+
+
+def _legacy_vocab_get_itos(vocab: Any) -> Any:
+    state = getattr(vocab, "__dict__", {})
+    if "itos" in state:
+        return state["itos"]
+    return vocab._autoplanner_original_get_itos()  # type: ignore[attr-defined]
+
+
+def _legacy_vocab_stoi(vocab: Any) -> Any:
+    if "stoi" in getattr(vocab, "__dict__", {}):
+        return vocab.__dict__["stoi"]
+    return vocab.get_stoi()
+
+
+def _set_legacy_vocab_stoi(vocab: Any, value: Any) -> None:
+    vocab.__dict__["stoi"] = value
+
+
+def _legacy_vocab_itos(vocab: Any) -> Any:
+    if "itos" in getattr(vocab, "__dict__", {}):
+        return vocab.__dict__["itos"]
+    return vocab.get_itos()
+
+
+def _set_legacy_vocab_itos(vocab: Any, value: Any) -> None:
+    vocab.__dict__["itos"] = value
+
+
+def _legacy_vocab_freqs(vocab: Any) -> Any:
+    return getattr(vocab, "__dict__", {}).get("freqs", {})
+
+
+def _set_legacy_vocab_freqs(vocab: Any, value: Any) -> None:
+    vocab.__dict__["freqs"] = value
+
+
 @contextmanager
 def _vendor_pythonpath(vendor_root: Path):
-    root = vendor_root.resolve()
+    root = _windows_extended_path(vendor_root)
     retro_root = root / "retro_planner"
     package_roots = [
         retro_root / "packages" / "mlp_retrosyn",

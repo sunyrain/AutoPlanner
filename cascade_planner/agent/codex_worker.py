@@ -13,7 +13,9 @@ import signal
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -23,7 +25,6 @@ from typing import Any, Callable
 
 from cascade_planner.agent.action_contracts import (
     ALLOWED_AGENT_ACTIONS as WORKER_AGENT_ACTION_TYPES,
-    FORBIDDEN_RAW_REACTION_KEYS,
     PLANNER_SOURCE_HINT_SCHEMA,
     contains_raw_reaction_payload,
 )
@@ -45,6 +46,7 @@ ALLOWED_WORKER_TASK_TYPES = {
 ALLOWED_WORKER_ARTIFACT_TYPES = {
     "AgentActionBatch",
     "ResearchReport",
+    "RetrosynthesisProposalReport",
     "EvidenceCard",
     "LiteratureScoutReport",
     "AnalogicalReactionTemplateReport",
@@ -78,6 +80,7 @@ class WorkerBudget:
     max_output_bytes: int = 200_000
     max_tool_calls: int = 16
     max_worker_runs: int = 1
+    reasoning_effort: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -95,6 +98,10 @@ class WorkerTask:
     objective: str = ""
     allowed_workdir: str = "."
     dry_run: bool = False
+    agent_mode: str = "single"
+    child_roles: list[str] = field(default_factory=list)
+    codex_auth_mode: str = "auto"
+    model: str = ""
     schema_version: str = WORKER_TASK_SCHEMA
 
     def to_dict(self) -> dict[str, Any]:
@@ -189,9 +196,9 @@ def run_codex_worker(
             backend = "codex_cli"
             process = _run_codex_cli_worker(task)
         else:
-            backend = "default_mock"
-            artifact = mock_worker_artifact(task)
-            process = WorkerProcessResult(stdout=json.dumps(artifact, ensure_ascii=False), exit_code=0, backend=backend)
+            raise RuntimeError(
+                "no worker backend selected; use dry_run/mock_output explicitly or configure codex/api_json"
+            )
     except TimeoutError as exc:
         timeout_backend = str(getattr(exc, "backend", "") or backend)
         timeout_command = list(getattr(exc, "command", []) or [])
@@ -288,6 +295,14 @@ def validate_worker_task(task_or_data: WorkerTask | dict[str, Any]) -> dict[str,
         reasons.append("invalid_max_tool_calls")
     if task.budget.max_worker_runs <= 0:
         reasons.append("invalid_max_worker_runs")
+    if task.agent_mode not in {"single", "coordinator"}:
+        reasons.append("invalid_agent_mode")
+    if str(task.codex_auth_mode or "auto") not in {"auto", "ambient_codex_cli", "api_key"}:
+        reasons.append("invalid_codex_auth_mode")
+    if task.agent_mode == "coordinator" and len(task.child_roles) < 2:
+        reasons.append("coordinator_requires_multiple_child_roles")
+    if len(task.child_roles) > 8:
+        reasons.append("child_role_limit_exceeded")
     return {
         "schema_version": WORKER_OUTPUT_VALIDATION_SCHEMA,
         "accepted": not reasons,
@@ -348,10 +363,15 @@ def worker_task_from_dict(data: dict[str, Any]) -> WorkerTask:
             max_output_bytes=int(budget.get("max_output_bytes") or 200_000),
             max_tool_calls=int(budget.get("max_tool_calls") or 16),
             max_worker_runs=int(budget.get("max_worker_runs") or 1),
+            reasoning_effort=str(budget.get("reasoning_effort") or ""),
         ),
         objective=str(data.get("objective") or ""),
         allowed_workdir=str(data.get("allowed_workdir") or "."),
         dry_run=bool(data.get("dry_run", False)),
+        agent_mode=str(data.get("agent_mode") or "single"),
+        child_roles=[str(item) for item in data.get("child_roles") or [] if str(item).strip()],
+        codex_auth_mode=str(data.get("codex_auth_mode") or "auto"),
+        model=str(data.get("model") or ""),
         schema_version=str(data.get("schema_version") or WORKER_TASK_SCHEMA),
     )
 
@@ -380,24 +400,26 @@ def _run_subprocess_worker(task: WorkerTask, command: list[str]) -> WorkerProces
 
 def _run_codex_cli_worker(task: WorkerTask) -> WorkerProcessResult:
     executable = _codex_executable()
-    if shutil.which(executable) is None:
+    if not _codex_executable_available(executable):
         raise FileNotFoundError(f"Codex CLI executable not found: {executable}")
 
     workdir = Path(task.allowed_workdir or ".").resolve()
     workdir.mkdir(parents=True, exist_ok=True)
     prompt = _codex_worker_prompt(task)
-    with tempfile.TemporaryDirectory(prefix="autoplanner_codex_worker_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="autoplanner_codex_worker_", ignore_cleanup_errors=True) as tmp:
         tmp_path = Path(tmp)
         output_path = tmp_path / "last_message.json"
         schema_path = tmp_path / "worker_output_schema.json"
         schema_path.write_text(json.dumps(_worker_output_json_schema(task), indent=2), encoding="utf-8")
         env, metadata = _codex_cli_runtime_environment(tmp_path, workdir, task)
         command = _codex_cli_command(
-            executable=executable,
+            executable=_codex_executable_command(executable),
             workdir=workdir,
             output_path=output_path,
             schema_path=schema_path,
+            runtime_metadata=metadata,
             search_enabled=_task_allows_cli_search(task),
+            multi_agent_enabled=task.agent_mode == "coordinator",
         )
         try:
             returncode, stdout, stderr = _run_worker_command(
@@ -415,8 +437,21 @@ def _run_codex_cli_worker(task: WorkerTask) -> WorkerProcessResult:
             ) from exc
         final = output_path.read_text(encoding="utf-8", errors="replace") if output_path.exists() else stdout
         stderr = stderr or ""
-        if stdout and final != stdout:
-            stderr = (stderr + "\n" if stderr else "") + "codex_cli_stdout:\n" + stdout
+        event_audit = _parse_codex_jsonl_events(stdout)
+        event_log_path = _write_codex_event_log(workdir, task=task, stdout=stdout)
+        child_agents = _assign_child_roles(
+            event_audit["child_agents"],
+            roles=task.child_roles,
+        )
+        metadata = {
+            **metadata,
+            "agent_mode": task.agent_mode,
+            "child_roles": list(task.child_roles),
+            "event_summary": event_audit["summary"],
+            "event_log_path": str(event_log_path) if event_log_path is not None else "",
+            "session_id": event_audit["session_id"],
+            "child_agents": child_agents,
+        }
         return WorkerProcessResult(
             stdout=final,
             stderr=stderr,
@@ -424,7 +459,24 @@ def _run_codex_cli_worker(task: WorkerTask) -> WorkerProcessResult:
             backend="codex_cli",
             command=list(command),
             metadata=metadata,
+            tool_calls=event_audit["tool_calls"],
+            usage=event_audit["usage"],
         )
+
+
+def _codex_executable_available(executable: str) -> bool:
+    path = Path(str(executable)).expanduser()
+    separators = [sep for sep in (os.sep, os.altsep) if sep]
+    if path.is_absolute() or any(sep in str(executable) for sep in separators):
+        return path.exists()
+    return shutil.which(executable) is not None
+
+
+def _codex_executable_command(executable: str) -> list[str]:
+    path = Path(str(executable)).expanduser()
+    if path.exists() and path.suffix.lower() == ".py":
+        return [sys.executable, str(path)]
+    return [str(executable)]
 
 
 def _run_worker_command(
@@ -442,23 +494,221 @@ def _run_worker_command(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env=env,
         start_new_session=True,
     )
+    windows_job = _create_windows_kill_job(proc)
+    stdin_writer = _start_worker_stdin_writer(proc, input_text)
+    stdout_reader, stdout_chunks = _start_worker_pipe_reader(proc.stdout)
+    stderr_reader, stderr_chunks = _start_worker_pipe_reader(proc.stderr)
     try:
-        stdout, stderr = proc.communicate(input=input_text, timeout=float(timeout_s))
-        return int(proc.returncode), stdout or "", stderr or ""
+        proc.wait(timeout=float(timeout_s))
+        _close_windows_job(windows_job)
+        windows_job = None
+        _join_worker_thread(stdin_writer, timeout_s=1.0)
+        _join_worker_thread(stdout_reader, timeout_s=1.0)
+        _join_worker_thread(stderr_reader, timeout_s=1.0)
+        return int(proc.returncode), "".join(stdout_chunks), "".join(stderr_chunks)
     except subprocess.TimeoutExpired:
-        _terminate_worker_process_group(proc)
-        stdout, stderr = proc.communicate()
+        if windows_job is not None:
+            _close_windows_job(windows_job)
+            windows_job = None
+            try:
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                _terminate_worker_process_group(proc)
+        else:
+            _terminate_worker_process_group(proc)
+        _close_worker_pipe(proc.stdin)
+        # Do not close a Windows pipe from a second thread while its reader is
+        # blocked: FileIO.close waits for that read and can turn a 200 ms
+        # timeout into the descendant's full lifetime. Readers are daemons and
+        # terminate on EOF after the process tree is killed.
+        _join_worker_thread(stdout_reader, timeout_s=1.0)
+        _join_worker_thread(stderr_reader, timeout_s=1.0)
+        stdout = "".join(stdout_chunks)
+        stderr = "".join(stderr_chunks)
         exc = subprocess.TimeoutExpired(command, timeout_s, output=stdout, stderr=stderr)
         raise exc
     except BaseException:
-        _terminate_worker_process_group(proc)
+        _close_worker_pipe(proc.stdin)
+        if windows_job is not None:
+            _close_windows_job(windows_job)
+            windows_job = None
+        else:
+            _terminate_worker_process_group(proc)
+        _close_worker_pipe(proc.stdout)
+        _close_worker_pipe(proc.stderr)
         raise
 
 
+def _create_windows_kill_job(proc: subprocess.Popen[str]) -> int | None:
+    """Attach a Windows process tree to a kill-on-close Job Object."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _BasicLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_longlong),
+                ("PerJobUserTimeLimit", ctypes.c_longlong),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class _IoCounters(ctypes.Structure):
+            _fields_ = [
+                ("ReadOperationCount", ctypes.c_ulonglong),
+                ("WriteOperationCount", ctypes.c_ulonglong),
+                ("OtherOperationCount", ctypes.c_ulonglong),
+                ("ReadTransferCount", ctypes.c_ulonglong),
+                ("WriteTransferCount", ctypes.c_ulonglong),
+                ("OtherTransferCount", ctypes.c_ulonglong),
+            ]
+
+        class _ExtendedLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", _BasicLimitInformation),
+                ("IoInfo", _IoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+        ]
+        kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        job = kernel32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        info = _ExtendedLimitInformation()
+        info.BasicLimitInformation.LimitFlags = 0x00002000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)):
+            kernel32.CloseHandle(job)
+            return None
+        if not kernel32.AssignProcessToJobObject(job, wintypes.HANDLE(int(proc._handle))):
+            kernel32.CloseHandle(job)
+            return None
+        return int(job)
+    except Exception:
+        return None
+
+
+def _close_windows_job(handle: int | None) -> None:
+    if os.name != "nt" or handle is None:
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.CloseHandle(wintypes.HANDLE(int(handle)))
+    except Exception:
+        return
+
+
+def _start_worker_stdin_writer(proc: subprocess.Popen[str], input_text: str | None) -> threading.Thread:
+    def _write_stdin() -> None:
+        if proc.stdin is None:
+            return
+        try:
+            if input_text is not None:
+                proc.stdin.write(input_text)
+                proc.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            pass
+        finally:
+            _close_worker_pipe(proc.stdin)
+
+    thread = threading.Thread(target=_write_stdin, name="autoplanner-worker-stdin", daemon=True)
+    thread.start()
+    return thread
+
+
+def _start_worker_pipe_reader(pipe: Any) -> tuple[threading.Thread, list[str]]:
+    chunks: list[str] = []
+
+    def _read_pipe() -> None:
+        if pipe is None:
+            return
+        try:
+            chunks.append(pipe.read() or "")
+        except (OSError, ValueError):
+            return
+
+    thread = threading.Thread(target=_read_pipe, name="autoplanner-worker-pipe-reader", daemon=True)
+    thread.start()
+    return thread, chunks
+
+
+def _join_worker_thread(thread: threading.Thread, *, timeout_s: float) -> None:
+    try:
+        thread.join(timeout=float(timeout_s))
+    except RuntimeError:
+        return
+
+
+def _timeout_stream_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _drain_worker_pipes_after_timeout(proc: subprocess.Popen[str], *, timeout_s: float = 1.0) -> tuple[str, str]:
+    """Best-effort legacy drain helper kept for tests/imports.
+
+    Do not call this on Windows timeout paths after killing the parent process:
+    descendants may still hold inherited pipe handles and block EOF delivery.
+    """
+    _close_worker_pipe(proc.stdout)
+    _close_worker_pipe(proc.stderr)
+    return "", ""
+
+
 def _terminate_worker_process_group(proc: subprocess.Popen[str]) -> None:
+    if os.name == "nt":
+        # CREATE_NEW_PROCESS_GROUP does not contain descendants that create a
+        # second session. taskkill /T follows the Windows parent/child tree and
+        # prevents timed-out Codex/subagent processes from retaining pipes or
+        # the run directory.
+        subprocess.run(
+            ["taskkill", "/PID", str(int(proc.pid)), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=10.0,
+        )
+        try:
+            proc.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        return
     try:
         os.killpg(proc.pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -471,6 +721,10 @@ def _terminate_worker_process_group(proc: subprocess.Popen[str]) -> None:
         return
     except subprocess.TimeoutExpired:
         pass
+    _kill_worker_process_group(proc)
+
+
+def _kill_worker_process_group(proc: subprocess.Popen[str]) -> None:
     try:
         os.killpg(proc.pid, signal.SIGKILL)
     except ProcessLookupError:
@@ -479,23 +733,50 @@ def _terminate_worker_process_group(proc: subprocess.Popen[str]) -> None:
         proc.kill()
 
 
+def _close_worker_pipe(pipe: Any) -> None:
+    if pipe is None:
+        return
+    try:
+        pipe.close()
+    except Exception:
+        pass
+
+
 def _codex_cli_runtime_environment(
     tmp_path: Path,
     workdir: Path,
     task: WorkerTask,
 ) -> tuple[dict[str, str], dict[str, Any]]:
     """Build the subprocess environment used by Codex CLI workers."""
+    auth_mode = str(task.codex_auth_mode or "auto").strip().lower()
+    if auth_mode == "ambient_codex_cli" or (auth_mode == "auto" and _use_ambient_codex_cli_auth()):
+        env = os.environ.copy()
+        env.pop("CODEX_HOME", None)
+        return env, {
+            "provider": "ambient_codex_cli",
+            "base_url_fingerprint": "",
+            "model": str(task.model or "") or os.environ.get("AUTOPLANNER_CODEX_WORKER_MODEL") or os.environ.get("OPENAI_MODEL") or "",
+            "model_reasoning_effort": _task_reasoning_effort(task),
+            "auth_source": "ambient_codex_cli",
+            "codex_home": "ambient",
+        }
     try:
         config = _api_json_config(task)
     except RuntimeError:
+        if auth_mode == "api_key":
+            raise
         env = os.environ.copy()
         return env, {
             "provider": "ambient_codex_cli",
             "base_url_fingerprint": "",
-            "model": os.environ.get("AUTOPLANNER_CODEX_WORKER_MODEL") or os.environ.get("OPENAI_MODEL") or "",
+            "model": str(task.model or "") or os.environ.get("AUTOPLANNER_CODEX_WORKER_MODEL") or os.environ.get("OPENAI_MODEL") or "",
+            "model_reasoning_effort": _task_reasoning_effort(task),
             "auth_source": "ambient_codex_cli",
             "codex_home": "ambient",
         }
+    if task.model:
+        config = {**config, "model": str(task.model)}
+    config = {**config, "reasoning_effort": _task_reasoning_effort(task)}
     return _codex_cli_worker_environment(tmp_path, workdir, config)
 
 
@@ -516,7 +797,7 @@ def _codex_cli_worker_environment(
     (codex_home / "config.toml").write_text(
         "\n".join([
             f"model = {_toml_string(config['model'])}",
-            f"model_reasoning_effort = {_toml_string(os.environ.get('AUTOPLANNER_CODEX_WORKER_REASONING_EFFORT') or 'xhigh')}",
+            f"model_reasoning_effort = {_toml_string(_task_reasoning_effort_from_config(config))}",
             f"openai_base_url = {_toml_string(config['base_url'])}",
             "",
             f"[projects.{_toml_string(str(workdir))}]",
@@ -532,12 +813,41 @@ def _codex_cli_worker_environment(
     env["CODEX_HOME"] = str(codex_home)
     metadata = {
         "provider": config["provider"],
+        "base_url": config["base_url"],
         "base_url_fingerprint": _base_url_fingerprint(config["base_url"]),
         "model": config["model"],
+        "model_reasoning_effort": _task_reasoning_effort_from_config(config),
         "auth_source": str(DEFAULT_RETROSYNTHESIS_KEY_FILE),
         "codex_home": "ephemeral",
     }
     return env, metadata
+
+
+def _task_reasoning_effort(task: WorkerTask) -> str:
+    explicit = str(getattr(task.budget, "reasoning_effort", "") or "").strip()
+    if explicit:
+        return explicit
+    return str(os.environ.get("AUTOPLANNER_CODEX_WORKER_REASONING_EFFORT") or "xhigh").strip()
+
+
+def _task_reasoning_effort_from_config(config: dict[str, str]) -> str:
+    return str(config.get("reasoning_effort") or os.environ.get("AUTOPLANNER_CODEX_WORKER_REASONING_EFFORT") or "xhigh").strip()
+
+
+def _use_ambient_codex_cli_auth() -> bool:
+    raw = (
+        os.environ.get("AUTOPLANNER_CODEX_WORKER_AUTH")
+        or os.environ.get("AUTOPLANNER_CODEX_CLI_AUTH")
+        or ""
+    )
+    return str(raw).strip().lower().replace("-", "_") in {
+        "ambient",
+        "ambient_codex",
+        "ambient_codex_cli",
+        "current",
+        "current_codex",
+        "codex_login",
+    }
 
 
 def _toml_string(value: str) -> str:
@@ -773,24 +1083,39 @@ def _base_url_fingerprint(base_url: str) -> str:
 
 def _codex_cli_command(
     *,
-    executable: str,
+    executable: str | list[str],
     workdir: Path,
     output_path: Path,
     schema_path: Path,
+    runtime_metadata: dict[str, Any] | None = None,
     search_enabled: bool | None = None,
+    multi_agent_enabled: bool = False,
 ) -> list[str]:
-    command = [executable]
+    command = list(executable) if isinstance(executable, list) else [executable]
     search_allowed = _env_flag("AUTOPLANNER_CODEX_WORKER_SEARCH", default=True)
     if search_enabled is not None:
         search_allowed = bool(search_enabled) and search_allowed
     if search_allowed:
         command.append("--search")
+    if multi_agent_enabled:
+        command.extend(["--enable", "multi_agent"])
     command.extend([
         "--ask-for-approval",
         "never",
     ])
     command.extend([
         "exec",
+    ])
+    runtime_metadata = dict(runtime_metadata or {})
+    if str(runtime_metadata.get("codex_home") or "") == "ephemeral":
+        command.append("--ignore-user-config")
+        base_url = str(runtime_metadata.get("base_url") or "").strip()
+        if base_url:
+            command.extend(["-c", f"openai_base_url={_toml_string(base_url)}"])
+    reasoning = str(runtime_metadata.get("model_reasoning_effort") or "").strip()
+    if reasoning:
+        command.extend(["-c", f"model_reasoning_effort={_toml_string(reasoning)}"])
+    command.extend([
         "--cd",
         str(workdir),
     ])
@@ -803,12 +1128,13 @@ def _codex_cli_command(
         "--ephemeral",
         "--color",
         "never",
+        "--json",
         "--output-schema",
         str(schema_path),
         "--output-last-message",
         str(output_path),
     ])
-    model = os.environ.get("AUTOPLANNER_CODEX_WORKER_MODEL")
+    model = os.environ.get("AUTOPLANNER_CODEX_WORKER_MODEL") or str(runtime_metadata.get("model") or "").strip()
     if model:
         command.extend(["--model", model])
     profile = os.environ.get("AUTOPLANNER_CODEX_WORKER_PROFILE")
@@ -846,6 +1172,16 @@ def _task_allows_cli_search(task: WorkerTask) -> bool:
 
 def _codex_worker_prompt(task: WorkerTask) -> str:
     task_json = json.dumps(task.to_dict(), ensure_ascii=False, indent=2, sort_keys=True)
+    coordinator_rules = []
+    if task.agent_mode == "coordinator":
+        coordinator_rules = [
+            "",
+            "Multi-agent coordination is mandatory for this task:",
+            "- Directly call spawn_agent for every required child role listed in WorkerTask.child_roles.",
+            "- Give each child a bounded, independent context and require structured findings.",
+            "- Wait for every child, preserve disagreements and source provenance, then synthesize the final artifact.",
+            "- Do not replace a failed child with an invented answer; record the failure in limitations.",
+        ]
     return "\n".join([
         "You are a bounded Codex Research Worker inside AutoPlanner.",
         "Your job is to produce one structured draft artifact for the supplied WorkerTask.",
@@ -859,6 +1195,7 @@ def _codex_worker_prompt(task: WorkerTask) -> str:
         "- Do not inject raw reaction candidates or reaction SMILES. Avoid strings containing '>>' unless the task explicitly asks for audit of an existing input reference.",
         "- Prefer traceable sources. For literature evidence, include DOI, URL, or local_ref in payload/source metadata.",
         "- Use only the task context, repository files, and allowed tools implied by the task.",
+        *coordinator_rules,
         "",
         "Required artifact wrapper:",
         json.dumps({
@@ -887,6 +1224,8 @@ def _artifact_payload_instruction(artifact_type: str) -> str:
             "For payload, return schema_version=agent_action_batch.v1, case_id, round_index, mode, semantics, and actions. "
             "Select at most 3 actions from the allowed action list in this task. Each action must include "
             "schema_version=agent_action.v1, action_id, action_type, rationale, expected_artifact, success_condition, and payload. "
+            "Action payloads use a closed skeleton schema; fill irrelevant string fields with \"\", arrays with [], "
+            "boolean fields with false, and numeric fields with 0. Local deterministic normalizers will expand valid skeletons. "
             "If you used allowed planner tools and discovered DOI/title/URL/local-PDF metadata that should guide later source acquisition, "
             "optionally include top-level planner_source_hints. Each hint must use schema_version=planner_source_hint.v1, "
             "evidence_class=planner_source_hint, allowed_use=source_acquisition_hint_only, no_solved_claim=true, and source metadata only. "
@@ -926,6 +1265,16 @@ def _artifact_payload_instruction(artifact_type: str) -> str:
             "For payload, describe the strategic disconnection without raw reaction injection: "
             "evidence_refs, candidate_kind or retrosynthetic_move, target/frontier context, "
             "strategic_subgoal, anchor_candidate, limitations, and fake-terminal guardrails."
+        )
+    if artifact_type == "RetrosynthesisProposalReport":
+        return (
+            "For payload, return schema_version=retrosynthesis_proposal_report.v1, case_id, agent_role, "
+            "target_smiles, candidates, evidence_refs, limitations, and no_solved_claim=true. Each candidate "
+            "must contain product_smiles plus precursor_smiles as a list of individual components, a concise "
+            "reaction_family and transformation_rationale, source_channel, source/evidence refs, evidence_level, "
+            "confidence, optional conditions/catalyst/enzyme, limitations, required_validation, "
+            "no_solved_claim=true, and not_parent_route_proof=true. Product and precursor SMILES are advisory "
+            "typed hypotheses; never emit a reaction SMILES string or a key named reaction_smiles/rxn/raw_reaction."
         )
     if artifact_type == "LiteratureRouteSegmentCard":
         return (
@@ -1001,6 +1350,8 @@ def _worker_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
         return _literature_scout_payload_json_schema(task)
     if artifact_type == "AnalogicalReactionTemplateReport":
         return _analogical_template_report_payload_json_schema(task)
+    if artifact_type == "RetrosynthesisProposalReport":
+        return _retrosynthesis_proposal_report_payload_json_schema(task)
     if artifact_type == "LiteratureRouteSegmentCard":
         return _literature_route_segment_payload_json_schema(task)
     if artifact_type == "SegmentStepCandidate":
@@ -1036,6 +1387,59 @@ def _generic_payload_json_schema() -> dict[str, Any]:
         "limitations": _string_array_schema(),
         "recommended_next_actions": _string_array_schema(),
         "validation_status": {"type": "string", "enum": ["draft", "draft_only"]},
+    })
+
+
+def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    candidate = _strict_object_schema({
+        "schema_version": {"type": "string", "enum": ["retrosynthesis_candidate.v1"]},
+        "candidate_id": {"type": "string"},
+        "product_smiles": {"type": "string"},
+        "precursor_smiles": _string_array_schema(),
+        "reaction_family": {"type": "string"},
+        "transformation_rationale": {"type": "string"},
+        "source_channel": {
+            "type": "string",
+            "enum": [
+                "codex_strategy",
+                "codex_literature",
+                "codex_chemoenzymatic",
+                "codex_critic",
+                "chem_enzy",
+                "literature_exact",
+                "literature_analogy",
+                "template",
+                "stock",
+                "human",
+                "other",
+            ],
+        },
+        "source_refs": _string_array_schema(),
+        "evidence_refs": _string_array_schema(),
+        "evidence_level": {
+            "type": "string",
+            # Codex may report evidence, but it cannot grant its own output a
+            # deterministic validation status.
+            "enum": ["model_only", "analogy", "computational", "literature_exact"],
+        },
+        "confidence": {"type": "string", "enum": ["low", "medium", "medium_high", "high"]},
+        "conditions": _string_array_schema(),
+        "catalyst": {"type": "string"},
+        "enzyme": {"type": "string"},
+        "limitations": _string_array_schema(),
+        "required_validation": _string_array_schema(),
+        "no_solved_claim": {"type": "boolean", "enum": [True]},
+        "not_parent_route_proof": {"type": "boolean", "enum": [True]},
+    })
+    return _strict_object_schema({
+        "schema_version": {"type": "string", "enum": ["retrosynthesis_proposal_report.v1"]},
+        "case_id": {"type": "string", "enum": [task.case_id]},
+        "agent_role": {"type": "string"},
+        "target_smiles": {"type": "string"},
+        "candidates": {"type": "array", "items": candidate, "maxItems": 24},
+        "evidence_refs": _string_array_schema(),
+        "limitations": _string_array_schema(),
+        "no_solved_claim": {"type": "boolean", "enum": [True]},
     })
 
 
@@ -1083,10 +1487,10 @@ def _agent_action_batch_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
             "schema_version": {"type": "string", "enum": ["agent_action.v1"]},
             "action_id": {"type": "string"},
             "action_type": {"type": "string", "enum": sorted(WORKER_AGENT_ACTION_TYPES)},
-            "rationale": {"type": "string", "maxLength": 360},
-            "expected_artifact": {"type": "string", "maxLength": 180},
-            "success_condition": {"type": "string", "maxLength": 220},
-            "payload": {"type": "object", "additionalProperties": True, "maxProperties": 16},
+            "rationale": {"type": "string"},
+            "expected_artifact": {"type": "string"},
+            "success_condition": {"type": "string"},
+            "payload": _agent_action_skeleton_payload_json_schema(),
         },
         required=[
             "schema_version",
@@ -1106,12 +1510,10 @@ def _agent_action_batch_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
             "mode": {"type": "string"},
             "actions": {
                 "type": "array",
-                "maxItems": 3,
                 "items": action_schema,
             },
             "planner_source_hints": {
                 "type": "array",
-                "maxItems": 8,
                 "items": hint_schema,
             },
             "semantics": _strict_object_schema(
@@ -1127,8 +1529,53 @@ def _agent_action_batch_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
                 ],
             ),
         },
-        required=["schema_version", "case_id", "round_index", "mode", "actions", "semantics"],
+        required=["schema_version", "case_id", "round_index", "mode", "actions", "planner_source_hints", "semantics"],
     )
+
+
+def _agent_action_skeleton_payload_json_schema() -> dict[str, Any]:
+    """Closed generic payload schema for Codex structured-output compatibility.
+
+    The action planner should emit compact skeletons. Local normalizers then
+    expand those skeletons into tool-specific payloads under deterministic
+    validation, so this schema intentionally exposes only common hint fields.
+    """
+    properties = {
+        "schema_version": {"type": "string"},
+        "no_solved_claim": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "search_intent": {"type": "string"},
+        "queries": _string_array_schema(),
+        "search_queries": _string_array_schema(),
+        "source_ref": {"type": "string"},
+        "source_title": {"type": "string"},
+        "pdf_path": {"type": "string"},
+        "page_numbers": {"type": "array", "items": {"type": "integer"}},
+        "expected_labels": _string_array_schema(),
+        "route_sequence_hint": {"type": "string"},
+        "template_ids": _string_array_schema(),
+        "hypothesis_ids": _string_array_schema(),
+        "selected_analogy_hypothesis_ids": _string_array_schema(),
+        "route_objectives": _string_array_schema(),
+        "endpoint_candidates": _string_array_schema(),
+        "planner_source_hints": _string_array_schema(),
+        "initial_probe": {"type": "boolean"},
+        "search_mode": {"type": "string"},
+        "max_steps": {"type": "integer"},
+        "chem_enzy_iterations": {"type": "integer"},
+        "chem_enzy_expansion_topk": {"type": "integer"},
+        "timeout_s": {"type": "number"},
+        "max_candidates": {"type": "integer"},
+        "target_name": {"type": "string"},
+        "target_smiles": {"type": "string"},
+        "precursor_smiles": {"type": "string"},
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": list(properties.keys()),
+    }
 
 
 def _evidence_card_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
@@ -1310,6 +1757,7 @@ def _typed_artifact_schema_version(artifact_type: str) -> str:
     return {
         "AgentActionBatch": "agent_action_batch_artifact.v1",
         "ResearchReport": "research_report.v1",
+        "RetrosynthesisProposalReport": "retrosynthesis_proposal_report_artifact.v1",
         "EvidenceCard": "evidence_card_artifact.v1",
         "LiteratureScoutReport": "literature_scout_report_artifact.v1",
         "StrategicDisconnectionCard": "strategic_disconnection_card.v1",
@@ -1359,6 +1807,237 @@ def _parse_worker_stdout(stdout: str) -> Any:
         return None
 
 
+def _parse_codex_jsonl_events(stdout: str) -> dict[str, Any]:
+    """Normalize Codex ``exec --json`` events for audit and budget checks."""
+    events: list[dict[str, Any]] = []
+    invalid_lines = 0
+    for line in str(stdout or "").splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            invalid_lines += 1
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+
+    session_id = ""
+    usage: dict[str, Any] = {}
+    calls_by_id: dict[str, dict[str, Any]] = {}
+    child_agents_by_id: dict[str, dict[str, Any]] = {}
+    orphan_wait_state_count = 0
+    turn_completed = False
+    for index, event in enumerate(events):
+        event_type = str(event.get("type") or event.get("event") or "")
+        if event_type == "turn.completed":
+            turn_completed = True
+        if not session_id:
+            session_id = _find_first_key(event, {"thread_id", "session_id", "conversation_id"})
+        event_usage = event.get("usage")
+        if isinstance(event_usage, dict):
+            usage = _merge_usage(usage, event_usage)
+        item = event.get("item") if isinstance(event.get("item"), dict) else event
+        item_type = str(item.get("type") or event_type).lower()
+        tool_name = _codex_event_tool_name(item, item_type)
+        if not tool_name:
+            continue
+        call_id = str(item.get("id") or item.get("call_id") or item.get("tool_call_id") or f"event:{index}")
+        receiver_thread_ids = [
+            str(value)
+            for value in item.get("receiver_thread_ids") or []
+            if str(value or "").strip()
+        ]
+        agent_states = {
+            str(agent_id): dict(state)
+            for agent_id, state in (item.get("agents_states") or {}).items()
+            if str(agent_id or "").strip() and isinstance(state, dict)
+        }
+        arguments = item.get("arguments") if isinstance(item.get("arguments"), (dict, list, str)) else {}
+        record = {
+            "call_id": call_id,
+            "tool": tool_name,
+            "event_type": event_type,
+            "status": str(item.get("status") or ""),
+            "arguments": arguments,
+            "prompt": str(item.get("prompt") or ""),
+            "sender_thread_id": str(item.get("sender_thread_id") or ""),
+            "receiver_thread_ids": receiver_thread_ids,
+            "agents_states": agent_states,
+        }
+        calls_by_id[call_id] = record
+        if tool_name == "spawn_agent":
+            sender_thread_id = str(record.get("sender_thread_id") or "")
+            # A coordinator run may contain nested child activity in the same
+            # JSONL stream. Only the root thread's spawns satisfy the direct
+            # specialist contract. Older streams without thread identifiers
+            # remain parseable, but they still need an observed spawn event.
+            direct_spawn = bool(
+                not session_id
+                or not sender_thread_id
+                or sender_thread_id == session_id
+            )
+            if not direct_spawn:
+                continue
+            for receiver_thread_id in receiver_thread_ids:
+                state = dict(agent_states.get(receiver_thread_id) or {})
+                child_agents_by_id[receiver_thread_id] = {
+                    "agent_id": receiver_thread_id,
+                    "spawn_call_id": call_id,
+                    "sender_thread_id": record["sender_thread_id"],
+                    "status": str(state.get("status") or "spawned"),
+                    "message": state.get("message"),
+                    "prompt": record["prompt"],
+                    "arguments": arguments,
+                }
+        if tool_name in {"wait", "wait_agent"}:
+            for receiver_thread_id, state in agent_states.items():
+                child = child_agents_by_id.get(receiver_thread_id)
+                if child is None:
+                    # A wait/status snapshot is not proof that this coordinator
+                    # directly spawned the agent.
+                    orphan_wait_state_count += 1
+                    continue
+                child["status"] = str(state.get("status") or child.get("status") or "unknown")
+                child["message"] = state.get("message")
+                child["wait_call_id"] = call_id
+
+    child_agents = list(child_agents_by_id.values())
+    completed_children = [
+        row
+        for row in child_agents
+        if str(row.get("status") or "").strip().lower() in {"completed", "succeeded", "success", "accepted"}
+    ]
+
+    return {
+        "session_id": session_id,
+        "usage": usage,
+        "tool_calls": list(calls_by_id.values()),
+        "child_agents": child_agents,
+        "summary": {
+            "schema_version": "codex_event_summary.v1",
+            "event_count": len(events),
+            "invalid_line_count": invalid_lines,
+            "turn_completed": turn_completed,
+            "last_event_type": str(events[-1].get("type") or "") if events else "",
+            "tool_call_count": len(calls_by_id),
+            "child_agent_spawn_count": len(child_agents),
+            "child_agent_completed_count": len(completed_children),
+            "orphan_wait_state_count": orphan_wait_state_count,
+        },
+    }
+
+
+def _assign_child_roles(children: Any, *, roles: list[str]) -> list[dict[str, Any]]:
+    rows = [dict(row) for row in children or [] if isinstance(row, dict)]
+    remaining = [str(role) for role in roles]
+    # Prefer evidence in the actual spawn prompt/arguments. This prevents four
+    # same-role children from being relabelled as four distinct specialists.
+    for row in rows:
+        haystack = " ".join(
+            [
+                str(row.get("prompt") or ""),
+                json.dumps(row.get("arguments") or {}, ensure_ascii=False, sort_keys=True),
+            ]
+        )
+        matches = [role for role in remaining if _child_prompt_mentions_role(haystack, role)]
+        if len(matches) == 1:
+            row["role"] = matches[0]
+            row["role_binding_method"] = "explicit_spawn_contract"
+            remaining.remove(matches[0])
+    # Some CLI versions omit the prompt from collab events. Preserve ordered
+    # compatibility only for those genuinely unlabelled observations.
+    for row in rows:
+        if row.get("role") or not remaining:
+            continue
+        if str(row.get("prompt") or "").strip() or row.get("arguments"):
+            continue
+        row["role"] = remaining.pop(0)
+        row["role_binding_method"] = "legacy_event_order"
+    return rows
+
+
+def _child_prompt_mentions_role(text: str, role: str) -> bool:
+    raw = str(text or "").lower().replace(" ", "")
+    normalized_role = "_".join(
+        part
+        for part in str(role or "").lower().replace("-", "_").split("_")
+        if part
+    )
+    markers = (
+        f"autoplanner_child_role={normalized_role}",
+        f'"autoplanner_child_role":"{normalized_role}"',
+    )
+    return bool(normalized_role and any(marker in raw for marker in markers))
+
+
+def _write_codex_event_log(workdir: Path, *, task: WorkerTask, stdout: str) -> Path | None:
+    if not str(stdout or "").strip():
+        return None
+    event_dir = Path(workdir).resolve() / "codex_worker_events"
+    event_dir.mkdir(parents=True, exist_ok=True)
+    task_digest = hashlib.sha256(str(task.task_id).encode("utf-8")).hexdigest()[:12]
+    content_digest = hashlib.sha256(str(stdout or "").encode("utf-8")).hexdigest()[:16]
+    path = event_dir / f"{task_digest}-{content_digest}.jsonl"
+    path.write_text(str(stdout or ""), encoding="utf-8")
+    return path
+
+
+def _codex_event_tool_name(item: dict[str, Any], item_type: str) -> str:
+    raw = str(item.get("tool") or item.get("name") or item.get("tool_name") or "").strip()
+    lowered = raw.lower()
+    if lowered:
+        if "spawn_agent" in lowered:
+            return "spawn_agent"
+        if "wait_agent" in lowered:
+            return "wait_agent"
+        if "send_message" in lowered or "followup_task" in lowered:
+            return "send_message"
+        if "web" in lowered and "search" in lowered:
+            return "web_search"
+        if "browser" in lowered:
+            return "browser"
+        return raw
+    if item_type in {"web_search", "web_search_call"} or "web_search" in item_type:
+        return "web_search"
+    if item_type in {"command_execution", "shell_command", "shell"} or "command_execution" in item_type:
+        return "shell"
+    if "mcp_tool" in item_type or item_type in {"function_call", "tool_call"}:
+        return "unknown_tool"
+    return ""
+
+
+def _find_first_key(value: Any, keys: set[str]) -> str:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key).lower() in keys and str(item or "").strip():
+                return str(item)
+        for item in value.values():
+            found = _find_first_key(item, keys)
+            if found:
+                return found
+    if isinstance(value, list):
+        for item in value:
+            found = _find_first_key(item, keys)
+            if found:
+                return found
+    return ""
+
+
+def _merge_usage(existing: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
+    out = dict(existing)
+    for key, value in update.items():
+        if isinstance(value, dict):
+            out[key] = _merge_usage(dict(out.get(key) or {}), value)
+        elif isinstance(value, (int, float)):
+            out[key] = max(float(out.get(key) or 0), value)
+            if isinstance(value, int):
+                out[key] = int(out[key])
+        else:
+            out[key] = value
+    return out
+
+
 def _truncate(text: str, max_bytes: int) -> str:
     raw = str(text or "")
     encoded = raw.encode("utf-8")
@@ -1389,13 +2068,47 @@ def _worker_runtime_reasons(task: WorkerTask, process: WorkerProcessResult) -> l
     tool_calls = list(process.tool_calls or [])
     if len(tool_calls) > int(task.budget.max_tool_calls):
         reasons.append("tool_call_budget_exceeded")
-    allowed = {str(tool) for tool in task.allowed_tools}
+    allowed = {_canonical_runtime_tool_name(tool) for tool in task.allowed_tools}
     if allowed:
         for call in tool_calls:
-            if str(call.get("tool") or call.get("name") or "") not in allowed:
+            observed = _canonical_runtime_tool_name(call.get("tool") or call.get("name") or "")
+            if observed not in allowed:
                 reasons.append("tool_not_allowed")
                 break
+    if task.agent_mode == "coordinator":
+        spawned = list((process.metadata or {}).get("child_agents") or [])
+        if len(spawned) < len(task.child_roles):
+            reasons.append("required_child_agents_not_spawned")
+        completed = [
+            row
+            for row in spawned
+            if str((row or {}).get("status") or "").strip().lower()
+            in {"completed", "succeeded", "success", "accepted"}
+        ]
+        if len(completed) < len(task.child_roles):
+            reasons.append("required_child_agents_not_completed")
+        observed_roles = [str((row or {}).get("role") or "") for row in spawned]
+        if sorted(observed_roles) != sorted(str(role) for role in task.child_roles):
+            reasons.append("required_child_role_coverage_mismatch")
+        if any(
+            str((row or {}).get("role_binding_method") or "") != "explicit_spawn_contract"
+            for row in spawned
+        ):
+            reasons.append("required_child_roles_not_prompt_bound")
     return reasons
+
+
+def _canonical_runtime_tool_name(value: Any) -> str:
+    """Normalize Codex CLI tool names that changed across multi-agent releases."""
+    name = str(value or "").strip().lower().replace("-", "_")
+    aliases = {
+        "wait_agent": "wait",
+        "agent_wait": "wait",
+        "send_input": "send_message",
+        "agent_message": "send_message",
+        "agent_spawn": "spawn_agent",
+    }
+    return aliases.get(name, name)
 
 
 def _contains_solved_claim(value: Any) -> bool:
