@@ -25,13 +25,34 @@ venv/
 !.env.local.example
 /key.txt
 /psaaword.txt
+**/secret_key
+**/*credentials*.json
+*.pem
+*.p12
+*.pfx
+*.key
+id_rsa*
+id_ed25519*
 .claude/
 config/
+
+# Local databases / session state
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
 
 # IDE
 .vscode/
 .idea/
 *.swp
+*.tmp
+*.bak
+*.orig
+.cache/
+.hypothesis/
+.tox/
+.nox/
+.ipynb_checkpoints/
 
 # OS
 .DS_Store
@@ -153,6 +174,13 @@ archive/docs_*/
 archive/cleanup_*/docs/
 
 # Generated manuscript build products
+*.aux
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+docs/archive/**/main.out
 paper/**/build/*.aux
 paper/**/build/*.log
 paper/**/build/*.out

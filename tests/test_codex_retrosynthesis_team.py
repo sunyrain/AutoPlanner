@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 from cascade_planner.agent.codex_worker import (
     WorkerRunRecord,
@@ -10,9 +11,12 @@ from cascade_planner.agent.codex_worker import (
 )
 from cascade_planner.orchestration.codex_retrosynthesis import (
     DEFAULT_CHILD_ROLES,
+    RetrosynthesisTeamConfig,
     _child_report_payload,
     build_retrosynthesis_coordinator_task,
+    migrate_legacy_campaign_commits,
     run_codex_retrosynthesis_team,
+    run_codex_retrosynthesis_campaign,
 )
 
 
@@ -66,6 +70,39 @@ def child_report_message(case_id: str, role: str, *, with_candidate: bool) -> st
     payload["agent_role"] = role
     payload["candidates"] = list(payload["candidates"]) if with_candidate else []
     return json.dumps(payload, sort_keys=True)
+
+
+def accepted_runner_record(task) -> WorkerRunRecord:
+    return WorkerRunRecord(
+        run_id="team:run",
+        task_id=task.task_id,
+        case_id=task.case_id,
+        status="accepted_draft",
+        backend="codex_cli",
+        output_artifact=proposal_artifact(task.case_id),
+        output_validation={"accepted": True, "reasons": []},
+        metadata={
+            "session_id": "thread-1",
+            "event_summary": {"child_agent_spawn_count": len(task.child_roles)},
+            "child_agents": [
+                {
+                    "agent_id": f"child-{index}",
+                    "role": role,
+                    "role_binding_method": "explicit_spawn_contract",
+                    "wait_call_id": f"wait-{index}",
+                    "status": "completed",
+                    "arguments": {"role": role},
+                    "message": child_report_message(
+                        task.case_id,
+                        role,
+                        with_candidate=role == "target_structure_strategist",
+                    ),
+                }
+                for index, role in enumerate(task.child_roles)
+            ],
+        },
+        usage={"input_tokens": 100, "output_tokens": 50},
+    )
 
 
 def test_coordinator_task_requires_direct_child_roles(tmp_path) -> None:
@@ -184,6 +221,264 @@ def test_team_rejects_unobserved_children(tmp_path) -> None:
     assert "required_child_agents_not_observed" in report["reasons"]
     assert "required_child_agents_not_succeeded" in report["reasons"]
     assert {row["state"] for row in report["runtime_summary"]["children"]} == {"lost"}
+
+
+def test_campaign_persists_rejected_team_as_retryable_frontier(tmp_path) -> None:
+    def runner(task):
+        return WorkerRunRecord(
+            run_id="team:run",
+            task_id=task.task_id,
+            case_id=task.case_id,
+            status="accepted_draft",
+            backend="codex_cli",
+            output_artifact=proposal_artifact(task.case_id),
+            output_validation={"accepted": True, "reasons": []},
+            metadata={"child_agents": []},
+        )
+
+    report = run_codex_retrosynthesis_campaign(
+        case_id="retryable-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(max_expansions=1),
+        runner=runner,
+    )
+
+    jobs = report["campaign"]["frontier_queue"]["jobs"]
+    self_job = next(row for row in jobs if row["frontier_smiles"] == "CCO")
+    assert self_job["state"] == "retry_wait"
+    assert "codex_team_report_rejected" in self_job["failure_reasons"]
+    assert report["campaign"]["graph_complete"] is False
+
+
+def test_campaign_retries_rejected_team_within_attempt_budget(tmp_path) -> None:
+    calls = 0
+
+    def flaky_runner(task):
+        nonlocal calls
+        calls += 1
+        record = accepted_runner_record(task)
+        if calls == 1:
+            record.metadata = {"child_agents": []}
+        return record
+
+    report = run_codex_retrosynthesis_campaign(
+        case_id="retry-then-accept-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(
+            max_depth=1,
+            max_expansions=2,
+            frontier_retry_base_seconds=0.01,
+            frontier_retry_max_seconds=0.01,
+            frontier_retry_wait_seconds=0.5,
+        ),
+        runner=flaky_runner,
+    )
+
+    root_job = next(
+        row
+        for row in report["campaign"]["frontier_queue"]["jobs"]
+        if row["frontier_smiles"] == "CCO"
+    )
+    assert calls == 2
+    assert root_job["attempt"] == 2
+    assert root_job["state"] == "succeeded"
+    assert report["route_expansion_count"] == 1
+    assert report["campaign"]["attempt_run_count"] == 2
+    assert report["campaign"]["unique_frontier_run_count"] == 1
+
+
+def test_campaign_recovers_succeeded_expansion_from_fenced_commit(tmp_path) -> None:
+    first = run_codex_retrosynthesis_campaign(
+        case_id="recoverable-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(max_depth=1, max_expansions=1),
+        runner=accepted_runner_record,
+    )
+    state_path = tmp_path / "codex_retrosynthesis_team" / "campaign_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    commit_ref = first["campaign"]["frontier_queue"]["jobs"][0]["result_ref"]
+
+    assert state["content_sha256"]
+    assert first["route_expansion_count"] == 1
+    assert "campaign_commits" in commit_ref
+    state_path.unlink()
+
+    def must_not_run(_):
+        raise AssertionError("durable expansion should be recovered without rerunning Codex")
+
+    recovered = run_codex_retrosynthesis_campaign(
+        case_id="recoverable-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(max_depth=1, max_expansions=1),
+        runner=must_not_run,
+    )
+
+    assert recovered["route_expansion_count"] == 1
+    assert recovered["campaign"]["recovery_errors"] == []
+    assert recovered["campaign"]["runs"][0]["recovered_from_expansion_commit"] is True
+
+
+def test_campaign_requeues_tampered_expansion_commit(tmp_path) -> None:
+    first = run_codex_retrosynthesis_campaign(
+        case_id="tampered-commit-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(max_depth=1, max_expansions=1),
+        runner=accepted_runner_record,
+    )
+    state_path = tmp_path / "codex_retrosynthesis_team" / "campaign_state.json"
+    commit_path = next(
+        path
+        for path in (tmp_path / "codex_retrosynthesis_team" / "campaign_commits").glob("*.json")
+    )
+    commit = json.loads(commit_path.read_text(encoding="utf-8"))
+    commit["expansion_sha256"] = "0" * 64
+    commit_path.write_text(json.dumps(commit), encoding="utf-8")
+    state_path.unlink()
+    calls = 0
+
+    def rejected_runner(task):
+        nonlocal calls
+        calls += 1
+        record = accepted_runner_record(task)
+        record.metadata = {"child_agents": []}
+        return record
+
+    recovered = run_codex_retrosynthesis_campaign(
+        case_id="tampered-commit-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(max_depth=1, max_expansions=1),
+        runner=rejected_runner,
+    )
+
+    assert first["route_expansion_count"] == 1
+    assert calls == 1
+    assert recovered["route_expansion_count"] == 0
+    assert any("digest_invalid" in reason for reason in recovered["campaign"]["recovery_errors"])
+
+
+def test_campaign_renews_lease_during_slow_direct_agent_team(tmp_path, monkeypatch) -> None:
+    from cascade_planner.application.frontier_scheduler import PersistentFrontierQueue
+
+    original = PersistentFrontierQueue.heartbeat
+    heartbeat_calls = 0
+
+    def observed_heartbeat(self, *args, **kwargs):
+        nonlocal heartbeat_calls
+        heartbeat_calls += 1
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(PersistentFrontierQueue, "heartbeat", observed_heartbeat)
+
+    def slow_runner(task):
+        time.sleep(0.06)
+        return accepted_runner_record(task)
+
+    report = run_codex_retrosynthesis_campaign(
+        case_id="heartbeat-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(
+            max_depth=1,
+            max_expansions=1,
+            frontier_heartbeat_interval_seconds=0.01,
+        ),
+        runner=slow_runner,
+    )
+
+    assert heartbeat_calls >= 1
+    assert report["route_expansion_count"] == 1
+
+
+def test_parent_completion_failure_never_publishes_child_frontiers(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from cascade_planner.application.frontier_scheduler import (
+        FrontierLeaseError,
+        PersistentFrontierQueue,
+    )
+
+    def reject_completion(self, *args, **kwargs):
+        raise FrontierLeaseError("injected fencing loss")
+
+    monkeypatch.setattr(PersistentFrontierQueue, "complete", reject_completion)
+    report = run_codex_retrosynthesis_campaign(
+        case_id="parent-fencing-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(max_depth=2, max_expansions=1),
+        runner=accepted_runner_record,
+    )
+
+    jobs = report["campaign"]["frontier_queue"]["jobs"]
+    assert len(jobs) == 1
+    assert jobs[0]["frontier_smiles"] == "CCO"
+    assert report["route_expansion_count"] == 0
+    assert report["campaign"]["runs"][0]["result_quarantined"] is True
+
+
+def test_legacy_campaign_result_can_be_migrated_without_model_rerun(tmp_path) -> None:
+    from cascade_planner.application.frontier_scheduler import PersistentFrontierQueue
+
+    report = run_codex_retrosynthesis_campaign(
+        case_id="legacy-migration-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(max_depth=1, max_expansions=1),
+        runner=accepted_runner_record,
+    )
+    output_dir = tmp_path / "codex_retrosynthesis_team"
+    queue = PersistentFrontierQueue(output_dir / "frontier_queue")
+    job = queue.list_jobs("legacy-migration-case")[0]
+    legacy_ref = str(output_dir / "team_report.json")
+    queue.rebind_succeeded_result(
+        "legacy-migration-case",
+        job.job_id,
+        expected_result_ref=job.result_ref,
+        result_ref=legacy_ref,
+    )
+    state_path = output_dir / "campaign_state.json"
+    legacy_state = json.loads(state_path.read_text(encoding="utf-8"))
+    legacy_state.pop("content_sha256", None)
+    state_path.write_text(json.dumps(legacy_state), encoding="utf-8")
+
+    migrated = migrate_legacy_campaign_commits(
+        case_id="legacy-migration-case",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+    )
+    migrated_job = queue.list_jobs("legacy-migration-case")[0]
+    migrated_state = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert report["route_expansion_count"] == 1
+    assert migrated["accepted"] is True
+    assert migrated["migrated_job_ids"] == [job.job_id]
+    assert "campaign_commits" in migrated_job.result_ref
+    assert migrated_state["content_sha256"]
 
 
 def test_team_rejects_completed_child_with_unstructured_or_wrong_role_report(tmp_path) -> None:

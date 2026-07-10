@@ -124,23 +124,37 @@ def _sample_atorvastatin_blackboard() -> dict:
 
 def _solved_parent_proof(*, route: dict | None = None, target_smiles: str = "CCO") -> dict:
     del route
+    if target_smiles == "CC=O":
+        reactants = ["CCO"]
+        mapped_reaction = "[CH3:1][CH2:2][OH:3]>>[CH3:1][CH:2]=[O:3]"
+        step_id = "ethanol_oxidation"
+    else:
+        reactants = ["CC", "O"]
+        mapped_reaction = "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]"
+        step_id = "common_stock_to_ethanol"
+    stock_status = {value: True for value in reactants}
+    strict_step = _strict_literature_step(
+        step_id=step_id,
+        reactants=reactants,
+        product=target_smiles,
+        atom_mapped_reaction_smiles=mapped_reaction,
+    )
+    strict_step.update(
+        {
+            "stock_status": stock_status,
+            "reaction_type": "test materialized route",
+        }
+    )
     raw = {
         "target": target_smiles,
         "routes": [
             {
                 "route_rank": 0,
                 "metrics": {
-                    "terminal_reactants": ["CC", "O"],
-                    "terminal_stock_status": {"CC": True, "O": True},
+                    "terminal_reactants": reactants,
+                    "terminal_stock_status": stock_status,
                 },
-                "steps": [
-                    {
-                        "product": target_smiles,
-                        "reactant_smiles": ["CC", "O"],
-                        "stock_status": {"CC": True, "O": True},
-                        "reaction_type": "test materialized route",
-                    }
-                ],
+                "steps": [strict_step],
             }
         ],
     }
@@ -152,12 +166,18 @@ def _solved_parent_proof(*, route: dict | None = None, target_smiles: str = "CCO
     )
 
 
-def _strict_literature_step(*, step_id: str, reactants: list[str], product: str) -> dict:
+def _strict_literature_step(
+    *,
+    step_id: str,
+    reactants: list[str],
+    product: str,
+    atom_mapped_reaction_smiles: str = "",
+) -> dict:
     pdf_digest = hashlib.sha256(_SOURCE_FIXTURE.read_bytes()).hexdigest()
     image_digest = hashlib.sha256(_SOURCE_PAGE_FIXTURE.read_bytes()).hexdigest()
     manifest_digest = hashlib.sha256(_SOURCE_MANIFEST_FIXTURE.read_bytes()).hexdigest()
     template_id = f"source_detail_exact_step:{step_id}"
-    return {
+    row = {
         "step_id": step_id,
         "source_template_id": template_id,
         "product_smiles": product,
@@ -189,11 +209,14 @@ def _strict_literature_step(*, step_id: str, reactants: list[str], product: str)
             }
         ],
     }
+    if atom_mapped_reaction_smiles:
+        row["atom_mapped_reaction_smiles"] = atom_mapped_reaction_smiles
+    return row
 
 
 def _stitched_parent_proof() -> dict:
     terminal = "CCO"
-    target = "CCOC(C)=O"
+    target = "CC=O"
     raw = {
         "target": terminal,
         "search_status": {"solved": True},
@@ -206,8 +229,14 @@ def _stitched_parent_proof() -> dict:
                 },
                 "steps": [
                     {
-                        "product": terminal,
-                        "reactant_smiles": ["CC", "O"],
+                        **_strict_literature_step(
+                            step_id="common_stock_to_ethanol",
+                            reactants=["CC", "O"],
+                            product=terminal,
+                            atom_mapped_reaction_smiles=(
+                                "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]"
+                            ),
+                        ),
                         "stock_status": {"CC": True, "O": True},
                         "reaction_type": "verified hydration",
                     }
@@ -226,9 +255,12 @@ def _stitched_parent_proof() -> dict:
             "source_ref": "doi:10.1000/revalidatable-stitch",
             "chain": [
                 _strict_literature_step(
-                    step_id="ethyl_acetate",
+                    step_id="ethanol_oxidation",
                     reactants=[terminal],
                     product=target,
+                    atom_mapped_reaction_smiles=(
+                        "[CH3:1][CH2:2][OH:3]>>[CH3:1][CH:2]=[O:3]"
+                    ),
                 )
             ],
         },
@@ -245,12 +277,12 @@ def _stitched_parent_proof() -> dict:
         subgoal_verifier=verifier,
         subgoal_raw_result=raw,
         target_smiles=target,
-        target_name="ethyl acetate",
+        target_name="acetaldehyde",
         case_id="stitched-route-forest-test",
     )
     return compile_stitched_parent_route_proof(
         target_smiles=target,
-        target_name="ethyl acetate",
+        target_name="acetaldehyde",
         case_id="stitched-route-forest-test",
         stitched_route=stitch,
     )
@@ -270,8 +302,14 @@ def _multi_frontier_stitched_parent_proof() -> dict:
                 },
                 "steps": [
                     {
-                        "product": "CCO",
-                        "reactant_smiles": ["CC", "O"],
+                        **_strict_literature_step(
+                            step_id="common_stock_to_ethanol",
+                            reactants=["CC", "O"],
+                            product="CCO",
+                            atom_mapped_reaction_smiles=(
+                                "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]"
+                            ),
+                        ),
                         "stock_status": {"CC": True, "O": True},
                     }
                 ],
@@ -290,8 +328,12 @@ def _multi_frontier_stitched_parent_proof() -> dict:
                 },
                 "steps": [
                     {
-                        "product": "O",
-                        "reactant_smiles": ["O=O"],
+                        **_strict_literature_step(
+                            step_id="oxygen_to_water",
+                            reactants=["O=O"],
+                            product="O",
+                            atom_mapped_reaction_smiles="[O:1]=[O:2]>>[OH2:1]",
+                        ),
                         "stock_status": {"O=O": True},
                     }
                 ],
@@ -327,6 +369,9 @@ def _multi_frontier_stitched_parent_proof() -> dict:
                     step_id="multi_frontier",
                     reactants=["CCO", "O"],
                     product=target,
+                    atom_mapped_reaction_smiles=(
+                        "[CH3:1][CH2:2][OH:3].[OH2:4]>>[CH3:1][CH2:2][O:3][OH:4]"
+                    ),
                 )
             ],
         },
@@ -700,7 +745,7 @@ def test_stitched_route_ignores_loose_top_level_route_injection(monkeypatch) -> 
     injected_route = {
         "steps": [
             {
-                "product": "CCOC(C)=O",
+                "product": "CC=O",
                 "reactant_smiles": ["c1ccccc1"],
                 "reaction_type": "injected loose route",
             }
@@ -711,7 +756,7 @@ def test_stitched_route_ignores_loose_top_level_route_injection(monkeypatch) -> 
     forest = compile_explored_route_forest(
         {
             "case_id": "stitched-route-injection-test",
-            "target_profile": {"target_name": "ethyl acetate", "target_smiles": "CCOC(C)=O"},
+            "target_profile": {"target_name": "acetaldehyde", "target_smiles": "CC=O"},
             "parent_route_proof": proof,
         }
     )
@@ -743,7 +788,7 @@ def test_stitched_route_rejects_any_missing_proof_segment(monkeypatch) -> None:
         forest = compile_explored_route_forest(
             {
                 "case_id": f"stitched-missing-{missing_segment}",
-                "target_profile": {"target_name": "ethyl acetate", "target_smiles": "CCOC(C)=O"},
+                "target_profile": {"target_name": "acetaldehyde", "target_smiles": "CC=O"},
                 "parent_route_proof": proof,
             }
         )
@@ -760,7 +805,7 @@ def test_stitched_route_displays_all_stock_precursors_in_one_forward_dag(monkeyp
     forest = compile_explored_route_forest(
         {
             "case_id": "stitched-multi-precursor-test",
-            "target_profile": {"target_name": "ethyl acetate", "target_smiles": "CCOC(C)=O"},
+            "target_profile": {"target_name": "acetaldehyde", "target_smiles": "CC=O"},
             "parent_route_proof": _stitched_parent_proof(),
             "literature_evidence": {
                 "visual_chains": [
@@ -1202,16 +1247,16 @@ def test_route_forest_projects_direct_verified_chemenzy_route(tmp_path) -> None:
             {
                 "route_rank": 0,
                 "metrics": {
-                    "terminal_reactants": ["CC", "O"],
-                    "terminal_stock_status": {"CC": True, "O": True},
+                    "terminal_reactants": ["C", "O"],
+                    "terminal_stock_status": {"C": True, "O": True},
                 },
                 "steps": [
                     {
                         "index": 0,
                         "product": "CCO",
-                        "reactant_smiles": ["CC", "O"],
-                        "stock_status": {"CC": True, "O": True},
-                        "reaction_type": "hydration",
+                        "reactant_smiles": ["C", "C", "O"],
+                        "stock_status": {"C": True, "O": True},
+                        "reaction_type": "unbound artifact B",
                         "scores": {"confidence": 0.91},
                     }
                 ],
@@ -1249,9 +1294,102 @@ def test_route_forest_projects_direct_verified_chemenzy_route(tmp_path) -> None:
     assert direct["solved"] is True
     assert direct["executable"] is True
     assert direct["advisory_only"] is False
+    assert direct["proof_binding"]["accepted"] is True
+    assert direct["proof_binding"]["proof_mode"] == "direct_parent_route"
+    assert len(direct["proof_binding"]["route_structure_sha256"]) == 64
     assert forest["counts"]["steps"] == 1
     assert any(row["label"] == "ethanol" for row in forest["nodes"])
-    assert any(row["label"] == "hydration" for row in forest["steps"])
+    assert any(row["label"] == "test materialized route" for row in forest["steps"])
+    assert not any(row["label"] == "unbound artifact B" for row in forest["steps"])
+    assert not any(row["canonical_isomeric_smiles"] == "C" for row in forest["nodes"])
+
+
+def test_guided_l1_or_l2_route_without_parent_proof_is_advisory(tmp_path) -> None:
+    result_path = tmp_path / "guided_chemenzy_result.json"
+    raw = {
+        "target": "CCO",
+        "routes": [
+            {
+                "route_rank": 0,
+                "metrics": {
+                    "terminal_reactants": ["CC", "O"],
+                    "terminal_stock_status": {"CC": True, "O": True},
+                },
+                "steps": [
+                    {
+                        "product": "CCO",
+                        "reactant_smiles": ["CC", "O"],
+                        "stock_status": {"CC": True, "O": True},
+                        "reaction_type": "guided candidate",
+                        "atom_mapped_reaction_smiles": (
+                            "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]"
+                        ),
+                    }
+                ],
+            }
+        ],
+    }
+    verifier = verify_chemenzy_raw_routes(raw, target_smiles="CCO")
+    result_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "guided_chemenzy_rerun_result.v1",
+                "raw_route_verifier": verifier,
+                "result": raw,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "unbound-guided-route",
+            "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+            "artifact_refs": {"guided_chemenzy_result": str(result_path)},
+        },
+        run_dir=tmp_path,
+    )
+
+    direct = next(row for row in forest["branches"] if row["kind"] == "direct_verified_route")
+    assert direct["solved"] is False
+    assert direct["executable"] is False
+    assert direct["advisory_only"] is True
+    assert direct["proof_binding"]["accepted"] is False
+    assert direct["proof_binding"]["reasons"] == [
+        "accepted_parent_route_proof_binding_missing"
+    ]
+    step = next(row for row in forest["steps"] if row["step_id"] in direct["step_ids"])
+    assert step["reaction_step_proof"]["accepted"] is False
+    assert step["reaction_step_proof"]["proof_level"] == "L2_mapping_consistent"
+    assert step["trust_vector"]["proof_tier"] == "L2_mapping_consistent"
+    assert forest["primary_selection"]["status"] == "advisory"
+    assert forest["primary_selection"]["advisory_only"] is True
+
+
+def test_explicit_unresolved_final_verdict_cannot_display_solved_branch() -> None:
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "unresolved-verdict-overrides-display",
+            "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+            "parent_route_proof": _solved_parent_proof(target_smiles="CCO"),
+            "final_verdict": {
+                "verdict": "unresolved",
+                "route_status": "unresolved",
+                "solved": False,
+            },
+        }
+    )
+
+    direct = next(row for row in forest["branches"] if row["kind"] == "direct_verified_route")
+    assert direct["proof_binding"]["accepted"] is True
+    assert direct["solved"] is False
+    assert direct["executable"] is False
+    assert direct["advisory_only"] is True
+    assert not any(
+        branch["solved"] or branch["executable"] or not branch["advisory_only"]
+        for branch in forest["branches"]
+    )
 
 
 def test_route_forest_rejects_backend_solved_claim_without_deterministic_verifier(tmp_path) -> None:
@@ -1451,6 +1589,89 @@ def test_route_forest_html_is_read_only_and_inspectable() -> None:
     assert "data-toggle-panel=\"inspector\"" in html
 
 
+def test_route_forest_default_route_buttons_reset_to_compiled_primary_branch() -> None:
+    forest = compile_explored_route_forest(_sample_paclitaxel_blackboard())
+    html = render_route_forest_html(forest)
+
+    assert html.count("data-reset-default-route") >= 3
+    assert "function resetDefaultRoute()" in html
+    assert "const branch = defaultBranch();" in html
+    assert "selectedBranchId = branch.branch_id || '__all__';" in html
+    assert "selectedStepId = firstStepId(branch);" in html
+    assert "button.onclick = resetDefaultRoute" in html
+    assert 'class="toggle-button" type="button" data-reset-default-route>恢复默认分支' in html
+    assert 'class="clear-button" type="button" data-reset-default-route>默认分支' in html
+    assert "data-reset-route>默认分支" not in html
+
+
+def test_every_compiled_branch_kind_owns_its_step_and_dependency_foreign_keys() -> None:
+    blackboard = _sample_paclitaxel_blackboard()
+    blackboard["literature_evidence"]["process_evidence_rows"] = [
+        {
+            "row_id": "shared-process-id",
+            "endpoint_labels": ["paclitaxel"],
+            "substrate_or_feedstock_labels": ["10-deacetylbaccatin III"],
+            "biocatalyst_or_process_labels": ["semisynthesis"],
+            "source_ref": "doi:10.1000/process-a",
+        },
+        {
+            "row_id": "shared-process-id",
+            "endpoint_labels": ["baccatin III"],
+            "substrate_or_feedstock_labels": ["taxane feedstock"],
+            "biocatalyst_or_process_labels": ["biotransformation"],
+            "source_ref": "doi:10.1000/process-b",
+        },
+    ]
+    blackboard["retrosynthetic_proposals"].append(
+        {
+            "proposal_id": "proposal_ester_coupling",
+            "proposal_label": "distinct duplicate-id proposal",
+            "proposal_type": "side-chain disconnection",
+            "precursor_smiles": "CC=O.O",
+            "confidence": "low",
+        }
+    )
+    blackboard["broad_transform_templates"].append(
+        {
+            "template_id": "template_c13_sidechain",
+            "objective_type": "protection state adjustment",
+            "transform_logic": "distinct duplicate-id template",
+        }
+    )
+
+    forest = compile_explored_route_forest(blackboard)
+    assert {
+        "visual_chain",
+        "process_evidence",
+        "retrosynthetic_proposal",
+        "broad_template",
+    } <= {branch["kind"] for branch in forest["branches"]}
+
+    owner_by_step: dict[str, str] = {}
+    for branch in forest["branches"]:
+        for step_id in branch["step_ids"]:
+            assert step_id not in owner_by_step
+            owner_by_step[step_id] = branch["branch_id"]
+
+    assert set(owner_by_step) == {step["step_id"] for step in forest["steps"]}
+    assert all(
+        step["branch_id"] == owner_by_step[step["step_id"]]
+        for step in forest["steps"]
+    )
+
+    graph = forest["dependency_graph"]
+    for collection in ("reaction_nodes", "hyperedges", "edges"):
+        assert all(
+            row["branch_id"] == owner_by_step[row["reaction_step_id"]]
+            for row in graph[collection]
+        )
+    assert {
+        view["branch_id"]: view["step_ids"] for view in graph["branch_views"]
+    } == {
+        branch["branch_id"]: branch["step_ids"] for branch in forest["branches"]
+    }
+
+
 def test_write_route_forest_artifacts_writes_json_and_html(tmp_path) -> None:
     result = write_route_forest_artifacts(_sample_paclitaxel_blackboard(), run_dir=tmp_path)
 
@@ -1461,3 +1682,791 @@ def test_write_route_forest_artifacts_writes_json_and_html(tmp_path) -> None:
     assert forest_path.exists()
     assert html_path.exists()
     assert "paclitaxel" in html_path.read_text(encoding="utf-8")
+
+
+def test_route_forest_projects_explicit_bipartite_dependencies_without_array_adjacency() -> None:
+    blackboard = {
+        "case_id": "explicit_dependency_projection",
+        "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+        "literature_evidence": {
+            "visual_chains": [
+                {
+                    "accepted": True,
+                    "source_ref": "doi:10.1000/disconnected-figure",
+                    "candidate_steps": [
+                        {
+                            "step_id": "independent-a",
+                            "reaction_class": "first independent reaction",
+                            "reactant_smiles": ["CC"],
+                            "product_smiles": ["CCC"],
+                        },
+                        {
+                            "step_id": "independent-b",
+                            "reaction_class": "second independent reaction",
+                            "reactant_smiles": ["O"],
+                            "product_smiles": ["CO"],
+                        },
+                    ],
+                }
+            ]
+        },
+    }
+
+    forest = compile_explored_route_forest(blackboard)
+
+    graph = forest["dependency_graph"]
+    assert graph["schema_version"] == "molecule_reaction_dependency_graph.v1"
+    assert graph["graph_kind"] == "molecule_reaction_bipartite_hypergraph"
+    assert graph["no_array_adjacency_edges"] is True
+    assert {row["node_type"] for row in graph["nodes"]} == {"molecule", "reaction"}
+    assert {row["edge_type"] for row in graph["edges"]} == {
+        "molecule_to_reaction",
+        "reaction_to_molecule",
+    }
+    branch_view = graph["branch_views"][0]
+    assert len(branch_view["step_ids"]) == 2
+    assert branch_view["dependencies"] == []
+    assert branch_view["dependency_semantics"].startswith("producer/consumer")
+
+
+def test_name_only_same_label_is_namespaced_per_branch_source_and_evidence_row() -> None:
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "name-only-collision",
+            "target_profile": {"target_name": "unknown target", "target_smiles": ""},
+            "literature_evidence": {
+                "visual_chains": [
+                    {
+                        "source_ref": "doi:10.1000/source-a",
+                        "candidate_steps": [
+                            {
+                                "step_id": "source-a-row-1",
+                                "reaction_class": "source A reaction",
+                                "reactant_labels": ["Starting material A"],
+                                "product_label": "Intermediate 3",
+                            }
+                        ],
+                    },
+                    {
+                        "source_ref": "doi:10.1000/source-b",
+                        "candidate_steps": [
+                            {
+                                "step_id": "source-b-row-1",
+                                "reaction_class": "source B reaction",
+                                "reactant_labels": ["Intermediate 3"],
+                                "product_label": "Product B",
+                            }
+                        ],
+                    },
+                ]
+            },
+        }
+    )
+
+    nodes = {row["node_id"]: row for row in forest["nodes"]}
+    steps = {row["label"]: row for row in forest["steps"]}
+    source_a_intermediate = steps["source A reaction"]["to_node_ids"][0]
+    source_b_intermediate = steps["source B reaction"]["from_node_ids"][0]
+
+    assert nodes[source_a_intermediate]["label"] == "Intermediate 3"
+    assert nodes[source_b_intermediate]["label"] == "Intermediate 3"
+    assert source_a_intermediate != source_b_intermediate
+    assert nodes[source_a_intermediate]["canonical_isomeric_smiles"] == ""
+    assert nodes[source_b_intermediate]["canonical_isomeric_smiles"] == ""
+    assert nodes[source_a_intermediate]["identity_namespace"] != nodes[source_b_intermediate][
+        "identity_namespace"
+    ]
+    assert all(
+        view["dependencies"] == []
+        for view in forest["dependency_graph"]["branch_views"]
+    )
+    assert source_a_intermediate in forest["dependency_graph"]["branch_views"][0][
+        "terminal_molecule_node_ids"
+    ]
+    assert source_b_intermediate in forest["dependency_graph"]["branch_views"][1][
+        "root_molecule_node_ids"
+    ]
+
+
+def test_route_forest_emits_multidimensional_trust_and_complete_tier_legend() -> None:
+    blackboard = {
+        "case_id": "trust_vector_projection",
+        "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+        "retrosynthetic_proposals": [
+            {
+                "proposal_id": "proposal:reduction",
+                "proposal_label": "carbonyl reduction",
+                "precursor_smiles": "CC=O",
+                "product_smiles": "CCO",
+                "evidence_refs": ["doi:10.1000/example"],
+            }
+        ],
+    }
+
+    forest = compile_explored_route_forest(blackboard)
+
+    step = forest["steps"][0]
+    trust = step["trust_vector"]
+    assert {
+        "identity",
+        "connectivity",
+        "source_independence",
+        "stock",
+        "conditions",
+        "forward_feasibility",
+        "proof_tier",
+    } <= set(trust)
+    assert trust["proof_tier"] == "L0_materialized"
+    assert trust["status"]["forward_feasibility"] == "not_universally_proven"
+    assert step["visual_encoding"]["width_semantics"] == "independent_support_group_count"
+    assert step["visual_encoding"]["opacity_semantics"] == "mean_trust_dimension"
+    assert {row["proof_tier"] for row in forest["dependency_graph"]["proof_tier_legend"]} == {
+        "L0_rejected",
+        "L0_advisory",
+        "L0_materialized",
+        "L1_graph_stock_closed",
+        "L2_mapping_consistent",
+        "L2_reaction_validated",
+        "L3_precedent_supported",
+        "L4_procurement_ready",
+    }
+
+
+def test_route_forest_legacy_interface_pairs_are_diagnostics_only() -> None:
+    blackboard = {
+        "case_id": "safe_replacement_projection",
+        "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+        "retrosynthetic_proposals": [
+            {
+                "proposal_id": "proposal:chemical",
+                "proposal_label": "chemical carbonyl reduction",
+                "precursor_smiles": "CC=O",
+                "product_smiles": "CCO",
+            },
+            {
+                "proposal_id": "proposal:enzyme",
+                "proposal_label": "enzymatic carbonyl reduction",
+                "precursor_smiles": "CC=O",
+                "product_smiles": "CCO",
+            },
+            {
+                "proposal_id": "proposal:broken",
+                "proposal_label": "broken same-product shortcut",
+                "precursor_smiles": "CC",
+                "product_smiles": "CCO",
+            },
+        ],
+    }
+
+    forest = compile_explored_route_forest(blackboard)
+
+    validation = forest["replacement_validation"]
+    assert validation["schema_version"] == "route_replacement_validation.v1"
+    assert validation["candidate_count"] == 0
+    assert validation["validated_count"] == 0
+    assert validation["rejected_count"] == 0
+    assert validation["semantics"]["invalid_candidates_are_not_replaceable"] is True
+    assert validation["semantics"]["single_step_splicing_forbidden"] is True
+    diagnostics = validation["interface_diagnostics"]
+    assert diagnostics["schema_version"] == "route_interface_diagnostics.v1"
+    assert diagnostics["candidate_count"] == 6
+    assert diagnostics["interface_compatible_count"] == 2
+    assert all(row["validated"] is False for row in diagnostics["records"])
+    assert all(row["diagnostics_only"] is True for row in diagnostics["records"])
+
+    html = render_route_forest_html(forest)
+    assert "No backend AND/OR-revalidated replacement is available." in html
+    assert "never enable a single-step splice" in html
+    assert "Array adjacency never creates an edge" in html
+
+
+def _portfolio_projection_blackboard(*, include_alt_in_top_k: bool) -> dict:
+    def with_digest(value: dict, *, field: str = "content_sha256") -> dict:
+        payload = dict(value)
+        payload.pop(field, None)
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        payload[field] = hashlib.sha256(encoded).hexdigest()
+        return payload
+
+    molecules = {
+        "target": "CCOC",
+        "shared": "CCO",
+        "side-a": "O",
+        "side-b": "N",
+        "stock-1": "CC",
+        "stock-2": "[Na+]",
+        "stock-3": "[Cl-]",
+    }
+
+    def hyperedge(
+        edge_id: str,
+        product_id: str,
+        precursor_ids: list[str],
+        *,
+        support_group: str,
+    ) -> dict:
+        return {
+            "schema_version": "reaction_hyperedge.v2",
+            "hyperedge_id": edge_id,
+            "product_molecule_id": product_id,
+            "precursor_molecule_ids": precursor_ids,
+            "candidate_envelope_ids": [],
+            "evidence_claim_ids": [],
+            "source_channels": ["literature_exact"],
+            "independent_support_groups": [support_group],
+            "reaction_families": [f"reaction {edge_id}"],
+            "rank_score": 0.8,
+            "advisory_only": True,
+        }
+
+    edges = [
+        hyperedge("e-main", "target", ["shared", "side-a"], support_group="paper:main"),
+        hyperedge("e-alt", "target", ["shared", "side-b"], support_group="paper:alt"),
+        hyperedge("e-shared", "shared", ["stock-1"], support_group="paper:shared"),
+        hyperedge("e-side-a", "side-a", ["stock-2"], support_group="paper:side-a"),
+        hyperedge("e-side-b", "side-b", ["stock-3"], support_group="paper:side-b"),
+    ]
+
+    def route(
+        route_id: str,
+        target_edge: str,
+        side_product: str,
+        side_edge: str,
+        stock_side: str,
+        *,
+        diversity: float,
+    ) -> dict:
+        return with_digest({
+            "schema_version": "route_portfolio_item.v1",
+            "route_id": route_id,
+            "root_molecule_id": "target",
+            "selected_hyperedges": [
+                {"product_molecule_id": "target", "hyperedge_id": target_edge},
+                {"product_molecule_id": "shared", "hyperedge_id": "e-shared"},
+                {"product_molecule_id": side_product, "hyperedge_id": side_edge},
+            ],
+            "hyperedge_ids": [target_edge, "e-shared", side_edge],
+            "molecule_ids": ["target", "shared", side_product, "stock-1", stock_side],
+            "stock_terminal_ids": ["stock-1", stock_side],
+            "source_channels": ["literature_exact"],
+            "independent_support_groups": [
+                "paper:shared",
+                f"paper:{'main' if target_edge == 'e-main' else 'alt'}",
+                f"paper:{side_product}",
+            ],
+            "weakest_proof_level": 2,
+            "mean_edge_rank": 0.8,
+            "base_score": 0.82,
+            "diversity_score": diversity,
+            "portfolio_score": 0.8,
+            "complete": True,
+            "reaction_validated": True,
+            "unresolved_frontiers": [],
+        })
+
+    main_route = route(
+        "portfolio-route:main",
+        "e-main",
+        "side-a",
+        "e-side-a",
+        "stock-2",
+        diversity=1.0,
+    )
+    alt_route = route(
+        "portfolio-route:alt",
+        "e-alt",
+        "side-b",
+        "e-side-b",
+        "stock-3",
+        diversity=0.6,
+    )
+    portfolio_routes = [main_route, alt_route] if include_alt_in_top_k else [main_route]
+    edge_by_id = {row["hyperedge_id"]: row for row in edges}
+    exact_edge_bindings = {}
+    for edge_id, edge_row in edge_by_id.items():
+        named_level = (
+            "L3_precedent_supported" if edge_id == "e-main" else "L2_reaction_validated"
+        )
+        exact_edge_bindings[edge_id] = with_digest(
+            {
+                "schema_version": "exact_edge_proof_binding.v1",
+                "hyperedge_id": edge_id,
+                "product_molecule_id": edge_row["product_molecule_id"],
+                "precursor_molecule_ids": sorted(edge_row["precursor_molecule_ids"]),
+                "structure_signature_sha256": hashlib.sha256(edge_id.encode()).hexdigest(),
+                "proof_level": named_level,
+                "portfolio_proof_level": 3 if edge_id == "e-main" else 2,
+                "advisory": False,
+                "proof_accepted": True,
+                "proof_digest": hashlib.sha256(f"proof:{edge_id}".encode()).hexdigest(),
+                "route_proof_digest": hashlib.sha256(
+                    f"route-proof:{edge_id}".encode()
+                ).hexdigest(),
+                "reaction_digest": hashlib.sha256(f"reaction:{edge_id}".encode()).hexdigest(),
+                "trusted_precedent_sha256": (
+                    hashlib.sha256(f"precedent:{edge_id}".encode()).hexdigest()
+                    if named_level == "L3_precedent_supported"
+                    else ""
+                ),
+                "proof_source": "legacy_best_accepted_route",
+                "proof_bank_entry_id": "",
+                "proof_bank_entry_sha256": "",
+            },
+            field="binding_sha256",
+        )
+    stock_bindings = {}
+    for molecule_id in ["stock-1", "stock-2", "stock-3"]:
+        stock_bindings[molecule_id] = with_digest(
+            {
+                "schema_version": "exact_stock_binding.v1",
+                "molecule_id": molecule_id,
+                "canonical_isomeric_smiles": molecules[molecule_id],
+                "catalog_id": f"catalog:{molecule_id}",
+                "catalog_sha256": hashlib.sha256(f"catalog:{molecule_id}".encode()).hexdigest(),
+                "lookup_basis": "canonical_isomeric_smiles",
+                "evidence_sha256": hashlib.sha256(f"evidence:{molecule_id}".encode()).hexdigest(),
+                "binding_authority": "legacy_best_route_independent_stock_audit",
+            },
+            field="binding_sha256",
+        )
+    portfolio = with_digest(
+        {
+            "schema_version": "route_portfolio.v1",
+            "root_molecule_id": "target",
+            "routes": portfolio_routes,
+            "complete_candidate_count": 2,
+            "enumerated_candidate_count": 2,
+            "truncated": True,
+            "reasons": ["route_enumeration_truncated"],
+            "selection_policy": "and_or_closure_then_maximal_marginal_relevance",
+            "requires_explicit_stock_and_reaction_proof": True,
+        }
+    )
+    bindings = with_digest(
+        {
+            "schema_version": "route_portfolio_bindings.v1",
+            "stock_molecule_ids": ["stock-1", "stock-2", "stock-3"],
+            "edge_proof_levels": {
+                "e-main": 3,
+                "e-alt": 2,
+                "e-shared": 2,
+                "e-side-a": 2,
+                "e-side-b": 2,
+            },
+            "exact_edge_proof_bindings": exact_edge_bindings,
+            "stock_bindings": stock_bindings,
+        }
+    )
+    replacement_catalog = with_digest(
+        {
+            "schema_version": "route_replacement_catalog.v1",
+            "portfolio_content_sha256": portfolio["content_sha256"],
+            "portfolio_integrity_valid": True,
+            "candidate_count": 2,
+            "accepted_candidate_count": 1,
+            "rejected_candidate_count": 1,
+            "truncated": False,
+            "candidates": [
+                {
+                    "candidate_id": "replacement:main-to-alt",
+                    "base_route_id": "portfolio-route:main",
+                    "product_molecule_id": "target",
+                    "original_hyperedge_id": "e-main",
+                    "replacement_hyperedge_id": "e-alt",
+                    "accepted": True,
+                    "route": alt_route,
+                    "connectivity_revalidated": True,
+                    "stock_closure_revalidated": True,
+                    "reaction_proof_revalidated": True,
+                    "reasons": [],
+                },
+                {
+                    "candidate_id": "replacement:rejected-open-route",
+                    "base_route_id": "portfolio-route:main",
+                    "product_molecule_id": "target",
+                    "original_hyperedge_id": "e-main",
+                    "replacement_hyperedge_id": "e-rejected",
+                    "accepted": False,
+                    "route": {},
+                    "connectivity_revalidated": True,
+                    "stock_closure_revalidated": True,
+                    "reaction_proof_revalidated": True,
+                    "reasons": ["no_stock_closed_reaction_validated_route"],
+                },
+            ],
+        }
+    )
+    graph = {
+        "schema_version": "route_consensus_graph.v1",
+        "nodes": [],
+        "steps": [],
+        "route_hypotheses": [],
+        "v2_overlay": {
+            "schema_version": "route_hypergraph_overlay.v2",
+            "root_molecule_id": "target",
+            "validation": {"valid": True, "errors": []},
+            "molecules": [
+                {"molecule_id": molecule_id, "canonical_isomeric_smiles": smiles}
+                for molecule_id, smiles in molecules.items()
+            ],
+            "evidence_claims": [],
+            "candidate_envelopes": [],
+            "reaction_hyperedges": edges,
+        },
+        "route_portfolio": portfolio,
+        "route_portfolio_bindings": bindings,
+        "route_replacement_catalog": replacement_catalog,
+    }
+    return {
+        "case_id": "portfolio-projection",
+        "target_profile": {"target_name": "portfolio target", "target_smiles": "CCOC"},
+        "route_consensus_graph": graph,
+    }
+
+
+def test_each_top_k_portfolio_route_is_an_independent_closed_branch_dag() -> None:
+    forest = compile_explored_route_forest(
+        _portfolio_projection_blackboard(include_alt_in_top_k=True)
+    )
+    portfolio_branches = [
+        row
+        for row in forest["branches"]
+        if row.get("kind") == "proof_eligible_portfolio_route"
+    ]
+    assert len(portfolio_branches) == 2
+    assert {row["portfolio_route_id"] for row in portfolio_branches} == {
+        "portfolio-route:main",
+        "portfolio-route:alt",
+    }
+    assert all(row["listed"] is True for row in portfolio_branches)
+    assert all(row["proof_eligible"] is True for row in portfolio_branches)
+    assert all(row["weakest_proof_tier"] == "L2_reaction_validated" for row in portfolio_branches)
+    assert all(row["portfolio_enumeration"]["solver_truncated"] is True for row in portfolio_branches)
+    assert {row["diversity_score"] for row in portfolio_branches} == {1.0, 0.6}
+
+    views = {
+        row["portfolio_route_id"]: row
+        for row in forest["dependency_graph"]["branch_views"]
+        if row.get("portfolio_route_id")
+        and (next(
+            branch
+            for branch in forest["branches"]
+            if branch["branch_id"] == row["branch_id"]
+        )).get("listed") is True
+    }
+    assert set(views) == {"portfolio-route:main", "portfolio-route:alt"}
+    for branch in portfolio_branches:
+        view = views[branch["portfolio_route_id"]]
+        assert view["acyclic"] is True
+        assert view["all_leaves_stock_bound"] is True
+        assert set(view["stock_leaf_molecule_node_ids"]) == set(
+            branch["stock_terminal_node_ids"]
+        )
+        assert view["target_molecule_node_ids"] == [branch["root_molecule_node_id"]]
+        assert view["weakest_proof_tier"] == "L2_reaction_validated"
+
+    steps = {row["step_id"]: row for row in forest["steps"]}
+    main_branch = next(row for row in portfolio_branches if row["portfolio_route_id"].endswith("main"))
+    alt_branch = next(row for row in portfolio_branches if row["portfolio_route_id"].endswith("alt"))
+    assert set(main_branch["step_ids"]).isdisjoint(alt_branch["step_ids"])
+    main_shared = next(
+        steps[step_id]
+        for step_id in main_branch["step_ids"]
+        if steps[step_id].get("portfolio_hyperedge_id") == "e-shared"
+    )
+    alt_shared = next(
+        steps[step_id]
+        for step_id in alt_branch["step_ids"]
+        if steps[step_id].get("portfolio_hyperedge_id") == "e-shared"
+    )
+    assert main_shared["to_node_ids"] == alt_shared["to_node_ids"]
+    assert main_shared["step_id"] != alt_shared["step_id"]
+    assert forest["route_portfolio_projection"]["projected_route_count"] == 2
+    assert forest["route_portfolio_projection"]["solver_truncated"] is True
+
+
+def test_backend_replacement_catalog_previews_complete_hidden_resolved_branch() -> None:
+    forest = compile_explored_route_forest(
+        _portfolio_projection_blackboard(include_alt_in_top_k=False)
+    )
+    validation = forest["replacement_validation"]
+    assert validation["validation_engine"] == "and_or.validate_route_replacement"
+    assert validation["validated_count"] == 1
+    assert validation["rejected_count"] == 1
+    record = next(row for row in validation["records"] if row["validated"])
+    assert record["validated"] is True
+    assert record["revalidated_route_branch_id"]
+    replacement_branch = next(
+        row
+        for row in forest["branches"]
+        if row["branch_id"] == record["revalidated_route_branch_id"]
+    )
+    assert replacement_branch["kind"] == "validated_replacement_route"
+    assert replacement_branch["listed"] is False
+    assert replacement_branch["portfolio_route_id"] == "portfolio-route:alt"
+    replacement_steps = {
+        row["portfolio_hyperedge_id"]
+        for row in forest["steps"]
+        if row["step_id"] in replacement_branch["step_ids"]
+    }
+    assert replacement_steps == {"e-alt", "e-shared", "e-side-b"}
+    assert "e-main" not in replacement_steps
+    assert "e-side-a" not in replacement_steps
+    assert forest["route_portfolio_projection"]["replacement_preview_branch_count"] == 1
+    rejected = next(row for row in validation["records"] if not row["validated"])
+    assert rejected["candidate_step_id"] == ""
+    assert rejected["reasons"] == ["no_stock_closed_reaction_validated_route"]
+
+    html = render_route_forest_html(forest)
+    assert "baseRows.slice" not in html
+    assert "data-replacement-id" in html
+    assert "full AND/OR route re-solved" in html
+    assert "no_stock_closed_reaction_validated_route" in html
+    assert "branches.filter(branch => branch.listed !== false)" in html
+
+
+def test_portfolio_projection_fails_closed_on_tampered_hash_bound_proof_data() -> None:
+    def rehash(value: dict, *, field: str = "content_sha256") -> None:
+        payload = dict(value)
+        payload.pop(field, None)
+        value[field] = hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+
+    route_tampered = _portfolio_projection_blackboard(include_alt_in_top_k=True)
+    route_graph = route_tampered["route_consensus_graph"]
+    route_graph["route_portfolio"]["routes"][0]["base_score"] = 0.01
+    rehash(route_graph["route_portfolio"])
+    route_forest = compile_explored_route_forest(route_tampered)
+    assert route_forest["route_portfolio_projection"]["projected_route_count"] == 1
+    assert "portfolio_route_content_sha256_mismatch" in route_forest[
+        "route_portfolio_projection"
+    ]["rejected_routes"][0]["reasons"]
+
+    edge_tampered = _portfolio_projection_blackboard(include_alt_in_top_k=True)
+    edge_graph = edge_tampered["route_consensus_graph"]
+    edge_graph["route_portfolio_bindings"]["exact_edge_proof_bindings"]["e-main"][
+        "portfolio_proof_level"
+    ] = 4
+    rehash(edge_graph["route_portfolio_bindings"])
+    edge_forest = compile_explored_route_forest(edge_tampered)
+    assert edge_forest["route_portfolio_projection"]["projected_route_count"] == 1
+    assert any(
+        "binding_sha256_mismatch" in reason
+        for reason in edge_forest["route_portfolio_projection"]["rejected_routes"][0][
+            "reasons"
+        ]
+    )
+
+    mapping_promoted = _portfolio_projection_blackboard(include_alt_in_top_k=True)
+    mapping_graph = mapping_promoted["route_consensus_graph"]
+    mapping_binding = mapping_graph["route_portfolio_bindings"][
+        "exact_edge_proof_bindings"
+    ]["e-alt"]
+    mapping_binding["proof_level"] = "L2_mapping_consistent"
+    mapping_binding["portfolio_proof_level"] = 2
+    mapping_binding["advisory"] = False
+    rehash(mapping_binding, field="binding_sha256")
+    rehash(mapping_graph["route_portfolio_bindings"])
+    mapping_forest = compile_explored_route_forest(mapping_promoted)
+    assert mapping_forest["route_portfolio_projection"]["projected_route_count"] == 1
+    assert any(
+        "proof_level_portfolio_level_mismatch" in reason
+        for reason in mapping_forest["route_portfolio_projection"]["rejected_routes"][0][
+            "reasons"
+        ]
+    )
+
+    stock_tampered = _portfolio_projection_blackboard(include_alt_in_top_k=True)
+    stock_graph = stock_tampered["route_consensus_graph"]
+    stock_graph["route_portfolio_bindings"]["stock_bindings"]["stock-2"][
+        "catalog_id"
+    ] = "catalog:tampered"
+    rehash(stock_graph["route_portfolio_bindings"])
+    stock_forest = compile_explored_route_forest(stock_tampered)
+    assert stock_forest["route_portfolio_projection"]["projected_route_count"] == 1
+    assert any(
+        "binding_sha256_mismatch" in reason
+        for reason in stock_forest["route_portfolio_projection"]["rejected_routes"][0][
+            "reasons"
+        ]
+    )
+
+    catalog_tampered = _portfolio_projection_blackboard(include_alt_in_top_k=False)
+    catalog_graph = catalog_tampered["route_consensus_graph"]
+    catalog_graph["route_replacement_catalog"]["candidates"][0]["accepted"] = False
+    catalog_forest = compile_explored_route_forest(catalog_tampered)
+    assert catalog_forest["route_portfolio_projection"][
+        "replacement_catalog_integrity_valid"
+    ] is False
+    assert catalog_forest["replacement_validation"]["records"] == []
+
+
+def test_route_forest_default_is_complete_and_explicit_limits_report_truncation() -> None:
+    proposals = [
+        {
+            "proposal_id": f"proposal:{index}",
+            "proposal_label": f"candidate route {index}",
+            "precursor_smiles": f"C{'C' * index}",
+            "product_smiles": "CCO",
+        }
+        for index in range(1, 4)
+    ]
+    blackboard = {
+        "case_id": "projection_coverage",
+        "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+        "retrosynthetic_proposals": proposals,
+    }
+
+    complete = compile_explored_route_forest(blackboard)
+    assert complete["counts"]["branches"] == 3
+    assert complete["projection_coverage"]["complete"] is True
+    assert complete["projection_coverage"]["categories"]["retrosynthetic_proposals"] == {
+        "available_count": 3,
+        "rendered_count": 3,
+        "omitted_count": 0,
+        "limit": None,
+        "truncated": False,
+    }
+
+    limited = compile_explored_route_forest(blackboard, max_proposal_branches=1)
+    coverage = limited["projection_coverage"]["categories"]["retrosynthetic_proposals"]
+    assert coverage == {
+        "available_count": 3,
+        "rendered_count": 1,
+        "omitted_count": 2,
+        "limit": 1,
+        "truncated": True,
+    }
+    assert limited["projection_coverage"]["complete"] is False
+    assert limited["counts"]["truncated_projection_rows"] == 2
+    assert "Projection truncated" in render_route_forest_html(limited)
+
+
+def test_route_forest_surfaces_content_addressed_closeout_revision_status() -> None:
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "revision-aware-display",
+            "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+            "closeout_revision": {
+                "schema_version": "closeout_revision.v1",
+                "accepted": True,
+                "status": "committed",
+                "revision_id": "revision-123",
+                "manifest_path": "revisions/revision-123/manifest.json",
+                "manifest_sha256": "a" * 64,
+                "authority": "content_addressed_closeout_manifest",
+                "artifact_count": 2,
+            },
+            "artifact_digest_refs": {
+                "route_forest": {
+                    "schema_version": "closeout_artifact_digest_ref.v1",
+                    "artifact_id": "route_forest",
+                    "sha256": "b" * 64,
+                    "revision_id": "revision-123",
+                }
+            },
+        }
+    )
+
+    assert forest["artifact_revision"] == {
+        "schema_version": "route_forest_artifact_revision_view.v1",
+        "status": "committed",
+        "committed": True,
+        "revision_id": "revision-123",
+        "manifest_path": "revisions/revision-123/manifest.json",
+        "manifest_sha256": "a" * 64,
+        "authority": "content_addressed_closeout_manifest",
+        "artifact_count": 2,
+        "digest_ref_count": 1,
+        "semantics": "content-addressed closeout manifest committed",
+    }
+    html = render_route_forest_html(forest)
+    assert "Content-addressed closeout revision" in html
+    assert "not promoted to committed closeout truth" in html
+
+
+def test_route_forest_propagates_only_deterministically_reverified_reaction_proof_tier() -> None:
+    raw = {
+        "target": "CCO",
+        "routes": [
+            {
+                "route_rank": 0,
+                "metrics": {
+                    "terminal_reactants": ["CC", "O"],
+                    "terminal_stock_status": {"CC": True, "O": True},
+                },
+                    "steps": [
+                        {
+                            **_strict_literature_step(
+                                step_id="common_stock_to_ethanol",
+                                reactants=["CC", "O"],
+                                product="CCO",
+                                atom_mapped_reaction_smiles=(
+                                    "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]"
+                                ),
+                            ),
+                            "stock_status": {"CC": True, "O": True},
+                        }
+                    ],
+            }
+        ],
+    }
+    verifier = verify_chemenzy_raw_routes(raw, target_smiles="CCO")
+    assert verifier["reaction_validation"]["accepted"] is True
+    proof = compile_stitched_parent_route_proof(
+        target_smiles="CCO",
+        target_name="ethanol",
+        parent_verifier=verifier,
+    )
+
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "reaction-proof-tier",
+            "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+            "parent_route_proof": proof,
+        }
+    )
+
+    assert forest["branches"][0]["kind"] == "direct_verified_route"
+    step = forest["steps"][0]
+    assert step["reaction_step_proof"]["proof_source"] == "deterministic_reverified_route"
+    assert step["trust_vector"]["proof_tier"] == "L3_precedent_supported"
+    assert step["trust_vector"]["forward_feasibility"] == 0.95
+    assert forest["branches"][0]["trust_vector"]["proof_tier"] == "L3_precedent_supported"
+
+
+def test_exact_precedent_without_l2_reaction_proof_does_not_skip_to_l3(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY",
+        str(_TRUSTED_REGISTRY_FIXTURE),
+    )
+    row = _strict_literature_step(
+        step_id="ethanol_oxidation",
+        reactants=["CCO"],
+        product="CC=O",
+    )
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "precedent-without-l2",
+            "target_profile": {"target_name": "acetaldehyde", "target_smiles": "CC=O"},
+            "literature_evidence": {"exact_rows": [row]},
+        }
+    )
+
+    step = forest["steps"][0]
+    assert step["exactness"] == "exact_literature_row"
+    assert step["trust_vector"]["proof_tier"] == "L0_materialized"
+    assert step["trust_vector"]["status"]["forward_feasibility"] == (
+        "precedent_without_L2_reaction_validation"
+    )

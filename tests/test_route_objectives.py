@@ -1,4 +1,7 @@
+import hashlib
 import json
+import os
+from pathlib import Path
 import unittest
 
 from cascade_planner.harness.parent_route_proof import compile_stitched_parent_route_proof
@@ -15,9 +18,58 @@ ATORVASTATIN_FREE_ACID = (
     "CC(C)C1=C(C(=C(N1CC[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)"
     "C3=CC=CC=C3)C(=O)NC4=CC=CC=C4"
 )
+_FIXTURES = Path(__file__).parent / "fixtures"
+_SOURCE_PDF = _FIXTURES / "source_evidence_stub.pdf"
+_SOURCE_IMAGE = _FIXTURES / "source_page.ppm"
+_SOURCE_MANIFEST = _FIXTURES / "source_evidence_manifest.json"
+_TRUSTED_REGISTRY = _FIXTURES / "trusted_literature_step_registry.json"
+
+
+def _strict_evidence_fields() -> dict:
+    template_id = "source_detail_exact_step:ethanol_hydration"
+    return {
+        "step_id": "ethanol_hydration",
+        "source_template_id": template_id,
+        "source_detail_exact_step": True,
+        "relation_type": "exact",
+        "source_ref": "doi:10.1000/revalidatable-stitch",
+        "exact_step_validation": {
+            "schema_version": "template_validation_report.v1",
+            "accepted": True,
+            "allowed_for_one_step_source": True,
+            "source_template_id": template_id,
+            "reasons": [],
+        },
+        "source_evidence": [
+            {
+                "schema_version": "materialized_source_evidence.v1",
+                "document_id": "fixture:revalidatable-stitch",
+                "manifest_path": str(_SOURCE_MANIFEST.resolve()),
+                "manifest_sha256": hashlib.sha256(_SOURCE_MANIFEST.read_bytes()).hexdigest(),
+                "source_pdf_path": str(_SOURCE_PDF.resolve()),
+                "source_pdf_sha256": hashlib.sha256(_SOURCE_PDF.read_bytes()).hexdigest(),
+                "page_number": 1,
+                "image_path": str(_SOURCE_IMAGE.resolve()),
+                "image_sha256": hashlib.sha256(_SOURCE_IMAGE.read_bytes()).hexdigest(),
+                "source_ref": "doi:10.1000/revalidatable-stitch",
+            }
+        ],
+    }
 
 
 class RouteObjectiveTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._prior_registry = os.environ.get("AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY")
+        os.environ["AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY"] = str(_TRUSTED_REGISTRY)
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._prior_registry is None:
+            os.environ.pop("AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY", None)
+        else:
+            os.environ["AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY"] = cls._prior_registry
+
     def test_small_molecule_keeps_stock_closure_as_top_objective(self):
         summary = classify_route_objectives(
             target_smiles="CCO",
@@ -76,6 +128,7 @@ class RouteObjectiveTest(unittest.TestCase):
         )
         blackboard = {
             "case_id": "complex",
+            "target_profile": {"target_smiles": C22_STEROID_LIKE},
             "route_objective_summary": summary,
             "endpoint_candidates": summary["endpoint_candidates"],
             "target_side_disconnection_hypotheses": {
@@ -126,10 +179,19 @@ class RouteObjectiveTest(unittest.TestCase):
         }
 
         plausible = compile_route_objective_proof_bundle(blackboard=blackboard)
-        intermediate = "C" * 12
+        simple_summary = classify_route_objectives(
+            target_smiles="CCO",
+            target_name="ethanol",
+            case_id="ethanol",
+        )
+        solved_blackboard = {
+            "case_id": "ethanol",
+            "target_profile": {"target_smiles": "CCO"},
+            "route_objective_summary": simple_summary,
+        }
         verifier = verify_chemenzy_raw_routes(
             {
-                "target": C22_STEROID_LIKE,
+                "target": "CCO",
                 "routes": [
                     {
                         "route_rank": 0,
@@ -139,28 +201,27 @@ class RouteObjectiveTest(unittest.TestCase):
                         },
                         "steps": [
                             {
-                                "product": intermediate,
-                                "reactant_smiles": ["CC"] * 6,
-                                "stock_status": {"CC": True},
-                            },
-                            {
-                                "product": C22_STEROID_LIKE,
-                                "reactant_smiles": [intermediate] + ["CC"] * 5 + ["O"] * 3,
+                                **_strict_evidence_fields(),
+                                "product": "CCO",
+                                "reactant_smiles": ["CC", "O"],
                                 "stock_status": {"CC": True, "O": True},
+                                "atom_mapped_reaction_smiles": (
+                                    "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]"
+                                ),
                             },
                         ],
                     }
                 ],
             },
-            target_smiles=C22_STEROID_LIKE,
+            target_smiles="CCO",
         )
         self.assertTrue(verifier["accepted"], verifier["reasons"])
         parent_proof = compile_stitched_parent_route_proof(
-            target_smiles=C22_STEROID_LIKE,
+            target_smiles="CCO",
             parent_verifier=verifier,
         )
         solved = compile_route_objective_proof_bundle(
-            blackboard=blackboard,
+            blackboard=solved_blackboard,
             parent_route_proof=parent_proof,
         )
 

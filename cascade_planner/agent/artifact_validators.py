@@ -9,6 +9,7 @@ from rdkit.Chem.inchi import MolToInchiKey
 from cascade_planner.agent.action_contracts import (
     ACTION_BATCH_SCHEMA as AGENT_ACTION_BATCH_SCHEMA,
     ALLOWED_AGENT_ACTIONS,
+    FORBIDDEN_RAW_REACTION_KEYS,
     contains_raw_reaction_payload as _contains_raw_reaction,
     planner_source_hint_reasons,
 )
@@ -281,9 +282,65 @@ def _agent_blackboard_snapshot_reasons(payload: dict[str, Any]) -> list[str]:
             continue
         if not str(row.get("action_type") or "").strip():
             reasons.append(f"agent_blackboard_action_history_missing_action_type:{idx}")
-    if _contains_raw_reaction(payload):
+    if _agent_blackboard_contains_raw_reaction(payload):
         reasons.append("raw_reaction_injection")
     return reasons
+
+
+def _agent_blackboard_contains_raw_reaction(
+    value: Any,
+    *,
+    path: tuple[str | int, ...] = (),
+) -> bool:
+    """Scan mutable blackboard content without flagging trusted prompt provenance.
+
+    Coordinator child prompts are harness-authored provenance records.  They
+    explicitly describe the forbidden ``>>`` syntax, so applying the generic
+    raw-reaction scanner to those strings produces a false positive.  Only the
+    exact coordinator prompt locations are exempt; sibling model output,
+    action payloads, and every other blackboard field remain fail-closed.
+    """
+
+    if isinstance(value, dict):
+        for key, item in value.items():
+            text_key = str(key)
+            item_path = (*path, text_key)
+            if text_key.lower() in FORBIDDEN_RAW_REACTION_KEYS:
+                return True
+            if text_key == "prompt" and _is_trusted_coordinator_prompt_path(item_path):
+                continue
+            if _agent_blackboard_contains_raw_reaction(item, path=item_path):
+                return True
+        return False
+    if isinstance(value, list):
+        return any(
+            _agent_blackboard_contains_raw_reaction(item, path=(*path, index))
+            for index, item in enumerate(value)
+        )
+    return isinstance(value, str) and ">>" in value
+
+
+def _is_trusted_coordinator_prompt_path(path: tuple[str | int, ...]) -> bool:
+    if len(path) < 5 or path[-1] != "prompt" or not isinstance(path[-2], int):
+        return False
+    if path[-3:] != ("observed_child_agents", path[-2], "prompt"):
+        return False
+    prefix = path[:-3]
+    if prefix == ("codex_agent_team", "coordinator"):
+        return True
+    if prefix == (
+        "codex_agent_team",
+        "provider_envelope",
+        "payload",
+        "coordinator",
+    ):
+        return True
+    return bool(
+        len(prefix) == 3
+        and prefix[0] == "agent_team_history"
+        and isinstance(prefix[1], int)
+        and prefix[2] == "coordinator"
+    )
 
 
 def _agent_blackboard_budget_reasons(budget: dict[str, Any]) -> list[str]:

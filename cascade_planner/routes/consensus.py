@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 from collections import defaultdict
 from typing import Any, Iterable
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from rdkit import Chem, RDLogger
 
@@ -89,7 +91,11 @@ def normalize_route_candidate(
         # a model-authored field cannot validate itself.
         reasons.append("untrusted_self_validated_evidence_claim")
     literature_exact_downgraded = bool(
-        evidence_level == "literature_exact" and not allow_trusted_literature_exact_evidence
+        evidence_level == "literature_exact"
+        and (
+            not allow_trusted_literature_exact_evidence
+            or source_channel.startswith("codex_")
+        )
     )
     if literature_exact_downgraded:
         # A Codex child naming a DOI is a literature claim, not a second
@@ -99,6 +105,7 @@ def normalize_route_candidate(
     confidence = _normalize_confidence(raw.get("confidence"))
     source_refs = _dedupe(_texts(raw.get("source_refs")))
     evidence_refs = _dedupe(_texts(raw.get("evidence_refs")))
+    source_aliases = _literature_source_aliases([*source_refs, *evidence_refs])
     if evidence_level == "literature_exact" and not any(
         _traceable_literature_ref(ref) for ref in [*source_refs, *evidence_refs]
     ):
@@ -135,6 +142,7 @@ def normalize_route_candidate(
         "required_validation": _dedupe(_texts(raw.get("required_validation"))),
         "report_ref": str(report_ref or raw.get("report_ref") or "").strip(),
         "support_group": _support_group(source_channel, evidence_level, source_refs, evidence_refs),
+        "source_identity_aliases": source_aliases,
         "no_solved_claim": True,
         "not_parent_route_proof": True,
     }, []
@@ -275,6 +283,7 @@ def validate_retrosynthesis_report_payload(payload: Any) -> list[str]:
 
 def _fuse_group(signature: str, rows: list[dict[str, Any]], *, target: str) -> dict[str, Any]:
     first = rows[0]
+    _reconcile_literature_support_groups(rows)
     channels = sorted({row["source_channel"] for row in rows})
     support_groups = sorted({row["support_group"] for row in rows})
     evidence_levels = [row["evidence_level"] for row in rows]
@@ -288,6 +297,7 @@ def _fuse_group(signature: str, rows: list[dict[str, Any]], *, target: str) -> d
             "evidence_refs": row["evidence_refs"],
             "report_ref": row["report_ref"],
             "support_group": row["support_group"],
+            "source_identity_aliases": list(row.get("source_identity_aliases") or []),
         }
         for row in rows
     ]
@@ -379,18 +389,24 @@ def _support_group(
     source_refs: list[str],
     evidence_refs: list[str],
 ) -> str:
-    traceable = next(
-        (ref.lower() for ref in [*source_refs, *evidence_refs] if _traceable_literature_ref(ref)),
-        "",
-    )
+    # All Codex roles share one correlated model source, even when a caller
+    # explicitly permits trusted evidence levels.  Trusting an exact-row
+    # adapter must never turn a model's DOI claim into independent literature.
+    if source_channel.startswith("codex_"):
+        return "codex_model"
+    aliases = _literature_source_aliases([*source_refs, *evidence_refs])
+    traceable = _preferred_source_alias(aliases)
     if evidence_level == "literature_exact" and traceable:
         return f"literature:{traceable}"
     if evidence_level == "validated":
         return f"validated:{traceable or source_channel}"
-    if source_channel.startswith("codex_"):
-        return "codex_model"
     if source_channel in {"chem_enzy", "template", "stock"}:
         return f"computational:{source_channel}"
+    if source_channel == "literature_analogy":
+        # A syntactically DOI-like model/legacy claim is not an independently
+        # verified source.  Only the strict exact-row adapter may create an
+        # independent literature support group.
+        return "codex_model"
     if not traceable:
         # An unattributed model/legacy record is not an independent source.
         # Correlate it with model-authored hypotheses so it cannot create a
@@ -400,11 +416,121 @@ def _support_group(
 
 
 def _traceable_literature_ref(value: Any) -> bool:
-    text = str(value or "").strip().lower()
-    return bool(
-        text.startswith(("doi:", "http://", "https://", "pmid:", "pmc:", "local_pdf:", "source:"))
-        or text.startswith("10.") and "/" in text
+    return bool(_canonical_literature_ref(value))
+
+
+_DOI_PATTERN = re.compile(r"(?i)(10\.\d{4,9}/[-._;()/:A-Z0-9]+)")
+_PMID_PATTERN = re.compile(r"(?i)(?:^pmid\s*:\s*|pubmed\.ncbi\.nlm\.nih\.gov/)(\d+)")
+_PMC_PATTERN = re.compile(
+    r"(?i)(?:^pmc\s*:\s*(?:pmc)?|(?:www\.)?(?:ncbi\.nlm\.nih\.gov/pmc/articles/|pmc\.ncbi\.nlm\.nih\.gov/articles/)(?:pmc)?)(\d+)"
+)
+
+
+def _canonical_literature_ref(value: Any) -> str:
+    """Return one stable article/source alias without claiming authenticity."""
+    text = unquote(str(value or "").strip()).strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    doi_match = _DOI_PATTERN.search(lowered.removeprefix("doi:"))
+    if doi_match:
+        doi = doi_match.group(1).rstrip(".,;:)]}")
+        return f"doi:{doi}"
+    pmid_match = _PMID_PATTERN.search(lowered)
+    if pmid_match:
+        return f"pmid:{int(pmid_match.group(1))}"
+    pmc_match = _PMC_PATTERN.search(lowered)
+    if pmc_match:
+        return f"pmc:{int(pmc_match.group(1))}"
+    if lowered.startswith("pmc:"):
+        clean = lowered.removeprefix("pmc:").removeprefix("pmc").strip()
+        return f"pmc:{int(clean)}" if clean.isdigit() else ""
+    if lowered.startswith(("http://", "https://")):
+        try:
+            parts = urlsplit(lowered)
+        except ValueError:
+            return ""
+        if not parts.hostname:
+            return ""
+        host = parts.hostname.lower()
+        port = f":{parts.port}" if parts.port else ""
+        path = re.sub(r"/+", "/", parts.path or "/").rstrip("/") or "/"
+        return f"url:{urlunsplit(('https', host + port, path, '', ''))}"
+    for prefix in ("local_pdf:", "source:"):
+        if lowered.startswith(prefix):
+            identity = lowered.removeprefix(prefix).split("#", 1)[0].strip().replace("\\", "/")
+            return f"{prefix}{identity}" if identity else ""
+    return ""
+
+
+def _literature_source_aliases(values: Iterable[Any]) -> list[str]:
+    return sorted(
+        {
+            alias
+            for value in values
+            if (alias := _canonical_literature_ref(value))
+        },
+        key=_source_alias_sort_key,
     )
+
+
+def _source_alias_sort_key(value: str) -> tuple[int, str]:
+    priorities = {"doi": 0, "pmid": 1, "pmc": 2, "url": 3, "local_pdf": 4, "source": 5}
+    prefix = value.split(":", 1)[0]
+    return priorities.get(prefix, 99), value
+
+
+def _preferred_source_alias(values: Iterable[str]) -> str:
+    aliases = sorted({str(value) for value in values if str(value)}, key=_source_alias_sort_key)
+    return aliases[0] if aliases else ""
+
+
+def _reconcile_literature_support_groups(rows: list[dict[str, Any]]) -> None:
+    """Collapse DOI/PMID/PMC/URL/local aliases joined by provenance records.
+
+    A record containing both a DOI and a local/SI reference acts as an explicit
+    bridge.  Transitive bridges are resolved within the fused reaction group,
+    so article HTML, supporting information and cached copies cannot inflate
+    independent support.
+    """
+    eligible = [
+        index
+        for index, row in enumerate(rows)
+        if row.get("evidence_level") in {"literature_exact", "validated"}
+        and row.get("source_identity_aliases")
+        and not str(row.get("source_channel") or "").startswith("codex_")
+    ]
+    parents = {index: index for index in eligible}
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    for position, left in enumerate(eligible):
+        left_aliases = set(rows[left].get("source_identity_aliases") or [])
+        for right in eligible[position + 1 :]:
+            if not left_aliases.intersection(rows[right].get("source_identity_aliases") or []):
+                continue
+            left_root, right_root = find(left), find(right)
+            if left_root != right_root:
+                parents[right_root] = left_root
+    components: dict[int, list[int]] = defaultdict(list)
+    for index in eligible:
+        components[find(index)].append(index)
+    for indexes in components.values():
+        aliases = {
+            alias
+            for index in indexes
+            for alias in rows[index].get("source_identity_aliases") or []
+        }
+        primary = _preferred_source_alias(aliases)
+        if not primary:
+            continue
+        for index in indexes:
+            prefix = "validated" if rows[index].get("evidence_level") == "validated" else "literature"
+            rows[index]["support_group"] = f"{prefix}:{primary}"
 
 
 def _condition_conflicts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

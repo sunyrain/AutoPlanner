@@ -5201,7 +5201,9 @@ def _direct_parent_route_proof_ready(blackboard: dict[str, Any]) -> bool:
         and verifier.get("verifier_schema_version") == "harness_route_verifier_report.v1"
         and verifier.get("accepted") is True
         and verifier.get("solved") is True
-        and str(verifier.get("route_status") or "") == "solved"
+        and str(verifier.get("verification_level") or "")
+        in {"L2_reaction_validated", "L3_precedent_supported", "L4_procurement_ready"}
+        and verifier.get("reaction_validated") is True
         and verifier.get("target_match") is True
         and accepted_route_count > 0
         and verifier.get("best_route_rank") is not None

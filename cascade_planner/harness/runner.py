@@ -805,6 +805,10 @@ def _artifact_tree_contains_raw_reaction(value: Any, *, deterministic_context: b
                 "chemenzy",
                 "guided_chemenzy",
                 "route_audit",
+                "route_verifier",
+                "parent_route_proof",
+                "stitched_semisynthesis_route",
+                "source_detail_chain_route",
             }
             if not deterministic_context and key_text in {
                 "rxn",

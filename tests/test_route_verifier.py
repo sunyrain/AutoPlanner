@@ -1,11 +1,27 @@
 from __future__ import annotations
 
 import hashlib
+import copy
+import json
 from pathlib import Path
 
 import pytest
 
 from cascade_planner.harness import route_verifier as rv
+
+
+def _rehash_record(value: dict) -> None:
+    payload = dict(value)
+    payload.pop("content_hash", None)
+    value["content_hash"] = hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _route(
@@ -262,3 +278,100 @@ def test_complete_unique_mapped_convergence_is_recomputed_and_allowed():
     forged_step.pop("atom_mapped_reaction_smiles")
     forged_step["atom_provenance"] = {"accepted": True}
     assert rv.is_accepted_route_verifier_report(forged, expected_target_smiles="CCCC") is False
+
+
+def test_route_proof_bank_preserves_and_replays_every_accepted_route():
+    raw = _route("CCO", ["CC", "O"])
+    raw["routes"].append(
+        {
+            "route_rank": 1,
+            "score": 0.5,
+            "metrics": {
+                "terminal_reactants": ["C", "O"],
+                "terminal_stock_status": {"C": True, "O": True},
+            },
+            "steps": [
+                {
+                    "index": 0,
+                    "product": "CCO",
+                    "reactant_smiles": ["C", "C", "O"],
+                    "stock_status": {"C": True, "O": True},
+                }
+            ],
+        }
+    )
+
+    report = rv.verify_chemenzy_raw_routes(raw, target_smiles="CCO")
+
+    assert report["accepted"] is True
+    assert report["best_route_rank"] == 0
+    assert report["accepted_route"]["route_rank"] == 0
+    bank = report["route_proof_bank"]
+    assert bank["schema_version"] == "route_proof_bank.v1"
+    assert bank["entry_count"] == 2
+    assert [entry["route_rank"] for entry in bank["entries"]] == [0, 1]
+    assert rv.validate_route_proof_bank(bank, expected_target_smiles="CCO") == []
+    for entry in bank["entries"]:
+        replay = rv.replay_route_proof_bank_entry(
+            bank,
+            proof_id=entry["proof_id"],
+            expected_target_smiles="CCO",
+        )
+        assert replay["accepted"] is True
+        assert replay["reaction_validated"] is False
+        assert rv.is_replayable_route_proof_bank_entry(
+            bank,
+            proof_id=entry["proof_id"],
+            expected_target_smiles="CCO",
+        )
+
+
+def test_route_proof_bank_tamper_and_fake_authority_fields_fail_replay():
+    report = rv.verify_chemenzy_raw_routes(
+        _route("CCO", ["CC", "O"]),
+        target_smiles="CCO",
+    )
+    bank = report["route_proof_bank"]
+    proof_id = bank["entries"][0]["proof_id"]
+
+    tampered = copy.deepcopy(bank)
+    tampered["entries"][0]["materialized_route"]["steps"][0]["product"] = "CCN"
+    _rehash_record(tampered["entries"][0])
+    _rehash_record(tampered)
+    assert rv.validate_route_proof_bank(tampered, expected_target_smiles="CCO") == []
+    assert not rv.is_replayable_route_proof_bank_entry(
+        tampered,
+        proof_id=proof_id,
+        expected_target_smiles="CCO",
+    )
+
+    forged = copy.deepcopy(bank)
+    forged["entries"][0]["solved"] = True
+    _rehash_record(forged["entries"][0])
+    _rehash_record(forged)
+    reasons = rv.validate_route_proof_bank(forged, expected_target_smiles="CCO")
+    assert "entry:0:route_proof_bank_entry_fields_not_strict" in reasons
+    assert not rv.is_replayable_route_proof_bank_entry(
+        forged,
+        proof_id=proof_id,
+        expected_target_smiles="CCO",
+    )
+
+
+def test_single_route_bank_and_legacy_report_remain_compatible():
+    report = rv.verify_chemenzy_raw_routes(
+        _route("CCO", ["CC", "O"]),
+        target_smiles="CCO",
+    )
+
+    assert report["route_proof_bank"]["entry_count"] == 1
+    assert rv.is_replayable_route_proof_bank_entry(
+        report["route_proof_bank"],
+        expected_target_smiles="CCO",
+    )
+    legacy = dict(report)
+    legacy.pop("route_proof_bank")
+    assert rv.is_accepted_route_verifier_report(
+        legacy,
+        expected_target_smiles="CCO",
+    )

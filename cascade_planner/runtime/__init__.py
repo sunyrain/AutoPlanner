@@ -29,6 +29,16 @@ from .event_store import (
     SnapshotConflictError,
 )
 from .codex_team_tracker import CodexTeamRuntimeTracker
+from .artifact_revision import (
+    ArtifactRevisionError,
+    load_latest_closeout_artifact,
+    load_latest_closeout_decision,
+    load_latest_closeout_manifest,
+    publish_closeout_revision,
+    sha256_file,
+    validate_closeout_manifest,
+    validate_latest_closeout_revision,
+)
 
 
 __all__ = [
@@ -42,6 +52,7 @@ __all__ = [
     "AgentResult",
     "AgentSpec",
     "AgentState",
+    "ArtifactRevisionError",
     "Budget",
     "CodexTeamRuntimeTracker",
     "EventStore",
@@ -55,6 +66,13 @@ __all__ = [
     "SnapshotConflictError",
     "coerce_agent_state",
     "context_hash",
+    "load_latest_closeout_manifest",
+    "load_latest_closeout_artifact",
+    "load_latest_closeout_decision",
+    "publish_closeout_revision",
     "require_agent_state_transition",
+    "sha256_file",
     "utc_now",
+    "validate_closeout_manifest",
+    "validate_latest_closeout_revision",
 ]

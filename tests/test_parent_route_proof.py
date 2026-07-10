@@ -2,6 +2,7 @@ import unittest
 import hashlib
 import os
 from pathlib import Path
+import tempfile
 
 from cascade_planner.harness.agentic_blackboard_controller import emit_agentic_final_verdict
 from cascade_planner.harness.parent_route_proof import (
@@ -30,7 +31,17 @@ def _strict_literature_step(*, step_id: str, reactants: list[str], product: str)
     image_digest = hashlib.sha256(_SOURCE_PAGE_FIXTURE.read_bytes()).hexdigest()
     manifest_digest = hashlib.sha256(_SOURCE_MANIFEST_FIXTURE.read_bytes()).hexdigest()
     template_id = f"source_detail_exact_step:{step_id}"
-    return {
+    mapped_reactions = {
+        (tuple(["CC", "O"]), "CCO"): "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]",
+        (tuple(["C", "C"]), "CC"): "[CH4:1].[CH4:2]>>[CH3:1][CH3:2]",
+        (tuple(["O=O"]), "O"): "[O:1]=[O:2]>>[OH2:1]",
+        (tuple(["CCO"]), "CC=O"): "[CH3:1][CH2:2][OH:3]>>[CH3:1][CH:2]=[O:3]",
+        (
+            tuple(["CCO", "O"]),
+            "CCOO",
+        ): "[CH3:1][CH2:2][OH:3].[OH2:4]>>[CH3:1][CH2:2][O:3][OH:4]",
+    }
+    row = {
         "step_id": step_id,
         "source_template_id": template_id,
         "product_smiles": product,
@@ -62,6 +73,10 @@ def _strict_literature_step(*, step_id: str, reactants: list[str], product: str)
             }
         ],
     }
+    mapped = mapped_reactions.get((tuple(reactants), product), "")
+    if mapped:
+        row["atom_mapped_reaction_smiles"] = mapped
+    return row
 
 
 def _accepted_stitch_fixture() -> dict:
@@ -71,11 +86,17 @@ def _accepted_stitch_fixture() -> dict:
         literature_chain_audit={
             "schema_version": "source_detail_route_chain_audit.v1",
             "accepted": True,
-            "target_smiles": "CCOC(C)=O",
+            "target_smiles": "CC=O",
             "terminal_smiles": terminal,
             "terminal_reached": True,
             "source_ref": "doi:10.1000/revalidatable-stitch",
-            "chain": [_strict_literature_step(step_id="ethyl_acetate", reactants=[terminal], product="CCOC(C)=O")],
+            "chain": [
+                _strict_literature_step(
+                    step_id="ethanol_oxidation",
+                    reactants=[terminal],
+                    product="CC=O",
+                )
+            ],
         },
         route_expansion_result={
             "subgoals": [
@@ -88,7 +109,7 @@ def _accepted_stitch_fixture() -> dict:
         },
         subgoal_verifier=_strict_subgoal_verifier(terminal),
         subgoal_raw_result=raw,
-        target_smiles="CCOC(C)=O",
+        target_smiles="CC=O",
     )
 
 
@@ -99,6 +120,12 @@ def _strict_subgoal_verifier(target_smiles: str) -> dict:
 def _materialized_subgoal_raw(target_smiles: str) -> dict:
     reactants = ["C", "C"] if target_smiles == "CC" else ["CC", "O"]
     terminal_reactants = list(dict.fromkeys(reactants))
+    strict_step = _strict_literature_step(
+        step_id="methane_coupling" if target_smiles == "CC" else "ethanol_hydration",
+        reactants=reactants,
+        product=target_smiles,
+    )
+    strict_step["stock_status"] = {item: True for item in terminal_reactants}
     return {
         "target": target_smiles,
         "search_status": {"solved": True},
@@ -110,13 +137,7 @@ def _materialized_subgoal_raw(target_smiles: str) -> dict:
                     "terminal_reactants": terminal_reactants,
                     "terminal_stock_status": {item: True for item in terminal_reactants},
                 },
-                "steps": [
-                    {
-                        "product": target_smiles,
-                        "reactant_smiles": reactants,
-                        "stock_status": {item: True for item in terminal_reactants},
-                    }
-                ],
+                "steps": [strict_step],
             }
         ],
     }
@@ -130,6 +151,25 @@ def _strict_parent_verifier(
 ) -> dict:
     accepted_reactants = [precursor_smiles, "O"] if target_smiles == "CCO" and precursor_smiles == "CC" else [precursor_smiles]
     accepted_terminals = list(dict.fromkeys(accepted_reactants))
+    accepted_step = {
+        "product": target_smiles,
+        "reactant_smiles": accepted_reactants,
+        "stock_status": {item: True for item in accepted_terminals},
+        "atom_mapped_reaction_smiles": (
+            "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]"
+            if target_smiles == "CCO" and accepted_reactants == ["CC", "O"]
+            else ""
+        ),
+    }
+    if target_smiles == "CCO" and accepted_reactants == ["CC", "O"]:
+        accepted_step = _strict_literature_step(
+            step_id="ethanol_hydration",
+            reactants=accepted_reactants,
+            product=target_smiles,
+        )
+        accepted_step["stock_status"] = {
+            item: True for item in accepted_terminals
+        }
     routes = [
         {
             "route_rank": 0,
@@ -137,13 +177,7 @@ def _strict_parent_verifier(
                 "terminal_reactants": accepted_terminals,
                 "terminal_stock_status": {item: True for item in accepted_terminals},
             },
-            "steps": [
-                {
-                    "product": target_smiles,
-                    "reactant_smiles": accepted_reactants,
-                    "stock_status": {item: True for item in accepted_terminals},
-                }
-            ],
+            "steps": [accepted_step],
         }
     ]
     if include_rejected_route:
@@ -190,6 +224,75 @@ class ParentRouteProofTest(unittest.TestCase):
         self.assertNotEqual(verdict.route_status, "solved")
         self.assertIn("solved_requires_deterministic_parent_route_proof", verdict.reasons)
 
+    def test_three_butanes_cut_and_glue_cannot_be_parent_eligible(self):
+        reactant_mapping = ".".join(
+            "".join(
+                [
+                    f"[CH3:{start}]",
+                    f"[CH2:{start + 1}]",
+                    f"[CH2:{start + 2}]",
+                    f"[CH3:{start + 3}]",
+                ]
+            )
+            for start in (1, 5, 9)
+        )
+        product_mapping = "".join(
+            f"[CH3:{index}]" if index in {1, 12} else f"[CH2:{index}]"
+            for index in range(1, 13)
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            catalog = Path(directory) / "butane.csv"
+            catalog.write_text("CCCC\n", encoding="utf-8")
+            catalog_sha = hashlib.sha256(catalog.read_bytes()).hexdigest()
+            parent = verify_chemenzy_raw_routes(
+                {
+                    "target": "CCCCCCCCCCCC",
+                    "stock_catalog_context": {
+                        "effective_stock_names": ["fixture_butane"],
+                        "catalog_bindings": [
+                            {
+                                "name": "fixture_butane",
+                                "path": str(catalog),
+                                "sha256": catalog_sha,
+                            }
+                        ],
+                    },
+                    "routes": [
+                        {
+                            "route_rank": 0,
+                            "metrics": {
+                                "terminal_reactants": ["CCCC"],
+                                "terminal_stock_status": {"CCCC": True},
+                            },
+                            "steps": [
+                                {
+                                    "product": "CCCCCCCCCCCC",
+                                    "reactant_smiles": ["CCCC"] * 3,
+                                    "stock_status": {"CCCC": True},
+                                    "atom_mapped_reaction_smiles": (
+                                        f"{reactant_mapping}>>{product_mapping}"
+                                    ),
+                                }
+                            ],
+                        }
+                    ],
+                },
+                target_smiles="CCCCCCCCCCCC",
+            )
+
+            self.assertTrue(parent["accepted"])
+            self.assertEqual(parent["verification_level"], "L2_mapping_consistent")
+            self.assertFalse(parent["reaction_validated"])
+            proof = compile_stitched_parent_route_proof(
+                target_smiles="CCCCCCCCCCCC",
+                parent_verifier=parent,
+            )
+        self.assertFalse(proof["accepted"])
+        self.assertFalse(
+            proof["proof_clauses"]["all_reaction_steps_precedent_supported"]
+        )
+        self.assertIn("parent_route_reaction_steps_not_validated", proof["reasons"])
+
     def test_bare_stitched_route_booleans_cannot_emit_solved_verdict(self):
         verdict = emit_final_verdict(
             {
@@ -235,6 +338,33 @@ class ParentRouteProofTest(unittest.TestCase):
         self.assertTrue(proof["accepted"], proof["reasons"])
         self.assertEqual(proof["proof_mode"], "direct_parent_route")
         self.assertNotIn("element_inventory_not_conserved", proof["reasons"])
+
+    def test_graph_and_stock_closed_parent_requires_reaction_step_proof(self):
+        parent = _strict_parent_verifier("CCO")
+        parent["accepted_route"]["steps"][0].pop("atom_mapped_reaction_smiles")
+        parent = verify_chemenzy_raw_routes(
+            {
+                "target": "CCO",
+                "routes": [parent["accepted_route"]],
+                "stock_catalog_context": parent["stock_catalog_audit"]["revalidation_context"],
+            },
+            target_smiles="CCO",
+        )
+
+        proof = compile_stitched_parent_route_proof(
+            target_smiles="CCO",
+            parent_verifier=parent,
+        )
+
+        self.assertFalse(proof["accepted"])
+        self.assertEqual(proof["proof_mode"], "direct_parent_route")
+        self.assertIn("parent_route_reaction_steps_not_validated", proof["reasons"])
+        self.assertIn("reaction_step_proof_incomplete", proof["reasons"])
+        self.assertFalse(proof["proof_clauses"]["all_reaction_steps_validated"])
+        self.assertEqual(
+            proof["proof_attempt"]["reaction_validation"]["proof_level"],
+            "L1_graph_and_stock_closed",
+        )
 
     def test_child_only_solved_does_not_pass_parent_proof(self):
         proof = compile_stitched_parent_route_proof(
@@ -288,7 +418,7 @@ class ParentRouteProofTest(unittest.TestCase):
 
     def test_verifier_and_stitch_connectivity_passes(self):
         proof = compile_stitched_parent_route_proof(
-            target_smiles="CCOC(C)=O",
+            target_smiles="CC=O",
             stitched_route=_accepted_stitch_fixture(),
             exact_literature_segment={"accepted": True, "parent_route_connected": True},
         )
@@ -299,7 +429,7 @@ class ParentRouteProofTest(unittest.TestCase):
 
     def test_accepted_stitch_is_not_blocked_by_prior_failed_guided_route(self):
         proof = compile_stitched_parent_route_proof(
-            target_smiles="CCOC(C)=O",
+            target_smiles="CC=O",
             parent_verifier={
                 "accepted": False,
                 "route_status": "fake_closed_rejected",
@@ -849,8 +979,11 @@ class ParentRouteProofTest(unittest.TestCase):
                     },
                     "steps": [
                         {
-                            "product": "O",
-                            "reactant_smiles": ["O=O"],
+                            **_strict_literature_step(
+                                step_id="oxygen_reduction",
+                                reactants=["O=O"],
+                                product="O",
+                            ),
                             "stock_status": {"O=O": True},
                         }
                     ],

@@ -52,6 +52,12 @@ from cascade_planner.baselines.route_contract import RouteSearchConfig
 from cascade_planner.baselines.template_relevance_runtime import check_template_relevance
 from cascade_planner.harness.agentic_blackboard_controller import run_agentic_blackboard_controller
 from cascade_planner.harness.tools import HarnessBudget
+from cascade_planner.runtime.artifact_revision import (
+    ArtifactRevisionError,
+    load_latest_closeout_decision,
+    load_latest_closeout_manifest,
+    validate_latest_closeout_revision,
+)
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -522,7 +528,14 @@ def _run_codex_fullflow_plan(payload: dict[str, Any], *, job_id: str | None = No
             else:
                 os.environ[key] = value
 
-    final = dict(result.get("final_verdict") or {})
+    try:
+        closeout_decision = load_latest_closeout_decision(run_dir)
+        closeout_validation = validate_latest_closeout_revision(run_dir)
+        final = dict(closeout_decision.get("final_verdict") or {})
+    except ArtifactRevisionError:
+        closeout_decision = {}
+        closeout_validation = validate_latest_closeout_revision(run_dir)
+        final = dict(result.get("final_verdict") or {})
     artifacts = dict(result.get("artifacts") or {})
     forest_counts = _route_forest_counts(artifacts.get("explored_route_forest") or run_dir / "explored_route_forest.json")
     compact = {
@@ -531,6 +544,12 @@ def _run_codex_fullflow_plan(payload: dict[str, Any], *, job_id: str | None = No
         "target": target,
         "run_dir": str(run_dir),
         "final_verdict": final,
+        "final_verdict_authority": (
+            "content_addressed_closeout_objects"
+            if closeout_decision
+            else "compatibility_result"
+        ),
+        "closeout_revision": closeout_validation,
         "artifacts": artifacts,
         "preflight": result.get("preflight") or {},
         "target_input": result.get("target_input") or {},
@@ -556,6 +575,12 @@ def _run_codex_fullflow_plan(payload: dict[str, Any], *, job_id: str | None = No
             "route_forest_html": _rel(Path(artifacts.get("route_forest_html") or run_dir / "route_forest.html")),
             "explored_route_forest": _rel(Path(artifacts.get("explored_route_forest") or run_dir / "explored_route_forest.json")),
             "final_verdict": _rel(Path(artifacts.get("final_verdict") or run_dir / "final_verdict.json")),
+            "closeout_revision_manifest": _rel(
+                Path(
+                    artifacts.get("closeout_revision_manifest")
+                    or run_dir / ".autoplanner" / "closeout" / "latest.json"
+                )
+            ),
         },
     }
     out_path = run_dir / "web_agent_fullflow_result.json"
@@ -2027,6 +2052,51 @@ def _agent_runtime_payload(job: dict[str, Any]) -> dict[str, Any]:
     if not run_dir.is_absolute():
         run_dir = ROOT / run_dir
     payload: dict[str, Any] = {"agent_steps": _read_blackboard_step_summary(run_dir)}
+    try:
+        closeout = validate_latest_closeout_revision(run_dir)
+        decision = load_latest_closeout_decision(run_dir)
+        manifest = load_latest_closeout_manifest(run_dir)
+    except ArtifactRevisionError:
+        closeout = validate_latest_closeout_revision(run_dir)
+        decision = {}
+        manifest = {}
+    payload["closeout_revision"] = closeout
+    payload["final_verdict_authority"] = (
+        "content_addressed_closeout_objects" if decision else "compatibility_path"
+    )
+    if decision:
+        payload["authoritative_final_verdict"] = dict(decision.get("final_verdict") or {})
+        payload["authoritative_parent_route_proof"] = dict(
+            decision.get("parent_route_proof") or {}
+        )
+        semantic_drift: list[str] = []
+        fixed_final = _read_json_or_empty(run_dir / "final_verdict.json")
+        fixed_final.pop("artifact_refs", None)
+        fixed_final.pop("artifact_digest_refs", None)
+        if fixed_final != payload["authoritative_final_verdict"]:
+            semantic_drift.append("final_verdict_compatibility_drift")
+        fixed_board = _read_json_or_empty(run_dir / "agent_blackboard.json")
+        if dict(fixed_board.get("parent_route_proof") or {}) != payload[
+            "authoritative_parent_route_proof"
+        ]:
+            semantic_drift.append("agent_blackboard_parent_proof_drift")
+        payload["closeout_compatibility_semantic_drift"] = semantic_drift
+        rows = {
+            str(row.get("artifact_id") or ""): dict(row)
+            for row in manifest.get("artifacts") or []
+            if isinstance(row, dict) and str(row.get("artifact_id") or "")
+        }
+        for artifact_id in (
+            "parent_route_proof_snapshot",
+            "final_verdict_core",
+            "explored_route_forest",
+            "route_forest_html",
+        ):
+            row = rows.get(artifact_id) or {}
+            if row.get("content_path"):
+                payload[f"authoritative_{artifact_id}"] = _rel(
+                    run_dir / str(row["content_path"])
+                )
     for key, filename in {
         "agent_blackboard": "agent_blackboard.json",
         "route_forest_html": "route_forest.html",
@@ -3219,7 +3289,11 @@ def _safe_path(rel_path: str, *, allowed_roots: list[Path]) -> Path:
 
 
 def _rel(path: Path) -> str:
-    return str(path.resolve().relative_to(ROOT))
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(ROOT))
+    except ValueError:
+        return str(resolved)
 
 
 def _safe_label(value: str) -> str:

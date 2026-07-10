@@ -1048,7 +1048,7 @@ def _execute_chemenzy_request(
     python_bin = _chem_enzy_python_bin()
     if python_bin is None:
         runtime_preflight = _chem_enzy_runtime_preflight()
-        return {
+        result = {
             "schema_version": "chemenzy_run_result.v1",
             "accepted": False,
             "status": "runtime_unavailable",
@@ -1056,6 +1056,8 @@ def _execute_chemenzy_request(
             "request_path": str(request_path),
             "runtime_preflight": runtime_preflight,
         }
+        write_json(output_path, result)
+        return result
 
     cmd = [
         str(python_bin),
@@ -1110,7 +1112,7 @@ def _execute_chemenzy_request(
             else:
                 returncode = -9
     if timed_out:
-        return {
+        result = {
             "schema_version": "chemenzy_run_result.v1",
             "accepted": False,
             "status": "timeout",
@@ -1121,6 +1123,8 @@ def _execute_chemenzy_request(
             "stdout": stdout_path.read_text(encoding="utf-8", errors="replace") if stdout_path.exists() else "",
             "stderr": stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else "",
         }
+        write_json(output_path, result)
+        return result
 
     if output_path.exists():
         try:
@@ -1138,6 +1142,7 @@ def _execute_chemenzy_request(
         result.setdefault("accepted", False)
         result.setdefault("reasons", []).append("chemenzy_nonzero_exit")
         result["stderr"] = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
+    write_json(output_path, result)
     return result
 
 
@@ -5265,6 +5270,10 @@ def _artifact_tree_contains_raw_reaction(value: Any, *, deterministic_context: b
                 "chemenzy",
                 "guided_chemenzy",
                 "route_audit",
+                "route_verifier",
+                "parent_route_proof",
+                "stitched_semisynthesis_route",
+                "source_detail_chain_route",
             }
             if not deterministic_context and key_text in {
                 "rxn",

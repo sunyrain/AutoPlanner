@@ -11,13 +11,17 @@ target input
 -> agentic blackboard state
 -> Codex coordinator directly spawns independent specialist child agents
 -> each child report is independently parsed, role-bound, and validated
--> unresolved molecular frontiers launch additional direct child-agent teams
--> one-step consensuses assemble into a provenance-preserving multi-step DAG
+-> typed Provider SPI envelopes bind schema/version/hash; host policy binds correlation and authority
+-> stock-first durable frontiers launch additional direct child-agent teams
+-> every intermediate fuses its own multi-source reaction neighborhood
+-> typed reaction hyperedges assemble into a provenance-preserving global graph
 -> Codex chooses compact typed follow-up actions
 -> deterministic validators check safety, budgets, source binding, and proof boundaries
 -> local tools execute approved actions
+-> deterministic route verifiers preserve every accepted route in a replayable proof bank
+-> exact edge/stock bindings gate AND/OR closure and a diverse valid portfolio
 -> deterministic parent proof decides final verdict
--> route forest shows alternatives, support, conflicts, and per-step evidence
+-> immutable closeout binds the trust-coloured full route graph and alternatives
 ```
 
 Codex is allowed to delegate, plan, search, classify sources, and draft route
@@ -27,17 +31,46 @@ raw reaction SMILES into production, or promote artifacts to the production KB.
 When the multi-agent mainline fails, the run stops unresolved instead of
 silently replacing it with a deterministic scientific planner.
 
-The proof boundary is fail-closed. Every accepted parent route is replayed
-against the exact target and identifiable, content-hashed stock catalogs. A
-literature stitch additionally requires exact step chemistry bound to a real
+The proof boundary is fail-closed. `route_proof_bank.v1` retains every
+accepted, materialized verifier route instead of only the best route; a bundle
+of verifier results keeps each bank and authority separate while exact
+structure signatures are combined. Portfolio admission requires digest-valid
+`exact_edge_proof_binding.v1` and `exact_stock_binding.v1` records. Mapping-only
+`L2_mapping_consistent` is advisory and never enters the portfolio.
+`L2_reaction_validated` is reserved for a trusted deterministic transform
+reapply/reaction-centre replay; current parent authority still requires trusted
+exact precedent at L3 or L4 for every reaction. A literature stitch
+additionally requires exact step chemistry bound to a real
 PDF page and an out-of-band trusted registry, plus independently verified stock
 closure for every terminal reactant frontier. The packaged registry is empty by
-default. Consensus graphs, visual extractions, and solved child targets remain
-advisory until those parent-proof conditions are met.
+default. Consensus graphs, visual extractions, solved child targets, and
+structurally closed but reaction-unvalidated routes remain advisory until those
+parent-proof conditions are met.
+
+The durable Codex campaign queue persists stock-first **proposal expansion**
+jobs. Reaction replay, proof-bank validation, exact portfolio binding, full
+replacement re-solving, parent proof, and CAS publication are downstream
+deterministic stages; they are not silently represented as proof jobs in that
+same queue. Every proof-eligible Top-K item is rendered as its own closed branch
+DAG. Canonical molecule nodes may be shared, but reaction selections are
+branch-specific. A replacement preview switches to the complete backend
+re-solved route; rejected candidates remain visible, and no UI single-step
+splice can establish truth. Portfolio eligibility remains advisory and is not
+equivalent to `parent solved`.
+
+The current paclitaxel Architecture V2 replay demonstrates the engineering
+path without claiming a scientific solve: the four-child Codex team completed,
+the fused overlay contains 85 molecules and 82 reaction hyperedges (including
+five independently supported multi-source edges), and a validated CAS revision
+binds the complete 96-branch projection of the explored graph. No stock-closed,
+reaction-validated route entered the portfolio, so the authoritative verdict
+remains `hypothesis_route_proposed`, `solved=false`. The exact run metrics and
+remaining gates are recorded in [AutoPlanner mainline](docs/MAINLINE.md#paclitaxel-end-to-end-run-2026-07-10).
 
 ## Current Anchors
 
 - [Docs index](docs/README.md)
+- [Architecture V2](docs/ARCHITECTURE_V2.md)
 - [AutoPlanner mainline](docs/MAINLINE.md)
 - [Agentic blackboard mainline](docs/AGENTIC_BLACKBOARD_MAINLINE_2026-06-24.md)
 - [Repository surface and hygiene](docs/REPOSITORY_HYGIENE.md)
@@ -50,6 +83,8 @@ advisory until those parent-proof conditions are met.
 | `cascade_planner/agent/` | Codex-facing schemas, controllers, evidence artifacts, route audit, literature workflow, and validation gates. |
 | `cascade_planner/orchestration/` | Direct Codex coordinator/child-agent execution and team result collection. |
 | `cascade_planner/routes/` | Canonical route identity, multi-source fusion, blackboard adapters, and advisory multi-step graph assembly. |
+| `cascade_planner/application/` | Persistent proposal-frontier scheduling plus downstream proof-bound AND/OR route portfolios and full-route replacement validation. |
+| `cascade_planner/providers/` | Replaceable typed proposal, evidence, stock, verifier, agent, artifact, and renderer interfaces. |
 | `cascade_planner/runtime/` | Persistent agent state, event log, idempotency, and reconciliation contracts. |
 | `cascade_planner/baselines/` | ChemEnzy adapter and shared route contracts used as deterministic tools. |
 | `cascade_planner/web/` | Local UI and progress/artifact inspection surface. |

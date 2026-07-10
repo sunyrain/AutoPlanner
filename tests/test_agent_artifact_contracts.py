@@ -1,3 +1,4 @@
+import copy
 import json
 import unittest
 
@@ -201,6 +202,87 @@ class AgentArtifactContractsTest(unittest.TestCase):
         self.assertFalse(bad_result["accepted"])
         self.assertIn("agent_blackboard_direct_solved_claim", bad_result["reasons"])
         self.assertIn("raw_reaction_injection", bad_result["reasons"])
+
+    def test_agent_blackboard_snapshot_ignores_only_trusted_coordinator_prompt_syntax(self):
+        payload = {
+            "schema_version": "agent_blackboard.v1",
+            "case_id": "case",
+            "target_profile": {
+                "schema_version": "agent_target_profile_summary.v1",
+                "target_smiles": "CCO",
+            },
+            "literature_evidence": {
+                "schema_version": "agent_literature_evidence_summary.v1",
+            },
+            "budget_state": {
+                "schema_version": "agent_blackboard_budget_state.v1",
+                "rounds_completed": 0,
+                "max_rounds": 1,
+            },
+            "current_belief": {
+                "schema_version": "agent_current_belief.v1",
+                "template_policy": {"analogy_is_advisory_only": True},
+            },
+            "planner_history": [],
+            "action_history": [],
+            "artifact_refs": {},
+            "codex_agent_team": {
+                "coordinator": {
+                    "observed_child_agents": [
+                        {"prompt": "Never emit reaction strings containing '>>'."}
+                    ]
+                },
+                "provider_envelope": {
+                    "payload": {
+                        "coordinator": {
+                            "observed_child_agents": [
+                                {"prompt": "The forbidden delimiter is >>."}
+                            ]
+                        }
+                    }
+                },
+            },
+            "agent_team_history": [
+                {
+                    "coordinator": {
+                        "observed_child_agents": [
+                            {"prompt": "Do not return reactants>>products."}
+                        ]
+                    }
+                }
+            ],
+        }
+
+        def artifact(value: dict) -> object:
+            return ARTIFACT_CLASSES["AgentBlackboardSnapshot"](
+                artifact_id="blackboard_snapshot",
+                case_id="case",
+                source="unit_test",
+                input_refs=["agent_blackboard.json"],
+                validation_status="accepted",
+                payload=value,
+            )
+
+        self.assertTrue(validate_typed_artifact(artifact(payload))["accepted"])
+
+        unsafe_model_payload = copy.deepcopy(payload)
+        unsafe_model_payload["codex_agent_team"]["coordinator"][
+            "observed_child_agents"
+        ][0]["parsed_output"] = {"proposal": "CCO>>CC=O"}
+        model_result = validate_typed_artifact(artifact(unsafe_model_payload))
+        self.assertFalse(model_result["accepted"])
+        self.assertIn("raw_reaction_injection", model_result["reasons"])
+
+        unsafe_action_payload = copy.deepcopy(payload)
+        unsafe_action_payload["action_history"] = [
+            {
+                "action_type": "run_guided_chemenzy",
+                "payload": {"reaction_smiles": "CCO>>CC=O"},
+            }
+        ]
+        action_result = validate_typed_artifact(artifact(unsafe_action_payload))
+        self.assertFalse(action_result["accepted"])
+        self.assertIn("raw_reaction_injection", action_result["reasons"])
 
     def test_agentic_run_audit_artifact_round_trip_and_parent_proof_guard(self):
         artifact = ARTIFACT_CLASSES["AgenticRunAudit"](

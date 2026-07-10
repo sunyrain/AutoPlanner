@@ -26,7 +26,9 @@ from cascade_planner.harness.route_objectives import (
     build_broad_transform_templates_from_blackboard,
     classify_route_objectives,
 )
-from cascade_planner.harness.route_verifier import is_accepted_route_verifier_report
+from cascade_planner.harness.route_verifier import (
+    is_reaction_validated_route_verifier_report,
+)
 from cascade_planner.harness.schemas import write_json
 from cascade_planner.harness.stitched_route import is_validated_source_detail_literature_step
 from cascade_planner.harness.target_side_strategy import build_target_side_disconnection_hypotheses
@@ -2344,7 +2346,7 @@ def _compact_parent_route_verifier(
     expected_target_smiles: str = "",
 ) -> dict[str, Any]:
     audit = dict(verifier.get("target_equivalence_audit") or {})
-    solved = is_accepted_route_verifier_report(
+    solved = is_reaction_validated_route_verifier_report(
         verifier,
         expected_target_smiles=expected_target_smiles,
     )
@@ -2354,6 +2356,8 @@ def _compact_parent_route_verifier(
         "accepted": solved,
         "solved": solved,
         "route_status": str(verifier.get("route_status") or ""),
+        "verification_level": str(verifier.get("verification_level") or ""),
+        "reaction_validated": bool(verifier.get("reaction_validated")),
         "target_match": bool(verifier.get("target_match") or audit.get("target_match")),
         "accepted_route_count": _nonnegative_int(verifier.get("accepted_route_count"), 0),
         "best_route_rank": verifier.get("best_route_rank"),
@@ -2373,7 +2377,7 @@ def _parent_route_verifier_solved(
     *,
     expected_target_smiles: str = "",
 ) -> bool:
-    return is_accepted_route_verifier_report(
+    return is_reaction_validated_route_verifier_report(
         verifier,
         expected_target_smiles=expected_target_smiles,
     )
@@ -2554,7 +2558,7 @@ def _route_expansion_subgoal_summaries(payload: dict[str, Any]) -> list[dict[str
         smiles = str(subgoal.get("smiles") or subgoal.get("target_smiles") or "").strip()
         canonical = canonical_smiles(smiles)
         verifier = dict(row.get("verifier") or {})
-        verifier_accepted = is_accepted_route_verifier_report(
+        verifier_accepted = is_reaction_validated_route_verifier_report(
             verifier,
             expected_target_smiles=smiles,
         ) if smiles else False

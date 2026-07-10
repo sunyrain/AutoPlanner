@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 import hashlib
+import json
 import mmap
 from pathlib import Path
 import re
@@ -12,10 +14,18 @@ from typing import Any
 from rdkit import Chem, DataStructs, RDLogger
 from rdkit.Chem import AllChem, Descriptors
 
+from cascade_planner.harness.reaction_step_verifier import (
+    is_precedent_supported_route,
+    is_reaction_validated_route,
+    verify_reaction_route,
+)
+
 
 RDLogger.DisableLog("rdApp.*")
 
 ROUTE_VERIFIER_SCHEMA = "harness_route_verifier_report.v1"
+ROUTE_PROOF_BANK_SCHEMA = "route_proof_bank.v1"
+ROUTE_PROOF_BANK_ENTRY_SCHEMA = "route_proof_bank_entry.v1"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CHEMENZY_STOCK_CONFIG = _REPO_ROOT / (
     "vendor/ChemEnzyRetroPlanner/retro_planner/config/config.yaml"
@@ -53,6 +63,11 @@ class RouteVerifierReport:
     verification_policy: dict[str, Any] = field(default_factory=dict)
     target_match: bool = False
     target_equivalence_audit: dict[str, Any] = field(default_factory=dict)
+    verification_level: str = "L0_materialized"
+    reaction_validated: bool = False
+    reaction_validated_route_count: int = 0
+    reaction_validation: dict[str, Any] = field(default_factory=dict)
+    route_proof_bank: dict[str, Any] = field(default_factory=dict)
     schema_version: str = ROUTE_VERIFIER_SCHEMA
 
     def to_dict(self) -> dict[str, Any]:
@@ -132,17 +147,32 @@ def is_accepted_route_verifier_report(
         large_atom_jump_heavy_atoms=policy["large_atom_jump_heavy_atoms"],
     )
     reverified_catalog_audit = dict(reverified.get("stock_catalog_audit") or {})
+    reported_reaction_validation = report.get("reaction_validation")
+    reverified_reaction_validation = reverified.get("reaction_validation")
+    reaction_validation_matches = bool(
+        not reported_reaction_validation
+        or (
+            isinstance(reported_reaction_validation, dict)
+            and isinstance(reverified_reaction_validation, dict)
+            and reported_reaction_validation.get("proof_digest")
+            == reverified_reaction_validation.get("proof_digest")
+            and reported_reaction_validation.get("proof_level")
+            == reverified_reaction_validation.get("proof_level")
+        )
+    )
     materialization_matches = bool(
         reverified.get("accepted") is True
         and reverified.get("best_route_rank") == report.get("best_route_rank")
         and int(reverified.get("best_route_step_count") or 0) == best_route_step_count
         and _catalog_audit_signature(reverified_catalog_audit)
         == _catalog_audit_signature(stock_catalog_audit)
+        and reaction_validation_matches
     )
     return bool(
         report.get("schema_version") == ROUTE_VERIFIER_SCHEMA
         and report.get("accepted") is True
-        and str(report.get("route_status") or "").strip().lower() == "solved"
+        and str(report.get("route_status") or "").strip().lower()
+        in {"solved", "graph_and_stock_closed", "reaction_validated"}
         and report.get("target_match") is True
         and audit.get("target_match") is True
         and route_count > 0
@@ -153,6 +183,72 @@ def is_accepted_route_verifier_report(
         and best_route_step_count > 0
         and materialization_matches
     )
+
+
+def is_reaction_validated_route_verifier_report(
+    value: Any,
+    *,
+    expected_target_smiles: str = "",
+) -> bool:
+    """Return true only when every accepted route step independently reaches L2.
+
+    This deliberately replays the materialized route through the current
+    verifier.  A self-reported ``reaction_validated`` boolean or proof payload
+    cannot upgrade a graph-and-stock closure.
+    """
+    if not is_accepted_route_verifier_report(
+        value,
+        expected_target_smiles=expected_target_smiles,
+    ):
+        return False
+    report = dict(value)
+    accepted_route = report.get("accepted_route")
+    audit = dict(report.get("target_equivalence_audit") or {})
+    stock_catalog_audit = dict(report.get("stock_catalog_audit") or {})
+    policy = _strict_verification_policy(report.get("verification_policy"))
+    if not isinstance(accepted_route, dict) or policy is None:
+        return False
+    target = str(
+        expected_target_smiles
+        or audit.get("request_canonical_isomeric_smiles")
+        or audit.get("request_target_smiles")
+        or ""
+    )
+    context = stock_catalog_audit.get("revalidation_context")
+    if not target or not isinstance(context, dict):
+        return False
+    replay = verify_chemenzy_raw_routes(
+        {
+            "target": target,
+            "routes": [dict(accepted_route)],
+            "stock_catalog_context": dict(context),
+        },
+        target_smiles=target,
+        max_simple_terminal_heavy_atoms=policy["max_simple_terminal_heavy_atoms"],
+        advanced_terminal_similarity=policy["advanced_terminal_similarity"],
+        large_atom_jump_heavy_atoms=policy["large_atom_jump_heavy_atoms"],
+    )
+    validation = replay.get("reaction_validation")
+    return bool(
+        replay.get("accepted") is True
+        and replay.get("reaction_validated") is True
+        and is_reaction_validated_route(validation)
+    )
+
+
+def is_precedent_supported_route_verifier_report(
+    value: Any,
+    *,
+    expected_target_smiles: str = "",
+) -> bool:
+    """Parent-eligible gate: every route edge must replay at trusted L3+."""
+    if not is_reaction_validated_route_verifier_report(
+        value,
+        expected_target_smiles=expected_target_smiles,
+    ):
+        return False
+    validation = dict(value).get("reaction_validation")
+    return is_precedent_supported_route(validation)
 
 
 def verify_chemenzy_raw_routes(
@@ -190,6 +286,7 @@ def verify_chemenzy_raw_routes(
         ).to_dict()
 
     accepted: list[dict[str, Any]] = []
+    accepted_route_pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     rejected: list[dict[str, Any]] = []
     rejected_terminals: list[dict[str, Any]] = []
     failure_events: list[dict[str, Any]] = []
@@ -219,6 +316,7 @@ def verify_chemenzy_raw_routes(
         )
         if route_report["accepted"]:
             accepted.append(route_report)
+            accepted_route_pairs.append((dict(route), dict(route_report)))
         else:
             rejected.append(route_report)
             rejected_terminals.extend(route_report.get("rejected_terminals") or [])
@@ -268,10 +366,34 @@ def verify_chemenzy_raw_routes(
         ),
         {},
     )
+    best_reaction_validation = (
+        dict(accepted[0].get("reaction_validation") or {}) if final_accepted else {}
+    )
+    reaction_validated_route_count = sum(
+        1 for row in accepted if bool(row.get("reaction_validated"))
+    )
+    best_reaction_validated = bool(
+        final_accepted and best_reaction_validation.get("accepted") is True
+    )
+    verification_policy = {
+        "schema_version": "route_verifier_policy.v1",
+        "max_simple_terminal_heavy_atoms": int(max_simple_terminal_heavy_atoms),
+        "advanced_terminal_similarity": float(advanced_terminal_similarity),
+        "large_atom_jump_heavy_atoms": int(large_atom_jump_heavy_atoms),
+    }
+    route_proof_bank = _build_route_proof_bank(
+        accepted_route_pairs if final_accepted else [],
+        case_id=case_id,
+        target_smiles=target_canonical,
+        verification_policy=verification_policy,
+        stock_catalog_audit=stock_catalog_audit,
+    )
     report = RouteVerifierReport(
         accepted=final_accepted,
         route_status=(
-            "solved"
+            "reaction_validated"
+            if best_reaction_validated
+            else "graph_and_stock_closed"
             if final_accepted
             else "target_mismatch_rejected"
             if routes and not target_match
@@ -295,19 +417,389 @@ def verify_chemenzy_raw_routes(
         accepted_route=accepted_route,
         accepted_route_audit=dict(accepted[0]) if final_accepted else {},
         stock_catalog_audit=stock_catalog_audit,
-        verification_policy={
-            "schema_version": "route_verifier_policy.v1",
-            "max_simple_terminal_heavy_atoms": int(max_simple_terminal_heavy_atoms),
-            "advanced_terminal_similarity": float(advanced_terminal_similarity),
-            "large_atom_jump_heavy_atoms": int(large_atom_jump_heavy_atoms),
-        },
+        verification_policy=verification_policy,
         target_match=target_match,
         target_equivalence_audit={
             **target_audit,
             "route_candidate_accepted_count_before_target_match": len(accepted),
         },
+        verification_level=(
+            str(best_reaction_validation.get("proof_level") or "L1_graph_and_stock_closed")
+            if final_accepted
+            else "L0_materialized"
+        ),
+        reaction_validated=best_reaction_validated,
+        reaction_validated_route_count=reaction_validated_route_count if target_match else 0,
+        reaction_validation=best_reaction_validation,
+        route_proof_bank=route_proof_bank,
     )
     return report.to_dict()
+
+
+def _build_route_proof_bank(
+    accepted_route_pairs: list[tuple[dict[str, Any], dict[str, Any]]],
+    *,
+    case_id: str,
+    target_smiles: str,
+    verification_policy: dict[str, Any],
+    stock_catalog_audit: dict[str, Any],
+) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+    for raw_route, route_audit in accepted_route_pairs:
+        materialized_route = _materialized_route_record(raw_route)
+        stock_binding = _stock_terminal_evidence_binding(
+            materialized_route,
+            stock_catalog_audit=stock_catalog_audit,
+        )
+        identity_digest = _stable_record_hash(
+            {
+                "target_smiles": target_smiles,
+                "materialized_route": materialized_route,
+            }
+        )
+        entry = {
+            "schema_version": ROUTE_PROOF_BANK_ENTRY_SCHEMA,
+            "proof_id": f"route-proof:{identity_digest[:24]}",
+            "target_smiles": target_smiles,
+            "route_rank": int(materialized_route.get("route_rank") or 0),
+            "materialized_route": materialized_route,
+            "route_audit": dict(route_audit),
+            "reaction_validation": dict(route_audit.get("reaction_validation") or {}),
+            "stock_terminal_evidence_binding": stock_binding,
+            "proof_eligible_only": True,
+            "no_solved_claim": True,
+        }
+        entry["content_hash"] = _stable_record_hash(entry)
+        entries.append(entry)
+    bank = {
+        "schema_version": ROUTE_PROOF_BANK_SCHEMA,
+        "case_id": str(case_id or ""),
+        "target_smiles": target_smiles,
+        "verification_policy": dict(verification_policy),
+        "stock_catalog_context": dict(
+            stock_catalog_audit.get("revalidation_context") or {}
+        ),
+        "entry_count": len(entries),
+        "entries": entries,
+        "semantics": {
+            "portfolio_proof_binding_only": True,
+            "does_not_select_best_route": True,
+            "does_not_grant_parent_solved": True,
+        },
+    }
+    bank["content_hash"] = _stable_record_hash(bank)
+    return bank
+
+
+def _stock_terminal_evidence_binding(
+    materialized_route: Mapping[str, Any],
+    *,
+    stock_catalog_audit: Mapping[str, Any],
+) -> dict[str, Any]:
+    steps = [
+        dict(step)
+        for step in materialized_route.get("steps") or []
+        if isinstance(step, Mapping)
+    ]
+    terminals = sorted(
+        {
+            canonical
+            for item in _materialized_terminal_reactants(steps)
+            if (canonical := _canonical_smiles(item))
+        }
+    )
+    all_evidence = dict(stock_catalog_audit.get("terminal_evidence") or {})
+    evidence = {
+        terminal: dict(all_evidence.get(terminal) or {})
+        for terminal in terminals
+    }
+    binding = {
+        "schema_version": "route_stock_terminal_evidence_binding.v1",
+        "terminal_smiles": terminals,
+        "terminal_evidence": evidence,
+        "all_terminals_stock_bound": bool(
+            terminals
+            and all(evidence[terminal].get("in_stock") is True for terminal in terminals)
+        ),
+    }
+    binding["content_hash"] = _stable_record_hash(binding)
+    return binding
+
+
+def validate_route_proof_bank(
+    value: Any,
+    *,
+    expected_target_smiles: str = "",
+) -> list[str]:
+    """Structurally validate bank hashes before any expensive replay."""
+    if not isinstance(value, Mapping):
+        return ["route_proof_bank_not_object"]
+    bank = dict(value)
+    reasons: list[str] = []
+    expected_keys = {
+        "schema_version",
+        "case_id",
+        "target_smiles",
+        "verification_policy",
+        "stock_catalog_context",
+        "entry_count",
+        "entries",
+        "semantics",
+        "content_hash",
+    }
+    if set(bank) != expected_keys:
+        reasons.append("route_proof_bank_fields_not_strict")
+    if bank.get("schema_version") != ROUTE_PROOF_BANK_SCHEMA:
+        reasons.append("invalid_route_proof_bank_schema")
+    target = _canonical_smiles(bank.get("target_smiles"))
+    if not target or target != str(bank.get("target_smiles") or ""):
+        reasons.append("route_proof_bank_target_not_canonical")
+    expected_target = _canonical_smiles(expected_target_smiles) if expected_target_smiles else ""
+    if expected_target and target != expected_target:
+        reasons.append("route_proof_bank_target_mismatch")
+    if _strict_verification_policy(bank.get("verification_policy")) is None:
+        reasons.append("invalid_route_proof_bank_verification_policy")
+    context = bank.get("stock_catalog_context")
+    if not isinstance(context, Mapping) or context.get("schema_version") != (
+        "effective_stock_catalog_context.v1"
+    ):
+        reasons.append("invalid_route_proof_bank_stock_context")
+    semantics = bank.get("semantics")
+    if semantics != {
+        "portfolio_proof_binding_only": True,
+        "does_not_select_best_route": True,
+        "does_not_grant_parent_solved": True,
+    }:
+        reasons.append("invalid_route_proof_bank_semantics")
+    entries = bank.get("entries")
+    if not isinstance(entries, list):
+        reasons.append("route_proof_bank_entries_not_list")
+        entries = []
+    try:
+        if int(bank.get("entry_count")) != len(entries):
+            reasons.append("route_proof_bank_entry_count_mismatch")
+    except (TypeError, ValueError):
+        reasons.append("route_proof_bank_entry_count_invalid")
+    proof_ids: list[str] = []
+    for index, entry in enumerate(entries):
+        entry_reasons = _validate_route_proof_bank_entry(
+            entry,
+            expected_target_smiles=target,
+        )
+        reasons.extend(f"entry:{index}:{reason}" for reason in entry_reasons)
+        if isinstance(entry, Mapping):
+            proof_ids.append(str(entry.get("proof_id") or ""))
+    if len(proof_ids) != len(set(proof_ids)):
+        reasons.append("route_proof_bank_duplicate_proof_id")
+    supplied_hash = str(bank.pop("content_hash", ""))
+    if not supplied_hash or supplied_hash != _stable_record_hash(bank):
+        reasons.append("route_proof_bank_content_hash_mismatch")
+    return sorted(set(reasons))
+
+
+def _validate_route_proof_bank_entry(
+    value: Any,
+    *,
+    expected_target_smiles: str,
+) -> list[str]:
+    if not isinstance(value, Mapping):
+        return ["route_proof_bank_entry_not_object"]
+    entry = dict(value)
+    reasons: list[str] = []
+    expected_keys = {
+        "schema_version",
+        "proof_id",
+        "target_smiles",
+        "route_rank",
+        "materialized_route",
+        "route_audit",
+        "reaction_validation",
+        "stock_terminal_evidence_binding",
+        "proof_eligible_only",
+        "no_solved_claim",
+        "content_hash",
+    }
+    if set(entry) != expected_keys:
+        reasons.append("route_proof_bank_entry_fields_not_strict")
+    if entry.get("schema_version") != ROUTE_PROOF_BANK_ENTRY_SCHEMA:
+        reasons.append("invalid_route_proof_bank_entry_schema")
+    if entry.get("proof_eligible_only") is not True or entry.get("no_solved_claim") is not True:
+        reasons.append("route_proof_bank_entry_authority_flags_invalid")
+    if str(entry.get("target_smiles") or "") != expected_target_smiles:
+        reasons.append("route_proof_bank_entry_target_mismatch")
+    materialized = entry.get("materialized_route")
+    if not isinstance(materialized, Mapping) or set(materialized) != {
+        "route_rank",
+        "score",
+        "steps",
+        "metrics",
+    }:
+        reasons.append("route_proof_bank_materialized_route_fields_invalid")
+        materialized = {}
+    if not isinstance(materialized.get("steps"), list) or not materialized.get("steps"):
+        reasons.append("route_proof_bank_materialized_steps_missing")
+    try:
+        if int(entry.get("route_rank")) != int(materialized.get("route_rank")):
+            reasons.append("route_proof_bank_route_rank_mismatch")
+    except (TypeError, ValueError):
+        reasons.append("route_proof_bank_route_rank_invalid")
+    route_audit = entry.get("route_audit")
+    if not isinstance(route_audit, Mapping) or route_audit.get("accepted") is not True:
+        reasons.append("route_proof_bank_route_audit_not_accepted")
+        route_audit = {}
+    if dict(route_audit.get("reaction_validation") or {}) != dict(
+        entry.get("reaction_validation") or {}
+    ):
+        reasons.append("route_proof_bank_reaction_validation_mismatch")
+    binding_reasons = _validate_stock_terminal_evidence_binding(
+        entry.get("stock_terminal_evidence_binding")
+    )
+    reasons.extend(binding_reasons)
+    supplied_hash = str(entry.pop("content_hash", ""))
+    if not supplied_hash or supplied_hash != _stable_record_hash(entry):
+        reasons.append("route_proof_bank_entry_content_hash_mismatch")
+    return sorted(set(reasons))
+
+
+def _validate_stock_terminal_evidence_binding(value: Any) -> list[str]:
+    if not isinstance(value, Mapping):
+        return ["stock_terminal_evidence_binding_not_object"]
+    binding = dict(value)
+    reasons: list[str] = []
+    if set(binding) != {
+        "schema_version",
+        "terminal_smiles",
+        "terminal_evidence",
+        "all_terminals_stock_bound",
+        "content_hash",
+    }:
+        reasons.append("stock_terminal_evidence_binding_fields_not_strict")
+    if binding.get("schema_version") != "route_stock_terminal_evidence_binding.v1":
+        reasons.append("invalid_stock_terminal_evidence_binding_schema")
+    terminals = binding.get("terminal_smiles")
+    evidence = binding.get("terminal_evidence")
+    if not isinstance(terminals, list) or terminals != sorted(set(terminals)):
+        reasons.append("stock_terminal_evidence_terminals_invalid")
+        terminals = []
+    if not isinstance(evidence, Mapping) or set(evidence) != set(terminals):
+        reasons.append("stock_terminal_evidence_coverage_mismatch")
+        evidence = {}
+    if (
+        binding.get("all_terminals_stock_bound") is not True
+        or not terminals
+        or not all(
+            isinstance(evidence.get(terminal), Mapping)
+            and evidence[terminal].get("in_stock") is True
+            for terminal in terminals
+        )
+    ):
+        reasons.append("stock_terminal_evidence_not_all_bound")
+    supplied_hash = str(binding.pop("content_hash", ""))
+    if not supplied_hash or supplied_hash != _stable_record_hash(binding):
+        reasons.append("stock_terminal_evidence_content_hash_mismatch")
+    return sorted(set(reasons))
+
+
+def replay_route_proof_bank_entry(
+    value: Any,
+    *,
+    proof_id: str = "",
+    route_rank: int | None = None,
+    expected_target_smiles: str = "",
+) -> dict[str, Any]:
+    """Replay one bank entry from materialized route and stock context."""
+    reasons = validate_route_proof_bank(
+        value,
+        expected_target_smiles=expected_target_smiles,
+    )
+    if reasons:
+        return {
+            "schema_version": "route_proof_bank_entry_replay.v1",
+            "accepted": False,
+            "proof_id": str(proof_id or ""),
+            "reasons": reasons,
+        }
+    bank = dict(value)
+    entries = [dict(entry) for entry in bank.get("entries") or []]
+    selected = [
+        entry
+        for entry in entries
+        if (not proof_id or str(entry.get("proof_id") or "") == proof_id)
+        and (route_rank is None or int(entry.get("route_rank") or 0) == int(route_rank))
+    ]
+    if not proof_id and route_rank is None and len(entries) == 1:
+        selected = entries
+    if len(selected) != 1:
+        return {
+            "schema_version": "route_proof_bank_entry_replay.v1",
+            "accepted": False,
+            "proof_id": str(proof_id or ""),
+            "reasons": ["route_proof_bank_entry_selection_not_unique"],
+        }
+    entry = selected[0]
+    policy = _strict_verification_policy(bank.get("verification_policy")) or {}
+    replay = verify_chemenzy_raw_routes(
+        {
+            "target": bank["target_smiles"],
+            "routes": [dict(entry["materialized_route"])],
+            "stock_catalog_context": dict(bank["stock_catalog_context"]),
+        },
+        target_smiles=bank["target_smiles"],
+        case_id=str(bank.get("case_id") or ""),
+        max_simple_terminal_heavy_atoms=int(policy["max_simple_terminal_heavy_atoms"]),
+        advanced_terminal_similarity=float(policy["advanced_terminal_similarity"]),
+        large_atom_jump_heavy_atoms=int(policy["large_atom_jump_heavy_atoms"]),
+    )
+    replay_entries = list((replay.get("route_proof_bank") or {}).get("entries") or [])
+    replayed_entry = dict(replay_entries[0]) if len(replay_entries) == 1 else {}
+    accepted = bool(
+        replay.get("accepted") is True
+        and replayed_entry
+        and replayed_entry == entry
+    )
+    return {
+        "schema_version": "route_proof_bank_entry_replay.v1",
+        "accepted": accepted,
+        "proof_id": str(entry.get("proof_id") or ""),
+        "route_rank": entry.get("route_rank"),
+        "verification_level": str(
+            (entry.get("reaction_validation") or {}).get("proof_level")
+            or "L0_materialized"
+        ),
+        "reaction_validated": bool(
+            (entry.get("reaction_validation") or {}).get("accepted") is True
+        ),
+        "reasons": [] if accepted else ["route_proof_bank_entry_replay_mismatch"],
+    }
+
+
+def is_replayable_route_proof_bank_entry(
+    value: Any,
+    *,
+    proof_id: str = "",
+    route_rank: int | None = None,
+    expected_target_smiles: str = "",
+) -> bool:
+    return bool(
+        replay_route_proof_bank_entry(
+            value,
+            proof_id=proof_id,
+            route_rank=route_rank,
+            expected_target_smiles=expected_target_smiles,
+        ).get("accepted")
+        is True
+    )
+
+
+def _stable_record_hash(value: Any) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _strict_verification_policy(value: Any) -> dict[str, Any] | None:
@@ -442,6 +934,10 @@ def _verify_one_route(
                 {**summary, "route_rank": route_rank, "reason": "advanced_same_scaffold_terminal"}
             )
 
+    reaction_validation = verify_reaction_route(
+        steps,
+        graph_and_stock_closed=not reasons,
+    )
     return {
         "accepted": not reasons,
         "route_rank": route_rank,
@@ -457,6 +953,9 @@ def _verify_one_route(
         "large_atom_jump_count": len(jumps),
         "mapped_convergent_assembly_count": len(jump_audit["validated_convergences"]),
         "mapped_convergent_assembly_audit": list(jump_audit["validated_convergences"]),
+        "verification_level": str(reaction_validation.get("proof_level") or "L0_materialized"),
+        "reaction_validated": bool(reaction_validation.get("accepted")),
+        "reaction_validation": reaction_validation,
         "rejected_terminals": rejected_terminals,
         "failure_events": failure_events,
     }
@@ -1275,14 +1774,7 @@ def _route_steps_connect_to_target(
 
 
 def _step_reactants(step: dict[str, Any]) -> list[str]:
-    values = [str(step.get("main_reactant") or step.get("main_reactant_smiles") or "")]
-    for field_name in ("reactant_smiles", "precursor_smiles", "reactants", "aux_reactants"):
-        raw = step.get(field_name) or []
-        if isinstance(raw, str):
-            values.extend(item for item in raw.split(".") if item)
-        elif isinstance(raw, list):
-            values.extend(str(item or "") for item in raw)
-    return [value for value in values if value]
+    return _listed_reactant_components(step)
 
 
 def _compact_route_reports(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1298,6 +1790,8 @@ def _compact_route_reports(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "terminal_stock_unproven_count": row.get("terminal_stock_unproven_count"),
             "hidden_nonstock_count": row.get("hidden_nonstock_count"),
             "large_atom_jump_count": row.get("large_atom_jump_count"),
+            "verification_level": row.get("verification_level"),
+            "reaction_validated": row.get("reaction_validated"),
         }
         for row in rows[:50]
     ]

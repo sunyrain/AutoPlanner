@@ -104,6 +104,21 @@ def test_model_claimed_exact_literature_is_downgraded_until_trusted_adapter() ->
     assert adapted["proposal_type"] == "strategic"
     assert adapted["executable"] is False
 
+    explicitly_trusted_codex = fuse_route_candidates(
+        [
+            candidate(
+                "still_model_only",
+                channel="codex_literature",
+                evidence_level="literature_exact",
+                source_refs=["doi:10.1000/model-claim"],
+            )
+        ],
+        target_smiles="CCO",
+        allow_trusted_literature_exact_evidence=True,
+    )
+    assert explicitly_trusted_codex["proposals"][0]["status"] == "model_hypothesis"
+    assert explicitly_trusted_codex["proposals"][0]["independent_support_groups"] == ["codex_model"]
+
     trusted = fuse_route_candidates(
         [
             candidate(
@@ -149,6 +164,61 @@ def test_unattributed_legacy_hypothesis_is_not_an_independent_support_group() ->
 
     proposal = consensus["proposals"][0]
     assert proposal["independent_support_groups"] == ["codex_model"]
+    assert proposal["source_diversity"] == 1
+    assert consensus["source_summary"]["multi_source_proposals"] == 0
+
+
+def test_article_si_doi_pubmed_pmc_and_local_aliases_count_as_one_source() -> None:
+    rows = [
+        candidate(
+            "doi",
+            channel="literature_exact",
+            evidence_level="literature_exact",
+            source_refs=["DOI:10.1021/JA00083A066"],
+        ),
+        candidate(
+            "doi-url-pmid-bridge",
+            channel="literature_exact",
+            evidence_level="literature_exact",
+            source_refs=[
+                "https://doi.org/10.1021/ja00083a066",
+                "https://pubmed.ncbi.nlm.nih.gov/12345678/",
+            ],
+        ),
+        candidate(
+            "pmid-pmc-bridge",
+            channel="literature_exact",
+            evidence_level="literature_exact",
+            source_refs=["pmid:012345678", "PMC:PMC987654"],
+        ),
+        candidate(
+            "pmc-local-bridge",
+            channel="literature_exact",
+            evidence_level="literature_exact",
+            source_refs=[
+                "https://pmc.ncbi.nlm.nih.gov/articles/PMC987654/",
+                "local_pdf:taxol_holton_article.pdf#page=3",
+            ],
+        ),
+        candidate(
+            "supporting-info-copy",
+            channel="literature_exact",
+            evidence_level="literature_exact",
+            source_refs=["local_pdf:taxol_holton_article.pdf#supporting-information"],
+        ),
+    ]
+
+    consensus = fuse_route_candidates(
+        rows,
+        target_smiles="CCO",
+        allow_trusted_literature_exact_evidence=True,
+    )
+
+    proposal = consensus["proposals"][0]
+    assert proposal["support_count"] == 5
+    assert proposal["independent_support_groups"] == [
+        "literature:doi:10.1021/ja00083a066"
+    ]
     assert proposal["source_diversity"] == 1
     assert consensus["source_summary"]["multi_source_proposals"] == 0
 

@@ -6,6 +6,9 @@ from typing import Any
 from rdkit import Chem
 
 from cascade_planner.harness.route_verifier import is_accepted_route_verifier_report
+from cascade_planner.harness.route_verifier import (
+    is_precedent_supported_route_verifier_report,
+)
 from cascade_planner.harness.stitched_route import is_solved_stitched_semisynthesis_route
 
 
@@ -19,6 +22,8 @@ _REQUIRED_SOLVED_PROOF_CLAUSES = (
     "no_unexplained_large_atom_jump",
     "child_target_route_connected_to_parent_bridge",
     "exact_literature_segment_connected_to_parent_route",
+    "all_reaction_steps_validated",
+    "all_reaction_steps_precedent_supported",
     "analogy_used_only_as_rationale",
 )
 
@@ -63,6 +68,13 @@ def is_solved_parent_route_proof(
         return False
     if proof["reasons"]:
         return False
+    proof_attempt = proof.get("proof_attempt")
+    if not isinstance(proof_attempt, dict):
+        return False
+    if proof_attempt.get("schema_version") != "parent_route_proof_attempt.v1":
+        return False
+    if proof_attempt.get("accepted") is not True or proof_attempt.get("missing_requirements") != []:
+        return False
     if str(proof.get("proof_mode") or "") not in {"direct_parent_route", "stitched_parent_route"}:
         return False
     proof_evidence = proof.get("proof_evidence")
@@ -76,7 +88,7 @@ def is_solved_parent_route_proof(
         return False
     if proof.get("proof_mode") == "direct_parent_route":
         verifier = proof_evidence.get("parent_verifier")
-        if not is_accepted_route_verifier_report(
+        if not is_precedent_supported_route_verifier_report(
             verifier,
             expected_target_smiles=proof_target_smiles,
         ):
@@ -119,13 +131,21 @@ def compile_stitched_parent_route_proof(
         target_required=bool(str(target_smiles or "").strip()),
         expected_target_smiles=target_smiles,
     )
-    parent_verifier_accepted = _verifier_accepted(parent, expected_target_smiles=target_smiles)
-    direct_parent_route = (
-        parent_verifier_accepted
+    parent_graph_stock_closed = _verifier_accepted(
+        parent,
+        expected_target_smiles=target_smiles,
+    )
+    parent_reaction_validated = _reaction_verifier_accepted(
+        parent,
+        expected_target_smiles=target_smiles,
+    )
+    direct_parent_candidate = (
+        parent_graph_stock_closed
         and not stitched_accepted
         and not _child_route_input_present(child)
         and not _exact_literature_input_present(exact)
     )
+    direct_parent_route = bool(direct_parent_candidate and parent_reaction_validated)
     parent_for_failure_audit = {} if stitched_accepted else parent
 
     target_equivalence = _target_equivalence_passed(
@@ -136,15 +156,18 @@ def compile_stitched_parent_route_proof(
     if not target_equivalence:
         reasons.append("target_equivalence_not_proven")
 
-    parent_accepted = parent_verifier_accepted or stitched_accepted
+    parent_accepted = parent_reaction_validated or stitched_accepted
     if not parent_accepted:
-        reasons.append("parent_route_verifier_not_accepted")
+        if parent_graph_stock_closed:
+            reasons.append("parent_route_reaction_steps_not_validated")
+        else:
+            reasons.append("parent_route_verifier_not_accepted")
 
     if stock:
         stock_passed = stock.get("stock_audit_passed") is True
-    elif direct_parent_route:
+    elif direct_parent_candidate:
         # A strict route-verifier acceptance already includes the stock audit.
-        stock_passed = parent_verifier_accepted
+        stock_passed = parent_graph_stock_closed
     else:
         stock_passed = bool(stitched_accepted and stitch.get("stock_audit_passed") is True)
     if not stock_passed:
@@ -153,11 +176,11 @@ def compile_stitched_parent_route_proof(
     if _has_unexplained_large_atom_jump(parent_for_failure_audit):
         reasons.append("unexplained_large_atom_jump")
 
-    child_connected = True if direct_parent_route else _child_connected(child, stitch)
+    child_connected = True if direct_parent_candidate else _child_connected(child, stitch)
     if not child_connected:
         reasons.append("child_target_route_not_connected_to_parent_bridge")
 
-    literature_connected = True if direct_parent_route else _literature_connected(exact, stitch)
+    literature_connected = True if direct_parent_candidate else _literature_connected(exact, stitch)
     if not literature_connected:
         reasons.append("exact_literature_segment_not_connected_to_parent_route")
 
@@ -167,13 +190,27 @@ def compile_stitched_parent_route_proof(
 
     child_solved = _child_route_solved(child, stitch)
     exact_anchor_present = _exact_anchor_present(exact, stitch)
+    all_reaction_steps_validated = bool(parent_reaction_validated or stitched_accepted)
+    if not all_reaction_steps_validated:
+        reasons.append("reaction_step_proof_incomplete")
 
     accepted = not sorted(set(reasons))
+    missing_requirements = sorted(set(reasons))
+    proof_attempt = {
+        "schema_version": "parent_route_proof_attempt.v1",
+        "accepted": accepted,
+        "target_smiles": target_smiles,
+        "graph_and_stock_closed": parent_graph_stock_closed,
+        "reaction_steps_validated": all_reaction_steps_validated,
+        "reaction_validation": dict(parent.get("reaction_validation") or {}),
+        "missing_requirements": missing_requirements,
+        "open_frontiers": _open_frontiers(child, exact, stitch),
+    }
     return {
         "schema_version": PARENT_ROUTE_PROOF_SCHEMA,
         "accepted": accepted,
         "solved": accepted,
-        "proof_mode": "direct_parent_route" if direct_parent_route else "stitched_parent_route",
+        "proof_mode": "direct_parent_route" if direct_parent_candidate else "stitched_parent_route",
         "case_id": case_id or str(parent.get("case_id") or stitch.get("case_id") or ""),
         "target": {"name": target_name, "smiles": target_smiles},
         "route_status": "solved"
@@ -191,17 +228,22 @@ def compile_stitched_parent_route_proof(
             "no_unexplained_large_atom_jump": not _has_unexplained_large_atom_jump(parent_for_failure_audit),
             "child_target_route_connected_to_parent_bridge": child_connected,
             "exact_literature_segment_connected_to_parent_route": literature_connected,
+            "all_reaction_steps_validated": all_reaction_steps_validated,
+            "all_reaction_steps_precedent_supported": all_reaction_steps_validated,
             "analogy_used_only_as_rationale": not analogy_as_proof,
         },
         "proof_evidence": {
             "schema_version": "parent_route_proof_evidence.v1",
             "parent_verifier": parent if direct_parent_route else {},
+            "parent_verifier_attempt": parent,
             "stitched_route": stitch if stitched_accepted else {},
         },
+        "proof_attempt": proof_attempt,
         "source_policy": {
             "direct_verified_parent_route_satisfies_parent_proof": True,
             "child_target_solved_does_not_imply_parent_solved": True,
             "exact_literature_segment_requires_connectivity": True,
+            "parent_solved_temporarily_requires_every_step_l3_precedent": True,
             "analogy_is_not_proof": True,
             "final_verdict_authority": "deterministic_parent_route_proof",
         },
@@ -230,6 +272,52 @@ def _verifier_accepted(
         parent,
         expected_target_smiles=expected_target_smiles,
     )
+
+
+def _reaction_verifier_accepted(
+    parent: dict[str, Any],
+    *,
+    expected_target_smiles: str = "",
+) -> bool:
+    return is_precedent_supported_route_verifier_report(
+        parent,
+        expected_target_smiles=expected_target_smiles,
+    )
+
+
+def _open_frontiers(
+    child: dict[str, Any],
+    exact: dict[str, Any],
+    stitch: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Compile machine-readable unresolved frontiers for every proof attempt."""
+    rows: list[dict[str, Any]] = []
+    for raw in stitch.get("unresolved_frontiers") or stitch.get("open_frontiers") or []:
+        if isinstance(raw, dict):
+            rows.append(dict(raw))
+    for raw in child.get("subgoals") or child.get("frontiers") or []:
+        if not isinstance(raw, dict):
+            continue
+        accepted = bool(raw.get("accepted") or raw.get("solved") or raw.get("verifier_accepted"))
+        if not accepted:
+            rows.append({"source": "child_route", **dict(raw)})
+    if exact and not bool(exact.get("accepted") and exact.get("parent_route_connected")):
+        rows.append(
+            {
+                "source": "exact_literature_segment",
+                "reason": "exact_literature_segment_not_connected",
+                "source_ref": str(exact.get("source_ref") or ""),
+            }
+        )
+    seen: set[str] = set()
+    unique: list[dict[str, Any]] = []
+    for row in rows:
+        key = repr(sorted(row.items(), key=lambda item: str(item[0])))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+    return unique
 
 
 def _stitched_route_accepted(

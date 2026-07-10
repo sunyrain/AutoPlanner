@@ -16,6 +16,9 @@ WORKFLOW_PLAN_SCHEMA = "codex_entry_workflow_plan.v1"
 TOOL_CALL_SCHEMA = "codex_entry_tool_call.v1"
 ARTIFACT_BUNDLE_SCHEMA = "codex_entry_artifact_bundle.v1"
 FINAL_VERDICT_SCHEMA = "codex_entry_final_verdict.v1"
+CONTENT_ADDRESSED_ARTIFACT_SCHEMA = "content_addressed_artifact.v1"
+CLOSEOUT_REVISION_MANIFEST_SCHEMA = "closeout_revision_manifest.v1"
+CLOSEOUT_LATEST_POINTER_SCHEMA = "closeout_latest_pointer.v1"
 CANONICAL_RUN_SEMANTICS = "canonical_agent_controller"
 
 RUN_SEMANTICS = {
@@ -145,10 +148,74 @@ class FinalVerdict:
     solved: bool = False
     stock_audit_passed: bool = False
     artifact_refs: dict[str, str] = field(default_factory=dict)
+    artifact_digest_refs: dict[str, dict[str, Any]] = field(default_factory=dict)
     run_semantics: str = CANONICAL_RUN_SEMANTICS
     schema_version: str = FINAL_VERDICT_SCHEMA
 
     def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ArtifactDigestDependency:
+    """Immutable identity of one upstream closeout artifact."""
+
+    artifact_id: str
+    sha256: str
+
+    def to_dict(self) -> dict[str, str]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ContentAddressedArtifact:
+    """One compatibility artifact pinned to an immutable CAS object."""
+
+    artifact_id: str
+    path: str
+    content_path: str
+    sha256: str
+    size_bytes: int
+    producer: str
+    artifact_schema_version: str = ""
+    dependencies: tuple[ArtifactDigestDependency, ...] = ()
+    schema_version: str = CONTENT_ADDRESSED_ARTIFACT_SCHEMA
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["dependencies"] = [dependency.to_dict() for dependency in self.dependencies]
+        return data
+
+
+@dataclass(frozen=True)
+class CloseoutRevisionManifest:
+    """Content-derived manifest committed only after dependency validation."""
+
+    revision_id: str
+    case_id: str
+    producer: str
+    artifacts: tuple[ContentAddressedArtifact, ...]
+    status: str
+    created_at: str
+    schema_version: str = CLOSEOUT_REVISION_MANIFEST_SCHEMA
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["artifacts"] = [artifact.to_dict() for artifact in self.artifacts]
+        return data
+
+
+@dataclass(frozen=True)
+class CloseoutLatestPointer:
+    """Small atomically replaceable pointer to one immutable manifest."""
+
+    revision_id: str
+    manifest_path: str
+    manifest_sha256: str
+    activated_at: str
+    schema_version: str = CLOSEOUT_LATEST_POINTER_SCHEMA
+
+    def to_dict(self) -> dict[str, str]:
         return asdict(self)
 
 

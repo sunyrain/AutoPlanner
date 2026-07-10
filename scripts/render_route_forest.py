@@ -31,9 +31,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--blackboard", type=Path, help="Blackboard JSON path. Defaults to RUN_DIR/agent_blackboard.json.")
     parser.add_argument("--forest-output", type=Path, help="Output JSON path. Defaults to RUN_DIR/explored_route_forest.json.")
     parser.add_argument("--html-output", type=Path, help="Output HTML path. Defaults to RUN_DIR/route_forest.html.")
-    parser.add_argument("--max-visual-branches", type=int, default=8)
-    parser.add_argument("--max-proposal-branches", type=int, default=10)
-    parser.add_argument("--max-template-branches", type=int, default=8)
+    parser.add_argument(
+        "--max-visual-branches",
+        type=int,
+        default=None,
+        help="Optional projection cap; omitted means render every visual branch.",
+    )
+    parser.add_argument(
+        "--max-proposal-branches",
+        type=int,
+        default=None,
+        help="Optional projection cap; omitted means render every proposal/consensus branch.",
+    )
+    parser.add_argument(
+        "--max-template-branches",
+        type=int,
+        default=None,
+        help="Optional projection cap; omitted means render every broad-template branch.",
+    )
     args = parser.parse_args(argv)
 
     run_dir = args.run_dir.resolve()
@@ -62,6 +77,13 @@ def main(argv: list[str] | None = None) -> int:
             nodes=counts.get("nodes", 0),
         )
     )
+    coverage = (result.get("forest") or {}).get("projection_coverage") or {}
+    if coverage.get("complete") is False:
+        omitted = sum(
+            int(row.get("omitted_count") or 0)
+            for row in (coverage.get("categories") or {}).values()
+        )
+        print(f"projection_truncated=true omitted={omitted}")
     return 0
 
 

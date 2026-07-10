@@ -1,14 +1,29 @@
 """Run a Codex coordinator that directly delegates to specialist child agents."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import hashlib
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+import tempfile
+import threading
+import time
+from typing import Any, Callable, Iterator
 
 from rdkit import Chem
 
+from cascade_planner.application.frontier_scheduler import (
+    FrontierJob,
+    FrontierJobState,
+    FrontierLeaseError,
+    FrontierQueueError,
+    FrontierScheduler,
+    PersistentFrontierQueue,
+    assess_frontier_completeness,
+)
 from cascade_planner.agent.artifact_validators import validate_typed_artifact
 from cascade_planner.agent.codex_worker import WorkerBudget, WorkerRunRecord, WorkerTask, run_codex_worker
 from cascade_planner.routes.consensus import (
@@ -21,12 +36,17 @@ from cascade_planner.routes.graph import (
     make_route_consensus_expansion,
     select_route_consensus_frontier,
 )
+from cascade_planner.providers.contracts import StockProvider
+from cascade_planner.providers.stock import SnapshotStockProvider
 from cascade_planner.runtime import Budget as RuntimeBudget
 from cascade_planner.runtime import CodexTeamRuntimeTracker
 
 
 CODEX_RETROSYNTHESIS_TEAM_SCHEMA = "codex_retrosynthesis_team_run.v1"
 CODEX_RETROSYNTHESIS_CAMPAIGN_SCHEMA = "codex_retrosynthesis_campaign.v1"
+CODEX_RETROSYNTHESIS_EXPANSION_COMMIT_SCHEMA = (
+    "codex_retrosynthesis_expansion_commit.v1"
+)
 DEFAULT_CHILD_ROLES = (
     "target_structure_strategist",
     "literature_route_scout",
@@ -87,6 +107,12 @@ class RetrosynthesisTeamConfig:
     max_depth: int = 2
     max_expansions: int = 4
     frontier_batch_size: int = 2
+    frontier_lease_seconds: float = 1800.0
+    frontier_heartbeat_interval_seconds: float = 0.0
+    frontier_retry_base_seconds: float = 1.0
+    frontier_retry_max_seconds: float = 60.0
+    frontier_retry_wait_seconds: float = 5.0
+    stock_snapshots: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def build_retrosynthesis_coordinator_task(
@@ -366,40 +392,129 @@ def run_codex_retrosynthesis_campaign(
     literature_sources: list[dict[str, Any]] | None = None,
     config: RetrosynthesisTeamConfig | None = None,
     runner: TeamRunner | None = None,
+    stock_provider: StockProvider | None = None,
 ) -> dict[str, Any]:
-    """Recursively run direct Codex teams for target and frontier molecules."""
+    """Recursively run direct Codex teams through a durable frontier queue.
+
+    Team output remains advisory. A successfully expanded proposal frontier is
+    recorded separately from stock/reaction closure, so exhausting the model
+    work budget cannot be mislabeled as a complete synthesis route.
+    """
     config = config or RetrosynthesisTeamConfig()
     max_depth = max(1, int(config.max_depth or 1))
     max_expansions = max(1, int(config.max_expansions or 1))
     frontier_batch_size = max(1, int(config.frontier_batch_size or 1))
     root_run_dir = Path(run_dir).resolve()
     root_output_dir = root_run_dir / "codex_retrosynthesis_team"
-    queue: list[dict[str, Any]] = [
-        {
-            "target_name": target_name,
-            "target_smiles": target_smiles,
-            "depth": 0,
-            "node_id": "",
-            "parent_step_ids": [],
-        }
-    ]
-    queued_smiles = {_canonical_target_smiles(target_smiles)}
-    expanded_smiles: set[str] = set()
-    expansions: list[dict[str, Any]] = []
-    run_summaries: list[dict[str, Any]] = []
-    root_report: dict[str, Any] = {}
+    root_output_dir.mkdir(parents=True, exist_ok=True)
+    queue_store = PersistentFrontierQueue(root_output_dir / "frontier_queue")
+    scheduler = FrontierScheduler(queue_store, stock_provider or SnapshotStockProvider())
+    campaign_state_path = root_output_dir / "campaign_state.json"
+    restored = _load_campaign_state(
+        campaign_state_path,
+        case_id=case_id,
+        target_smiles=target_smiles,
+    )
+    expansions = [dict(row) for row in restored.get("expansions") or []]
+    run_summaries = [dict(row) for row in restored.get("runs") or []]
+    root_report = _read_json_object(root_output_dir / "team_report.json")
     graph = assemble_route_consensus_graph(
-        [],
+        expansions,
         case_id=case_id,
         target_smiles=target_smiles,
         max_depth=max_depth,
     )
+    root_smiles = _canonical_target_smiles(target_smiles)
+    scheduler.submit(
+        run_id=case_id,
+        case_id=case_id,
+        frontier_smiles=root_smiles,
+        frontier_node_id=str(graph.get("root_node_id") or f"root:{root_smiles}"),
+        idempotency_key=f"{case_id}:frontier:{hashlib.sha256(root_smiles.encode()).hexdigest()}",
+        stock_request=_stock_request(config, root_smiles),
+        required_proof_level=2,
+        proof_deficit=2,
+        closure_probability=1.0,
+        diversity_gain=1.0,
+        max_attempts=3,
+        metadata={
+            "target_name": target_name,
+            "depth": 0,
+            "parent_step_ids": [],
+        },
+    )
+    prior_expansion_count = len(expansions)
+    prior_run_count = len(run_summaries)
+    recovery_errors = _reconcile_expansion_commits(
+        queue=queue_store,
+        run_id=case_id,
+        root_output_dir=root_output_dir,
+        expansions=expansions,
+        runs=run_summaries,
+    )
+    expanded_smiles = {
+        _canonical_target_smiles(row.get("target_smiles"))
+        for row in run_summaries
+        if row.get("proposal_expansion_recorded") is True
+    }
+    expanded_smiles.discard("")
+    graph = assemble_route_consensus_graph(
+        expansions,
+        case_id=case_id,
+        target_smiles=target_smiles,
+        max_depth=max_depth,
+    )
+    _submit_graph_frontiers(
+        graph=graph,
+        scheduler=scheduler,
+        config=config,
+        case_id=case_id,
+        expanded_smiles=expanded_smiles,
+        max_depth=max_depth,
+        max_expansions=max_expansions,
+        frontier_batch_size=frontier_batch_size,
+    )
+    if len(expansions) != prior_expansion_count or len(run_summaries) != prior_run_count:
+        _write_campaign_state(
+            campaign_state_path,
+            case_id=case_id,
+            target_smiles=target_smiles,
+            expansions=expansions,
+            runs=run_summaries,
+        )
 
-    while queue and len(run_summaries) < max_expansions:
-        frontier = queue.pop(0)
-        frontier_smiles = _canonical_target_smiles(frontier.get("target_smiles"))
+    while len(run_summaries) < max_expansions:
+        lease_seconds = max(30.0, float(config.frontier_lease_seconds or 1800.0))
+        claimed = queue_store.claim(
+            case_id,
+            worker_id=f"codex-campaign:{case_id}",
+            limit=1,
+            lease_seconds=lease_seconds,
+        )
+        if not claimed:
+            retry_delay = _next_retry_delay(queue_store.list_jobs(case_id))
+            retry_wait_limit = max(0.0, float(config.frontier_retry_wait_seconds or 0.0))
+            if (
+                retry_delay is not None
+                and retry_delay <= retry_wait_limit
+                and len(run_summaries) < max_expansions
+            ):
+                time.sleep(max(0.01, retry_delay))
+                continue
+            break
+        job = claimed[0]
+        frontier = dict(job.metadata)
+        frontier_smiles = job.frontier_smiles
         depth = int(frontier.get("depth") or 0)
-        if not frontier_smiles or frontier_smiles in expanded_smiles or depth >= max_depth:
+        if frontier_smiles in expanded_smiles or depth >= max_depth:
+            queue_store.complete(
+                case_id,
+                job.job_id,
+                lease_token=job.lease_token,
+                result_ref=f"frontier-skip:{frontier_smiles}",
+                closure_kind="proposal_expansion",
+                achieved_proof_level=0,
+            )
             continue
         digest = hashlib.sha256(frontier_smiles.encode("utf-8")).hexdigest()[:12]
         expansion_case_id = case_id if depth == 0 else f"{case_id}:frontier:d{depth}:{digest}"
@@ -412,79 +527,245 @@ def run_codex_retrosynthesis_campaign(
         if expansions:
             expansion_context["route_consensus_graph"] = graph
             expansion_context["frontier_request"] = dict(frontier)
-        try:
-            team_report = run_codex_retrosynthesis_team(
-                case_id=expansion_case_id,
-                target_name=str(frontier.get("target_name") or frontier_smiles),
-                target_smiles=frontier_smiles,
-                run_dir=expansion_run_dir,
-                repository_root=repository_root,
-                blackboard_context=expansion_context,
-                literature_sources=literature_sources,
-                config=config,
-                runner=runner,
+        team_report: dict[str, Any] = {}
+        team_error: Exception | None = None
+        with _frontier_lease_heartbeat(
+            queue_store,
+            run_id=case_id,
+            job=job,
+            lease_seconds=lease_seconds,
+            interval_seconds=float(config.frontier_heartbeat_interval_seconds or 0.0),
+        ) as heartbeat_errors:
+            try:
+                team_report = run_codex_retrosynthesis_team(
+                    case_id=expansion_case_id,
+                    target_name=str(frontier.get("target_name") or frontier_smiles),
+                    target_smiles=frontier_smiles,
+                    run_dir=expansion_run_dir,
+                    repository_root=repository_root,
+                    blackboard_context=expansion_context,
+                    literature_sources=literature_sources,
+                    config=config,
+                    runner=runner,
+                )
+            except Exception as exc:  # noqa: BLE001 - persisted below
+                team_error = exc
+        heartbeat_failures = list(heartbeat_errors)
+        if team_error is not None:
+            failure_reason = (
+                f"team_runtime_error:{type(team_error).__name__}:{team_error}"
             )
-        except Exception as exc:
+            current = queue_store.get(case_id, job.job_id)
+            if not heartbeat_failures:
+                try:
+                    current = queue_store.fail(
+                        case_id,
+                        job.job_id,
+                        lease_token=job.lease_token,
+                        reason=failure_reason,
+                        retryable=True,
+                        retry_base_seconds=max(
+                            0.0, float(config.frontier_retry_base_seconds or 0.0)
+                        ),
+                        retry_max_seconds=max(
+                            max(0.0, float(config.frontier_retry_base_seconds or 0.0)),
+                            float(config.frontier_retry_max_seconds or 0.0),
+                        ),
+                    )
+                except FrontierLeaseError:
+                    current = queue_store.get(case_id, job.job_id)
+                    heartbeat_failures.append("lease_fencing_lost_before_failure_commit")
             run_summaries.append(
                 {
                     "case_id": expansion_case_id,
                     "target_smiles": frontier_smiles,
                     "depth": depth,
                     "accepted": False,
-                    "reasons": [f"team_runtime_error:{type(exc).__name__}:{exc}"],
+                    "frontier_job_id": job.job_id,
+                    "frontier_job_state": current.state.value if current else "missing",
+                    "reasons": [failure_reason],
+                    "lease_heartbeat_errors": heartbeat_failures,
+                    "result_quarantined": bool(heartbeat_failures),
+                    "proposal_expansion_recorded": False,
                 }
             )
-            if depth == 0:
-                raise
-            expanded_smiles.add(frontier_smiles)
-            continue
-        if depth == 0:
-            root_report = dict(team_report)
-        expanded_smiles.add(frontier_smiles)
-        team_report_ref = expansion_run_dir / "codex_retrosynthesis_team" / "team_report.json"
-        run_summaries.append(
-            {
-                "case_id": expansion_case_id,
-                "target_smiles": frontier_smiles,
-                "depth": depth,
-                "accepted": bool(team_report.get("accepted")),
-                "team_report_ref": str(team_report_ref),
-                "route_consensus_ref": str(team_report.get("route_consensus_ref") or ""),
-                "reasons": [str(item) for item in team_report.get("reasons") or []],
-            }
-        )
-        if team_report.get("accepted"):
-            expansions.append(
-                make_route_consensus_expansion(
-                    dict(team_report.get("route_consensus") or {}),
-                    requested_product_smiles=frontier_smiles,
-                    consensus_ref=str(team_report.get("route_consensus_ref") or ""),
-                    agent_run_ref=str((team_report.get("coordinator") or {}).get("run_record_ref") or ""),
-                    depth=depth,
-                )
+            _write_campaign_state(
+                campaign_state_path,
+                case_id=case_id,
+                target_smiles=target_smiles,
+                expansions=expansions,
+                runs=run_summaries,
             )
+            continue
+        team_report_ref = expansion_run_dir / "codex_retrosynthesis_team" / "team_report.json"
+        summary = {
+            "case_id": expansion_case_id,
+            "target_smiles": frontier_smiles,
+            "depth": depth,
+            "accepted": False,
+            "team_report_accepted": bool(team_report.get("accepted")),
+            "frontier_job_id": job.job_id,
+            "team_report_ref": str(team_report_ref),
+            "route_consensus_ref": str(team_report.get("route_consensus_ref") or ""),
+            "reasons": [str(item) for item in team_report.get("reasons") or []],
+            "proposal_expansion_recorded": False,
+            "lease_heartbeat_errors": heartbeat_failures,
+        }
+        if heartbeat_failures:
+            current = queue_store.get(case_id, job.job_id)
+            summary["frontier_job_state"] = current.state.value if current else "missing"
+            summary["result_quarantined"] = True
+            summary["reasons"] = sorted(
+                {*summary["reasons"], "lease_fencing_lost_result_quarantined"}
+            )
+            run_summaries.append(summary)
+            _write_campaign_state(
+                campaign_state_path,
+                case_id=case_id,
+                target_smiles=target_smiles,
+                expansions=expansions,
+                runs=run_summaries,
+            )
+            continue
+        if team_report.get("accepted"):
+            expansion = make_route_consensus_expansion(
+                dict(team_report.get("route_consensus") or {}),
+                requested_product_smiles=frontier_smiles,
+                consensus_ref=str(team_report.get("route_consensus_ref") or ""),
+                agent_run_ref=str((team_report.get("coordinator") or {}).get("run_record_ref") or ""),
+                depth=depth,
+            )
+            committed_summary = {**summary, "accepted": True}
+            try:
+                expansion_commit_path = _write_expansion_commit(
+                    root_output_dir=root_output_dir,
+                    case_id=case_id,
+                    job=job,
+                    team_report_ref=team_report_ref,
+                    expansion=expansion,
+                    summary=committed_summary,
+                )
+                finalized_job = queue_store.complete(
+                    case_id,
+                    job.job_id,
+                    lease_token=job.lease_token,
+                    result_ref=str(expansion_commit_path),
+                    closure_kind="proposal_expansion",
+                    achieved_proof_level=0,
+                )
+            except FrontierLeaseError:
+                current = queue_store.get(case_id, job.job_id)
+                summary["frontier_job_state"] = current.state.value if current else "missing"
+                summary["result_quarantined"] = True
+                summary["reasons"] = sorted(
+                    {*summary["reasons"], "lease_fencing_lost_result_quarantined"}
+                )
+                run_summaries.append(summary)
+                _write_campaign_state(
+                    campaign_state_path,
+                    case_id=case_id,
+                    target_smiles=target_smiles,
+                    expansions=expansions,
+                    runs=run_summaries,
+                )
+                continue
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                reason = f"expansion_commit_error:{type(exc).__name__}:{exc}"
+                try:
+                    finalized_job = queue_store.fail(
+                        case_id,
+                        job.job_id,
+                        lease_token=job.lease_token,
+                        reason=reason,
+                        retryable=True,
+                        retry_base_seconds=max(
+                            0.0, float(config.frontier_retry_base_seconds or 0.0)
+                        ),
+                        retry_max_seconds=max(
+                            max(0.0, float(config.frontier_retry_base_seconds or 0.0)),
+                            float(config.frontier_retry_max_seconds or 0.0),
+                        ),
+                    )
+                except FrontierLeaseError:
+                    finalized_job = queue_store.get(case_id, job.job_id)
+                summary["frontier_job_state"] = (
+                    finalized_job.state.value if finalized_job else "missing"
+                )
+                summary["reasons"] = sorted({*summary["reasons"], reason})
+                run_summaries.append(summary)
+                _write_campaign_state(
+                    campaign_state_path,
+                    case_id=case_id,
+                    target_smiles=target_smiles,
+                    expansions=expansions,
+                    runs=run_summaries,
+                )
+                continue
+
+            summary = committed_summary
+            summary["frontier_job_state"] = finalized_job.state.value
+            summary["proposal_expansion_recorded"] = True
+            summary["expansion_commit_ref"] = str(expansion_commit_path)
+            expansion_id = str(expansion.get("expansion_id") or "")
+            if expansion_id not in {
+                str(row.get("expansion_id") or "") for row in expansions
+            }:
+                expansions.append(expansion)
+            expanded_smiles.add(frontier_smiles)
+            summary["proposal_expansion_recorded"] = True
             graph = assemble_route_consensus_graph(
                 expansions,
                 case_id=case_id,
                 target_smiles=target_smiles,
                 max_depth=max_depth,
             )
-            added_frontiers = 0
-            for next_frontier in select_route_consensus_frontier(graph, limit=max_expansions):
-                next_smiles = _canonical_target_smiles(next_frontier.get("target_smiles"))
-                if not next_smiles or next_smiles in expanded_smiles or next_smiles in queued_smiles:
-                    continue
-                queued_smiles.add(next_smiles)
-                queue.append(
-                    {
-                        **dict(next_frontier),
-                        "target_name": next_smiles,
-                        "target_smiles": next_smiles,
-                    }
+            _submit_graph_frontiers(
+                graph=graph,
+                scheduler=scheduler,
+                config=config,
+                case_id=case_id,
+                expanded_smiles=expanded_smiles,
+                max_depth=max_depth,
+                max_expansions=max_expansions,
+                frontier_batch_size=frontier_batch_size,
+            )
+            if depth == 0:
+                root_report = dict(team_report)
+        else:
+            try:
+                finalized_job = queue_store.fail(
+                    case_id,
+                    job.job_id,
+                    lease_token=job.lease_token,
+                    reason="codex_team_report_rejected",
+                    retryable=True,
+                    retry_base_seconds=max(
+                        0.0, float(config.frontier_retry_base_seconds or 0.0)
+                    ),
+                    retry_max_seconds=max(
+                        max(0.0, float(config.frontier_retry_base_seconds or 0.0)),
+                        float(config.frontier_retry_max_seconds or 0.0),
+                    ),
                 )
-                added_frontiers += 1
-                if added_frontiers >= frontier_batch_size:
-                    break
+            except FrontierLeaseError:
+                finalized_job = queue_store.get(case_id, job.job_id)
+                summary["result_quarantined"] = True
+                summary["reasons"] = sorted(
+                    {*summary["reasons"], "lease_fencing_lost_result_quarantined"}
+                )
+            summary["frontier_job_state"] = (
+                finalized_job.state.value if finalized_job else "missing"
+            )
+            if depth == 0:
+                root_report = dict(team_report)
+        run_summaries.append(summary)
+        _write_campaign_state(
+            campaign_state_path,
+            case_id=case_id,
+            target_smiles=target_smiles,
+            expansions=expansions,
+            runs=run_summaries,
+        )
 
     if not root_report:
         root_report = {
@@ -496,7 +777,27 @@ def run_codex_retrosynthesis_campaign(
             "reasons": ["root_retrosynthesis_team_missing"],
             "semantics": {"no_solved_claim": True},
         }
-    remaining_frontier = select_route_consensus_frontier(graph, limit=max_expansions)
+    remaining_frontier = select_route_consensus_frontier(
+        graph,
+        limit=max_expansions * frontier_batch_size,
+    )
+    queue_jobs = queue_store.list_jobs(case_id)
+    terminal_smiles = _campaign_terminal_smiles(graph) or [root_smiles]
+    open_reaction_proofs = [
+        {
+            "frontier": str(step.get("step_id") or ""),
+            "product_smiles": str(step.get("product_smiles") or ""),
+            "reason": "proposal_hyperedge_not_reaction_validated",
+        }
+        for step in graph.get("steps") or []
+        if isinstance(step, dict)
+    ]
+    completeness = assess_frontier_completeness(
+        terminal_smiles,
+        queue_jobs,
+        open_proof_frontiers=open_reaction_proofs,
+        required_proof_level=2,
+    )
     graph_path = root_output_dir / "route_consensus_graph.json"
     _write_json(graph_path, graph)
     campaign = {
@@ -505,12 +806,29 @@ def run_codex_retrosynthesis_campaign(
         "max_depth": max_depth,
         "max_expansions": max_expansions,
         "expansion_run_count": len(run_summaries),
+        "attempt_run_count": len(run_summaries),
+        "unique_frontier_run_count": len(
+            {str(row.get("frontier_job_id") or "") for row in run_summaries}
+        ),
         "accepted_expansion_count": sum(1 for row in run_summaries if row.get("accepted")),
-        "graph_complete": not remaining_frontier,
+        "graph_complete": completeness.complete,
+        "proposal_graph_exhausted": not remaining_frontier,
         "remaining_frontier": remaining_frontier,
+        "frontier_completeness": completeness.to_dict(),
+        "frontier_queue": queue_store.snapshot(case_id),
+        "frontier_queue_ref": str(root_output_dir / "frontier_queue"),
         "runs": run_summaries,
+        "recovery_errors": recovery_errors,
+        "resumable_at": _next_retry_available_at(queue_jobs),
         "semantics": {
             "frontier_reexpanded_by_direct_codex_teams": True,
+            "persistent_stock_first_frontier_scheduler": True,
+            "fenced_expansion_commit_before_queue_completion": True,
+            "child_frontiers_published_only_after_parent_queue_commit": True,
+            "campaign_state_is_rebuildable_atomic_cache": True,
+            "lease_heartbeat_enabled": True,
+            "queue_exhaustion_is_not_route_completion": True,
+            "reaction_validation_required_for_graph_complete": True,
             "advisory_only": True,
             "no_solved_claim": True,
         },
@@ -522,6 +840,510 @@ def run_codex_retrosynthesis_campaign(
     root_report["route_expansion_count"] = len(expansions)
     _write_json(root_output_dir / "team_report.json", root_report)
     return root_report
+
+
+def migrate_legacy_campaign_commits(
+    *,
+    case_id: str,
+    target_smiles: str,
+    run_dir: str | Path,
+) -> dict[str, Any]:
+    """Upgrade a pre-outbox campaign without rerunning any Codex team."""
+
+    root_run_dir = Path(run_dir).resolve()
+    root_output_dir = root_run_dir / "codex_retrosynthesis_team"
+    state_path = root_output_dir / "campaign_state.json"
+    raw_state = _read_json_object(state_path)
+    if (
+        raw_state.get("schema_version") != "codex_retrosynthesis_campaign_state.v1"
+        or raw_state.get("case_id") != case_id
+        or _canonical_target_smiles(raw_state.get("target_smiles"))
+        != _canonical_target_smiles(target_smiles)
+    ):
+        raise ValueError("legacy campaign state identity is invalid")
+    expansions = [
+        dict(row) for row in raw_state.get("expansions") or [] if isinstance(row, dict)
+    ]
+    runs = [dict(row) for row in raw_state.get("runs") or [] if isinstance(row, dict)]
+    queue = PersistentFrontierQueue(root_output_dir / "frontier_queue")
+    migrated: list[str] = []
+    skipped: list[str] = []
+    for job in queue.list_jobs(case_id):
+        if (
+            job.state != FrontierJobState.SUCCEEDED
+            or job.closure_kind != "proposal_expansion"
+            or str(job.result_ref).startswith("frontier-skip:")
+        ):
+            continue
+        try:
+            Path(job.result_ref).resolve().relative_to(
+                (root_output_dir / "campaign_commits").resolve()
+            )
+            skipped.append(job.job_id)
+            continue
+        except ValueError:
+            pass
+        summary = next(
+            (
+                dict(row)
+                for row in runs
+                if row.get("frontier_job_id") == job.job_id
+                and row.get("accepted") is True
+                and row.get("proposal_expansion_recorded") is True
+            ),
+            {},
+        )
+        expansion = next(
+            (
+                dict(row)
+                for row in expansions
+                if _canonical_target_smiles(row.get("requested_product_smiles"))
+                == job.frontier_smiles
+            ),
+            {},
+        )
+        if not summary or not expansion:
+            skipped.append(job.job_id)
+            continue
+        synthetic_token = "legacy-succeeded:" + hashlib.sha256(
+            str(job.result_ref).encode("utf-8")
+        ).hexdigest()
+        migrated_job = replace(job, lease_token=synthetic_token)
+        commit_path = _write_expansion_commit(
+            root_output_dir=root_output_dir,
+            case_id=case_id,
+            job=migrated_job,
+            team_report_ref=Path(job.result_ref),
+            expansion=expansion,
+            summary={**summary, "legacy_commit_migration": True},
+        )
+        queue.rebind_succeeded_result(
+            case_id,
+            job.job_id,
+            expected_result_ref=job.result_ref,
+            result_ref=str(commit_path),
+            metadata_updates={
+                "legacy_result_migrated": True,
+                "legacy_result_ref_sha256": hashlib.sha256(
+                    str(job.result_ref).encode("utf-8")
+                ).hexdigest(),
+            },
+        )
+        migrated.append(job.job_id)
+    _write_campaign_state(
+        state_path,
+        case_id=case_id,
+        target_smiles=target_smiles,
+        expansions=expansions,
+        runs=runs,
+    )
+    recovery_errors = _reconcile_expansion_commits(
+        queue=queue,
+        run_id=case_id,
+        root_output_dir=root_output_dir,
+        expansions=expansions,
+        runs=runs,
+    )
+    return {
+        "schema_version": "codex_retrosynthesis_campaign_migration.v1",
+        "accepted": not recovery_errors,
+        "run_dir": str(root_run_dir),
+        "case_id": case_id,
+        "migrated_job_ids": migrated,
+        "skipped_job_ids": skipped,
+        "recovery_errors": recovery_errors,
+        "campaign_state_ref": str(state_path),
+        "frontier_queue": queue.snapshot(case_id),
+    }
+
+
+def _stock_request(config: RetrosynthesisTeamConfig, canonical_smiles: str) -> dict[str, Any]:
+    raw = (config.stock_snapshots or {}).get(canonical_smiles) or {}
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _submit_graph_frontiers(
+    *,
+    graph: dict[str, Any],
+    scheduler: FrontierScheduler,
+    config: RetrosynthesisTeamConfig,
+    case_id: str,
+    expanded_smiles: set[str],
+    max_depth: int,
+    max_expansions: int,
+    frontier_batch_size: int,
+) -> int:
+    added = 0
+    for next_frontier in select_route_consensus_frontier(
+        graph,
+        limit=max_expansions * frontier_batch_size,
+    ):
+        next_smiles = _canonical_target_smiles(next_frontier.get("target_smiles"))
+        next_depth = int(next_frontier.get("depth") or 0)
+        if not next_smiles or next_smiles in expanded_smiles or next_depth >= max_depth:
+            continue
+        scheduler.submit(
+            run_id=case_id,
+            case_id=case_id,
+            frontier_smiles=next_smiles,
+            frontier_node_id=str(next_frontier.get("node_id") or f"frontier:{next_smiles}"),
+            idempotency_key=(
+                f"{case_id}:frontier:{hashlib.sha256(next_smiles.encode()).hexdigest()}"
+            ),
+            stock_request=_stock_request(config, next_smiles),
+            required_proof_level=2,
+            proof_deficit=2,
+            closure_probability=max(
+                0.0,
+                min(1.0, float(next_frontier.get("priority_score") or 0.5)),
+            ),
+            diversity_gain=0.5,
+            dependency_ids=(),
+            max_attempts=3,
+            metadata={
+                **dict(next_frontier),
+                "target_name": next_smiles,
+            },
+        )
+        added += 1
+        if added >= frontier_batch_size:
+            break
+    return added
+
+
+def _next_retry_available_at(jobs: list[FrontierJob]) -> str:
+    values = sorted(
+        row.available_at
+        for row in jobs
+        if row.state == FrontierJobState.RETRY_WAIT and row.available_at
+    )
+    return values[0] if values else ""
+
+
+def _next_retry_delay(jobs: list[FrontierJob]) -> float | None:
+    value = _next_retry_available_at(jobs)
+    if not value:
+        return None
+    try:
+        available = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if available.tzinfo is None:
+        available = available.replace(tzinfo=timezone.utc)
+    return max(0.0, (available - datetime.now(timezone.utc)).total_seconds())
+
+
+def _campaign_terminal_smiles(graph: dict[str, Any]) -> list[str]:
+    nodes = {
+        str(row.get("node_id") or ""): str(row.get("smiles") or "")
+        for row in graph.get("nodes") or []
+        if isinstance(row, dict)
+    }
+    result: list[str] = []
+    for route in graph.get("route_hypotheses") or []:
+        if not isinstance(route, dict):
+            continue
+        for frontier in route.get("frontier") or []:
+            if not isinstance(frontier, dict):
+                continue
+            smiles = _canonical_target_smiles(nodes.get(str(frontier.get("node_id") or "")))
+            if smiles and smiles not in result:
+                result.append(smiles)
+    return result
+
+
+def _load_campaign_state(
+    path: Path,
+    *,
+    case_id: str,
+    target_smiles: str,
+) -> dict[str, Any]:
+    row = _read_json_object(path)
+    recorded_digest = str(row.get("content_sha256") or "")
+    digest_payload = dict(row)
+    digest_payload.pop("content_sha256", None)
+    if (
+        not recorded_digest
+        or recorded_digest != _payload_digest(digest_payload)
+        or row.get("schema_version") != "codex_retrosynthesis_campaign_state.v1"
+        or row.get("case_id") != case_id
+        or _canonical_target_smiles(row.get("target_smiles"))
+        != _canonical_target_smiles(target_smiles)
+    ):
+        return {}
+    return row
+
+
+def _write_campaign_state(
+    path: Path,
+    *,
+    case_id: str,
+    target_smiles: str,
+    expansions: list[dict[str, Any]],
+    runs: list[dict[str, Any]],
+) -> None:
+    payload = {
+        "schema_version": "codex_retrosynthesis_campaign_state.v1",
+        "case_id": case_id,
+        "target_smiles": target_smiles,
+        "expansions": expansions,
+        "runs": runs,
+    }
+    payload["content_sha256"] = _payload_digest(payload)
+    _write_json(path, payload)
+
+
+@contextmanager
+def _frontier_lease_heartbeat(
+    queue: PersistentFrontierQueue,
+    *,
+    run_id: str,
+    job: FrontierJob,
+    lease_seconds: float,
+    interval_seconds: float = 0.0,
+) -> Iterator[list[str]]:
+    """Renew one synchronous team lease and expose any fencing failure."""
+
+    stop = threading.Event()
+    errors: list[str] = []
+    interval = (
+        float(interval_seconds)
+        if interval_seconds > 0
+        else max(1.0, min(float(lease_seconds) / 3.0, 60.0))
+    )
+
+    def beat() -> None:
+        while not stop.wait(interval):
+            try:
+                queue.heartbeat(
+                    run_id,
+                    job.job_id,
+                    lease_token=job.lease_token,
+                    extend_seconds=lease_seconds,
+                )
+            except (FrontierLeaseError, FrontierQueueError, KeyError, OSError) as exc:
+                errors.append(f"{type(exc).__name__}:{exc}")
+                stop.set()
+
+    thread = threading.Thread(
+        target=beat,
+        name=f"frontier-heartbeat-{job.job_id[-12:]}",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        yield errors
+    finally:
+        stop.set()
+        thread.join(timeout=max(1.0, min(interval + 1.0, 5.0)))
+
+
+def _write_expansion_commit(
+    *,
+    root_output_dir: Path,
+    case_id: str,
+    job: FrontierJob,
+    team_report_ref: Path,
+    expansion: dict[str, Any],
+    summary: dict[str, Any],
+) -> Path:
+    """Persist the accepted expansion before mutating its queue job."""
+
+    report_path = team_report_ref.resolve()
+    try:
+        report_path.relative_to(root_output_dir.parent)
+    except ValueError as exc:
+        raise ValueError("team report is outside the campaign run") from exc
+    report_bytes = report_path.read_bytes()
+    report = json.loads(report_bytes.decode("utf-8"))
+    if not isinstance(report, dict) or report.get("accepted") is not True:
+        raise ValueError("expansion commit requires an accepted team report")
+    report_digest = hashlib.sha256(report_bytes).hexdigest()
+    commit_root = root_output_dir / "campaign_commits"
+    object_path = (
+        commit_root
+        / "objects"
+        / "sha256"
+        / report_digest[:2]
+        / report_digest
+        / "team_report.json"
+    )
+    _write_immutable_bytes(object_path, report_bytes)
+    token_digest = hashlib.sha256(job.lease_token.encode("utf-8")).hexdigest()
+    expansion_digest = _payload_digest(expansion)
+    payload = {
+        "schema_version": CODEX_RETROSYNTHESIS_EXPANSION_COMMIT_SCHEMA,
+        "case_id": case_id,
+        "job_id": job.job_id,
+        "attempt": job.attempt,
+        "lease_token_sha256": token_digest,
+        "frontier_smiles": job.frontier_smiles,
+        "team_report_ref": str(report_path),
+        "team_report_content_path": str(object_path.resolve()),
+        "team_report_sha256": report_digest,
+        "expansion": expansion,
+        "expansion_sha256": expansion_digest,
+        "summary": summary,
+    }
+    payload["content_sha256"] = _payload_digest(payload)
+    commit_name = (
+        f"{hashlib.sha256(job.job_id.encode()).hexdigest()[:20]}"
+        f"-a{job.attempt}-{token_digest[:12]}.json"
+    )
+    commit_path = commit_root / commit_name
+    if commit_path.is_file():
+        existing = _read_json_object(commit_path)
+        if existing != payload:
+            raise ValueError("immutable expansion commit conflict")
+        return commit_path
+    _write_json(commit_path, payload)
+    return commit_path
+
+
+def _load_expansion_commit(
+    path: Path,
+    *,
+    root_output_dir: Path,
+    expected_job: FrontierJob,
+) -> tuple[dict[str, Any], str]:
+    try:
+        resolved = path.resolve()
+        resolved.relative_to((root_output_dir / "campaign_commits").resolve())
+    except (OSError, ValueError):
+        return {}, "expansion_commit_path_outside_campaign"
+    row = _read_json_object(resolved)
+    digest_payload = dict(row)
+    recorded_digest = str(digest_payload.pop("content_sha256", ""))
+    if (
+        row.get("schema_version") != CODEX_RETROSYNTHESIS_EXPANSION_COMMIT_SCHEMA
+        or row.get("case_id") != expected_job.run_id
+        or row.get("job_id") != expected_job.job_id
+        or int(row.get("attempt") or 0) != expected_job.attempt
+        or not recorded_digest
+        or recorded_digest != _payload_digest(digest_payload)
+    ):
+        return {}, "expansion_commit_identity_or_digest_invalid"
+    expansion = row.get("expansion")
+    if not isinstance(expansion, dict) or row.get("expansion_sha256") != _payload_digest(expansion):
+        return {}, "expansion_commit_payload_digest_invalid"
+    object_path = Path(str(row.get("team_report_content_path") or ""))
+    try:
+        object_path.resolve().relative_to(
+            (root_output_dir / "campaign_commits" / "objects").resolve()
+        )
+    except (OSError, ValueError):
+        return {}, "expansion_commit_report_object_outside_campaign"
+    if not object_path.is_file() or _sha256_file(object_path) != row.get("team_report_sha256"):
+        return {}, "expansion_commit_report_object_invalid"
+    report = _read_json_object(object_path)
+    if report.get("accepted") is not True:
+        return {}, "expansion_commit_report_not_accepted"
+    return row, ""
+
+
+def _reconcile_expansion_commits(
+    *,
+    queue: PersistentFrontierQueue,
+    run_id: str,
+    root_output_dir: Path,
+    expansions: list[dict[str, Any]],
+    runs: list[dict[str, Any]],
+) -> list[str]:
+    """Rebuild the mutable campaign cache from fenced succeeded-job commits."""
+
+    expansion_ids = {str(row.get("expansion_id") or "") for row in expansions}
+    run_job_ids = {
+        str(row.get("frontier_job_id") or "")
+        for row in runs
+        if row.get("proposal_expansion_recorded") is True
+    }
+    errors: list[str] = []
+    for job in queue.list_jobs(run_id):
+        if (
+            job.state != FrontierJobState.SUCCEEDED
+            or job.closure_kind != "proposal_expansion"
+            or str(job.result_ref).startswith("frontier-skip:")
+        ):
+            continue
+        commit, reason = _load_expansion_commit(
+            Path(job.result_ref),
+            root_output_dir=root_output_dir,
+            expected_job=job,
+        )
+        if reason:
+            errors.append(f"{job.job_id}:{reason}")
+            try:
+                queue.invalidate_succeeded_result(
+                    run_id,
+                    job.job_id,
+                    expected_result_ref=job.result_ref,
+                    reason=reason,
+                )
+            except (FrontierQueueError, KeyError, ValueError) as exc:
+                errors.append(
+                    f"{job.job_id}:result_invalidation_failed:{type(exc).__name__}:{exc}"
+                )
+            continue
+        expansion = dict(commit["expansion"])
+        expansion_id = str(expansion.get("expansion_id") or "")
+        if expansion_id and expansion_id not in expansion_ids:
+            expansions.append(expansion)
+            expansion_ids.add(expansion_id)
+        if job.job_id not in run_job_ids:
+            summary = dict(commit.get("summary") or {})
+            summary["frontier_job_state"] = FrontierJobState.SUCCEEDED.value
+            summary["proposal_expansion_recorded"] = True
+            summary["recovered_from_expansion_commit"] = True
+            runs.append(summary)
+            run_job_ids.add(job.job_id)
+    return errors
+
+
+def _payload_digest(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_immutable_bytes(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_file():
+        if path.read_bytes() != payload:
+            raise ValueError("immutable campaign object conflict")
+        return
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _compact_blackboard_context(board: dict[str, Any]) -> dict[str, Any]:
@@ -821,4 +1643,14 @@ def _canonical_target_smiles(value: Any) -> str:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)

@@ -12,8 +12,10 @@ from rdkit import Chem, RDLogger
 
 from cascade_planner.harness.route_verifier import (
     is_accepted_route_verifier_report,
+    is_reaction_validated_route_verifier_report,
     verify_chemenzy_raw_routes,
 )
+from cascade_planner.harness.reaction_step_verifier import verify_reaction_route
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -156,6 +158,8 @@ def compile_stitched_semisynthesis_route(
         reasons.append("literature_chain_not_strict_source_detail_schema")
     if chain_summary["invalid_provenance_step_count"]:
         reasons.append("literature_chain_step_provenance_not_revalidated")
+    if not chain_summary["reaction_validated"]:
+        reasons.append("literature_chain_reaction_steps_not_validated")
     if not chain_summary["terminal_reached"]:
         reasons.append("literature_chain_terminal_not_reached")
     if not chain_summary["terminal"]["valid"]:
@@ -208,8 +212,8 @@ def compile_stitched_semisynthesis_route(
         else:
             if not summary["verifier_accepted"]:
                 reasons.append("subgoal_verifier_not_accepted")
-            if summary["route_status"] != "solved":
-                reasons.append("subgoal_route_not_solved")
+            if not summary["reaction_validated"]:
+                reasons.append("subgoal_reaction_steps_not_validated")
             if not summary["target_match"]:
                 reasons.append("subgoal_target_not_verified")
             if not summary["raw_solved"] or summary["best_route_step_count"] <= 0:
@@ -237,6 +241,7 @@ def compile_stitched_semisynthesis_route(
         and len(subgoal_closures) == len(frontier_smiles)
         and all(
             row.get("verifier_accepted") is True
+            and row.get("reaction_validated") is True
             and row.get("stock_audit_passed") is True
             and (row.get("terminal_match_audit") or {}).get("accepted") is True
             for row in subgoal_closures
@@ -287,6 +292,7 @@ def compile_stitched_semisynthesis_route(
                 1
                 for row in subgoal_closures
                 if row.get("verifier_accepted") is True
+                and row.get("reaction_validated") is True
                 and row.get("stock_audit_passed") is True
                 and (row.get("terminal_match_audit") or {}).get("accepted") is True
             ),
@@ -307,7 +313,13 @@ def compile_stitched_semisynthesis_route(
                     {
                         "segment_id": f"subgoal_stock_closure_{index}",
                         "role": "stock_to_literature_frontier",
-                        "status": "verified_solved" if row["verifier_accepted"] else "not_verified",
+                        "status": (
+                            "reaction_validated"
+                            if row.get("reaction_validated")
+                            else "graph_and_stock_closed"
+                            if row.get("verifier_accepted")
+                            else "not_verified"
+                        ),
                         "target_smiles": str((row.get("target") or {}).get("input_smiles") or ""),
                         "best_route_rank": row.get("best_route_rank"),
                         "step_count": int(row.get("best_route_step_count") or 0),
@@ -322,7 +334,11 @@ def compile_stitched_semisynthesis_route(
                 {
                     "segment_id": "source_detail_literature_chain",
                     "role": "literature_frontiers_to_target",
-                    "status": "accepted" if chain_summary["chain_accepted"] else "not_accepted",
+                    "status": (
+                        "reaction_validated"
+                        if chain_summary["reaction_validated"]
+                        else "not_reaction_validated"
+                    ),
                     "terminal_smiles": chain_summary["terminal"]["input_smiles"],
                     "terminal_frontier_smiles": frontier_smiles,
                     "target_smiles": str(chain.get("target_smiles") or target_smiles or ""),
@@ -341,6 +357,7 @@ def compile_stitched_semisynthesis_route(
             "mechanistic_parent_bridge_is_not_exact_literature_segment": True,
             "subgoal_solved_does_not_imply_target_solved_without_stitch": True,
             "literature_segment_requires_source_detail_chain": True,
+            "literature_segment_requires_reaction_validation": True,
             "subgoal_segment_requires_route_verifier": True,
             "final_verdict_authority": "deterministic_validators",
             "production_write_blocked": True,
@@ -523,6 +540,18 @@ def _literature_chain_summary(
         target_smiles=str(expected_target_smiles or chain.get("target_smiles") or ""),
         terminal_smiles=terminal_smiles,
     )
+    precedent_bindings: dict[str, dict[str, Any]] = {}
+    for index, step in enumerate(steps):
+        binding = _trusted_literature_step_precedent(step)
+        if binding:
+            step_id = str(step.get("step_id") or step.get("id") or f"step:{index}")
+            precedent_bindings[step_id] = binding
+    reaction_validation = verify_reaction_route(
+        steps,
+        graph_and_stock_closed=False,
+        trusted_precedent_bindings=precedent_bindings,
+    )
+    reaction_validated = reaction_validation.get("accepted") is True
     chain_accepted = bool(
         explicit_accepted is True
         and source_detail_schema_valid
@@ -532,6 +561,7 @@ def _literature_chain_summary(
         and source_bound
         and graph_audit["graph_connected"]
         and graph_audit["terminal_bound_to_steps"]
+        and reaction_validated
     )
     return {
         "schema_version": str(chain.get("schema_version") or ""),
@@ -544,6 +574,11 @@ def _literature_chain_summary(
         "terminal_bound_to_steps": graph_audit["terminal_bound_to_steps"],
         "frontier_closed_to_terminal": graph_audit["frontier_closed_to_terminal"],
         "graph_terminal_frontier": graph_audit["terminal_frontier"],
+        "reaction_validated": reaction_validated,
+        "reaction_validation": reaction_validation,
+        "verification_level": str(
+            reaction_validation.get("proof_level") or "L0_materialized"
+        ),
         "terminal_frontiers": [
             _compound_identity(smiles) for smiles in graph_audit["terminal_frontier"]
         ],
@@ -637,6 +672,14 @@ def _trusted_literature_step_binding(
     a model-authored proof.  Consequently a PDF/page manifest alone cannot
     validate arbitrary product/reactant SMILES.
     """
+    return bool(_trusted_literature_step_precedent(step, evidence=evidence))
+
+
+def _trusted_literature_step_precedent(
+    step: dict[str, Any],
+    *,
+    evidence: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     configured = str(os.environ.get("AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY") or "").strip()
     path = Path(configured).expanduser() if configured else _DEFAULT_TRUSTED_STEP_REGISTRY
     if not path.is_absolute():
@@ -644,12 +687,21 @@ def _trusted_literature_step_binding(
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return False
+        return {}
     if not isinstance(payload, dict) or payload.get("schema_version") != "trusted_literature_step_registry.v1":
-        return False
+        return {}
     reaction_digest = _literature_step_chemistry_digest(step)
     source_ref = str(step.get("source_ref") or "").strip().lower()
-    valid_evidence = [row for row in evidence if _materialized_source_evidence_valid(row)]
+    evidence_rows = evidence
+    if evidence_rows is None:
+        evidence_rows = [
+            dict(item)
+            for item in step.get("source_evidence") or []
+            if isinstance(item, dict)
+        ]
+    valid_evidence = [
+        row for row in evidence_rows if _materialized_source_evidence_valid(row)
+    ]
     for raw in payload.get("bindings") or []:
         if not isinstance(raw, dict):
             continue
@@ -664,8 +716,17 @@ def _trusted_literature_step_binding(
         ):
             continue
         if any(_binding_matches_evidence(binding, row) for row in valid_evidence):
-            return True
-    return False
+            authority_type = str(authority.get("type") or "")
+            return {
+                "schema_version": "trusted_precedent_binding.v1",
+                "accepted": True,
+                "authority": authority_type,
+                "authority_id": str(authority.get("id") or ""),
+                "binding_id": str(binding.get("binding_id") or ""),
+                "reaction_digest": reaction_digest,
+                "source_ref": source_ref,
+            }
+    return {}
 
 
 def _literature_step_chemistry_digest(step: dict[str, Any]) -> str:
@@ -902,10 +963,17 @@ def _subgoal_summary(
         reverified,
         expected_target_smiles=target_smiles,
     )
+    reaction_validated = is_reaction_validated_route_verifier_report(
+        reverified,
+        expected_target_smiles=target_smiles,
+    )
     materialization = _best_route_materialization(raw, reverified)
     return {
         "accepted": verifier_accepted,
         "verifier_accepted": verifier_accepted,
+        "reaction_validated": reaction_validated,
+        "verification_level": str(reverified.get("verification_level") or "L0_materialized"),
+        "reaction_validation": dict(reverified.get("reaction_validation") or {}),
         "route_status": str(reverified.get("route_status") or ""),
         "target_match": bool(reverified.get("target_match")),
         "target": _compound_identity(target_smiles),
@@ -1248,7 +1316,11 @@ def _failure_status(reasons: list[str]) -> str:
     reason_set = set(reasons)
     if "literature_terminal_subgoal_target_mismatch" in reason_set:
         return "terminal_mismatch"
-    if "subgoal_verifier_not_accepted" in reason_set or "subgoal_route_not_solved" in reason_set:
+    if (
+        "subgoal_verifier_not_accepted" in reason_set
+        or "subgoal_route_not_solved" in reason_set
+        or "subgoal_reaction_steps_not_validated" in reason_set
+    ):
         return "subgoal_not_verified"
     if "literature_chain_not_accepted" in reason_set:
         return "literature_chain_not_accepted"

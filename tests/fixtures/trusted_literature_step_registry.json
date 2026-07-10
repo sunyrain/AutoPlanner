@@ -3,6 +3,48 @@
   "registry_id": "autoplanner-test-fixture",
   "bindings": [
     {
+      "binding_id": "fixture:common_stock_to_ethanol",
+      "reaction_digest": "feb0cd1050243081b441a5e5d65eae9b9dfb32f3bef4bd04dc2d10ee2c2acf94",
+      "source_ref": "doi:10.1000/revalidatable-stitch",
+      "document_id": "fixture:revalidatable-stitch",
+      "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+      "page_number": 1,
+      "image_sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976",
+      "status": "approved",
+      "authority": {
+        "type": "human_curator",
+        "id": "autoplanner-test-fixture"
+      }
+    },
+    {
+      "binding_id": "fixture:oxygen_to_water",
+      "reaction_digest": "a673a444ea841c174bb031af92c14971632a63b23f0ed8297c01a8c996c59147",
+      "source_ref": "doi:10.1000/revalidatable-stitch",
+      "document_id": "fixture:revalidatable-stitch",
+      "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+      "page_number": 1,
+      "image_sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976",
+      "status": "approved",
+      "authority": {
+        "type": "human_curator",
+        "id": "autoplanner-test-fixture"
+      }
+    },
+    {
+      "binding_id": "fixture:ethanol_to_acetaldehyde",
+      "reaction_digest": "0dd20ecc6bab87424148bf92ce5d3b0eb6bb99e6256a6223656f885312a3aff1",
+      "source_ref": "doi:10.1000/revalidatable-stitch",
+      "document_id": "fixture:revalidatable-stitch",
+      "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+      "page_number": 1,
+      "image_sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976",
+      "status": "approved",
+      "authority": {
+        "type": "human_curator",
+        "id": "autoplanner-test-fixture"
+      }
+    },
+    {
       "binding_id": "fixture:ethanol_to_ethyl_acetate",
       "reaction_digest": "ab4c8e26110f47780949845d69ece67672c20fdde839d4a04681069fb2a31ee4",
       "source_ref": "doi:10.1000/revalidatable-stitch",
@@ -33,6 +75,76 @@
     {
       "binding_id": "fixture:multi_frontier",
       "reaction_digest": "f0f0a632f0ab591b07661894f17689e20e9b99cd7eac39d158776c9b6e1c5f9c",
+      "source_ref": "doi:10.1000/revalidatable-stitch",
+      "document_id": "fixture:revalidatable-stitch",
+      "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+      "page_number": 1,
+      "image_sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976",
+      "status": "approved",
+      "authority": {
+        "type": "human_curator",
+        "id": "autoplanner-test-fixture"
+      }
+    },
+    {
+      "binding_id": "fixture:ethanol_hydration",
+      "reaction_digest": "feb0cd1050243081b441a5e5d65eae9b9dfb32f3bef4bd04dc2d10ee2c2acf94",
+      "source_ref": "doi:10.1000/revalidatable-stitch",
+      "document_id": "fixture:revalidatable-stitch",
+      "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+      "page_number": 1,
+      "image_sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976",
+      "status": "approved",
+      "authority": {
+        "type": "human_curator",
+        "id": "autoplanner-test-fixture"
+      }
+    },
+    {
+      "binding_id": "fixture:methane_coupling",
+      "reaction_digest": "3f77d93eb8a1ed744e28b41530840e8780bde5d481e3798224ef463120f45364",
+      "source_ref": "doi:10.1000/revalidatable-stitch",
+      "document_id": "fixture:revalidatable-stitch",
+      "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+      "page_number": 1,
+      "image_sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976",
+      "status": "approved",
+      "authority": {
+        "type": "human_curator",
+        "id": "autoplanner-test-fixture"
+      }
+    },
+    {
+      "binding_id": "fixture:oxygen_reduction",
+      "reaction_digest": "a673a444ea841c174bb031af92c14971632a63b23f0ed8297c01a8c996c59147",
+      "source_ref": "doi:10.1000/revalidatable-stitch",
+      "document_id": "fixture:revalidatable-stitch",
+      "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+      "page_number": 1,
+      "image_sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976",
+      "status": "approved",
+      "authority": {
+        "type": "human_curator",
+        "id": "autoplanner-test-fixture"
+      }
+    },
+    {
+      "binding_id": "fixture:aspirin_salicylic_acid",
+      "reaction_digest": "19e72dfe9f37aa7ae61481f3350e4f05b7c826a28b8c5f96c94edfc1a09aafaf",
+      "source_ref": "doi:10.1000/revalidatable-stitch",
+      "document_id": "fixture:revalidatable-stitch",
+      "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",
+      "page_number": 1,
+      "image_sha256": "064ea70c5ca111e4e9b50fb256594110f669a1339c4ccf067aa6f3970a827976",
+      "status": "approved",
+      "authority": {
+        "type": "human_curator",
+        "id": "autoplanner-test-fixture"
+      }
+    },
+    {
+      "binding_id": "fixture:aspirin_acetylation",
+      "reaction_digest": "c271804ea7ceaab36db203016a1d94f7c3f188e2807cc85d7760ffb1bb134270",
       "source_ref": "doi:10.1000/revalidatable-stitch",
       "document_id": "fixture:revalidatable-stitch",
       "source_pdf_sha256": "7790b2a51bbc5196d7ceca829d45c0df2e40aa928c3f6fc5a35fd6bd8500387c",

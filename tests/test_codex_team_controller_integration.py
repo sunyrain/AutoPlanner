@@ -139,7 +139,11 @@ def test_controller_merges_direct_team_consensus_and_renders_it_advisory(tmp_pat
     assert board["route_consensus_graph"]["has_hypotheses"] is True
     assert len(board["route_consensus_graph"]["steps"]) == 2
     assert board["codex_agent_team"]["campaign"]["expansion_run_count"] == 2
-    assert board["codex_agent_team"]["campaign"]["graph_complete"] is True
+    campaign = board["codex_agent_team"]["campaign"]
+    assert campaign["proposal_graph_exhausted"] is True
+    assert campaign["graph_complete"] is False
+    assert campaign["frontier_completeness"]["complete"] is False
+    assert campaign["semantics"]["queue_exhaustion_is_not_route_completion"] is True
     assert board["retrosynthetic_proposals"]
     assert all(row["executable"] is False for row in board["retrosynthetic_proposals"])
     assert result["final_verdict"]["solved"] is False

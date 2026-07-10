@@ -11,6 +11,8 @@ from typing import Any
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.routes.overlay import build_route_hypergraph_v2_overlay
+
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -146,7 +148,7 @@ def assemble_route_consensus_graph(
         conflict_ids_by_step=conflict_ids_by_step,
     )
 
-    return {
+    graph = {
         "schema_version": GRAPH_SCHEMA,
         "case_id": str(case_id or ""),
         "target_smiles": target or str(target_smiles or ""),
@@ -177,6 +179,12 @@ def assemble_route_consensus_graph(
             "not_parent_route_proof": True,
         },
     }
+    overlay = build_route_hypergraph_v2_overlay(graph)
+    graph["v2_overlay"] = overlay
+    # Kept at the graph boundary as a convenient read-only index for v1
+    # consumers; the content-addressed records live in ``v2_overlay``.
+    graph["route_neighborhoods"] = list(overlay.get("route_neighborhoods") or [])
+    return graph
 
 
 def select_route_consensus_frontier(
@@ -260,6 +268,7 @@ def _merge_step(signature: str, rows: list[tuple[dict[str, Any], dict[str, Any]]
         "origin_expansion_ids": _dedupe_text(str(row.get("expansion_id") or "") for row in expansions),
         "reaction_family": str(max(proposals, key=lambda row: float(row.get("rank_score") or 0.0)).get("reaction_family") or "unspecified"),
         "reaction_families": _dedupe_text(value for row in proposals for value in row.get("reaction_families") or []),
+        "rationales": _dedupe_text(value for row in proposals for value in row.get("rationales") or []),
         "source_channels": _dedupe_text(value for row in proposals for value in row.get("source_channels") or []),
         "source_records": source_records,
         "independent_support_groups": _dedupe_text(value for row in proposals for value in row.get("independent_support_groups") or []),

@@ -1,4 +1,19 @@
-# Test tooling only. Install alongside requirements.txt for a full development
-# environment; keeping this file separate avoids pulling the inference stack
-# into documentation-only or repository-audit jobs.
+# Deterministic offline test stack.  This is intentionally sufficient for the
+# repository contract suite without pulling transformers, rxnmapper, ONNX GPU
+# runtimes, model weights, Codex credentials, or live provider dependencies.
+# Install requirements.txt as well only when developing the inference stack.
 pytest>=8.2,<10
+ruff>=0.12,<1
+
+# Imported by the offline tests (including collection-time imports).
+numpy>=1.26,<2.0
+torch==2.3.0
+rdkit>=2023.9.1,<2024.0
+pyarrow>=15,<25
+pandas>=2.2,<3
+scikit-learn>=1.2,<2
+Pillow>=10,<12
+PyYAML>=6,<7
+requests>=2.31,<3
+PyMuPDF>=1.24,<2
+flask>=3.0,<4

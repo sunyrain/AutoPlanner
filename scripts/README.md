@@ -16,6 +16,8 @@ Active repository utilities for the Codex-entry harness direction only.
 | `validate_legacy_example_runs.py` | Validate older non-blackboard saved examples such as Codex-entry statin runs, statin-panel dossiers, and retrieval/latest probes. |
 | `smoke_route_forest_history.py` | Read-only broad smoke over saved `agent_blackboard.json` histories; compiles and renders route forests in memory. |
 | `evaluate_agentic_run.py` | Standard-library-only evaluator for one saved agentic run, or a baseline/final comparison with fail-closed parent-proof and advisory-route semantics. |
+| `audit_architecture_v2.py` | Report file-presence capability surface, materialized executable-contract evidence, and one run's chemistry acceptance separately. For committed runs it reads CAS proof/verdict/graph/forest first, audits every portfolio item/hash/selected DAG, and reports mutable compatibility drift without overriding CAS authority. |
+| `migrate_codex_campaign_v2.py` | Upgrade a saved pre-outbox Codex frontier campaign to immutable fenced per-job expansion commits without rerunning model work. |
 | `refresh_agentic_closeout_artifacts.py` | Recompute hypothesis reports and final verdicts for a saved agentic run without rerunning model/PDF/ChemEnzy work. |
 | `resume_agentic_blackboard.py` | Continue a saved agentic run from `agent_blackboard.json`, preserving existing artifacts, budget counters, and closeout auditing. |
 | `monitor_autoplanner_web.py` | Poll the local WebUI service, queue state, CUDA status, and recent output/rejected artifacts. |

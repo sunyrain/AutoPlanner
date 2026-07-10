@@ -77,9 +77,24 @@ from cascade_planner.harness.tools import (
 )
 from cascade_planner.orchestration.codex_retrosynthesis import (
     RetrosynthesisTeamConfig,
-    run_codex_retrosynthesis_campaign,
+)
+from cascade_planner.providers.builtins import (
+    CodexRetrosynthesisProvider,
+    build_default_provider_registry,
+)
+from cascade_planner.providers.contracts import ProviderContext
+from cascade_planner.application.route_portfolio import (
+    build_route_verifier_bundle,
+    derive_portfolio_bindings,
+    solve_diverse_routes,
+    validate_portfolio_replacements,
 )
 from cascade_planner.routes import consensus_to_blackboard_proposals, rebuild_consensus_graph_from_blackboard
+from cascade_planner.runtime.artifact_revision import (
+    ArtifactRevisionError,
+    publish_closeout_revision,
+    sha256_file,
+)
 
 
 ActionPlannerRunner = Callable[..., dict[str, Any]]
@@ -438,17 +453,32 @@ def _run_and_merge_codex_agent_team(
 ) -> dict[str, Any]:
     board = dict(blackboard)
     try:
-        report = run_codex_retrosynthesis_campaign(
-            case_id=str(board.get("case_id") or state.preflight.get("case_id") or "target"),
-            target_name=target_name,
-            target_smiles=target_smiles,
+        case_id = str(board.get("case_id") or state.preflight.get("case_id") or "target")
+        backend = CodexRetrosynthesisProvider(
             run_dir=state.run_dir,
             repository_root=Path(__file__).resolve().parents[2],
-            blackboard_context=board,
-            literature_sources=literature_sources,
             config=config,
             runner=runner,
         )
+        registry = build_default_provider_registry(include_codex=backend)
+        envelope = registry.invoke(
+            backend.descriptor.provider_id,
+            {
+                "schema_version": "codex_retrosynthesis_campaign_request.v1",
+                "case_id": case_id,
+                "target_name": target_name,
+                "target_smiles": target_smiles,
+                "blackboard_context": board,
+                "literature_sources": literature_sources,
+            },
+            context=ProviderContext(
+                run_id=case_id,
+                case_id=case_id,
+                target_smiles=target_smiles,
+            ),
+        )
+        report = dict(envelope.payload)
+        report["provider_envelope"] = envelope.to_dict()
     except Exception as exc:
         report = {
             "schema_version": "codex_retrosynthesis_team_run.v1",
@@ -712,6 +742,45 @@ def _refresh_multisource_route_consensus(
 
     consensus = dict(rebuild.get("consensus") or {})
     graph = dict(rebuild.get("graph") or {})
+    overlay = dict(graph.get("v2_overlay") or {})
+    proof = dict(board.get("parent_route_proof") or {})
+    proof_evidence = dict(proof.get("proof_evidence") or {})
+    target_smiles = str((board.get("target_profile") or {}).get("target_smiles") or "")
+    solved_verifier = (
+        dict(proof_evidence.get("parent_verifier") or {})
+        if is_solved_parent_route_proof(proof, expected_target_smiles=target_smiles)
+        else {}
+    )
+    # A verifier-owned proof bank may contain several replayable, stock-closed
+    # routes even when none has yet become the authoritative parent proof.  The
+    # binding layer replays every bank entry (and strictly replays a legacy best
+    # route) before granting an edge or stock binding, so proposal payloads can
+    # never promote themselves here.
+    verifier = _portfolio_verifier_bundle(
+        artifacts=state.artifacts,
+        parent_proof=proof,
+        solved_parent_verifier=solved_verifier,
+    )
+    bindings = derive_portfolio_bindings(overlay, verifier)
+    portfolio = solve_diverse_routes(
+        overlay,
+        stock_molecule_ids=bindings["stock_molecule_ids"],
+        edge_proof_levels=bindings["edge_proof_levels"],
+        top_k=5,
+    )
+    # Keep the portfolio payload immutable after its content hash is computed.
+    # Runtime proof/stock bindings are derived material and therefore live next
+    # to, rather than inside, the content-addressed portfolio report.
+    graph["route_portfolio"] = portfolio.to_dict()
+    graph["route_portfolio_bindings"] = bindings
+    graph["route_replacement_catalog"] = validate_portfolio_replacements(
+        overlay,
+        portfolio=graph["route_portfolio"],
+        stock_molecule_ids=bindings["stock_molecule_ids"],
+        edge_proof_levels=bindings["edge_proof_levels"],
+    )
+    rebuild["graph"] = graph
+    write_json(rebuild_path, rebuild)
     write_json(consensus_path, consensus)
     write_json(graph_path, graph)
     refs["route_consensus"] = str(consensus_path)
@@ -805,6 +874,11 @@ def _finalize_agentic_run(
         final = _downgrade_invalid_agentic_final_verdict(final, final_validation)
         final.artifact_refs = dict(board.get("artifact_refs") or {})
         final_validation["corrected_final_verdict"] = final.to_dict()
+        final_validation["corrected_validation"] = _validate_agentic_final_verdict(
+            final.to_dict(),
+            blackboard=board,
+            validations=[*state.validations, *validations],
+        )
         state.safety_flags.append("agentic_final_verdict_validation_failed")
     state.validations.append(final_validation)
 
@@ -817,6 +891,12 @@ def _finalize_agentic_run(
         blackboard=board,
     )
     state.artifacts["route_forest_display"] = route_forest_artifact
+    _commit_route_closeout_revision(
+        state=state,
+        blackboard=board,
+        final_verdict=final,
+        final_validation=final_validation,
+    )
     # Rendering registers the forest/HTML (or error) refs on the board. Keep
     # every closeout projection, including invalid-input runs, on the same
     # authoritative reference set.
@@ -2509,6 +2589,218 @@ def _record_route_forest_display_artifact(
     return artifact
 
 
+def _commit_route_closeout_revision(
+    *,
+    state: ToolExecutionState,
+    blackboard: dict[str, Any],
+    final_verdict: FinalVerdict,
+    final_validation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Bind the closeout route projection to one immutable revision.
+
+    Historical fixed-name paths remain available, but the revision manifest is
+    authoritative whenever it exists.  A failed staging validation never
+    replaces the previous latest pointer.
+    """
+    refs = blackboard.setdefault("artifact_refs", {})
+    proof_snapshot_path = state.run_dir / "parent_route_proof_snapshot.json"
+    verdict_core_path = state.run_dir / "final_verdict_core.json"
+    proof = dict(blackboard.get("parent_route_proof") or {})
+    target_profile = dict(blackboard.get("target_profile") or {})
+    proof_snapshot = {
+        "schema_version": "parent_route_proof_snapshot.v1",
+        "case_id": str(
+            blackboard.get("case_id")
+            or state.preflight.get("case_id")
+            or state.target_input.get("case_id")
+            or "case"
+        ),
+        "target_smiles": str(
+            target_profile.get("target_smiles")
+            or state.target_input.get("target_smiles")
+            or ""
+        ),
+        "proof_schema_version": str(proof.get("schema_version") or "missing"),
+        "solved": _blackboard_parent_proof_solved(blackboard, proof),
+        "authority": "deterministic_parent_route_proof",
+        "proof": proof,
+    }
+    verdict_payload = final_verdict.to_dict()
+    # The compatibility verdict gains CAS digest references after publication.
+    # Omitting those two presentation/reference fields gives the decision a
+    # finite, content-addressable core instead of creating a self-reference.
+    verdict_payload.pop("artifact_refs", None)
+    verdict_payload.pop("artifact_digest_refs", None)
+    validation = dict(final_validation or {})
+    effective_validation = dict(validation.get("corrected_validation") or validation)
+    verdict_core = {
+        "schema_version": "final_verdict_core.v1",
+        "case_id": str(verdict_payload.get("case_id") or proof_snapshot["case_id"]),
+        "authority": "deterministic_parent_route_proof",
+        "parent_route_proof_solved": proof_snapshot["solved"],
+        "validation": {
+            "schema_version": str(effective_validation.get("schema_version") or ""),
+            "accepted": effective_validation.get("accepted") is True,
+            "original_attempt_accepted": validation.get("accepted") is True,
+            "reasons": [str(item) for item in effective_validation.get("reasons") or []],
+        },
+        "verdict": verdict_payload,
+    }
+    write_json(proof_snapshot_path, proof_snapshot)
+    write_json(verdict_core_path, verdict_core)
+    refs["parent_route_proof_snapshot"] = str(proof_snapshot_path)
+    refs["final_verdict_core"] = str(verdict_core_path)
+    state.artifacts["parent_route_proof_snapshot"] = proof_snapshot
+    state.artifacts["final_verdict_core"] = verdict_core
+    candidate_keys = (
+        "route_consensus_rebuild",
+        "route_consensus",
+        "route_consensus_graph",
+        "parent_route_proof_snapshot",
+        "final_verdict_core",
+        "explored_route_forest",
+        "route_forest_html",
+    )
+    run_root = state.run_dir.resolve()
+    artifacts: dict[str, Path] = {}
+    for artifact_id in candidate_keys:
+        ref = str(refs.get(artifact_id) or "").strip()
+        if not ref:
+            continue
+        path = Path(ref).expanduser()
+        path = path.resolve() if path.is_absolute() else (run_root / path).resolve()
+        try:
+            path.relative_to(run_root)
+        except ValueError:
+            continue
+        if path.is_file():
+            artifacts[artifact_id] = path
+
+    if not artifacts:
+        failure = {
+            "schema_version": "closeout_revision_state.v1",
+            "accepted": False,
+            "status": "not_committed",
+            "reasons": ["no_closeout_route_artifacts"],
+            "authority": "compatibility_paths_only",
+        }
+        blackboard["closeout_revision"] = failure
+        state.safety_flags.append("closeout_revision_not_committed")
+        return failure
+
+    dependencies: dict[str, tuple[str, ...]] = {}
+    if "route_consensus_rebuild" in artifacts and "route_consensus" in artifacts:
+        dependencies["route_consensus"] = ("route_consensus_rebuild",)
+    if "route_consensus" in artifacts and "route_consensus_graph" in artifacts:
+        dependencies["route_consensus_graph"] = ("route_consensus",)
+    if "route_consensus_graph" in artifacts and "parent_route_proof_snapshot" in artifacts:
+        dependencies["parent_route_proof_snapshot"] = ("route_consensus_graph",)
+    if "parent_route_proof_snapshot" in artifacts and "final_verdict_core" in artifacts:
+        dependencies["final_verdict_core"] = ("parent_route_proof_snapshot",)
+    forest_dependencies = tuple(
+        artifact_id
+        for artifact_id in (
+            "route_consensus",
+            "route_consensus_graph",
+            "parent_route_proof_snapshot",
+            "final_verdict_core",
+        )
+        if artifact_id in artifacts
+    )
+    if "explored_route_forest" in artifacts and forest_dependencies:
+        dependencies["explored_route_forest"] = forest_dependencies
+    if "explored_route_forest" in artifacts and "route_forest_html" in artifacts:
+        dependencies["route_forest_html"] = ("explored_route_forest",)
+
+    expected_digests = {
+        artifact_id: sha256_file(path)
+        for artifact_id, path in artifacts.items()
+    }
+    try:
+        published = publish_closeout_revision(
+            run_root,
+            artifacts=artifacts,
+            dependencies=dependencies,
+            producer="agentic_blackboard_controller.closeout",
+            case_id=str(blackboard.get("case_id") or state.preflight.get("case_id") or "case"),
+            expected_digests=expected_digests,
+        )
+    except (ArtifactRevisionError, OSError) as exc:
+        failure = {
+            "schema_version": "closeout_revision_state.v1",
+            "accepted": False,
+            "status": "not_committed",
+            "reasons": [f"closeout_revision_commit_failed:{type(exc).__name__}:{exc}"],
+            "authority": "compatibility_paths_only",
+        }
+        blackboard["closeout_revision"] = failure
+        state.safety_flags.append("closeout_revision_not_committed")
+        append_jsonl(
+            state.run_dir / "decision_trace.jsonl",
+            {"stage": "closeout_revision_rejected", **failure},
+        )
+        return failure
+
+    revision_id = str(published.get("revision_id") or "")
+    manifest_path = str(published.get("manifest_path") or "")
+    pointer_path = str(published.get("latest_pointer_path") or "")
+    digest_refs: dict[str, dict[str, Any]] = {}
+    for row in (published.get("manifest") or {}).get("artifacts") or []:
+        if not isinstance(row, dict):
+            continue
+        artifact_id = str(row.get("artifact_id") or "")
+        if not artifact_id:
+            continue
+        digest_refs[artifact_id] = {
+            "schema_version": "closeout_artifact_digest_ref.v1",
+            "artifact_id": artifact_id,
+            "path": str(row.get("path") or ""),
+            "content_path": str(row.get("content_path") or ""),
+            "sha256": str(row.get("sha256") or ""),
+            "artifact_schema_version": str(row.get("artifact_schema_version") or ""),
+            "producer": str(row.get("producer") or ""),
+            "dependencies": [
+                dict(item)
+                for item in row.get("dependencies") or []
+                if isinstance(item, dict)
+            ],
+            "revision_id": revision_id,
+            "manifest_path": manifest_path,
+            "manifest_sha256": str(published.get("manifest_sha256") or ""),
+        }
+    closeout_state = {
+        "schema_version": "closeout_revision_state.v1",
+        "accepted": True,
+        "status": "committed",
+        "revision_id": revision_id,
+        "manifest_path": manifest_path,
+        "manifest_sha256": str(published.get("manifest_sha256") or ""),
+        "latest_pointer_path": pointer_path,
+        "authority": "content_addressed_closeout_manifest",
+        "artifact_count": len(digest_refs),
+    }
+    refs["closeout_revision_manifest"] = manifest_path
+    refs["closeout_latest_pointer"] = pointer_path
+    blackboard["artifact_digest_refs"] = digest_refs
+    blackboard["closeout_revision"] = closeout_state
+    final_verdict.artifact_digest_refs = digest_refs
+    final_verdict.artifact_refs = dict(refs)
+    state.artifacts["closeout_revision_manifest"] = dict(published.get("manifest") or {})
+    state.artifacts["closeout_revision"] = closeout_state
+    state.validations.append(dict(published.get("validation") or {}))
+    append_jsonl(
+        state.run_dir / "decision_trace.jsonl",
+        {
+            "stage": "closeout_revision_committed",
+            "revision_id": revision_id,
+            "manifest_path": manifest_path,
+            "latest_pointer_path": pointer_path,
+            "artifact_count": len(digest_refs),
+        },
+    )
+    return closeout_state
+
+
 def _compile_agentic_run_audit_payload(
     *,
     blackboard: dict[str, Any],
@@ -3235,6 +3527,54 @@ def _latest_parent_verifier(artifacts: dict[str, Any]) -> dict[str, Any]:
     if isinstance(route_verifier, dict):
         return dict(route_verifier)
     return {}
+
+
+def _portfolio_verifier_bundle(
+    *,
+    artifacts: dict[str, Any],
+    parent_proof: dict[str, Any],
+    solved_parent_verifier: dict[str, Any],
+) -> dict[str, Any]:
+    """Collect host-produced parent and child verifier reports for replay.
+
+    The bundle itself grants no authority. ``derive_portfolio_bindings``
+    validates its digest, then independently replays every report/proof-bank
+    entry against that report's own target and stock context. Keeping the
+    collection paths explicit avoids treating an arbitrary nested model object
+    as a verifier report while still preserving verified child-route segments.
+    """
+
+    reports: list[dict[str, Any]] = []
+
+    def add(value: Any) -> None:
+        if not isinstance(value, dict):
+            return
+        row = dict(value)
+        if row.get("schema_version") == "harness_route_verifier_report.v1":
+            reports.append(row)
+
+    add(solved_parent_verifier)
+    proof_evidence = dict(parent_proof.get("proof_evidence") or {})
+    proof_attempt = dict(parent_proof.get("proof_attempt") or {})
+    add(proof_evidence.get("parent_verifier"))
+    add(proof_evidence.get("parent_verifier_attempt"))
+    add(proof_attempt.get("parent_verifier"))
+    add(proof_attempt.get("parent_verifier_attempt"))
+    add(_latest_parent_verifier(artifacts))
+
+    expansion = artifacts.get("route_expansion_subgoal_search")
+    if isinstance(expansion, dict):
+        for raw_subgoal in expansion.get("subgoals") or []:
+            if isinstance(raw_subgoal, dict):
+                add(raw_subgoal.get("verifier"))
+
+    route_verifier = artifacts.get("route_verifier")
+    add(route_verifier)
+    if isinstance(route_verifier, dict):
+        add(route_verifier.get("payload"))
+        add(route_verifier.get("result"))
+
+    return build_route_verifier_bundle(reports)
 
 
 def _codex_first_literature_scout(*, blackboard: dict[str, Any], state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
@@ -5652,7 +5992,13 @@ def _result(
         "artifact_bundle": str(run_dir / "artifact_bundle.json"),
         "final_verdict": str(run_dir / "final_verdict.json"),
     }
-    for key in ("explored_route_forest", "route_forest_html", "route_forest_error"):
+    for key in (
+        "explored_route_forest",
+        "route_forest_html",
+        "route_forest_error",
+        "closeout_revision_manifest",
+        "closeout_latest_pointer",
+    ):
         if artifact_refs.get(key):
             artifacts[key] = artifact_refs[key]
     return {

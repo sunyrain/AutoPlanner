@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import subprocess
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -10,6 +13,7 @@ from cascade_planner.baselines.chem_enzy_runtime import (
     diagnose_chem_enzy_runtime,
     resolve_chem_enzy_python,
 )
+from cascade_planner.harness.tools import ToolExecutionState, _execute_chemenzy_request
 
 
 def _runtime_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -135,3 +139,70 @@ def test_runtime_preflight_reads_configured_prefix_from_environment(tmp_path: Pa
     assert report["accepted"] is True
     assert report["env_prefix"] == str(env_prefix)
     assert report["python_executable"] == str(python_path)
+
+
+def test_runtime_unavailable_chemenzy_result_is_persisted_at_referenced_output(
+    tmp_path: Path,
+) -> None:
+    state = ToolExecutionState(run_dir=tmp_path, target_input={}, preflight={})
+    request_path = tmp_path / "subgoal_request.json"
+    output_path = tmp_path / "subgoal_raw_result.json"
+    runtime_preflight = {
+        "status": "runtime_unavailable",
+        "issues": ["chem_enzy_runtime_python_incompatible_with_host"],
+    }
+
+    with (
+        patch("cascade_planner.harness.tools._chem_enzy_python_bin", return_value=None),
+        patch(
+            "cascade_planner.harness.tools._chem_enzy_runtime_preflight",
+            return_value=runtime_preflight,
+        ),
+    ):
+        result = _execute_chemenzy_request(
+            state=state,
+            request={"target_smiles": "CCO"},
+            request_path=request_path,
+            output_path=output_path,
+            timeout_s=1.0,
+        )
+
+    assert request_path.is_file()
+    assert output_path.is_file()
+    assert json.loads(output_path.read_text(encoding="utf-8")) == result
+    assert result["status"] == "runtime_unavailable"
+    assert result["reasons"] == [
+        "chem_enzy_runtime_python_incompatible_with_host"
+    ]
+
+
+def test_timed_out_chemenzy_result_is_persisted_at_referenced_output(
+    tmp_path: Path,
+) -> None:
+    state = ToolExecutionState(run_dir=tmp_path, target_input={}, preflight={})
+    request_path = tmp_path / "timeout_request.json"
+    output_path = tmp_path / "timeout_raw_result.json"
+    process = Mock()
+    process.wait.side_effect = subprocess.TimeoutExpired(cmd="chemenzy", timeout=1.0)
+    process.returncode = None
+
+    with (
+        patch(
+            "cascade_planner.harness.tools._chem_enzy_python_bin",
+            return_value=Path("python"),
+        ),
+        patch("cascade_planner.harness.tools.subprocess.Popen", return_value=process),
+        patch("cascade_planner.harness.tools._terminate_process_group"),
+    ):
+        result = _execute_chemenzy_request(
+            state=state,
+            request={"target_smiles": "CCO"},
+            request_path=request_path,
+            output_path=output_path,
+            timeout_s=1.0,
+        )
+
+    assert output_path.is_file()
+    assert json.loads(output_path.read_text(encoding="utf-8")) == result
+    assert result["status"] == "timeout"
+    assert result["reasons"] == ["chem_enzy_timeout"]

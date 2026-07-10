@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AutoPlanner Agent Workbench</title>
-  <link rel="stylesheet" href="/static/agent.css?v=20260708-resume">
+  <link rel="stylesheet" href="/static/agent.css?v=20260710-trust-dag">
 </head>
 <body>
   <header class="topbar">
     <div>
       <div class="eyebrow">AutoPlanner</div>
       <h1>逆合成 Agent 工作台</h1>
-      <p>输入目标分子，实时观察黑板状态；完成后生成一条核心路线，并在每个中间步骤挂载可替换备选。</p>
+      <p>输入目标分子，实时观察黑板状态；完成后展示全部候选的分子–反应依赖图、可信度向量及经接口验证的可替换备选。</p>
     </div>
     <div class="top-actions">
       <a class="ghost-link" href="/">ChemEnzy UI</a>
@@ -170,8 +170,8 @@
     <section class="route-panel">
       <div class="route-head">
         <div>
-          <h2>最终路线图与备选模块</h2>
-          <p>主画布只展示黑板最终收束的一条核心路线；点击步骤后，在内页检查器中切换备选并预览后续分支。</p>
+          <h2>全路径依赖图、可信度与安全备选</h2>
+          <p>主画布展示全部分支及显式分子–反应依赖；颜色表示 proof tier，线宽表示独立支持，透明度与纹理表示不确定性。仅精确接口验证通过的替代项可预览，预览后仍须后端 proof 重验。</p>
         </div>
         <a id="open-route" class="ghost-link disabled" href="#" target="_blank" rel="noreferrer">新窗口打开</a>
       </div>
@@ -180,6 +180,6 @@
     </section>
   </main>
 
-  <script src="/static/agent.js?v=20260708-resume"></script>
+  <script src="/static/agent.js?v=20260710-trust-dag"></script>
 </body>
 </html>

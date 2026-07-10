@@ -31,6 +31,27 @@ except Exception:  # pragma: no cover - route forest still renders without RDKit
 
 SCHEMA_VERSION = "explored_route_forest.v1"
 
+PROOF_TIER_RANK = {
+    "L0_rejected": 0,
+    "L0_advisory": 1,
+    "L0_materialized": 2,
+    "L1_graph_stock_closed": 3,
+    "L2_mapping_consistent": 4,
+    "L2_reaction_validated": 5,
+    "L3_precedent_supported": 6,
+    "L4_procurement_ready": 7,
+}
+PROOF_TIER_STYLE = {
+    "L0_rejected": {"color": "#be123c", "dash_pattern": "2 5", "texture": "crosshatched"},
+    "L0_advisory": {"color": "#ea580c", "dash_pattern": "4 5", "texture": "dotted"},
+    "L0_materialized": {"color": "#c2410c", "dash_pattern": "3 3", "texture": "dotted"},
+    "L1_graph_stock_closed": {"color": "#ca8a04", "dash_pattern": "9 4", "texture": "dashed"},
+    "L2_mapping_consistent": {"color": "#64748b", "dash_pattern": "5 4", "texture": "striped_advisory"},
+    "L2_reaction_validated": {"color": "#2563eb", "dash_pattern": "6 2", "texture": "striped"},
+    "L3_precedent_supported": {"color": "#0f766e", "dash_pattern": "", "texture": "solid"},
+    "L4_procurement_ready": {"color": "#166534", "dash_pattern": "", "texture": "double"},
+}
+
 CONFIDENCE_RANK = {"failed": 0, "low": 1, "medium": 2, "medium_high": 3, "high": 4}
 EXACTNESS_RANK = {
     "failed_or_unresolved": 0,
@@ -58,15 +79,16 @@ def compile_explored_route_forest(
     blackboard: dict[str, Any],
     *,
     run_dir: str | Path | None = None,
-    max_visual_branches: int = 8,
-    max_proposal_branches: int = 10,
-    max_template_branches: int = 8,
+    max_visual_branches: int | None = None,
+    max_proposal_branches: int | None = None,
+    max_template_branches: int | None = None,
 ) -> dict[str, Any]:
     """Project a complex blackboard into user-facing explored route branches."""
     compiler = _RouteForestCompiler(blackboard, run_dir=run_dir)
     compiler.add_direct_verified_route_branch()
     compiler.add_stitched_verified_route_branch()
     compiler.add_subgoal_verified_route_branches()
+    compiler.add_route_portfolio_branches()
     compiler.add_visual_branches(limit=max_visual_branches)
     compiler.add_process_evidence_branches()
     compiler.add_route_consensus_branches(limit=max_proposal_branches)
@@ -84,9 +106,9 @@ def write_route_forest_artifacts(
     run_dir: str | Path,
     forest_output: str | Path | None = None,
     html_output: str | Path | None = None,
-    max_visual_branches: int = 8,
-    max_proposal_branches: int = 10,
-    max_template_branches: int = 8,
+    max_visual_branches: int | None = None,
+    max_proposal_branches: int | None = None,
+    max_template_branches: int | None = None,
 ) -> dict[str, Any]:
     """Write the read-only route forest JSON and HTML display for a run."""
     run_path = Path(run_dir).resolve()
@@ -156,13 +178,14 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
     .topbar {
       flex: 0 0 auto;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 16px;
-      align-items: end;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
       padding: 15px 22px 12px;
       background: #fff;
       border-bottom: 1px solid var(--line);
     }
+    .topbar > div:last-child { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
     .eyebrow { color: var(--muted); font-size: 12px; font-weight: 780; text-transform: uppercase; }
     h1 { margin: 4px 0 8px; font-size: 24px; line-height: 1.2; }
     .summary, .legend, .toolbar { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -429,6 +452,33 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
     .exact-visual_inferred { border-left-color: var(--amber); }
     .exact-model_hypothesis { border-left-color: var(--orange); }
     .exact-failed_or_unresolved { border-left-color: var(--red); }
+    .dependency-map-wrap {
+      min-width: 100%;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background:
+        linear-gradient(#f8fafc 1px, transparent 1px),
+        linear-gradient(90deg, #f8fafc 1px, transparent 1px),
+        #fff;
+      background-size: 24px 24px;
+    }
+    .dependency-svg { display: block; min-width: 100%; }
+    .dependency-edge { fill: none; }
+    .dependency-molecule rect { fill: #fff; stroke: #94a3b8; stroke-width: 1.3; }
+    .dependency-molecule.target rect { fill: #ecfdf5; stroke: #166534; stroke-width: 2.3; }
+    .dependency-molecule.stock rect { fill: #eff6ff; stroke: #2563eb; stroke-width: 2; }
+    .dependency-molecule text { fill: #172033; font-size: 11px; pointer-events: none; }
+    .dependency-reaction { cursor: pointer; }
+    .dependency-reaction rect { fill: #fff; }
+    .dependency-reaction text { fill: #172033; font-size: 10.5px; font-weight: 720; pointer-events: none; }
+    .dependency-tier { font-size: 9px !important; fill: #64748b !important; font-weight: 620 !important; }
+    .trust-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+    .trust-cell { border: 1px solid var(--line); border-radius: 8px; padding: 7px; background: #f8fafc; }
+    .trust-cell strong { display: block; font-size: 11px; color: #475569; }
+    .trust-cell span { font-size: 13px; font-weight: 760; }
+    .alt-button[disabled] { cursor: not-allowed; opacity: .62; background: #f8fafc; }
+    .projection-warning { border-color: #f59e0b; background: #fffbeb; color: #92400e; }
     @media (max-width: 1120px) {
       html, body { overflow: auto; }
       .workspace { grid-template-columns: 1fr; overflow: visible; }
@@ -449,7 +499,7 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
       <div class="toolbar">
         <button class="toggle-button active" type="button" data-toggle-panel="nav">导航栏</button>
         <button class="toggle-button active" type="button" data-toggle-panel="inspector">检查器</button>
-        <button class="toggle-button" type="button" data-reset-route>恢复默认分支</button>
+        <button class="toggle-button" type="button" data-reset-default-route>恢复默认分支</button>
       </div>
       <div class="legend" id="legend"></div>
     </div>
@@ -479,7 +529,7 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
           <h2 class="route-title" id="routeTitle"></h2>
           <div class="route-subtitle" id="routeSubtitle"></div>
         </div>
-        <button class="clear-button" type="button" data-reset-route>默认分支</button>
+        <button class="clear-button" type="button" data-reset-default-route>默认分支</button>
       </div>
       <div class="route-canvas"><div id="mainRoute"></div></div>
     </main>
@@ -504,7 +554,7 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
     const branches = forest.branches || [];
     const modules = forest.modules || [];
     const relationships = forest.relationships || [];
-    let selectedBranchId = defaultBranch().branch_id || '';
+    let selectedBranchId = '__all__';
     let selectedStepId = firstStepId(defaultBranch());
     let detailTab = 'step';
     let activeReplacement = null;
@@ -526,6 +576,8 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
       process_evidence: '过程证据',
       route_consensus: '多信源共识（建议）',
       route_consensus_graph: 'Codex 多步路线假设（建议）',
+      proof_eligible_portfolio_route: 'Proof-eligible Top-K portfolio route',
+      validated_replacement_route: 'Backend-revalidated replacement route',
       retrosynthetic_proposal: '模型提案',
       broad_template: '通用模板',
       exact_literature: 'exact row',
@@ -594,6 +646,8 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
       return {
         stitched_verified_route: 8,
         direct_verified_route: 6,
+        proof_eligible_portfolio_route: 5.9,
+        validated_replacement_route: 0.5,
         subgoal_verified_route: 5.8,
         exact_literature: 5,
         process_evidence: 3.5,
@@ -609,6 +663,7 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
       return branches.find(b => b.branch_id === forest.primary_branch_id)
         || branches.find(b => b.kind === 'stitched_verified_route')
         || branches.find(b => b.kind === 'direct_verified_route')
+        || branches.find(b => b.kind === 'proof_eligible_portfolio_route')
         || branches.find(b => b.kind === 'exact_literature')
         || branches.find(b => b.kind === 'route_consensus_graph')
         || branches.find(b => b.kind === 'route_consensus')
@@ -658,6 +713,11 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
     }
     function routeEvidenceText(branch) {
       const rows = routeSteps(branch);
+      if (branch?.kind === 'proof_eligible_portfolio_route') {
+        const enumeration = branch.portfolio_enumeration || {};
+        const suffix = enumeration.solver_truncated ? ' · enumeration truncated' : '';
+        return `${rows.length} steps · weakest ${proofTierLabel(branch.weakest_proof_tier)} · stock leaves ${(branch.stock_terminal_node_ids || []).length} · support groups ${(branch.independent_support_groups || []).length} · diversity ${Number(branch.diversity_score || 0).toFixed(2)}${suffix}`;
+      }
       const counts = rows.reduce((acc, step) => {
         const key = exactLabel[step.exactness] || step.exactness || '未知';
         acc[key] = (acc[key] || 0) + 1;
@@ -678,7 +738,7 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
         if (!branch?.branch_id || seen.has(branch.branch_id)) return false;
         seen.add(branch.branch_id);
         return true;
-      }).slice(0, 16);
+      });
     }
     function alternativesForStep(step) {
       const key = step?.module_key || '';
@@ -703,7 +763,7 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
         const rankDelta = branchRank(b.branch.kind) - branchRank(a.branch.kind);
         if (rankDelta) return rankDelta;
         return stepTitle(a.step).localeCompare(stepTitle(b.step));
-      }).slice(0, 16);
+      });
     }
     function branchTailSteps(branch, fromStepId) {
       const rows = ((branch || {}).step_ids || []).map(id => steps.get(id)).filter(Boolean);
@@ -713,18 +773,8 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
     function activeSteps() {
       const baseRows = routeSteps();
       if (!activeReplacement) return baseRows;
-      const alt = steps.get(activeReplacement.altStepId);
-      if (!alt) return baseRows;
-      const baseIndex = baseRows.findIndex(step => step.step_id === activeReplacement.baseStepId);
-      const prefix = baseIndex >= 0 ? baseRows.slice(0, baseIndex) : [];
-      const altBranch = branchById(activeReplacement.altBranchId) || branchForStep(alt.step_id);
-      const tail = branchTailSteps(altBranch, alt.step_id);
-      const seen = new Set();
-      return [...prefix, alt, ...tail].filter(step => {
-        if (!step || seen.has(step.step_id)) return false;
-        seen.add(step.step_id);
-        return true;
-      });
+      const replacementBranch = branchById(activeReplacement.altBranchId);
+      return replacementBranch.branch_id ? routeSteps(replacementBranch) : baseRows;
     }
     function conditionText(step) {
       const rows = (step?.conditions || []).filter(Boolean);
@@ -876,6 +926,7 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
         };
       });
       document.querySelectorAll('[data-reset-route]').forEach(button => button.onclick = clearReplacement);
+      document.querySelectorAll('[data-reset-default-route]').forEach(button => button.onclick = resetDefaultRoute);
     }
     function renderViewPicker() {
       const html = principalBranches().map(branch => `<button class="view-button${branch.branch_id === currentBranch().branch_id ? ' active' : ''}" style="border-left-color:${cssColor((routeSteps(branch)[0] || {}).exactness || 'name_only')}" data-view-branch="${esc(branch.branch_id)}">
@@ -1031,6 +1082,7 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
           <div class="kv"><div class="k">来源</div><div class="v">${esc(sourceText(step))}</div></div>
           <div class="kv"><div class="k">说明</div><div class="v">${esc(clean(step.summary, '未记录'))}</div></div>
         </div>
+        ${trustVectorBlock(step)}
         ${consensusSupportBlock(step)}
         <div class="detail-section"><h3>条件：</h3>${conditionBlock(step)}</div>
         <div class="detail-section"><h3>后续使用</h3>${downstreamBlock(step, rows)}</div>
@@ -1145,6 +1197,336 @@ def _render_route_forest_html_delivery(forest: dict[str, Any]) -> str:
       detailTab = 'step';
       renderAll();
     }
+    function resetDefaultRoute() {
+      activeReplacement = null;
+      const branch = defaultBranch();
+      selectedBranchId = branch.branch_id || '__all__';
+      selectedStepId = firstStepId(branch);
+      detailTab = 'step';
+      renderAll();
+    }
+
+    // The delivery view below consumes the explicit backend dependency and
+    // replacement-validation projections.  It deliberately does not infer
+    // chemistry edges from neighboring array positions.
+    function allGraphBranch() {
+      return {
+        branch_id: '__all__',
+        kind: 'all_dependency_graph',
+        title: 'All explored paths and alternatives',
+        summary: 'Complete molecule-reaction dependency hypergraph across every projected branch.',
+        step_ids: (forest.dependency_graph?.reaction_nodes || []).map(row => row.reaction_step_id),
+        advisory_only: true,
+        solved: false,
+        executable: false,
+        not_parent_route_proof: true
+      };
+    }
+    function currentBranch() {
+      if (selectedBranchId === '__all__') return allGraphBranch();
+      return branches.find(branch => branch.branch_id === selectedBranchId) || defaultBranch() || {};
+    }
+    function routeSteps(branch=currentBranch()) {
+      if ((branch || {}).branch_id === '__all__') {
+        return (forest.dependency_graph?.reaction_nodes || [])
+          .slice()
+          .sort((a, b) => (a.layer || 0) - (b.layer || 0) || String(a.reaction_step_id).localeCompare(String(b.reaction_step_id)))
+          .map(row => steps.get(row.reaction_step_id))
+          .filter(Boolean);
+      }
+      const view = (forest.dependency_graph?.branch_views || []).find(row => row.branch_id === branch?.branch_id);
+      const orderedIds = view?.topological_step_ids || branch?.step_ids || [];
+      return orderedIds.map(id => steps.get(id)).filter(Boolean);
+    }
+    function principalBranches() {
+      return [allGraphBranch(), ...branches.filter(branch => branch.listed !== false)];
+    }
+    function replacementRows(step) {
+      return (forest.replacement_validation?.records || [])
+        .filter(row => row.base_step_id === step?.step_id)
+        .map(row => ({
+          validation: row,
+          step: steps.get(row.candidate_step_id),
+          branch: branchById(row.revalidated_route_branch_id || row.candidate_branch_id)
+        }))
+        .sort((a, b) => Number(b.validation.validated) - Number(a.validation.validated)
+          || branchRank(b.branch.kind) - branchRank(a.branch.kind)
+          || String(a.validation.replacement_hyperedge_id || stepTitle(a.step)).localeCompare(String(b.validation.replacement_hyperedge_id || stepTitle(b.step))));
+    }
+    function alternativesForStep(step) {
+      return replacementRows(step);
+    }
+    function activeSteps() {
+      const baseRows = routeSteps();
+      if (!activeReplacement) return baseRows;
+      const record = (forest.replacement_validation?.records || []).find(row =>
+        row.replacement_id === activeReplacement.replacementId
+        && row.validated === true
+        && row.connectivity_revalidated === true
+        && row.stock_closure_revalidated === true
+        && row.reaction_proof_revalidated === true
+      );
+      const replacementBranch = record
+        ? branchById(record.revalidated_route_branch_id)
+        : {};
+      return replacementBranch.branch_id ? routeSteps(replacementBranch) : baseRows;
+    }
+    function proofTierLabel(tier) {
+      return {
+        L4_procurement_ready: 'L4 procurement ready',
+        L3_precedent_supported: 'L3 exact precedent',
+        L2_mapping_consistent: 'L2 mapping consistent (advisory)',
+        L2_reaction_validated: 'L2 reaction validated',
+        L1_graph_stock_closed: 'L1 graph + stock closed',
+        L0_materialized: 'L0 structures materialized',
+        L0_advisory: 'L0 advisory',
+        L0_rejected: 'L0 rejected'
+      }[tier] || tier || 'unknown tier';
+    }
+    function trustVectorBlock(step) {
+      const trust = step?.trust_vector || {};
+      if (!Object.keys(trust).length) return '';
+      const fields = [
+        ['identity', 'Identity'],
+        ['connectivity', 'Connectivity'],
+        ['source_independence', 'Independent sources'],
+        ['stock', 'Stock closure'],
+        ['conditions', 'Conditions'],
+        ['forward_feasibility', 'Forward feasibility']
+      ];
+      return `<div class="detail-section">
+        <h3>Trust vector · ${esc(proofTierLabel(trust.proof_tier))}</h3>
+        <div class="trust-grid">${fields.map(([key, label]) => `<div class="trust-cell"><strong>${esc(label)}</strong><span>${esc(Number(trust[key] || 0).toFixed(2))}</span></div>`).join('')}</div>
+        <div class="notice">Colour = proof tier · width = independent support groups · opacity = mean trust · pattern = uncertainty. No aggregate score upgrades a missing proof dimension.</div>
+      </div>`;
+    }
+    function localDependencyLayout(graphNodes, graphEdges) {
+      const ids = new Set(graphNodes.map(node => node.graph_node_id));
+      const outgoing = new Map([...ids].map(id => [id, new Set()]));
+      const indegree = new Map([...ids].map(id => [id, 0]));
+      for (const edge of graphEdges) {
+        if (!ids.has(edge.source_graph_node_id) || !ids.has(edge.target_graph_node_id)) continue;
+        if (outgoing.get(edge.source_graph_node_id).has(edge.target_graph_node_id)) continue;
+        outgoing.get(edge.source_graph_node_id).add(edge.target_graph_node_id);
+        indegree.set(edge.target_graph_node_id, (indegree.get(edge.target_graph_node_id) || 0) + 1);
+      }
+      const layer = new Map([...ids].map(id => [id, 0]));
+      const queue = [...ids].filter(id => indegree.get(id) === 0).sort();
+      const visited = new Set();
+      while (queue.length) {
+        const id = queue.shift();
+        visited.add(id);
+        for (const target of [...outgoing.get(id)].sort()) {
+          layer.set(target, Math.max(layer.get(target) || 0, (layer.get(id) || 0) + 1));
+          indegree.set(target, indegree.get(target) - 1);
+          if (indegree.get(target) === 0) { queue.push(target); queue.sort(); }
+        }
+      }
+      let cycleLayer = Math.max(0, ...layer.values()) + 1;
+      for (const id of [...ids].filter(id => !visited.has(id)).sort()) {
+        layer.set(id, cycleLayer++);
+      }
+      return layer;
+    }
+    function routeFlowSvg(rows) {
+      if (!rows.length) return '<div class="empty">No dependency edges are available for this view.</div>';
+      const graph = forest.dependency_graph || {};
+      const stepIds = new Set(rows.map(row => row.step_id));
+      const graphEdges = (graph.edges || []).filter(edge => stepIds.has(edge.reaction_step_id));
+      const includedNodeIds = new Set(graphEdges.flatMap(edge => [edge.source_graph_node_id, edge.target_graph_node_id]));
+      const graphNodes = (graph.nodes || []).filter(node => includedNodeIds.has(node.graph_node_id));
+      if (!graphNodes.length) return '<div class="empty">No explicit molecule-reaction dependency nodes are available.</div>';
+      const layer = localDependencyLayout(graphNodes, graphEdges);
+      const buckets = new Map();
+      graphNodes.forEach(node => {
+        const key = layer.get(node.graph_node_id) || 0;
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(node);
+      });
+      for (const bucket of buckets.values()) {
+        bucket.sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
+      }
+      const maxLayer = Math.max(0, ...buckets.keys());
+      const maxRows = Math.max(1, ...[...buckets.values()].map(bucket => bucket.length));
+      const layerGap = 215;
+      const rowGap = 96;
+      const svgW = Math.max(920, 80 + (maxLayer + 1) * layerGap);
+      const svgH = Math.max(480, 80 + maxRows * rowGap);
+      const positions = new Map();
+      for (const [layerIndex, bucket] of buckets.entries()) {
+        const offset = (maxRows - bucket.length) * rowGap / 2;
+        bucket.forEach((node, index) => positions.set(node.graph_node_id, {
+          x: 35 + layerIndex * layerGap,
+          y: 35 + offset + index * rowGap,
+          w: node.node_type === 'reaction' ? 138 : 174,
+          h: node.node_type === 'reaction' ? 56 : 72
+        }));
+      }
+      const edgeHtml = graphEdges.map(edge => {
+        const source = positions.get(edge.source_graph_node_id);
+        const target = positions.get(edge.target_graph_node_id);
+        if (!source || !target) return '';
+        const style = edge.visual_encoding || {};
+        const x1 = source.x + source.w;
+        const y1 = source.y + source.h / 2;
+        const x2 = target.x;
+        const y2 = target.y + target.h / 2;
+        const bend = Math.max(30, (x2 - x1) * .42);
+        return `<path class="dependency-edge" d="M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}"
+          stroke="${esc(style.color || '#64748b')}" stroke-width="${esc(style.width || 1.5)}"
+          stroke-opacity="${esc(style.opacity || .5)}" stroke-dasharray="${esc(style.dash_pattern || '')}"
+          marker-end="url(#dependencyArrow)"><title>${esc(proofTierLabel(edge.trust_vector?.proof_tier))}</title></path>`;
+      }).join('');
+      const nodeHtml = graphNodes.map(node => {
+        const pos = positions.get(node.graph_node_id);
+        if (!pos) return '';
+        if (node.node_type === 'reaction') {
+          const style = node.visual_encoding || {};
+          const label = String(node.label || node.reaction_step_id || '').slice(0, 25);
+          return `<g class="dependency-reaction" data-route-step="${esc(node.reaction_step_id)}">
+            <rect x="${pos.x}" y="${pos.y}" width="${pos.w}" height="${pos.h}" rx="12"
+              stroke="${esc(style.color || '#ea580c')}" stroke-width="${esc(style.width || 1.5)}"
+              stroke-opacity="${esc(style.opacity || .7)}" stroke-dasharray="${esc(style.dash_pattern || '')}"></rect>
+            <text x="${pos.x + 9}" y="${pos.y + 21}">${esc(label)}</text>
+            <text class="dependency-tier" x="${pos.x + 9}" y="${pos.y + 41}">${esc(proofTierLabel(node.proof_tier).slice(0, 25))}</text>
+          </g>`;
+        }
+        const role = String(node.role || 'intermediate');
+        const cls = role === 'target' ? ' target' : (role.includes('stock') ? ' stock' : '');
+        const label = String(node.label || node.molecule_node_id || '').slice(0, 28);
+        const meta = [node.formula || '', role].filter(Boolean).join(' · ').slice(0, 31);
+        return `<g class="dependency-molecule${cls}">
+          <rect x="${pos.x}" y="${pos.y}" width="${pos.w}" height="${pos.h}" rx="22"></rect>
+          <text x="${pos.x + 12}" y="${pos.y + 28}">${esc(label)}</text>
+          <text class="dependency-tier" x="${pos.x + 12}" y="${pos.y + 49}">${esc(meta)}</text>
+        </g>`;
+      }).join('');
+      return `<div class="dependency-map-wrap"><svg class="dependency-svg" viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}" role="img" aria-label="Explicit molecule-reaction dependency graph">
+        <defs><marker id="dependencyArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#64748b"></path></marker></defs>
+        ${edgeHtml}${nodeHtml}
+      </svg></div>`;
+    }
+    function renderSummary() {
+      const c = forest.counts || {};
+      const coverage = forest.projection_coverage || {};
+      const revision = forest.artifact_revision || {};
+      document.getElementById('pageTitle').textContent = `${targetName()} · complete route dependency graph`;
+      document.getElementById('summary').innerHTML = [
+        chip((forest.primary_selection || {}).status === 'deterministically_verified' ? 'Parent route: verified' : 'Parent route: unresolved'),
+        chip(`${c.branches || branches.length || 0} branches`),
+        chip(`${c.reaction_nodes || c.steps || steps.size || 0} reaction nodes`),
+        chip(`${c.nodes || nodes.size || 0} molecule nodes`),
+        chip(`${c.validated_replacements || 0} AND/OR-revalidated replacements`),
+        chip(forest.dependency_graph?.acyclic ? 'Global graph: acyclic' : `Global overlay cycles: ${(forest.dependency_graph?.cycle_graph_node_ids || []).length}`),
+        chip(coverage.complete === false ? `Projection truncated: ${c.truncated_projection_rows || 0} omitted` : 'Projection complete'),
+        chip(revision.committed ? `Revision committed: ${String(revision.revision_id || '').slice(0, 12)}` : `Artifact revision: ${revision.status || 'unknown'}`)
+      ].join('');
+      const legend = forest.dependency_graph?.proof_tier_legend || [];
+      document.getElementById('legend').innerHTML = legend.map(row => `<span class="pill"><span class="dot" style="background:${esc(row.color)}"></span>${esc(proofTierLabel(row.proof_tier))} · ${esc(row.texture)}</span>`).join('')
+        + '<span class="pill">width = independent support</span><span class="pill">opacity = certainty</span>';
+    }
+    function renderViewPicker() {
+      const coverage = forest.projection_coverage || {};
+      const revision = forest.artifact_revision || {};
+      const revisionWarning = revision.committed
+        ? `<div class="notice">Content-addressed closeout revision: ${esc(revision.revision_id || '')} · manifest ${esc(String(revision.manifest_sha256 || '').slice(0, 16))}</div>`
+        : `<div class="notice projection-warning">Artifact integrity: ${esc(revision.status || 'unknown')}. This display is not promoted to committed closeout truth.</div>`;
+      const warning = (coverage.complete === false
+        ? `<div class="notice projection-warning">Projection is truncated. ${esc(forest.counts?.truncated_projection_rows || 0)} source rows are omitted; category totals remain recorded in JSON.</div>`
+        : '<div class="notice">All projected branches and candidates are listed; no UI branch limit is applied.</div>') + revisionWarning;
+      const html = principalBranches().map(branch => {
+        const selected = branch.branch_id === selectedBranchId ? ' active' : '';
+        const first = routeSteps(branch)[0] || {};
+        const tier = first.trust_vector?.proof_tier || 'L0_advisory';
+        const style = (forest.dependency_graph?.proof_tier_legend || []).find(row => row.proof_tier === tier) || {};
+        return `<button class="view-button${selected}" style="border-left-color:${esc(style.color || '#64748b')}" data-view-branch="${esc(branch.branch_id)}">
+          <div class="item-title">${esc(branch.branch_id === '__all__' ? 'All paths · molecule–reaction graph' : branchTitle(branch))}</div>
+          <div class="item-sub">${esc(branch.branch_id === '__all__' ? `${steps.size} explicit reaction hyperedges` : routeEvidenceText(branch))}</div>
+        </button>`;
+      }).join('');
+      document.getElementById('viewPicker').innerHTML = warning + html;
+      document.querySelectorAll('[data-view-branch]').forEach(el => el.addEventListener('click', () => {
+        selectedBranchId = el.getAttribute('data-view-branch') || '__all__';
+        selectedStepId = routeSteps(currentBranch())[0]?.step_id || '';
+        activeReplacement = null;
+        detailTab = 'step';
+        renderAll();
+      }));
+    }
+    function renderStepIndex() {
+      const rows = activeSteps();
+      document.getElementById('stageIndex').innerHTML = rows.map((step, index) => {
+        const active = selectedStepId === step.step_id || activeReplacement?.baseStepId === step.step_id;
+        const replacements = replacementRows(step);
+        const valid = replacements.filter(row => row.validation.validated).length;
+        const rejected = replacements.length - valid;
+        return `<button class="stage-button exact-${esc(step.exactness || 'name_only')}${active ? ' active' : ''}" data-stage-step="${esc(step.step_id)}">
+          <div class="item-title">${index + 1}. ${esc(stepTitle(step, index + 1))}</div>
+          <div class="item-sub">${esc(proofTierLabel(step.trust_vector?.proof_tier))} · replacements ${valid} validated / ${rejected} rejected</div>
+        </button>`;
+      }).join('') || '<div class="empty">No reaction step is available.</div>';
+      document.querySelectorAll('[data-stage-step]').forEach(el => el.addEventListener('click', () => {
+        selectedStepId = el.getAttribute('data-stage-step') || '';
+        detailTab = 'step';
+        renderAll();
+      }));
+    }
+    function renderRoute() {
+      const branch = currentBranch();
+      const rows = activeSteps();
+      const isAll = branch.branch_id === '__all__';
+      document.getElementById('routeTitle').textContent = activeReplacement
+        ? `${branchTitle(branch)} · full revalidated-route preview`
+        : (isAll ? 'All explored paths · explicit molecule–reaction hypergraph' : branchTitle(branch));
+      document.getElementById('routeSubtitle').textContent = activeReplacement
+        ? 'The complete replacement route was re-solved for connectivity, stock closure, and reaction proof. It remains separate from final parent-proof authority.'
+        : (isAll
+          ? 'Every line is an explicit molecule→reaction or reaction→molecule dependency. Array adjacency never creates an edge.'
+          : `${branchProofText(branch)} · ${branchSummary(branch)}`);
+      document.getElementById('mainRoute').innerHTML = routeFlowSvg(rows);
+      document.querySelectorAll('[data-route-step]').forEach(el => el.addEventListener('click', () => {
+        selectedStepId = el.getAttribute('data-route-step') || '';
+        detailTab = 'step';
+        document.body.classList.remove(panelClass.inspector);
+        renderAll();
+      }));
+    }
+    function renderAlternativesDetail(step) {
+      const rows = replacementRows(step);
+      const html = rows.map(row => {
+        const validation = row.validation;
+        const valid = validation.validated === true
+          && Boolean(validation.revalidated_route_branch_id)
+          && Boolean(row.step);
+        const active = activeReplacement?.replacementId === validation.replacement_id ? ' active' : '';
+        const reason = valid ? 'full AND/OR route re-solved' : (validation.reasons || []).join(', ');
+        const candidateTitle = row.step ? stepTitle(row.step) : (validation.replacement_hyperedge_id || validation.candidate_id || 'replacement candidate');
+        return `<button class="alt-button${active}" ${valid ? '' : 'disabled'} data-alt-validated="${valid}" data-replacement-id="${esc(validation.replacement_id || '')}" data-alt-step="${esc(row.step?.step_id || '')}" data-base-branch="${esc(validation.base_branch_id || '')}" data-alt-branch="${esc(validation.revalidated_route_branch_id || '')}">
+          <div class="item-title">${esc(candidateTitle)}</div>
+          <div class="item-sub">${valid ? 'AND/OR ROUTE REVALIDATED' : 'REJECTED'} · ${esc(reason || 'not validated')}</div>
+          <div class="item-sub">${esc(branchTitle(row.branch))} · full connectivity + stock + reaction proof replay</div>
+        </button>`;
+      }).join('');
+      document.getElementById('detail').innerHTML = `<h3 class="detail-title">${esc(stepTitle(step))}</h3>
+        <div class="detail-kind">Selectable candidates come only from the backend route-replacement catalog after validate_route_replacement re-solves the complete AND/OR route.</div>
+        <div class="detail-section"><div class="notice">The preview switches to the complete revalidated branch. Pairwise interface comparisons are diagnostics only and never enable a single-step splice.</div></div>
+        <div class="detail-section"><div class="alt-list">${html || '<div class="empty">No backend AND/OR-revalidated replacement is available.</div>'}</div></div>
+        ${activeReplacement ? '<div class="detail-section"><button class="clear-button" type="button" data-reset-route>Restore original branch</button></div>' : ''}`;
+      document.querySelectorAll('[data-alt-validated="true"]').forEach(el => el.addEventListener('click', () => {
+        const baseBranchId = el.getAttribute('data-base-branch') || '';
+        if (baseBranchId) selectedBranchId = baseBranchId;
+        activeReplacement = {
+          replacementId: el.getAttribute('data-replacement-id') || '',
+          baseStepId: step.step_id,
+          altStepId: el.getAttribute('data-alt-step') || '',
+          altBranchId: el.getAttribute('data-alt-branch') || ''
+        };
+        selectedStepId = step.step_id;
+        detailTab = 'step';
+        renderAll();
+      }));
+      document.querySelectorAll('[data-reset-route]').forEach(button => button.onclick = clearReplacement);
+    }
     function renderAll() {
       renderSummary();
       renderLayoutControls();
@@ -1174,13 +1556,30 @@ class _RouteForestCompiler:
         self.branches: list[dict[str, Any]] = []
         self._branch_ids: set[str] = set()
         self._consensus_branch_ids: dict[str, str] = {}
+        self._projection_coverage: dict[str, dict[str, Any]] = {}
+        self._portfolio_branch_ids: dict[str, str] = {}
+        self._portfolio_replacement_records: list[dict[str, Any]] = []
+        self._portfolio_projection: dict[str, Any] = {
+            "schema_version": "route_portfolio_projection.v1",
+            "available": False,
+            "source_route_count": 0,
+            "projected_route_count": 0,
+            "rejected_route_count": 0,
+            "replacement_preview_branch_count": 0,
+            "solver_truncated": False,
+            "reasons": [],
+        }
 
     def finish(self) -> dict[str, Any]:
+        self._finalize_trust_vectors()
+        replacement_validation = self._replacement_validation()
         modules = self._modules()
         relationships = self._branch_relationships()
+        dependency_graph = self._dependency_graph()
         target = self._target()
         route_consensus = self._route_consensus_view()
         route_consensus_graph = self._route_consensus_graph_view()
+        route_portfolio = dict(route_consensus_graph.get("route_portfolio") or {})
         primary_selection = self._primary_selection()
         synthesis_class_counts: dict[str, int] = {}
         for branch in self.branches:
@@ -1206,9 +1605,23 @@ class _RouteForestCompiler:
                 ),
                 "route_consensus_graph_routes": int(route_consensus_graph.get("route_count") or 0),
                 "route_consensus_graph_steps": int(route_consensus_graph.get("step_count") or 0),
+                "route_portfolio_routes": len(route_portfolio.get("routes") or []),
+                "route_portfolio_branches": int(
+                    self._portfolio_projection.get("projected_route_count") or 0
+                ),
+                "replacement_preview_branches": int(
+                    self._portfolio_projection.get("replacement_preview_branch_count") or 0
+                ),
                 "semisynthesis_anchors": len(self.blackboard.get("semisynthesis_anchors") or []),
                 "scout_attempts": len(self.evidence.get("scout_attempts") or []),
                 "relationships": len(relationships),
+                "reaction_nodes": len(dependency_graph.get("reaction_nodes") or []),
+                "dependency_edges": len(dependency_graph.get("edges") or []),
+                "replacement_candidates": int(replacement_validation.get("candidate_count") or 0),
+                "validated_replacements": int(replacement_validation.get("validated_count") or 0),
+                "truncated_projection_rows": sum(
+                    int(row.get("omitted_count") or 0) for row in self._projection_coverage.values()
+                ),
                 "synthesis_classes": synthesis_class_counts,
             },
             "primary_branch_id": str(primary_selection.get("primary_branch_id") or ""),
@@ -1218,20 +1631,700 @@ class _RouteForestCompiler:
             "steps": sorted(self.steps.values(), key=lambda row: str(row.get("step_id") or "")),
             "modules": modules,
             "relationships": relationships,
+            "dependency_graph": dependency_graph,
+            "replacement_validation": replacement_validation,
+            "artifact_revision": self._artifact_revision_view(),
+            "projection_coverage": {
+                "schema_version": "route_forest_projection_coverage.v1",
+                "complete": not any(bool(row.get("truncated")) for row in self._projection_coverage.values()),
+                "categories": self._projection_coverage,
+            },
             "route_consensus": route_consensus,
             "route_consensus_graph": route_consensus_graph,
+            "route_portfolio_projection": dict(self._portfolio_projection),
             "evidence_index": self._evidence_index(),
             "run_trace": self._run_trace(),
             "design_notes": [
                 "This is a read-only projection of explored blackboard branches.",
-                "Clicking a module only switches or highlights explored alternatives; it does not run new planning.",
+                "The UI is read-only: a replacement preview switches to a complete backend AND/OR-revalidated branch and never runs planning.",
                 "Named or visual-inferred nodes may intentionally omit SMILES when exact structure recovery was not reliable.",
                 "Solved stitched branches are rebuilt only from revalidated proof inputs as stock-to-frontier-to-target DAGs.",
                 "Visual, process, and consensus branches remain independent advisory alternatives.",
                 "Route consensus branches are advisory disconnections, never solved or executable routes.",
                 "Route consensus graph branches assemble frontier expansions but remain advisory and non-executable.",
                 "Codex role channels are displayed separately but share one correlated support group.",
+                "The dependency graph is molecule-reaction bipartite; no edge is inferred from adjacent array positions.",
+                "Pairwise replacement interfaces are diagnostics only and never authorize a single-step splice.",
+                "Replacement previews require backend connectivity, stock, and reaction-proof revalidation of the complete route.",
             ],
+        }
+
+    def _artifact_revision_view(self) -> dict[str, Any]:
+        closeout = dict(self.blackboard.get("closeout_revision") or {})
+        digest_refs = {
+            str(key): dict(value)
+            for key, value in (self.blackboard.get("artifact_digest_refs") or {}).items()
+            if isinstance(value, dict)
+        }
+        committed = bool(
+            closeout.get("accepted") is True
+            and str(closeout.get("status") or "") == "committed"
+            and str(closeout.get("revision_id") or "")
+            and str(closeout.get("manifest_sha256") or "")
+        )
+        if closeout:
+            status = "committed" if committed else "not_committed"
+        else:
+            status = "legacy_unversioned"
+        return {
+            "schema_version": "route_forest_artifact_revision_view.v1",
+            "status": status,
+            "committed": committed,
+            "revision_id": str(closeout.get("revision_id") or ""),
+            "manifest_path": str(closeout.get("manifest_path") or ""),
+            "manifest_sha256": str(closeout.get("manifest_sha256") or ""),
+            "authority": str(closeout.get("authority") or ""),
+            "artifact_count": int(closeout.get("artifact_count") or len(digest_refs)),
+            "digest_ref_count": len(digest_refs),
+            "semantics": (
+                "content-addressed closeout manifest committed"
+                if committed
+                else "display is not backed by a committed content-addressed closeout manifest"
+            ),
+        }
+
+    def _limited_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        category: str,
+        limit: int | None,
+    ) -> list[dict[str, Any]]:
+        total = len(rows)
+        if limit is None:
+            selected = list(rows)
+            normalized_limit: int | None = None
+        else:
+            normalized_limit = max(0, int(limit))
+            selected = list(rows[:normalized_limit])
+        rendered = len(selected)
+        self._projection_coverage[category] = {
+            "available_count": total,
+            "rendered_count": rendered,
+            "omitted_count": max(0, total - rendered),
+            "limit": normalized_limit,
+            "truncated": rendered < total,
+        }
+        return selected
+
+    def _finalize_trust_vectors(self) -> None:
+        branch_by_id = {str(branch.get("branch_id") or ""): branch for branch in self.branches}
+        for step in self.steps.values():
+            branch = branch_by_id.get(str(step.get("branch_id") or ""), {})
+            step["trust_vector"] = self._step_trust_vector(step, branch)
+            step["visual_encoding"] = dict(step["trust_vector"]["visual_encoding"])
+
+        for branch in self.branches:
+            vectors = [
+                dict((self.steps.get(str(step_id)) or {}).get("trust_vector") or {})
+                for step_id in branch.get("step_ids") or []
+            ]
+            vectors = [row for row in vectors if row]
+            if not vectors:
+                continue
+            numeric_fields = (
+                "identity",
+                "connectivity",
+                "source_independence",
+                "stock",
+                "conditions",
+                "forward_feasibility",
+            )
+            weakest_tier = min(
+                (str(row.get("proof_tier") or "L0_advisory") for row in vectors),
+                key=lambda value: PROOF_TIER_RANK.get(value, 0),
+            )
+            branch_vector = {
+                "schema_version": "route_trust_vector.v1",
+                **{
+                    field: round(min(float(row.get(field) or 0.0) for row in vectors), 3)
+                    for field in numeric_fields
+                },
+                "proof_tier": weakest_tier,
+                "aggregation": "weakest_link",
+            }
+            branch_vector["bottleneck_score"] = min(
+                float(branch_vector[field]) for field in numeric_fields
+            )
+            branch_vector["visual_encoding"] = self._trust_visual_encoding(
+                branch_vector,
+                support_group_count=max(
+                    (int(row.get("support_group_count") or 0) for row in vectors),
+                    default=0,
+                ),
+            )
+            branch["trust_vector"] = branch_vector
+
+    def _step_trust_vector(self, step: dict[str, Any], branch: dict[str, Any]) -> dict[str, Any]:
+        interface_ids = _dedupe(
+            [
+                *[str(node_id) for node_id in step.get("from_node_ids") or []],
+                *[str(node_id) for node_id in step.get("to_node_ids") or []],
+            ]
+        )
+        structured_count = sum(
+            bool((self.nodes.get(node_id) or {}).get("canonical_isomeric_smiles")) for node_id in interface_ids
+        )
+        if interface_ids and structured_count == len(interface_ids):
+            identity = 1.0
+            identity_status = "exact_structured"
+        elif structured_count:
+            identity = 0.6
+            identity_status = "partially_structured"
+        elif interface_ids:
+            identity = 0.2
+            identity_status = "name_only"
+        else:
+            identity = 0.0
+            identity_status = "missing"
+
+        has_inputs = bool(step.get("from_node_ids"))
+        has_outputs = bool(step.get("to_node_ids"))
+        branch_kind = str(branch.get("kind") or "")
+        exactness = str(step.get("exactness") or "")
+        origin = str(step.get("origin") or "")
+        if exactness == "failed_or_unresolved" or not (has_inputs and has_outputs):
+            connectivity = 0.0
+            connectivity_status = "rejected_or_incomplete"
+        elif branch_kind in {
+            "direct_verified_route",
+            "stitched_verified_route",
+            "subgoal_verified_route",
+            "proof_eligible_portfolio_route",
+            "validated_replacement_route",
+        }:
+            connectivity = 1.0
+            connectivity_status = "deterministically_checked"
+        else:
+            connectivity = 0.65
+            connectivity_status = "explicit_interface_only"
+
+        support_groups = _dedupe([str(value) for value in step.get("independent_support_groups") or []])
+        if support_groups:
+            support_group_count = len(support_groups)
+        else:
+            support_group_count = 1 if any(
+                _external_source_ref(str(value)) for value in step.get("source_refs") or []
+            ) else 0
+        source_independence = min(1.0, 0.5 * support_group_count)
+        if support_group_count == 0 and origin.startswith("direct_verified"):
+            source_independence = 0.25
+
+        if branch_kind in {"direct_verified_route", "stitched_verified_route"}:
+            stock = 1.0
+            stock_status = "parent_route_stock_closed"
+        elif branch_kind == "subgoal_verified_route":
+            stock = 0.85
+            stock_status = "subgoal_stock_closed_only"
+        elif branch_kind in {
+            "proof_eligible_portfolio_route",
+            "validated_replacement_route",
+        }:
+            stock = 1.0
+            stock_status = "portfolio_stock_leaves_bound"
+        else:
+            stock = 0.15
+            stock_status = "not_verified"
+
+        condition_status = str(step.get("condition_status") or "not_recorded")
+        if condition_status == "available":
+            conditions = 0.9
+        elif condition_status == "conflicting":
+            conditions = 0.0
+        elif condition_status in {"not_shown", "not_compiled"}:
+            conditions = 0.2
+        else:
+            conditions = 0.1
+
+        reaction_proof = dict(step.get("reaction_step_proof") or {})
+        proof_level_map = {
+            "L0_materialized": "L0_materialized",
+            "L1_graph_and_stock_closed": "L1_graph_stock_closed",
+            "L1_graph_stock_closed": "L1_graph_stock_closed",
+            "L2_mapping_consistent": "L2_mapping_consistent",
+            "L2_reaction_validated": "L2_reaction_validated",
+            "L3_precedent_supported": "L3_precedent_supported",
+            "L4_procurement_ready": "L4_procurement_ready",
+        }
+        authoritative_proof_tier = proof_level_map.get(str(reaction_proof.get("proof_level") or ""), "")
+        if reaction_proof.get("proof_source") != "deterministic_reverified_route":
+            authoritative_proof_tier = ""
+
+        if exactness == "failed_or_unresolved":
+            forward_feasibility = 0.0
+        elif authoritative_proof_tier == "L4_procurement_ready":
+            forward_feasibility = 1.0
+            conditions = 1.0
+            stock = 1.0
+            stock_status = "procurement_bound"
+        elif authoritative_proof_tier == "L3_precedent_supported":
+            forward_feasibility = 0.95
+        elif authoritative_proof_tier == "L2_reaction_validated":
+            forward_feasibility = 0.9
+        elif authoritative_proof_tier == "L2_mapping_consistent":
+            forward_feasibility = 0.75
+        elif exactness == "exact_literature_row" or origin == "stitched_verified_literature_chain":
+            # Exact precedent without a deterministic atom-mapped reaction
+            # proof remains useful evidence, but cannot skip directly to L3.
+            forward_feasibility = 0.65
+        elif branch_kind in {"direct_verified_route", "stitched_verified_route", "subgoal_verified_route"}:
+            # The current deterministic verifier proves graph/stock closure,
+            # not a universal reaction-forward simulation.
+            forward_feasibility = 0.55
+        elif origin == "process_evidence":
+            forward_feasibility = 0.45
+        elif exactness == "visual_inferred":
+            forward_feasibility = 0.3
+        else:
+            forward_feasibility = 0.2
+
+        if exactness == "failed_or_unresolved":
+            proof_tier = "L0_rejected"
+        elif authoritative_proof_tier:
+            proof_tier = authoritative_proof_tier
+        elif branch_kind in {"direct_verified_route", "stitched_verified_route", "subgoal_verified_route"}:
+            proof_tier = "L1_graph_stock_closed"
+        elif identity == 1.0:
+            proof_tier = "L0_materialized"
+        else:
+            proof_tier = "L0_advisory"
+
+        numeric = {
+            "identity": identity,
+            "connectivity": connectivity,
+            "source_independence": source_independence,
+            "stock": stock,
+            "conditions": conditions,
+            "forward_feasibility": forward_feasibility,
+        }
+        vector: dict[str, Any] = {
+            "schema_version": "route_trust_vector.v1",
+            **{key: round(value, 3) for key, value in numeric.items()},
+            "proof_tier": proof_tier,
+            "bottleneck_score": round(min(numeric.values()), 3),
+            "status": {
+                "identity": identity_status,
+                "connectivity": connectivity_status,
+                "stock": stock_status,
+                "conditions": condition_status,
+                "forward_feasibility": (
+                    str(reaction_proof.get("proof_level") or "deterministically_reaction_validated")
+                    if authoritative_proof_tier in {
+                        "L2_mapping_consistent",
+                        "L2_reaction_validated",
+                        "L3_precedent_supported",
+                        "L4_procurement_ready",
+                    }
+                    else (
+                        "precedent_without_L2_reaction_validation"
+                        if exactness == "exact_literature_row"
+                        else "not_universally_proven"
+                    )
+                ),
+            },
+            "support_group_count": support_group_count,
+            "independent_support_groups": support_groups,
+            "reaction_step_proof": reaction_proof,
+        }
+        vector["visual_encoding"] = self._trust_visual_encoding(
+            vector,
+            support_group_count=support_group_count,
+        )
+        return vector
+
+    def _trust_visual_encoding(
+        self,
+        trust_vector: dict[str, Any],
+        *,
+        support_group_count: int,
+    ) -> dict[str, Any]:
+        tier = str(trust_vector.get("proof_tier") or "L0_advisory")
+        style = dict(PROOF_TIER_STYLE.get(tier) or PROOF_TIER_STYLE["L0_advisory"])
+        dimensions = [
+            float(trust_vector.get(field) or 0.0)
+            for field in (
+                "identity",
+                "connectivity",
+                "source_independence",
+                "stock",
+                "conditions",
+                "forward_feasibility",
+            )
+        ]
+        certainty = sum(dimensions) / len(dimensions)
+        return {
+            "color": style["color"],
+            "width": round(1.5 + min(4, max(0, support_group_count)) * 0.75, 2),
+            "opacity": round(0.35 + 0.65 * certainty, 2),
+            "dash_pattern": style["dash_pattern"],
+            "texture": style["texture"],
+            "width_semantics": "independent_support_group_count",
+            "opacity_semantics": "mean_trust_dimension",
+            "texture_semantics": "proof_tier_and_uncertainty",
+        }
+
+    def _replacement_validation(self) -> dict[str, Any]:
+        diagnostics = self._interface_replacement_diagnostics()
+        rows = [dict(row) for row in self._portfolio_replacement_records]
+        by_base: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            base_step_id = str(row.get("base_step_id") or "")
+            if base_step_id:
+                by_base.setdefault(base_step_id, []).append(row)
+        for step_id, step in self.steps.items():
+            candidates = by_base.get(str(step_id), [])
+            step["replacement_candidate_ids"] = [
+                str(row.get("candidate_step_id") or row.get("replacement_id") or "")
+                for row in candidates
+                if str(row.get("candidate_step_id") or row.get("replacement_id") or "")
+            ]
+            step["validated_replacement_ids"] = [
+                str(row.get("candidate_step_id") or "")
+                for row in candidates
+                if row.get("validated") is True and str(row.get("candidate_step_id") or "")
+            ]
+            step["replacement_rejection_count"] = sum(
+                row.get("validated") is not True for row in candidates
+            )
+        validated_count = sum(row.get("validated") is True for row in rows)
+        return {
+            "schema_version": "route_replacement_validation.v1",
+            "validation_engine": "and_or.validate_route_replacement",
+            "candidate_count": len(rows),
+            "validated_count": validated_count,
+            "rejected_count": len(rows) - validated_count,
+            "records": rows,
+            "interface_diagnostics": diagnostics,
+            "semantics": {
+                "acceptance": "backend AND/OR route re-solve with connectivity, stock, and reaction proof",
+                "interface_diagnostics_only": True,
+                "single_step_splicing_forbidden": True,
+                "preview_only": True,
+                "invalid_candidates_are_not_replaceable": True,
+            },
+        }
+
+    def _interface_replacement_diagnostics(self) -> dict[str, Any]:
+        """Preserve pairwise interface comparison as non-authoritative diagnostics."""
+
+        branch_by_step: dict[str, dict[str, Any]] = {}
+        for branch in self.branches:
+            for step_id in branch.get("step_ids") or []:
+                branch_by_step[str(step_id)] = branch
+
+        rows: list[dict[str, Any]] = []
+        all_steps = list(self.steps.values())
+        step_by_id = {str(step.get("step_id") or ""): step for step in all_steps}
+        ids_by_module: dict[str, set[str]] = {}
+        ids_by_output: dict[tuple[str, ...], set[str]] = {}
+        non_replaceable_generic_modules = {
+            "",
+            "other",
+            "other_route_module",
+            "diagnostic_failure",
+            "visual_failed_or_empty",
+        }
+        for step in all_steps:
+            step_id = str(step.get("step_id") or "")
+            module_key = str(step.get("module_key") or "")
+            output_key = tuple(sorted(str(value) for value in step.get("to_node_ids") or []))
+            if module_key not in non_replaceable_generic_modules:
+                ids_by_module.setdefault(module_key, set()).add(step_id)
+            if output_key:
+                ids_by_output.setdefault(output_key, set()).add(step_id)
+        for base in all_steps:
+            base_id = str(base.get("step_id") or "")
+            base_branch = branch_by_step.get(base_id, {})
+            base_inputs = sorted(str(value) for value in base.get("from_node_ids") or [])
+            base_outputs = sorted(str(value) for value in base.get("to_node_ids") or [])
+            base_module = str(base.get("module_key") or "")
+            potential_ids = set(ids_by_module.get(base_module, set()))
+            potential_ids.update(ids_by_output.get(tuple(base_outputs), set()))
+            for candidate_id in sorted(potential_ids):
+                candidate = step_by_id.get(candidate_id) or {}
+                if not candidate_id or candidate_id == base_id:
+                    continue
+                candidate_branch = branch_by_step.get(candidate_id, {})
+                if str(candidate_branch.get("branch_id") or "") == str(base_branch.get("branch_id") or ""):
+                    continue
+                candidate_inputs = sorted(str(value) for value in candidate.get("from_node_ids") or [])
+                candidate_outputs = sorted(str(value) for value in candidate.get("to_node_ids") or [])
+                same_module = bool(base_module and base_module == str(candidate.get("module_key") or ""))
+                same_output_ids = bool(base_outputs and base_outputs == candidate_outputs)
+                if not (same_module or same_output_ids):
+                    continue
+
+                product_identity_exact = bool(base_outputs) and all(
+                    bool((self.nodes.get(node_id) or {}).get("canonical_isomeric_smiles"))
+                    for node_id in [*base_outputs, *candidate_outputs]
+                )
+                input_identity_exact = bool(base_inputs) and all(
+                    bool((self.nodes.get(node_id) or {}).get("canonical_isomeric_smiles"))
+                    for node_id in [*base_inputs, *candidate_inputs]
+                )
+                product_interface_match = product_identity_exact and base_outputs == candidate_outputs
+                reactant_interface_match = input_identity_exact and base_inputs == candidate_inputs
+                candidate_complete = bool(candidate_inputs and candidate_outputs)
+                candidate_not_rejected = str(candidate.get("exactness") or "") != "failed_or_unresolved"
+                interface_compatible = all(
+                    [
+                        product_interface_match,
+                        reactant_interface_match,
+                        candidate_complete,
+                        candidate_not_rejected,
+                    ]
+                )
+                reasons = _dedupe(
+                    [
+                        "product_interface_not_exact" if not product_identity_exact else "",
+                        "product_interface_mismatch" if product_identity_exact and not same_output_ids else "",
+                        "reactant_interface_not_exact" if not input_identity_exact else "",
+                        "reactant_interface_mismatch" if input_identity_exact and base_inputs != candidate_inputs else "",
+                        "candidate_interface_incomplete" if not candidate_complete else "",
+                        "candidate_rejected_or_unresolved" if not candidate_not_rejected else "",
+                    ]
+                )
+                row = {
+                    "diagnostic_id": f"interface-diagnostic:{_slug(base_id)}:{_slug(candidate_id)}",
+                    "base_step_id": base_id,
+                    "candidate_step_id": candidate_id,
+                    "base_branch_id": str(base_branch.get("branch_id") or ""),
+                    "candidate_branch_id": str(candidate_branch.get("branch_id") or ""),
+                    "status": "interface_compatible" if interface_compatible else "interface_mismatch",
+                    "interface_compatible": interface_compatible,
+                    "validated": False,
+                    "same_module": same_module,
+                    "product_interface_match": product_interface_match,
+                    "reactant_interface_match": reactant_interface_match,
+                    "downstream_interface_preserved": product_interface_match,
+                    "exact_product_node_ids": base_outputs if product_interface_match else [],
+                    "exact_reactant_node_ids": base_inputs if reactant_interface_match else [],
+                    "reasons": reasons,
+                    "validation_scope": "diagnostic_exact_molecule_graph_interface_only",
+                    "diagnostics_only": True,
+                    "preview_enabled": False,
+                    "does_not_establish_parent_route_proof": True,
+                }
+                rows.append(row)
+        return {
+            "schema_version": "route_interface_diagnostics.v1",
+            "candidate_count": len(rows),
+            "interface_compatible_count": sum(
+                row.get("interface_compatible") is True for row in rows
+            ),
+            "records": rows,
+            "authority": "diagnostics_only_not_replacement_validation",
+        }
+
+    def _dependency_graph(self) -> dict[str, Any]:
+        molecule_nodes = [
+            {
+                "graph_node_id": f"graph:molecule:{node_id}",
+                "node_type": "molecule",
+                "molecule_node_id": node_id,
+                "label": str(node.get("label") or node_id),
+                "role": str(node.get("role") or "intermediate"),
+                "canonical_isomeric_smiles": str(node.get("canonical_isomeric_smiles") or ""),
+                "structure_svg": str(node.get("structure_svg") or ""),
+                "formula": str(node.get("formula") or ""),
+            }
+            for node_id, node in self.nodes.items()
+        ]
+        reaction_nodes: list[dict[str, Any]] = []
+        edges: list[dict[str, Any]] = []
+        hyperedges: list[dict[str, Any]] = []
+        for step in self.steps.values():
+            step_id = str(step.get("step_id") or "")
+            reaction_graph_id = f"graph:reaction:{step_id}"
+            trust_vector = dict(step.get("trust_vector") or {})
+            visual_encoding = dict(trust_vector.get("visual_encoding") or {})
+            reaction_nodes.append(
+                {
+                    "graph_node_id": reaction_graph_id,
+                    "node_type": "reaction",
+                    "reaction_step_id": step_id,
+                    "branch_id": str(step.get("branch_id") or ""),
+                    "label": str(step.get("label") or step_id),
+                    "portfolio_route_id": str(step.get("portfolio_route_id") or ""),
+                    "canonical_hyperedge_id": str(
+                        step.get("portfolio_hyperedge_id") or ""
+                    ),
+                    "proof_tier": str(trust_vector.get("proof_tier") or "L0_advisory"),
+                    "trust_vector": trust_vector,
+                    "visual_encoding": visual_encoding,
+                }
+            )
+            input_edge_ids: list[str] = []
+            output_edge_ids: list[str] = []
+            for index, node_id in enumerate(step.get("from_node_ids") or [], start=1):
+                edge_id = f"edge:{_slug(step_id)}:input:{index}:{_slug(node_id)}"
+                input_edge_ids.append(edge_id)
+                edges.append(
+                    {
+                        "edge_id": edge_id,
+                        "edge_type": "molecule_to_reaction",
+                        "source_graph_node_id": f"graph:molecule:{node_id}",
+                        "target_graph_node_id": reaction_graph_id,
+                        "molecule_node_id": str(node_id),
+                        "reaction_step_id": step_id,
+                        "branch_id": str(step.get("branch_id") or ""),
+                        "trust_vector": trust_vector,
+                        "visual_encoding": visual_encoding,
+                    }
+                )
+            for index, node_id in enumerate(step.get("to_node_ids") or [], start=1):
+                edge_id = f"edge:{_slug(step_id)}:output:{index}:{_slug(node_id)}"
+                output_edge_ids.append(edge_id)
+                edges.append(
+                    {
+                        "edge_id": edge_id,
+                        "edge_type": "reaction_to_molecule",
+                        "source_graph_node_id": reaction_graph_id,
+                        "target_graph_node_id": f"graph:molecule:{node_id}",
+                        "molecule_node_id": str(node_id),
+                        "reaction_step_id": step_id,
+                        "branch_id": str(step.get("branch_id") or ""),
+                        "trust_vector": trust_vector,
+                        "visual_encoding": visual_encoding,
+                    }
+                )
+            hyperedges.append(
+                {
+                    "hyperedge_id": f"hyperedge:{_slug(step_id)}",
+                    "reaction_step_id": step_id,
+                    "reaction_graph_node_id": reaction_graph_id,
+                    "branch_id": str(step.get("branch_id") or ""),
+                    "portfolio_route_id": str(step.get("portfolio_route_id") or ""),
+                    "canonical_hyperedge_id": str(
+                        step.get("portfolio_hyperedge_id") or ""
+                    ),
+                    "input_molecule_node_ids": [str(value) for value in step.get("from_node_ids") or []],
+                    "output_molecule_node_ids": [str(value) for value in step.get("to_node_ids") or []],
+                    "input_edge_ids": input_edge_ids,
+                    "output_edge_ids": output_edge_ids,
+                    "trust_vector": trust_vector,
+                    "visual_encoding": visual_encoding,
+                }
+            )
+
+        graph_nodes = [*molecule_nodes, *reaction_nodes]
+        layout = _dependency_layout(graph_nodes, edges)
+        for node in graph_nodes:
+            node["layer"] = int(layout["layers"].get(str(node.get("graph_node_id") or ""), 0))
+        branch_views = [self._branch_dependency_view(branch) for branch in self.branches]
+        return {
+            "schema_version": "molecule_reaction_dependency_graph.v1",
+            "graph_kind": "molecule_reaction_bipartite_hypergraph",
+            "direction": "reactants_to_reaction_to_products",
+            "molecule_nodes": molecule_nodes,
+            "reaction_nodes": reaction_nodes,
+            "nodes": graph_nodes,
+            "edges": edges,
+            "hyperedges": hyperedges,
+            "branch_views": branch_views,
+            "acyclic": bool(layout["acyclic"]),
+            "cycle_graph_node_ids": list(layout["cycle_node_ids"]),
+            "layout_semantics": "layers are derived only from explicit molecule-reaction edges",
+            "no_array_adjacency_edges": True,
+            "proof_tier_legend": [
+                {
+                    "proof_tier": tier,
+                    "rank": rank,
+                    **dict(PROOF_TIER_STYLE[tier]),
+                }
+                for tier, rank in sorted(PROOF_TIER_RANK.items(), key=lambda item: item[1], reverse=True)
+            ],
+        }
+
+    def _branch_dependency_view(self, branch: dict[str, Any]) -> dict[str, Any]:
+        step_ids = [str(value) for value in branch.get("step_ids") or [] if str(value) in self.steps]
+        step_set = set(step_ids)
+        producers: dict[str, list[str]] = {}
+        for step_id in step_ids:
+            for node_id in (self.steps.get(step_id) or {}).get("to_node_ids") or []:
+                producers.setdefault(str(node_id), []).append(step_id)
+        dependencies: list[dict[str, str]] = []
+        for consumer_id in step_ids:
+            for node_id in (self.steps.get(consumer_id) or {}).get("from_node_ids") or []:
+                for producer_id in producers.get(str(node_id), []):
+                    if producer_id == consumer_id or producer_id not in step_set:
+                        continue
+                    dependencies.append(
+                        {
+                            "producer_step_id": producer_id,
+                            "consumer_step_id": consumer_id,
+                            "molecule_node_id": str(node_id),
+                        }
+                    )
+        dependency_pairs = _dedupe(
+            [
+                f"{row['producer_step_id']}\u0000{row['consumer_step_id']}"
+                for row in dependencies
+            ]
+        )
+        order, acyclic = _topological_step_order(step_ids, dependency_pairs)
+        consumed = {
+            str(node_id)
+            for step_id in step_ids
+            for node_id in (self.steps.get(step_id) or {}).get("from_node_ids") or []
+        }
+        produced = {
+            str(node_id)
+            for step_id in step_ids
+            for node_id in (self.steps.get(step_id) or {}).get("to_node_ids") or []
+        }
+        synthesis_leaves = sorted(consumed - produced)
+        synthesis_targets = sorted(produced - consumed)
+        stock_aliases = sorted(
+            {
+                str(value)
+                for value in branch.get("stock_terminal_node_ids") or []
+                if str(value)
+            }
+        )
+        target_alias = str(branch.get("root_molecule_node_id") or "")
+        target_aliases = [target_alias] if target_alias else synthesis_targets
+        support_groups = sorted(
+            {
+                str(value)
+                for value in branch.get("independent_support_groups") or []
+                if str(value)
+            }
+        )
+        return {
+            "branch_id": str(branch.get("branch_id") or ""),
+            "step_ids": step_ids,
+            "topological_step_ids": order,
+            "dependencies": dependencies,
+            "root_molecule_node_ids": synthesis_leaves,
+            "terminal_molecule_node_ids": synthesis_targets,
+            "stock_leaf_molecule_node_ids": stock_aliases or synthesis_leaves,
+            "target_molecule_node_ids": target_aliases,
+            "all_leaves_stock_bound": bool(synthesis_leaves)
+            and set(synthesis_leaves) == set(stock_aliases),
+            "portfolio_route_id": str(branch.get("portfolio_route_id") or ""),
+            "weakest_proof_tier": str(
+                branch.get("weakest_proof_tier")
+                or (branch.get("trust_vector") or {}).get("proof_tier")
+                or ""
+            ),
+            "independent_support_groups": support_groups,
+            "diversity_score": float(branch.get("diversity_score") or 0.0),
+            "portfolio_solver_truncated": bool(
+                (branch.get("portfolio_enumeration") or {}).get("solver_truncated")
+            ),
+            "acyclic": acyclic,
+            "dependency_semantics": "producer/consumer links require an explicit shared molecule node",
         }
 
     def add_direct_verified_route_branch(self) -> None:
@@ -1243,6 +2336,8 @@ class _RouteForestCompiler:
         if not route_steps:
             return
         branch_id = "branch:direct_verified_chemenzy_route"
+        proof_binding = dict(route_result.get("proof_binding") or {})
+        proof_bound = proof_binding.get("accepted") is True
         target = self._target()
         target_smiles = str(target.get("smiles") or "")
         source_refs = _dedupe(
@@ -1258,6 +2353,11 @@ class _RouteForestCompiler:
         if not rendered_steps:
             return
         step_ids: list[str] = []
+        reaction_step_proofs = [
+            dict(value)
+            for value in (route_result.get("reaction_validation") or {}).get("step_proofs") or []
+            if isinstance(value, dict)
+        ]
         for index, row in enumerate(rendered_steps, start=1):
             product = _route_step_product(row)
             reactants = _route_step_reactants(row)
@@ -1273,6 +2373,10 @@ class _RouteForestCompiler:
                     confidence=_route_step_confidence(row),
                     source_refs=source_refs,
                     missing=[],
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=source_refs,
+                    ),
                 )
                 for idx, smiles in enumerate(reactants, start=1)
                 if str(smiles or "").strip()
@@ -1286,6 +2390,10 @@ class _RouteForestCompiler:
                     confidence=_route_step_confidence(row),
                     source_refs=source_refs,
                     missing=[] if product else ["product missing from ChemEnzy step"],
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=source_refs,
+                    ),
                 )
             ]
             label = _clean_label(
@@ -1295,8 +2403,7 @@ class _RouteForestCompiler:
             )
             if label.lower() in {"template", "reaction", "step"}:
                 label = f"ChemEnzy verified step {index}"
-            step_ids.append(
-                self._add_step(
+            step_id = self._add_step(
                     branch_id=branch_id,
                     label=label,
                     from_nodes=from_nodes,
@@ -1324,16 +2431,26 @@ class _RouteForestCompiler:
                         ]
                     )[:8],
                 )
-            )
+            reaction_proof = _matching_reaction_step_proof(reaction_step_proofs, row)
+            if reaction_proof:
+                self.steps[step_id]["reaction_step_proof"] = {
+                    **reaction_proof,
+                    "proof_source": "deterministic_reverified_route",
+                }
+            step_ids.append(step_id)
         if not step_ids:
             return
         self._add_branch(
             branch_id=branch_id,
             title=f"Direct verified route: {target.get('name') or 'target'}",
             kind="direct_verified_route",
-            recommendation="verified route",
+            recommendation="verified route" if proof_bound else "revalidated advisory route",
             confidence="high",
-            summary="Route verifier accepted this ChemEnzy route as a deterministic parent-route proof for the target.",
+            summary=(
+                "This route is reconstructed from the accepted deterministic parent proof."
+                if proof_bound
+                else "The guided artifact was independently replayed, but it is not bound to an accepted parent proof."
+            ),
             step_ids=step_ids,
             source_refs=source_refs,
             missing=["Not a literature exact-row route", "Conditions may be template-level unless separately predicted"],
@@ -1341,6 +2458,7 @@ class _RouteForestCompiler:
                 *[dict(row) for row in route_result.get("classification_records") or [] if isinstance(row, dict)],
                 route,
             ],
+            proof_binding=proof_binding,
         )
 
     def add_stitched_verified_route_branch(self) -> None:
@@ -1398,6 +2516,11 @@ class _RouteForestCompiler:
         for segment_index, segment in enumerate(projection.get("subgoal_segments") or [], start=1):
             segment_frontier = str(segment.get("frontier_smiles") or "")
             segment_step_ids: list[str] = []
+            segment_reaction_proofs = [
+                dict(value)
+                for value in (segment.get("reaction_validation") or {}).get("step_proofs") or []
+                if isinstance(value, dict)
+            ]
             for route_step_index, row in enumerate(segment.get("steps") or [], start=1):
                 product = _route_step_product(row)
                 reactants = _route_step_reactants(row)
@@ -1417,6 +2540,11 @@ class _RouteForestCompiler:
                         confidence=_route_step_confidence(row),
                         source_refs=subgoal_source_refs,
                         missing=[],
+                        identity_namespace=_molecule_identity_namespace(
+                            branch_id=branch_id,
+                            source_refs=subgoal_source_refs,
+                            evidence_row_id=f"subgoal-{segment_index}-step-{route_step_index}",
+                        ),
                     )
                     from_nodes.append(node_id)
                     if is_stock:
@@ -1432,6 +2560,11 @@ class _RouteForestCompiler:
                     confidence=_route_step_confidence(row),
                     source_refs=subgoal_source_refs,
                     missing=[],
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=subgoal_source_refs,
+                        evidence_row_id=f"subgoal-{segment_index}-step-{route_step_index}",
+                    ),
                 )
                 if product_is_terminal:
                     literature_terminal_node_ids.append(product_node)
@@ -1461,6 +2594,12 @@ class _RouteForestCompiler:
                 step_ids.append(step_id)
                 subgoal_step_ids.append(step_id)
                 segment_step_ids.append(step_id)
+                reaction_proof = _matching_reaction_step_proof(segment_reaction_proofs, row)
+                if reaction_proof:
+                    self.steps[step_id]["reaction_step_proof"] = {
+                        **reaction_proof,
+                        "proof_source": "deterministic_reverified_route",
+                    }
             subgoal_segments.append(
                 {
                     "segment_id": f"verified_stock_closure_{segment_index}",
@@ -1496,6 +2635,11 @@ class _RouteForestCompiler:
                     confidence="high",
                     source_refs=row_source_refs,
                     missing=[],
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=row_source_refs,
+                        evidence_row_id=str(row.get("step_id") or index),
+                    ),
                 )
                 from_nodes.append(node_id)
                 if is_terminal:
@@ -1511,6 +2655,11 @@ class _RouteForestCompiler:
                 confidence="high",
                 source_refs=row_source_refs,
                 missing=[],
+                identity_namespace=_molecule_identity_namespace(
+                    branch_id=branch_id,
+                    source_refs=row_source_refs,
+                    evidence_row_id=str(row.get("step_id") or index),
+                ),
             )
             label = _clean_label(
                 row.get("reaction_class")
@@ -1545,6 +2694,20 @@ class _RouteForestCompiler:
             or len(set(literature_terminal_node_ids)) != len(literature_frontier_keys)
         ):
             return
+        proof_route_steps = [
+            *[
+                dict(step)
+                for segment in projection.get("subgoal_segments") or []
+                for step in segment.get("steps") or []
+                if isinstance(step, dict)
+            ],
+            *[
+                dict(step)
+                for step in projection.get("literature_steps") or []
+                if isinstance(step, dict)
+            ],
+        ]
+        proof_route_digest = _route_structure_sha256(proof_route_steps)
         self._add_branch(
             branch_id=branch_id,
             title=f"Stitched verified route: {target.get('name') or 'target'}",
@@ -1561,6 +2724,13 @@ class _RouteForestCompiler:
                 "Stock-closure steps are computational unless independently replaced by exact literature rows"
             ],
             classification_records=[{"synthesis_class": "semisynthesis"}],
+            proof_binding={
+                "schema_version": "route_forest_parent_proof_binding.v1",
+                "accepted": bool(proof_route_digest),
+                "proof_mode": "stitched_parent_route",
+                "route_structure_sha256": proof_route_digest,
+                "binding_source": "proof_evidence.stitched_route.proof_inputs_replay",
+            },
         )
         branch = self.branches[-1]
         branch["route_direction"] = "stock_to_literature_terminal_to_target"
@@ -1608,6 +2778,11 @@ class _RouteForestCompiler:
 
             step_ids: list[str] = []
             rendered_steps = list(reversed(route_steps))
+            reaction_step_proofs = [
+                dict(value)
+                for value in (record.get("reaction_validation") or {}).get("step_proofs") or []
+                if isinstance(value, dict)
+            ]
             for step_index, row in enumerate(rendered_steps, start=1):
                 product = str(row.get("product") or "").strip()
                 reactants = _route_step_reactants(row)
@@ -1622,6 +2797,11 @@ class _RouteForestCompiler:
                         confidence=_route_step_confidence(row),
                         source_refs=step_source_refs,
                         missing=[],
+                        identity_namespace=_molecule_identity_namespace(
+                            branch_id=branch_id,
+                            source_refs=step_source_refs,
+                            evidence_row_id=f"route-step-{step_index}",
+                        ),
                     )
                     for idx, smiles in enumerate(reactants, start=1)
                     if str(smiles or "").strip()
@@ -1635,6 +2815,11 @@ class _RouteForestCompiler:
                         confidence=_route_step_confidence(row),
                         source_refs=step_source_refs,
                         missing=[] if product else ["product missing from ChemEnzy subgoal step"],
+                        identity_namespace=_molecule_identity_namespace(
+                            branch_id=branch_id,
+                            source_refs=step_source_refs,
+                            evidence_row_id=f"route-step-{step_index}",
+                        ),
                     )
                 ]
                 label = _clean_label(
@@ -1644,8 +2829,7 @@ class _RouteForestCompiler:
                 )
                 if label.lower() in {"template", "reaction", "step", "chemenzyretroplanner"}:
                     label = f"ChemEnzy 子目标闭合 step {step_index}"
-                step_ids.append(
-                    self._add_step(
+                step_id = self._add_step(
                         branch_id=branch_id,
                         label=label,
                         from_nodes=from_nodes,
@@ -1670,7 +2854,13 @@ class _RouteForestCompiler:
                             ]
                         )[:8],
                     )
-                )
+                reaction_proof = _matching_reaction_step_proof(reaction_step_proofs, row)
+                if reaction_proof:
+                    self.steps[step_id]["reaction_step_proof"] = {
+                        **reaction_proof,
+                        "proof_source": "deterministic_reverified_route",
+                    }
+                step_ids.append(step_id)
             if not step_ids and target_smiles:
                 target_node = self._add_node(
                     f"{subgoal_name} terminal",
@@ -1680,6 +2870,11 @@ class _RouteForestCompiler:
                     confidence="high" if record.get("accepted") else "medium",
                     source_refs=branch_source_refs,
                     missing=[],
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=branch_source_refs,
+                        evidence_row_id="subgoal-terminal",
+                    ),
                 )
                 step_ids.append(
                     self._add_step(
@@ -1692,6 +2887,11 @@ class _RouteForestCompiler:
                                 exactness="model_hypothesis",
                                 confidence="medium",
                                 source_refs=step_source_refs,
+                                identity_namespace=_molecule_identity_namespace(
+                                    branch_id=branch_id,
+                                    source_refs=step_source_refs,
+                                    evidence_row_id="subgoal-route-pool",
+                                ),
                                 missing=["route forest 编译器未加载到 raw ChemEnzy steps"],
                             )
                         ],
@@ -1764,9 +2964,18 @@ class _RouteForestCompiler:
                     confidence="failed",
                     source_refs=[str(row.get("artifact_ref") or "") for row in failures if str(row.get("artifact_ref") or "").strip()],
                     missing=reasons or ["route unresolved"],
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=[
+                            str(row.get("artifact_ref") or "")
+                            for row in failures
+                            if str(row.get("artifact_ref") or "").strip()
+                        ],
+                        evidence_row_id="diagnostic",
+                    ),
                 )
             ],
-            to_nodes=[self._target_node()],
+            to_nodes=[self._target_node(identity_namespace=branch_id)],
             module_key="diagnostic_failure",
             module_label="Diagnostic failure",
             confidence="failed",
@@ -1802,6 +3011,7 @@ class _RouteForestCompiler:
         priority = {
             "stitched_verified_route": 80,
             "direct_verified_route": 70,
+            "proof_eligible_portfolio_route": 65,
             "exact_literature": 60,
             "subgoal_verified_route": 50,
             "route_consensus_graph": 45,
@@ -1812,9 +3022,11 @@ class _RouteForestCompiler:
             "retrosynthetic_proposal": 20,
             "broad_template": 10,
             "diagnostic_failure": 0,
+            "validated_replacement_route": -2,
         }
+        selectable = [row for row in self.branches if row.get("listed") is not False]
         selected = max(
-            self.branches,
+            selectable or self.branches,
             key=lambda row: (
                 priority.get(str(row.get("kind") or ""), -1),
                 CONFIDENCE_RANK.get(str(row.get("confidence") or ""), 0),
@@ -1826,13 +3038,26 @@ class _RouteForestCompiler:
         for branch in self.branches:
             branch["is_primary"] = bool(selected_id and branch.get("branch_id") == selected_id)
         kind = str(selected.get("kind") or "")
-        if kind in {"stitched_verified_route", "direct_verified_route"}:
+        if (
+            kind in {"stitched_verified_route", "direct_verified_route"}
+            and selected.get("solved") is True
+            and selected.get("executable") is True
+            and selected.get("advisory_only") is False
+        ):
             status = "deterministically_verified"
             proof_level = "parent_route_proof"
             advisory_only = False
+        elif kind in {"stitched_verified_route", "direct_verified_route"}:
+            status = "advisory"
+            proof_level = "replayed_candidate_without_parent_proof_authority"
+            advisory_only = True
         elif kind == "exact_literature":
             status = "evidence_backed"
             proof_level = "literature_rows"
+            advisory_only = True
+        elif kind == "proof_eligible_portfolio_route":
+            status = "proof_eligible_portfolio"
+            proof_level = str(selected.get("weakest_proof_tier") or "L2_reaction_validated")
             advisory_only = True
         elif kind == "diagnostic_failure":
             status = "diagnostic"
@@ -1897,9 +3122,14 @@ class _RouteForestCompiler:
                     confidence="low",
                     source_refs=source_refs,
                     missing=missing,
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=source_refs,
+                        evidence_row_id="unclosed-exploration",
+                    ),
                 )
             ],
-            to_nodes=[self._target_node()],
+            to_nodes=[self._target_node(identity_namespace=branch_id)],
             module_key="diagnostic_failure",
             module_label="Diagnostic / incomplete exploration",
             confidence="low",
@@ -1921,9 +3151,10 @@ class _RouteForestCompiler:
             missing=missing,
         )
 
-    def add_visual_branches(self, *, limit: int) -> None:
+    def add_visual_branches(self, *, limit: int | None) -> None:
         chains = [row for row in self.evidence.get("visual_chains") or [] if isinstance(row, dict)]
-        for index, chain in enumerate(chains[: max(0, limit)], start=1):
+        selected = self._limited_rows(chains, category="visual_chains", limit=limit)
+        for index, chain in enumerate(selected, start=1):
             source_ref = str(chain.get("source_ref") or chain.get("source_title") or f"visual:{index}")
             title = str(chain.get("source_title") or source_ref or f"Visual chain {index}")
             branch_id = self._unique_branch_id(f"branch:visual:{_slug(source_ref or title)}:{index}")
@@ -1944,6 +3175,11 @@ class _RouteForestCompiler:
                                 exactness="failed_or_unresolved",
                                 confidence="failed",
                                 source_refs=[source_ref],
+                                identity_namespace=_molecule_identity_namespace(
+                                    branch_id=branch_id,
+                                    source_refs=[source_ref],
+                                    evidence_row_id="empty-visual-chain",
+                                ),
                             )
                         ],
                         to_nodes=[],
@@ -1974,9 +3210,10 @@ class _RouteForestCompiler:
                 classification_records=[chain],
             )
 
-    def add_process_evidence_branches(self, *, limit: int = 8) -> None:
+    def add_process_evidence_branches(self, *, limit: int | None = None) -> None:
         rows = [row for row in self.evidence.get("process_evidence_rows") or [] if isinstance(row, dict)]
-        for index, row in enumerate(rows[: max(0, limit)], start=1):
+        selected = self._limited_rows(rows, category="process_evidence", limit=limit)
+        for index, row in enumerate(selected, start=1):
             endpoints = _labels_from_any(row.get("endpoint_labels")) or ["process endpoint"]
             substrates = _labels_from_any(row.get("substrate_or_feedstock_labels")) or ["process substrate/feedstock"]
             process_labels = _labels_from_any(row.get("biocatalyst_or_process_labels")) or [
@@ -2006,6 +3243,11 @@ class _RouteForestCompiler:
                         confidence=str(row.get("confidence") or "medium"),
                         source_refs=source_refs,
                         missing=["structure may be class/name-only in process evidence"],
+                        identity_namespace=_molecule_identity_namespace(
+                            branch_id=branch_id,
+                            source_refs=source_refs,
+                            evidence_row_id=str(row.get("row_id") or index),
+                        ),
                     )
                     for substrate in substrates[:6]
                 ],
@@ -2016,6 +3258,11 @@ class _RouteForestCompiler:
                         exactness="named_literature",
                         confidence=str(row.get("confidence") or "medium"),
                         source_refs=source_refs,
+                        identity_namespace=_molecule_identity_namespace(
+                            branch_id=branch_id,
+                            source_refs=source_refs,
+                            evidence_row_id=str(row.get("row_id") or index),
+                        ),
                     )
                     for endpoint in endpoints[:4]
                 ],
@@ -2051,7 +3298,7 @@ class _RouteForestCompiler:
                 classification_records=[row],
             )
 
-    def add_route_consensus_branches(self, *, limit: int) -> None:
+    def add_route_consensus_branches(self, *, limit: int | None) -> None:
         """Project canonical consensus proposals without promoting them to routes.
 
         A consensus proposal is one advisory reaction edge.  Its direct
@@ -2077,7 +3324,8 @@ class _RouteForestCompiler:
         consensus_target_smiles = str(consensus.get("target_smiles") or "").strip()
         route_level_refs = self._route_consensus_route_refs()
 
-        for index, proposal in enumerate(proposals[: max(0, limit)], start=1):
+        selected = self._limited_rows(proposals, category="route_consensus", limit=limit)
+        for index, proposal in enumerate(selected, start=1):
             product_smiles = str(proposal.get("product_smiles") or "").strip()
             precursor_smiles = _consensus_precursor_smiles(proposal)
             if not product_smiles or not precursor_smiles:
@@ -2124,6 +3372,11 @@ class _RouteForestCompiler:
                     confidence=confidence,
                     source_refs=direct_refs,
                     missing=missing,
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=direct_refs,
+                        evidence_row_id=consensus_id,
+                    ),
                 )
                 for precursor_index, smiles in enumerate(precursor_smiles, start=1)
             ]
@@ -2135,6 +3388,11 @@ class _RouteForestCompiler:
                 confidence=confidence,
                 source_refs=direct_refs,
                 missing=missing,
+                identity_namespace=_molecule_identity_namespace(
+                    branch_id=branch_id,
+                    source_refs=direct_refs,
+                    evidence_row_id=consensus_id,
+                ),
             )
             step_id = self._add_step(
                 branch_id=branch_id,
@@ -2193,7 +3451,554 @@ class _RouteForestCompiler:
             actual_branch["route_level_source_refs"] = route_level_refs
             self._consensus_branch_ids[consensus_id] = str(actual_branch.get("branch_id") or branch_id)
 
-    def add_route_consensus_graph_branches(self, *, limit: int) -> None:
+    def add_route_portfolio_branches(self) -> None:
+        """Project every proof-eligible Top-K selection as its own closed DAG.
+
+        The application layer remains the validation authority.  This method
+        consumes its immutable portfolio, exact proof/stock bindings, and
+        backend replacement catalog.  It never invents proof from advisory
+        overlay scores and never splices a replacement step into a route.
+        """
+
+        graph = self._route_consensus_graph_payload()
+        overlay = dict(graph.get("v2_overlay") or {})
+        portfolio = dict(graph.get("route_portfolio") or {})
+        bindings = dict(
+            graph.get("route_portfolio_bindings")
+            or self.blackboard.get("route_portfolio_bindings")
+            or portfolio.get("bindings")
+            or {}
+        )
+        if (
+            portfolio.get("schema_version") != "route_portfolio.v1"
+            or overlay.get("schema_version") != "route_hypergraph_overlay.v2"
+            or (overlay.get("validation") or {}).get("valid") is not True
+        ):
+            return
+        integrity_reasons: list[str] = []
+        if not _portfolio_content_digest_valid(portfolio):
+            integrity_reasons.append("route_portfolio_content_sha256_mismatch")
+        if bindings.get("schema_version") != "route_portfolio_bindings.v1":
+            integrity_reasons.append("invalid_route_portfolio_bindings_schema")
+        if not _portfolio_content_digest_valid(bindings):
+            integrity_reasons.append("route_portfolio_bindings_content_sha256_mismatch")
+        if integrity_reasons:
+            source_route_count = len(portfolio.get("routes") or [])
+            self._projection_coverage["route_portfolio"] = {
+                "available_count": source_route_count,
+                "rendered_count": 0,
+                "omitted_count": source_route_count,
+                "limit": None,
+                "truncated": bool(source_route_count),
+            }
+            self._portfolio_projection = {
+                **self._portfolio_projection,
+                "available": True,
+                "source_route_count": source_route_count,
+                "rejected_route_count": source_route_count,
+                "reasons": integrity_reasons,
+            }
+            return
+
+        context = {
+            "overlay": overlay,
+            "portfolio": portfolio,
+            "bindings": bindings,
+            "molecules": {
+                str(row.get("molecule_id") or ""): dict(row)
+                for row in overlay.get("molecules") or []
+                if isinstance(row, dict) and str(row.get("molecule_id") or "")
+            },
+            "hyperedges": {
+                str(row.get("hyperedge_id") or ""): dict(row)
+                for row in overlay.get("reaction_hyperedges") or []
+                if isinstance(row, dict) and str(row.get("hyperedge_id") or "")
+            },
+            "claims": {
+                str(row.get("claim_id") or ""): dict(row)
+                for row in overlay.get("evidence_claims") or []
+                if isinstance(row, dict) and str(row.get("claim_id") or "")
+            },
+            "envelopes": {
+                str(row.get("envelope_id") or ""): dict(row)
+                for row in overlay.get("candidate_envelopes") or []
+                if isinstance(row, dict) and str(row.get("envelope_id") or "")
+            },
+        }
+        source_routes = [
+            dict(row) for row in portfolio.get("routes") or [] if isinstance(row, dict)
+        ]
+        rejected: list[dict[str, Any]] = []
+        for rank, route in enumerate(source_routes, start=1):
+            branch_id, reasons = self._materialize_portfolio_route(
+                route,
+                context=context,
+                rank=rank,
+                kind="proof_eligible_portfolio_route",
+                listed=True,
+            )
+            if not branch_id:
+                rejected.append(
+                    {
+                        "route_id": str(route.get("route_id") or ""),
+                        "reasons": reasons,
+                    }
+                )
+
+        catalog = dict(
+            graph.get("route_replacement_catalog")
+            or self.blackboard.get("route_replacement_catalog")
+            or portfolio.get("route_replacement_catalog")
+            or portfolio.get("replacement_catalog")
+            or {}
+        )
+        catalog_integrity_valid = bool(
+            catalog.get("schema_version") == "route_replacement_catalog.v1"
+            and _portfolio_content_digest_valid(catalog)
+            and str(catalog.get("portfolio_content_sha256") or "")
+            == str(portfolio.get("content_sha256") or "")
+            and catalog.get("portfolio_integrity_valid") is True
+        )
+        preview_branch_ids: set[str] = set()
+        replacement_records: list[dict[str, Any]] = []
+        catalog_rows = (
+            catalog.get("candidates") or catalog.get("records") or []
+            if catalog_integrity_valid
+            else []
+        )
+        for index, raw_record in enumerate(catalog_rows, start=1):
+            if not isinstance(raw_record, dict):
+                continue
+            record = dict(raw_record)
+            base_route_id = str(
+                record.get("base_route_id")
+                or record.get("base_portfolio_route_id")
+                or ""
+            )
+            product_id = str(record.get("product_molecule_id") or "")
+            base_branch_id = self._portfolio_branch_ids.get(base_route_id, "")
+            base_step_id = self._portfolio_step_for_product(base_branch_id, product_id)
+            accepted = bool(
+                (record.get("accepted") is True or record.get("validated") is True)
+                and record.get("connectivity_revalidated") is True
+                and record.get("stock_closure_revalidated") is True
+                and record.get("reaction_proof_revalidated") is True
+            )
+            result_branch_id = ""
+            candidate_step_id = ""
+            result_route = record.get("route")
+            if accepted and isinstance(result_route, dict):
+                result_route_id = str(result_route.get("route_id") or "")
+                result_branch_id = self._portfolio_branch_ids.get(result_route_id, "")
+                if not result_branch_id:
+                    result_branch_id, materialization_reasons = self._materialize_portfolio_route(
+                        dict(result_route),
+                        context=context,
+                        rank=index,
+                        kind="validated_replacement_route",
+                        listed=False,
+                    )
+                    if not result_branch_id:
+                        accepted = False
+                        record["reasons"] = _dedupe(
+                            [
+                                *[str(value) for value in record.get("reasons") or []],
+                                *materialization_reasons,
+                            ]
+                        )
+                    else:
+                        preview_branch_ids.add(result_branch_id)
+                candidate_step_id = self._portfolio_step_for_product(
+                    result_branch_id,
+                    product_id,
+                )
+                if not candidate_step_id:
+                    accepted = False
+                    record["reasons"] = _dedupe(
+                        [
+                            *[str(value) for value in record.get("reasons") or []],
+                            "revalidated_route_missing_replacement_product_step",
+                        ]
+                    )
+            replacement_records.append(
+                {
+                    **record,
+                    "replacement_id": str(
+                        record.get("replacement_id")
+                        or record.get("candidate_id")
+                        or f"portfolio-replacement:{_slug(base_route_id)}:{index}"
+                    ),
+                    "validation_engine": str(
+                        record.get("validation_engine")
+                        or "and_or.validate_route_replacement"
+                    ),
+                    "base_route_id": base_route_id,
+                    "base_branch_id": base_branch_id,
+                    "base_step_id": base_step_id,
+                    "candidate_step_id": candidate_step_id,
+                    "candidate_branch_id": result_branch_id,
+                    "revalidated_route_branch_id": result_branch_id,
+                    "accepted": accepted,
+                    "validated": accepted,
+                    "status": "route_revalidated" if accepted else "rejected",
+                    "preview_only": True,
+                    "does_not_establish_parent_route_proof": True,
+                }
+            )
+        self._portfolio_replacement_records = replacement_records
+        projected_ids = {
+            route_id: branch_id
+            for route_id, branch_id in self._portfolio_branch_ids.items()
+            if (self._branch_by_id(branch_id) or {}).get("listed") is not False
+        }
+        self._projection_coverage["route_portfolio"] = {
+            "available_count": len(source_routes),
+            "rendered_count": len(projected_ids),
+            "omitted_count": max(0, len(source_routes) - len(projected_ids)),
+            "limit": None,
+            "truncated": len(projected_ids) < len(source_routes),
+        }
+        self._portfolio_projection = {
+            "schema_version": "route_portfolio_projection.v1",
+            "available": True,
+            "source_schema_version": str(portfolio.get("schema_version") or ""),
+            "source_content_sha256": str(portfolio.get("content_sha256") or ""),
+            "bindings_schema_version": str(bindings.get("schema_version") or ""),
+            "source_route_count": len(source_routes),
+            "projected_route_count": len(projected_ids),
+            "rejected_route_count": len(rejected),
+            "replacement_preview_branch_count": len(preview_branch_ids),
+            "replacement_catalog_integrity_valid": catalog_integrity_valid,
+            "solver_truncated": bool(portfolio.get("truncated")),
+            "complete_candidate_count": int(portfolio.get("complete_candidate_count") or 0),
+            "enumerated_candidate_count": int(portfolio.get("enumerated_candidate_count") or 0),
+            "route_branch_ids": dict(sorted(projected_ids.items())),
+            "rejected_routes": rejected,
+            "reasons": [str(value) for value in portfolio.get("reasons") or []],
+        }
+
+    def _materialize_portfolio_route(
+        self,
+        route: dict[str, Any],
+        *,
+        context: dict[str, Any],
+        rank: int,
+        kind: str,
+        listed: bool,
+    ) -> tuple[str, list[str]]:
+        route_id = str(route.get("route_id") or "")
+        existing = self._portfolio_branch_ids.get(route_id, "")
+        if existing:
+            return existing, []
+        overlay = dict(context.get("overlay") or {})
+        portfolio = dict(context.get("portfolio") or {})
+        bindings = dict(context.get("bindings") or {})
+        molecules = dict(context.get("molecules") or {})
+        hyperedges = dict(context.get("hyperedges") or {})
+        claims = dict(context.get("claims") or {})
+        envelopes = dict(context.get("envelopes") or {})
+        reasons: list[str] = []
+        if route.get("schema_version") != "route_portfolio_item.v1":
+            reasons.append("invalid_portfolio_route_schema")
+        if not _portfolio_content_digest_valid(route):
+            reasons.append("portfolio_route_content_sha256_mismatch")
+        if route.get("complete") is not True:
+            reasons.append("portfolio_route_not_complete")
+        if route.get("reaction_validated") is not True:
+            reasons.append("portfolio_route_not_reaction_validated")
+        if not route_id:
+            reasons.append("missing_portfolio_route_id")
+        root_id = str(route.get("root_molecule_id") or overlay.get("root_molecule_id") or "")
+        stock_ids = {str(value) for value in route.get("stock_terminal_ids") or [] if str(value)}
+        selection_rows = [
+            dict(row) for row in route.get("selected_hyperedges") or [] if isinstance(row, dict)
+        ]
+        edge_levels = dict(bindings.get("edge_proof_levels") or {})
+        edge_bindings = dict(
+            bindings.get("exact_edge_proof_bindings")
+            or bindings.get("edge_proof_bindings")
+            or {}
+        )
+        stock_bindings = dict(bindings.get("stock_bindings") or {})
+        selected: list[tuple[str, str, dict[str, Any], int]] = []
+        seen_products: set[str] = set()
+        required_molecule_ids = {root_id, *stock_ids}
+        for selection in selection_rows:
+            product_id = str(selection.get("product_molecule_id") or "")
+            edge_id = str(selection.get("hyperedge_id") or "")
+            edge = dict(hyperedges.get(edge_id) or {})
+            if not product_id or not edge_id or not edge:
+                reasons.append(f"selected_hyperedge_missing:{edge_id or product_id}")
+                continue
+            if product_id in seen_products:
+                reasons.append(f"duplicate_product_selection:{product_id}")
+            seen_products.add(product_id)
+            if str(edge.get("product_molecule_id") or "") != product_id:
+                reasons.append(f"selected_hyperedge_product_mismatch:{edge_id}")
+            binding = dict(edge_bindings.get(edge_id) or {})
+            binding_reasons = _portfolio_edge_binding_reasons(
+                binding,
+                edge_id=edge_id,
+                product_id=product_id,
+                precursor_ids=[str(value) for value in edge.get("precursor_molecule_ids") or []],
+            )
+            reasons.extend(
+                f"selected_hyperedge_binding:{edge_id}:{reason}"
+                for reason in binding_reasons
+            )
+            level = _portfolio_proof_level(binding.get("portfolio_proof_level"))
+            if _portfolio_proof_level(edge_levels.get(edge_id)) != level:
+                reasons.append(f"selected_hyperedge_level_binding_mismatch:{edge_id}")
+            if level < 2:
+                reasons.append(f"selected_hyperedge_below_l2:{edge_id}")
+            precursor_ids = [str(value) for value in edge.get("precursor_molecule_ids") or []]
+            required_molecule_ids.update([product_id, *precursor_ids])
+            selected.append((product_id, edge_id, edge, level))
+        if not selection_rows and root_id not in stock_ids:
+            reasons.append("portfolio_route_has_no_selected_hyperedges")
+        if selected and root_id not in seen_products:
+            reasons.append("portfolio_route_root_not_selected")
+        missing_molecules = sorted(value for value in required_molecule_ids if value not in molecules)
+        reasons.extend(f"portfolio_molecule_missing:{value}" for value in missing_molecules)
+        selected_products = {product_id for product_id, _, _, _ in selected}
+        selected_precursors = {
+            str(value)
+            for _, _, edge, _ in selected
+            for value in edge.get("precursor_molecule_ids") or []
+        }
+        materialized_leaves = selected_precursors - selected_products
+        if selected and materialized_leaves != stock_ids:
+            reasons.append("portfolio_stock_leaves_do_not_match_selection")
+        for stock_id in sorted(stock_ids):
+            stock_binding = dict(stock_bindings.get(stock_id) or {})
+            molecule = dict(molecules.get(stock_id) or {})
+            reasons.extend(
+                f"portfolio_stock_binding:{stock_id}:{reason}"
+                for reason in _portfolio_stock_binding_reasons(
+                    stock_binding,
+                    molecule_id=stock_id,
+                    canonical_smiles=str(molecule.get("canonical_isomeric_smiles") or ""),
+                )
+            )
+        if selected and not _portfolio_selection_acyclic(selected):
+            reasons.append("portfolio_route_cycle_detected")
+        if reasons:
+            return "", sorted(set(reasons))
+
+        branch_id = f"branch:{kind}:{_slug(route_id)}"
+        node_id_by_molecule: dict[str, str] = {}
+        route_source_refs: list[str] = []
+        rendered_step_ids: list[str] = []
+        for product_id, edge_id, edge, level in selected:
+            edge_claims = [
+                dict(claims.get(str(claim_id)) or {})
+                for claim_id in edge.get("evidence_claim_ids") or []
+                if str(claim_id) in claims
+            ]
+            source_refs = _dedupe(
+                [
+                    str(value)
+                    for claim in edge_claims
+                    for value in [
+                        *[str(item) for item in claim.get("source_refs") or []],
+                        *[str(item) for item in claim.get("evidence_refs") or []],
+                        str(claim.get("report_ref") or ""),
+                    ]
+                    if str(value).strip()
+                ]
+            )
+            route_source_refs.extend(source_refs)
+            precursor_ids = [str(value) for value in edge.get("precursor_molecule_ids") or []]
+            interface_ids = [*precursor_ids, product_id]
+            for molecule_id in interface_ids:
+                molecule = dict(molecules.get(molecule_id) or {})
+                smiles = str(molecule.get("canonical_isomeric_smiles") or "")
+                if molecule_id == root_id:
+                    label = str(self._target().get("name") or _compact_smiles_label(smiles))
+                    role = "target"
+                elif molecule_id in stock_ids:
+                    label = _compact_smiles_label(smiles)
+                    role = "stock_terminal"
+                else:
+                    label = _compact_smiles_label(smiles)
+                    role = "portfolio_intermediate"
+                node_id_by_molecule[molecule_id] = self._add_node(
+                    label,
+                    role=role,
+                    smiles=smiles,
+                    exactness="model_hypothesis",
+                    confidence="high" if level >= 3 else "medium_high",
+                    source_refs=source_refs,
+                    missing=[],
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=source_refs,
+                        evidence_row_id=edge_id,
+                    ),
+                )
+            envelope_rows = [
+                dict(envelopes.get(str(envelope_id)) or {})
+                for envelope_id in edge.get("candidate_envelope_ids") or []
+                if str(envelope_id) in envelopes
+            ]
+            conditions = _dedupe(
+                [
+                    str(value)
+                    for envelope in envelope_rows
+                    for value in [
+                        *[str(item) for item in envelope.get("conditions") or []],
+                        *[str(item) for item in envelope.get("catalysts") or []],
+                        *[str(item) for item in envelope.get("enzymes") or []],
+                    ]
+                    if str(value).strip()
+                ]
+            )
+            families = [str(value) for value in edge.get("reaction_families") or [] if str(value)]
+            label = " / ".join(families[:2]) or "portfolio reaction"
+            module_key = _module_key_for_text(label)
+            step_id = self._add_step(
+                branch_id=branch_id,
+                label=label,
+                from_nodes=[node_id_by_molecule[value] for value in precursor_ids],
+                to_nodes=[node_id_by_molecule[product_id]],
+                module_key=module_key,
+                module_label=_module_label_for_key(module_key),
+                confidence="high" if level >= 3 else "medium_high",
+                exactness="model_hypothesis",
+                source_refs=source_refs,
+                origin="route_portfolio",
+                summary="Proof-eligible AND/OR portfolio hyperedge projected from the canonical overlay.",
+                conditions=[{"label": "reported condition", "value": value} for value in conditions],
+                missing=[],
+            )
+            binding = dict(edge_bindings.get(edge_id) or {})
+            proof_tier = _portfolio_proof_tier(level)
+            self.steps[step_id].update(
+                {
+                    "portfolio_route_id": route_id,
+                    "portfolio_hyperedge_id": edge_id,
+                    "portfolio_product_molecule_id": product_id,
+                    "portfolio_precursor_molecule_ids": precursor_ids,
+                    "source_channels": [str(value) for value in edge.get("source_channels") or []],
+                    "independent_support_groups": [
+                        str(value) for value in edge.get("independent_support_groups") or []
+                    ],
+                    "reaction_step_proof": {
+                        "proof_source": "deterministic_reverified_route",
+                        "proof_level": proof_tier,
+                        "level_index": level,
+                        "binding_sha256": str(binding.get("binding_sha256") or ""),
+                        "portfolio_hyperedge_id": edge_id,
+                    },
+                    "proof_eligible": True,
+                    "advisory_only": True,
+                    "solved": False,
+                    "executable": False,
+                    "not_parent_route_proof": True,
+                }
+            )
+            rendered_step_ids.append(step_id)
+
+        if not selected:
+            molecule = dict(molecules.get(root_id) or {})
+            smiles = str(molecule.get("canonical_isomeric_smiles") or "")
+            node_id_by_molecule[root_id] = self._add_node(
+                str(self._target().get("name") or _compact_smiles_label(smiles)),
+                role="stock_terminal",
+                smiles=smiles,
+                exactness="model_hypothesis",
+                confidence="high",
+                source_refs=[],
+                missing=[],
+                identity_namespace=_molecule_identity_namespace(branch_id=branch_id),
+            )
+
+        self._add_branch(
+            branch_id=branch_id,
+            title=(
+                f"Portfolio #{rank}: replacement preview"
+                if kind == "validated_replacement_route"
+                else f"Portfolio #{rank}: proof-eligible closed route"
+            ),
+            kind=kind,
+            recommendation="proof-eligible AND/OR route",
+            confidence=_confidence_from_score(float(route.get("portfolio_score") or route.get("base_score") or 0.0)),
+            summary="Every selected hyperedge is L2+ and every materialized leaf is explicitly stock-bound; final parent-proof authority remains separate.",
+            step_ids=rendered_step_ids,
+            source_refs=_dedupe(route_source_refs),
+            missing=(
+                ["portfolio enumeration reached its configured bound"]
+                if portfolio.get("truncated") is True
+                else []
+            ),
+            classification_records=[],
+        )
+        branch = self.branches[-1]
+        actual_branch_id = str(branch.get("branch_id") or branch_id)
+        weakest = min((level for _, _, _, level in selected), default=4)
+        branch.update(
+            {
+                "listed": bool(listed),
+                "portfolio_route_id": route_id,
+                "portfolio_rank": int(rank),
+                "selected_hyperedges": selection_rows,
+                "root_molecule_id": root_id,
+                "root_molecule_node_id": node_id_by_molecule.get(root_id, ""),
+                "stock_terminal_molecule_ids": sorted(stock_ids),
+                "stock_terminal_node_ids": sorted(
+                    node_id_by_molecule[value] for value in stock_ids if value in node_id_by_molecule
+                ),
+                "weakest_proof_level": weakest,
+                "weakest_proof_tier": _portfolio_proof_tier(weakest),
+                "source_channels": [str(value) for value in route.get("source_channels") or []],
+                "independent_support_groups": [
+                    str(value) for value in route.get("independent_support_groups") or []
+                ],
+                "base_score": float(route.get("base_score") or 0.0),
+                "diversity_score": float(route.get("diversity_score") or 0.0),
+                "portfolio_score": float(route.get("portfolio_score") or 0.0),
+                "complete": True,
+                "reaction_validated": True,
+                "proof_eligible": True,
+                "portfolio_enumeration": {
+                    "complete_candidate_count": int(portfolio.get("complete_candidate_count") or 0),
+                    "selected_route_count": len(portfolio.get("routes") or []),
+                    "enumerated_candidate_count": int(portfolio.get("enumerated_candidate_count") or 0),
+                    "solver_truncated": bool(portfolio.get("truncated")),
+                    "reasons": [str(value) for value in portfolio.get("reasons") or []],
+                },
+                "solved": False,
+                "executable": False,
+                "advisory_only": True,
+                "not_parent_route_proof": True,
+            }
+        )
+        if not rendered_step_ids:
+            branch["node_ids"] = _dedupe(
+                [*branch.get("node_ids", []), *node_id_by_molecule.values()]
+            )
+        self._portfolio_branch_ids[route_id] = actual_branch_id
+        return actual_branch_id, []
+
+    def _portfolio_step_for_product(self, branch_id: str, product_id: str) -> str:
+        branch = self._branch_by_id(branch_id)
+        return next(
+            (
+                str(step_id)
+                for step_id in branch.get("step_ids") or []
+                if str((self.steps.get(str(step_id)) or {}).get("portfolio_product_molecule_id") or "")
+                == product_id
+            ),
+            "",
+        )
+
+    def _branch_by_id(self, branch_id: str) -> dict[str, Any]:
+        return next(
+            (row for row in self.branches if str(row.get("branch_id") or "") == branch_id),
+            {},
+        )
+
+    def add_route_consensus_graph_branches(self, *, limit: int | None) -> None:
         graph = self._route_consensus_graph_payload()
         if not graph:
             return
@@ -2210,7 +4015,8 @@ class _RouteForestCompiler:
         target_smiles = str(self._target().get("smiles") or "")
         routes = [dict(row) for row in graph.get("route_hypotheses") or [] if isinstance(row, dict)]
         routes.sort(key=lambda row: (-float(row.get("rank_score") or 0.0), str(row.get("route_id") or "")))
-        for index, route in enumerate(routes[: max(0, int(limit))], start=1):
+        selected = self._limited_rows(routes, category="route_consensus_graph", limit=limit)
+        for index, route in enumerate(selected, start=1):
             graph_route_id = str(route.get("route_id") or f"route-{index}")
             branch_id = f"branch:route_consensus_graph:{_slug(graph_route_id)}"
             rendered_step_ids: list[str] = []
@@ -2238,6 +4044,11 @@ class _RouteForestCompiler:
                         confidence=str(graph_step.get("confidence") or "low"),
                         source_refs=direct_refs,
                         missing=["advisory graph node; deterministic identity audit still required"],
+                        identity_namespace=_molecule_identity_namespace(
+                            branch_id=branch_id,
+                            source_refs=direct_refs,
+                            evidence_row_id=str(graph_step_id),
+                        ),
                     )
                     for smiles in precursors
                 ]
@@ -2250,6 +4061,11 @@ class _RouteForestCompiler:
                         confidence=str(graph_step.get("confidence") or "low"),
                         source_refs=direct_refs,
                         missing=["advisory graph node; deterministic identity audit still required"],
+                        identity_namespace=_molecule_identity_namespace(
+                            branch_id=branch_id,
+                            source_refs=direct_refs,
+                            evidence_row_id=str(graph_step_id),
+                        ),
                     )
                 ]
                 family = str(graph_step.get("reaction_family") or "multi-source disconnection")
@@ -2385,6 +4201,15 @@ class _RouteForestCompiler:
             "node_count": len(graph.get("nodes") or []),
             "conflict_count": len(graph.get("conflicts") or []),
             "cycle_count": len(graph.get("cycles") or []),
+            "route_portfolio": dict(graph.get("route_portfolio") or {}),
+            "route_portfolio_bindings": dict(
+                graph.get("route_portfolio_bindings")
+                or (graph.get("route_portfolio") or {}).get("bindings")
+                or {}
+            ),
+            "route_replacement_catalog": dict(
+                graph.get("route_replacement_catalog") or {}
+            ),
             "truncation": dict(graph.get("truncation") or {}),
             "route_level_source_refs": self._route_consensus_graph_refs(),
             "semantics": {"advisory_only": True, "solved": False, "executable": False},
@@ -2519,7 +4344,7 @@ class _RouteForestCompiler:
             },
         }
 
-    def add_proposal_branches(self, *, limit: int) -> None:
+    def add_proposal_branches(self, *, limit: int | None) -> None:
         proposals = [row for row in self.blackboard.get("retrosynthetic_proposals") or [] if isinstance(row, dict)]
         if self._codex_team_projection_reasons():
             proposals = [
@@ -2537,18 +4362,19 @@ class _RouteForestCompiler:
             ]
         proposals.sort(key=lambda row: (not bool(row.get("executable")), -float(row.get("score") or 0.0)))
         seen_labels: set[str] = set()
-        count = 0
+        deduplicated: list[dict[str, Any]] = []
         for proposal in proposals:
             label = _clean_label(proposal.get("proposal_label") or proposal.get("proposal_type") or "proposal")
             dedupe_key = f"{label}:{proposal.get('precursor_smiles') or ''}"[:220]
             if dedupe_key in seen_labels:
                 continue
             seen_labels.add(dedupe_key)
-            count += 1
-            if count > max(0, limit):
-                break
+            deduplicated.append(proposal)
+        selected = self._limited_rows(deduplicated, category="retrosynthetic_proposals", limit=limit)
+        for proposal in selected:
+            label = _clean_label(proposal.get("proposal_label") or proposal.get("proposal_type") or "proposal")
             branch_id = self._unique_branch_id(f"branch:proposal:{_slug(str(proposal.get('proposal_id') or label))}")
-            precursor_nodes = self._proposal_precursor_nodes(proposal)
+            precursor_nodes = self._proposal_precursor_nodes(proposal, branch_id=branch_id)
             if not precursor_nodes:
                 precursor_nodes = [
                     self._add_node(
@@ -2558,6 +4384,15 @@ class _RouteForestCompiler:
                         confidence=str(proposal.get("confidence") or "medium"),
                         source_refs=[str(x) for x in proposal.get("evidence_refs") or [] if str(x).strip()],
                         missing=["no machine-readable precursor structure"],
+                        identity_namespace=_molecule_identity_namespace(
+                            branch_id=branch_id,
+                            source_refs=[
+                                str(x)
+                                for x in proposal.get("evidence_refs") or []
+                                if str(x).strip()
+                            ],
+                            evidence_row_id=str(proposal.get("proposal_id") or label),
+                        ),
                     )
                 ]
             source_refs = [str(x) for x in proposal.get("evidence_refs") or [] if str(x).strip()][:8]
@@ -2566,7 +4401,7 @@ class _RouteForestCompiler:
             ).strip()
             requested_target_smiles = str(self._target().get("smiles") or "")
             if product_smiles and _same_molecule(product_smiles, requested_target_smiles):
-                product_node = self._target_node()
+                product_node = self._target_node(identity_namespace=branch_id)
             else:
                 product_label = _clean_label(
                     proposal.get("product_label")
@@ -2585,6 +4420,11 @@ class _RouteForestCompiler:
                         if product_smiles
                         else "proposal product identity is not bound to the requested target"
                     ],
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=source_refs,
+                        evidence_row_id=str(proposal.get("proposal_id") or label),
+                    ),
                 )
             step_id = self._add_step(
                 branch_id=branch_id,
@@ -2614,9 +4454,10 @@ class _RouteForestCompiler:
                 classification_records=[proposal],
             )
 
-    def add_template_branches(self, *, limit: int) -> None:
+    def add_template_branches(self, *, limit: int | None) -> None:
         templates = [row for row in self.blackboard.get("broad_transform_templates") or [] if isinstance(row, dict)]
-        for index, template in enumerate(templates[: max(0, limit)], start=1):
+        selected = self._limited_rows(templates, category="broad_transform_templates", limit=limit)
+        for index, template in enumerate(selected, start=1):
             template_id = str(template.get("template_id") or f"template:{index}")
             branch_id = self._unique_branch_id(f"branch:template:{_slug(template_id)}")
             label = _clean_label(template.get("transform_logic") or template.get("objective_type") or template_id)
@@ -2637,9 +4478,14 @@ class _RouteForestCompiler:
                 confidence="medium",
                 source_refs=source_refs,
                 missing=["broad-template endpoint; exact structure is not established"],
+                identity_namespace=_molecule_identity_namespace(
+                    branch_id=branch_id,
+                    source_refs=source_refs,
+                    evidence_row_id=template_id,
+                ),
             )
             if product_smiles and _same_molecule(product_smiles, requested_target_smiles):
-                to_node = self._target_node()
+                to_node = self._target_node(identity_namespace=branch_id)
             else:
                 to_node = self._add_node(
                     to_label,
@@ -2649,6 +4495,11 @@ class _RouteForestCompiler:
                     confidence="medium",
                     source_refs=source_refs,
                     missing=["broad-template endpoint is not bound to the requested target"],
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=source_refs,
+                        evidence_row_id=template_id,
+                    ),
                 )
             step_id = self._add_step(
                 branch_id=branch_id,
@@ -2737,6 +4588,16 @@ class _RouteForestCompiler:
                     confidence=row_confidence,
                     source_refs=source_refs,
                     missing=row_missing,
+                    identity_namespace=_molecule_identity_namespace(
+                        branch_id=branch_id,
+                        source_refs=source_refs,
+                        evidence_row_id=str(
+                            row.get("row_id")
+                            or row.get("step_id")
+                            or row.get("source_template_id")
+                            or index
+                        ),
+                    ),
                 )
 
             step_ids.append(
@@ -2822,6 +4683,11 @@ class _RouteForestCompiler:
 
     def _visual_step(self, branch_id: str, chain: dict[str, Any], row: dict[str, Any], index: int) -> str:
         source_ref = str(chain.get("source_ref") or chain.get("source_title") or "")
+        identity_namespace = _molecule_identity_namespace(
+            branch_id=branch_id,
+            source_refs=[source_ref] if source_ref else [],
+            evidence_row_id=str(row.get("row_id") or row.get("step_id") or index),
+        )
         reactants = _labels_from_any(row.get("reactant_labels") or row.get("reactants") or row.get("main_reactant_smiles") or row.get("reactant_smiles"))
         products = _labels_from_any(row.get("product_label") or row.get("product_labels") or row.get("product_smiles"))
         if not products:
@@ -2839,6 +4705,7 @@ class _RouteForestCompiler:
                     confidence=str(row.get("confidence") or "low"),
                     source_refs=[source_ref] if source_ref else [],
                     missing=[str(x) for x in row.get("risk_flags") or [] if str(x).strip()][:4],
+                    identity_namespace=identity_namespace,
                 )
             )
         product_smiles = _labels_from_any(row.get("product_smiles"))
@@ -2854,6 +4721,7 @@ class _RouteForestCompiler:
                     confidence=str(row.get("confidence") or "low"),
                     source_refs=[source_ref] if source_ref else [],
                     missing=[str(x) for x in row.get("risk_flags") or [] if str(x).strip()][:4],
+                    identity_namespace=identity_namespace,
                 )
             )
         label = _clean_label(row.get("reaction_class") or row.get("step_id") or f"visual step {index}")
@@ -2873,12 +4741,25 @@ class _RouteForestCompiler:
             missing=[str(x) for x in row.get("risk_flags") or [] if str(x).strip()][:8],
         )
 
-    def _proposal_precursor_nodes(self, proposal: dict[str, Any]) -> list[str]:
+    def _proposal_precursor_nodes(
+        self,
+        proposal: dict[str, Any],
+        *,
+        branch_id: str,
+    ) -> list[str]:
         text = str(proposal.get("precursor_smiles") or "").strip()
         if not text:
             return []
         parts = [part.strip() for part in text.split(".") if part.strip()]
         out = []
+        source_refs = [
+            str(x) for x in proposal.get("evidence_refs") or [] if str(x).strip()
+        ][:8]
+        identity_namespace = _molecule_identity_namespace(
+            branch_id=branch_id,
+            source_refs=source_refs,
+            evidence_row_id=str(proposal.get("proposal_id") or "proposal"),
+        )
         for idx, smiles in enumerate(parts[:5], start=1):
             label = f"proposal precursor {idx}"
             out.append(
@@ -2888,13 +4769,14 @@ class _RouteForestCompiler:
                     smiles=smiles if _looks_like_smiles(smiles) else "",
                     exactness="model_hypothesis",
                     confidence=str(proposal.get("confidence") or "medium"),
-                    source_refs=[str(x) for x in proposal.get("evidence_refs") or [] if str(x).strip()][:8],
+                    source_refs=source_refs,
                     missing=[str(x) for x in proposal.get("risk_flags") or [] if str(x).strip()][:4],
+                    identity_namespace=identity_namespace,
                 )
             )
         return out
 
-    def _target_node(self) -> str:
+    def _target_node(self, *, identity_namespace: str) -> str:
         target = self._target()
         return self._add_node(
             target.get("name") or "target",
@@ -2903,6 +4785,7 @@ class _RouteForestCompiler:
             exactness="name_only",
             confidence="high",
             source_refs=[],
+            identity_namespace=_molecule_identity_namespace(branch_id=identity_namespace),
         )
 
     def _target(self) -> dict[str, Any]:
@@ -2928,8 +4811,24 @@ class _RouteForestCompiler:
         source_refs: list[str],
         missing: list[str],
         classification_records: list[dict[str, Any]] | None = None,
+        proof_binding: dict[str, Any] | None = None,
     ) -> None:
-        branch_id = self._unique_branch_id(branch_id)
+        # Some branch builders reserve a unique id before materializing their
+        # nodes and steps so branch-scoped identity namespaces cannot collide.
+        # Reusing that reservation here is intentional; allocating it a second
+        # time used to append ``:2`` to the branch while leaving every step on
+        # the now-nonexistent pre-dedup id.
+        finalized_branch_ids = {
+            str(row.get("branch_id") or "") for row in self.branches
+        }
+        if branch_id in finalized_branch_ids:
+            branch_id = self._unique_branch_id(branch_id)
+        elif branch_id not in self._branch_ids:
+            self._branch_ids.add(branch_id)
+
+        valid_step_ids = [sid for sid in step_ids if sid in self.steps]
+        for step_id in valid_step_ids:
+            self.steps[step_id]["branch_id"] = branch_id
         title = _branch_title_for_display(branch_id=branch_id, title=title, kind=kind)
         recommendation = _recommendation_for_display(kind=kind, recommendation=recommendation)
         node_ids: list[str] = []
@@ -2944,22 +4843,46 @@ class _RouteForestCompiler:
             "recommendation": recommendation,
             "confidence": _normalize_confidence(confidence),
             "summary": summary,
-            "step_ids": [sid for sid in step_ids if sid in self.steps],
+            "step_ids": valid_step_ids,
             "node_ids": _dedupe(node_ids),
             "source_refs": _dedupe(source_refs),
             "missing": _dedupe(missing),
         }
-        verified_parent_route = kind in {"direct_verified_route", "stitched_verified_route"}
+        binding = dict(proof_binding or {})
+        verified_parent_route = bool(
+            kind in {"direct_verified_route", "stitched_verified_route"}
+            and binding.get("accepted") is True
+            and str(binding.get("route_structure_sha256") or "")
+            and self._final_verdict_allows_solved_branch()
+        )
         row.update(
             {
                 "solved": verified_parent_route,
                 "executable": verified_parent_route,
                 "advisory_only": not verified_parent_route,
                 "not_parent_route_proof": not verified_parent_route,
+                "proof_binding": binding,
             }
         )
         row.update(_classify_synthesis_records(classification_records or []))
         self.branches.append(row)
+
+    def _final_verdict_allows_solved_branch(self) -> bool:
+        """Honor an explicitly materialized unresolved verdict, if present.
+
+        Normal controller execution builds the forest before the verdict and
+        therefore has no embedded verdict here.  Saved-run refreshes and
+        callers that do provide one must never display an unresolved decision
+        as a solved/non-advisory branch.
+        """
+        verdict = self.blackboard.get("final_verdict")
+        if not isinstance(verdict, dict) or not verdict:
+            return True
+        return bool(
+            verdict.get("solved") is True
+            and str(verdict.get("verdict") or "").strip().lower() == "solved"
+            and str(verdict.get("route_status") or "").strip().lower() == "solved"
+        )
 
     def _add_step(
         self,
@@ -3012,10 +4935,25 @@ class _RouteForestCompiler:
         confidence: str,
         source_refs: list[str],
         missing: list[str] | None = None,
+        identity_namespace: str = "",
     ) -> str:
         label = _clean_label(label) or "unnamed node"
         smiles = str(smiles or "").strip()
-        node_id, canonical_smiles = _molecule_node_identity(smiles=smiles, label=label)
+        namespace = str(identity_namespace or "").strip()
+        if not namespace:
+            # Fail closed for unstructured identities.  A caller that wants
+            # name-only continuity must provide an explicit branch/source/row
+            # namespace instead of relying on a repository-global label.
+            namespace = _molecule_identity_namespace(
+                branch_id=f"unscoped-assertion-{len(self.nodes) + 1}",
+                source_refs=source_refs,
+                evidence_row_id=role,
+            )
+        node_id, canonical_smiles = _molecule_node_identity(
+            smiles=smiles,
+            label=label,
+            namespace=namespace,
+        )
         existing = self.nodes.get(node_id)
         row = {
             "node_id": node_id,
@@ -3025,6 +4963,7 @@ class _RouteForestCompiler:
             "smiles": canonical_smiles or smiles,
             "input_smiles": smiles,
             "canonical_isomeric_smiles": canonical_smiles,
+            "identity_namespace": "" if canonical_smiles else namespace,
             "representation_kind": "smiles" if smiles else "name_only",
             "exactness": _normalize_exactness(exactness),
             "confidence": _normalize_confidence(confidence),
@@ -3061,17 +5000,57 @@ class _RouteForestCompiler:
         return node_id
 
     def _node_id_for_label(self, label: str) -> str:
-        node_id, _ = _molecule_node_identity(smiles="", label=label)
+        namespace = _molecule_identity_namespace(
+            branch_id="legacy-node-id-for-label",
+            evidence_row_id=label,
+        )
+        node_id, _ = _molecule_node_identity(smiles="", label=label, namespace=namespace)
         if node_id not in self.nodes:
-            return self._add_node(label, role="intermediate", exactness="name_only", confidence="medium", source_refs=[])
+            return self._add_node(
+                label,
+                role="intermediate",
+                exactness="name_only",
+                confidence="medium",
+                source_refs=[],
+                identity_namespace=namespace,
+            )
         return node_id
 
     def _best_direct_route_result(self) -> dict[str, Any]:
         proof = dict(self.blackboard.get("parent_route_proof") or {})
+        expected_target = str(self._target().get("smiles") or "")
         proof_accepted = is_solved_parent_route_proof(
             proof,
-            expected_target_smiles=str(self._target().get("smiles") or ""),
+            expected_target_smiles=expected_target,
         )
+        if proof_accepted and str(proof.get("proof_mode") or "") == "direct_parent_route":
+            route = _route_from_parent_route_proof(proof)
+            parent_verifier = dict((proof.get("proof_evidence") or {}).get("parent_verifier") or {})
+            proof_route = dict(parent_verifier.get("accepted_route") or {})
+            route_digest = _route_structure_sha256(route.get("steps") or [])
+            evidence_digest = _route_structure_sha256(proof_route.get("steps") or [])
+            if route.get("steps") and route_digest and route_digest == evidence_digest:
+                return {
+                    "route": route,
+                    "reaction_validation": dict(parent_verifier.get("reaction_validation") or {}),
+                    "artifact_path": "",
+                    "source_ref": str(proof.get("source_ref") or "parent_route_proof"),
+                    "classification_records": [proof, route],
+                    "proof_binding": {
+                        "schema_version": "route_forest_parent_proof_binding.v1",
+                        "accepted": True,
+                        "proof_mode": "direct_parent_route",
+                        "route_structure_sha256": route_digest,
+                        "reaction_proof_sha256": str(
+                            (parent_verifier.get("reaction_validation") or {}).get("proof_digest")
+                            or ""
+                        ),
+                        "binding_source": "proof_evidence.parent_verifier.accepted_route",
+                    },
+                }
+
+        # A guided result can still be useful display evidence, but even a
+        # replayed L1/L2 verifier report is not final parent-proof authority.
         for artifact in self._guided_result_artifacts():
             verifier = dict(artifact.get("raw_route_verifier") or {})
             # Never promote the backend's own ``solved`` claim (or an unrelated
@@ -3080,14 +5059,13 @@ class _RouteForestCompiler:
             # deterministic verifier report.
             if not _deterministic_route_verifier_accepted(
                 verifier,
-                expected_target_smiles=str(self._target().get("smiles") or ""),
+                expected_target_smiles=expected_target,
             ):
                 continue
             result = dict(artifact.get("result") or {})
             routes = [dict(row) for row in result.get("routes") or artifact.get("routes") or [] if isinstance(row, dict)]
             if not routes:
                 continue
-            expected_target = str(self._target().get("smiles") or "")
             reverified = verify_chemenzy_raw_routes(
                 {"result": {**result, "routes": routes}},
                 target_smiles=expected_target,
@@ -3108,18 +5086,22 @@ class _RouteForestCompiler:
             if route.get("steps"):
                 return {
                     "route": route,
+                    "reaction_validation": dict(reverified.get("reaction_validation") or {}),
                     "artifact_path": str(artifact.get("_artifact_path") or ""),
                     "source_ref": str(artifact.get("_artifact_key") or "guided_chemenzy_result"),
                     "classification_records": [artifact, result, route],
-                }
-        if proof_accepted:
-            route = _route_from_parent_route_proof(proof)
-            if route.get("steps"):
-                return {
-                    "route": route,
-                    "artifact_path": "",
-                    "source_ref": str(proof.get("source_ref") or "parent_route_proof"),
-                    "classification_records": [proof, route],
+                    "proof_binding": {
+                        "schema_version": "route_forest_parent_proof_binding.v1",
+                        "accepted": False,
+                        "proof_mode": "unbound_guided_artifact",
+                        "route_structure_sha256": _route_structure_sha256(route.get("steps") or []),
+                        "reaction_proof_sha256": str(
+                            (reverified.get("reaction_validation") or {}).get("proof_digest")
+                            or ""
+                        ),
+                        "binding_source": str(artifact.get("_artifact_path") or ""),
+                        "reasons": ["accepted_parent_route_proof_binding_missing"],
+                    },
                 }
         return {}
 
@@ -3245,6 +5227,7 @@ class _RouteForestCompiler:
                         "target_smiles": target_smiles,
                         "accepted": accepted,
                         "route": route,
+                        "reaction_validation": dict(verifier.get("reaction_validation") or {}),
                         "route_objective_type": str(
                             subgoal.get("route_objective_type")
                             or policy.get("route_objective_type")
@@ -3373,6 +5356,7 @@ class _RouteForestCompiler:
             "exact_literature",
             "process_evidence",
             "visual_chain",
+            "proof_eligible_portfolio_route",
         }
         left_kind = str(left.get("kind") or "")
         right_kind = str(right.get("kind") or "")
@@ -3440,7 +5424,22 @@ class _RouteForestCompiler:
                 "module_key": key,
                 "module_label": labels.get(key, key),
                 "step_ids": ids,
-                "alternative_count": max(0, len(ids) - 1),
+                "alternative_count": len(
+                    {
+                        candidate_id
+                        for step_id in ids
+                        for candidate_id in (self.steps.get(step_id) or {}).get("validated_replacement_ids") or []
+                    }
+                ),
+                "candidate_count": sum(
+                    len((self.steps.get(step_id) or {}).get("replacement_candidate_ids") or [])
+                    for step_id in ids
+                ),
+                "rejected_replacement_count": sum(
+                    int((self.steps.get(step_id) or {}).get("replacement_rejection_count") or 0)
+                    for step_id in ids
+                ),
+                "replacement_semantics": "backend_and_or_route_revalidated_only",
             }
             for key, ids in sorted(rows.items(), key=lambda item: (-len(item[1]), item[0]))
         ]
@@ -3596,6 +5595,104 @@ def _synthesis_class_for_marker(field: str, raw_value: Any) -> str:
     if any(token in value for token in ("biosynth", "biotransformation", "fermentation")):
         return "biosynthesis"
     return ""
+
+
+def _dependency_layout(
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+) -> dict[str, Any]:
+    node_ids = [str(row.get("graph_node_id") or "") for row in nodes if row.get("graph_node_id")]
+    adjacency: dict[str, set[str]] = {node_id: set() for node_id in node_ids}
+    indegree: dict[str, int] = {node_id: 0 for node_id in node_ids}
+    for edge in edges:
+        source = str(edge.get("source_graph_node_id") or "")
+        target = str(edge.get("target_graph_node_id") or "")
+        if source not in adjacency or target not in adjacency or target in adjacency[source]:
+            continue
+        adjacency[source].add(target)
+        indegree[target] += 1
+    queue = sorted(node_id for node_id, count in indegree.items() if count == 0)
+    layers = {node_id: 0 for node_id in node_ids}
+    visited: list[str] = []
+    while queue:
+        node_id = queue.pop(0)
+        visited.append(node_id)
+        for target in sorted(adjacency[node_id]):
+            layers[target] = max(layers[target], layers[node_id] + 1)
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                queue.append(target)
+                queue.sort()
+    cycle_node_ids = sorted(set(node_ids) - set(visited))
+    if cycle_node_ids:
+        cycle_layer = max((layers[node_id] for node_id in visited), default=-1) + 1
+        for index, node_id in enumerate(cycle_node_ids):
+            layers[node_id] = cycle_layer + index % 2
+    return {
+        "layers": layers,
+        "acyclic": not cycle_node_ids,
+        "cycle_node_ids": cycle_node_ids,
+    }
+
+
+def _matching_reaction_step_proof(
+    proofs: list[dict[str, Any]],
+    route_step: dict[str, Any],
+) -> dict[str, Any]:
+    product = _canonical_molecule_smiles(_route_step_product(route_step))
+    reactants = sorted(
+        value
+        for value in (
+            _canonical_molecule_smiles(item) for item in _route_step_reactants(route_step)
+        )
+        if value
+    )
+    matches = [
+        proof
+        for proof in proofs
+        if _canonical_molecule_smiles(str(proof.get("product_smiles") or "")) == product
+        and sorted(
+            value
+            for value in (
+                _canonical_molecule_smiles(str(item)) for item in proof.get("reactant_smiles") or []
+            )
+            if value
+        )
+        == reactants
+    ]
+    return dict(matches[0]) if len(matches) == 1 else {}
+
+
+def _topological_step_order(
+    step_ids: list[str],
+    encoded_dependencies: list[str],
+) -> tuple[list[str], bool]:
+    adjacency: dict[str, set[str]] = {step_id: set() for step_id in step_ids}
+    indegree: dict[str, int] = {step_id: 0 for step_id in step_ids}
+    for encoded in encoded_dependencies:
+        producer, _, consumer = encoded.partition("\u0000")
+        if producer not in adjacency or consumer not in adjacency or consumer in adjacency[producer]:
+            continue
+        adjacency[producer].add(consumer)
+        indegree[consumer] += 1
+    original_position = {step_id: index for index, step_id in enumerate(step_ids)}
+    queue = sorted(
+        (step_id for step_id, count in indegree.items() if count == 0),
+        key=lambda value: original_position[value],
+    )
+    out: list[str] = []
+    while queue:
+        step_id = queue.pop(0)
+        out.append(step_id)
+        for consumer in sorted(adjacency[step_id], key=lambda value: original_position[value]):
+            indegree[consumer] -= 1
+            if indegree[consumer] == 0:
+                queue.append(consumer)
+                queue.sort(key=lambda value: original_position[value])
+    acyclic = len(out) == len(step_ids)
+    if not acyclic:
+        out.extend(step_id for step_id in step_ids if step_id not in set(out))
+    return out, acyclic
 
 
 def _module_key_for_text(text: str) -> str:
@@ -3929,6 +6026,46 @@ def _route_from_parent_route_proof(proof: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _route_structure_sha256(steps: Any) -> str:
+    """Digest the exact materialized reaction interfaces of a selected route."""
+    if not isinstance(steps, list) or not steps:
+        return ""
+    normalized: list[dict[str, Any]] = []
+    for raw in steps:
+        if not isinstance(raw, dict):
+            return ""
+        product_raw = _route_step_product(raw)
+        reactants_raw = _route_step_reactants(raw)
+        product = _canonical_molecule_smiles(product_raw)
+        reactants = sorted(
+            _canonical_molecule_smiles(value)
+            for value in reactants_raw
+            if _canonical_molecule_smiles(value)
+        )
+        if not product or not reactants or len(reactants) != len(reactants_raw):
+            return ""
+        mapped = str(
+            raw.get("atom_mapped_reaction_smiles")
+            or raw.get("mapped_reaction_smiles")
+            or raw.get("reaction_smiles")
+            or ""
+        ).strip()
+        normalized.append(
+            {
+                "product_canonical_isomeric_smiles": product,
+                "reactant_canonical_isomeric_smiles": reactants,
+                "atom_mapped_reaction_smiles": mapped if ">>" in mapped else "",
+            }
+        )
+    payload = json.dumps(
+        normalized,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _revalidated_stitched_proof_projection(
     value: Any,
     *,
@@ -4116,6 +6253,7 @@ def _revalidated_stitched_proof_projection(
                 "frontier_smiles": frontier,
                 "steps": subgoal_steps,
                 "stock_terminal_smiles": segment_stock,
+                "reaction_validation": dict(reverified.get("reaction_validation") or {}),
             }
         )
     if (
@@ -4491,7 +6629,22 @@ def _clean_label(value: Any) -> str:
     return text[:180]
 
 
-def _molecule_node_identity(*, smiles: str, label: str) -> tuple[str, str]:
+def _molecule_identity_namespace(
+    *,
+    branch_id: str,
+    source_refs: list[str] | tuple[str, ...] = (),
+    evidence_row_id: str = "",
+) -> str:
+    """Build a stable scope for an assertion that has no structure identity."""
+    payload = {
+        "branch_id": str(branch_id or "unscoped").strip(),
+        "source_refs": sorted({str(value).strip() for value in source_refs if str(value).strip()}),
+        "evidence_row_id": str(evidence_row_id or "").strip(),
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _molecule_node_identity(*, smiles: str, label: str, namespace: str = "") -> tuple[str, str]:
     """Return a collision-resistant ID while preserving stereochemistry."""
     text = str(smiles or "").strip()
     canonical = ""
@@ -4502,9 +6655,214 @@ def _molecule_node_identity(*, smiles: str, label: str) -> tuple[str, str]:
                 canonical = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
         except Exception:
             canonical = ""
-    identity = f"smiles:{canonical}" if canonical else f"name:{_clean_label(label).casefold()}"
+    identity = (
+        f"smiles:{canonical}"
+        if canonical
+        else (
+            f"name:{_clean_label(label).casefold()}|"
+            f"namespace:{str(namespace or 'unscoped').strip()}"
+        )
+    )
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
     return f"mol:{digest}", canonical
+
+
+def _portfolio_proof_level(value: Any) -> int:
+    if isinstance(value, dict):
+        raw = value.get("level")
+        if raw is None:
+            raw = value.get("level_index")
+        if raw is None:
+            raw = value.get("achieved_proof_level")
+        if raw is None:
+            raw = value.get("proof_level")
+        value = raw
+    if isinstance(value, str) and not value.strip().isdigit():
+        value = {
+            "L0_materialized": 0,
+            "L1_graph_and_stock_closed": 1,
+            "L1_graph_stock_closed": 1,
+            "L2_mapping_consistent": 2,
+            "L2_reaction_validated": 2,
+            "L3_precedent_supported": 3,
+            "L4_procurement_ready": 4,
+        }.get(value, 0)
+    try:
+        return max(0, min(4, int(value or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _portfolio_edge_binding_reasons(
+    binding: dict[str, Any],
+    *,
+    edge_id: str,
+    product_id: str,
+    precursor_ids: list[str],
+) -> list[str]:
+    reasons: list[str] = []
+    if not binding:
+        return ["missing_exact_edge_proof_binding"]
+    if binding.get("schema_version") != "exact_edge_proof_binding.v1":
+        reasons.append("invalid_schema")
+    if str(binding.get("hyperedge_id") or "") != edge_id:
+        reasons.append("hyperedge_id_mismatch")
+    if str(binding.get("product_molecule_id") or "") != product_id:
+        reasons.append("product_molecule_id_mismatch")
+    if sorted(str(value) for value in binding.get("precursor_molecule_ids") or []) != sorted(
+        precursor_ids
+    ):
+        reasons.append("precursor_molecule_ids_mismatch")
+    if not _portfolio_binding_digest_valid(binding):
+        reasons.append("binding_sha256_mismatch")
+    named_level = str(binding.get("proof_level") or "")
+    expected_level = {
+        "L0_materialized": 0,
+        "L1_graph_and_stock_closed": 1,
+        "L2_mapping_consistent": 0,
+        "L2_reaction_validated": 2,
+        "L3_precedent_supported": 3,
+        "L4_procurement_ready": 4,
+    }.get(named_level)
+    bound_level = _portfolio_proof_level(binding.get("portfolio_proof_level"))
+    if expected_level is None or bound_level != expected_level:
+        reasons.append("proof_level_portfolio_level_mismatch")
+    if binding.get("advisory") is not (bound_level < 2):
+        reasons.append("advisory_flag_mismatch")
+    if bound_level >= 2 and binding.get("proof_accepted") is not True:
+        reasons.append("portfolio_level_requires_accepted_proof")
+    proof_source = str(binding.get("proof_source") or "")
+    if proof_source not in {
+        "route_proof_bank.v1",
+        "legacy_best_accepted_route",
+    }:
+        reasons.append("invalid_proof_source")
+    for field in ("proof_digest", "route_proof_digest", "reaction_digest"):
+        if re.fullmatch(r"[0-9a-f]{64}", str(binding.get(field) or "").lower()) is None:
+            reasons.append(f"invalid_{field}")
+    if named_level in {"L3_precedent_supported", "L4_procurement_ready"} and re.fullmatch(
+        r"[0-9a-f]{64}",
+        str(binding.get("trusted_precedent_sha256") or "").lower(),
+    ) is None:
+        reasons.append("invalid_trusted_precedent_sha256")
+    if proof_source == "route_proof_bank.v1" and (
+        not str(binding.get("proof_bank_entry_id") or "").strip()
+        or re.fullmatch(
+            r"[0-9a-f]{64}",
+            str(binding.get("proof_bank_entry_sha256") or "").lower(),
+        )
+        is None
+    ):
+        reasons.append("invalid_proof_bank_authority")
+    return reasons
+
+
+def _portfolio_stock_binding_reasons(
+    binding: dict[str, Any],
+    *,
+    molecule_id: str,
+    canonical_smiles: str,
+) -> list[str]:
+    reasons: list[str] = []
+    if not binding:
+        return ["missing_exact_stock_binding"]
+    if binding.get("schema_version") != "exact_stock_binding.v1":
+        reasons.append("invalid_schema")
+    if str(binding.get("molecule_id") or "") != molecule_id:
+        reasons.append("molecule_id_mismatch")
+    if str(binding.get("canonical_isomeric_smiles") or "") != canonical_smiles:
+        reasons.append("canonical_isomeric_smiles_mismatch")
+    if not str(binding.get("catalog_id") or "").strip():
+        reasons.append("missing_catalog_id")
+    if re.fullmatch(r"[0-9a-f]{64}", str(binding.get("catalog_sha256") or "").lower()) is None:
+        reasons.append("invalid_catalog_sha256")
+    if re.fullmatch(r"[0-9a-f]{64}", str(binding.get("evidence_sha256") or "").lower()) is None:
+        reasons.append("invalid_evidence_sha256")
+    if not str(binding.get("lookup_basis") or "").strip():
+        reasons.append("missing_lookup_basis")
+    if str(binding.get("binding_authority") or "") not in {
+        "strictly_replayed_route_proof_bank.v1",
+        "legacy_best_route_independent_stock_audit",
+    }:
+        reasons.append("invalid_binding_authority")
+    if not _portfolio_binding_digest_valid(binding):
+        reasons.append("binding_sha256_mismatch")
+    return reasons
+
+
+def _portfolio_binding_digest_valid(binding: dict[str, Any]) -> bool:
+    expected = str(binding.get("binding_sha256") or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+        return False
+    payload = dict(binding)
+    payload.pop("binding_sha256", None)
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest() == expected
+
+
+def _portfolio_content_digest_valid(value: dict[str, Any]) -> bool:
+    expected = str(value.get("content_sha256") or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+        return False
+    payload = dict(value)
+    payload.pop("content_sha256", None)
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest() == expected
+
+
+def _portfolio_proof_tier(level: int) -> str:
+    return {
+        0: "L0_materialized",
+        1: "L1_graph_and_stock_closed",
+        2: "L2_reaction_validated",
+        3: "L3_precedent_supported",
+        4: "L4_procurement_ready",
+    }.get(max(0, min(4, int(level))), "L0_materialized")
+
+
+def _portfolio_selection_acyclic(
+    selections: list[tuple[str, str, dict[str, Any], int]],
+) -> bool:
+    nodes: set[str] = set()
+    outgoing: dict[str, set[str]] = {}
+    indegree: dict[str, int] = {}
+    for product_id, _, edge, _ in selections:
+        nodes.add(product_id)
+        outgoing.setdefault(product_id, set())
+        indegree.setdefault(product_id, 0)
+        for raw_precursor in edge.get("precursor_molecule_ids") or []:
+            precursor_id = str(raw_precursor or "")
+            if not precursor_id:
+                continue
+            nodes.add(precursor_id)
+            outgoing.setdefault(precursor_id, set())
+            indegree.setdefault(precursor_id, 0)
+            if product_id not in outgoing[precursor_id]:
+                outgoing[precursor_id].add(product_id)
+                indegree[product_id] = indegree.get(product_id, 0) + 1
+    ready = sorted(node for node in nodes if indegree.get(node, 0) == 0)
+    visited = 0
+    while ready:
+        node = ready.pop(0)
+        visited += 1
+        for target in sorted(outgoing.get(node, set())):
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                ready.append(target)
+                ready.sort()
+    return visited == len(nodes)
 
 
 def _exact_row_is_verified(row: dict[str, Any]) -> bool:

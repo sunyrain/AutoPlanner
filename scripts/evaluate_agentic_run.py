@@ -134,6 +134,62 @@ def _load_strict_proof_predicate() -> tuple[Callable[..., bool] | None, str, str
             sys.path.pop(0)
 
 
+def _evaluate_closeout_revision(run_dir: Path) -> dict[str, Any]:
+    """Validate an immutable closeout when present, preserving old-run reads."""
+    pointer = run_dir / ".autoplanner" / "closeout" / "latest.json"
+    if not pointer.is_file():
+        return {
+            "schema_version": "closeout_revision_evaluation.v1",
+            "present": False,
+            "accepted": None,
+            "compatibility_mode": True,
+            "route_projection_trusted": True,
+            "reasons": ["closeout_latest_pointer_missing_legacy_run"],
+        }
+    repo_root = Path(__file__).resolve().parents[1]
+    inserted = False
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+        inserted = True
+    manifest: dict[str, Any] = {}
+    try:
+        from cascade_planner.runtime.artifact_revision import (
+            load_latest_closeout_manifest,
+            validate_latest_closeout_revision,
+        )
+
+        validation = dict(validate_latest_closeout_revision(run_dir))
+        manifest = (
+            load_latest_closeout_manifest(run_dir)
+            if validation.get("accepted") is True
+            else {}
+        )
+    except Exception as exc:  # pragma: no cover - partial source exports
+        validation = {
+            "schema_version": "closeout_revision_validation.v1",
+            "present": True,
+            "accepted": False,
+            "reasons": [f"closeout_validator_unavailable:{type(exc).__name__}:{exc}"],
+        }
+    finally:
+        if inserted and sys.path and sys.path[0] == str(repo_root):
+            sys.path.pop(0)
+    accepted = validation.get("accepted") is True
+    content_paths = {
+        str(row.get("artifact_id") or ""): str(row.get("content_path") or "")
+        for row in manifest.get("artifacts") or []
+        if isinstance(row, dict) and str(row.get("artifact_id") or "")
+    }
+    return {
+        **validation,
+        "schema_version": "closeout_revision_evaluation.v1",
+        "present": True,
+        "compatibility_mode": False,
+        "route_projection_trusted": accepted,
+        "authoritative_artifact_content_paths": content_paths,
+    }
+
+
 def evaluate_run(run_dir: str | Path) -> dict[str, Any]:
     """Return a schema-stable, fail-closed evaluation of ``run_dir``."""
     root = Path(run_dir).expanduser().resolve()
@@ -142,6 +198,8 @@ def evaluate_run(run_dir: str | Path) -> dict[str, Any]:
     target_input = _as_dict(reader.load("target_input.json"))
     final_verdict = _as_dict(reader.load("final_verdict.json"))
     blackboard = _as_dict(reader.load("agent_blackboard.json"))
+    compatibility_final_verdict = dict(final_verdict)
+    compatibility_parent_proof = _as_dict(blackboard.get("parent_route_proof"))
     run_audit_artifact = _as_dict(reader.load("agentic_run_audit.json"))
     run_audit = _as_dict(run_audit_artifact.get("payload") or run_audit_artifact)
     team_report = _as_dict(reader.load("codex_retrosynthesis_team/team_report.json"))
@@ -152,6 +210,43 @@ def evaluate_run(run_dir: str | Path) -> dict[str, Any]:
     guided_verifier = _as_dict(reader.load("guided_route_verifier_report.json"))
     capability_artifact = _as_dict(reader.load("agentic_capability_audit.json"))
     route_forest = _as_dict(reader.load("explored_route_forest.json"))
+    closeout_revision = _evaluate_closeout_revision(root)
+    authoritative_proof: dict[str, Any] = {}
+    compatibility_semantic_drift: list[str] = []
+    if closeout_revision.get("accepted") is True:
+        content_paths = _as_dict(
+            closeout_revision.get("authoritative_artifact_content_paths")
+        )
+
+        def load_cas(artifact_id: str) -> dict[str, Any]:
+            raw = str(content_paths.get(artifact_id) or "")
+            if not raw:
+                return {}
+            path = Path(raw)
+            if not path.is_absolute():
+                path = root / path
+            return _as_dict(reader.load_path(path))
+
+        proof_snapshot = load_cas("parent_route_proof_snapshot")
+        verdict_core = load_cas("final_verdict_core")
+        cas_forest = load_cas("explored_route_forest")
+        authoritative_proof = _as_dict(proof_snapshot.get("proof"))
+        final_verdict = _as_dict(verdict_core.get("verdict"))
+        if cas_forest:
+            route_forest = cas_forest
+        if compatibility_parent_proof != authoritative_proof:
+            compatibility_semantic_drift.append("agent_blackboard_parent_proof_drift")
+        compatibility_core = dict(compatibility_final_verdict)
+        compatibility_core.pop("artifact_refs", None)
+        compatibility_core.pop("artifact_digest_refs", None)
+        if compatibility_core != final_verdict:
+            compatibility_semantic_drift.append("final_verdict_compatibility_drift")
+        closeout_revision["decision_authority"] = "content_addressed_closeout_objects"
+    elif closeout_revision.get("present"):
+        # A fixed-name forest that no longer matches its active consensus/graph
+        # revision is quarantined instead of being evaluated as current truth.
+        route_forest = {}
+    closeout_revision["compatibility_semantic_drift"] = compatibility_semantic_drift
 
     if not guided_verifier:
         guided_verifier = _as_dict(
@@ -159,7 +254,11 @@ def evaluate_run(run_dir: str | Path) -> dict[str, Any]:
         )
 
     target = _evaluate_target(target_input, blackboard, route_forest, final_verdict)
-    parent_proof, parent_proof_source = _select_parent_proof(blackboard, run_audit)
+    if authoritative_proof:
+        parent_proof = authoritative_proof
+        parent_proof_source = "CAS:parent_route_proof_snapshot"
+    else:
+        parent_proof, parent_proof_source = _select_parent_proof(blackboard, run_audit)
     strict_predicate, strict_evaluator, strict_error = _load_strict_proof_predicate()
     proof_report = _evaluate_parent_proof(
         parent_proof,
@@ -206,6 +305,18 @@ def evaluate_run(run_dir: str | Path) -> dict[str, Any]:
         warnings.append("route_forest_primary_is_advisory")
     if evidence.get("resolved_structures_invalid_target_shortcuts"):
         warnings.append("invalid_target_identity_shortcut_excluded")
+    if closeout_revision.get("present") and closeout_revision.get("accepted") is not True:
+        warnings.append("closeout_revision_invalid_route_projection_quarantined")
+        warnings.extend(
+            f"closeout_revision:{reason}"
+            for reason in _string_list(closeout_revision.get("reasons"))
+        )
+    if closeout_revision.get("compatibility_projection_drift") is True:
+        warnings.append("closeout_compatibility_projection_drift_using_cas_authority")
+    warnings.extend(
+        f"closeout_compatibility:{reason}"
+        for reason in compatibility_semantic_drift
+    )
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -221,6 +332,7 @@ def evaluate_run(run_dir: str | Path) -> dict[str, Any]:
         "process_evidence": process,
         "guided_verifier": guided_report,
         "capability_audit": capability,
+        "closeout_revision": closeout_revision,
         "route_forest": forest,
         "artifact_status": dict(sorted(reader.status.items())),
         "warnings": sorted(set(warnings)),

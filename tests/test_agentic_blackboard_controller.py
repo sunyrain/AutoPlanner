@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from rdkit import Chem
+from rdkit.Chem import rdFMCS
 
 from cascade_planner.agent.codex_worker import _task_allows_cli_search
 from cascade_planner.agent.chem_enzy_policy import apply_chem_enzy_search_policy, validate_chem_enzy_search_policy
@@ -57,6 +58,7 @@ from cascade_planner.harness.hypothesis_execution_report import (
 from cascade_planner.harness.codex_action_planner import (
     _codex_action_planner_task,
     _normalize_codex_batch,
+    _planner_model,
     _planner_context_summary,
     _write_codex_blackboard_snapshot,
     plan_action_batch_with_codex,
@@ -115,6 +117,48 @@ ATORVASTATIN_FREE_ACID_SMILES = (
     "CC(C)C1=C(C(=C(N1CC[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)"
     "C3=CC=CC=C3)C(=O)NC4=CC=CC=C4"
 )
+_SOURCE_FIXTURES = Path(__file__).parent / "fixtures"
+_SOURCE_PDF_FIXTURE = _SOURCE_FIXTURES / "source_evidence_stub.pdf"
+_SOURCE_PAGE_FIXTURE = _SOURCE_FIXTURES / "source_page.ppm"
+_SOURCE_MANIFEST_FIXTURE = _SOURCE_FIXTURES / "source_evidence_manifest.json"
+
+
+def _trusted_ethanol_hydration_fields() -> dict:
+    template_id = "source_detail_exact_step:ethanol_hydration"
+    return {
+        "step_id": "ethanol_hydration",
+        "source_template_id": template_id,
+        "source_detail_exact_step": True,
+        "relation_type": "exact",
+        "source_ref": "doi:10.1000/revalidatable-stitch",
+        "exact_step_validation": {
+            "schema_version": "template_validation_report.v1",
+            "accepted": True,
+            "allowed_for_one_step_source": True,
+            "source_template_id": template_id,
+            "reasons": [],
+        },
+        "source_evidence": [
+            {
+                "schema_version": "materialized_source_evidence.v1",
+                "document_id": "fixture:revalidatable-stitch",
+                "manifest_path": str(_SOURCE_MANIFEST_FIXTURE.resolve()),
+                "manifest_sha256": hashlib.sha256(
+                    _SOURCE_MANIFEST_FIXTURE.read_bytes()
+                ).hexdigest(),
+                "source_pdf_path": str(_SOURCE_PDF_FIXTURE.resolve()),
+                "source_pdf_sha256": hashlib.sha256(
+                    _SOURCE_PDF_FIXTURE.read_bytes()
+                ).hexdigest(),
+                "page_number": 1,
+                "image_path": str(_SOURCE_PAGE_FIXTURE.resolve()),
+                "image_sha256": hashlib.sha256(
+                    _SOURCE_PAGE_FIXTURE.read_bytes()
+                ).hexdigest(),
+                "source_ref": "doi:10.1000/revalidatable-stitch",
+            }
+        ],
+    }
 
 
 def _strict_parent_route_verifier(
@@ -125,6 +169,12 @@ def _strict_parent_route_verifier(
     custom_stock_path: Path | None = None,
 ) -> dict:
     terminals = list(dict.fromkeys(reactants))
+    mapped_reaction = _test_atom_mapped_reaction(reactants, target_smiles)
+    trusted_fields = (
+        _trusted_ethanol_hydration_fields()
+        if target_smiles == "CCO" and reactants == ["CC", "O"]
+        else {}
+    )
     raw = {
         "target": target_smiles,
         "routes": [
@@ -136,10 +186,12 @@ def _strict_parent_route_verifier(
                 },
                 "steps": [
                     {
+                        **trusted_fields,
                         "index": 0,
                         "product": target_smiles,
                         "reactant_smiles": reactants,
                         "stock_status": {item: True for item in terminals},
+                        "atom_mapped_reaction_smiles": mapped_reaction,
                     }
                 ],
             }
@@ -159,6 +211,52 @@ def _strict_parent_route_verifier(
             ],
         }
     return verify_chemenzy_raw_routes(raw, target_smiles=target_smiles)
+
+
+def _test_atom_mapped_reaction(reactants: list[str], product: str) -> str:
+    reactant_molecules = [Chem.MolFromSmiles(value) for value in reactants]
+    product_molecule = Chem.MolFromSmiles(product)
+    if product_molecule is None or any(molecule is None for molecule in reactant_molecules):
+        return ""
+    available: dict[int, list[int]] = {}
+    product_assigned: set[int] = set()
+    map_number = 1
+    for molecule in reactant_molecules:
+        for atom in molecule.GetAtoms():
+            atom.SetAtomMapNum(map_number)
+            available.setdefault(atom.GetAtomicNum(), []).append(map_number)
+            map_number += 1
+    if len(reactant_molecules) == 1:
+        mcs = rdFMCS.FindMCS(
+            [reactant_molecules[0], product_molecule],
+            ringMatchesRingOnly=True,
+            completeRingsOnly=True,
+            timeout=2,
+        )
+        query = Chem.MolFromSmarts(mcs.smartsString) if mcs.smartsString else None
+        if query is not None:
+            reactant_match = reactant_molecules[0].GetSubstructMatch(query)
+            product_match = product_molecule.GetSubstructMatch(query)
+            for reactant_index, product_index in zip(reactant_match, product_match):
+                map_value = reactant_molecules[0].GetAtomWithIdx(reactant_index).GetAtomMapNum()
+                product_molecule.GetAtomWithIdx(product_index).SetAtomMapNum(map_value)
+                product_assigned.add(product_index)
+                available[product_molecule.GetAtomWithIdx(product_index).GetAtomicNum()].remove(
+                    map_value
+                )
+    for atom in product_molecule.GetAtoms():
+        if atom.GetIdx() in product_assigned:
+            continue
+        choices = available.get(atom.GetAtomicNum()) or []
+        if not choices:
+            return ""
+        atom.SetAtomMapNum(choices.pop(0))
+    left = ".".join(
+        Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
+        for molecule in reactant_molecules
+    )
+    right = Chem.MolToSmiles(product_molecule, canonical=True, isomericSmiles=True)
+    return f"{left}>>{right}"
 
 _RENDERED_PAGE_FIXTURE = (Path(__file__).parent / "fixtures" / "source_page.ppm").resolve()
 _PDF_FIXTURE = (Path(__file__).parent / "fixtures" / "source_evidence_stub.pdf").resolve()
@@ -2997,6 +3095,17 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertFalse(_task_allows_cli_search(task))
         self.assertEqual(task.budget.reasoning_effort, "medium")
 
+    def test_codex_action_planner_uses_supported_explicit_model_not_cli_default(self):
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("AUTOPLANNER_CODEX_ACTION_PLANNER_MODEL", None)
+            os.environ.pop("AUTOPLANNER_CODEX_MODEL", None)
+            self.assertEqual(_planner_model(), "gpt-5.5")
+        with patch.dict(
+            "os.environ",
+            {"AUTOPLANNER_CODEX_ACTION_PLANNER_MODEL": "test-planner-model"},
+        ):
+            self.assertEqual(_planner_model(), "test-planner-model")
+
     def test_blackboard_records_codex_planner_fallback_as_planner_note(self):
         target = TargetInput(target_name="planner_fallback", target_smiles="CCO")
         preflight = run_preflight(target)
@@ -4753,7 +4862,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
 
         with tempfile.TemporaryDirectory() as tmp:
-            advanced = "CC(C)Cc1ccc([C@@H](C)C=O)cc1"
+            advanced = "COC(=O)[C@@H](C)c1ccc(CC(C)C)cc1"
             stock_path = Path(tmp) / "controller_test_stock.csv"
             stock_path.write_text(
                 Chem.MolToSmiles(Chem.MolFromSmiles(advanced), isomericSmiles=True) + "\n",
@@ -4798,7 +4907,8 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             )
 
         self.assertEqual(updated["route_failures"], [])
-        self.assertEqual(updated["current_belief"]["next_action_bias"], ["stitch_parent_route"])
+        self.assertEqual(updated["current_belief"]["next_action_bias"], [])
+        self.assertFalse(updated["current_belief"]["parent_route_verifier"]["accepted"])
         self.assertEqual(
             updated["current_belief"]["parent_route_verifier"]["warnings"],
             ["advanced_same_scaffold_terminal"],
@@ -4806,15 +4916,15 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
 
     def test_direct_parent_verifier_drives_deterministic_stitch_fast_path(self):
         target = TargetInput(
-            target_name="ibuprofen",
-            target_smiles="CC(C)Cc1ccc([C@@H](C)C(=O)O)cc1",
+            target_name="ethanol",
+            target_smiles="CCO",
         )
         preflight = run_preflight(target)
         board = initialize_agent_blackboard(target_input=target.to_dict(), preflight=preflight, max_rounds=3)
         with tempfile.TemporaryDirectory() as tmp:
             verifier = _strict_parent_route_verifier(
                 target.target_smiles,
-                reactants=["CC"] * 6 + ["C", "O", "O"],
+                reactants=["CC", "O"],
             )
             self.assertTrue(verifier["accepted"], verifier["reasons"])
             board = update_blackboard_from_action(

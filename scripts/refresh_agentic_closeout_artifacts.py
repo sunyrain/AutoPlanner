@@ -11,15 +11,26 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from cascade_planner.agent.artifact_validators import validate_typed_artifact
-from cascade_planner.harness.agentic_blackboard_controller import (
+from cascade_planner.agent.artifact_schemas import ARTIFACT_CLASSES  # noqa: E402
+from cascade_planner.harness.agentic_blackboard_controller import (  # noqa: E402
+    _commit_route_closeout_revision,
+    _downgrade_invalid_agentic_final_verdict,
+    _record_agent_blackboard_snapshot_artifact,
+    _record_agentic_capability_audit_artifact,
+    _record_agentic_run_audit_artifact,
+    _refresh_multisource_route_consensus,
+    _validate_and_record_typed_artifact,
     _validate_agentic_final_verdict,
     emit_agentic_final_verdict,
 )
-from cascade_planner.harness.hypothesis_execution_report import compile_hypothesis_execution_report
-from cascade_planner.harness.hypothetical_retrosynthesis_report import (
+from cascade_planner.harness.hypothesis_execution_report import (  # noqa: E402
+    compile_hypothesis_execution_report,
+)
+from cascade_planner.harness.hypothetical_retrosynthesis_report import (  # noqa: E402
     compile_hypothesis_only_retrosynthesis_report,
 )
+from cascade_planner.harness.route_forest import write_route_forest_artifacts  # noqa: E402
+from cascade_planner.harness.tools import ToolExecutionState  # noqa: E402
 
 
 def refresh_agentic_closeout_artifacts(run_dir: str | Path) -> dict[str, Any]:
@@ -29,7 +40,40 @@ def refresh_agentic_closeout_artifacts(run_dir: str | Path) -> dict[str, Any]:
         raise FileNotFoundError(f"agent_blackboard.json not found: {blackboard_path}")
     blackboard = _read_json(blackboard_path)
     case_id = str(blackboard.get("case_id") or root.name)
+    refs = blackboard.setdefault("artifact_refs", {})
+    refs.update(
+        {
+            "agentic_final_verdict_validation": str(
+                root / "agentic_final_verdict_validation.json"
+            ),
+            "agent_blackboard_snapshot": str(root / "agent_blackboard_snapshot.json"),
+            "agentic_capability_audit": str(root / "agentic_capability_audit.json"),
+            "agentic_run_audit": str(root / "agentic_run_audit.json"),
+        }
+    )
+    action_batches = _load_numbered_json(root, "action_batch_round_")
+    action_batch_validations = _load_numbered_json(
+        root,
+        "action_batch_validation_round_",
+    )
+    tool_calls = _read_jsonl(root / "tool_calls.jsonl")
+    target_input_path = root / "target_input.json"
+    preflight_path = root / "preflight.json"
+    state = ToolExecutionState(
+        run_dir=root,
+        target_input=_read_json(target_input_path) if target_input_path.is_file() else {},
+        preflight=_read_json(preflight_path) if preflight_path.is_file() else {},
+    )
+    # Make saved verifier reports available before rebuilding the portfolio.
+    # This lets the current code replay every route-proof-bank entry instead of
+    # falling back to the single parent route embedded in an old proof object.
+    state.artifacts.update(_load_existing_artifacts(root, blackboard))
+    blackboard = _refresh_multisource_route_consensus(
+        state=state,
+        blackboard=blackboard,
+    )
     artifacts = _load_existing_artifacts(root, blackboard)
+    artifacts.update(state.artifacts)
 
     hypothesis_payload = compile_hypothesis_only_retrosynthesis_report(
         blackboard=blackboard,
@@ -75,6 +119,36 @@ def refresh_agentic_closeout_artifacts(run_dir: str | Path) -> dict[str, Any]:
     )
     final.artifact_refs = dict(blackboard.get("artifact_refs") or {})
     final_validation = _validate_agentic_final_verdict(final.to_dict(), blackboard=blackboard, validations=[])
+    if not final_validation.get("accepted"):
+        final = _downgrade_invalid_agentic_final_verdict(final, final_validation)
+        final.artifact_refs = dict(blackboard.get("artifact_refs") or {})
+        final_validation["corrected_final_verdict"] = final.to_dict()
+        final_validation["corrected_validation"] = _validate_agentic_final_verdict(
+            final.to_dict(),
+            blackboard=blackboard,
+            validations=[],
+        )
+
+    blackboard["final_verdict"] = final.to_dict()
+    forest_result = write_route_forest_artifacts(
+        blackboard,
+        run_dir=root,
+    )
+    refs = blackboard.setdefault("artifact_refs", {})
+    refs["explored_route_forest"] = str(forest_result["forest_path"])
+    refs["route_forest_html"] = str(forest_result["html_path"])
+    state.artifacts["explored_route_forest"] = dict(forest_result.get("forest") or {})
+    _commit_route_closeout_revision(
+        state=state,
+        blackboard=blackboard,
+        final_verdict=final,
+        final_validation=final_validation,
+    )
+    final.artifact_refs = dict(blackboard.get("artifact_refs") or {})
+    blackboard["final_verdict"] = final.to_dict()
+    _write_json(blackboard_path, blackboard)
+    _write_json(root / "final_verdict.json", final.to_dict())
+    artifacts.update(state.artifacts)
     final_validation_artifact = _artifact(
         schema_version="agentic_final_verdict_validation_artifact.v1",
         artifact_type="AgenticFinalVerdictValidation",
@@ -86,16 +160,107 @@ def refresh_agentic_closeout_artifacts(run_dir: str | Path) -> dict[str, Any]:
         payload=final_validation,
         artifact_ref=str(root / "agentic_final_verdict_validation.json"),
     )
-    _write_json(root / "final_verdict.json", final.to_dict())
     _write_json(root / "agentic_final_verdict_validation.json", final_validation_artifact)
     artifacts["agentic_final_verdict_validation"] = final_validation_artifact
-    _refresh_artifact_bundle(root, artifacts)
+    state.artifacts.update(
+        {
+            "hypothesis_only_retrosynthesis_report": hypothesis_artifact,
+            "hypothesis_execution_report": execution_artifact,
+            "agentic_final_verdict_validation": final_validation_artifact,
+        }
+    )
 
+    rebuilt_keys = {
+        "hypothesis_only_retrosynthesis_report",
+        "hypothesis_execution_report",
+        "agentic_final_verdict_validation",
+        "agent_blackboard_snapshot",
+        "agentic_capability_audit",
+        "agentic_run_audit",
+    }
+    _revalidate_existing_typed_artifacts(
+        state,
+        artifacts,
+        excluded_keys=rebuilt_keys,
+    )
     validation_rows = [
-        validate_typed_artifact(hypothesis_artifact),
-        validate_typed_artifact(execution_artifact),
-        validate_typed_artifact(final_validation_artifact),
+        _validate_and_record_typed_artifact(
+            state,
+            "hypothesis_only_retrosynthesis_report",
+            hypothesis_artifact,
+        ),
+        _validate_and_record_typed_artifact(
+            state,
+            "hypothesis_execution_report",
+            execution_artifact,
+        ),
+        _validate_and_record_typed_artifact(
+            state,
+            "agentic_final_verdict_validation",
+            final_validation_artifact,
+        ),
     ]
+
+    snapshot_artifact = _record_agent_blackboard_snapshot_artifact(
+        state=state,
+        blackboard=blackboard,
+    )
+    state.artifacts["agent_blackboard_snapshot"] = snapshot_artifact
+    snapshot_validation = _validate_and_record_typed_artifact(
+        state,
+        "agent_blackboard_snapshot",
+        snapshot_artifact,
+    )
+    validation_rows.append(snapshot_validation)
+
+    capability_artifact = _record_agentic_capability_audit_artifact(
+        state=state,
+        blackboard=blackboard,
+        action_batches=action_batches,
+        action_batch_validations=action_batch_validations,
+        typed_validations=list(state.validations),
+        tool_calls=tool_calls,
+        final_verdict=final.to_dict(),
+        final_validation=final_validation,
+    )
+    state.artifacts["agentic_capability_audit"] = capability_artifact
+    capability_validation = _validate_and_record_typed_artifact(
+        state,
+        "agentic_capability_audit",
+        capability_artifact,
+    )
+    validation_rows.append(capability_validation)
+
+    run_audit_artifact = _record_agentic_run_audit_artifact(
+        state=state,
+        blackboard=blackboard,
+        action_batches=action_batches,
+        validations=action_batch_validations,
+        typed_validations=list(state.validations),
+        tool_calls=tool_calls,
+        final_verdict=final.to_dict(),
+    )
+    state.artifacts["agentic_run_audit"] = run_audit_artifact
+    run_audit_validation = _validate_and_record_typed_artifact(
+        state,
+        "agentic_run_audit",
+        run_audit_artifact,
+    )
+    validation_rows.append(run_audit_validation)
+
+    artifacts.update(state.artifacts)
+    bundle_validations = [
+        *action_batch_validations,
+        final_validation,
+        *state.validations,
+    ]
+    _refresh_artifact_bundle(
+        root,
+        artifacts,
+        validations=bundle_validations,
+        safety_flags=state.safety_flags,
+    )
+
     summary = {
         "schema_version": "agentic_closeout_refresh_summary.v1",
         "accepted": bool(final_validation.get("accepted"))
@@ -108,6 +273,20 @@ def refresh_agentic_closeout_artifacts(run_dir: str | Path) -> dict[str, Any]:
         "pending_recursive_followup_count": int(execution_payload.get("pending_recursive_followup_count") or 0),
         "final_verdict": final.to_dict(),
         "typed_validations": validation_rows,
+        "derived_diagnostics": {
+            "agent_blackboard_snapshot_validation_accepted": snapshot_validation.get(
+                "accepted"
+            )
+            is True,
+            "agentic_capability_audit_accepted": (
+                capability_artifact.get("payload") or {}
+            ).get("accepted")
+            is True,
+            "agentic_run_audit_validation_accepted": run_audit_validation.get(
+                "accepted"
+            )
+            is True,
+        },
     }
     _write_json(root / "agentic_closeout_refresh_summary.json", summary)
     return summary
@@ -139,6 +318,54 @@ def _load_existing_artifacts(root: Path, blackboard: dict[str, Any]) -> dict[str
         if path.exists() and key not in artifacts:
             artifacts[key] = _read_json(path)
     return artifacts
+
+
+def _revalidate_existing_typed_artifacts(
+    state: ToolExecutionState,
+    artifacts: dict[str, Any],
+    *,
+    excluded_keys: set[str],
+) -> None:
+    """Rebuild typed validation records instead of retaining stale closeout rows."""
+
+    for key in sorted(artifacts):
+        if key in excluded_keys:
+            continue
+        artifact = artifacts.get(key)
+        if not isinstance(artifact, dict):
+            continue
+        if str(artifact.get("artifact_type") or "") not in ARTIFACT_CLASSES:
+            continue
+        _validate_and_record_typed_artifact(state, key, artifact)
+
+
+def _load_numbered_json(root: Path, prefix: str) -> list[dict[str, Any]]:
+    paths = sorted(
+        root.glob(f"{prefix}*.json"),
+        key=lambda path: (_numeric_suffix(path, prefix), path.name),
+    )
+    return [_read_json(path) for path in paths]
+
+
+def _numeric_suffix(path: Path, prefix: str) -> int:
+    suffix = path.stem.removeprefix(prefix)
+    try:
+        return int(suffix)
+    except ValueError:
+        return 2**31 - 1
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        payload = json.loads(line)
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
 
 
 def _artifact(
@@ -185,12 +412,25 @@ def _execution_evidence_refs(root: Path, artifacts: dict[str, Any]) -> list[str]
     return _dedupe(refs)
 
 
-def _refresh_artifact_bundle(root: Path, artifacts: dict[str, Any]) -> None:
+def _refresh_artifact_bundle(
+    root: Path,
+    artifacts: dict[str, Any],
+    *,
+    validations: list[dict[str, Any]],
+    safety_flags: list[str],
+) -> None:
     bundle_path = root / "artifact_bundle.json"
     if not bundle_path.exists():
         return
     bundle = _read_json(bundle_path)
     bundle["artifacts"] = artifacts
+    bundle["validations"] = validations
+    retained_flags = [
+        str(value)
+        for value in bundle.get("safety_flags") or []
+        if not str(value).startswith("typed_artifact_validation_failed:")
+    ]
+    bundle["safety_flags"] = _dedupe([*retained_flags, *safety_flags])
     _write_json(bundle_path, bundle)
 
 

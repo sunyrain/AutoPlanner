@@ -369,6 +369,7 @@ def _codex_action_planner_repair_task(
         ),
         objective=objective,
         allowed_workdir=str(run_dir),
+        model=_planner_model(),
     )
 
 
@@ -761,7 +762,24 @@ def _codex_action_planner_task(
         ),
         objective=objective,
         allowed_workdir=str(run_dir),
+        model=_planner_model(),
     )
+
+
+def _planner_model() -> str:
+    """Use an explicit, known-working model instead of ambient CLI config.
+
+    The action planner is a recoverable workflow component, so it must not
+    silently inherit a newer model name that the installed Codex CLI cannot
+    serve. Callers can still override this independently from the recursive
+    retrosynthesis teams.
+    """
+
+    return str(
+        os.environ.get("AUTOPLANNER_CODEX_ACTION_PLANNER_MODEL")
+        or os.environ.get("AUTOPLANNER_CODEX_MODEL")
+        or "gpt-5.5"
+    ).strip()
 
 
 def _normalize_codex_batch(

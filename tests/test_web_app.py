@@ -421,6 +421,19 @@ class WebAppTest(unittest.TestCase):
         self.assertIn("renderTemplateRelevanceStatus", app_js)
         self.assertIn('value="template_available" selected', index_html)
 
+    def test_agent_workbench_describes_complete_trust_dag_and_validated_replacements(self):
+        agent_html = (web_app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+
+        self.assertIn("全路径依赖图、可信度与安全备选", agent_html)
+        self.assertIn("颜色表示 proof tier", agent_html)
+        self.assertIn("线宽表示独立支持", agent_html)
+        self.assertIn("仅精确接口验证通过的替代项可预览", agent_html)
+        self.assertIn("仍须后端 proof 重验", agent_html)
+
+        response = self.app.get("/agent")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("20260710-trust-dag", response.get_data(as_text=True))
+
     def test_missing_template_relevance_selection_is_rejected_before_search(self):
         missing_model = "template_relevance.autoplanner_missing_for_test"
         self.assertNotIn(

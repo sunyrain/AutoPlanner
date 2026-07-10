@@ -3410,14 +3410,14 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             state = ToolExecutionState(
                 run_dir=Path(tmp),
-                target_input={"target_name": "ethyl acetate", "target_smiles": "CCOC(C)=O"},
+                target_input={"target_name": "acetaldehyde", "target_smiles": "CC=O"},
                 preflight={"accepted": True, "case_id": "stitched_case"},
             )
             literature_chain = {
                 "schema_version": "source_detail_route_chain_audit.v1",
                 "accepted": True,
                 "case_id": "stitched_case",
-                "target_smiles": "CCOC(C)=O",
+                "target_smiles": "CC=O",
                 "terminal_smiles": literature_terminal,
                 "terminal_name": "ethanol",
                 "terminal_reached": True,
@@ -3425,9 +3425,9 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
                 "source_ref": "doi:10.1000/revalidatable-stitch",
                 "chain": [
                     _strict_literature_step(
-                        step_id="ethyl_acetate",
+                        step_id="ethanol_oxidation",
                         reactants=[literature_terminal],
-                        product="CCOC(C)=O",
+                        product="CC=O",
                     )
                 ],
             }
@@ -3436,6 +3436,15 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
                 target_smiles=literature_terminal,
                 case_id="stitched_case:ethanol",
             )
+            literature_path = Path(tmp) / "trusted_literature_chain.json"
+            verifier_path = Path(tmp) / "subgoal_verifier.json"
+            raw_path = Path(tmp) / "subgoal_raw.json"
+            literature_path.write_text(json.dumps(literature_chain), encoding="utf-8")
+            verifier_path.write_text(json.dumps(subgoal), encoding="utf-8")
+            raw_path.write_text(
+                json.dumps(_accepted_ethanol_chemenzy_result_for_target(literature_terminal)),
+                encoding="utf-8",
+            )
             with patch.dict(
                 os.environ,
                 {"AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY": str(_TRUSTED_REGISTRY_FIXTURE)},
@@ -3443,9 +3452,9 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
                 record = execute_local_tool(
                     "stitch_literature_chain_with_subgoal_route",
                     {
-                        "literature_chain_audit": literature_chain,
-                        "subgoal_verifier": subgoal,
-                        "subgoal_raw_result": _accepted_ethanol_chemenzy_result_for_target(literature_terminal),
+                        "literature_chain_audit_path": str(literature_path),
+                        "subgoal_verifier_path": str(verifier_path),
+                        "subgoal_raw_result_path": str(raw_path),
                     },
                     state,
                 )
@@ -3632,6 +3641,27 @@ def _common_element_inventory_reactants(target_smiles: str) -> list[str]:
 def _accepted_ethanol_chemenzy_result_for_target(target_smiles: str) -> dict:
     reactants = _common_element_inventory_reactants(target_smiles)
     terminal_reactants = list(dict.fromkeys(reactants))
+    step = {
+        "index": 0,
+        "product": target_smiles,
+        "reactant_smiles": reactants,
+        "stock_status": {item: True for item in terminal_reactants},
+        "atom_mapped_reaction_smiles": (
+            "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]"
+            if target_smiles == "CCO"
+            else ""
+        ),
+    }
+    if target_smiles == "CCO" and reactants == ["CC", "O"]:
+        step = {
+            **_strict_literature_step(
+                step_id="ethanol_hydration",
+                reactants=reactants,
+                product=target_smiles,
+            ),
+            "index": 0,
+            "stock_status": {item: True for item in terminal_reactants},
+        }
     return {
         "schema_version": "chemenzy_web_result.v1",
         "ok": True,
@@ -3651,14 +3681,7 @@ def _accepted_ethanol_chemenzy_result_for_target(target_smiles: str) -> dict:
                     "terminal_reactants": terminal_reactants,
                     "terminal_stock_status": {item: True for item in terminal_reactants},
                 },
-                "steps": [
-                    {
-                        "index": 0,
-                        "product": target_smiles,
-                        "reactant_smiles": reactants,
-                        "stock_status": {item: True for item in terminal_reactants},
-                    }
-                ],
+                "steps": [step],
             }
         ],
     }
@@ -3669,7 +3692,7 @@ def _strict_literature_step(*, step_id: str, reactants: list[str], product: str)
     image_digest = hashlib.sha256(_SOURCE_PAGE_FIXTURE.read_bytes()).hexdigest()
     manifest_digest = hashlib.sha256(_SOURCE_MANIFEST_FIXTURE.read_bytes()).hexdigest()
     template_id = f"source_detail_exact_step:{step_id}"
-    return {
+    row = {
         "step_id": step_id,
         "source_template_id": template_id,
         "product_smiles": product,
@@ -3701,6 +3724,15 @@ def _strict_literature_step(*, step_id: str, reactants: list[str], product: str)
             }
         ],
     }
+    if reactants == ["CCO"] and product == "CC=O":
+        row["atom_mapped_reaction_smiles"] = (
+            "[CH3:1][CH2:2][OH:3]>>[CH3:1][CH:2]=[O:3]"
+        )
+    elif reactants == ["CC", "O"] and product == "CCO":
+        row["atom_mapped_reaction_smiles"] = (
+            "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]"
+        )
+    return row
 
 
 def _policy_payload(policy_id: str) -> dict:

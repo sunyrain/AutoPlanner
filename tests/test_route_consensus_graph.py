@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 from cascade_planner.routes.consensus import fuse_route_candidates
+from cascade_planner.routes.domain import (
+    EvidenceClaim,
+    MoleculeIdentity,
+    ReactionCandidateEnvelope,
+    ReactionHyperedge,
+)
 from cascade_planner.routes.graph import (
     assemble_route_consensus_graph,
     make_route_consensus_expansion,
@@ -97,6 +103,69 @@ def test_two_one_step_expansions_assemble_into_forward_multistep_route() -> None
     assert root_step["source_refs"] == ["doi:10.1000/root"]
     assert middle_step["source_refs"] == ["doi:10.1000/middle"]
     assert "consensus:root" not in root_step["source_refs"]
+
+    overlay = graph["v2_overlay"]
+    assert overlay["schema_version"] == "route_hypergraph_overlay.v2"
+    assert overlay["source_graph_schema_version"] == "route_consensus_graph.v1"
+    assert overlay["validation"] == {"valid": True, "errors": []}
+    assert len(overlay["reaction_hyperedges"]) == 2
+    assert len(overlay["route_variants"]) == 1
+    assert len(graph["route_neighborhoods"]) == 2
+    assert overlay["content_hash"].startswith("sha256:")
+
+
+def test_v2_domain_records_are_stable_content_addressed_and_correlate_codex_roles() -> None:
+    product = MoleculeIdentity("OCC", names=("ethanol",))
+    equivalent_product = MoleculeIdentity("CCO", names=("ethyl alcohol",))
+    precursor = MoleculeIdentity("CC=O")
+    strategy = EvidenceClaim(
+        source_channel="codex_strategy",
+        support_group="codex_model",
+        evidence_level="model_only",
+        confidence="medium",
+        candidate_id="strategy",
+    )
+    critic = EvidenceClaim(
+        source_channel="codex_critic",
+        support_group="codex_model",
+        evidence_level="model_only",
+        confidence="medium",
+        candidate_id="critic",
+    )
+    envelope = ReactionCandidateEnvelope(
+        product=product,
+        precursors=(precursor,),
+        reaction_family="reduction",
+        source_candidate_ids=("strategy", "critic"),
+        evidence_claims=(strategy, critic),
+    )
+    edge = ReactionHyperedge(
+        product=product,
+        precursors=(precursor,),
+        candidate_envelope_ids=(envelope.envelope_id,),
+        evidence_claim_ids=(strategy.claim_id, critic.claim_id),
+        source_channels=("codex_strategy", "codex_critic"),
+        independent_support_groups=("codex_model",),
+        reaction_families=("reduction",),
+        rank_score=0.5,
+    )
+
+    assert product.molecule_id == equivalent_product.molecule_id
+    assert product.content_hash != equivalent_product.content_hash
+    assert strategy.validate() == ()
+    assert critic.validate() == ()
+    assert envelope.validate() == ()
+    assert edge.validate() == ()
+    assert edge.to_dict()["independent_support_groups"] == ["codex_model"]
+    assert edge.to_dict()["content_hash"].startswith("sha256:")
+
+    invalid_codex_group = EvidenceClaim(
+        source_channel="codex_literature",
+        support_group="literature:doi:10.1000/model-claim",
+        evidence_level="analogy",
+        confidence="low",
+    )
+    assert invalid_codex_group.validate() == ("codex_claim_has_independent_support_group",)
 
 
 def test_unexpanded_precursor_is_selected_as_next_codex_frontier() -> None:
