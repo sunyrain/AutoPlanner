@@ -574,6 +574,9 @@ def test_route_forest_projects_canonical_consensus_without_evidence_laundering()
         "literature:doi:10.1000/example",
     ]
     assert first["independent_source_count"] == 2
+    assert first["consensus_scope"] == "multi_source"
+    assert first["multi_source"] is True
+    assert first["title"].startswith("多信源共识 #1")
     assert first["codex_roles_correlated"] is True
     assert first["advisory_only"] is True
     assert first["solved"] is False
@@ -583,6 +586,89 @@ def test_route_forest_projects_canonical_consensus_without_evidence_laundering()
     assert second["source_channels"] == ["codex_chemoenzymatic"]
     assert second["independent_support_groups"] == ["codex_model"]
     assert second["independent_source_count"] == 1
+    assert second["consensus_scope"] == "correlated_single_source"
+    assert second["multi_source"] is False
+    assert second["title"].startswith("相关源候选 #2")
+    view_by_rank = {row["rank"]: row for row in consensus["proposals"]}
+    assert view_by_rank[1]["multi_source"] is True
+    assert view_by_rank[2]["multi_source"] is False
+
+
+def test_route_forest_counts_all_support_records_before_display_truncation() -> None:
+    blackboard = _sample_route_consensus_blackboard()
+    proposal = blackboard["codex_agent_team"]["route_consensus"]["proposals"][0]
+    proposal["source_refs"] = []
+    proposal["evidence_refs"] = []
+    proposal["source_records"] = [
+        {
+            "candidate_id": f"codex-{index}",
+            "source_channel": "codex_strategy",
+            "evidence_level": "model_only",
+            "support_group": f"forged-group-{index}",
+            "source_refs": [],
+            "evidence_refs": [],
+        }
+        for index in range(32)
+    ]
+    proposal["source_records"].append(
+        {
+            "candidate_id": "independent-record-33",
+            "source_channel": "literature_exact",
+            "evidence_level": "literature_exact",
+            "support_group": "forged-record-33",
+            "source_refs": ["pii:S0140673610611059"],
+            "evidence_refs": [],
+        }
+    )
+
+    forest = compile_explored_route_forest(blackboard)
+    branch = next(
+        row
+        for row in forest["branches"]
+        if row.get("consensus_id") == "consensus:aldehyde-reduction"
+    )
+    view = next(
+        row
+        for row in forest["route_consensus"]["proposals"]
+        if row.get("consensus_id") == "consensus:aldehyde-reduction"
+    )
+
+    assert branch["support_count"] == 33
+    assert branch["support_record_count"] == 33
+    assert len(branch["support_records"]) == 32
+    assert branch["support_records_truncated"] is True
+    assert branch["independent_support_groups"] == [
+        "codex_model",
+        "literature:pii:S0140673610611059",
+    ]
+    assert branch["multi_source"] is True
+    assert "pii:S0140673610611059" in branch["source_refs"]
+    assert view["support_count"] == 33
+    assert view["support_records_truncated"] is True
+
+
+def test_route_forest_does_not_trust_declared_groups_without_source_records() -> None:
+    blackboard = _sample_route_consensus_blackboard()
+    proposal = blackboard["codex_agent_team"]["route_consensus"]["proposals"][0]
+    proposal["source_records"] = []
+    proposal["source_channels"] = ["literature_exact", "template", "other"]
+    proposal["independent_support_groups"] = [
+        "literature:doi:10.1000/one",
+        "literature:doi:10.1000/two",
+        "computational:template",
+    ]
+
+    forest = compile_explored_route_forest(blackboard)
+    branch = next(
+        row
+        for row in forest["branches"]
+        if row.get("consensus_id") == "consensus:aldehyde-reduction"
+    )
+
+    assert branch["support_count"] == 0
+    assert branch["independent_support_groups"] == ["legacy_unverified_support"]
+    assert branch["independent_source_count"] == 1
+    assert branch["multi_source"] is False
 
 
 def test_route_forest_does_not_display_consensus_from_rejected_team() -> None:
@@ -629,7 +715,8 @@ def test_route_consensus_keeps_step_refs_separate_and_surfaces_conflicts_in_html
     assert all("report_ref" not in row for row in step["support_records"])
 
     html = render_route_forest_html(forest)
-    assert "Multi-source consensus audit" in html
+    assert "Consensus evidence audit" in html
+    assert "Multi-source consensus audit" not in html
     assert "Independent support groups" in html
     assert "Condition conflicts" in html
     assert "Codex roles are correlated" in html
@@ -660,6 +747,157 @@ def test_route_forest_projects_blackboard_into_final_route_display() -> None:
     assert "unbound proposal product" in node_labels
     assert "unbound template product: sidechain installation" in node_labels
     assert "side-chain donor preparation" in [row["label"] for row in forest["steps"]]
+
+
+def test_route_forest_counts_real_sources_separately_from_placeholders() -> None:
+    blackboard = _sample_paclitaxel_blackboard()
+    evidence = blackboard["literature_evidence"]
+    evidence["source_candidates"].append(
+        {
+            "title": "query placeholder",
+            "source_ref": "query:paclitaxel:total_synthesis",
+            "source_type": "placeholder_query",
+            "access_status": "placeholder_only",
+            "placeholder_only": True,
+        }
+    )
+    evidence["source_refs"] = [
+        "doi:10.1021/np990040k",
+        "query:paclitaxel:total_synthesis",
+    ]
+
+    forest = compile_explored_route_forest(blackboard)
+    counts = forest["run_trace"]["literature_counts"]
+    index = forest["evidence_index"]
+
+    assert counts["source_candidates"] == 3
+    assert counts["real_source_candidates"] == 2
+    assert counts["placeholder_candidates"] == 1
+    assert counts["source_candidate_records"] == 3
+    assert counts["source_refs"] == 2
+    assert counts["real_source_refs"] == 1
+    assert counts["placeholder_source_refs"] == 1
+    assert len(index["source_candidates"]) == 3
+    assert len(index["real_source_candidates"]) == 2
+    assert len(index["placeholder_candidates"]) == 1
+    assert index["source_candidate_summary"] == {
+        "real_source_count": 2,
+        "placeholder_count": 1,
+        "record_count": 3,
+    }
+    assert index["placeholder_candidates"][0]["placeholder_only"] is True
+
+
+def test_route_forest_applies_strict_locator_rules_to_source_metrics() -> None:
+    compound = (
+        "patent_publication:WO2021250648A1;"
+        "url:https://patents.google.com/patent/WO2021250648A1/en;lines:4-9"
+    )
+    blackboard = {
+        "case_id": "strict-source-metrics",
+        "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+        "literature_evidence": {
+            "source_candidates": [
+                {"doi": "not-a-doi"},
+                {"url": "banana"},
+                {"source_ref": "free text"},
+                {"pii": "S0140673610611059"},
+                {"source_ref": compound},
+                {"local_pdf": "evidence/article.pdf"},
+            ],
+            "source_refs": [
+                "doi:not-a-doi",
+                "banana",
+                "free text",
+                "pii:S0140673610611059",
+                compound,
+                "local_pdf:evidence/article.pdf",
+            ],
+        },
+    }
+
+    forest = compile_explored_route_forest(blackboard)
+    counts = forest["run_trace"]["literature_counts"]
+    index = forest["evidence_index"]
+
+    assert counts["source_candidates"] == 6
+    assert counts["real_source_candidates"] == 3
+    assert counts["placeholder_candidates"] == 3
+    assert counts["source_refs"] == 6
+    assert counts["real_source_refs"] == 3
+    assert counts["placeholder_source_refs"] == 3
+    assert len(index["source_candidates"]) == 6
+    assert len(index["real_source_candidates"]) == 3
+    assert len(index["placeholder_candidates"]) == 3
+    assert any(
+        row["source_ref"] == "pii:S0140673610611059"
+        for row in index["real_source_candidates"]
+    )
+
+
+def test_placeholder_only_evidence_renders_as_diagnostic_without_source_binding() -> None:
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "placeholder_only",
+            "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+            "literature_evidence": {
+                "source_candidates": [
+                    {
+                        "source_ref": "query:ethanol:synthesis",
+                        "source_type": "placeholder_query",
+                        "access_status": "placeholder_only",
+                        "placeholder_only": True,
+                    }
+                ],
+                "source_refs": ["query:ethanol:synthesis"],
+            },
+        }
+    )
+
+    assert len(forest["branches"]) == 1
+    branch = forest["branches"][0]
+    assert branch["kind"] == "diagnostic_failure"
+    assert branch["source_refs"] == []
+    assert "placeholder source queries: 1" in branch["missing"]
+    assert forest["run_trace"]["literature_counts"]["source_candidates"] == 1
+    assert forest["run_trace"]["literature_counts"]["real_source_candidates"] == 0
+    assert forest["run_trace"]["literature_counts"]["placeholder_candidates"] == 1
+
+
+def test_equal_advisory_candidates_use_an_explicit_display_only_tiebreak() -> None:
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "equal_advisory_candidates",
+            "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+            "retrosynthetic_proposals": [
+                {
+                    "proposal_id": "route_a",
+                    "proposal_label": "candidate A",
+                    "target_smiles": "CCO",
+                    "precursor_smiles": "CC=O",
+                    "confidence": "low",
+                },
+                {
+                    "proposal_id": "route_b",
+                    "proposal_label": "candidate B",
+                    "target_smiles": "CCO",
+                    "precursor_smiles": "CCN",
+                    "confidence": "low",
+                },
+            ],
+        }
+    )
+
+    selection = forest["primary_selection"]
+
+    assert selection["status"] == "advisory"
+    assert selection["selection_ambiguous"] is True
+    assert selection["display_tiebreak_only"] is True
+    assert selection["tied_candidate_count"] == 2
+    assert len(selection["tied_candidate_ids"]) == 2
+    assert "equivalent_candidate_count" not in selection
+    assert "lexical_branch_id_tiebreak_for_display_only" in selection["reasons"]
+    assert sum(1 for branch in forest["branches"] if branch["is_primary"]) == 1
 
 
 def test_advisory_proposals_and_templates_keep_their_own_products() -> None:

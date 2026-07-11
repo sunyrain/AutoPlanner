@@ -56,7 +56,7 @@ _BRANCH_KIND_LABEL = {
     "process_evidence": "过程证据",
     "visual_chain": "图像文献链",
     "route_consensus_graph": "Codex 多步路线",
-    "route_consensus": "多信源共识",
+    "route_consensus": "共识候选",
     "retrosynthetic_proposal": "逆合成提案",
     "broad_template": "通用模板",
     "diagnostic_failure": "诊断与未解决项",
@@ -365,6 +365,7 @@ def build_branch_lane_projection(
         }
         lane_layout = build_dependency_layout_projection(lane_graph)
         kind = str(branch.get("kind") or "unspecified")
+        kind_label = _branch_kind_label(branch, kind)
         proof_tier = _branch_proof_tier(branch, step_ids, step_by_id)
         category = _branch_category(branch, kind)
         lane_rows.append(
@@ -372,9 +373,9 @@ def build_branch_lane_projection(
                 "branch_id": branch_id,
                 "title": str(branch.get("title") or branch_id),
                 "kind": kind,
-                "kind_label": _BRANCH_KIND_LABEL.get(
-                    kind, kind.replace("_", " ").title()
-                ),
+                "kind_label": kind_label,
+                "consensus_scope": str(branch.get("consensus_scope") or ""),
+                "multi_source": branch.get("multi_source") is True,
                 "category": category,
                 "proof_tier": proof_tier,
                 "proof_rank": _PROOF_RANK.get(proof_tier, -1),
@@ -743,6 +744,19 @@ def _branch_category(branch: Mapping[str, Any], kind: str) -> str:
     if kind == "diagnostic_failure":
         return "diagnostic"
     return "advisory"
+
+
+def _branch_kind_label(branch: Mapping[str, Any], kind: str) -> str:
+    if kind == "route_consensus":
+        if branch.get("multi_source") is True or str(
+            branch.get("consensus_scope") or ""
+        ) == "multi_source":
+            return "多信源共识"
+        if branch.get("multi_source") is False or str(
+            branch.get("consensus_scope") or ""
+        ) == "correlated_single_source":
+            return "相关源共识"
+    return _BRANCH_KIND_LABEL.get(kind, kind.replace("_", " ").title())
 
 
 def _branch_lane_sort_key(branch: Mapping[str, Any]) -> tuple[Any, ...]:

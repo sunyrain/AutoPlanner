@@ -47,6 +47,117 @@ class WebAppTest(unittest.TestCase):
         payload = response.get_json()
         self.assertIn("artifacts", payload)
 
+    def test_route_examples_endpoint_only_exposes_available_local_files(self):
+        repository_results = web_app.ROOT / "results"
+        repository_results.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=repository_results) as td:
+            isolated_results = Path(td)
+            shared = isolated_results / "shared"
+            v2 = isolated_results / "v2"
+            available = shared / "known" / "route_forest.html"
+            available.parent.mkdir(parents=True)
+            available.write_text("<!doctype html><title>route</title>", encoding="utf-8")
+            discovered_shared = shared / "novel_target" / "route_forest.html"
+            discovered_shared.parent.mkdir(parents=True)
+            discovered_shared.write_text("<!doctype html><title>shared</title>", encoding="utf-8")
+            discovered_v2 = v2 / "job_002" / "nested" / "route_forest.html"
+            discovered_v2.parent.mkdir(parents=True)
+            discovered_v2.write_text("<!doctype html><title>v2</title>", encoding="utf-8")
+            ignored_html = shared / "not_a_route.html"
+            ignored_html.write_text("<!doctype html><title>ignore</title>", encoding="utf-8")
+            missing = shared / "missing" / "route_forest.html"
+            specs = (
+                {"key": "available", "label": "Available", "path": str(available.relative_to(web_app.ROOT))},
+                {"key": "missing", "label": "Missing", "path": str(missing.relative_to(web_app.ROOT))},
+                {"key": "outside", "label": "Outside", "path": "README.md"},
+            )
+            with (
+                patch.object(web_app, "SHARED_RESULTS_DIR", shared),
+                patch.object(web_app, "RESULTS_DIR", v2),
+                patch.object(web_app, "ROUTE_EXAMPLE_SPECS", specs),
+            ):
+                response = self.app.get("/api/route-examples")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        payload = response.get_json()
+        self.assertEqual(payload["schema_version"], "route_example_availability.v1")
+        expected_discovered = sorted(
+            (discovered_shared, discovered_v2),
+            key=lambda path: str(path.relative_to(web_app.ROOT)).replace("\\", "/").casefold(),
+        )
+        self.assertEqual(
+            [row["path"] for row in payload["examples"]],
+            [
+                str(available.relative_to(web_app.ROOT)),
+                *(str(path.relative_to(web_app.ROOT)) for path in expected_discovered),
+            ],
+        )
+        self.assertEqual(payload["examples"][0]["key"], "available")
+        self.assertTrue(all("本地" in row["label"] for row in payload["examples"][1:]))
+        self.assertEqual(payload["examples"][0]["path"], str(available.relative_to(web_app.ROOT)))
+        self.assertEqual(payload["available_count"], 3)
+        self.assertEqual(
+            [(row["key"], row["reason"]) for row in payload["unavailable_examples"]],
+            [("missing", "artifact_missing"), ("outside", "artifact_outside_results")],
+        )
+        self.assertTrue(all("path" not in row for row in payload["unavailable_examples"]))
+        self.assertFalse(payload["scan"]["truncated"])
+        self.assertEqual(payload["scan"]["roots"], [str(shared.relative_to(web_app.ROOT)), str(v2.relative_to(web_app.ROOT))])
+
+    def test_route_examples_endpoint_has_actionable_clean_checkout_fallback(self):
+        repository_results = web_app.ROOT / "results"
+        repository_results.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=repository_results) as td:
+            isolated_results = Path(td)
+            shared = isolated_results / "shared"
+            v2 = isolated_results / "v2"
+            shared.mkdir()
+            v2.mkdir()
+            specs = ({
+                "key": "not_cloned",
+                "label": "Not cloned",
+                "path": str((shared / "not_cloned" / "route_forest.html").relative_to(web_app.ROOT)),
+            },)
+            with (
+                patch.object(web_app, "SHARED_RESULTS_DIR", shared),
+                patch.object(web_app, "RESULTS_DIR", v2),
+                patch.object(web_app, "ROUTE_EXAMPLE_SPECS", specs),
+            ):
+                response = self.app.get("/api/route-examples")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        payload = response.get_json()
+        self.assertEqual(payload["examples"], [])
+        self.assertEqual(payload["available_count"], 0)
+        self.assertIn("启动 Agent", payload["message"])
+        self.assertNotIn("path", payload["unavailable_examples"][0])
+
+    def test_route_examples_discovery_is_bounded(self):
+        repository_results = web_app.ROOT / "results"
+        repository_results.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=repository_results) as td:
+            isolated_results = Path(td)
+            shared = isolated_results / "shared"
+            v2 = isolated_results / "v2"
+            shared.mkdir()
+            v2.mkdir()
+            for index in range(4):
+                child = shared / f"run_{index}"
+                child.mkdir()
+                (child / "route_forest.html").write_text("route", encoding="utf-8")
+            with (
+                patch.object(web_app, "SHARED_RESULTS_DIR", shared),
+                patch.object(web_app, "RESULTS_DIR", v2),
+                patch.object(web_app, "ROUTE_EXAMPLE_SPECS", ()),
+                patch.object(web_app, "ROUTE_EXAMPLE_MAX_ENTRIES_PER_ROOT", 2),
+            ):
+                response = self.app.get("/api/route-examples")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        payload = response.get_json()
+        self.assertTrue(payload["scan"]["truncated"])
+        self.assertLessEqual(payload["scan"]["scanned_entries"], 3)
+
     def test_artifacts_endpoint_filters_worker_traces_and_rejected_artifacts(self):
         with tempfile.TemporaryDirectory(dir=web_app.RESULTS_DIR) as td:
             root = Path(td)
@@ -80,6 +191,25 @@ class WebAppTest(unittest.TestCase):
     def test_artifact_path_is_restricted(self):
         response = self.app.get("/api/artifact?path=/etc/passwd")
         self.assertEqual(response.status_code, 400)
+
+    def test_result_file_head_checks_availability_without_sending_artifact(self):
+        web_app.SHARED_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=web_app.SHARED_RESULTS_DIR) as td:
+            route = Path(td) / "route_forest.html"
+            route.write_text("<!doctype html><title>route</title>", encoding="utf-8")
+            route_size = route.stat().st_size
+            relative = str(route.relative_to(web_app.ROOT))
+            response = self.app.head("/api/result-file", query_string={"path": relative})
+            missing_response = self.app.head(
+                "/api/result-file",
+                query_string={"path": str((Path(td) / "missing.html").relative_to(web_app.ROOT))},
+            )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data, b"")
+        self.assertIn("text/html", response.content_type)
+        self.assertEqual(response.content_length, route_size)
+        self.assertEqual(missing_response.status_code, 404)
 
     def test_agent_case_audit_worker_policy_and_final_report_api_smoke(self):
         web_app.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -469,6 +599,15 @@ class WebAppTest(unittest.TestCase):
         self.assertNotIn('message.integrity_status === "invalid"', agent_js)
         self.assertNotIn("contentDocument", agent_js)
         self.assertNotIn("verifyRouteFile", agent_js)
+        self.assertIn('api("/api/route-examples")', agent_js)
+        self.assertIn("routeExamplesToken", agent_js)
+        self.assertIn("inputRevision !== state.routeInputRevision", agent_js)
+        self.assertIn("Boolean(state.currentJobId)", agent_js)
+        self.assertIn('if (!preserveRouteInput) input.value = "";', agent_js)
+        self.assertIn('$("existing-route").value = routePath;', agent_js)
+        self.assertIn("loadRouteExamples({ preserveRouteInput: restored })", agent_js)
+        self.assertIn('method: "HEAD"', agent_js)
+        self.assertIn("此 checkout 暂无本地路线图", agent_js)
 
         self.assertIn('const LAYOUT_KEY = "autoplanner.agent.layout.v2"', agent_js)
         self.assertIn("localStorage.setItem(LAYOUT_KEY", agent_js)
@@ -482,16 +621,11 @@ class WebAppTest(unittest.TestCase):
         self.assertNotIn("min-width: 1180px", agent_css)
 
         self.assertIn('id="target-name" value="paclitaxel"', agent_html)
-        self.assertIn('data-sample-key="paclitaxel"', agent_html)
-        self.assertIn('data-sample-key="artemisinin"', agent_html)
-        self.assertIn(
-            "results/shared/full_rerun_advisory_visual_20260702/artemisinin/route_forest.html",
-            agent_html,
-        )
-        self.assertIn(
-            "results/shared/paclitaxel_architecture_v2_20260710/route_forest.html",
-            agent_html,
-        )
+        self.assertIn('data-sample="artemisinin"', agent_html)
+        self.assertIn('id="demo-route" aria-describedby="existing-route-hint" disabled', agent_html)
+        self.assertIn('id="existing-route" value=""', agent_html)
+        self.assertNotIn("results/shared/full_rerun_advisory_visual_20260702", agent_html)
+        self.assertNotIn("results/shared/paclitaxel_architecture_v2_20260710", agent_html)
         self.assertNotIn("bufotalin solved mixed route", agent_html)
         self.assertNotIn("atorvastatin_online_zero_20260704", agent_html)
 

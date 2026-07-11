@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 from scripts.evaluate_agentic_run import compare_reports, evaluate_run, main
 
@@ -86,11 +88,11 @@ def _minimal_run(tmp_path: Path) -> Path:
             "literature_evidence": {
                 "source_candidates": [
                     {
-                        "source_ref": "doi:example",
+                        "source_ref": "doi:10.1000/example",
                         "documents": [{"document_id": "article"}, {"document_id": "si"}],
                     }
                 ],
-                "source_refs": ["doi:example"],
+                "source_refs": ["doi:10.1000/example"],
                 "source_lifecycle": [{}],
                 "scout_attempts": [{}],
                 "pdf_structure_evidence": [
@@ -278,6 +280,112 @@ def test_evaluate_run_reports_fail_closed_semantics_and_team_runtime(tmp_path: P
     assert "advisory_branch_claimed_solved" in report["warnings"]
     assert "rejected_team_consensus_not_quarantined" in report["warnings"]
     assert "route_forest_primary_is_advisory" in report["warnings"]
+
+
+def test_evaluator_separates_placeholder_queries_from_real_sources(tmp_path: Path) -> None:
+    run = _minimal_run(tmp_path)
+    blackboard = json.loads((run / "agent_blackboard.json").read_text(encoding="utf-8"))
+    blackboard["literature_evidence"]["source_candidates"].append(
+        {
+            "source_ref": "query:paclitaxel:total_synthesis",
+            "source_type": "placeholder_query",
+            "access_status": "placeholder_only",
+            "placeholder_only": True,
+        }
+    )
+    blackboard["literature_evidence"]["source_refs"].append(
+        "query:paclitaxel:total_synthesis"
+    )
+    _write(run, "agent_blackboard.json", blackboard)
+
+    report = evaluate_run(run)
+    counts = report["evidence_counts"]
+
+    assert counts["source_candidate_records"] == 2
+    assert counts["source_candidates"] == 2
+    assert counts["real_source_candidates"] == 1
+    assert counts["placeholder_candidates"] == 1
+    assert counts["source_documents"] == 2
+    assert counts["source_ref_records"] == 2
+    assert counts["source_refs"] == 2
+    assert counts["real_source_refs"] == 1
+    assert counts["placeholder_source_refs"] == 1
+
+
+def test_evaluator_uses_strict_locator_validation_and_preserves_v1_totals(
+    tmp_path: Path,
+) -> None:
+    run = _minimal_run(tmp_path)
+    blackboard = json.loads((run / "agent_blackboard.json").read_text(encoding="utf-8"))
+    compound = (
+        "patent_publication:WO2021250648A1;"
+        "url:https://patents.google.com/patent/WO2021250648A1/en;lines:2-8"
+    )
+    blackboard["literature_evidence"]["source_candidates"] = [
+        {"doi": "not-a-doi"},
+        {"url": "banana"},
+        {"source_ref": "arbitrary free string"},
+        {"pii": "S0140673610611059"},
+        {"source_ref": compound},
+        {"local_pdf": "evidence/article.pdf"},
+    ]
+    blackboard["literature_evidence"]["source_refs"] = [
+        "doi:not-a-doi",
+        "banana",
+        "arbitrary free string",
+        "pii:S0140673610611059",
+        compound,
+        "local_pdf:evidence/article.pdf",
+    ]
+    _write(run, "agent_blackboard.json", blackboard)
+
+    counts = evaluate_run(run)["evidence_counts"]
+
+    assert counts["source_candidates"] == 6
+    assert counts["real_source_candidates"] == 3
+    assert counts["placeholder_candidates"] == 3
+    assert counts["source_refs"] == 6
+    assert counts["real_source_refs"] == 3
+    assert counts["placeholder_source_refs"] == 3
+
+
+def test_evaluator_imports_without_rdkit() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; sys.modules['rdkit'] = None; "
+                "import scripts.evaluate_agentic_run as module; "
+                "from pathlib import Path; "
+                "report = module.evaluate_run(Path('missing-run')); "
+                "assert report['parent_route_proof']['strict_evaluation_status'] == "
+                "'unavailable'; "
+                "print(module.SCHEMA_VERSION)"
+            ),
+        ],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "agentic_run_evaluation.v1"
+
+
+def test_evaluator_direct_script_cli_loads_shared_stdlib_helper(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, str(repo_root / "scripts" / "evaluate_agentic_run.py"), "--help"],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Evaluate one or compare two saved agentic retrosynthesis runs" in result.stdout
 
 
 def test_compare_reports_emits_numeric_and_boolean_changes(tmp_path: Path) -> None:

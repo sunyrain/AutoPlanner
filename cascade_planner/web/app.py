@@ -68,6 +68,21 @@ RESULTS_DIR = ROOT / "results" / "v2"
 SHARED_RESULTS_DIR = ROOT / "results" / "shared"
 DATA_DIR = ROOT / "data"
 STATIN_SHOWCASE_PATH = ROOT / "results" / "shared" / "statin_panel_20260520" / "web_showcase" / "statin_showcase_routes.json"
+ROUTE_EXAMPLE_SPECS: tuple[dict[str, str], ...] = (
+    {
+        "key": "artemisinin",
+        "label": "artemisinin 多文献探索（51 分支，未闭合）",
+        "path": "results/shared/full_rerun_advisory_visual_20260702/artemisinin/route_forest.html",
+    },
+    {
+        "key": "paclitaxel",
+        "label": "paclitaxel Architecture V2（96 分支，压力案例，未闭合）",
+        "path": "results/shared/paclitaxel_architecture_v2_20260710/route_forest.html",
+    },
+)
+ROUTE_EXAMPLE_MAX_DEPTH = 8
+ROUTE_EXAMPLE_MAX_ENTRIES_PER_ROOT = 50_000
+ROUTE_EXAMPLE_MAX_RESULTS = 256
 DEFAULT_MODEL = "results/shared/skeleton_inpainter/best.pt"
 MAX_SKELETON_STEPS = 8
 DEFAULT_PLANNER_MODE = "advanced"
@@ -158,6 +173,10 @@ def create_app() -> Flask:
     @app.get("/api/artifacts")
     def artifacts():
         return jsonify({"artifacts": _list_artifacts(filter_kind=request.args.get("filter"))})
+
+    @app.get("/api/route-examples")
+    def route_examples():
+        return jsonify(_route_examples_payload())
 
     @app.post("/api/cases")
     def create_case_api():
@@ -265,7 +284,10 @@ def create_app() -> Flask:
             ".log": "text/plain; charset=utf-8",
             ".md": "text/markdown; charset=utf-8",
         }.get(suffix, "application/octet-stream")
-        if mimetype.startswith("text/") or "json" in mimetype:
+        if request.method == "HEAD":
+            response = Response(mimetype=mimetype)
+            response.content_length = path.stat().st_size
+        elif mimetype.startswith("text/") or "json" in mimetype:
             response = Response(path.read_text(encoding="utf-8", errors="replace"), mimetype=mimetype)
         else:
             response = Response(path.read_bytes(), mimetype=mimetype)
@@ -705,6 +727,150 @@ def _read_blackboard_step_summary(run_dir: Path | str, *, limit: int = 120) -> l
         if isinstance(row, dict):
             rows.append(row)
     return rows
+
+
+def _route_examples_payload() -> dict[str, Any]:
+    """Return a bounded inventory of route forests present on this checkout."""
+    examples: list[dict[str, str]] = []
+    unavailable: list[dict[str, str]] = []
+    result_roots = _route_example_roots()
+    known_paths: set[Path] = set()
+    for spec in ROUTE_EXAMPLE_SPECS:
+        key = str(spec.get("key") or "").strip()
+        label = str(spec.get("label") or key).strip()
+        raw_path = str(spec.get("path") or "").strip()
+        candidate = (ROOT / raw_path).resolve() if raw_path else ROOT.resolve()
+        in_results = any(candidate == root or candidate.is_relative_to(root) for root in result_roots)
+        if (
+            raw_path
+            and in_results
+            and candidate.is_file()
+            and candidate.name.casefold() == "route_forest.html"
+        ):
+            examples.append({"key": key, "label": label, "path": _rel(candidate)})
+            known_paths.add(candidate)
+            continue
+        unavailable.append(
+            {
+                "key": key,
+                "label": label,
+                "reason": "artifact_missing" if in_results else "artifact_outside_results",
+                "run_target": key,
+            }
+        )
+
+    discovered, scanned_entries, scan_truncated = _discover_route_forests(result_roots)
+    for candidate in discovered:
+        if candidate in known_paths or len(examples) >= ROUTE_EXAMPLE_MAX_RESULTS:
+            continue
+        examples.append(_discovered_route_example(candidate, result_roots))
+
+    if examples:
+        message = f"发现 {len(examples)} 个可预览的本地路线图。"
+    else:
+        message = "当前 checkout 没有本地路线图；请选择目标并启动 Agent 生成结果。"
+    return {
+        "schema_version": "route_example_availability.v1",
+        "ok": True,
+        "examples": examples,
+        "unavailable_examples": unavailable,
+        "available_count": len(examples),
+        "scan": {
+            "roots": [_rel(root) for root in result_roots],
+            "scanned_entries": scanned_entries,
+            "truncated": scan_truncated,
+            "max_depth": ROUTE_EXAMPLE_MAX_DEPTH,
+            "max_entries_per_root": ROUTE_EXAMPLE_MAX_ENTRIES_PER_ROOT,
+            "max_results": ROUTE_EXAMPLE_MAX_RESULTS,
+        },
+        "message": message,
+    }
+
+
+def _route_example_roots() -> tuple[Path, ...]:
+    """Resolve the two configured roots, rejecting aliases outside repository results."""
+    repository_results = (ROOT / "results").resolve()
+    roots: list[Path] = []
+    for configured in (SHARED_RESULTS_DIR, RESULTS_DIR):
+        resolved = Path(configured).resolve()
+        if resolved != repository_results and not resolved.is_relative_to(repository_results):
+            continue
+        if resolved not in roots:
+            roots.append(resolved)
+    return tuple(roots)
+
+
+def _discover_route_forests(roots: tuple[Path, ...]) -> tuple[list[Path], int, bool]:
+    """Find route_forest.html without following links or scanning without bounds."""
+    discovered: set[Path] = set()
+    scanned_entries = 0
+    truncated = False
+    for root in roots:
+        if not root.is_dir() or root.is_symlink():
+            continue
+        root_entries = 0
+        root_limit_reached = False
+        queue: deque[tuple[Path, int]] = deque([(root, 0)])
+        while queue:
+            directory, depth = queue.popleft()
+            child_directories: list[Path] = []
+            found_route_here = False
+            try:
+                with os.scandir(directory) as iterator:
+                    for entry in iterator:
+                        root_entries += 1
+                        scanned_entries += 1
+                        if root_entries > ROUTE_EXAMPLE_MAX_ENTRIES_PER_ROOT:
+                            truncated = True
+                            root_limit_reached = True
+                            break
+                        try:
+                            if entry.is_symlink():
+                                continue
+                            if entry.is_file(follow_symlinks=False):
+                                if entry.name.casefold() != "route_forest.html":
+                                    continue
+                                candidate = Path(entry.path).resolve()
+                                if candidate.is_relative_to(root):
+                                    discovered.add(candidate)
+                                    found_route_here = True
+                                continue
+                            if depth < ROUTE_EXAMPLE_MAX_DEPTH and entry.is_dir(follow_symlinks=False):
+                                child_directories.append(Path(entry.path))
+                            elif depth >= ROUTE_EXAMPLE_MAX_DEPTH and entry.is_dir(follow_symlinks=False):
+                                truncated = True
+                        except OSError:
+                            continue
+            except OSError:
+                continue
+            if root_limit_reached:
+                break
+            if found_route_here:
+                continue
+            # Breadth-first traversal finds run-level artifacts before large nested traces.
+            queue.extend(
+                (child, depth + 1)
+                for child in sorted(child_directories, key=lambda path: path.name.casefold())
+            )
+    ordered = sorted(discovered, key=lambda path: _rel(path).replace("\\", "/").casefold())
+    if len(ordered) > ROUTE_EXAMPLE_MAX_RESULTS:
+        truncated = True
+        ordered = ordered[:ROUTE_EXAMPLE_MAX_RESULTS]
+    return ordered, scanned_entries, truncated
+
+
+def _discovered_route_example(candidate: Path, roots: tuple[Path, ...]) -> dict[str, str]:
+    relative_path = _rel(candidate)
+    owning_root = next(root for root in roots if candidate.is_relative_to(root))
+    relative_run = candidate.relative_to(owning_root).parent
+    run_name = relative_run.name or owning_root.name
+    friendly_name = " ".join(part for part in run_name.replace("_", " ").split() if part)
+    label = f"{friendly_name[:80] or 'local route'}（本地 {owning_root.name}）"
+    return {
+        "key": f"local:{relative_path.replace(os.sep, '/')}",
+        "label": label,
+        "path": relative_path,
+    }
 
 
 def _route_forest_counts(path_value: Any) -> dict[str, Any]:

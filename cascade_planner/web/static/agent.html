@@ -70,6 +70,7 @@
           <textarea id="target-smiles" spellcheck="false" required aria-required="true">CC1=C2[C@H](C(=O)[C@@]3([C@H](C[C@@H]4[C@]([C@H]3[C@@H]([C@@](C2(C)C)(C[C@@H]1OC(=O)[C@@H]([C@H](C5=CC=CC=C5)NC(=O)C6=CC=CC=C6)O)O)OC(=O)C7=CC=CC=C7)(CO4)OC(=O)C)O)C)OC(=O)C</textarea>
 
           <div class="sample-grid" aria-label="目标示例">
+            <button class="sample" type="button" data-sample="artemisinin">artemisinin</button>
             <button class="sample" type="button" data-sample="atorvastatin">atorvastatin</button>
             <button class="sample" type="button" data-sample="bufotalin">bufotalin</button>
             <button class="sample" type="button" data-sample="paclitaxel">paclitaxel</button>
@@ -154,13 +155,12 @@
             <span class="mini-badge">preview</span>
           </div>
           <label class="visually-hidden" for="demo-route">示例路线</label>
-          <select id="demo-route">
-            <option data-sample-key="artemisinin" value="results/shared/full_rerun_advisory_visual_20260702/artemisinin/route_forest.html">artemisinin 多文献探索（51 分支，未闭合）</option>
-            <option data-sample-key="paclitaxel" value="results/shared/paclitaxel_architecture_v2_20260710/route_forest.html">paclitaxel Architecture V2（96 分支，压力案例，未闭合）</option>
+          <select id="demo-route" aria-describedby="existing-route-hint" disabled>
+            <option value="">正在检查本地路线图…</option>
           </select>
           <label class="visually-hidden" for="existing-route">路线图相对路径</label>
-          <input id="existing-route" value="results/shared/full_rerun_advisory_visual_20260702/artemisinin/route_forest.html" aria-describedby="existing-route-hint">
-          <p id="existing-route-hint" class="field-hint">只读取仓库 results 目录中的 route_forest.html。</p>
+          <input id="existing-route" value="" placeholder="results/shared/.../route_forest.html" aria-describedby="existing-route-hint">
+          <p id="existing-route-hint" class="field-hint" role="status" aria-live="polite">正在检查此 checkout 中可用的本地路线图。</p>
           <button id="load-existing" class="secondary-button" type="button">打开路线图</button>
         </section>
       </div>

@@ -56,7 +56,103 @@ def test_model_children_share_one_correlation_group_and_never_become_executable(
     assert proposal["status"] == "model_hypothesis"
     adapted = consensus_to_blackboard_proposals(consensus)[0]
     assert adapted["proposal_type"] == "strategic"
+    assert adapted["source_type"] == "correlated_consensus"
+    assert adapted["consensus_scope"] == "correlated_single_source"
+    assert adapted["independent_source_count"] == 1
+    assert adapted["multi_source"] is False
     assert adapted["executable"] is False
+
+
+def test_blackboard_adapter_only_calls_independent_support_multi_source() -> None:
+    consensus = fuse_route_candidates(
+        [
+            candidate("strategy", channel="codex_strategy"),
+            candidate(
+                "trusted_article",
+                channel="literature_exact",
+                evidence_level="literature_exact",
+                source_refs=["doi:10.1000/example"],
+            ),
+        ],
+        target_smiles="CCO",
+        allow_trusted_literature_exact_evidence=True,
+    )
+
+    adapted = consensus_to_blackboard_proposals(consensus)[0]
+
+    assert adapted["source_type"] == "multi_source_consensus"
+    assert adapted["consensus_scope"] == "multi_source"
+    assert adapted["independent_source_count"] == 2
+    assert adapted["multi_source"] is True
+
+
+def test_blackboard_adapter_does_not_trust_legacy_diversity_or_codex_role_groups() -> None:
+    consensus = {
+        "proposals": [
+            {
+                "consensus_id": "legacy",
+                "source_diversity": "not-a-number",
+                "independent_support_groups": ["codex_strategy", "codex_critic"],
+                "source_channels": ["codex_strategy", "codex_critic"],
+            }
+        ]
+    }
+
+    adapted = consensus_to_blackboard_proposals(consensus)[0]
+
+    assert adapted["source_type"] == "correlated_consensus"
+    assert adapted["independent_source_count"] == 1
+    assert adapted["multi_source"] is False
+
+
+def test_blackboard_adapter_does_not_trust_non_model_groups_without_records() -> None:
+    consensus = {
+        "proposals": [
+            {
+                "consensus_id": "legacy-external",
+                "independent_support_groups": [
+                    "literature:doi:10.1000/one",
+                    "literature:doi:10.1000/two",
+                ],
+                "source_channels": ["literature_exact", "template"],
+                "source_refs": ["doi:10.1000/one", "doi:10.1000/two"],
+            }
+        ]
+    }
+
+    adapted = consensus_to_blackboard_proposals(consensus)[0]
+
+    assert adapted["source_type"] == "correlated_consensus"
+    assert adapted["independent_source_count"] == 1
+    assert adapted["multi_source"] is False
+
+
+def test_blackboard_adapter_counts_independent_record_after_first_32() -> None:
+    records = [
+        {
+            "source_channel": "codex_strategy",
+            "evidence_level": "model_only",
+            "support_group": f"forged:{index}",
+            "source_refs": [],
+            "evidence_refs": [],
+        }
+        for index in range(32)
+    ]
+    records.append(
+        {
+            "source_channel": "literature_exact",
+            "evidence_level": "literature_exact",
+            "support_group": "forged:33",
+            "source_refs": ["pii:S0140673610611059"],
+            "evidence_refs": [],
+        }
+    )
+    consensus = {"proposals": [{"consensus_id": "record-33", "source_records": records}]}
+
+    adapted = consensus_to_blackboard_proposals(consensus)[0]
+
+    assert adapted["independent_source_count"] == 2
+    assert adapted["multi_source"] is True
 
 
 def test_target_mismatch_is_quarantined_and_stereo_is_not_collapsed() -> None:
@@ -151,6 +247,76 @@ def test_invented_doi_from_codex_is_not_an_independent_support_group() -> None:
     proposal = consensus["proposals"][0]
     assert proposal["independent_support_groups"] == ["codex_model"]
     assert consensus["source_summary"]["multi_source_proposals"] == 0
+
+
+def test_strict_locators_reject_fake_doi_and_accept_pii_exact_source() -> None:
+    invalid = fuse_route_candidates(
+        [
+            candidate(
+                "fake",
+                channel="literature_exact",
+                evidence_level="literature_exact",
+                source_refs=["doi:not-a-doi"],
+            )
+        ],
+        target_smiles="CCO",
+        allow_trusted_literature_exact_evidence=True,
+    )
+    assert invalid["accepted"] is False
+    assert "exact_literature_without_source_ref" in invalid["rejected_candidates"][0][
+        "reasons"
+    ]
+
+    pii = fuse_route_candidates(
+        [
+            candidate(
+                "pii",
+                channel="literature_exact",
+                evidence_level="literature_exact",
+                source_refs=["PII:S0140673610611059"],
+            )
+        ],
+        target_smiles="CCO",
+        allow_trusted_literature_exact_evidence=True,
+    )
+    assert pii["accepted"] is True
+    assert pii["proposals"][0]["independent_support_groups"] == [
+        "literature:pii:S0140673610611059"
+    ]
+
+
+def test_unknown_channel_with_valid_doi_cannot_forge_source_diversity() -> None:
+    consensus = fuse_route_candidates(
+        [
+            candidate("strategy", channel="codex_strategy"),
+            candidate(
+                "unknown",
+                channel="other",
+                evidence_level="model_only",
+                source_refs=["doi:10.1000/example"],
+            ),
+        ],
+        target_smiles="CCO",
+    )
+
+    assert consensus["proposals"][0]["independent_support_groups"] == ["codex_model"]
+    assert consensus["source_summary"]["multi_source_proposals"] == 0
+
+    self_validated = fuse_route_candidates(
+        [
+            candidate(
+                "unknown-validated",
+                channel="other",
+                evidence_level="validated",
+                source_refs=["doi:10.1000/example"],
+            )
+        ],
+        target_smiles="CCO",
+        allow_trusted_validated_evidence=True,
+    )
+    assert self_validated["proposals"][0]["independent_support_groups"] == [
+        "codex_model"
+    ]
 
 
 def test_unattributed_legacy_hypothesis_is_not_an_independent_support_group() -> None:

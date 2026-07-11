@@ -19,6 +19,10 @@ from cascade_planner.harness.stitched_route import (
     compile_stitched_semisynthesis_route,
     is_validated_source_detail_literature_step,
 )
+from cascade_planner.source_locators import (
+    canonical_traceable_source_ref,
+    source_record_support_group,
+)
 
 try:
     from rdkit import Chem
@@ -1608,6 +1612,10 @@ class _RouteForestCompiler:
                 "status": "unavailable",
                 "proof_level": "none",
                 "advisory_only": True,
+                "selection_ambiguous": False,
+                "display_tiebreak_only": False,
+                "tied_candidate_count": 0,
+                "tied_candidate_ids": [],
                 "reasons": ["no_compiled_branch"],
             }
         priority = {
@@ -1627,12 +1635,27 @@ class _RouteForestCompiler:
             "validated_replacement_route": -2,
         }
         selectable = [row for row in self.branches if row.get("listed") is not False]
-        selected = max(
-            selectable or self.branches,
-            key=lambda row: (
+        candidate_pool = selectable or self.branches
+
+        def selection_score(row: dict[str, Any]) -> tuple[int, int, int]:
+            return (
                 priority.get(str(row.get("kind") or ""), -1),
                 CONFIDENCE_RANK.get(str(row.get("confidence") or ""), 0),
                 len(row.get("step_ids") or []),
+            )
+
+        top_score = max(selection_score(row) for row in candidate_pool)
+        tied_candidates = sorted(
+            (
+                str(row.get("branch_id") or "")
+                for row in candidate_pool
+                if selection_score(row) == top_score
+            )
+        )
+        selected = max(
+            candidate_pool,
+            key=lambda row: (
+                *selection_score(row),
                 str(row.get("branch_id") or ""),
             ),
         )
@@ -1669,6 +1692,19 @@ class _RouteForestCompiler:
             status = "advisory"
             proof_level = "route_hint"
             advisory_only = True
+        selection_ambiguous = len(tied_candidates) > 1
+        display_tiebreak_only = selection_ambiguous and advisory_only
+        reasons = [
+            f"selected_from_compiled_branch_kind:{kind or 'unknown'}",
+            "no_target_name_route_injection",
+        ]
+        if selection_ambiguous:
+            reasons.extend(
+                [
+                    f"same_top_rank_candidates:{len(tied_candidates)}",
+                    "lexical_branch_id_tiebreak_for_display_only",
+                ]
+            )
         return {
             "schema_version": "route_forest_primary_selection.v1",
             "primary_branch_id": selected_id,
@@ -1676,21 +1712,40 @@ class _RouteForestCompiler:
             "proof_level": proof_level,
             "advisory_only": advisory_only,
             "synthesis_class": str(selected.get("synthesis_class") or "unspecified"),
-            "reasons": [
-                f"selected_from_compiled_branch_kind:{kind or 'unknown'}",
-                "no_target_name_route_injection",
-            ],
+            "selection_ambiguous": selection_ambiguous,
+            "display_tiebreak_only": display_tiebreak_only,
+            "tied_candidate_count": len(tied_candidates),
+            "tied_candidate_ids": tied_candidates[:24],
+            "reasons": reasons,
         }
 
     def _add_unclosed_exploration_branch_if_empty(self) -> None:
         if self.branches:
             return
-        candidates = [dict(row) for row in self.evidence.get("source_candidates") or [] if isinstance(row, dict)]
+        candidate_records = [
+            dict(row)
+            for row in self.evidence.get("source_candidates") or []
+            if isinstance(row, dict)
+        ]
+        candidates = [row for row in candidate_records if _source_candidate_has_real_source(row)]
+        placeholder_candidates = [
+            row for row in candidate_records if not _source_candidate_has_real_source(row)
+        ]
         pdf_rows = [dict(row) for row in self.evidence.get("pdf_structure_evidence") or [] if isinstance(row, dict)]
         visual_rows = [dict(row) for row in self.evidence.get("visual_chains") or [] if isinstance(row, dict)]
         exact_rows = [dict(row) for row in self.evidence.get("exact_rows") or [] if isinstance(row, dict)]
         actions = [dict(row) for row in self.blackboard.get("action_history") or [] if isinstance(row, dict)]
-        if not any((candidates, pdf_rows, visual_rows, exact_rows, actions, self.blackboard.get("current_belief"))):
+        if not any(
+            (
+                candidates,
+                placeholder_candidates,
+                pdf_rows,
+                visual_rows,
+                exact_rows,
+                actions,
+                self.blackboard.get("current_belief"),
+            )
+        ):
             return
         source_refs = _dedupe(
             [
@@ -1700,6 +1755,9 @@ class _RouteForestCompiler:
         )
         status_bits = [
             f"source candidates: {len(candidates)}" if candidates else "",
+            f"placeholder source queries: {len(placeholder_candidates)}"
+            if placeholder_candidates
+            else "",
             f"PDF evidence rows: {len(pdf_rows)}" if pdf_rows else "",
             f"visual chains: {len(visual_rows)}" if visual_rows else "",
             f"exact rows: {len(exact_rows)}" if exact_rows else "",
@@ -1945,8 +2003,17 @@ class _RouteForestCompiler:
             consensus_id = str(proposal.get("consensus_id") or f"proposal-{index}")
             branch_id = f"branch:route_consensus:{_slug(consensus_id)}"
             direct_refs = _consensus_direct_source_refs(proposal)
-            support_records = _consensus_support_records(proposal)
-            support_groups = _consensus_independent_support_groups(proposal, support_records)
+            all_support_records = _consensus_support_records(proposal, limit=None)
+            support_records = all_support_records[:32]
+            support_groups = _consensus_independent_support_groups(
+                proposal,
+                all_support_records,
+            )
+            independent_source_count = len(support_groups)
+            is_multi_source = independent_source_count > 1
+            consensus_scope = (
+                "multi_source" if is_multi_source else "correlated_single_source"
+            )
             conflicts = _consensus_conflicts(proposal)
             evidence_level = str(proposal.get("evidence_level") or "model_only")
             confidence = str(proposal.get("confidence") or "low")
@@ -2007,7 +2074,11 @@ class _RouteForestCompiler:
                 exactness=exactness,
                 source_refs=direct_refs,
                 origin="route_consensus",
-                summary="Advisory multi-source retrosynthetic disconnection; it is not a parent-route proof.",
+                summary=(
+                    "Advisory multi-source retrosynthetic disconnection; it is not a parent-route proof."
+                    if is_multi_source
+                    else "Advisory consensus that does not establish multiple independent support groups; it is not a parent-route proof."
+                ),
                 conditions=_conditions_from_row(proposal),
                 missing=missing,
             )
@@ -2017,9 +2088,13 @@ class _RouteForestCompiler:
                 "evidence_level": evidence_level,
                 "source_channels": _dedupe([str(item) for item in proposal.get("source_channels") or []]),
                 "support_records": support_records,
-                "support_count": len(support_records) or int(proposal.get("support_count") or 0),
+                "support_count": len(all_support_records),
+                "support_record_count": len(all_support_records),
+                "support_records_truncated": len(all_support_records) > len(support_records),
                 "independent_support_groups": support_groups,
-                "independent_source_count": len(support_groups),
+                "independent_source_count": independent_source_count,
+                "consensus_scope": consensus_scope,
+                "multi_source": is_multi_source,
                 "codex_roles_correlated": any(group == "codex_model" for group in support_groups),
                 "condition_support": [
                     dict(row) for row in proposal.get("condition_support") or [] if isinstance(row, dict)
@@ -2038,11 +2113,19 @@ class _RouteForestCompiler:
 
             self._add_branch(
                 branch_id=branch_id,
-                title=f"Consensus #{int(proposal.get('rank') or index)}: {reaction_family}",
+                title=(
+                    f"多信源共识 #{int(proposal.get('rank') or index)}：{reaction_family}"
+                    if is_multi_source
+                    else f"相关源候选 #{int(proposal.get('rank') or index)}：{reaction_family}"
+                ),
                 kind="route_consensus",
-                recommendation="advisory consensus",
+                recommendation="多信源建议" if is_multi_source else "未形成多信源",
                 confidence=confidence,
-                summary="Multi-source candidate edge. Independent support is counted by correlated support group, not by Codex role.",
+                summary=(
+                    "Multi-source candidate edge. Independent support is counted by correlated support group, not by Codex role."
+                    if is_multi_source
+                    else "Consensus candidate does not establish multiple independent support groups. Multiple Codex roles do not make it multi-source."
+                ),
                 step_ids=[step_id],
                 source_refs=direct_refs,
                 missing=missing,
@@ -2670,7 +2753,16 @@ class _RouteForestCompiler:
                         ),
                     )
                 ]
-                family = str(graph_step.get("reaction_family") or "multi-source disconnection")
+                family = str(graph_step.get("reaction_family") or "consensus disconnection")
+                all_graph_support_records = _consensus_support_records(
+                    graph_step,
+                    limit=None,
+                )
+                graph_support_records = all_graph_support_records[:32]
+                graph_support_groups = _consensus_independent_support_groups(
+                    graph_step,
+                    all_graph_support_records,
+                )
                 conditions = [
                     {"label": "candidate condition", "value": str(value)}
                     for value in graph_step.get("conditions") or []
@@ -2701,12 +2793,19 @@ class _RouteForestCompiler:
                 self.steps[display_step_id].update(
                     {
                         "graph_step_id": str(graph_step_id),
-                        "support_records": [
-                            dict(row) for row in graph_step.get("source_records") or [] if isinstance(row, dict)
-                        ],
-                        "independent_support_groups": [
-                            str(value) for value in graph_step.get("independent_support_groups") or []
-                        ],
+                        "support_records": graph_support_records,
+                        "support_count": len(all_graph_support_records),
+                        "support_record_count": len(all_graph_support_records),
+                        "support_records_truncated": len(all_graph_support_records)
+                        > len(graph_support_records),
+                        "independent_support_groups": graph_support_groups,
+                        "independent_source_count": len(graph_support_groups),
+                        "consensus_scope": (
+                            "multi_source"
+                            if len(graph_support_groups) > 1
+                            else "correlated_single_source"
+                        ),
+                        "multi_source": len(graph_support_groups) > 1,
                         "conflicts": [
                             conflict_by_id[str(conflict_id)]
                             for conflict_id in graph_step.get("conflict_ids") or []
@@ -2892,8 +2991,13 @@ class _RouteForestCompiler:
             if not isinstance(proposal, dict):
                 continue
             consensus_id = str(proposal.get("consensus_id") or "")
-            support_records = _consensus_support_records(proposal)
-            support_groups = _consensus_independent_support_groups(proposal, support_records)
+            all_support_records = _consensus_support_records(proposal, limit=None)
+            support_records = all_support_records[:32]
+            support_groups = _consensus_independent_support_groups(
+                proposal,
+                all_support_records,
+            )
+            independent_source_count = len(support_groups)
             proposal_views.append(
                 {
                     "consensus_id": consensus_id,
@@ -2906,9 +3010,18 @@ class _RouteForestCompiler:
                     "rank_score": float(proposal.get("rank_score") or 0.0),
                     "source_channels": _dedupe([str(item) for item in proposal.get("source_channels") or []]),
                     "support_records": support_records,
-                    "support_count": len(support_records) or int(proposal.get("support_count") or 0),
+                    "support_count": len(all_support_records),
+                    "support_record_count": len(all_support_records),
+                    "support_records_truncated": len(all_support_records)
+                    > len(support_records),
                     "independent_support_groups": support_groups,
-                    "independent_source_count": len(support_groups),
+                    "independent_source_count": independent_source_count,
+                    "consensus_scope": (
+                        "multi_source"
+                        if independent_source_count > 1
+                        else "correlated_single_source"
+                    ),
+                    "multi_source": independent_source_count > 1,
                     "codex_roles_correlated": any(group == "codex_model" for group in support_groups),
                     "source_refs": _consensus_direct_source_refs(proposal),
                     "condition_support": [
@@ -3988,7 +4101,7 @@ class _RouteForestCompiler:
         else:
             return None
         source_refs = shared_refs or _dedupe([*(left.get("source_refs") or []), *(right.get("source_refs") or [])])[:8]
-        if "route_consensus" in {left_kind, right_kind}:
+        if any(kind.startswith("route_consensus") for kind in (left_kind, right_kind)):
             summary = "共识候选与另一分支共享目标或反应模块；该关系仅供候选对照，不构成 solved 或 executable 证明。"
         elif kind == "shared_target_endpoint":
             summary = "这些路线共享目标或终点分子，应作为同一目标下的路线变体对照查看。"
@@ -4047,16 +4160,54 @@ class _RouteForestCompiler:
         ]
 
     def _evidence_index(self) -> dict[str, Any]:
+        candidate_records = [
+            dict(row)
+            for row in self.evidence.get("source_candidates") or []
+            if isinstance(row, dict)
+        ]
+        real_candidates = [
+            row for row in candidate_records if _source_candidate_has_real_source(row)
+        ]
+        placeholder_candidates = [
+            row for row in candidate_records if not _source_candidate_has_real_source(row)
+        ]
+
+        def candidate_view(row: dict[str, Any]) -> dict[str, Any]:
+            doi = str(row.get("doi") or "").strip()
+            pii = str(row.get("pii") or "").strip()
+            return {
+                "source_ref": str(
+                    row.get("source_ref")
+                    or (f"doi:{doi}" if doi else "")
+                    or (f"pii:{pii}" if pii else "")
+                    or row.get("url")
+                    or row.get("local_pdf")
+                    or row.get("pdf_path")
+                    or ""
+                ),
+                "title": str(row.get("title") or row.get("source_title") or ""),
+                "local_pdf": str(row.get("local_pdf") or row.get("pdf_path") or ""),
+                "source_type": str(row.get("source_type") or ""),
+                "access_status": str(row.get("access_status") or ""),
+                "source_discovery_mode": str(row.get("source_discovery_mode") or ""),
+                "placeholder_only": not _source_candidate_has_real_source(row),
+            }
+
         return {
             "source_candidates": [
-                {
-                    "source_ref": str(row.get("source_ref") or ""),
-                    "title": str(row.get("title") or row.get("source_title") or ""),
-                    "local_pdf": str(row.get("local_pdf") or row.get("pdf_path") or ""),
-                }
-                for row in self.evidence.get("source_candidates") or []
-                if isinstance(row, dict)
+                candidate_view(row)
+                for row in candidate_records
             ][:20],
+            "real_source_candidates": [
+                candidate_view(row)
+                for row in real_candidates
+            ][:20],
+            "placeholder_candidates": [candidate_view(row) for row in placeholder_candidates][:20],
+            "source_candidate_summary": {
+                "real_source_count": len(real_candidates),
+                "placeholder_count": len(placeholder_candidates),
+                "record_count": len(candidate_records),
+            },
             "exact_chain_audits": [
                 {
                     "accepted": bool(row.get("accepted")),
@@ -4100,6 +4251,19 @@ class _RouteForestCompiler:
 
     def _run_trace(self) -> dict[str, Any]:
         artifact_refs = dict(self.blackboard.get("artifact_refs") or {})
+        source_candidates = [
+            dict(row)
+            for row in self.evidence.get("source_candidates") or []
+            if isinstance(row, dict)
+        ]
+        real_source_count = sum(
+            1 for row in source_candidates if _source_candidate_has_real_source(row)
+        )
+        placeholder_count = len(source_candidates) - real_source_count
+        source_refs = [str(value) for value in self.evidence.get("source_refs") or []]
+        real_source_refs = [
+            value for value in source_refs if not _placeholder_source_ref(value)
+        ]
         actions = [
             {
                 "round_index": int(row.get("round_index") or 0),
@@ -4120,8 +4284,17 @@ class _RouteForestCompiler:
                 if str(value or "").strip()
             ][:120],
             "literature_counts": {
-                "source_candidates": len(self.evidence.get("source_candidates") or []),
-                "source_refs": len(self.evidence.get("source_refs") or []),
+                # v1 compatibility: the established unsuffixed fields retain
+                # their original all-record semantics.  Consumers that need
+                # validated locators must use the explicit real_* fields.
+                "source_candidates": len(source_candidates),
+                "real_source_candidates": real_source_count,
+                "placeholder_candidates": placeholder_count,
+                "source_candidate_records": len(source_candidates),
+                "source_refs": len(source_refs),
+                "real_source_refs": len(real_source_refs),
+                "source_ref_records": len(source_refs),
+                "placeholder_source_refs": len(source_refs) - len(real_source_refs),
                 "visual_chains": len(self.evidence.get("visual_chains") or []),
                 "process_evidence_rows": len(self.evidence.get("process_evidence_rows") or []),
                 "exact_rows": len(self.evidence.get("exact_rows") or []),
@@ -5016,67 +5189,141 @@ def _consensus_precursor_smiles(proposal: dict[str, Any]) -> list[str]:
     return _dedupe([str(value).strip() for value in values if str(value).strip()])[:12]
 
 
-def _consensus_support_group(source_channel: str, support_group: str) -> str:
-    channel = str(source_channel or "").strip().lower()
-    group = str(support_group or "").strip()
-    if channel.startswith("codex_") or group.lower().startswith("codex"):
-        return "codex_model"
-    return group or (f"source:{channel}" if channel else "source:unbound")
+def _source_candidate_has_real_source(row: dict[str, Any]) -> bool:
+    if bool(row.get("placeholder_only")):
+        return False
+    if str(row.get("access_status") or "").strip().lower() == "placeholder_only":
+        return False
+    if str(row.get("source_type") or "").strip().lower() == "placeholder_query":
+        return False
+    if str(row.get("source_discovery_mode") or "").strip().lower() == "placeholder":
+        return False
+    locators = [
+        row.get("doi"),
+        row.get("pii"),
+        row.get("url"),
+        row.get("source_ref"),
+    ]
+    local_path = str(row.get("local_pdf") or row.get("pdf_path") or "").strip()
+    if local_path:
+        locators.append(
+            local_path if local_path.lower().startswith("local_pdf:") else f"local_pdf:{local_path}"
+        )
+    return any(canonical_traceable_source_ref(value) for value in locators)
 
 
-def _consensus_support_records(proposal: dict[str, Any]) -> list[dict[str, Any]]:
+def _placeholder_source_ref(value: Any) -> bool:
+    return not bool(canonical_traceable_source_ref(value))
+
+
+def _consensus_support_group(
+    source_channel: str,
+    evidence_level: str,
+    source_refs: list[str],
+    evidence_refs: list[str],
+) -> str:
+    """Derive support identity without trusting producer-authored groups."""
+
+    return source_record_support_group(
+        source_channel,
+        evidence_level,
+        source_refs,
+        evidence_refs,
+    )
+
+
+def _source_ref_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set)):
+        values = value
+    else:
+        values = []
+    return _dedupe([str(item) for item in values if str(item).strip()])
+
+
+def _consensus_support_records(
+    proposal: dict[str, Any],
+    *,
+    limit: int | None = 32,
+) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for raw in proposal.get("source_records") or []:
         if not isinstance(raw, dict):
             continue
         source_channel = str(raw.get("source_channel") or "other")
+        evidence_level = str(raw.get("evidence_level") or "model_only")
+        source_refs = _source_ref_values(raw.get("source_refs"))
+        evidence_refs = _source_ref_values(raw.get("evidence_refs"))
         records.append(
             {
                 "candidate_id": str(raw.get("candidate_id") or ""),
                 "source_channel": source_channel,
-                "evidence_level": str(raw.get("evidence_level") or "model_only"),
+                "evidence_level": evidence_level,
                 "confidence": str(raw.get("confidence") or "low"),
                 "support_group": _consensus_support_group(
                     source_channel,
-                    str(raw.get("support_group") or ""),
+                    evidence_level,
+                    source_refs,
+                    evidence_refs,
                 ),
-                "source_refs": _dedupe([str(item) for item in raw.get("source_refs") or []]),
-                "evidence_refs": _dedupe([str(item) for item in raw.get("evidence_refs") or []]),
+                "declared_support_group": str(raw.get("support_group") or ""),
+                "source_refs": source_refs,
+                "evidence_refs": evidence_refs,
             }
         )
-    return records[:32]
+    if limit is None:
+        return records
+    return records[: max(0, int(limit))]
 
 
 def _consensus_independent_support_groups(
     proposal: dict[str, Any],
-    support_records: list[dict[str, Any]],
+    support_records: list[dict[str, Any]] | None = None,
 ) -> list[str]:
-    groups = _dedupe([str(row.get("support_group") or "") for row in support_records])
-    if not groups:
-        groups = _dedupe(
+    # Always recompute from the complete producer record set.  The optional
+    # argument exists for compatibility with older callers but a display slice
+    # must never determine source diversity.
+    del support_records
+    all_records = _consensus_support_records(proposal, limit=None)
+    if all_records:
+        return _dedupe(
             [
-                _consensus_support_group("", str(group))
-                for group in proposal.get("independent_support_groups") or []
+                _consensus_support_group(
+                    str(row.get("source_channel") or "other"),
+                    str(row.get("evidence_level") or "model_only"),
+                    _source_ref_values(row.get("source_refs")),
+                    _source_ref_values(row.get("evidence_refs")),
+                )
+                for row in all_records
             ]
         )
-    if not groups:
-        groups = _dedupe(
-            [
-                _consensus_support_group(str(channel), "")
-                for channel in proposal.get("source_channels") or []
-            ]
-        )
-    # Collapse any malformed producer output that counted individual Codex
-    # roles as independent evidence.
-    return _dedupe(["codex_model" if str(group).lower().startswith("codex") else group for group in groups])
+
+    # Legacy payloads without source records cannot establish independent
+    # groups, regardless of how many groups/channels they declare.
+    channels = _source_ref_values(proposal.get("source_channels"))
+    declared_groups = _source_ref_values(proposal.get("independent_support_groups"))
+    has_codex = any(
+        value.lower().startswith("codex") for value in [*channels, *declared_groups]
+    )
+    if has_codex:
+        return ["codex_model"]
+    if (
+        channels
+        or declared_groups
+        or _source_ref_values(proposal.get("source_refs"))
+        or _source_ref_values(proposal.get("evidence_refs"))
+    ):
+        return ["legacy_unverified_support"]
+    return []
 
 
 def _consensus_direct_source_refs(proposal: dict[str, Any]) -> list[str]:
     values = [
-        *[str(item) for item in proposal.get("source_refs") or []],
-        *[str(item) for item in proposal.get("evidence_refs") or []],
+        *_source_ref_values(proposal.get("source_refs")),
+        *_source_ref_values(proposal.get("evidence_refs")),
     ]
-    for record in _consensus_support_records(proposal):
+    for record in _consensus_support_records(proposal, limit=None):
         values.extend(str(item) for item in record.get("source_refs") or [])
         values.extend(str(item) for item in record.get("evidence_refs") or [])
     return _dedupe(values)[:32]
@@ -5176,7 +5423,7 @@ def _branch_title_for_display(*, branch_id: str, title: str, kind: str) -> str:
         "visual_chain": "图像证据分支",
         "stitched_verified_route": "拼接验证路线",
         "process_evidence": "文献工艺锚点",
-        "route_consensus": "多信源共识候选",
+        "route_consensus": "共识候选",
         "retrosynthetic_proposal": "备选逆合成分支",
         "broad_template": "通用模板分支",
         "direct_verified_route": "已验证路线",
@@ -5194,7 +5441,7 @@ def _recommendation_for_display(*, kind: str, recommendation: str) -> str:
         "stitched_verified_route": "拼接验证",
         "visual_chain": "支持/备选",
         "process_evidence": "工艺锚点",
-        "route_consensus": "仅建议",
+        "route_consensus": "共识建议",
         "retrosynthetic_proposal": "探索备选",
         "broad_template": "模板提示",
         "direct_verified_route": "已验证",

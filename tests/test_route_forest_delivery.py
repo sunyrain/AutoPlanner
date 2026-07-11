@@ -1027,7 +1027,10 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
     for action in ("fit", "zoom-in", "zoom-out", "reset"):
         assert f'data-graph-action="{action}"' in template
     for phrase in (
-        "Multi-source consensus audit",
+        "Consensus evidence audit",
+        "真实信源",
+        "同分候选",
+        "展示锚点",
         "Independent support groups",
         "Condition conflicts",
         "Codex roles are correlated",
@@ -1049,3 +1052,9 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
     assert ".015" in script
     assert ".branch-card[data-branch-id]" in script
     assert "document.querySelectorAll('[data-branch-id]')" not in script
+    assert "forest.primary_selection?.display_tiebreak_only && primaryId" in script
+    assert "row.support_group || row.source_channel" in script
+    assert "row.source_refs" in script
+    assert "row.evidence_refs" in script
+    assert "Array.isArray(row.values)" in script
+    assert "row.source_group || row.source_ref" not in script

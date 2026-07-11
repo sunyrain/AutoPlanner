@@ -176,6 +176,15 @@ You must directly spawn one child agent for every role below:
 Every child spawn prompt must contain the exact machine-readable marker
 AUTOPLANNER_CHILD_ROLE=<assigned_role> for that role.
 
+Every child spawn prompt must also state these strict JSON type rules: no field
+may be null; confidence, catalyst, enzyme, evidence_level, source_channel, and
+all other scalar candidate fields are strings; precursor_smiles, source_refs,
+evidence_refs, conditions, limitations, and required_validation are arrays of
+strings; no_solved_claim and not_parent_route_proof are literal true. Use
+confidence="low", catalyst="", enzyme="", and conditions=[] when those values
+are unknown. Returning candidates=[] is always preferable to violating this
+contract.
+
 Give each child only the target, the context reference, its role, the shared
 RetrosynthesisProposalReport candidate contract below, and a bounded task.
 Each child must return exactly one JSON object matching this payload contract,
@@ -361,6 +370,9 @@ def run_codex_retrosynthesis_team(
             "event_summary": dict((record.metadata or {}).get("event_summary") or {}),
             "usage": dict(record.usage or {}),
             "coordinator_candidate_count": len(coordinator_candidates),
+            "child_report_normalization_repair_count": sum(
+                len(row.get("normalization_repairs") or []) for row in child_reports
+            ),
         },
         "child_reports": child_reports,
         "artifact_validation": artifact_validation,
@@ -374,6 +386,7 @@ def run_codex_retrosynthesis_team(
             "codex_child_agents_required": True,
             "deterministic_scientific_fallback_used": False,
             "deterministic_parent_proof_required": True,
+            "child_shape_repairs_are_conservative_defaults_only": True,
             "no_solved_claim": True,
         },
     }
@@ -1416,6 +1429,7 @@ def _validated_child_reports(
         message_bytes = len(message_text.encode("utf-8"))
         message_sha256 = hashlib.sha256(message_text.encode("utf-8")).hexdigest() if message_text else ""
         parsed = _child_report_payload(message_text) if message_bytes <= MAX_CHILD_REPORT_BYTES else {}
+        parsed, normalization_repairs = _conservative_child_report_shape_repair(parsed)
         validation_reasons: list[str] = []
         status = str(child.get("status") or "").strip().lower()
         if status not in {"completed", "succeeded", "success", "accepted"}:
@@ -1472,6 +1486,7 @@ def _validated_child_reports(
             "candidate_count": candidate_count,
             "message_bytes": message_bytes,
             "message_sha256": message_sha256,
+            "normalization_repairs": normalization_repairs,
             "validation_reasons": sorted(set(validation_reasons)),
             "source_event_log_ref": str((record.metadata or {}).get("event_log_path") or ""),
         }
@@ -1486,6 +1501,7 @@ def _validated_child_reports(
                 "candidate_count": candidate_count,
                 "message_bytes": message_bytes,
                 "message_sha256": message_sha256,
+                "normalization_repairs": normalization_repairs,
                 "validation_reasons": sorted(set(validation_reasons)),
             }
         )
@@ -1499,6 +1515,61 @@ def _child_report_payload(message: Any) -> dict[str, Any]:
     if value.get("schema_version") != "retrosynthesis_proposal_report.v1":
         return {}
     return dict(value)
+
+
+def _conservative_child_report_shape_repair(
+    payload: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Repair only syntax-level unknowns to conservative advisory defaults."""
+    if not payload:
+        return {}, []
+    repaired = dict(payload)
+    repairs: list[str] = []
+    for key in ("evidence_refs", "limitations"):
+        if repaired.get(key) is None:
+            repaired[key] = []
+            repairs.append(f"report:{key}:null_to_empty_list")
+    raw_candidates = repaired.get("candidates")
+    if not isinstance(raw_candidates, list):
+        return repaired, repairs
+    candidates: list[Any] = []
+    for index, raw in enumerate(raw_candidates):
+        if not isinstance(raw, dict):
+            candidates.append(raw)
+            continue
+        candidate = dict(raw)
+        for key, default in (
+            ("candidate_id", ""),
+            ("reaction_family", "unspecified"),
+            ("transformation_rationale", ""),
+            ("source_channel", "other"),
+            ("evidence_level", "model_only"),
+            ("catalyst", ""),
+            ("enzyme", ""),
+        ):
+            if candidate.get(key) is None:
+                candidate[key] = default
+                repairs.append(f"candidate:{index}:{key}:null_to_conservative_default")
+        if not isinstance(candidate.get("confidence"), str):
+            candidate["confidence"] = "low"
+            repairs.append(f"candidate:{index}:confidence:non_string_to_low")
+        for key in (
+            "source_refs",
+            "evidence_refs",
+            "conditions",
+            "limitations",
+            "required_validation",
+        ):
+            value = candidate.get(key)
+            if value is None:
+                candidate[key] = []
+                repairs.append(f"candidate:{index}:{key}:null_to_empty_list")
+            elif isinstance(value, str):
+                candidate[key] = [value] if value.strip() else []
+                repairs.append(f"candidate:{index}:{key}:string_to_string_list")
+        candidates.append(candidate)
+    repaired["candidates"] = candidates
+    return repaired, repairs
 
 
 def _strict_child_report_shape_reasons(payload: dict[str, Any]) -> list[str]:
@@ -1579,6 +1650,9 @@ def _annotate_child_report_validation(
         child.pop("message", None)
         child["report_accepted"] = report.get("accepted") is True
         child["report_ref"] = str(report.get("report_ref") or "")
+        child["report_normalization_repairs"] = list(
+            report.get("normalization_repairs") or []
+        )
         child["report_validation_reasons"] = list(report.get("validation_reasons") or [])
         child["message_bytes"] = int(report.get("message_bytes") or 0)
         child["message_sha256"] = str(report.get("message_sha256") or "")

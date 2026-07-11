@@ -17,6 +17,12 @@ import re
 import sys
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from cascade_planner.source_locators import canonical_traceable_source_ref  # noqa: E402
+
 
 SCHEMA_VERSION = "agentic_run_evaluation.v1"
 COMPARISON_SCHEMA_VERSION = "agentic_run_comparison.v1"
@@ -669,7 +675,36 @@ def _evaluate_evidence(
         _safe_int(_as_dict(row.get("summary")).get("rendered_page_count")) for row in pdf_rows
     )
     source_rows = _dict_rows(literature.get("source_candidates"))
-    counts["source_documents"] = sum(_source_document_count(row) for row in source_rows)
+    if source_rows:
+        real_source_rows = [row for row in source_rows if _source_candidate_has_real_source(row)]
+        placeholder_source_rows = [
+            row for row in source_rows if not _source_candidate_has_real_source(row)
+        ]
+    else:
+        source_rows = _dict_rows(forest_index.get("source_candidates"))
+        real_source_rows = _dict_rows(forest_index.get("real_source_candidates"))
+        if not real_source_rows:
+            real_source_rows = [
+                row for row in source_rows if _source_candidate_has_real_source(row)
+            ]
+        placeholder_source_rows = _dict_rows(forest_index.get("placeholder_candidates"))
+        if not placeholder_source_rows:
+            placeholder_source_rows = [
+                row for row in source_rows if not _source_candidate_has_real_source(row)
+            ]
+    counts["source_candidate_records"] = len(source_rows)
+    counts["source_candidates"] = len(source_rows)
+    counts["real_source_candidates"] = len(real_source_rows)
+    counts["placeholder_candidates"] = len(placeholder_source_rows)
+    counts["source_documents"] = sum(
+        _source_document_count(row) for row in real_source_rows
+    )
+    source_refs = _string_list(literature.get("source_refs"))
+    real_source_refs = [ref for ref in source_refs if not _placeholder_source_ref(ref)]
+    counts["source_ref_records"] = len(source_refs)
+    counts["source_refs"] = len(source_refs)
+    counts["real_source_refs"] = len(real_source_refs)
+    counts["placeholder_source_refs"] = len(source_refs) - len(real_source_refs)
 
     visual_rows = _dict_rows(literature.get("visual_chains"))
     if not visual_rows:
@@ -711,7 +746,34 @@ def _source_document_count(source: Mapping[str, Any]) -> int:
     documents = source.get("documents")
     if isinstance(documents, list):
         return len(documents)
-    return 1 if str(source.get("local_pdf") or "").strip() else 0
+    return 1 if _source_candidate_has_real_source(source) else 0
+
+
+def _source_candidate_has_real_source(source: Mapping[str, Any]) -> bool:
+    if bool(source.get("placeholder_only")):
+        return False
+    if str(source.get("access_status") or "").strip().lower() == "placeholder_only":
+        return False
+    if str(source.get("source_type") or "").strip().lower() == "placeholder_query":
+        return False
+    if str(source.get("source_discovery_mode") or "").strip().lower() == "placeholder":
+        return False
+    locators = [
+        source.get("doi"),
+        source.get("pii"),
+        source.get("url"),
+        source.get("source_ref"),
+    ]
+    local_path = str(source.get("local_pdf") or source.get("pdf_path") or "").strip()
+    if local_path:
+        locators.append(
+            local_path if local_path.lower().startswith("local_pdf:") else f"local_pdf:{local_path}"
+        )
+    return any(canonical_traceable_source_ref(value) for value in locators)
+
+
+def _placeholder_source_ref(value: Any) -> bool:
+    return not bool(canonical_traceable_source_ref(value))
 
 
 def _resolved_shortcut_matches_target(

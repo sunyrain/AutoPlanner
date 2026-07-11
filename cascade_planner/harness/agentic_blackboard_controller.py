@@ -4177,6 +4177,7 @@ def _codex_literature_scout_task(
         case_id=str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
         task_type="target_research",
         required_artifact_type="LiteratureScoutReport",
+        model=str(state.model or ""),
         input_refs=[str(state.run_dir / "agent_blackboard.json")],
         allowed_tools=["web_search", "browser", "local_search"],
         budget=WorkerBudget(

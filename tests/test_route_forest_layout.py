@@ -187,6 +187,35 @@ def test_branch_lane_group_order_is_independent_of_input_order() -> None:
     assert [row["branch_id"] for row in forward["lanes"]] == ["verified", "proposal"]
 
 
+def test_consensus_lane_label_requires_independent_multi_source_support() -> None:
+    graph = {"nodes": [], "edges": [], "branch_views": []}
+    branches = [
+        {
+            "branch_id": "multi",
+            "title": "Independent support",
+            "kind": "route_consensus",
+            "consensus_scope": "multi_source",
+            "multi_source": True,
+        },
+        {
+            "branch_id": "correlated",
+            "title": "Several Codex roles",
+            "kind": "route_consensus",
+            "consensus_scope": "correlated_single_source",
+            "multi_source": False,
+        },
+    ]
+
+    projection = build_branch_lane_projection(branches, graph)
+    lanes = {row["branch_id"]: row for row in projection["lanes"]}
+
+    assert lanes["multi"]["kind_label"] == "多信源共识"
+    assert lanes["multi"]["multi_source"] is True
+    assert lanes["correlated"]["kind_label"] == "相关源共识"
+    assert lanes["correlated"]["multi_source"] is False
+    assert projection["groups"][0]["label"] == "共识候选"
+
+
 def test_dense_96_branch_projection_keeps_every_lane_node_and_edge() -> None:
     branches = []
     steps = []

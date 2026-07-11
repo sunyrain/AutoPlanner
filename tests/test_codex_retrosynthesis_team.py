@@ -13,6 +13,8 @@ from cascade_planner.orchestration.codex_retrosynthesis import (
     DEFAULT_CHILD_ROLES,
     RetrosynthesisTeamConfig,
     _child_report_payload,
+    _conservative_child_report_shape_repair,
+    _strict_child_report_shape_reasons,
     build_retrosynthesis_coordinator_task,
     migrate_legacy_campaign_commits,
     run_codex_retrosynthesis_team,
@@ -118,6 +120,8 @@ def test_coordinator_task_requires_direct_child_roles(tmp_path) -> None:
     assert "spawn_agent" in task.allowed_tools
     assert "Directly call spawn_agent" not in task.objective  # objective is chemistry-facing wording
     assert "directly spawn" in task.objective.lower()
+    assert "no field\nmay be null" in task.objective
+    assert 'confidence="low", catalyst="", enzyme="", and conditions=[]' in task.objective
 
 
 def test_codex_retrosynthesis_schema_cannot_self_report_validated(tmp_path) -> None:
@@ -612,3 +616,45 @@ def test_child_report_parser_rejects_prose_multiple_objects_duplicate_keys_and_n
     assert _child_report_payload(f"{valid}\n{valid}") == {}
     assert _child_report_payload('{"schema_version":"retrosynthesis_proposal_report.v1","schema_version":"retrosynthesis_proposal_report.v1"}') == {}
     assert _child_report_payload('{"schema_version":"retrosynthesis_proposal_report.v1","score":NaN}') == {}
+
+
+def test_child_report_shape_repair_only_applies_conservative_advisory_defaults() -> None:
+    payload = json.loads(
+        child_report_message("case", "target_structure_strategist", with_candidate=True)
+    )
+    candidate = payload["candidates"][0]
+    original_product = candidate["product_smiles"]
+    original_precursors = list(candidate["precursor_smiles"])
+    candidate.update(
+        {
+            "confidence": 0.88,
+            "conditions": "ambient temperature",
+            "catalyst": None,
+            "enzyme": None,
+        }
+    )
+
+    repaired, repairs = _conservative_child_report_shape_repair(payload)
+    repaired_candidate = repaired["candidates"][0]
+
+    assert repaired_candidate["confidence"] == "low"
+    assert repaired_candidate["conditions"] == ["ambient temperature"]
+    assert repaired_candidate["catalyst"] == ""
+    assert repaired_candidate["enzyme"] == ""
+    assert repaired_candidate["product_smiles"] == original_product
+    assert repaired_candidate["precursor_smiles"] == original_precursors
+    assert len(repairs) == 4
+    assert _strict_child_report_shape_reasons(repaired) == []
+
+    repaired_candidate["precursor_smiles"] = "CC"
+    assert "child_candidate:0:precursor_smiles_not_string_list" in (
+        _strict_child_report_shape_reasons(repaired)
+    )
+
+    for invalid_candidates in (1, True, 3.14):
+        invalid_payload = {**payload, "candidates": invalid_candidates}
+        unrepaired, _ = _conservative_child_report_shape_repair(invalid_payload)
+        assert unrepaired["candidates"] == invalid_candidates
+        assert "child_report_candidates_not_list" in _strict_child_report_shape_reasons(
+            unrepaired
+        )

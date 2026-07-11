@@ -5619,6 +5619,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 target_input=target.to_dict(),
                 preflight=preflight,
                 budget=HarnessBudget(open_research_timeout_s=900.0),
+                model="gpt-5.5",
             )
 
             task = _codex_literature_scout_task(
@@ -5631,6 +5632,7 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertEqual(_codex_scout_timeout_s(state, {}), 900.0)
         self.assertEqual(task.budget.timeout_s, 900.0)
         self.assertEqual(task.budget.reasoning_effort, "high")
+        self.assertEqual(task.model, "gpt-5.5")
         self.assertIn("web_search", task.allowed_tools)
         self.assertIn("browser", task.allowed_tools)
         self.assertGreater(task.budget.max_tool_calls, 0)

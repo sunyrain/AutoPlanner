@@ -1,6 +1,16 @@
 const $ = (id) => document.getElementById(id);
 
 const samples = {
+  artemisinin: {
+    name: "artemisinin",
+    hint: "sesquiterpene endoperoxide, multi-source total synthesis and semisynthesis",
+    smiles: "C[C@@H]1CC[C@H]2[C@H](C(=O)O[C@H]3[C@@]24[C@H]1CC[C@](O3)(OO4)C)C",
+    rounds: 7,
+    scout: 3,
+    visual: 3,
+    chemenzy: 2,
+    subgoal: 3,
+  },
   atorvastatin: {
     name: "atorvastatin",
     hint: "statin, HMG-CoA reductase inhibitor, Paal-Knorr convergent route",
@@ -53,6 +63,8 @@ const state = {
   routeLoadToken: 0,
   routeHandshakeToken: "",
   routeHandshakeTimer: 0,
+  routeExamplesToken: 0,
+  routeInputRevision: 0,
   controlsOpen: true,
   activityOpen: true,
   mobileView: "route",
@@ -211,6 +223,66 @@ function applySample(key) {
   $("visual-calls").value = String(sample.visual);
   $("chemenzy-runs").value = String(sample.chemenzy);
   $("subgoal-runs").value = String(sample.subgoal);
+}
+
+function renderRouteExamples(data, { preserveRouteInput = false } = {}) {
+  const select = $("demo-route");
+  const input = $("existing-route");
+  const hint = $("existing-route-hint");
+  const examples = Array.isArray(data?.examples) ? data.examples : [];
+  const preservedInput = input.value;
+  select.replaceChildren();
+  if (!examples.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "此 checkout 暂无本地路线图";
+    select.append(option);
+    select.disabled = true;
+    if (!preserveRouteInput) input.value = "";
+    hint.textContent = data?.message || "没有发现可预览的本地结果；仍可选择上方目标并启动 Agent。";
+    return [];
+  }
+  examples.forEach((example) => {
+    const option = document.createElement("option");
+    option.value = normalizeResultPath(example.path);
+    option.textContent = example.label || example.key || option.value;
+    option.dataset.sampleKey = example.key || "";
+    select.append(option);
+  });
+  select.disabled = false;
+  const matchingOption = [...select.options].find((option) => option.value === normalizeResultPath(preservedInput));
+  if (matchingOption) select.value = matchingOption.value;
+  if (!preserveRouteInput) input.value = select.value;
+  const unavailableCount = Array.isArray(data?.unavailable_examples) ? data.unavailable_examples.length : 0;
+  const availabilityMessage = data?.message || `发现 ${examples.length} 个可预览的本地路线图。`;
+  hint.textContent = unavailableCount
+    ? `${availabilityMessage} 另有 ${unavailableCount} 个展示 artifact 未随 checkout 提供。`
+    : availabilityMessage;
+  return examples;
+}
+
+async function loadRouteExamples({ preserveRouteInput = false } = {}) {
+  const requestToken = ++state.routeExamplesToken;
+  const inputRevision = state.routeInputRevision;
+  try {
+    const data = await api("/api/route-examples");
+    if (requestToken !== state.routeExamplesToken) return [];
+    return renderRouteExamples(data, {
+      preserveRouteInput: preserveRouteInput
+        || Boolean(state.currentJobId)
+        || inputRevision !== state.routeInputRevision,
+    });
+  } catch (err) {
+    if (requestToken !== state.routeExamplesToken) return [];
+    return renderRouteExamples({
+      examples: [],
+      message: `无法检查本地路线图（${err.message}）；仍可选择上方目标并启动 Agent。`,
+    }, {
+      preserveRouteInput: preserveRouteInput
+        || Boolean(state.currentJobId)
+        || inputRevision !== state.routeInputRevision,
+    });
+  }
 }
 
 function readPayload() {
@@ -422,6 +494,10 @@ function renderJob(job) {
   if (summary.time_s != null) counts.push(`${summary.time_s}s`);
   $("route-counts").textContent = counts.join(" · ") || "等待 route forest";
   const routePath = normalizeResultPath(job.route_forest_html);
+  if (routePath) {
+    $("existing-route").value = routePath;
+    state.routeInputRevision += 1;
+  }
   if (routePath && !routePath.endsWith(".html")) {
     showRouteMessage("error", "路线图路径无效", "后端返回的不是 route_forest.html，暂时不能嵌入主画布。", routePath);
   } else if (routePath && shouldLoadRoute(routePath)) {
@@ -622,7 +698,7 @@ function handleRouteFrameMessage(event) {
   completeRouteLoad(state.routeLoadingPath, state.routeLoadToken, message);
 }
 
-function loadRoute(path) {
+async function loadRoute(path) {
   const normalizedPath = normalizeResultPath(path);
   if (!normalizedPath.endsWith(".html")) {
     showRouteMessage("error", "路线图路径无效", "当前产物不是可嵌入的 HTML 路线图。", normalizedPath);
@@ -632,12 +708,27 @@ function loadRoute(path) {
   const token = ++state.routeLoadToken;
   const url = resultFileUrl(normalizedPath);
   clearRouteHandshake();
-  state.routeHandshakeToken = createRouteHandshakeToken(token);
-  const embedUrl = `${url}&embed=1&parent_token=${encodeURIComponent(state.routeHandshakeToken)}`;
   state.routeLoadingPath = normalizedPath;
   state.loadedRoutePath = "";
-  setOpenRouteLink(url);
+  setOpenRouteLink();
   showRouteMessage("loading", "正在载入路线图", "大型路线图可能需要数秒；任务运行时会在下一次轮询继续检查。", normalizedPath);
+  try {
+    const response = await fetch(url, { method: "HEAD", cache: "no-store" });
+    if (token !== state.routeLoadToken) return;
+    if (!response.ok) {
+      const detail = response.status === 404
+        ? "此 checkout 中不存在该路线图；请选择可用示例或启动 Agent 生成结果。"
+        : `路线图可用性检查失败（HTTP ${response.status}）。`;
+      failRouteLoad(normalizedPath, token, detail);
+      return;
+    }
+  } catch {
+    failRouteLoad(normalizedPath, token, "无法连接后端检查路线图；可以稍后重试或启动 Agent 生成新结果。");
+    return;
+  }
+  state.routeHandshakeToken = createRouteHandshakeToken(token);
+  const embedUrl = `${url}&embed=1&parent_token=${encodeURIComponent(state.routeHandshakeToken)}`;
+  setOpenRouteLink(url);
   frame.onload = () => {};
   frame.onerror = () => failRouteLoad(normalizedPath, token, "路线图网络加载失败，可重试或在新窗口检查。");
   state.routeHandshakeTimer = window.setTimeout(() => {
@@ -669,7 +760,17 @@ function clearRoute() {
 
 function loadExisting() {
   const path = normalizeResultPath($("existing-route").value);
-  if (!path) return;
+  if (!path) {
+    clearRoute();
+    $("route-state").textContent = "等待运行";
+    $("route-counts").textContent = "当前没有本地 route forest";
+    showRouteMessage(
+      "empty",
+      "此 checkout 暂无可预览路线",
+      "请选择上方目标样例并点击“启动 Agent 全流程”，生成后会自动载入路线图。",
+    );
+    return;
+  }
   if (!state.currentJobId) {
     $("job-title").textContent = "已有路线";
     $("job-subtitle").textContent = path;
@@ -722,7 +823,11 @@ function bind() {
   });
   $("demo-route").addEventListener("change", () => {
     $("existing-route").value = $("demo-route").value;
+    state.routeInputRevision += 1;
     syncDemoTarget();
+  });
+  $("existing-route").addEventListener("input", () => {
+    state.routeInputRevision += 1;
   });
   document.querySelectorAll(".mobile-view-tab").forEach((button) => {
     button.addEventListener("click", () => setMobileView(button.dataset.mobileView || "route"));
@@ -753,9 +858,14 @@ async function init() {
   applyLayoutState();
   refreshStatus();
   const restored = await restoreActiveJob();
+  const examples = await loadRouteExamples({ preserveRouteInput: restored });
   if (!restored) {
-    syncDemoTarget();
-    loadExisting();
+    if (examples.length) {
+      syncDemoTarget();
+      loadExisting();
+    } else {
+      loadExisting();
+    }
   }
 }
 

@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import hashlib
 import math
-import re
 from collections import defaultdict
 from typing import Any, Iterable
-from urllib.parse import unquote, urlsplit, urlunsplit
 
 from rdkit import Chem, RDLogger
+
+from cascade_planner.source_locators import (
+    canonical_traceable_source_ref,
+    source_record_support_group,
+    source_ref_sort_key,
+)
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -221,14 +225,25 @@ def consensus_to_blackboard_proposals(consensus: dict[str, Any]) -> list[dict[st
         if not isinstance(proposal, dict):
             continue
         status = str(proposal.get("status") or "model_hypothesis")
+        independent_source_count = len(_proposal_independent_support_groups(proposal))
+        consensus_scope = (
+            "multi_source" if independent_source_count > 1 else "correlated_single_source"
+        )
         rows.append({
             "schema_version": "retrosynthetic_proposal.v1",
             "proposal_id": f"consensus:{proposal.get('consensus_id')}",
             "proposal_type": "evidence_backed_advisory" if status == "evidence_backed_draft" else "strategic",
-            "source_type": "multi_source_consensus",
+            "source_type": (
+                "multi_source_consensus"
+                if consensus_scope == "multi_source"
+                else "correlated_consensus"
+            ),
+            "consensus_scope": consensus_scope,
+            "independent_source_count": independent_source_count,
+            "multi_source": consensus_scope == "multi_source",
             "source_channels": list(proposal.get("source_channels") or []),
             "source_support": list(proposal.get("source_records") or []),
-            "proposal_label": str(proposal.get("reaction_family") or "multi-source proposal"),
+            "proposal_label": str(proposal.get("reaction_family") or "consensus proposal"),
             "target_smiles": str(proposal.get("product_smiles") or ""),
             "precursor_smiles": str(proposal.get("precursor_set_smiles") or ""),
             "precursor_component_count": len(proposal.get("precursor_smiles") or []),
@@ -251,6 +266,36 @@ def consensus_to_blackboard_proposals(consensus: dict[str, Any]) -> list[dict[st
             "no_solved_claim": True,
         })
     return rows
+
+
+def _proposal_independent_support_groups(proposal: dict[str, Any]) -> list[str]:
+    groups = _dedupe(
+        _support_group(
+            _normalize_source_channel(record.get("source_channel")),
+            _normalize_evidence_level(record.get("evidence_level")),
+            _texts(record.get("source_refs")),
+            _texts(record.get("evidence_refs")),
+        )
+        for record in proposal.get("source_records") or []
+        if isinstance(record, dict)
+    )
+    if groups:
+        return groups
+    legacy_channels = [
+        str(channel or "").strip().lower()
+        for channel in proposal.get("source_channels") or []
+        if str(channel or "").strip()
+    ]
+    legacy_groups = [
+        str(group or "").strip().lower()
+        for group in proposal.get("independent_support_groups") or []
+        if str(group or "").strip()
+    ]
+    if any(value.startswith("codex") for value in [*legacy_channels, *legacy_groups]):
+        return ["codex_model"]
+    if legacy_channels or legacy_groups or proposal.get("source_refs") or proposal.get("evidence_refs"):
+        return ["legacy_unverified_support"]
+    return []
 
 
 def validate_retrosynthesis_report_payload(payload: Any) -> list[str]:
@@ -389,78 +434,21 @@ def _support_group(
     source_refs: list[str],
     evidence_refs: list[str],
 ) -> str:
-    # All Codex roles share one correlated model source, even when a caller
-    # explicitly permits trusted evidence levels.  Trusting an exact-row
-    # adapter must never turn a model's DOI claim into independent literature.
-    if source_channel.startswith("codex_"):
-        return "codex_model"
-    aliases = _literature_source_aliases([*source_refs, *evidence_refs])
-    traceable = _preferred_source_alias(aliases)
-    if evidence_level == "literature_exact" and traceable:
-        return f"literature:{traceable}"
-    if evidence_level == "validated":
-        return f"validated:{traceable or source_channel}"
-    if source_channel in {"chem_enzy", "template", "stock"}:
-        return f"computational:{source_channel}"
-    if source_channel == "literature_analogy":
-        # A syntactically DOI-like model/legacy claim is not an independently
-        # verified source.  Only the strict exact-row adapter may create an
-        # independent literature support group.
-        return "codex_model"
-    if not traceable:
-        # An unattributed model/legacy record is not an independent source.
-        # Correlate it with model-authored hypotheses so it cannot create a
-        # diversity bonus merely by arriving through the generic adapter.
-        return "codex_model"
-    return f"source:{source_channel}:{traceable}"
+    return source_record_support_group(
+        source_channel,
+        evidence_level,
+        source_refs,
+        evidence_refs,
+    )
 
 
 def _traceable_literature_ref(value: Any) -> bool:
     return bool(_canonical_literature_ref(value))
 
 
-_DOI_PATTERN = re.compile(r"(?i)(10\.\d{4,9}/[-._;()/:A-Z0-9]+)")
-_PMID_PATTERN = re.compile(r"(?i)(?:^pmid\s*:\s*|pubmed\.ncbi\.nlm\.nih\.gov/)(\d+)")
-_PMC_PATTERN = re.compile(
-    r"(?i)(?:^pmc\s*:\s*(?:pmc)?|(?:www\.)?(?:ncbi\.nlm\.nih\.gov/pmc/articles/|pmc\.ncbi\.nlm\.nih\.gov/articles/)(?:pmc)?)(\d+)"
-)
-
-
 def _canonical_literature_ref(value: Any) -> str:
-    """Return one stable article/source alias without claiming authenticity."""
-    text = unquote(str(value or "").strip()).strip()
-    if not text:
-        return ""
-    lowered = text.lower()
-    doi_match = _DOI_PATTERN.search(lowered.removeprefix("doi:"))
-    if doi_match:
-        doi = doi_match.group(1).rstrip(".,;:)]}")
-        return f"doi:{doi}"
-    pmid_match = _PMID_PATTERN.search(lowered)
-    if pmid_match:
-        return f"pmid:{int(pmid_match.group(1))}"
-    pmc_match = _PMC_PATTERN.search(lowered)
-    if pmc_match:
-        return f"pmc:{int(pmc_match.group(1))}"
-    if lowered.startswith("pmc:"):
-        clean = lowered.removeprefix("pmc:").removeprefix("pmc").strip()
-        return f"pmc:{int(clean)}" if clean.isdigit() else ""
-    if lowered.startswith(("http://", "https://")):
-        try:
-            parts = urlsplit(lowered)
-        except ValueError:
-            return ""
-        if not parts.hostname:
-            return ""
-        host = parts.hostname.lower()
-        port = f":{parts.port}" if parts.port else ""
-        path = re.sub(r"/+", "/", parts.path or "/").rstrip("/") or "/"
-        return f"url:{urlunsplit(('https', host + port, path, '', ''))}"
-    for prefix in ("local_pdf:", "source:"):
-        if lowered.startswith(prefix):
-            identity = lowered.removeprefix(prefix).split("#", 1)[0].strip().replace("\\", "/")
-            return f"{prefix}{identity}" if identity else ""
-    return ""
+    """Return one syntactically validated article/source alias."""
+    return canonical_traceable_source_ref(value)
 
 
 def _literature_source_aliases(values: Iterable[Any]) -> list[str]:
@@ -475,9 +463,7 @@ def _literature_source_aliases(values: Iterable[Any]) -> list[str]:
 
 
 def _source_alias_sort_key(value: str) -> tuple[int, str]:
-    priorities = {"doi": 0, "pmid": 1, "pmc": 2, "url": 3, "local_pdf": 4, "source": 5}
-    prefix = value.split(":", 1)[0]
-    return priorities.get(prefix, 99), value
+    return source_ref_sort_key(value)
 
 
 def _preferred_source_alias(values: Iterable[str]) -> str:
@@ -497,8 +483,8 @@ def _reconcile_literature_support_groups(rows: list[dict[str, Any]]) -> None:
         index
         for index, row in enumerate(rows)
         if row.get("evidence_level") in {"literature_exact", "validated"}
+        and row.get("source_channel") == "literature_exact"
         and row.get("source_identity_aliases")
-        and not str(row.get("source_channel") or "").startswith("codex_")
     ]
     parents = {index: index for index in eligible}
 

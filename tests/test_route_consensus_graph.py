@@ -248,6 +248,9 @@ def test_route_forest_projects_multistep_graph_in_forward_order_with_step_scoped
     assert [row["graph_step_id"] for row in rendered] == graph["route_hypotheses"][0]["forward_step_ids"]
     assert rendered[0]["source_refs"] == ["doi:10.1000/middle"]
     assert rendered[1]["source_refs"] == ["doi:10.1000/root"]
+    assert all(row["independent_support_groups"] == ["codex_model"] for row in rendered)
+    assert all(row["independent_source_count"] == 1 for row in rendered)
+    assert all(row["multi_source"] is False for row in rendered)
     assert "D:/runs/ethanol/route_consensus_graph.json" not in rendered[0]["source_refs"]
     assert branch["route_level_source_refs"] == ["D:/runs/ethanol/route_consensus_graph.json"]
     assert branch["advisory_only"] is True

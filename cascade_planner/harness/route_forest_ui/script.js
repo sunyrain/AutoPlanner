@@ -7,7 +7,7 @@
   const LEGACY_STORAGE_KEY = 'autoplanner.route-forest-ui.v2';
   const PAN_DRAG_THRESHOLD_PX = 5;
   const COPY = Object.freeze({
-    consensus: 'Multi-source consensus audit',
+    consensus: 'Consensus evidence audit',
     support: 'Independent support groups',
     conflicts: 'Condition conflicts',
     correlated: 'Codex roles are correlated',
@@ -149,6 +149,7 @@
     const primaryId = String(forest.primary_branch_id
       || (lanesProjection.lanes || []).find(row => row.is_primary)?.branch_id || '');
     const primary = branches.get(primaryId) || {};
+    if (forest.primary_selection?.display_tiebreak_only && primaryId) return primaryId;
     if (primary.solved === true && primary.executable === true && primary.advisory_only === false) return primaryId;
     const featured = (lanesProjection.lanes || [])
       .filter(row => row.listed !== false)
@@ -273,10 +274,15 @@
     verdict.classList.toggle('status-badge--verified', verified);
     verdict.classList.toggle('status-badge--unresolved', !verified);
     const counts = forest.counts || {};
-    element('overviewMetrics').innerHTML = [
+    const overviewRows = [
       ['分支', counts.branches ?? branches.size], ['反应', counts.reaction_nodes ?? steps.size],
       ['分子', counts.nodes ?? moleculeNodes.size], ['显式边', counts.dependency_edges ?? (graph.edges || []).length]
-    ].map(([label, value]) => `<span class="metric-chip"><strong>${esc(value)}</strong>${esc(label)}</span>`).join('');
+    ];
+    if (primary.display_tiebreak_only && Number(primary.tied_candidate_count || 0) > 1) {
+      overviewRows.push(['同分候选', Number(primary.tied_candidate_count)]);
+    }
+    element('overviewMetrics').innerHTML = overviewRows
+      .map(([label, value]) => `<span class="metric-chip"><strong>${esc(value)}</strong>${esc(label)}</span>`).join('');
     renderIntegrityStatus('pending');
     renderEvidenceStats();
     applyPersistentChromeState();
@@ -337,8 +343,8 @@
     const counts = forest.counts || {};
     const literature = forest.run_trace?.literature_counts || {};
     const rows = [
-      ['信源候选', literature.source_candidates ?? 0], ['文献/图像链', counts.visual_chains ?? 0],
-      ['共识路线', counts.route_consensus_proposals ?? 0], ['后端替换', forest.replacement_validation?.validated_count ?? 0]
+      ['真实信源', literature.real_source_candidates ?? literature.source_candidates ?? 0], ['文献/图像链', counts.visual_chains ?? 0],
+      ['共识候选', counts.route_consensus_proposals ?? 0], ['后端替换', forest.replacement_validation?.validated_count ?? 0]
     ];
     element('evidenceStats').innerHTML = rows.map(([label, value]) =>
       `<div class="evidence-stat"><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`).join('');
@@ -421,7 +427,7 @@
       data-branch-id="${esc(lane.branch_id)}" aria-current="${selected ? 'true' : 'false'}" tabindex="-1">
       <span class="branch-card-title">${esc(lane.title || lane.branch_id)}</span>
       <span class="branch-card-meta">${esc((lane.step_ids || []).length)} 步 · ${esc(tierLabel(lane.proof_tier))}</span>
-      <span class="branch-card-badges">${lane.is_primary ? '<span class="branch-badge">主分支</span>' : ''}<span class="branch-badge">${esc(stateLabel)}</span><span class="branch-badge">${esc(synthesisLabel(branch.synthesis_class))}</span></span>
+      <span class="branch-card-badges">${lane.is_primary ? `<span class="branch-badge">${forest.primary_selection?.display_tiebreak_only ? '展示锚点' : '主分支'}</span>` : ''}<span class="branch-badge">${esc(stateLabel)}</span><span class="branch-badge">${esc(synthesisLabel(branch.synthesis_class))}</span></span>
     </button>`;
   }
 
@@ -978,12 +984,29 @@
 
   function renderEvidence(entity, host) {
     const value = entity.value || {};
-    const refs = value.source_refs || [];
-    const conflicts = value.conflicts || [];
-    const support = value.support_records || [];
+    const refs = Array.isArray(value.source_refs) ? value.source_refs : [];
+    const conflicts = Array.isArray(value.conflicts) ? value.conflicts : [];
+    const support = Array.isArray(value.support_records) ? value.support_records : [];
     host.innerHTML = `<article><header><p class="detail-kind">${COPY.consensus}</p><h3 class="detail-title">证据与来源链</h3></header>
-      <section class="detail-section"><h3>${COPY.support}</h3><div class="trace-list">${support.length ? support.map(row => `<div class="trace-row"><strong>${esc(row.source_group || row.source_ref || '来源')}</strong><span>${esc(row.claim || row.condition_summary || '')}</span></div>`).join('') : '<div class="empty">当前节点没有独立支持组明细。</div>'}</div></section>
-      <section class="detail-section"><h3>${COPY.conflicts}</h3><div class="trace-list">${conflicts.length ? conflicts.map(row => `<div class="trace-row"><strong>${esc(row.field || '字段')}</strong><span>${esc((row.values || []).join(' / ') || row.reason || '')}</span></div>`).join('') : '<div class="empty">没有记录到条件冲突。</div>'}</div></section>
+      <section class="detail-section"><h3>${COPY.support}</h3><div class="trace-list">${support.length ? support.map(rawRow => {
+        const row = rawRow && typeof rawRow === 'object' ? rawRow : {};
+        const recordRefs = [...new Set([
+          ...(Array.isArray(row.source_refs) ? row.source_refs : []),
+          ...(Array.isArray(row.evidence_refs) ? row.evidence_refs : [])
+        ].map(String).filter(Boolean))];
+        const details = [
+          row.claim || row.condition_summary || '',
+          row.evidence_level ? `证据 ${row.evidence_level}` : '',
+          row.confidence ? `可信度 ${row.confidence}` : '',
+          recordRefs.length ? recordRefs.join(' · ') : ''
+        ].filter(Boolean).join('；');
+        return `<div class="trace-row"><strong>${esc(row.support_group || row.source_channel || '来源')}</strong><span>${esc(details)}</span></div>`;
+      }).join('') : '<div class="empty">当前节点没有独立支持组明细。</div>'}</div></section>
+      <section class="detail-section"><h3>${COPY.conflicts}</h3><div class="trace-list">${conflicts.length ? conflicts.map(rawRow => {
+        const row = rawRow && typeof rawRow === 'object' ? rawRow : {};
+        const values = Array.isArray(row.values) ? row.values.map(String).join(' / ') : '';
+        return `<div class="trace-row"><strong>${esc(row.field || '字段')}</strong><span>${esc(values || row.reason || '')}</span></div>`;
+      }).join('') : '<div class="empty">没有记录到条件冲突。</div>'}</div></section>
       <section class="detail-section"><h3>来源引用</h3><div class="trace-list">${refs.length ? refs.map(ref => `<div class="trace-row">${esc(ref)}</div>`).join('') : '<div class="empty">来源未记录。</div>'}</div></section>
       <div class="notice">${COPY.correlated}; multiple role reports never count as independent literature sources by themselves.</div></article>`;
   }
