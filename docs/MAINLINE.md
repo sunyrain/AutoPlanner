@@ -379,7 +379,7 @@ routes or a backend-revalidated replacement, and the UI does not fabricate
 either. Closeout still succeeds operationally: one drift-free immutable CAS
 revision binds seven graph, proof-snapshot, verdict, forest, and HTML artifacts.
 Its revision is
-`sha256:5aee91a1e173d0d03ac7d7f766316aecd93da2564da62b77993c8f6d1dd1218d`.
+`sha256:1805d468536eb968acb6d63eee5b985ab146a2675bd8198767300d04923a9faa`.
 The refreshed diagnostic chain also passes all 13/13 capability requirements:
 the blackboard snapshot, capability audit, and run audit were rebuilt from the
 saved actions and tool trace rather than retaining stale closeout diagnostics.
@@ -440,6 +440,7 @@ python scripts\audit_architecture_v2.py `
 ## Supporting Docs
 
 - [Architecture V2](ARCHITECTURE_V2.md)
+- [Complex-molecule showcase policy](SHOWCASE_CASES.md)
 - `docs/AGENTIC_BLACKBOARD_MAINLINE_2026-06-24.md`
 - `docs/CODEX_WELLAU_STREAMING_RUNBOOK_2026-06-05.md`
 - `docs/archive/2026-06/legacy_codex_entry_fullflow/`

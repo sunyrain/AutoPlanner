@@ -142,42 +142,59 @@ __STYLES__
       <div class="graph-toolbar" aria-label="路线图显示设置">
         <div class="toolbar-scroll">
           <div id="graphModeControl" class="graph-mode-control" role="group" aria-label="路线图模式">
-            <button class="is-active" type="button" data-graph-mode="clusters" aria-pressed="true">路线簇</button>
-            <button type="button" data-graph-mode="shared" aria-pressed="false">共享超图</button>
-            <button type="button" data-graph-mode="current" aria-pressed="false">当前分支</button>
+            <button class="is-active" type="button" data-graph-mode="current" aria-pressed="true">重点分支</button>
+            <button type="button" data-graph-mode="shared" aria-pressed="false">共享骨架</button>
+            <button type="button" data-graph-mode="clusters" aria-pressed="false">路线全景</button>
           </div>
-          <div id="graphFilterBar" class="graph-filter-bar" role="toolbar" aria-label="证明层级与选中邻域筛选"></div>
-          <label class="compact-select" for="orientationSelect">
-            <span>方向</span>
-            <select id="orientationSelect">
-              <option value="horizontal">从左到右</option>
-              <option value="vertical">从上到下</option>
-            </select>
-          </label>
-          <label class="compact-select" for="densitySelect">
-            <span>密度</span>
-            <select id="densitySelect">
-              <option value="comfortable">舒展</option>
-              <option value="compact">紧凑</option>
-              <option value="overview">概览</option>
-            </select>
-          </label>
-          <label class="compact-select" for="edgeStyleSelect">
-            <span>连线</span>
-            <select id="edgeStyleSelect">
-              <option value="trust">可信度编码</option>
-              <option value="simple">简洁</option>
-              <option value="contrast">高对比</option>
-            </select>
-          </label>
-          <label class="compact-select" for="labelModeSelect">
-            <span>标签</span>
-            <select id="labelModeSelect">
-              <option value="semantic">语义缩放</option>
-              <option value="full">完整名称</option>
-              <option value="minimal">仅层级</option>
-            </select>
-          </label>
+          <span class="toolbar-spacer" aria-hidden="true"></span>
+
+          <details id="graphOptionsPopover" class="graph-options-popover">
+            <summary>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path><circle cx="16" cy="7" r="2"></circle><circle cx="8" cy="17" r="2"></circle></svg>
+              <span>筛选与显示</span>
+              <span id="graphOptionsCount" class="options-count" aria-hidden="true"></span>
+            </summary>
+            <div class="graph-options-card">
+              <div class="options-section-heading">
+                <strong>路线筛选</strong>
+                <span>默认显示全部证据层级</span>
+              </div>
+              <div id="graphFilterBar" class="graph-filter-bar" role="toolbar" aria-label="证明层级与选中邻域筛选"></div>
+              <div class="graph-options-grid">
+                <label class="compact-select" for="orientationSelect">
+                  <span>方向</span>
+                  <select id="orientationSelect">
+                    <option value="horizontal">从左到右</option>
+                    <option value="vertical">从上到下</option>
+                  </select>
+                </label>
+                <label class="compact-select" for="densitySelect">
+                  <span>密度</span>
+                  <select id="densitySelect">
+                    <option value="comfortable">舒展</option>
+                    <option value="compact">紧凑</option>
+                    <option value="overview">概览</option>
+                  </select>
+                </label>
+                <label class="compact-select" for="edgeStyleSelect">
+                  <span>连线</span>
+                  <select id="edgeStyleSelect">
+                    <option value="trust">可信度编码</option>
+                    <option value="simple">简洁</option>
+                    <option value="contrast">高对比</option>
+                  </select>
+                </label>
+                <label class="compact-select" for="labelModeSelect">
+                  <span>标签</span>
+                  <select id="labelModeSelect">
+                    <option value="semantic">语义缩放</option>
+                    <option value="full">完整名称</option>
+                    <option value="minimal">仅层级</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </details>
 
           <details id="legendPopover" class="legend-popover">
             <summary>

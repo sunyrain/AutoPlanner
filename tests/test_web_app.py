@@ -483,10 +483,17 @@ class WebAppTest(unittest.TestCase):
 
         self.assertIn('id="target-name" value="paclitaxel"', agent_html)
         self.assertIn('data-sample-key="paclitaxel"', agent_html)
+        self.assertIn('data-sample-key="artemisinin"', agent_html)
+        self.assertIn(
+            "results/shared/full_rerun_advisory_visual_20260702/artemisinin/route_forest.html",
+            agent_html,
+        )
         self.assertIn(
             "results/shared/paclitaxel_architecture_v2_20260710/route_forest.html",
             agent_html,
         )
+        self.assertNotIn("bufotalin solved mixed route", agent_html)
+        self.assertNotIn("atorvastatin_online_zero_20260704", agent_html)
 
     def test_missing_template_relevance_selection_is_rejected_before_search(self):
         missing_model = "template_relevance.autoplanner_missing_for_test"

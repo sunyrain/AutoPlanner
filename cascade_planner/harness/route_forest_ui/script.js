@@ -3,7 +3,8 @@
 
   const forestDataText = document.getElementById('forest-data')?.textContent || '{}';
   const forest = JSON.parse(forestDataText);
-  const STORAGE_KEY = 'autoplanner.route-forest-ui.v2';
+  const STORAGE_KEY = `autoplanner.route-forest-ui.v3:${forest.case_id || forest.target?.name || 'route'}`;
+  const LEGACY_STORAGE_KEY = 'autoplanner.route-forest-ui.v2';
   const PAN_DRAG_THRESHOLD_PX = 5;
   const COPY = Object.freeze({
     consensus: 'Multi-source consensus audit',
@@ -60,20 +61,19 @@
   const edgeById = new Map((graph.edges || []).map(row => [row.edge_id, row]));
   const layoutByNode = new Map((layout.nodes || []).map(row => [row.graph_node_id, row]));
   const persisted = loadState();
+  const legacyChrome = loadState(LEGACY_STORAGE_KEY);
   const allProofTiers = unique((lanesProjection.lanes || []).map(row => row.proof_tier).filter(Boolean));
   const allKinds = unique((lanesProjection.lanes || []).map(row => row.kind).filter(Boolean));
-  const defaultBranchId = forest.primary_branch_id
-    || (lanesProjection.lanes || []).find(row => row.is_primary)?.branch_id
-    || (lanesProjection.lanes || [])[0]?.branch_id || '';
+  const defaultBranchId = chooseDefaultBranchId();
   const initialBranchId = persisted.selectedBranchId && branches.has(persisted.selectedBranchId)
     ? persisted.selectedBranchId : defaultBranchId;
 
   const state = {
-    mode: oneOf(persisted.mode, ['clusters', 'shared', 'current'], 'clusters'),
+    mode: oneOf(persisted.mode, ['clusters', 'shared', 'current'], 'current'),
     selectedBranchId: initialBranchId,
     selectedGraphNodeId: '',
     selectedInstanceId: '',
-    selectedStepId: laneByBranch.get(initialBranchId)?.step_ids?.[0] || '',
+    selectedStepId: '',
     detailTab: oneOf(persisted.detailTab, ['step', 'evidence', 'alternatives'], 'step'),
     query: '',
     branchFilter: oneOf(persisted.branchFilter, ['all', 'verified', 'evidence', 'advisory', 'diagnostic'], 'all'),
@@ -85,11 +85,11 @@
     edgeStyle: oneOf(persisted.edgeStyle, ['trust', 'simple', 'contrast'], 'trust'),
     labelMode: oneOf(persisted.labelMode, ['semantic', 'full', 'minimal'], 'semantic'),
     layoutPreset: oneOf(persisted.layoutPreset, ['explore', 'focus', 'review'], 'explore'),
-    theme: oneOf(persisted.theme, ['light', 'dark'], preferredTheme()),
+    theme: oneOf(persisted.theme || legacyChrome.theme, ['light', 'dark'], preferredTheme()),
     navOpen: Object.hasOwn(persisted, 'navOpen') ? persisted.navOpen !== false : !matchMedia('(max-width: 1023px)').matches,
-    inspectorOpen: Object.hasOwn(persisted, 'inspectorOpen') ? persisted.inspectorOpen !== false : !matchMedia('(max-width: 1439px)').matches,
-    navWidth: clamp(Number(persisted.navWidth) || 300, 240, 460),
-    inspectorWidth: clamp(Number(persisted.inspectorWidth) || 380, 320, 560),
+    inspectorOpen: Object.hasOwn(persisted, 'inspectorOpen') ? persisted.inspectorOpen !== false : false,
+    navWidth: clamp(Number(persisted.navWidth || legacyChrome.navWidth) || 280, 240, 460),
+    inspectorWidth: clamp(Number(persisted.inspectorWidth || legacyChrome.inspectorWidth) || 380, 320, 560),
     zoom: 1,
     panX: 0,
     panY: 0,
@@ -121,10 +121,69 @@
     const a = String(left), b = String(right);
     return a < b ? -1 : a > b ? 1 : 0;
   }
+  function branchDisplayScore(lane) {
+    const branch = branches.get(lane?.branch_id) || {};
+    if (branch.solved === true && branch.executable === true && branch.advisory_only === false) return 10000;
+    const kindScore = {
+      stitched_verified_route: 900, direct_verified_route: 860,
+      proof_eligible_portfolio_route: 760, exact_literature: 700,
+      subgoal_verified_route: 640, process_evidence: 520,
+      route_consensus_graph: 420, visual_chain: 360,
+      route_consensus: 300, literature_candidate: 280,
+      retrosynthetic_proposal: 140, broad_template: 80,
+      diagnostic_failure: -200
+    }[lane?.kind] ?? 0;
+    const confidenceScore = { high: 40, medium_high: 30, medium: 20, low: 10, failed: -40 }[
+      branch.confidence || lane?.confidence
+    ] || 0;
+    const stepScore = Math.min(8, (lane?.step_ids || []).length) * 40;
+    const sourceScore = Math.min(8, (lane?.source_refs || []).length) * 16;
+    const structureScore = Math.min(12, (lane?.graph_node_ids || []).filter(graphNodeId => {
+      const graphNode = graphNodes.get(graphNodeId) || {};
+      return Boolean(moleculeNodes.get(graphNode.molecule_node_id)?.structure_svg);
+    }).length) * 28;
+    const failedPenalty = /failed|diagnostic|rejected/i.test(`${lane?.title || ''} ${branch.summary || ''}`) ? 80 : 0;
+    return kindScore + confidenceScore + stepScore + sourceScore + structureScore - failedPenalty;
+  }
+  function chooseDefaultBranchId() {
+    const primaryId = String(forest.primary_branch_id
+      || (lanesProjection.lanes || []).find(row => row.is_primary)?.branch_id || '');
+    const primary = branches.get(primaryId) || {};
+    if (primary.solved === true && primary.executable === true && primary.advisory_only === false) return primaryId;
+    const featured = (lanesProjection.lanes || [])
+      .filter(row => row.listed !== false)
+      .slice()
+      .sort((left, right) => branchDisplayScore(right) - branchDisplayScore(left)
+        || stableTextCompare(left.branch_id, right.branch_id))[0];
+    return featured?.branch_id || primaryId || (lanesProjection.lanes || [])[0]?.branch_id || '';
+  }
+  function safeStructureSvg(value) {
+    const svg = String(value || '').trim();
+    if (!svg.startsWith('<svg') || /<script\b|<foreignObject\b|\son\w+\s*=|javascript:/i.test(svg)) return '';
+    return svg;
+  }
+  function looksLikeSmiles(value, node) {
+    const text = String(value || '').trim();
+    const canonical = String(node?.canonical_isomeric_smiles || '').trim();
+    return Boolean(text && ((canonical && text === canonical)
+      || (text.length > 24 && !/\s/.test(text) && /[()[\]@=#\\/]/.test(text))));
+  }
+  function moleculeCaption(node, fallback) {
+    const label = String(fallback || '').trim();
+    if (label && !looksLikeSmiles(label, node)) return middleEllipsis(label, 30);
+    const role = ({
+      target: '目标产物', visual_precursor: '文献前体', visual_intermediate: '文献中间体',
+      visual_product: '文献产物', consensus_precursor: '共识前体',
+      consensus_graph_precursor: '共识前体', consensus_graph_intermediate: '共识中间体',
+      consensus_graph_product: '共识产物', stock: '库存原料',
+      starting_material: '起始原料', intermediate: '路线中间体'
+    })[node?.role] || String(node?.role || '路线分子').replaceAll('_', ' ');
+    return node?.formula ? `${role} · ${node.formula}` : role;
+  }
   function safeStorageGet(key) { try { return localStorage.getItem(key); } catch (_) { return null; } }
   function safeStorageSet(key, value) { try { localStorage.setItem(key, value); } catch (_) { /* sandboxed embed */ } }
-  function loadState() {
-    try { return JSON.parse(safeStorageGet(STORAGE_KEY) || '{}'); } catch (_) { return {}; }
+  function loadState(key = STORAGE_KEY) {
+    try { return JSON.parse(safeStorageGet(key) || '{}'); } catch (_) { return {}; }
   }
   function persistState() {
     safeStorageSet(STORAGE_KEY, JSON.stringify({
@@ -143,7 +202,10 @@
   function tierOfStep(step) { return step?.trust_vector?.proof_tier || 'L0_advisory'; }
   function tierClass(tier) { return TIER_CLASS[tier] || 'tier-l0-advisory'; }
   function tierLabel(tier) { return PROOF_LABEL[tier] || tier || '未分级'; }
-  function targetName() { return forest.target?.name || forest.case_id || '目标分子'; }
+  function targetName() {
+    const raw = String(forest.target?.name || forest.case_id || '目标分子');
+    return raw.replace(/(?:[\s_-]+full)?[\s_-]+rerun(?:[\s_-].*)?$/i, '').replaceAll('_', ' ');
+  }
   function basename(value) { return String(value || '').split(/[\\/]/).filter(Boolean).pop() || String(value || ''); }
   function synthesisLabel(value) {
     return ({
@@ -311,6 +373,18 @@
           <button class="filter-chip" type="button" data-filter-reset>重置筛选</button>
         </div>`;
     }
+    const optionChanges = (allProofTiers.length - state.proofFilters.size)
+      + (allKinds.length - state.kindFilters.size)
+      + (state.edgeFilter === 'selected' ? 1 : 0)
+      + (state.orientation !== 'horizontal' ? 1 : 0)
+      + (state.density !== 'comfortable' ? 1 : 0)
+      + (state.edgeStyle !== 'trust' ? 1 : 0)
+      + (state.labelMode !== 'semantic' ? 1 : 0);
+    const optionCount = element('graphOptionsCount');
+    if (optionCount) {
+      optionCount.textContent = optionChanges ? String(optionChanges) : '';
+      optionCount.toggleAttribute('hidden', !optionChanges);
+    }
     document.querySelectorAll('[data-graph-mode]').forEach(button => {
       const active = button.dataset.graphMode === state.mode;
       button.classList.toggle('is-active', active);
@@ -358,9 +432,20 @@
   }
 
   function densityMetrics() {
+    if (state.mode === 'current' && state.density === 'comfortable') {
+      return matchMedia('(max-width: 639px)').matches
+        ? { layerGap: 180, rowGap: 172, laneGap: 24, componentGap: 22, nodeScale: 1 }
+        : { layerGap: 246, rowGap: 156, laneGap: 24, componentGap: 22, nodeScale: 1 };
+    }
     if (state.density === 'compact') return { layerGap: 188, rowGap: 78, laneGap: 18, componentGap: 18, nodeScale: .88 };
     if (state.density === 'overview') return { layerGap: 150, rowGap: 58, laneGap: 12, componentGap: 12, nodeScale: .72 };
     return { layerGap: 238, rowGap: 108, laneGap: 28, componentGap: 26, nodeScale: 1 };
+  }
+
+  function effectiveOrientation() {
+    return state.mode === 'current' && matchMedia('(max-width: 639px)').matches
+      ? 'vertical'
+      : state.orientation;
   }
 
   function buildGraphModel() {
@@ -384,6 +469,7 @@
     const includedIds = new Set(edges.flatMap(edge => [edge.source_graph_node_id, edge.target_graph_node_id]));
     const nodes = [...includedIds].map(id => graphNodes.get(id)).filter(Boolean);
     const metrics = densityMetrics();
+    const orientation = effectiveOrientation();
     const buckets = new Map();
     for (const node of nodes) {
       const logical = layoutByNode.get(node.graph_node_id) || { layer: node.layer || 0, order: 0, component_order: 0 };
@@ -408,7 +494,7 @@
     for (const [, bucket] of layerEntries) {
       bucket.sort((a, b) => Number(a.logical.order || 0) - Number(b.logical.order || 0)
         || stableTextCompare(a.node.graph_node_id, b.node.graph_node_id));
-      const wrap = state.orientation === 'vertical'
+      const wrap = orientation === 'vertical'
         ? Math.min(verticalWrap, bucket.length)
         : Math.min(horizontalWrap, bucket.length);
       const crossCount = Math.max(1, Math.ceil(bucket.length / wrap));
@@ -416,12 +502,12 @@
         const size = nodeSize(row.node, metrics.nodeScale);
         const primaryIndex = Math.floor(index / crossCount);
         const crossIndex = index % crossCount;
-        const position = state.orientation === 'vertical'
+        const position = orientation === 'vertical'
           ? { x: 44 + crossIndex * cellWidth, y: layerCursor + primaryIndex * cellHeight, ...size }
           : { x: layerCursor + primaryIndex * cellWidth, y: 44 + crossIndex * cellHeight, ...size };
         positions.set(row.node.graph_node_id, position);
       });
-      const bandExtent = wrap * (state.orientation === 'vertical' ? cellHeight : cellWidth);
+      const bandExtent = wrap * (orientation === 'vertical' ? cellHeight : cellWidth);
       layerCursor += bandExtent + Math.max(72, metrics.layerGap * .55);
     }
     const instances = nodes.map(node => ({ instanceId: node.graph_node_id, graphNodeId: node.graph_node_id, branchId: '', node }));
@@ -431,6 +517,7 @@
   function buildLaneModel(rawLanes) {
     const lanes = effectiveLaneRows(rawLanes);
     const metrics = densityMetrics();
+    const orientation = effectiveOrientation();
     const positions = new Map();
     const instances = [];
     const renderedEdges = [];
@@ -446,10 +533,10 @@
       const maxLayerRows = Math.max(1, ...[...byLayer.values()].map(rows => rows.length));
       const maximumNode = nodeSize({ node_type: 'molecule' }, metrics.nodeScale);
       const maximumLayer = Math.max(0, Number(lane.max_layer || 0));
-      const tileWidth = state.orientation === 'vertical'
+      const tileWidth = orientation === 'vertical'
         ? 40 + (maxLayerRows - 1) * metrics.rowGap + maximumNode.w
         : 92 + maximumLayer * metrics.layerGap + maximumNode.w;
-      const tileHeight = state.orientation === 'vertical'
+      const tileHeight = orientation === 'vertical'
         ? 76 + maximumLayer * metrics.layerGap + maximumNode.h
         : 76 + (maxLayerRows - 1) * metrics.rowGap + maximumNode.h;
       const relativePositions = new Map();
@@ -460,7 +547,7 @@
           if (!node) return;
           const instanceId = `${lane.branch_id}::${node.graph_node_id}`;
           const size = nodeSize(node, metrics.nodeScale);
-          const position = state.orientation === 'vertical'
+          const position = orientation === 'vertical'
             ? { x: 20 + rowIndex * metrics.rowGap, y: 52 + layerIndex * metrics.layerGap, ...size }
             : { x: 52 + layerIndex * metrics.layerGap, y: 52 + rowIndex * metrics.rowGap, ...size };
           relativePositions.set(instanceId, position);
@@ -470,7 +557,7 @@
     });
     const averageWidth = tiles.reduce((sum, tile) => sum + tile.w, 0) / Math.max(1, tiles.length);
     const averageHeight = tiles.reduce((sum, tile) => sum + tile.h, 0) / Math.max(1, tiles.length);
-    const targetRatio = state.orientation === 'vertical' ? 1.55 : 1.68;
+    const targetRatio = orientation === 'vertical' ? 1.55 : 1.68;
     const columns = state.mode === 'current' ? 1 : clamp(
       Math.round(Math.sqrt(tiles.length * averageHeight / Math.max(1, averageWidth) * targetRatio)),
       1,
@@ -511,13 +598,19 @@
 
   function nodeSize(node, scale) {
     const reaction = node.node_type === 'reaction';
-    return { w: Math.round((reaction ? 166 : 194) * scale), h: Math.round((reaction ? 70 : 78) * scale) };
+    const mobileCurrent = state.mode === 'current' && matchMedia('(max-width: 639px)').matches;
+    const base = state.mode === 'current'
+      ? (mobileCurrent
+        ? (reaction ? { w: 136, h: 62 } : { w: 158, h: 118 })
+        : (reaction ? { w: 154, h: 68 } : { w: 220, h: 144 }))
+      : (reaction ? { w: 166, h: 70 } : { w: 194, h: 78 });
+    return { w: Math.round(base.w * scale), h: Math.round(base.h * scale) };
   }
 
   function finaliseModel(mode, instances, edges, positions, decorations) {
     const boxes = [...positions.values(), ...decorations];
-    const maxX = Math.max(700, ...boxes.map(row => row.x + row.w + 44));
-    const maxY = Math.max(420, ...boxes.map(row => row.y + row.h + 44));
+    const maxX = Math.max(mode === 'current' ? 1 : 700, ...boxes.map(row => row.x + row.w + 44));
+    const maxY = Math.max(mode === 'current' ? 1 : 420, ...boxes.map(row => row.y + row.h + 44));
     return { mode, instances, edges, positions, decorations, bounds: { x: 0, y: 0, w: maxX, h: maxY }, packing: null };
   }
 
@@ -525,6 +618,7 @@
     renderModel = buildGraphModel();
     const viewport = element('graphViewport');
     viewport.dataset.graphMode = state.mode;
+    viewport.dataset.orientation = effectiveOrientation();
     const width = Math.max(1, viewport.clientWidth || 1100);
     const height = Math.max(1, viewport.clientHeight || 680);
     const markers = unique(PROOF_ORDER.map(tierClass)).map(cssClass => {
@@ -544,16 +638,20 @@
       ? `${visibleBranches.size || filteredLanes().length}/${(lanesProjection.lanes || []).length} 分支 · ${renderModel.instances.length} 节点 · ${renderModel.edges.length} 边`
       : `${visibleBranches.size}/${(lanesProjection.lanes || []).length} 分支 · ${renderModel.instances.length} 节点 · ${renderModel.edges.length} 边`;
     const replacementPreview = state.activeReplacement && state.mode === 'current';
+    const currentLane = laneByBranch.get(state.selectedBranchId) || {};
     element('graphTitle').textContent = replacementPreview ? '完整替换路线预览 · 后端已重验'
-      : state.mode === 'clusters' ? '全部路线 · 分支泳道'
-        : state.mode === 'shared' ? '共享分子–反应超图' : '当前分支 · 完整依赖 DAG';
+      : state.mode === 'clusters' ? `路线全景 · ${(lanesProjection.lanes || []).length} 条分支`
+        : state.mode === 'shared' ? '共享骨架 · 规范分子–反应图'
+          : `重点分支 · ${middleEllipsis(currentLane.title || state.selectedBranchId, 48)}`;
     element('graphSubtitle').textContent = replacementPreview
       ? '当前画布是完整的后端 AND/OR 重验分支；它不是单步拼接，也不建立父路线证明。'
-      : `${COPY.explicitEdges} ${state.mode === 'clusters'
-        ? '共享分子以视觉别名呈现，但 canonical ID 保持一致。'
-        : '颜色仅表达 proof tier；选择轮廓不改变证明语义。'}`;
+      : state.mode === 'clusters'
+        ? '完整保留所有探索分支；这是专家全景，放大或选择分支后查看化学细节。'
+        : state.mode === 'shared'
+          ? '相同规范分子合并显示；线宽表达支持，颜色仅表达反应证明层级。'
+          : `${(currentLane.step_ids || []).length} 步 · ${tierLabel(currentLane.proof_tier)} · ${(currentLane.source_refs || []).length} 个来源引用；分子保持中性，证明颜色只用于反应和依赖边。`;
     renderMinimap();
-    if (fit) fitGraph(); else applyViewportTransform();
+    if (fit) fitGraph({ readable: state.mode === 'current' }); else applyViewportTransform();
     applyGraphSelection();
   }
 
@@ -576,7 +674,7 @@
   }
 
   function edgePath(source, target, orthogonal) {
-    if (state.orientation === 'vertical') {
+    if (effectiveOrientation() === 'vertical') {
       const x1 = source.x + source.w / 2, y1 = source.y + source.h;
       const x2 = target.x + target.w / 2, y2 = target.y;
       const middle = (y1 + y2) / 2;
@@ -594,15 +692,25 @@
     if (!position) return '';
     const node = instance.node;
     const reaction = node.node_type === 'reaction';
+    const molecule = reaction ? null : (moleculeNodes.get(node.molecule_node_id) || node);
     const step = reaction ? steps.get(node.reaction_step_id) : null;
-    const tier = reaction ? (node.proof_tier || tierOfStep(step)) : 'L0_advisory';
+    const tier = reaction ? (node.proof_tier || tierOfStep(step)) : '';
+    const nodeTierClass = reaction ? tierClass(tier) : 'node-tier-neutral';
     const fullLabel = node.label || node.graph_node_id;
-    const lines = wrapLabel(state.labelMode === 'minimal' ? (reaction ? tierLabel(tier) : '分子') : fullLabel, reaction ? 22 : 25);
+    const structureSvg = !reaction && state.mode === 'current' && state.labelMode !== 'minimal'
+      ? safeStructureSvg(molecule?.structure_svg) : '';
+    const displayLabel = structureSvg ? moleculeCaption(molecule, fullLabel) : fullLabel;
+    const lines = wrapLabel(
+      state.labelMode === 'minimal' ? (reaction ? tierLabel(tier) : '分子') : displayLabel,
+      reaction ? 22 : (structureSvg ? 30 : 25)
+    );
     const textX = position.x + 12;
-    const textY = position.y + (lines.length > 1 ? 27 : 34);
+    const textY = structureSvg ? position.y + position.h - 13 : position.y + (lines.length > 1 ? 27 : 34);
     const selected = node.graph_node_id === state.selectedGraphNodeId || (reaction && node.reaction_step_id === state.selectedStepId);
-    return `<g class="graph-node dependency-${reaction ? 'reaction graph-node--reaction' : 'molecule graph-node--molecule'} ${tierClass(tier)}${selected ? ' is-selected' : ''}" data-graph-node-id="${esc(node.graph_node_id)}" data-node-type="${esc(node.node_type)}" data-node-role="${esc(node.role || '')}" data-branch-id="${esc(instance.branchId)}" data-instance-id="${esc(instance.instanceId)}" ${reaction ? `data-route-step="${esc(node.reaction_step_id)}"` : ''} tabindex="${selected ? '0' : '-1'}" role="button" aria-label="${esc(`${reaction ? '反应' : '分子'}：${fullLabel}，${tierLabel(tier)}`)}">
+    const semanticLabel = reaction ? tierLabel(tier) : (node.role || '分子中间体');
+    return `<g class="graph-node dependency-${reaction ? 'reaction graph-node--reaction' : 'molecule graph-node--molecule'} ${nodeTierClass}${selected ? ' is-selected' : ''}" data-graph-node-id="${esc(node.graph_node_id)}" data-node-type="${esc(node.node_type)}" data-node-role="${esc(node.role || '')}" data-branch-id="${esc(instance.branchId)}" data-instance-id="${esc(instance.instanceId)}" ${reaction ? `data-route-step="${esc(node.reaction_step_id)}"` : ''} tabindex="${selected ? '0' : '-1'}" role="button" aria-label="${esc(`${reaction ? '反应' : '分子'}：${fullLabel}，${semanticLabel}`)}">
       <title>${esc(fullLabel)}</title><rect class="node-surface" x="${position.x}" y="${position.y}" width="${position.w}" height="${position.h}" rx="${reaction ? 12 : 24}"></rect>
+      ${structureSvg ? `<foreignObject class="node-depiction" x="${position.x + 7}" y="${position.y + 7}" width="${position.w - 14}" height="${position.h - 39}"><div xmlns="http://www.w3.org/1999/xhtml" class="node-depiction-frame">${structureSvg}</div></foreignObject>` : ''}
       <text class="node-label" x="${textX}" y="${textY}">${svgTextLines(lines, textX, textY)}</text>
       ${reaction && state.labelMode !== 'minimal' ? `<text class="graph-node-tier node-meta" x="${textX}" y="${position.y + position.h - 10}">${esc(tierLabel(tier))}</text>` : ''}</g>`;
   }
@@ -630,7 +738,7 @@
         || (selectedBranch && row.dataset.branchId === selectedBranch)
         || (!selectedStep && !selectedBranch);
       row.classList.toggle('is-selected', Boolean(selectedStep && row.dataset.reactionStepId === selectedStep));
-      row.classList.toggle('is-dimmed', hasSelection && !related);
+      row.classList.toggle('is-dimmed', state.edgeFilter === 'selected' && hasSelection && !related);
     });
     document.querySelectorAll('[data-lane-branch-id]').forEach(row => {
       row.classList.toggle('is-selected', row.dataset.laneBranchId === selectedBranch);
@@ -647,15 +755,56 @@
     updateBranchRovingTabindex();
   }
 
-  function fitGraph() {
+  function currentTargetPosition() {
+    if (!renderModel) return null;
+    const orientation = effectiveOrientation();
+    const candidates = renderModel.instances.map(instance => {
+      const molecule = instance.node?.node_type === 'molecule'
+        ? moleculeNodes.get(instance.node.molecule_node_id) : null;
+      const roles = [instance.node?.role, molecule?.role, ...(molecule?.roles || [])];
+      return {
+        position: renderModel.positions.get(instance.instanceId),
+        target: roles.includes('target')
+      };
+    }).filter(row => row.position);
+    const explicit = candidates.filter(row => row.target);
+    const ranked = explicit.length ? explicit : candidates;
+    return ranked.sort((left, right) => orientation === 'vertical'
+      ? right.position.y - left.position.y
+      : right.position.x - left.position.x)[0]?.position || null;
+  }
+
+  function fitGraph({ readable = false } = {}) {
     if (!renderModel) return;
     const viewport = element('graphViewport');
     const width = Math.max(1, viewport.clientWidth || 1000);
     const height = Math.max(1, viewport.clientHeight || 620);
     const padding = 42;
-    state.zoom = clamp(Math.min((width - padding * 2) / renderModel.bounds.w, (height - padding * 2) / renderModel.bounds.h), .015, 2.5);
-    state.panX = (width - renderModel.bounds.w * state.zoom) / 2;
-    state.panY = (height - renderModel.bounds.h * state.zoom) / 2;
+    const naturalFit = Math.min(
+      (width - padding * 2) / renderModel.bounds.w,
+      (height - padding * 2) / renderModel.bounds.h
+    );
+    if (readable && state.mode === 'current') {
+      const minimumReadableZoom = matchMedia('(max-width: 639px)').matches ? .85 : .82;
+      state.zoom = clamp(Math.max(naturalFit, minimumReadableZoom), minimumReadableZoom, 1.15);
+      const oversized = naturalFit < minimumReadableZoom;
+      const vertical = effectiveOrientation() === 'vertical';
+      const target = currentTargetPosition();
+      state.panX = oversized && !vertical
+        ? width - ((target?.x ?? renderModel.bounds.w) + (target?.w || 0)) * state.zoom - 48
+        : oversized && vertical && target
+          ? width / 2 - (target.x + target.w / 2) * state.zoom
+        : (width - renderModel.bounds.w * state.zoom) / 2;
+      state.panY = oversized && vertical
+        ? height - ((target?.y ?? renderModel.bounds.h) + (target?.h || 0)) * state.zoom - 48
+        : oversized && !vertical && target
+          ? height / 2 - (target.y + target.h / 2) * state.zoom
+        : (height - renderModel.bounds.h * state.zoom) / 2;
+    } else {
+      state.zoom = clamp(naturalFit, .015, 2.5);
+      state.panX = (width - renderModel.bounds.w * state.zoom) / 2;
+      state.panY = (height - renderModel.bounds.h * state.zoom) / 2;
+    }
     applyViewportTransform();
   }
 
@@ -709,13 +858,17 @@
   }
   function updateMinimapViewport() {
     if (!renderModel) return;
-    const svg = element('graphMinimap')?.querySelector('.minimap-svg');
+    const host = element('graphMinimap');
+    const svg = host?.querySelector('.minimap-svg');
     const rectNode = svg?.querySelector('.minimap-viewport');
     if (!svg || !rectNode) return;
     const scale = Number(svg.dataset.minimapScale || 1);
     const viewport = element('graphViewport');
     const viewportWidth = viewport.clientWidth;
     const viewportHeight = viewport.clientHeight;
+    const visibleRatio = clamp(viewportWidth / (renderModel.bounds.w * state.zoom), 0, 1)
+      * clamp(viewportHeight / (renderModel.bounds.h * state.zoom), 0, 1);
+    host.toggleAttribute('hidden', matchMedia('(max-width: 639px)').matches || visibleRatio >= .7);
     const worldX = -state.panX / state.zoom;
     const worldY = -state.panY / state.zoom;
     rectNode.setAttribute('x', String(clamp(worldX * scale, 0, 180)));
@@ -732,7 +885,7 @@
     state.selectedBranchId = branchId;
     state.selectedGraphNodeId = '';
     state.selectedInstanceId = '';
-    state.selectedStepId = laneByBranch.get(branchId)?.step_ids?.[0] || '';
+    state.selectedStepId = '';
     persistState();
     if (state.mode === 'current' || state.edgeFilter === 'selected') renderGraph();
     else applyGraphSelection();
@@ -750,19 +903,17 @@
     const selectedBranchId = branchId || selectedInstance?.branchId || '';
     if (selectedBranchId && branches.has(selectedBranchId)) state.selectedBranchId = selectedBranchId;
     state.inspectorOpen = true;
-    if (isDrawerLayout()) state.navOpen = false;
+    if (isMobileDrawerLayout()) state.navOpen = false;
     applyPersistentChromeState();
     updateMobileNavigation('inspector');
     applyGraphSelection();
     renderDetail();
     persistState();
-    if (isDrawerLayout()) {
+    if (isInspectorOverlayLayout()) {
       requestAnimationFrame(() => element('detailTabs')?.querySelector('[aria-selected="true"]')?.focus());
-    } else {
-      requestAnimationFrame(fitGraph);
     }
     announce(`已选择${node.node_type === 'reaction' ? '反应' : '分子'} ${node.label || graphNodeId}`);
-    if (focus && !isDrawerLayout()) [...document.querySelectorAll('[data-graph-node-id]')].find(row =>
+    if (focus && !isInspectorOverlayLayout()) [...document.querySelectorAll('[data-graph-node-id]')].find(row =>
       instanceId ? row.dataset.instanceId === instanceId : row.dataset.graphNodeId === graphNodeId)?.focus();
   }
 
@@ -938,8 +1089,8 @@
     element('inspectorToggle').setAttribute('aria-expanded', String(inspectorVisible));
     setPanelExposure(element('navPanel'), navVisible);
     setPanelExposure(element('inspectorPanel'), inspectorVisible);
-    setPanelExposure(element('navResizeHandle'), navVisible && !isDrawerLayout());
-    setPanelExposure(element('inspectorResizeHandle'), inspectorVisible && !isDrawerLayout());
+    setPanelExposure(element('navResizeHandle'), navVisible && !isMobileDrawerLayout());
+    setPanelExposure(element('inspectorResizeHandle'), inspectorVisible && !isInspectorOverlayLayout());
   }
 
   function setPanelExposure(panel, visible) {
@@ -1017,8 +1168,8 @@
       if (target.dataset.graphAction === 'reset') { resetGraph(); return; }
       if (target.dataset.detailTab) { state.detailTab = target.dataset.detailTab; renderDetail(); persistState(); return; }
       if (target.id === 'themeToggle') { state.theme = state.theme === 'dark' ? 'light' : 'dark'; applyPersistentChromeState(); persistState(); return; }
-      if (target.id === 'navToggle') { state.navOpen = !state.navOpen; if (isDrawerLayout() && state.navOpen) state.inspectorOpen = false; applyPersistentChromeState(); updateMobileNavigation(state.navOpen ? 'nav' : 'graph'); persistState(); requestAnimationFrame(fitGraph); return; }
-      if (target.id === 'inspectorToggle') { state.inspectorOpen = !state.inspectorOpen; if (isDrawerLayout() && state.inspectorOpen) state.navOpen = false; applyPersistentChromeState(); updateMobileNavigation(state.inspectorOpen ? 'inspector' : 'graph'); persistState(); requestAnimationFrame(fitGraph); return; }
+      if (target.id === 'navToggle') { state.navOpen = !state.navOpen; if (isMobileDrawerLayout() && state.navOpen) state.inspectorOpen = false; applyPersistentChromeState(); updateMobileNavigation(state.navOpen ? 'nav' : 'graph'); persistState(); requestAnimationFrame(() => fitGraph({ readable: state.mode === 'current' })); return; }
+      if (target.id === 'inspectorToggle') { state.inspectorOpen = !state.inspectorOpen; if (isMobileDrawerLayout() && state.inspectorOpen) state.navOpen = false; applyPersistentChromeState(); updateMobileNavigation(state.inspectorOpen ? 'inspector' : 'graph'); persistState(); if (!isInspectorOverlayLayout()) requestAnimationFrame(() => fitGraph({ readable: state.mode === 'current' })); return; }
       if (target.dataset.closePanel === 'inspector') { state.inspectorOpen = false; applyPersistentChromeState(); updateMobileNavigation('graph'); focusPanelReturn('inspectorToggle'); persistState(); return; }
       if (target.dataset.closeMobilePanels !== undefined) { closeMobilePanels({ restoreFocus: true }); return; }
       if (target.dataset.mobilePanel) { openMobilePanel(target.dataset.mobilePanel); return; }
@@ -1229,7 +1380,7 @@
         else state.inspectorWidth = clamp(resizeSession.width - delta, 320, 560);
         applyPersistentChromeState(); handle.setAttribute('aria-valuenow', String(side === 'nav' ? state.navWidth : state.inspectorWidth));
       });
-      handle.addEventListener('pointerup', () => { resizeSession = null; persistState(); requestAnimationFrame(fitGraph); });
+      handle.addEventListener('pointerup', () => { resizeSession = null; persistState(); requestAnimationFrame(() => fitGraph({ readable: state.mode === 'current' })); });
       handle.addEventListener('keydown', event => {
         if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
         event.preventDefault();
@@ -1256,7 +1407,7 @@
     });
   }
   function closeMobilePanels({ restoreFocus = false } = {}) {
-    if (!isDrawerLayout()) return;
+    if (!isMobileDrawerLayout()) return;
     state.navOpen = false;
     state.inspectorOpen = false;
     applyPersistentChromeState();
@@ -1273,7 +1424,8 @@
       else button.removeAttribute('aria-current');
     });
   }
-  function isDrawerLayout() { return matchMedia('(max-width: 1439px)').matches; }
+  function isInspectorOverlayLayout() { return matchMedia('(max-width: 1699px)').matches; }
+  function isMobileDrawerLayout() { return matchMedia('(max-width: 1023px)').matches; }
   function recenterFromMinimap(event) {
     if (!renderModel) return;
     const rect = element('graphMinimap').getBoundingClientRect();

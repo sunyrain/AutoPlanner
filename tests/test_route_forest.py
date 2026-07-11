@@ -1584,6 +1584,7 @@ def test_route_forest_html_is_read_only_and_inspectable() -> None:
     assert 'data-graph-mode="clusters"' in html
     assert 'data-graph-mode="shared"' in html
     assert 'data-graph-mode="current"' in html
+    assert 'id="graphOptionsPopover"' in html
     assert 'id="graphMinimap"' in html
     assert 'data-graph-action="fit"' in html
     assert 'data-graph-action="zoom-in"' in html
@@ -1601,6 +1602,15 @@ def test_route_forest_html_is_read_only_and_inspectable() -> None:
     assert "if (panAnimationFrame) cancelAnimationFrame(panAnimationFrame);" in html
     assert "suppressNextPointerClick" in html
     assert "suppressGraphClickPointerId = null" in html
+    assert "autoplanner.route-forest-ui.v3:${forest.case_id" in html
+    assert "mode: oneOf(persisted.mode, ['clusters', 'shared', 'current'], 'current')" in html
+    assert "selectedStepId: ''" in html
+    assert "state.edgeFilter === 'selected' && hasSelection && !related" in html
+    assert "function effectiveOrientation()" in html
+    assert "function currentTargetPosition()" in html
+    assert "function safeStructureSvg(value)" in html
+    assert 'class="node-depiction"' in html
+    assert "node-tier-neutral" in html
     assert "window.addEventListener('pointermove'" in html
     assert "{ capture: true, passive: false }" in html
     assert "if (event.target === viewport) finishPan(event, { cancelled: true });" in html
@@ -1622,15 +1632,18 @@ def test_route_forest_html_is_read_only_and_inspectable() -> None:
     assert "routeFlowSvg" not in html
 
 
-def test_route_forest_initial_selection_uses_compiled_primary_branch() -> None:
+def test_route_forest_initial_selection_uses_readable_featured_branch_without_random_step() -> None:
     forest = compile_explored_route_forest(_sample_paclitaxel_blackboard())
     html = render_route_forest_html(forest)
 
     assert forest["primary_branch_id"] in html
-    assert "const defaultBranchId = forest.primary_branch_id" in html
+    assert "const defaultBranchId = chooseDefaultBranchId()" in html
+    assert "function branchDisplayScore(lane)" in html
+    assert "function chooseDefaultBranchId()" in html
     assert "const initialBranchId = persisted.selectedBranchId" in html
     assert "selectedBranchId: initialBranchId" in html
-    assert "selectedStepId: laneByBranch.get(initialBranchId)" in html
+    assert "selectedStepId: ''" in html
+    assert "selectedStepId: laneByBranch.get(initialBranchId)" not in html
     assert "lane.is_primary" in html
     assert "主分支" in html
 
