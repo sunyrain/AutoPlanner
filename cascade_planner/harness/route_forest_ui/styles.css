@@ -1294,9 +1294,17 @@ body.is-resizing * {
   -webkit-user-select: none;
 }
 
-.graph-viewport.is-panning,
-.graph-viewport.is-panning * {
-  cursor: grabbing !important;
+.graph-viewport::after {
+  content: '';
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  cursor: grabbing;
+  pointer-events: none;
+}
+
+.graph-viewport.is-panning::after {
+  pointer-events: auto;
 }
 
 .graph-grid {
@@ -1403,11 +1411,12 @@ body.is-resizing * {
 .graph-svg {
   width: 100%;
   height: 100%;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .graph-world {
   transform-origin: 0 0;
-  will-change: transform;
 }
 
 .graph-lane-decoration rect {

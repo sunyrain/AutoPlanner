@@ -379,7 +379,7 @@ routes or a backend-revalidated replacement, and the UI does not fabricate
 either. Closeout still succeeds operationally: one drift-free immutable CAS
 revision binds seven graph, proof-snapshot, verdict, forest, and HTML artifacts.
 Its revision is
-`sha256:ccd7e2dd1158d61a2121365e97320e3fe8380f70d5f2fbd2c1c02ce4cd443204`.
+`sha256:5aee91a1e173d0d03ac7d7f766316aecd93da2564da62b77993c8f6d1dd1218d`.
 The refreshed diagnostic chain also passes all 13/13 capability requirements:
 the blackboard snapshot, capability audit, and run audit were rebuilt from the
 saved actions and tool trace rather than retaining stale closeout diagnostics.

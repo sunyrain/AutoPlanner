@@ -674,13 +674,23 @@
     state.panY = anchorY - worldY * next;
     applyViewportTransform();
   }
+  function applyPanTransform() {
+    const svg = document.querySelector('.graph-svg');
+    if (!svg) return;
+    const transform = `translate3d(${state.panX}px, ${state.panY}px, 0)`;
+    if (svg.style.transform !== transform) svg.style.transform = transform;
+  }
   function applyViewportTransform() {
+    applyPanTransform();
     const world = document.querySelector('.graph-world');
-    if (world) world.setAttribute('transform', `translate(${state.panX} ${state.panY}) scale(${state.zoom})`);
+    const scaleTransform = `scale(${state.zoom})`;
+    if (world && world.getAttribute('transform') !== scaleTransform) world.setAttribute('transform', scaleTransform);
     const viewport = element('graphViewport');
-    viewport.dataset.labelMode = state.labelMode;
-    viewport.dataset.zoomBand = state.zoom < .18 ? 'overview' : state.zoom < .5 ? 'medium' : 'detail';
-    element('zoomReadout').textContent = `${Math.round(state.zoom * 100)}%`;
+    const zoomBand = state.zoom < .18 ? 'overview' : state.zoom < .5 ? 'medium' : 'detail';
+    if (viewport.dataset.labelMode !== state.labelMode) viewport.dataset.labelMode = state.labelMode;
+    if (viewport.dataset.zoomBand !== zoomBand) viewport.dataset.zoomBand = zoomBand;
+    const zoomLabel = `${Math.round(state.zoom * 100)}%`;
+    if (element('zoomReadout').textContent !== zoomLabel) element('zoomReadout').textContent = zoomLabel;
     updateMinimapViewport();
   }
 
@@ -704,12 +714,14 @@
     if (!svg || !rectNode) return;
     const scale = Number(svg.dataset.minimapScale || 1);
     const viewport = element('graphViewport');
+    const viewportWidth = viewport.clientWidth;
+    const viewportHeight = viewport.clientHeight;
     const worldX = -state.panX / state.zoom;
     const worldY = -state.panY / state.zoom;
     rectNode.setAttribute('x', String(clamp(worldX * scale, 0, 180)));
     rectNode.setAttribute('y', String(clamp(worldY * scale, 0, 108)));
-    rectNode.setAttribute('width', String(clamp((viewport.clientWidth / state.zoom) * scale, 2, 180)));
-    rectNode.setAttribute('height', String(clamp((viewport.clientHeight / state.zoom) * scale, 2, 108)));
+    rectNode.setAttribute('width', String(clamp((viewportWidth / state.zoom) * scale, 2, 180)));
+    rectNode.setAttribute('height', String(clamp((viewportHeight / state.zoom) * scale, 2, 108)));
   }
 
   function selectBranch(branchId, { focusGraph = false } = {}) {
@@ -1049,8 +1061,10 @@
         if (!cancelled) {
           state.panX = session.panX + event.clientX - session.x;
           state.panY = session.panY + event.clientY - session.y;
-          applyViewportTransform();
         }
+        if (panAnimationFrame) cancelAnimationFrame(panAnimationFrame);
+        panAnimationFrame = 0;
+        applyViewportTransform();
         if (!cancelled) suppressNextPointerClick(event.pointerId);
         event.preventDefault();
       }
@@ -1096,7 +1110,7 @@
       if (!panAnimationFrame) {
         panAnimationFrame = requestAnimationFrame(() => {
           panAnimationFrame = 0;
-          applyViewportTransform();
+          applyPanTransform();
         });
       }
     }, { capture: true, passive: false });
@@ -1109,6 +1123,9 @@
       if (!panSession) return;
       viewport.classList.remove('is-pan-ready', 'is-panning');
       panSession = null;
+      if (panAnimationFrame) cancelAnimationFrame(panAnimationFrame);
+      panAnimationFrame = 0;
+      applyViewportTransform();
     });
     viewport.addEventListener('click', event => {
       if (suppressGraphClickPointerId === null || event.detail === 0) return;

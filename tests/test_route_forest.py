@@ -1594,6 +1594,11 @@ def test_route_forest_html_is_read_only_and_inspectable() -> None:
     assert "unique(PROOF_ORDER.map(tierClass))" in html
     assert "const PAN_DRAG_THRESHOLD_PX = 5" in html
     assert "Math.hypot(deltaX, deltaY) < PAN_DRAG_THRESHOLD_PX" in html
+    assert "function applyPanTransform()" in html
+    assert "translate3d(${state.panX}px, ${state.panY}px, 0)" in html
+    assert "world.setAttribute('transform', scaleTransform)" in html
+    assert "requestAnimationFrame(() => {\n          panAnimationFrame = 0;\n          applyPanTransform();" in html
+    assert "if (panAnimationFrame) cancelAnimationFrame(panAnimationFrame);" in html
     assert "suppressNextPointerClick" in html
     assert "suppressGraphClickPointerId = null" in html
     assert "window.addEventListener('pointermove'" in html
@@ -1603,6 +1608,10 @@ def test_route_forest_html_is_read_only_and_inspectable() -> None:
     assert "viewport.addEventListener('selectstart'" in html
     assert "event.target.closest('[data-graph-node-id]')) return" not in html
     assert ".graph-viewport.is-panning" in html
+    assert ".graph-viewport.is-panning *" not in html
+    assert ".graph-viewport::after" in html
+    assert ".graph-viewport.is-panning::after" in html
+    assert ".graph-viewport.is-panning .graph-world" not in html
     assert ".graph-svg {\n  width: 100%;\n  height: 100%;" in html
     assert ".route-canvas {\n  position: absolute;" in html
     assert "overflow: hidden;\n  padding: 0;" in html
