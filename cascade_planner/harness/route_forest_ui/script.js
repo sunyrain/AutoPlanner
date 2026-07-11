@@ -4,6 +4,7 @@
   const forestDataText = document.getElementById('forest-data')?.textContent || '{}';
   const forest = JSON.parse(forestDataText);
   const STORAGE_KEY = 'autoplanner.route-forest-ui.v2';
+  const PAN_DRAG_THRESHOLD_PX = 5;
   const COPY = Object.freeze({
     consensus: 'Multi-source consensus audit',
     support: 'Independent support groups',
@@ -96,6 +97,9 @@
   };
   let renderModel = null;
   let panSession = null;
+  let panAnimationFrame = 0;
+  let suppressGraphClickPointerId = null;
+  let suppressGraphClickTimer = 0;
   let resizeSession = null;
   let liveAnnouncementTimer = 0;
   let deliveryIntegrityStatus = 'pending';
@@ -1030,24 +1034,92 @@
 
   function bindViewportEvents() {
     const viewport = element('graphViewport');
-    viewport.addEventListener('pointerdown', event => {
-      if (event.button !== 0 || event.target.closest('[data-graph-node-id]')) return;
-      panSession = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, panX: state.panX, panY: state.panY };
-      viewport.setPointerCapture(event.pointerId);
-      viewport.classList.add('is-panning');
-    });
-    viewport.addEventListener('pointermove', event => {
-      if (!panSession || panSession.pointerId !== event.pointerId) return;
-      state.panX = panSession.panX + event.clientX - panSession.x;
-      state.panY = panSession.panY + event.clientY - panSession.y;
-      requestAnimationFrame(applyViewportTransform);
-    });
-    const endPan = event => {
-      if (!panSession || panSession.pointerId !== event.pointerId) return;
-      panSession = null; viewport.classList.remove('is-panning');
+    const suppressNextPointerClick = pointerId => {
+      clearTimeout(suppressGraphClickTimer);
+      suppressGraphClickPointerId = pointerId;
+      suppressGraphClickTimer = setTimeout(() => {
+        if (suppressGraphClickPointerId === pointerId) suppressGraphClickPointerId = null;
+      }, 0);
     };
-    viewport.addEventListener('pointerup', endPan);
-    viewport.addEventListener('pointercancel', endPan);
+    const finishPan = (event, { cancelled = false } = {}) => {
+      if (!panSession || panSession.pointerId !== event.pointerId) return;
+      const session = panSession;
+      panSession = null;
+      if (session.moved) {
+        if (!cancelled) {
+          state.panX = session.panX + event.clientX - session.x;
+          state.panY = session.panY + event.clientY - session.y;
+          applyViewportTransform();
+        }
+        if (!cancelled) suppressNextPointerClick(event.pointerId);
+        event.preventDefault();
+      }
+      viewport.classList.remove('is-pan-ready', 'is-panning');
+      if (session.captured && viewport.hasPointerCapture?.(event.pointerId)) {
+        viewport.releasePointerCapture(event.pointerId);
+      }
+    };
+    viewport.addEventListener('pointerdown', event => {
+      if (event.isPrimary === false || event.button !== 0) return;
+      clearTimeout(suppressGraphClickTimer);
+      suppressGraphClickPointerId = null;
+      if (panSession) return;
+      if (event.target.closest('.graph-minimap, button, input, select, textarea, a, summary')) return;
+      panSession = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        panX: state.panX,
+        panY: state.panY,
+        moved: false,
+        captured: false
+      };
+      viewport.classList.add('is-pan-ready');
+    });
+    window.addEventListener('pointermove', event => {
+      if (!panSession || panSession.pointerId !== event.pointerId) return;
+      const deltaX = event.clientX - panSession.x;
+      const deltaY = event.clientY - panSession.y;
+      if (!panSession.moved) {
+        if (Math.hypot(deltaX, deltaY) < PAN_DRAG_THRESHOLD_PX) return;
+        panSession.moved = true;
+        try {
+          viewport.setPointerCapture(event.pointerId);
+          panSession.captured = true;
+        } catch (_) { /* capture can fail if the pointer ended between frames */ }
+        viewport.classList.remove('is-pan-ready');
+        viewport.classList.add('is-panning');
+      }
+      event.preventDefault();
+      state.panX = panSession.panX + deltaX;
+      state.panY = panSession.panY + deltaY;
+      if (!panAnimationFrame) {
+        panAnimationFrame = requestAnimationFrame(() => {
+          panAnimationFrame = 0;
+          applyViewportTransform();
+        });
+      }
+    }, { capture: true, passive: false });
+    window.addEventListener('pointerup', event => finishPan(event), true);
+    window.addEventListener('pointercancel', event => finishPan(event, { cancelled: true }), true);
+    viewport.addEventListener('lostpointercapture', event => {
+      if (event.target === viewport) finishPan(event, { cancelled: true });
+    });
+    window.addEventListener('blur', () => {
+      if (!panSession) return;
+      viewport.classList.remove('is-pan-ready', 'is-panning');
+      panSession = null;
+    });
+    viewport.addEventListener('click', event => {
+      if (suppressGraphClickPointerId === null || event.detail === 0) return;
+      if (Number.isInteger(event.pointerId) && event.pointerId !== suppressGraphClickPointerId) return;
+      clearTimeout(suppressGraphClickTimer);
+      suppressGraphClickPointerId = null;
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
+    viewport.addEventListener('dragstart', event => event.preventDefault());
+    viewport.addEventListener('selectstart', event => event.preventDefault());
     viewport.addEventListener('wheel', event => {
       if (event.target.closest('select, input')) return;
       event.preventDefault();

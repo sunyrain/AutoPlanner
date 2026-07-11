@@ -1592,6 +1592,20 @@ def test_route_forest_html_is_read_only_and_inspectable() -> None:
     assert "state.zoom < .18 ? 'overview'" in html
     assert html.count("dataset.zoomBand =") == 1
     assert "unique(PROOF_ORDER.map(tierClass))" in html
+    assert "const PAN_DRAG_THRESHOLD_PX = 5" in html
+    assert "Math.hypot(deltaX, deltaY) < PAN_DRAG_THRESHOLD_PX" in html
+    assert "suppressNextPointerClick" in html
+    assert "suppressGraphClickPointerId = null" in html
+    assert "window.addEventListener('pointermove'" in html
+    assert "{ capture: true, passive: false }" in html
+    assert "if (event.target === viewport) finishPan(event, { cancelled: true });" in html
+    assert "viewport.addEventListener('dragstart'" in html
+    assert "viewport.addEventListener('selectstart'" in html
+    assert "event.target.closest('[data-graph-node-id]')) return" not in html
+    assert ".graph-viewport.is-panning" in html
+    assert ".graph-svg {\n  width: 100%;\n  height: 100%;" in html
+    assert ".route-canvas {\n  position: absolute;" in html
+    assert "overflow: hidden;\n  padding: 0;" in html
     assert "primary.proof_level === 'parent_route_proof'" in html
     assert "primaryBranch.not_parent_route_proof === false" in html
     assert "primaryBranch.not_parent_route_proof !== true" not in html
