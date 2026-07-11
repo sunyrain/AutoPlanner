@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <title>__TITLE__ · 路线工作台</title>
+  <style>
+__STYLES__
+  </style>
+</head>
+<body class="layout-explore">
+  <a class="skip-link" href="#graphViewport">跳至路线图</a>
+
+  <header class="app-header" aria-label="路线工作台页眉">
+    <div class="brand-block">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" focusable="false">
+          <circle cx="8" cy="16" r="4"></circle>
+          <circle cx="24" cy="8" r="4"></circle>
+          <circle cx="24" cy="24" r="4"></circle>
+          <path d="M11.5 14.2 20.5 9.8M11.5 17.8l9 4.4"></path>
+        </svg>
+      </div>
+      <div class="brand-copy">
+        <div class="product-label">AUTOPLANNER · ROUTE FOREST</div>
+        <div class="title-row">
+          <h1 id="pageTitle">路线工作台</h1>
+          <span id="verdictBadge" class="status-badge status-badge--unresolved" role="status">读取结论中</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-overview" aria-label="路线概览">
+      <div id="overviewMetrics" class="overview-metrics" aria-live="polite"></div>
+      <div id="integrityStatus" class="integrity-status" role="status" aria-live="polite">
+        <span class="integrity-dot" aria-hidden="true"></span>
+        <span>正在读取摘要绑定…</span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <label class="control-field layout-preset-field" for="layoutPreset">
+        <span>布局</span>
+        <select id="layoutPreset" aria-label="选择工作台布局">
+          <option value="explore">探索</option>
+          <option value="focus">聚焦</option>
+          <option value="review">审阅</option>
+        </select>
+      </label>
+      <button id="navToggle" class="icon-button" type="button" aria-label="显示或隐藏路线导航" aria-controls="navPanel" aria-expanded="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h10M4 19h16"></path></svg>
+        <span class="button-label">导航</span>
+      </button>
+      <button id="inspectorToggle" class="icon-button" type="button" aria-label="显示或隐藏检查器" aria-controls="inspectorPanel" aria-expanded="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 8h6M9 12h6M9 16h3"></path></svg>
+        <span class="button-label">检查器</span>
+      </button>
+      <button id="themeToggle" class="icon-button" type="button" aria-label="切换深浅色主题" aria-pressed="false">
+        <svg class="theme-icon theme-icon--light" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"></path></svg>
+        <svg class="theme-icon theme-icon--dark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 15.4A8.5 8.5 0 0 1 8.6 3.5 8.5 8.5 0 1 0 20.5 15.4Z"></path></svg>
+        <span class="button-label">主题</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="workbench-grid" aria-label="逆合成路线探索器">
+    <aside id="navPanel" class="workbench-panel nav-panel" aria-label="路线导航">
+      <div class="panel-header nav-header">
+        <div>
+          <p class="panel-eyebrow">路线库</p>
+          <h2>探索分支</h2>
+        </div>
+        <span class="read-only-badge">只读</span>
+      </div>
+
+      <div class="nav-controls">
+        <label class="search-field" for="branchSearch">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m16.5 16.5 4 4"></path></svg>
+          <span class="sr-only">搜索路线、反应或分子</span>
+          <input id="branchSearch" type="search" autocomplete="off" placeholder="搜索路线、反应或分子…" />
+          <kbd>/</kbd>
+        </label>
+        <div id="branchFilterBar" class="filter-bar" role="toolbar" aria-label="路线筛选">
+          <button class="filter-chip is-active" type="button" data-branch-filter="all" aria-pressed="true">全部</button>
+          <button class="filter-chip" type="button" data-branch-filter="verified" aria-pressed="false">已验证</button>
+          <button class="filter-chip" type="button" data-branch-filter="evidence" aria-pressed="false">文献</button>
+          <button class="filter-chip" type="button" data-branch-filter="advisory" aria-pressed="false">建议</button>
+        </div>
+      </div>
+
+      <div id="branchGroups" class="branch-groups" aria-live="polite">
+        <div class="loading-state" role="status">
+          <span class="loading-spinner" aria-hidden="true"></span>
+          <span>正在组织多信源路线…</span>
+        </div>
+      </div>
+
+      <section class="evidence-overview" aria-labelledby="evidenceOverviewTitle">
+        <div class="section-heading">
+          <h3 id="evidenceOverviewTitle">证据概览</h3>
+          <span class="section-hint">Evidence</span>
+        </div>
+        <div id="evidenceStats" class="evidence-stats"></div>
+      </section>
+    </aside>
+
+    <div id="navResizeHandle" class="pane-resize-handle pane-resize-handle--nav" role="separator" tabindex="0" aria-label="调整路线导航宽度" aria-controls="navPanel" aria-orientation="vertical" aria-valuemin="240" aria-valuemax="460" aria-valuenow="300">
+      <span aria-hidden="true"></span>
+    </div>
+
+    <section class="workbench-panel graph-panel" aria-labelledby="graphTitle">
+      <div class="graph-context-bar">
+        <div class="graph-heading">
+          <div class="graph-title-line">
+            <h2 id="graphTitle">完整路线依赖图</h2>
+            <span id="graphVisibleCount" class="visible-count" aria-live="polite"></span>
+          </div>
+          <p id="graphSubtitle">每条边均表示显式的分子→反应或反应→分子依赖。</p>
+        </div>
+
+        <div class="graph-primary-actions" role="toolbar" aria-label="图视图控制">
+          <button class="tool-button" type="button" data-graph-action="fit" aria-label="适应可视区域">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"></path><path d="m3 8 5-5M21 8l-5-5M3 16l5 5M21 16l-5 5"></path></svg>
+            <span>适应</span>
+          </button>
+          <div class="segmented-control" aria-label="缩放">
+            <button type="button" data-graph-action="zoom-out" aria-label="缩小路线图">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"></path></svg>
+            </button>
+            <output id="zoomReadout" aria-live="polite">100%</output>
+            <button type="button" data-graph-action="zoom-in" aria-label="放大路线图">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"></path></svg>
+            </button>
+          </div>
+          <button class="tool-button tool-button--icon" type="button" data-graph-action="reset" aria-label="重置图视图">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.34-5.66L4 8.67"></path><path d="M4 4v4.67h4.67"></path></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="graph-toolbar" aria-label="路线图显示设置">
+        <div class="toolbar-scroll">
+          <div id="graphModeControl" class="graph-mode-control" role="group" aria-label="路线图模式">
+            <button class="is-active" type="button" data-graph-mode="clusters" aria-pressed="true">路线簇</button>
+            <button type="button" data-graph-mode="shared" aria-pressed="false">共享超图</button>
+            <button type="button" data-graph-mode="current" aria-pressed="false">当前分支</button>
+          </div>
+          <div id="graphFilterBar" class="graph-filter-bar" role="toolbar" aria-label="证明层级与选中邻域筛选"></div>
+          <label class="compact-select" for="orientationSelect">
+            <span>方向</span>
+            <select id="orientationSelect">
+              <option value="horizontal">从左到右</option>
+              <option value="vertical">从上到下</option>
+            </select>
+          </label>
+          <label class="compact-select" for="densitySelect">
+            <span>密度</span>
+            <select id="densitySelect">
+              <option value="comfortable">舒展</option>
+              <option value="compact">紧凑</option>
+              <option value="overview">概览</option>
+            </select>
+          </label>
+          <label class="compact-select" for="edgeStyleSelect">
+            <span>连线</span>
+            <select id="edgeStyleSelect">
+              <option value="trust">可信度编码</option>
+              <option value="simple">简洁</option>
+              <option value="contrast">高对比</option>
+            </select>
+          </label>
+          <label class="compact-select" for="labelModeSelect">
+            <span>标签</span>
+            <select id="labelModeSelect">
+              <option value="semantic">语义缩放</option>
+              <option value="full">完整名称</option>
+              <option value="minimal">仅层级</option>
+            </select>
+          </label>
+
+          <details id="legendPopover" class="legend-popover">
+            <summary>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="18" cy="12" r="2"></circle></svg>
+              <span>可信度图例</span>
+            </summary>
+            <div class="legend-card" role="list" aria-label="L0 到 L4 可信度图例">
+              <div class="legend-intro">
+                <strong>反应级证明</strong>
+                <span>颜色 = 级别，线宽 = 独立支持，纹理 = 不确定性。</span>
+              </div>
+              <div class="legend-row tier-l4" role="listitem"><span class="trust-swatch trust-pattern--double"></span><span><strong>L4</strong> 可采购就绪</span></div>
+              <div class="legend-row tier-l3" role="listitem"><span class="trust-swatch trust-pattern--solid"></span><span><strong>L3</strong> 精确文献先例</span></div>
+              <div class="legend-row tier-l2-validated" role="listitem"><span class="trust-swatch trust-pattern--striped"></span><span><strong>L2</strong> 反应重验</span></div>
+              <div class="legend-row tier-l2-mapping" role="listitem"><span class="trust-swatch trust-pattern--striped-advisory"></span><span><strong>L2</strong> 映射一致（建议）</span></div>
+              <div class="legend-row tier-l1" role="listitem"><span class="trust-swatch trust-pattern--dashed"></span><span><strong>L1</strong> 图连通 + 库存闭合</span></div>
+              <div class="legend-row tier-l0-materialized" role="listitem"><span class="trust-swatch trust-pattern--dotted"></span><span><strong>L0</strong> 结构已具象化</span></div>
+              <div class="legend-row tier-l0-advisory" role="listitem"><span class="trust-swatch trust-pattern--dotted"></span><span><strong>L0</strong> 探索建议</span></div>
+              <div class="legend-row tier-l0-rejected" role="listitem"><span class="trust-swatch trust-pattern--crosshatched"></span><span><strong>L0</strong> 已拒绝</span></div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div id="graphViewport" class="graph-viewport" tabindex="0" aria-label="可缩放与拖动的完整路线图">
+        <div class="graph-grid" aria-hidden="true"></div>
+        <div id="mainRoute" class="route-canvas" aria-live="polite">
+          <div class="graph-loading" role="status">
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <strong>正在布置分子–反应超图</strong>
+            <span>保留显式依赖、来源与可信度编码。</span>
+          </div>
+        </div>
+        <div id="graphMinimap" class="graph-minimap" aria-label="路线图缩略图"></div>
+        <div class="canvas-readonly-note" aria-label="展示模式">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v10H5z"></path></svg>
+          <span>只读视图</span>
+        </div>
+      </div>
+    </section>
+
+    <div id="inspectorResizeHandle" class="pane-resize-handle pane-resize-handle--inspector" role="separator" tabindex="0" aria-label="调整检查器宽度" aria-controls="inspectorPanel" aria-orientation="vertical" aria-valuemin="320" aria-valuemax="560" aria-valuenow="380">
+      <span aria-hidden="true"></span>
+    </div>
+
+    <aside id="inspectorPanel" class="workbench-panel inspector-panel" aria-labelledby="inspectorTitle">
+      <div class="panel-header inspector-header">
+        <div>
+          <p class="panel-eyebrow">当前选择</p>
+          <h2 id="inspectorTitle">检查器</h2>
+        </div>
+        <button class="panel-close-button" type="button" data-close-panel="inspector" aria-label="关闭检查器">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
+        </button>
+      </div>
+
+      <div id="detailTabs" class="detail-tabs" role="tablist" aria-label="检查器视图">
+        <button id="detailTabStep" class="detail-tab is-active" type="button" role="tab" data-detail-tab="step" aria-controls="detail" aria-selected="true">概览</button>
+        <button id="detailTabEvidence" class="detail-tab" type="button" role="tab" data-detail-tab="evidence" aria-controls="detail" aria-selected="false">证据</button>
+        <button id="detailTabAlternatives" class="detail-tab" type="button" role="tab" data-detail-tab="alternatives" aria-controls="detail" aria-selected="false">备选</button>
+      </div>
+
+      <div id="detail" class="inspector-detail" role="tabpanel" aria-live="polite" aria-labelledby="detailTabStep">
+        <div class="empty-state">
+          <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="17" cy="24" r="7"></circle><circle cx="35" cy="14" r="5"></circle><circle cx="35" cy="34" r="5"></circle><path d="m23 21 7-4M23 27l7 4"></path></svg>
+          <strong>选择一个反应或分子</strong>
+          <span>在此检查结构、条件、证明层级与完整来源链。</span>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <button class="mobile-backdrop" type="button" data-close-mobile-panels aria-label="关闭移动面板"></button>
+
+  <nav class="mobile-bottom-nav" aria-label="移动端工作台导航">
+    <button type="button" data-mobile-panel="nav" aria-controls="navPanel" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h10M4 19h16"></path></svg>
+      <span>路线</span>
+    </button>
+    <button class="is-active" type="button" data-mobile-panel="graph" aria-current="page">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="19" cy="6" r="2"></circle><circle cx="19" cy="18" r="2"></circle><path d="m7 11 10-4M7 13l10 4"></path></svg>
+      <span>路线图</span>
+    </button>
+    <button type="button" data-mobile-panel="inspector" aria-controls="inspectorPanel" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 8h6M9 12h6M9 16h3"></path></svg>
+      <span>详情</span>
+    </button>
+  </nav>
+
+  <script id="forest-data" type="application/json">__DATA__</script>
+  <script>
+__SCRIPT__
+  </script>
+</body>
+</html>

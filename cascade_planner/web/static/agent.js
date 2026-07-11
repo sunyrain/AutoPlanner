@@ -25,7 +25,7 @@ const samples = {
     name: "paclitaxel",
     hint: "taxane semisynthesis, baccatin III, 10-deacetylbaccatin III, C13 side-chain installation",
     smiles: "CC1=C2[C@H](C(=O)[C@@]3([C@H](C[C@@H]4[C@]([C@H]3[C@@H]([C@@](C2(C)C)(C[C@@H]1OC(=O)[C@@H]([C@H](C5=CC=CC=C5)NC(=O)C6=CC=CC=C6)O)O)OC(=O)C7=CC=CC=C7)(CO4)OC(=O)C)O)C)OC(=O)C",
-    rounds: 6,
+    rounds: 7,
     scout: 3,
     visual: 2,
     chemenzy: 1,
@@ -50,9 +50,114 @@ const state = {
   routeLoadingPath: "",
   routeFailedPath: "",
   routeFailedAt: 0,
+  routeLoadToken: 0,
+  routeHandshakeToken: "",
+  routeHandshakeTimer: 0,
+  controlsOpen: true,
+  activityOpen: true,
+  mobileView: "route",
 };
 
 const LAST_JOB_KEY = "autoplanner.agent.lastJobId";
+const LAYOUT_KEY = "autoplanner.agent.layout.v2";
+const MOBILE_BREAKPOINT = "(max-width: 900px)";
+const ROUTE_READY_MESSAGE = "autoplanner.route_forest.ready.v1";
+const ROUTE_HANDSHAKE_TIMEOUT_MS = 8000;
+
+function isMobileLayout() {
+  return window.matchMedia(MOBILE_BREAKPOINT).matches;
+}
+
+function readLayoutState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
+    if (typeof saved.controlsOpen === "boolean") state.controlsOpen = saved.controlsOpen;
+    if (typeof saved.activityOpen === "boolean") state.activityOpen = saved.activityOpen;
+    if (["route", "controls", "activity"].includes(saved.mobileView)) {
+      state.mobileView = saved.mobileView;
+    }
+  } catch {
+    // Invalid or unavailable storage falls back to the route-first defaults.
+  }
+}
+
+function saveLayoutState() {
+  try {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify({
+      controlsOpen: state.controlsOpen,
+      activityOpen: state.activityOpen,
+      mobileView: state.mobileView,
+    }));
+  } catch {
+    // The workbench remains fully usable when storage is unavailable.
+  }
+}
+
+function setPanelAvailability(panel, visible) {
+  if (!panel) return;
+  panel.setAttribute("aria-hidden", visible ? "false" : "true");
+  panel.toggleAttribute("inert", !visible);
+}
+
+function applyLayoutState() {
+  const mobile = isMobileLayout();
+  document.body.classList.toggle("controls-collapsed", !state.controlsOpen);
+  document.body.classList.toggle("activity-collapsed", !state.activityOpen);
+  document.body.dataset.mobileView = state.mobileView;
+
+  const controlsVisible = mobile ? state.mobileView === "controls" : state.controlsOpen;
+  const activityVisible = mobile ? state.mobileView === "activity" : state.activityOpen;
+  const routeVisible = !mobile || state.mobileView === "route";
+  $("toggle-controls").setAttribute("aria-expanded", String(controlsVisible));
+  $("toggle-activity").setAttribute("aria-expanded", String(activityVisible));
+  setPanelAvailability($("controls-panel"), controlsVisible);
+  setPanelAvailability($("activity-panel"), activityVisible);
+  setPanelAvailability($("route-workspace"), routeVisible);
+
+  document.querySelectorAll("[data-mobile-view]").forEach((button) => {
+    if (!button.classList.contains("mobile-view-tab")) return;
+    const selected = button.dataset.mobileView === state.mobileView;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+}
+
+function setMobileView(view, { focusTab = false } = {}) {
+  if (!["route", "controls", "activity"].includes(view)) return;
+  state.mobileView = view;
+  saveLayoutState();
+  applyLayoutState();
+  if (focusTab) $("mobile-view-" + view)?.focus();
+}
+
+function toggleControls() {
+  if (isMobileLayout()) {
+    setMobileView(state.mobileView === "controls" ? "route" : "controls");
+    return;
+  }
+  state.controlsOpen = !state.controlsOpen;
+  saveLayoutState();
+  applyLayoutState();
+}
+
+function toggleActivity() {
+  if (isMobileLayout()) {
+    setMobileView(state.mobileView === "activity" ? "route" : "activity");
+    return;
+  }
+  state.activityOpen = !state.activityOpen;
+  saveLayoutState();
+  applyLayoutState();
+}
+
+function focusRoute() {
+  if (isMobileLayout()) setMobileView("route");
+  const route = $("route-workspace");
+  route.focus({ preventScroll: true });
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  route.scrollIntoView({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
+}
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -144,7 +249,18 @@ function readPayload() {
   };
 }
 
+function validateRunControls() {
+  const controls = [...$("controls-panel").querySelectorAll("input, textarea, select")];
+  const invalid = controls.find((control) => !control.checkValidity());
+  if (!invalid) return true;
+  if (isMobileLayout()) setMobileView("controls");
+  invalid.reportValidity();
+  invalid.focus();
+  return false;
+}
+
 async function startRun() {
+  if (!validateRunControls()) return;
   const payload = readPayload();
   $("start-run").disabled = true;
   $("cancel-run").disabled = true;
@@ -419,99 +535,132 @@ function shouldLoadRoute(path) {
   return true;
 }
 
-async function verifyRouteFile(path) {
-  const url = resultFileUrl(path);
-  const res = await fetch(`${url}&_=${Date.now()}`, { cache: "no-store" });
-  const contentType = res.headers.get("content-type") || "";
-  const text = await res.text();
-  const looksLikeHtml = /<html[\s>]/i.test(text) || /<!doctype html>/i.test(text);
-  if (!res.ok || !looksLikeHtml || contentType.includes("application/json")) {
-    let message = text.slice(0, 220).trim();
-    try {
-      const data = JSON.parse(text);
-      message = data.error || data.text || message;
-    } catch {
-      // Keep the short raw preview for non-JSON responses.
-    }
-    throw new Error(message || `HTTP ${res.status}`);
-  }
-  return url;
-}
-
 function showRouteMessage(kind, title, detail, path = "") {
   const panel = document.querySelector(".route-panel");
   panel.classList.toggle("loading-route", kind === "loading");
   panel.classList.toggle("route-error", kind === "error");
   panel.classList.remove("has-route");
+  panel.setAttribute("aria-busy", kind === "loading" ? "true" : "false");
   $("route-empty").innerHTML = `
     <div class="route-message">
       <strong>${escapeHtml(title)}</strong>
       <span>${escapeHtml(detail)}</span>
       ${path ? `<code>${escapeHtml(path)}</code>` : ""}
+      ${kind === "error" && path ? '<button class="secondary-button" type="button" data-retry-route>重试路线图</button>' : ""}
     </div>
   `;
 }
 
-async function loadRoute(path) {
+function setOpenRouteLink(url = "") {
+  const link = $("open-route");
+  const enabled = Boolean(url);
+  link.href = enabled ? url : "#";
+  link.classList.toggle("disabled", !enabled);
+  link.setAttribute("aria-disabled", String(!enabled));
+  link.tabIndex = enabled ? 0 : -1;
+}
+
+function failRouteLoad(path, token, detail) {
+  if (token !== state.routeLoadToken) return;
+  clearRouteHandshake();
+  state.routeLoadingPath = "";
+  state.routeFailedPath = path;
+  state.routeFailedAt = Date.now();
+  state.loadedRoutePath = "";
+  $("route-state").textContent = "载入失败";
+  $("route-counts").textContent = path;
+  setOpenRouteLink();
+  showRouteMessage("error", "路线图暂时不可用", detail || "后端没有返回可渲染的 HTML。", path);
+}
+
+function clearRouteHandshake() {
+  window.clearTimeout(state.routeHandshakeTimer);
+  state.routeHandshakeTimer = 0;
+  state.routeHandshakeToken = "";
+}
+
+function createRouteHandshakeToken(token) {
+  const random = new Uint32Array(2);
+  window.crypto.getRandomValues(random);
+  return `${token}-${Date.now()}-${random[0].toString(36)}${random[1].toString(36)}`;
+}
+
+function completeRouteLoad(path, token, message) {
+  if (token !== state.routeLoadToken) return;
+  clearRouteHandshake();
+  state.routeLoadingPath = "";
+  state.routeFailedPath = "";
+  state.loadedRoutePath = path;
+  const panel = document.querySelector(".route-panel");
+  const frame = $("route-frame");
+  panel.setAttribute("aria-busy", "false");
+  panel.classList.remove("loading-route", "route-error");
+  panel.classList.add("has-route");
+  frame.title = `逆合成路线森林：${path.split("/").slice(-2, -1)[0] || "结果"}`;
+  if (!state.currentJobId) {
+    $("route-state").textContent = "已载入";
+    const counts = message?.counts || {};
+    $("route-counts").textContent = counts.branches
+      ? `${counts.branches} 分支 · ${counts.reaction_nodes || counts.steps || 0} 反应`
+      : path;
+  }
+}
+
+function handleRouteFrameMessage(event) {
+  const frame = $("route-frame");
+  const message = event.data || {};
+  if (event.source !== frame.contentWindow || message.type !== ROUTE_READY_MESSAGE) return;
+  if (!state.routeHandshakeToken || message.token !== state.routeHandshakeToken) return;
+  if (message.schema_version !== "route_forest_delivery.v1") {
+    failRouteLoad(state.routeLoadingPath, state.routeLoadToken, "路线图返回了不受支持的交付契约。");
+    return;
+  }
+  if (message.integrity_status !== "verified") {
+    failRouteLoad(state.routeLoadingPath, state.routeLoadToken, "路线图交付摘要未在浏览器中完成验证，已拒绝显示。");
+    return;
+  }
+  completeRouteLoad(state.routeLoadingPath, state.routeLoadToken, message);
+}
+
+function loadRoute(path) {
   const normalizedPath = normalizeResultPath(path);
   if (!normalizedPath.endsWith(".html")) {
     showRouteMessage("error", "路线图路径无效", "当前产物不是可嵌入的 HTML 路线图。", normalizedPath);
     return;
   }
-  const panel = document.querySelector(".route-panel");
   const frame = $("route-frame");
+  const token = ++state.routeLoadToken;
+  const url = resultFileUrl(normalizedPath);
+  clearRouteHandshake();
+  state.routeHandshakeToken = createRouteHandshakeToken(token);
+  const embedUrl = `${url}&embed=1&parent_token=${encodeURIComponent(state.routeHandshakeToken)}`;
   state.routeLoadingPath = normalizedPath;
-  showRouteMessage("loading", "正在载入路线图", "如果 agent 仍在写入文件，这里会自动重试。", normalizedPath);
-  let url;
-  try {
-    url = await verifyRouteFile(normalizedPath);
-  } catch (err) {
-    state.routeLoadingPath = "";
-    state.routeFailedPath = normalizedPath;
-    state.routeFailedAt = Date.now();
-    frame.removeAttribute("src");
-    $("open-route").href = "#";
-    $("open-route").classList.add("disabled");
-    showRouteMessage("error", "路线图暂时不可用", err.message || "后端没有返回可渲染的 HTML。", normalizedPath);
-    return;
-  }
-  state.routeLoadingPath = "";
-  state.routeFailedPath = "";
-  state.loadedRoutePath = normalizedPath;
-  frame.onload = () => {
-    try {
-      const doc = frame.contentDocument;
-      doc?.body?.classList.add("embedded-route");
-      doc?.defaultView?.scrollTo(0, 0);
-      const canvas = doc?.querySelector(".route-canvas");
-      if (canvas) {
-        canvas.scrollTop = 0;
-        canvas.scrollLeft = 0;
-      }
-    } catch {
-      // Same-origin should hold for local result files, but keep the shell resilient.
-    }
-  };
-  frame.src = `${url}&_=${Date.now()}`;
-  $("open-route").href = url;
-  $("open-route").classList.remove("disabled");
-  if (!state.currentJobId) {
-    $("route-state").textContent = "已载入";
-    $("route-counts").textContent = normalizedPath;
-  }
-  panel.classList.remove("loading-route", "route-error");
-  panel.classList.add("has-route");
+  state.loadedRoutePath = "";
+  setOpenRouteLink(url);
+  showRouteMessage("loading", "正在载入路线图", "大型路线图可能需要数秒；任务运行时会在下一次轮询继续检查。", normalizedPath);
+  frame.onload = () => {};
+  frame.onerror = () => failRouteLoad(normalizedPath, token, "路线图网络加载失败，可重试或在新窗口检查。");
+  state.routeHandshakeTimer = window.setTimeout(() => {
+    failRouteLoad(normalizedPath, token, "路线图未完成交付握手；文件可能缺失、损坏或属于旧版格式。");
+  }, ROUTE_HANDSHAKE_TIMEOUT_MS);
+  frame.src = `${embedUrl}&_=${Date.now()}`;
 }
 
 function clearRoute() {
+  state.routeLoadToken += 1;
+  clearRouteHandshake();
   state.loadedRoutePath = "";
   state.routeLoadingPath = "";
   state.routeFailedPath = "";
   state.routeFailedAt = 0;
-  $("route-frame").removeAttribute("src");
-  $("open-route").href = "#";
-  $("open-route").classList.add("disabled");
+  const frame = $("route-frame");
+  frame.onload = null;
+  frame.onerror = null;
+  frame.removeAttribute("src");
+  frame.title = "逆合成路线森林";
+  setOpenRouteLink();
   const panel = document.querySelector(".route-panel");
+  panel.setAttribute("aria-busy", "false");
   panel.classList.remove("has-route", "loading-route", "route-error");
   $("route-empty").textContent = "尚未载入路线图";
   $("route-state").textContent = "未生成";
@@ -532,6 +681,12 @@ function loadExisting() {
   loadRoute(path);
 }
 
+function syncDemoTarget() {
+  const selected = $("demo-route").selectedOptions[0];
+  const sampleKey = selected?.dataset.sampleKey || "";
+  if (sampleKey) applySample(sampleKey);
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     "&": "&amp;",
@@ -548,23 +703,58 @@ function shorten(value, limit = 70) {
 }
 
 function bind() {
+  window.addEventListener("message", handleRouteFrameMessage);
+  document.querySelector(".skip-link").addEventListener("click", (event) => {
+    event.preventDefault();
+    focusRoute();
+  });
   $("refresh-status").addEventListener("click", refreshStatus);
+  $("toggle-controls").addEventListener("click", toggleControls);
+  $("toggle-activity").addEventListener("click", toggleActivity);
+  $("focus-route").addEventListener("click", focusRoute);
   $("start-run").addEventListener("click", startRun);
   $("cancel-run").addEventListener("click", cancelRun);
   $("load-existing").addEventListener("click", loadExisting);
+  $("route-empty").addEventListener("click", (event) => {
+    if (!event.target.closest("[data-retry-route]")) return;
+    const path = state.routeFailedPath || normalizeResultPath($("existing-route").value);
+    if (path) loadRoute(path);
+  });
   $("demo-route").addEventListener("change", () => {
     $("existing-route").value = $("demo-route").value;
+    syncDemoTarget();
+  });
+  document.querySelectorAll(".mobile-view-tab").forEach((button) => {
+    button.addEventListener("click", () => setMobileView(button.dataset.mobileView || "route"));
+    button.addEventListener("keydown", (event) => {
+      const tabs = [...document.querySelectorAll(".mobile-view-tab")];
+      const index = tabs.indexOf(button);
+      let next = index;
+      if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+      else if (event.key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = tabs.length - 1;
+      else return;
+      event.preventDefault();
+      setMobileView(tabs[next].dataset.mobileView || "route", { focusTab: true });
+    });
   });
   document.querySelectorAll("[data-sample]").forEach((button) => {
     button.addEventListener("click", () => applySample(button.dataset.sample));
   });
+  const layoutMedia = window.matchMedia(MOBILE_BREAKPOINT);
+  if (layoutMedia.addEventListener) layoutMedia.addEventListener("change", applyLayoutState);
+  else layoutMedia.addListener(applyLayoutState);
 }
 
 async function init() {
+  readLayoutState();
   bind();
+  applyLayoutState();
   refreshStatus();
   const restored = await restoreActiveJob();
   if (!restored) {
+    syncDemoTarget();
     loadExisting();
   }
 }

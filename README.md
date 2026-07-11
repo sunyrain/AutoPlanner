@@ -67,6 +67,19 @@ reaction-validated route entered the portfolio, so the authoritative verdict
 remains `hypothesis_route_proposed`, `solved=false`. The exact run metrics and
 remaining gates are recorded in [AutoPlanner mainline](docs/MAINLINE.md#paclitaxel-end-to-end-run-2026-07-10).
 
+The route workbench is a digest-bound view of that full forest, not a second
+source of truth. It offers deterministic route-cluster, shared-hypergraph, and
+current-branch layouts; branch/source/proof filters; pan, zoom, fit, minimap,
+orientation, density, and label controls; and a molecule/reaction/evidence
+inspector. Desktop panes are resizable, medium screens use drawers, and mobile
+and embedded views start canvas-first. Large diagnostic-only interface matrices
+and duplicate graph structure SVGs are omitted from the browser payload while
+the complete `explored_route_forest.v1` remains SHA-256-bound and authoritative.
+The embedded parent accepts only a browser-verified delivery handshake. Route
+replacement previews are complete hidden branches that already passed backend
+AND/OR connectivity, stock, and reaction-proof revalidation; pairwise interface
+comparisons remain diagnostic and never authorize a single-step splice.
+
 ## Current Anchors
 
 - [Docs index](docs/README.md)
@@ -87,6 +100,7 @@ remaining gates are recorded in [AutoPlanner mainline](docs/MAINLINE.md#paclitax
 | `cascade_planner/providers/` | Replaceable typed proposal, evidence, stock, verifier, agent, artifact, and renderer interfaces. |
 | `cascade_planner/runtime/` | Persistent agent state, event log, idempotency, and reconciliation contracts. |
 | `cascade_planner/baselines/` | ChemEnzy adapter and shared route contracts used as deterministic tools. |
+| `cascade_planner/harness/` | Deterministic proof/closeout compilers plus digest-bound route-forest layout and delivery. |
 | `cascade_planner/web/` | Local UI and progress/artifact inspection surface. |
 | `scripts/` | Active launchers for agentic blackboard runs, Codex/WellAU, ChemEnzy, WebUI, and current replay workflows. |
 | `tests/` | Current contract tests for artifacts, route audit, Codex worker control, literature evidence, and WebUI behavior. |

@@ -4,6 +4,7 @@ This is intentionally read-only for run directories: it loads each
 agent_blackboard.json, compiles the in-memory route forest, renders HTML in
 memory, and writes only an optional aggregate summary.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,6 +25,9 @@ from cascade_planner.harness.route_forest import (  # noqa: E402
     SCHEMA_VERSION,
     compile_explored_route_forest,
     render_route_forest_html,
+)
+from cascade_planner.harness.route_forest_delivery import (  # noqa: E402
+    route_forest_delivery_integrity_reasons,
 )
 
 
@@ -76,8 +80,9 @@ def route_forest_html_contract_reasons(
     """Validate renderer semantics without depending on labels or layout IDs.
 
     Display copy and navigation widgets can change freely. The durable contract
-    is a document with a route host, an inspector, and a parseable
-    ``explored_route_forest.v1`` payload that drives the view.
+    is a document with a route host, an inspector, and a self-consistent
+    ``route_forest_delivery.v1`` projection bound to the authoritative
+    ``explored_route_forest.v1`` source digest.
     """
     if not isinstance(html, str):
         return ["route_forest_html_not_text"]
@@ -97,22 +102,24 @@ def route_forest_html_contract_reasons(
     if parser.forest_data_type != "application/json":
         reasons.append("route_forest_html_invalid_forest_data_type")
 
-    embedded_forest: Any = None
+    embedded_delivery: Any = None
     if parser.forest_data:
         try:
-            embedded_forest = json.loads(parser.forest_data)
+            embedded_delivery = json.loads(parser.forest_data)
         except json.JSONDecodeError:
             reasons.append("route_forest_html_invalid_forest_data_json")
     elif "forest-data" in parser.element_ids:
         reasons.append("route_forest_html_empty_forest_data")
 
-    if isinstance(embedded_forest, dict):
-        if embedded_forest.get("schema_version") != SCHEMA_VERSION:
-            reasons.append("route_forest_html_invalid_embedded_forest_schema")
-        if expected_forest is not None and embedded_forest != expected_forest:
-            reasons.append("route_forest_html_embedded_forest_mismatch")
-    elif embedded_forest is not None:
-        reasons.append("route_forest_html_embedded_forest_not_object")
+    if isinstance(embedded_delivery, dict):
+        reasons.extend(
+            route_forest_delivery_integrity_reasons(
+                embedded_delivery,
+                source_forest=expected_forest,
+            )
+        )
+    elif embedded_delivery is not None:
+        reasons.append("route_forest_html_embedded_delivery_not_object")
     return reasons
 
 
@@ -141,15 +148,25 @@ def smoke_route_forest_history(config: HistorySmokeConfig) -> dict[str, Any]:
     accepted = all(row.get("accepted") for row in rows)
     summary = {
         "schema_version": "route_forest_history_smoke_summary.v1",
-        "created_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "created_at_utc": datetime.now(timezone.utc)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z"),
         "root": str(config.root.resolve()),
         "accepted": accepted,
         "checked": len(rows),
         "compiled": sum(1 for row in rows if row.get("compiled")),
         "failed": sum(1 for row in rows if not row.get("accepted")),
-        "zero_branch": sum(1 for row in rows if int((row.get("counts") or {}).get("branches") or 0) == 0),
-        "zero_step": sum(1 for row in rows if int((row.get("counts") or {}).get("steps") or 0) == 0),
-        "html_bad": sum(1 for row in rows if "route_forest_html_invalid" in row.get("reasons", [])),
+        "zero_branch": sum(
+            1
+            for row in rows
+            if int((row.get("counts") or {}).get("branches") or 0) == 0
+        ),
+        "zero_step": sum(
+            1 for row in rows if int((row.get("counts") or {}).get("steps") or 0) == 0
+        ),
+        "html_bad": sum(
+            1 for row in rows if "route_forest_html_invalid" in row.get("reasons", [])
+        ),
         "rows": rows,
     }
     return summary
@@ -230,7 +247,9 @@ def _load_json(path: Path) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT / "results" / "shared")
-    parser.add_argument("--max-runs", type=int, default=0, help="Optional cap for quick local probes.")
+    parser.add_argument(
+        "--max-runs", type=int, default=0, help="Optional cap for quick local probes."
+    )
     parser.add_argument("--allow-empty-branches", action="store_true")
     parser.add_argument("--allow-empty-steps", action="store_true")
     parser.add_argument("--summary-output", type=Path, default=None)
@@ -247,7 +266,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.summary_output:
         out = args.summary_output.expanduser()
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        out.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if summary.get("accepted") else 1
 

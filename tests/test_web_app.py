@@ -427,12 +427,66 @@ class WebAppTest(unittest.TestCase):
         self.assertIn("全路径依赖图、可信度与安全备选", agent_html)
         self.assertIn("颜色表示 proof tier", agent_html)
         self.assertIn("线宽表示独立支持", agent_html)
-        self.assertIn("仅精确接口验证通过的替代项可预览", agent_html)
-        self.assertIn("仍须后端 proof 重验", agent_html)
+        self.assertIn("已通过后端 AND/OR", agent_html)
+        self.assertIn("整路线重验的替换分支可预览", agent_html)
+        self.assertIn("接口比较仅作诊断", agent_html)
+        self.assertIn("预览不建立父路线证明", agent_html)
 
         response = self.app.get("/agent")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("20260710-trust-dag", response.get_data(as_text=True))
+        self.assertIn("20260711-science-workbench-v3", response.get_data(as_text=True))
+
+    def test_agent_workbench_layout_accessibility_and_embed_contracts(self):
+        agent_html = (web_app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        agent_css = (web_app.STATIC_DIR / "agent.css").read_text(encoding="utf-8")
+        agent_js = (web_app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+
+        for control_id in (
+            "toggle-controls",
+            "toggle-activity",
+            "focus-route",
+            "mobile-view-route",
+            "mobile-view-controls",
+            "mobile-view-activity",
+        ):
+            self.assertIn(f'id="{control_id}"', agent_html)
+        self.assertIn('class="skip-link"', agent_html)
+        self.assertIn('role="tablist"', agent_html)
+        self.assertIn('aria-controls="controls-panel"', agent_html)
+        self.assertIn('aria-controls="activity-panel"', agent_html)
+        self.assertIn('aria-live="polite"', agent_html)
+        self.assertIn("<fieldset", agent_html)
+        self.assertIn("<legend>", agent_html)
+
+        self.assertIn('sandbox="allow-scripts"', agent_html)
+        self.assertNotIn('sandbox="allow-scripts allow-same-origin"', agent_html)
+        self.assertIn("&embed=1", agent_js)
+        self.assertIn("parent_token=", agent_js)
+        self.assertIn("autoplanner.route_forest.ready.v1", agent_js)
+        self.assertIn("handleRouteFrameMessage", agent_js)
+        self.assertIn("ROUTE_HANDSHAKE_TIMEOUT_MS", agent_js)
+        self.assertIn('message.integrity_status !== "verified"', agent_js)
+        self.assertNotIn('message.integrity_status === "invalid"', agent_js)
+        self.assertNotIn("contentDocument", agent_js)
+        self.assertNotIn("verifyRouteFile", agent_js)
+
+        self.assertIn('const LAYOUT_KEY = "autoplanner.agent.layout.v2"', agent_js)
+        self.assertIn("localStorage.setItem(LAYOUT_KEY", agent_js)
+        self.assertIn("controls-collapsed", agent_css)
+        self.assertIn("activity-collapsed", agent_css)
+        self.assertIn('@media (max-width: 1240px)', agent_css)
+        self.assertIn('@media (max-width: 900px)', agent_css)
+        self.assertIn('@media (max-width: 640px)', agent_css)
+        self.assertIn('@media (prefers-reduced-motion: reduce)', agent_css)
+        self.assertIn(":focus-visible", agent_css)
+        self.assertNotIn("min-width: 1180px", agent_css)
+
+        self.assertIn('id="target-name" value="paclitaxel"', agent_html)
+        self.assertIn('data-sample-key="paclitaxel"', agent_html)
+        self.assertIn(
+            "results/shared/paclitaxel_architecture_v2_20260710/route_forest.html",
+            agent_html,
+        )
 
     def test_missing_template_relevance_selection_is_rejected_before_search(self):
         missing_model = "template_relevance.autoplanner_missing_for_test"

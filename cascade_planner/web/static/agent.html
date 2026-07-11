@@ -3,128 +3,186 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AutoPlanner Agent Workbench</title>
-  <link rel="stylesheet" href="/static/agent.css?v=20260710-trust-dag">
+  <title>AutoPlanner Agent 科学工作台</title>
+  <link rel="stylesheet" href="/static/agent.css?v=20260711-science-workbench-v3">
 </head>
-<body>
+<body data-mobile-view="route">
+  <a class="skip-link" href="#route-workspace">跳到路线画布</a>
+
   <header class="topbar">
-    <div>
-      <div class="eyebrow">AutoPlanner</div>
-      <h1>逆合成 Agent 工作台</h1>
-      <p>输入目标分子，实时观察黑板状态；完成后展示全部候选的分子–反应依赖图、可信度向量及经接口验证的可替换备选。</p>
+    <div class="brand-block">
+      <div class="eyebrow">AutoPlanner · Codex retrosynthesis</div>
+      <h1>逆合成 Agent 科学工作台</h1>
+      <p>输入目标分子，观察多信源规划、证明审计与可替换全路线。</p>
     </div>
-    <div class="top-actions">
+    <div class="top-actions" aria-label="工作台操作">
+      <button id="toggle-controls" class="tool-button" type="button" aria-controls="controls-panel" aria-expanded="true">规划参数</button>
+      <button id="toggle-activity" class="tool-button" type="button" aria-controls="activity-panel" aria-expanded="true">运行过程</button>
+      <button id="focus-route" class="tool-button emphasized" type="button">聚焦路线</button>
       <a class="ghost-link" href="/">ChemEnzy UI</a>
-      <button id="refresh-status" class="icon-button" type="button" title="刷新服务状态">刷新</button>
-      <span id="server-status" class="status-pill muted">checking</span>
+      <button id="refresh-status" class="icon-button" type="button">刷新状态</button>
+      <span id="server-status" class="status-pill muted" role="status" aria-live="polite" aria-atomic="true">正在检查</span>
     </div>
   </header>
 
-  <main class="workspace">
-    <aside class="control-panel">
-      <section class="panel">
-        <div class="panel-title">
-          <h2>目标分子</h2>
-          <span class="mini-badge">input</span>
+  <nav class="mobile-view-tabs" role="tablist" aria-label="工作台视图">
+    <button id="mobile-view-route" class="mobile-view-tab active" type="button" role="tab" aria-selected="true" aria-controls="route-workspace" data-mobile-view="route">路线</button>
+    <button id="mobile-view-controls" class="mobile-view-tab" type="button" role="tab" aria-selected="false" aria-controls="controls-panel" data-mobile-view="controls" tabindex="-1">参数</button>
+    <button id="mobile-view-activity" class="mobile-view-tab" type="button" role="tab" aria-selected="false" aria-controls="activity-panel" data-mobile-view="activity" tabindex="-1">运行</button>
+  </nav>
+
+  <main id="agent-workbench" class="workspace">
+    <section id="route-workspace" class="route-panel" aria-labelledby="route-workspace-title" tabindex="-1">
+      <div class="route-head">
+        <div>
+          <div class="eyebrow">Route evidence canvas</div>
+          <h2 id="route-workspace-title">全路径依赖图、可信度与安全备选</h2>
+          <p id="route-description">主画布展示全部分支及显式分子–反应依赖；颜色表示 proof tier，线宽表示独立支持，透明度与纹理表示不确定性。只有已通过后端 AND/OR connectivity、stock 与 reaction-proof 整路线重验的替换分支可预览；接口比较仅作诊断，预览不建立父路线证明。</p>
         </div>
-        <label for="target-name">名称</label>
-        <input id="target-name" value="atorvastatin" autocomplete="off">
+        <a id="open-route" class="ghost-link disabled" href="#" target="_blank" rel="noreferrer" aria-disabled="true" tabindex="-1">新窗口打开</a>
+      </div>
+      <iframe id="route-frame" title="逆合成路线森林" aria-describedby="route-description" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+      <div id="route-empty" class="route-empty" role="status" aria-live="polite" aria-atomic="true">尚未载入路线图</div>
+    </section>
 
-        <label for="family-hint">化学背景</label>
-        <input id="family-hint" value="statin, HMG-CoA reductase inhibitor" autocomplete="off">
-
-        <label for="target-smiles">目标 SMILES</label>
-        <textarea id="target-smiles" spellcheck="false">CC(C)C1=C(C(=C(N1CC[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)C3=CC=CC=C3)C(=O)NC4=CC=CC=C4</textarea>
-
-        <div class="sample-grid">
-          <button class="sample" type="button" data-sample="atorvastatin">atorvastatin</button>
-          <button class="sample" type="button" data-sample="bufotalin">bufotalin</button>
-          <button class="sample" type="button" data-sample="paclitaxel">paclitaxel</button>
-          <button class="sample" type="button" data-sample="ibuprofen">ibuprofen</button>
+    <aside id="controls-panel" class="control-panel" aria-labelledby="controls-title">
+      <div class="drawer-head">
+        <div>
+          <div class="eyebrow">Run configuration</div>
+          <h2 id="controls-title">规划参数</h2>
         </div>
-      </section>
+        <span class="mini-badge">agentic</span>
+      </div>
 
-      <section class="panel">
-        <div class="panel-title">
-          <h2>运行预算</h2>
-          <span class="mini-badge">agentic</span>
-        </div>
-        <div class="two-col">
-          <div>
-            <label for="max-rounds">黑板轮数</label>
-            <input id="max-rounds" type="number" min="1" max="30" value="5">
+      <div class="control-scroll">
+        <section class="panel" aria-labelledby="target-section-title">
+          <div class="panel-title">
+            <h3 id="target-section-title">目标分子</h3>
+            <span class="mini-badge">input</span>
           </div>
-          <div>
-            <label for="codex-team-depth">Codex 路线深度</label>
-            <input id="codex-team-depth" type="number" min="1" max="6" value="2">
-          </div>
-          <div>
-            <label for="codex-team-expansions">Codex frontier 次数</label>
-            <input id="codex-team-expansions" type="number" min="1" max="24" value="4">
-          </div>
-          <div>
-            <label for="timeout-s">总超时秒</label>
-            <input id="timeout-s" type="number" min="60" max="86400" value="3600">
-          </div>
-          <div>
-            <label for="chemenzy-runs">ChemEnzy</label>
-            <input id="chemenzy-runs" type="number" min="0" max="20" value="2">
-          </div>
-          <div>
-            <label for="subgoal-runs">子目标展开</label>
-            <input id="subgoal-runs" type="number" min="0" max="20" value="2">
-          </div>
-          <div>
-            <label for="scout-calls">文献检索</label>
-            <input id="scout-calls" type="number" min="0" max="50" value="2">
-          </div>
-          <div>
-            <label for="visual-calls">PDF/视觉</label>
-            <input id="visual-calls" type="number" min="0" max="50" value="2">
-          </div>
-        </div>
+          <label for="target-name">名称</label>
+          <input id="target-name" value="paclitaxel" autocomplete="off">
 
-        <label for="model">模型</label>
-        <input id="model" value="gpt-5.5" autocomplete="off">
+          <label for="family-hint">化学背景</label>
+          <input id="family-hint" value="taxane semisynthesis, baccatin III, 10-deacetylbaccatin III, C13 side-chain installation" autocomplete="off">
 
-        <label for="codex-team-model">Codex 子 agent 模型（空值沿用主模型）</label>
-        <input id="codex-team-model" value="" placeholder="沿用主模型" autocomplete="off">
+          <label for="target-smiles">目标 SMILES</label>
+          <textarea id="target-smiles" spellcheck="false" required aria-required="true">CC1=C2[C@H](C(=O)[C@@]3([C@H](C[C@@H]4[C@]([C@H]3[C@@H]([C@@](C2(C)C)(C[C@@H]1OC(=O)[C@@H]([C@H](C5=CC=CC=C5)NC(=O)C6=CC=CC=C6)O)O)OC(=O)C7=CC=CC=C7)(CO4)OC(=O)C)O)C)OC(=O)C</textarea>
 
-        <label for="planner-tools">规划器工具</label>
-        <select id="planner-tools">
-          <option value="">默认工具</option>
-          <option value="web_search,browser,literature_search">联网检索 + 浏览器 + 文献</option>
-          <option value="none">不使用规划器外部工具</option>
-        </select>
+          <div class="sample-grid" aria-label="目标示例">
+            <button class="sample" type="button" data-sample="atorvastatin">atorvastatin</button>
+            <button class="sample" type="button" data-sample="bufotalin">bufotalin</button>
+            <button class="sample" type="button" data-sample="paclitaxel">paclitaxel</button>
+            <button class="sample" type="button" data-sample="ibuprofen">ibuprofen</button>
+          </div>
+        </section>
 
-        <div class="check-row">
-          <label><input id="codex-action-planner" type="checkbox" checked> Codex action planner</label>
-          <label><input id="codex-agent-team" type="checkbox" checked> Codex direct sub-agent team</label>
-          <label><input id="exhaust-round-budget" type="checkbox"> 穷尽本轮可用动作</label>
-          <label><input id="auto-local-pdf" type="checkbox"> 允许本地 PDF 自动匹配</label>
-        </div>
+        <section class="panel" aria-labelledby="budget-section-title">
+          <div class="panel-title">
+            <h3 id="budget-section-title">运行预算</h3>
+            <span class="mini-badge">budget</span>
+          </div>
+          <fieldset class="settings-group">
+            <legend>搜索与子 Agent 上限</legend>
+            <div class="two-col">
+              <div>
+                <label for="max-rounds">黑板轮数</label>
+                <input id="max-rounds" type="number" min="1" max="30" value="7">
+              </div>
+              <div>
+                <label for="codex-team-depth">Codex 路线深度</label>
+                <input id="codex-team-depth" type="number" min="1" max="6" value="2">
+              </div>
+              <div>
+                <label for="codex-team-expansions">Codex frontier 次数</label>
+                <input id="codex-team-expansions" type="number" min="1" max="24" value="4">
+              </div>
+              <div>
+                <label for="timeout-s">总超时秒</label>
+                <input id="timeout-s" type="number" min="60" max="86400" value="3600">
+              </div>
+              <div>
+                <label for="chemenzy-runs">ChemEnzy</label>
+                <input id="chemenzy-runs" type="number" min="0" max="20" value="2">
+              </div>
+              <div>
+                <label for="subgoal-runs">子目标展开</label>
+                <input id="subgoal-runs" type="number" min="0" max="20" value="3">
+              </div>
+              <div>
+                <label for="scout-calls">文献检索</label>
+                <input id="scout-calls" type="number" min="0" max="50" value="3">
+              </div>
+              <div>
+                <label for="visual-calls">PDF/视觉</label>
+                <input id="visual-calls" type="number" min="0" max="50" value="3">
+              </div>
+            </div>
+          </fieldset>
+        </section>
 
+        <section class="panel" aria-labelledby="engine-section-title">
+          <div class="panel-title">
+            <h3 id="engine-section-title">执行引擎</h3>
+            <span class="mini-badge">advanced</span>
+          </div>
+          <label for="model">主模型</label>
+          <input id="model" value="gpt-5.5" autocomplete="off">
+
+          <label for="codex-team-model">Codex 子 Agent 模型</label>
+          <input id="codex-team-model" value="" placeholder="沿用主模型" autocomplete="off">
+
+          <label for="planner-tools">规划器工具</label>
+          <select id="planner-tools">
+            <option value="">默认工具</option>
+            <option value="web_search,browser,literature_search">联网检索 + 浏览器 + 文献</option>
+            <option value="none">不使用规划器外部工具</option>
+          </select>
+
+          <fieldset class="check-row">
+            <legend>执行策略</legend>
+            <label><input id="codex-action-planner" type="checkbox" checked> Codex action planner</label>
+            <label><input id="codex-agent-team" type="checkbox" checked> Codex direct sub-agent team</label>
+            <label><input id="exhaust-round-budget" type="checkbox"> 穷尽本轮可用动作</label>
+            <label><input id="auto-local-pdf" type="checkbox"> 允许本地 PDF 自动匹配</label>
+          </fieldset>
+        </section>
+
+        <section class="panel compact" aria-labelledby="existing-section-title">
+          <div class="panel-title">
+            <h3 id="existing-section-title">已有结果</h3>
+            <span class="mini-badge">preview</span>
+          </div>
+          <label class="visually-hidden" for="demo-route">示例路线</label>
+          <select id="demo-route">
+            <option data-sample-key="paclitaxel" value="results/shared/paclitaxel_architecture_v2_20260710/route_forest.html">paclitaxel Architecture V2 (96 explored branches)</option>
+            <option data-sample-key="bufotalin" value="results/shared/bufotalin_full_exact_stitch_rerun_20260622_073847/route_forest.html">bufotalin solved mixed route</option>
+            <option data-sample-key="atorvastatin" value="results/shared/atorvastatin_online_zero_20260704_202940/route_forest.html">atorvastatin online run</option>
+            <option data-sample-key="atorvastatin" value="results/shared/atorvastatin_blackboard_correct_identity_runtime_fixed_parent_proof_20260706/route_forest.html">atorvastatin proof run</option>
+          </select>
+          <label class="visually-hidden" for="existing-route">路线图相对路径</label>
+          <input id="existing-route" value="results/shared/paclitaxel_architecture_v2_20260710/route_forest.html" aria-describedby="existing-route-hint">
+          <p id="existing-route-hint" class="field-hint">只读取仓库 results 目录中的 route_forest.html。</p>
+          <button id="load-existing" class="secondary-button" type="button">打开路线图</button>
+        </section>
+      </div>
+
+      <div class="control-actions" aria-label="任务操作">
         <button id="start-run" class="primary-button" type="button">启动 Agent 全流程</button>
         <button id="cancel-run" class="secondary-button" type="button" disabled>取消当前任务</button>
-      </section>
-
-      <section class="panel compact">
-        <div class="panel-title">
-          <h2>已有结果</h2>
-          <span class="mini-badge">demo</span>
-        </div>
-        <select id="demo-route">
-          <option value="results/shared/bufotalin_full_exact_stitch_rerun_20260622_073847/route_forest.html">bufotalin solved mixed route</option>
-          <option value="results/shared/atorvastatin_online_zero_20260704_202940/route_forest.html">atorvastatin online run</option>
-          <option value="results/shared/atorvastatin_blackboard_correct_identity_runtime_fixed_parent_proof_20260706/route_forest.html">atorvastatin proof run</option>
-        </select>
-        <input id="existing-route" value="results/shared/bufotalin_full_exact_stitch_rerun_20260622_073847/route_forest.html">
-        <button id="load-existing" class="secondary-button" type="button">打开路线图</button>
-      </section>
+      </div>
     </aside>
 
-    <section class="run-panel">
-      <div class="status-grid">
+    <section id="activity-panel" class="run-panel activity-panel" aria-labelledby="activity-title">
+      <div class="activity-head">
+        <div>
+          <div class="eyebrow">Live execution trace</div>
+          <h2 id="activity-title">运行与审计</h2>
+        </div>
+        <span id="timeline-hint" class="mini-badge">live</span>
+      </div>
+
+      <div class="status-grid" role="status" aria-live="polite" aria-atomic="false">
         <article class="status-card">
           <span>任务</span>
           <strong id="job-title">尚未启动</strong>
@@ -147,39 +205,29 @@
         </article>
       </div>
 
-      <section class="panel timeline-panel">
-        <div class="panel-title">
-          <h2>黑板运行过程</h2>
-          <span id="timeline-hint" class="mini-badge">live</span>
-        </div>
-        <div id="timeline" class="timeline">
-          <div class="empty">任务启动后会显示初始化、动作规划、工具执行、审计与最终汇总。</div>
-        </div>
-      </section>
+      <div class="activity-grid">
+        <section class="panel timeline-panel" aria-labelledby="timeline-title">
+          <div class="panel-title">
+            <h3 id="timeline-title">黑板运行过程</h3>
+            <span class="mini-badge">steps</span>
+          </div>
+          <div id="timeline" class="timeline" aria-live="polite" aria-relevant="additions text">
+            <div class="empty">任务启动后会显示初始化、动作规划、工具执行、审计与最终汇总。</div>
+          </div>
+        </section>
 
-      <section class="panel artifact-panel">
-        <div class="panel-title">
-          <h2>产物与日志</h2>
-          <span class="mini-badge">artifacts</span>
-        </div>
-        <div id="artifact-links" class="artifact-links"></div>
-        <pre id="log-tail" class="log-tail">暂无日志</pre>
-      </section>
-    </section>
-
-    <section class="route-panel">
-      <div class="route-head">
-        <div>
-          <h2>全路径依赖图、可信度与安全备选</h2>
-          <p>主画布展示全部分支及显式分子–反应依赖；颜色表示 proof tier，线宽表示独立支持，透明度与纹理表示不确定性。仅精确接口验证通过的替代项可预览，预览后仍须后端 proof 重验。</p>
-        </div>
-        <a id="open-route" class="ghost-link disabled" href="#" target="_blank" rel="noreferrer">新窗口打开</a>
+        <section class="panel artifact-panel" aria-labelledby="artifact-title">
+          <div class="panel-title">
+            <h3 id="artifact-title">产物与日志</h3>
+            <span class="mini-badge">artifacts</span>
+          </div>
+          <div id="artifact-links" class="artifact-links"><span class="mini-badge">暂无产物</span></div>
+          <pre id="log-tail" class="log-tail" tabindex="0" aria-label="任务日志">暂无日志</pre>
+        </section>
       </div>
-      <iframe id="route-frame" title="route forest" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
-      <div id="route-empty" class="route-empty">尚未载入路线图</div>
     </section>
   </main>
 
-  <script src="/static/agent.js?v=20260710-trust-dag"></script>
+  <script src="/static/agent.js?v=20260711-science-workbench-v3"></script>
 </body>
 </html>

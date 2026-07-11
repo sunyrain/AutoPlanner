@@ -491,7 +491,8 @@ Visual encoding is deterministic:
 | Proof tier | Colour | Pattern meaning |
 | --- | --- | --- |
 | Rejected L0 | rose | Crosshatched |
-| Advisory/materialized L0 | orange | Dotted |
+| Advisory L0 | orange | Dotted |
+| Materialized L0 | violet | Dotted; structure exists but chemistry is not proved |
 | Graph-and-stock L1 | amber | Dashed |
 | Mapping-consistent L2 (advisory) | blue-grey | Broken stripe |
 | Deterministically replayed `L2_reaction_validated` | blue | Striped; never upgraded from mapping-only L2 |
@@ -502,6 +503,28 @@ Colour means proof tier, line width means independent support-group count,
 opacity means mean trust dimension, and dash/texture exposes uncertainty. The
 JSON legend is authoritative; consumers should not hard-code a semantic from
 colour alone.
+
+Rendering is a separate, non-authoritative projection. The complete
+`explored_route_forest.v1` is canonical-JSON hashed into
+`route_forest_delivery.v1`. The compact delivery removes duplicate dependency-
+graph structure SVGs and individual diagnostics-only interface-comparison
+records, but preserves their summary plus every authoritative replacement
+record. `delivery_sha256` protects the browser payload; `source_forest_sha256`
+binds it back to the complete forest. A consumer with the source forest must
+validate both digests and the source schema before accepting the view.
+The standalone UI also recomputes the raw embedded-JSON digest with WebCrypto.
+The `/agent` shell accepts the sandboxed child ready message only when that check
+is `verified`; unavailable, pending, unknown, and invalid integrity states fail
+closed instead of being presented as a loaded route.
+
+Logical layout is deterministic and permutation-invariant: explicit edges are
+condensed into strongly connected components, disconnected components remain
+separate, longest-path layers establish direction, and fixed barycentric sweeps
+stabilize within-layer order. Each branch also receives an explicit-edge-only
+local lane. No array order or display adjacency can create chemistry. The UI
+packs lanes into a two-dimensional route-cluster overview and also exposes the
+canonical shared graph and a selected branch DAG. All filters, layout presets,
+pane sizes, zoom, and selection state are presentation-only.
 
 The default projection lists every available branch and candidate. If an
 explicit caller limit is used, `route_forest_projection_coverage.v1` records
@@ -531,6 +554,7 @@ comparison.
 | `route_replacement_catalog.v1` | Accepted and rejected backend full-route re-solves | Preview only a complete accepted branch; never splice one step |
 | Legacy blackboard proposal records | Adapted into per-product candidate buckets | Never trust legacy solved/validated flags |
 | `explored_route_forest.v1` | Read-only global dependency projection | Trust only with valid closeout on new runs |
+| `route_forest_delivery.v1` | Compact UI projection bound to a complete forest digest | Validate delivery, source digest, and source schema; never treat as proof authority |
 | Fixed artifact filenames | Compatibility paths into a committed revision | Validate CAS digest/dependencies first |
 | Old route verifier reports | Structural compatibility evidence | Parent solved now requires replayed L3 trusted-precedent reaction proof |
 
@@ -664,6 +688,9 @@ python -m pytest -q `
   tests/test_route_portfolio.py `
   tests/test_artifact_revision.py `
   tests/test_route_forest.py `
+  tests/test_route_forest_delivery.py `
+  tests/test_route_forest_layout.py `
+  tests/test_route_forest_history_smoke.py `
   tests/test_web_app.py
 
 Remove-Item Env:AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY

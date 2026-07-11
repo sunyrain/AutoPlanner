@@ -275,11 +275,42 @@ identity, connectivity, source independence, stock, conditions, and forward
 feasibility. Colour is the proof tier; width is independent support-group count;
 opacity is mean trust; pattern exposes uncertainty. The default view is
 untruncated, and any explicit limit records omitted counts and displays a
-warning. The emitted legend maps rejected L0 to rose, advisory/materialized L0
-to orange, graph-and-stock L1 to amber, mapping-only L2 to blue-grey,
+warning. The emitted legend maps rejected L0 to rose, advisory L0 to orange,
+materialized L0 to violet, graph-and-stock L1 to amber, mapping-only L2 to blue-grey,
 deterministically replayed L2 to blue, precedent-supported L3 to teal, and
 procurement-ready L4 to green. The JSON legend, not colour alone, is the
 semantic authority.
+
+The presentation path is split into deterministic layers:
+
+```text
+explored_route_forest.v1 (complete authority)
+-> route_forest_delivery.v1 (canonical source SHA-256 binding)
+-> SCC/component/layer and branch-lane logical projections
+-> repository-native HTML/CSS/SVG workbench
+```
+
+The delivery projection retains every branch, reaction step, explicit edge,
+authoritative replacement record, evidence link, and trust semantic. It omits
+only browser-unused duplicate molecule SVGs and the quadratic records inside
+diagnostics-only interface comparisons; their counts and omission reason remain
+visible. History and closeout readers validate both the delivery digest and its
+source-forest digest rather than treating the compact payload as a new proof
+artifact.
+
+The standalone workbench recomputes the embedded-byte SHA-256 before reporting
+the delivery as bound. The `/agent` parent accepts the child ready handshake only
+when that browser verification returns `verified`; `pending`, `unavailable`,
+unknown, and invalid states all fail closed.
+
+The default route-cluster mode packs every branch into deterministic two-
+dimensional lanes. Shared-hypergraph mode displays canonical sharing, and
+current-branch mode displays one complete molecule-reaction DAG. Search,
+branch kind, proof tier, edge scope, density, orientation, labels, pan/zoom,
+fit, reset, and minimap controls change only the view. Selection uses an accent
+halo instead of replacing proof colours. Resizable desktop panes, medium-screen
+drawers, mobile bottom navigation, and `embed=1` canvas-first rendering share
+the same read-only artifact.
 
 At closeout, consensus, graph/portfolio, forest, and HTML bytes are stored in a
 content-addressed revision with dependency SHA-256 bindings. A staging manifest
@@ -348,7 +379,7 @@ routes or a backend-revalidated replacement, and the UI does not fabricate
 either. Closeout still succeeds operationally: one drift-free immutable CAS
 revision binds seven graph, proof-snapshot, verdict, forest, and HTML artifacts.
 Its revision is
-`sha256:3f5e81b19ebc9db5d67fb68c9a679a532d2e4219ad1c5c79f050c53d5d72946e`.
+`sha256:4bde157bd447d0baa8734a87695a5c2944fcf713d927ec3977756bffd28270a9`.
 The refreshed diagnostic chain also passes all 13/13 capability requirements:
 the blackboard snapshot, capability audit, and run audit were rebuilt from the
 saved actions and tool trace rather than retaining stale closeout diagnostics.
@@ -423,7 +454,7 @@ Before pushing controller or prompt edits, run:
 ```bash
 python -m pytest tests/test_agentic_blackboard_controller.py -q
 python -m pytest tests/test_codex_entry_harness_contract.py -q
-python -m pytest tests/test_codex_retrosynthesis_team.py tests/test_route_consensus.py tests/test_route_consensus_graph.py tests/test_route_source_adapters.py tests/test_route_forest.py -q
+python -m pytest tests/test_codex_retrosynthesis_team.py tests/test_route_consensus.py tests/test_route_consensus_graph.py tests/test_route_source_adapters.py tests/test_route_forest.py tests/test_route_forest_delivery.py tests/test_route_forest_layout.py tests/test_route_forest_history_smoke.py -q
 ```
 
 When touching proof, stock, objective, or template surfaces, also run:
@@ -436,7 +467,7 @@ For the V2 provider, graph, proof, scheduler, portfolio, artifact, and global
 DAG contracts, also run:
 
 ```bash
-python -m pytest tests/test_provider_registry.py tests/test_builtin_providers.py tests/test_stock_provider.py tests/test_route_source_adapters.py tests/test_reaction_step_verifier.py tests/test_frontier_scheduler.py tests/test_route_portfolio.py tests/test_portfolio_controller_integration.py tests/test_artifact_revision.py tests/test_route_forest.py tests/test_web_app.py tests/test_audit_architecture_v2.py -q
+python -m pytest tests/test_provider_registry.py tests/test_builtin_providers.py tests/test_stock_provider.py tests/test_route_source_adapters.py tests/test_reaction_step_verifier.py tests/test_frontier_scheduler.py tests/test_route_portfolio.py tests/test_portfolio_controller_integration.py tests/test_artifact_revision.py tests/test_route_forest.py tests/test_route_forest_delivery.py tests/test_route_forest_layout.py tests/test_route_forest_history_smoke.py tests/test_web_app.py tests/test_audit_architecture_v2.py -q
 ```
 
 The full-suite literature proof fixtures require the fixture registry explicitly;
@@ -448,8 +479,8 @@ python -m pytest -q
 Remove-Item Env:AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY
 ```
 
-At the Architecture V2 closeout on 2026-07-10, the complete offline suite
-passed with 829 passed and 3 skipped. Live retrieval is intentionally opt-in; set
+At the route-workbench closeout on 2026-07-11, the complete offline suite
+passed with 943 passed and 3 skipped. Live retrieval is intentionally opt-in; set
 `AUTOPLANNER_LIVE_RETRIEVAL_SMOKE=1` when external PubChem/Crossref availability
 is part of the test objective. Also run `git diff --check` before publishing.
 

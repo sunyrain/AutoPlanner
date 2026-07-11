@@ -633,8 +633,9 @@ def test_route_consensus_keeps_step_refs_separate_and_surfaces_conflicts_in_html
     assert "Independent support groups" in html
     assert "Condition conflicts" in html
     assert "Codex roles are correlated" in html
-    assert "consensusOverview" in html
-    assert "selectedBranchId = el.getAttribute('data-view-branch')" in html
+    assert 'data-detail-tab="evidence"' in html
+    assert "function renderEvidence(entity, host)" in html
+    assert "support_records" in html
 
 
 def test_route_forest_projects_blackboard_into_final_route_display() -> None:
@@ -710,8 +711,9 @@ def test_advisory_proposals_and_templates_keep_their_own_products() -> None:
     assert all(nodes[node_id]["role"] != "target" for node_id in template_step["to_node_ids"])
 
     html = render_route_forest_html(forest)
-    assert "父路线：未闭合" in html
-    assert "Advisory 分支步骤（不是父路线证明）" in html
+    assert "父路线未闭合" in html
+    assert "探索建议" in html
+    assert "array_adjacency\":\"never_creates_an_edge" in html
 
 
 def test_route_forest_does_not_invent_atorvastatin_process_route_from_source_metadata() -> None:
@@ -1509,8 +1511,9 @@ def test_route_forest_embeds_molecule_svgs_and_step_conditions() -> None:
 
     html = render_route_forest_html(forest)
     assert "mol-structure" in html
-    assert "conditionBlock" in html
-    assert "条件：" in html
+    assert "condition-list" in html
+    assert "condition-label" in html
+    assert "条件" in html
 
 
 def test_direct_parent_proof_still_projects_without_artifact(tmp_path) -> None:
@@ -1564,44 +1567,49 @@ def test_route_forest_html_is_read_only_and_inspectable() -> None:
     forest = compile_explored_route_forest(_sample_paclitaxel_blackboard())
     html = render_route_forest_html(forest)
 
-    assert "Explored Route Forest" in html
+    assert "AUTOPLANNER · ROUTE FOREST" in html
     assert "beta-lactam side-chain precursor" in html
     assert "forest-data" in html
-    assert "只读结果页" in html
-    assert "activeReplacement" in html
-    assert "altBranchId" in html
-    assert "branchTailSteps" in html
+    assert "只读视图" in html
+    assert "route_forest_delivery.v1" in html
+    assert "source_forest_sha256" in html
+    assert "delivery_sha256" in html
     assert "relationships" in html
-    assert "stitched_verified_route" in html
-    assert "拼接验证路线" in html
-    assert "证据过程" in html
-    assert "没有父路线证明时只展示明确标注的 advisory 分支" in html
-    assert "父路线：未闭合" in html
+    for branch in forest["branches"]:
+        assert branch["branch_id"] in html
+        assert branch["kind"] in html
+    assert "父路线未闭合" in html
     assert "data-related-branch" not in html
-    assert "备选预览" in html
-    assert "后续步骤按该备选所属分支" in html
-    assert "路线关系" in html
-    assert "证据过程" in html
-    assert "viewPicker" in html
-    assert "routeFlowSvg" in html
-    assert "核心路线" in html
-    assert "data-toggle-panel=\"nav\"" in html
-    assert "data-toggle-panel=\"inspector\"" in html
+    assert 'data-detail-tab="alternatives"' in html
+    assert 'data-graph-mode="clusters"' in html
+    assert 'data-graph-mode="shared"' in html
+    assert 'data-graph-mode="current"' in html
+    assert 'id="graphMinimap"' in html
+    assert 'data-graph-action="fit"' in html
+    assert 'data-graph-action="zoom-in"' in html
+    assert 'id="navResizeHandle"' in html
+    assert 'id="inspectorResizeHandle"' in html
+    assert "state.zoom < .18 ? 'overview'" in html
+    assert html.count("dataset.zoomBand =") == 1
+    assert "unique(PROOF_ORDER.map(tierClass))" in html
+    assert "primary.proof_level === 'parent_route_proof'" in html
+    assert "primaryBranch.not_parent_route_proof === false" in html
+    assert "primaryBranch.not_parent_route_proof !== true" not in html
+    assert "some(branch => branch.solved" not in html
+    assert "routeFlowSvg" not in html
 
 
-def test_route_forest_default_route_buttons_reset_to_compiled_primary_branch() -> None:
+def test_route_forest_initial_selection_uses_compiled_primary_branch() -> None:
     forest = compile_explored_route_forest(_sample_paclitaxel_blackboard())
     html = render_route_forest_html(forest)
 
-    assert html.count("data-reset-default-route") >= 3
-    assert "function resetDefaultRoute()" in html
-    assert "const branch = defaultBranch();" in html
-    assert "selectedBranchId = branch.branch_id || '__all__';" in html
-    assert "selectedStepId = firstStepId(branch);" in html
-    assert "button.onclick = resetDefaultRoute" in html
-    assert 'class="toggle-button" type="button" data-reset-default-route>恢复默认分支' in html
-    assert 'class="clear-button" type="button" data-reset-default-route>默认分支' in html
-    assert "data-reset-route>默认分支" not in html
+    assert forest["primary_branch_id"] in html
+    assert "const defaultBranchId = forest.primary_branch_id" in html
+    assert "const initialBranchId = persisted.selectedBranchId" in html
+    assert "selectedBranchId: initialBranchId" in html
+    assert "selectedStepId: laneByBranch.get(initialBranchId)" in html
+    assert "lane.is_primary" in html
+    assert "主分支" in html
 
 
 def test_every_compiled_branch_kind_owns_its_step_and_dependency_foreign_keys() -> None:
@@ -2225,9 +2233,16 @@ def test_backend_replacement_catalog_previews_complete_hidden_resolved_branch() 
     html = render_route_forest_html(forest)
     assert "baseRows.slice" not in html
     assert "data-replacement-id" in html
+    assert "data-replacement-preview" in html
+    assert "function previewReplacement(target)" in html
+    assert "function restoreReplacementPreview" in html
+    assert "includeReplacementPreview: true" in html
+    assert "完整替换路线预览 · 后端已重验" in html
+    assert "完整的后端重验替换路线预览" in html
     assert "full AND/OR route re-solved" in html
     assert "no_stock_closed_reaction_validated_route" in html
-    assert "branches.filter(branch => branch.listed !== false)" in html
+    assert "function filteredLanes({ includeReplacementPreview = false } = {})" in html
+    assert "lane.listed === false && !isReplacementPreview" in html
 
 
 def test_portfolio_projection_fails_closed_on_tampered_hash_bound_proof_data() -> None:
@@ -2353,7 +2368,7 @@ def test_route_forest_default_is_complete_and_explicit_limits_report_truncation(
     assert "Projection truncated" in render_route_forest_html(limited)
 
 
-def test_route_forest_surfaces_content_addressed_closeout_revision_status() -> None:
+def test_route_forest_marks_closeout_revision_as_source_context_only() -> None:
     forest = compile_explored_route_forest(
         {
             "case_id": "revision-aware-display",
@@ -2380,20 +2395,26 @@ def test_route_forest_surfaces_content_addressed_closeout_revision_status() -> N
     )
 
     assert forest["artifact_revision"] == {
-        "schema_version": "route_forest_artifact_revision_view.v1",
-        "status": "committed",
+        "schema_version": "route_forest_source_revision_context.v1",
+        "status": "source_context_committed",
+        "scope": "blackboard_input_closeout_context",
         "committed": True,
+        "self_authenticates_current_forest": False,
         "revision_id": "revision-123",
         "manifest_path": "revisions/revision-123/manifest.json",
         "manifest_sha256": "a" * 64,
         "authority": "content_addressed_closeout_manifest",
         "artifact_count": 2,
         "digest_ref_count": 1,
-        "semantics": "content-addressed closeout manifest committed",
+        "semantics": (
+            "source closeout context only; an external manifest must bind "
+            "this forest and rendered delivery"
+        ),
     }
     html = render_route_forest_html(forest)
-    assert "Content-addressed closeout revision" in html
-    assert "not promoted to committed closeout truth" in html
+    assert "Delivery bytes verified" in html
+    assert "current closeout requires external manifest" in html
+    assert "source_context_only_never_self_authenticates_delivery" in html
 
 
 def test_route_forest_propagates_only_deterministically_reverified_reaction_proof_tier() -> None:
