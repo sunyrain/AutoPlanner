@@ -101,6 +101,36 @@ class LiteratureSourceDocumentTests(unittest.TestCase):
 
         self.assertEqual(len(sources), 1)
 
+    def test_nirmatrelvir_si_filename_patterns_override_generic_article_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = [
+                Path(tmp) / "mmc1.pdf",
+                Path(tmp) / "oc3c00145_si_002.pdf",
+                Path(tmp) / "jo3c01274_si_001.pdf",
+                Path(tmp) / "42004_2022_758_MOESM1_ESM.pdf",
+            ]
+            sources = self._normalize(
+                [
+                    {
+                        "candidate_id": f"si-{index}",
+                        "doi": f"10.1000/source-{index}",
+                        "source_ref": f"doi:10.1000/source-{index}",
+                        "local_pdf": str(path),
+                        "content_scope": "article",
+                    }
+                    for index, path in enumerate(paths, start=1)
+                ]
+            )
+
+        self.assertEqual(len(sources), 4)
+        self.assertEqual(
+            {row["content_scope"] for row in sources},
+            {"supplementary_information"},
+        )
+        self.assertTrue(
+            all(row.get("content_scope_normalization") for row in sources)
+        )
+
     def test_blackboard_and_planner_process_each_document_independently(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             article = Path(tmp) / "holton_article.pdf"

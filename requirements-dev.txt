@@ -8,6 +8,7 @@ ruff>=0.12,<1
 # Imported by the offline tests (including collection-time imports).
 numpy>=1.26,<2.0
 torch==2.3.0
+torchtext==0.18.0
 rdkit>=2023.9.1,<2024.0
 pyarrow>=15,<25
 pandas>=2.2,<3

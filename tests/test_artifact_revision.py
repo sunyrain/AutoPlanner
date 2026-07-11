@@ -505,3 +505,86 @@ def test_failed_new_controller_closeout_preserves_prior_cas_decision(
     assert load_latest_closeout_decision(tmp_path)["parent_route_proof"] == prior_decision[
         "parent_route_proof"
     ]
+
+
+def test_controller_closeout_binds_ledger_to_canonical_not_caller_graph(
+    tmp_path: Path,
+) -> None:
+    paths = {
+        "route_consensus": tmp_path / "route_consensus_fused.json",
+        "route_consensus_graph": tmp_path / "route_consensus_graph_fused.json",
+        "canonical_route_consensus_graph": (
+            tmp_path / "route_consensus_graph_canonical.json"
+        ),
+        "codex_campaign_proof_reconciliation": (
+            tmp_path / "codex_campaign_proof_reconciliation.json"
+        ),
+        "frontier_ledger": tmp_path / "frontier_ledger.json",
+        "explored_route_forest": tmp_path / "explored_route_forest.json",
+    }
+    for artifact_id, path in paths.items():
+        schema = {
+            "route_consensus": "route_consensus.v1",
+            "route_consensus_graph": "route_consensus_graph.v1",
+            "canonical_route_consensus_graph": "route_consensus_graph.v1",
+            "codex_campaign_proof_reconciliation": (
+                "codex_campaign_proof_reconciliation.v1"
+            ),
+            "frontier_ledger": "frontier_ledger.v1",
+            "explored_route_forest": "explored_route_forest.v1",
+        }[artifact_id]
+        _write_json(
+            path,
+            {
+                "schema_version": schema,
+                "projection": (
+                    "caller"
+                    if artifact_id == "route_consensus_graph"
+                    else "canonical"
+                    if artifact_id == "canonical_route_consensus_graph"
+                    else artifact_id
+                ),
+            },
+        )
+    state = ToolExecutionState(
+        run_dir=tmp_path,
+        target_input={"target_smiles": "CCO"},
+        preflight={"case_id": "canonical-closeout"},
+    )
+    blackboard = {
+        "case_id": "canonical-closeout",
+        "target_profile": {"target_smiles": "CCO"},
+        "artifact_refs": {key: str(path) for key, path in paths.items()},
+    }
+
+    result = _commit_route_closeout_revision(
+        state=state,
+        blackboard=blackboard,
+        final_verdict=FinalVerdict(
+            case_id="canonical-closeout",
+            verdict="unresolved",
+            route_status="unresolved",
+            solved=False,
+        ),
+        final_validation={
+            "schema_version": "agentic_final_verdict_validation.v1",
+            "accepted": True,
+            "reasons": [],
+        },
+    )
+
+    assert result["accepted"] is True
+    manifest = load_latest_closeout_manifest(tmp_path)
+    rows = {row["artifact_id"]: row for row in manifest["artifacts"]}
+    ledger_dependencies = {
+        row["artifact_id"] for row in rows["frontier_ledger"]["dependencies"]
+    }
+    assert ledger_dependencies == {
+        "canonical_route_consensus_graph",
+        "codex_campaign_proof_reconciliation",
+    }
+    assert "route_consensus_graph" not in ledger_dependencies
+    assert {
+        row["artifact_id"]
+        for row in rows["parent_route_proof_snapshot"]["dependencies"]
+    } == {"canonical_route_consensus_graph"}

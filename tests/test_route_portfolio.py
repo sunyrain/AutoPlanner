@@ -574,6 +574,38 @@ class RoutePortfolioTest(unittest.TestCase):
         item["base_score"] = 1.0 - item["base_score"]
         self.assertNotEqual(item_sha256, digest(item))
 
+    def test_target_in_benchmark_stock_is_not_a_reaction_or_procurement_claim(self) -> None:
+        graph = {
+            "schema_version": "route_hypergraph_overlay.v2",
+            "root_molecule_id": "target",
+            "validation": {"valid": True, "errors": []},
+            "reaction_hyperedges": [],
+        }
+        report = solve_diverse_routes(
+            graph,
+            stock_molecule_ids=["target"],
+            stock_bindings={
+                "target": {
+                    "boundary_type": "benchmark_stock",
+                    "benchmark_membership": True,
+                    "commercial_orderability_claimed": False,
+                }
+            },
+            edge_proof_levels={},
+        )
+
+        self.assertEqual(len(report.routes), 1)
+        route = report.routes[0]
+        self.assertTrue(route.complete)
+        self.assertTrue(route.target_stock_available)
+        self.assertTrue(route.target_benchmark_membership)
+        self.assertEqual(route.target_stock_boundary_type, "benchmark_stock")
+        self.assertFalse(route.target_commercially_orderable)
+        self.assertFalse(route.reaction_validated)
+        self.assertFalse(route.procurement_ready)
+        self.assertEqual(route.weakest_proof_level, 0)
+        self.assertEqual(route.selected_hyperedges, ())
+
     def test_candidate_stock_metrics_without_independent_audit_bind_nothing(self) -> None:
         graph = overlay()
         graph["molecules"] = [

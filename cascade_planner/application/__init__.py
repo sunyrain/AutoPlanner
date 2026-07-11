@@ -9,6 +9,12 @@ from cascade_planner.application.frontier_scheduler import (
     PersistentFrontierQueue,
     assess_frontier_completeness,
 )
+from cascade_planner.application.frontier_ledger import (
+    FRONTIER_LEDGER_SCHEMA,
+    exact_edge_signature,
+    project_frontier_ledger,
+    validate_frontier_ledger,
+)
 from cascade_planner.application.route_portfolio import (
     build_route_verifier_bundle,
     derive_portfolio_bindings,
@@ -27,6 +33,10 @@ __all__ = [
     "FrontierScheduler",
     "PersistentFrontierQueue",
     "assess_frontier_completeness",
+    "FRONTIER_LEDGER_SCHEMA",
+    "exact_edge_signature",
+    "project_frontier_ledger",
+    "validate_frontier_ledger",
     "build_route_verifier_bundle",
     "RoutePortfolioItem",
     "RoutePortfolioReport",

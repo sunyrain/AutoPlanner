@@ -755,7 +755,11 @@ def replay_route_proof_bank_entry(
     accepted = bool(
         replay.get("accepted") is True
         and replayed_entry
-        and replayed_entry == entry
+        # Proof banks are durable JSON artifacts.  Host verifier dataclasses
+        # may expose tuple fields in-memory, while a restart necessarily reads
+        # those fields back as lists.  Compare their canonical JSON values so
+        # persistence does not invalidate an otherwise identical replay.
+        and _canonical_json_value(replayed_entry) == _canonical_json_value(entry)
     )
     return {
         "schema_version": "route_proof_bank_entry_replay.v1",
@@ -800,6 +804,18 @@ def _stable_record_hash(value: Any) -> str:
         default=str,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _canonical_json_value(value: Any) -> Any:
+    return json.loads(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    )
 
 
 def _strict_verification_policy(value: Any) -> dict[str, Any] | None:

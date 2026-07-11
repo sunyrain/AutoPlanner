@@ -553,6 +553,7 @@ class WebAppTest(unittest.TestCase):
 
     def test_agent_workbench_describes_complete_trust_dag_and_validated_replacements(self):
         agent_html = (web_app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        agent_js = (web_app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
 
         self.assertIn("全路径依赖图、可信度与安全备选", agent_html)
         self.assertIn("颜色表示 proof tier", agent_html)
@@ -561,10 +562,37 @@ class WebAppTest(unittest.TestCase):
         self.assertIn("整路线重验的替换分支可预览", agent_html)
         self.assertIn("接口比较仅作诊断", agent_html)
         self.assertIn("预览不建立父路线证明", agent_html)
+        self.assertIn('value="standard" selected', agent_html)
+        self.assertIn("24 次有效扩展", agent_html)
+        self.assertIn("不代表商业可采购", agent_html)
+        self.assertIn("const RUN_PROFILES", agent_js)
+        self.assertIn('run_profile: $("run-profile").value || "standard"', agent_js)
 
         response = self.app.get("/agent")
         self.assertEqual(response.status_code, 200)
         self.assertIn("20260711-science-workbench-v3", response.get_data(as_text=True))
+
+    def test_codex_profiles_and_server_owned_benchmark_stock_are_explicit(self):
+        self.assertEqual(web_app.CODEX_RUN_PROFILES["standard"]["rounds"], 6)
+        self.assertEqual(web_app.CODEX_RUN_PROFILES["standard"]["depth"], 6)
+        self.assertEqual(web_app.CODEX_RUN_PROFILES["standard"]["accepted_expansions"], 24)
+        self.assertEqual(web_app.CODEX_RUN_PROFILES["standard"]["attempt_runs"], 72)
+        self.assertEqual(web_app.CODEX_RUN_PROFILES["deep"]["per_invocation"], 4)
+        agent_html = (web_app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
+        agent_js = (web_app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+        self.assertIn('id="codex-team-attempts"', agent_html)
+        self.assertIn("codex_agent_team_max_attempt_runs", agent_js)
+        self.assertIn('id="closure-objective"', agent_html)
+        self.assertIn('value="benchmark_search" selected', agent_html)
+        self.assertIn('id="exploration-mode"', agent_html)
+        self.assertIn('value="exhaustive" selected', agent_html)
+        self.assertIn("codex_agent_team_closure_objective", agent_js)
+        self.assertIn("codex_agent_team_exploration_mode", agent_js)
+        catalog = web_app._trusted_benchmark_stock_catalog()
+        self.assertEqual(catalog["name"], "PaRoutes_n1")
+        self.assertEqual(catalog["boundary_type"], "benchmark_stock")
+        self.assertIs(catalog["commercial_orderability_claimed"], False)
+        self.assertTrue(Path(catalog["artifact"]).is_file())
 
     def test_agent_workbench_layout_accessibility_and_embed_contracts(self):
         agent_html = (web_app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")

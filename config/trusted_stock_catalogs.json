@@ -1,0 +1,14 @@
+{
+  "schema_version": "trusted_stock_catalogs.v1",
+  "default_catalog": "paroutes_n1",
+  "catalogs": {
+    "paroutes_n1": {
+      "name": "PaRoutes_n1",
+      "artifact": "data/stock/paroutes_n1.csv",
+      "sha256": "d7593e5ba19a2b780236bf8eab3629cac75a20611804fbb32ca5d1b95ef2145f",
+      "boundary_type": "benchmark_stock",
+      "commercial_orderability_claimed": false,
+      "description": "PaRoutes n1 benchmark membership only; this is not evidence of commercial availability or procurement readiness."
+    }
+  }
+}

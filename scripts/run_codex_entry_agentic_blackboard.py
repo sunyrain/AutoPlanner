@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -17,12 +18,17 @@ if str(ROOT) not in sys.path:
 from cascade_planner.agent.target_profile import build_target_profile  # noqa: E402
 from cascade_planner.harness.agentic_blackboard_controller import run_agentic_blackboard_controller  # noqa: E402
 from cascade_planner.harness.tools import HarnessBudget  # noqa: E402
+from cascade_planner.providers.stock import (  # noqa: E402
+    canonicalize_stock_snapshot,
+    stock_snapshot_sha256,
+)
 
 
 DEFAULT_OUTPUT_ROOT = ROOT / "results" / "shared"
 DEFAULT_KEY_PATH = ROOT / "key.txt"
 DEFAULT_BASE_URL = "https://api.wellau.com/v1"
 DEFAULT_MODEL = "gpt-5.5"
+DEFAULT_TRUSTED_STOCK_CATALOGS_CONFIG = ROOT / "config" / "trusted_stock_catalogs.json"
 
 
 def main() -> None:
@@ -55,7 +61,12 @@ def main() -> None:
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     parser.add_argument("--run-prefix", default="agentic_blackboard")
-    parser.add_argument("--max-rounds", type=int, default=3)
+    parser.add_argument(
+        "--max-rounds",
+        type=int,
+        default=6,
+        help="Blackboard action rounds (standard profile: 6).",
+    )
     parser.add_argument("--exhaust-round-budget", action="store_true", help="Continue with non-stale alternative actions until max rounds are consumed.")
     parser.add_argument(
         "--stop-on-problem",
@@ -82,9 +93,113 @@ def main() -> None:
         default=True,
         help="Run a Codex coordinator that must directly spawn specialist retrosynthesis child agents.",
     )
-    parser.add_argument("--codex-agent-team-max-depth", type=int, default=2)
-    parser.add_argument("--codex-agent-team-max-expansions", type=int, default=4)
+    parser.add_argument(
+        "--codex-agent-team-max-depth",
+        type=int,
+        default=6,
+        help="Maximum recursive molecule-frontier depth (standard profile: 6).",
+    )
+    parser.add_argument(
+        "--codex-agent-team-max-expansions",
+        type=int,
+        default=24,
+        help="Cumulative accepted frontier expansions for the campaign (standard profile: 24).",
+    )
+    parser.add_argument(
+        "--codex-agent-team-max-attempt-runs",
+        type=int,
+        default=72,
+        help=(
+            "Cumulative Agent attempts for the campaign (standard profile: 72). "
+            "This is independent of accepted frontier expansions."
+        ),
+    )
+    parser.add_argument(
+        "--codex-agent-team-bootstrap-expansions",
+        type=int,
+        default=1,
+        help="Accepted expansions allowed before the first evidence/action round (standard profile: 1).",
+    )
+    parser.add_argument(
+        "--codex-agent-team-max-expansions-per-invocation",
+        type=int,
+        default=2,
+        help="Accepted expansions allowed on each campaign resume (standard profile: 2).",
+    )
+    parser.add_argument(
+        "--codex-agent-team-max-attempt-runs-per-invocation",
+        type=int,
+        default=4,
+        help="Total child execution attempts allowed on each invocation; failed attempts do not consume accepted-expansion budget.",
+    )
     parser.add_argument("--codex-agent-team-frontier-batch-size", type=int, default=2)
+    parser.add_argument(
+        "--codex-agent-team-closure-objective",
+        choices=("benchmark_search", "procurement", "in_house"),
+        default="benchmark_search",
+        help=(
+            "Scientific closure boundary for this immutable campaign. Changing it "
+            "requires a new campaign directory."
+        ),
+    )
+    parser.add_argument(
+        "--codex-agent-team-exploration-mode",
+        choices=("first_solved", "exhaustive"),
+        default="exhaustive",
+        help=(
+            "Stop after the first objective-closed route or exhaustively close every "
+            "accepted alternative (default)."
+        ),
+    )
+    parser.add_argument(
+        "--codex-agent-team-child-acceptance-mode",
+        choices=("strict_all", "valid_subset_l0"),
+        default="strict_all",
+        help=(
+            "Immutable child-report acceptance policy. valid_subset_l0 still "
+            "requires every role to be explicitly spawned and caps retained "
+            "partial proposals at L0/model-only/low confidence."
+        ),
+    )
+    parser.add_argument(
+        "--codex-agent-team-authority-lock-timeout-s",
+        type=float,
+        default=3600.0,
+        help=(
+            "Maximum wait for the non-stealable run-directory campaign "
+            "authority lock."
+        ),
+    )
+    parser.add_argument(
+        "--codex-agent-team-benchmark-stock",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Load the pinned benchmark catalog configured below. Membership closes only the "
+            "benchmark boundary; it is not a commercial availability or procurement claim."
+        ),
+    )
+    parser.add_argument(
+        "--trusted-stock-catalogs-config",
+        default=str(DEFAULT_TRUSTED_STOCK_CATALOGS_CONFIG),
+        help="Path to trusted_stock_catalogs.v1 JSON; relative paths are resolved from the repository root.",
+    )
+    parser.add_argument(
+        "--benchmark-stock-catalog",
+        default="",
+        help="Catalog key in the trusted stock config; empty uses default_catalog.",
+    )
+    parser.add_argument(
+        "--trusted-stock-snapshot",
+        action="append",
+        default=[],
+        help=(
+            "Repeatable operator-trusted JSON artifact containing one "
+            "stock_offer_snapshot.v1, a list of snapshots, or a "
+            "trusted_stock_snapshots.v1 object. Every snapshot must carry its "
+            "canonical snapshot_sha256. Required for procurement closure."
+        ),
+    )
     parser.add_argument(
         "--codex-agent-team-model",
         default="",
@@ -187,6 +302,26 @@ def _resolve_targets(args: argparse.Namespace) -> list[dict[str, str | Path]]:
 def _run_one(target: dict[str, str | Path], args: argparse.Namespace) -> dict:
     overrides = _codex_action_planner_env_overrides(args)
     team_model, team_auth_mode = _codex_agent_team_runtime_args(args)
+    benchmark_stock = (
+        _benchmark_stock_catalog_from_args(args)
+        if bool(args.codex_agent_team)
+        else {}
+    )
+    trusted_stock_snapshots = (
+        _trusted_stock_snapshots_from_args(args)
+        if bool(args.codex_agent_team)
+        else {}
+    )
+    if (
+        bool(args.codex_agent_team)
+        and str(args.codex_agent_team_closure_objective or "") == "procurement"
+        and not trusted_stock_snapshots
+    ):
+        raise SystemExit(
+            "Procurement closure requires at least one operator-trusted "
+            "--trusted-stock-snapshot artifact; a benchmark catalog is not "
+            "commercial availability evidence."
+        )
     previous = {key: os.environ.get(key) for key in overrides}
     try:
         for key, value in overrides.items():
@@ -205,7 +340,7 @@ def _run_one(target: dict[str, str | Path], args: argparse.Namespace) -> dict:
             key_path=args.key_path,
             base_url=args.base_url,
             model=args.model,
-            max_rounds=int(args.max_rounds or 3),
+            max_rounds=int(args.max_rounds or 6),
             exhaust_round_budget=bool(args.exhaust_round_budget),
             enable_analogical_templates=bool(args.enable_analogical_templates),
             max_template_applications_per_round=int(args.max_template_applications_per_round or 5),
@@ -215,9 +350,42 @@ def _run_one(target: dict[str, str | Path], args: argparse.Namespace) -> dict:
             use_codex_agent_team=bool(args.codex_agent_team),
             codex_agent_team_max_depth=max(1, int(args.codex_agent_team_max_depth or 1)),
             codex_agent_team_max_expansions=max(1, int(args.codex_agent_team_max_expansions or 1)),
+            codex_agent_team_max_attempt_runs=max(
+                1,
+                int(args.codex_agent_team_max_attempt_runs or 1),
+            ),
+            codex_agent_team_bootstrap_expansions=max(
+                1,
+                int(args.codex_agent_team_bootstrap_expansions or 1),
+            ),
+            codex_agent_team_max_expansions_per_invocation=max(
+                1,
+                int(args.codex_agent_team_max_expansions_per_invocation or 1),
+            ),
+            codex_agent_team_max_attempt_runs_per_invocation=max(
+                1,
+                int(args.codex_agent_team_max_attempt_runs_per_invocation or 1),
+            ),
             codex_agent_team_frontier_batch_size=max(1, int(args.codex_agent_team_frontier_batch_size or 1)),
+            codex_agent_team_closure_objective=str(
+                args.codex_agent_team_closure_objective or "benchmark_search"
+            ),
+            codex_agent_team_exploration_mode=str(
+                args.codex_agent_team_exploration_mode or "exhaustive"
+            ),
+            codex_agent_team_child_acceptance_mode=str(
+                args.codex_agent_team_child_acceptance_mode or "strict_all"
+            ),
+            codex_agent_team_authority_lock_timeout_s=max(
+                0.1,
+                float(args.codex_agent_team_authority_lock_timeout_s or 3600.0),
+            ),
             codex_agent_team_model=team_model,
             codex_agent_team_auth_mode=team_auth_mode,
+            codex_agent_team_stock_snapshots=trusted_stock_snapshots,
+            codex_agent_team_benchmark_stock_catalog_artifact=benchmark_stock.get("artifact", ""),
+            codex_agent_team_benchmark_stock_catalog_sha256=benchmark_stock.get("sha256", ""),
+            codex_agent_team_benchmark_stock_catalog_name=benchmark_stock.get("name", ""),
             stop_on_problem=bool(args.stop_on_problem),
             budget=_budget_from_args(args),
             emit_blackboard_steps=bool(args.emit_blackboard_steps),
@@ -281,6 +449,153 @@ def _codex_agent_team_runtime_args(args: argparse.Namespace) -> tuple[str, str]:
         "auto": "auto",
     }.get(worker_auth, "auto")
     return model, inherited
+
+
+def _benchmark_stock_catalog_from_args(args: argparse.Namespace) -> dict[str, str | Path | bool]:
+    """Load and verify a pinned benchmark boundary without implying procurement."""
+    if not bool(getattr(args, "codex_agent_team_benchmark_stock", True)):
+        return {}
+
+    raw_config_path = str(
+        getattr(args, "trusted_stock_catalogs_config", "")
+        or DEFAULT_TRUSTED_STOCK_CATALOGS_CONFIG
+    ).strip()
+    config_path = Path(raw_config_path).expanduser()
+    if not config_path.is_absolute():
+        config_path = ROOT / config_path
+    config_path = config_path.resolve()
+    if not config_path.is_file():
+        raise SystemExit(f"Trusted stock catalog config does not exist: {config_path}")
+
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Cannot read trusted stock catalog config {config_path}: {exc}") from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != "trusted_stock_catalogs.v1":
+        raise SystemExit(
+            f"Trusted stock catalog config must use schema trusted_stock_catalogs.v1: {config_path}"
+        )
+
+    catalogs = payload.get("catalogs")
+    if not isinstance(catalogs, dict):
+        raise SystemExit(f"Trusted stock catalog config has no catalogs object: {config_path}")
+    catalog_key = str(
+        getattr(args, "benchmark_stock_catalog", "")
+        or payload.get("default_catalog")
+        or ""
+    ).strip()
+    catalog = catalogs.get(catalog_key)
+    if not catalog_key or not isinstance(catalog, dict):
+        raise SystemExit(f"Unknown benchmark stock catalog {catalog_key!r} in {config_path}")
+    if str(catalog.get("boundary_type") or "") != "benchmark_stock":
+        raise SystemExit(f"Catalog {catalog_key!r} is not a benchmark_stock boundary")
+    if catalog.get("commercial_orderability_claimed") is not False:
+        raise SystemExit(
+            f"Catalog {catalog_key!r} must explicitly set commercial_orderability_claimed=false"
+        )
+
+    name = str(catalog.get("name") or catalog_key).strip()
+    artifact_value = str(catalog.get("artifact") or "").strip()
+    expected_sha256 = str(catalog.get("sha256") or "").strip().lower()
+    if not artifact_value:
+        raise SystemExit(f"Catalog {catalog_key!r} has no artifact path")
+    if len(expected_sha256) != 64 or any(ch not in "0123456789abcdef" for ch in expected_sha256):
+        raise SystemExit(f"Catalog {catalog_key!r} has an invalid SHA-256 binding")
+
+    artifact = Path(artifact_value).expanduser()
+    if not artifact.is_absolute():
+        artifact = ROOT / artifact
+    artifact = artifact.resolve()
+    if not artifact.is_file():
+        raise SystemExit(f"Pinned benchmark stock artifact does not exist: {artifact}")
+    observed_sha256 = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    if observed_sha256 != expected_sha256:
+        raise SystemExit(
+            f"Pinned benchmark stock artifact SHA-256 mismatch for {catalog_key!r}: "
+            f"expected {expected_sha256}, observed {observed_sha256}"
+        )
+    return {
+        "artifact": artifact,
+        "sha256": expected_sha256,
+        "name": name,
+        "catalog_key": catalog_key,
+        "boundary_type": "benchmark_stock",
+        "commercial_orderability_claimed": False,
+    }
+
+
+def _trusted_stock_snapshots_from_args(
+    args: argparse.Namespace,
+) -> dict[str, dict[str, object]]:
+    """Load operator-selected supplier observations with exact content binding.
+
+    Selecting an artifact is the operator trust decision.  The per-snapshot
+    digest prevents silent mutation between export, campaign-policy binding,
+    and current-host replay; it is integrity metadata, not a supplier
+    signature or a live-availability claim.
+    """
+
+    snapshots: dict[str, dict[str, object]] = {}
+    for raw_path in getattr(args, "trusted_stock_snapshot", None) or []:
+        path = Path(str(raw_path or "")).expanduser()
+        if not path.is_absolute():
+            path = ROOT / path
+        path = path.resolve()
+        if not path.is_file():
+            raise SystemExit(f"Trusted stock snapshot artifact does not exist: {path}")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(
+                f"Cannot read trusted stock snapshot artifact {path}: {exc}"
+            ) from exc
+
+        if isinstance(payload, list):
+            rows = payload
+        elif isinstance(payload, dict) and payload.get("schema_version") == (
+            "trusted_stock_snapshots.v1"
+        ):
+            rows = payload.get("snapshots")
+            if not isinstance(rows, list):
+                raise SystemExit(
+                    f"Trusted stock snapshot bundle has no snapshots list: {path}"
+                )
+        elif isinstance(payload, dict) and payload.get("schema_version") == (
+            "stock_offer_snapshot.v1"
+        ):
+            rows = [payload]
+        else:
+            raise SystemExit(
+                "Trusted stock snapshot artifact must contain "
+                f"stock_offer_snapshot.v1, trusted_stock_snapshots.v1, or a list: {path}"
+            )
+
+        for index, raw in enumerate(rows):
+            if not isinstance(raw, dict):
+                raise SystemExit(
+                    f"Trusted stock snapshot {path} row {index} is not an object"
+                )
+            supplied_sha256 = str(raw.get("snapshot_sha256") or "").strip().lower()
+            try:
+                canonical = canonicalize_stock_snapshot(raw)
+                observed_sha256 = stock_snapshot_sha256(canonical)
+            except (TypeError, ValueError) as exc:
+                raise SystemExit(
+                    f"Trusted stock snapshot {path} row {index} is invalid: {exc}"
+                ) from exc
+            if supplied_sha256 != observed_sha256:
+                raise SystemExit(
+                    f"Trusted stock snapshot {path} row {index} SHA-256 mismatch: "
+                    f"expected {supplied_sha256 or '<missing>'}, observed {observed_sha256}"
+                )
+            canonical["snapshot_sha256"] = observed_sha256
+            prior = snapshots.get(observed_sha256)
+            if prior is not None and prior != canonical:
+                raise SystemExit(
+                    f"Trusted stock snapshot digest collision in {path} row {index}"
+                )
+            snapshots[observed_sha256] = canonical
+    return snapshots
 
 
 def _budget_from_args(args: argparse.Namespace) -> HarnessBudget:

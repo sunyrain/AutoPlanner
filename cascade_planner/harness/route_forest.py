@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from cascade_planner.harness.parent_route_proof import is_solved_parent_route_proof
 from cascade_planner.harness.route_forest_delivery import (
@@ -33,6 +33,11 @@ except Exception:  # pragma: no cover - route forest still renders without RDKit
     rdDepictor = None
     rdMolDescriptors = None
     rdMolDraw2D = None
+
+try:
+    from cascade_planner.application.frontier_ledger import validate_frontier_ledger
+except Exception:  # pragma: no cover - missing ledger dependencies fail closed.
+    validate_frontier_ledger = None
 
 
 SCHEMA_VERSION = "explored_route_forest.v1"
@@ -79,26 +84,331 @@ _SYNTHESIS_CLASS_FIELDS = {
     "process_type",
 }
 _SYNTHESIS_CLASSES = {"total_synthesis", "semisynthesis", "biosynthesis", "hybrid", "unspecified"}
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+
+def frontier_ledger_current_authority_evidence(
+    value: Mapping[str, Any],
+    *,
+    route_consensus_graph: Mapping[str, Any] | None,
+    frontier_queue: Mapping[str, Any] | None,
+    campaign_policy: Mapping[str, Any] | None,
+    campaign_policy_sha256: str = "",
+    trusted_stock_provider_instances: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Verify that one serialized ledger still represents current host state.
+
+    Content hashes provide byte integrity, not freshness or authority.  A
+    positive ledger is current only when its digest-bound input identities
+    match the graph, queue revision, and immutable campaign policy supplied by
+    this host, and the host replays every positive stock envelope again.
+    """
+
+    ledger = dict(value) if isinstance(value, Mapping) else {}
+    input_bindings = (
+        dict(ledger.get("input_bindings") or {})
+        if isinstance(ledger.get("input_bindings"), Mapping)
+        else {}
+    )
+    binding_reasons: list[str] = []
+    if not input_bindings:
+        binding_reasons.append("frontier_ledger_input_bindings_missing")
+    elif input_bindings.get("schema_version") != "frontier_ledger_input_bindings.v1":
+        binding_reasons.append("frontier_ledger_input_bindings_schema_invalid")
+
+    graph_identity, graph_reasons = _current_route_graph_identity(
+        route_consensus_graph
+    )
+    binding_reasons.extend(graph_reasons)
+    bound_graph_identity = str(input_bindings.get("graph_identity_sha256") or "")
+    if not _is_sha256(bound_graph_identity):
+        binding_reasons.append("frontier_ledger_graph_identity_binding_missing")
+    elif graph_identity and bound_graph_identity != graph_identity:
+        binding_reasons.append("frontier_ledger_graph_identity_binding_mismatch")
+
+    queue_digest, queue_revision, queue_reasons = _current_frontier_queue_identity(
+        frontier_queue
+    )
+    binding_reasons.extend(queue_reasons)
+    current_graph = dict(route_consensus_graph or {})
+    current_queue = dict(frontier_queue or {})
+    if (
+        current_graph
+        and current_queue
+        and str(current_queue.get("run_id") or "")
+        != str(current_graph.get("case_id") or "")
+    ):
+        binding_reasons.append("current_frontier_queue_graph_case_mismatch")
+    bound_queue_digest = str(
+        input_bindings.get("frontier_queue_content_sha256") or ""
+    )
+    bound_queue_revision = input_bindings.get("frontier_queue_revision")
+    if not _is_sha256(bound_queue_digest):
+        binding_reasons.append("frontier_ledger_queue_digest_binding_missing")
+    elif queue_digest and bound_queue_digest != queue_digest:
+        binding_reasons.append("frontier_ledger_queue_digest_binding_mismatch")
+    if (
+        isinstance(bound_queue_revision, bool)
+        or not isinstance(bound_queue_revision, int)
+        or bound_queue_revision < 0
+    ):
+        binding_reasons.append("frontier_ledger_queue_revision_binding_missing")
+    elif queue_revision is not None and bound_queue_revision != queue_revision:
+        binding_reasons.append("frontier_ledger_queue_revision_binding_mismatch")
+
+    policy_digest, policy_reasons = _current_campaign_policy_identity(
+        campaign_policy,
+        declared_sha256=campaign_policy_sha256,
+    )
+    binding_reasons.extend(policy_reasons)
+    current_policy = dict(campaign_policy or {})
+    if current_graph and current_policy:
+        if str(current_policy.get("case_id") or "") != str(
+            current_graph.get("case_id") or ""
+        ):
+            binding_reasons.append("current_campaign_policy_graph_case_mismatch")
+        policy_target = _canonical_molecule_smiles(
+            str(current_policy.get("canonical_target_smiles") or "")
+        )
+        graph_target = _canonical_molecule_smiles(
+            str(current_graph.get("target_smiles") or "")
+        )
+        if not policy_target or policy_target != graph_target:
+            binding_reasons.append("current_campaign_policy_graph_target_mismatch")
+    bound_policy_digest = str(
+        input_bindings.get("campaign_policy_sha256") or ""
+    )
+    if not _is_sha256(bound_policy_digest):
+        binding_reasons.append("frontier_ledger_campaign_policy_binding_missing")
+    elif policy_digest and bound_policy_digest != policy_digest:
+        binding_reasons.append("frontier_ledger_campaign_policy_binding_mismatch")
+
+    historical_replay_recorded = _ledger_historical_host_replay_recorded(ledger)
+    current_replay_reasons: list[str] = []
+    if trusted_stock_provider_instances is None:
+        current_replay_reasons.append(
+            "current_host_stock_provider_replay_not_supplied"
+        )
+    elif validate_frontier_ledger is None:
+        current_replay_reasons.append("frontier_ledger_validator_unavailable")
+    else:
+        try:
+            current_replay_reasons.extend(
+                validate_frontier_ledger(
+                    ledger,
+                    trusted_stock_provider_instances=dict(
+                        trusted_stock_provider_instances
+                    ),
+                )
+            )
+        except (TypeError, ValueError, OverflowError) as exc:
+            current_replay_reasons.append(
+                f"current_host_stock_provider_replay_error:{type(exc).__name__}"
+            )
+
+    blockers = sorted(set([*binding_reasons, *current_replay_reasons]))
+    return {
+        "schema_version": "route_forest_frontier_ledger_authority.v1",
+        "historical_host_replay_recorded": historical_replay_recorded,
+        "current_host_replay_verified": bool(
+            trusted_stock_provider_instances is not None
+            and not current_replay_reasons
+        ),
+        "current_input_bindings_verified": not binding_reasons,
+        "authoritative": not blockers,
+        "input_bindings": input_bindings,
+        "current_identities": {
+            "graph_identity_sha256": graph_identity,
+            "frontier_queue_content_sha256": queue_digest,
+            "frontier_queue_revision": queue_revision,
+            "campaign_policy_sha256": policy_digest,
+        },
+        "blockers": blockers,
+    }
+
+
+def _current_route_graph_identity(
+    value: Mapping[str, Any] | None,
+) -> tuple[str, list[str]]:
+    graph = dict(value) if isinstance(value, Mapping) else {}
+    reasons: list[str] = []
+    if not graph:
+        return "", ["current_route_consensus_graph_missing"]
+    if graph.get("schema_version") != "route_consensus_graph.v1":
+        reasons.append("current_route_consensus_graph_schema_invalid")
+    case_id = str(graph.get("case_id") or "").strip()
+    if not case_id:
+        reasons.append("current_route_consensus_graph_case_id_missing")
+    target = _canonical_molecule_smiles(str(graph.get("target_smiles") or ""))
+    if not target:
+        reasons.append("current_route_consensus_graph_target_invalid")
+    raw_steps = graph.get("steps")
+    if not isinstance(raw_steps, list):
+        reasons.append("current_route_consensus_graph_steps_invalid")
+        raw_steps = []
+    identity_steps: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_steps):
+        if not isinstance(raw, Mapping):
+            reasons.append(f"current_route_consensus_graph_step_invalid:{index}")
+            continue
+        step = dict(raw)
+        product = _canonical_molecule_smiles(str(step.get("product_smiles") or ""))
+        precursors = sorted(
+            _canonical_molecule_smiles(str(item or ""))
+            for item in step.get("precursor_smiles") or []
+        )
+        if (
+            not str(step.get("step_id") or "")
+            or not str(step.get("signature") or "")
+            or not product
+            or not precursors
+            or any(not item for item in precursors)
+        ):
+            reasons.append(f"current_route_consensus_graph_step_identity_invalid:{index}")
+            continue
+        identity_steps.append(
+            {
+                "step_id": str(step.get("step_id") or ""),
+                "signature": str(step.get("signature") or ""),
+                "product_smiles": product,
+                "precursor_smiles": precursors,
+            }
+        )
+    if reasons:
+        return "", sorted(set(reasons))
+    identity = _canonical_json_sha256(
+        {
+            "schema_version": str(graph.get("schema_version") or ""),
+            "case_id": case_id,
+            "target_smiles": target,
+            "steps": sorted(
+                identity_steps,
+                key=lambda row: (row["step_id"], row["signature"]),
+            ),
+        }
+    )
+    declared = str(graph.get("graph_identity_sha256") or "")
+    if declared and (not _is_sha256(declared) or declared != identity):
+        return "", ["current_route_consensus_graph_identity_mismatch"]
+    return identity, []
+
+
+def _current_frontier_queue_identity(
+    value: Mapping[str, Any] | None,
+) -> tuple[str, int | None, list[str]]:
+    queue = dict(value) if isinstance(value, Mapping) else {}
+    reasons: list[str] = []
+    if not queue:
+        return "", None, ["current_frontier_queue_missing"]
+    if queue.get("schema_version") != "frontier_queue.v1":
+        reasons.append("current_frontier_queue_schema_invalid")
+    revision = queue.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        reasons.append("current_frontier_queue_revision_invalid")
+        normalized_revision: int | None = None
+    else:
+        normalized_revision = revision
+    if not isinstance(queue.get("jobs"), list):
+        reasons.append("current_frontier_queue_jobs_invalid")
+    supplied_digest = str(queue.get("content_sha256") or "")
+    digest_payload = dict(queue)
+    digest_payload.pop("content_sha256", None)
+    if (
+        not _is_sha256(supplied_digest)
+        or supplied_digest != _canonical_json_sha256(digest_payload)
+    ):
+        reasons.append("current_frontier_queue_digest_invalid")
+    return (
+        supplied_digest if not reasons else "",
+        normalized_revision,
+        sorted(set(reasons)),
+    )
+
+
+def _current_campaign_policy_identity(
+    value: Mapping[str, Any] | None,
+    *,
+    declared_sha256: str,
+) -> tuple[str, list[str]]:
+    policy = dict(value) if isinstance(value, Mapping) else {}
+    reasons: list[str] = []
+    if not policy:
+        return "", ["current_campaign_policy_manifest_missing"]
+    if policy.get("schema_version") != "codex_retrosynthesis_campaign_policy.v1":
+        reasons.append("current_campaign_policy_schema_invalid")
+    supplied_digest = str(policy.get("content_sha256") or "")
+    digest_payload = dict(policy)
+    digest_payload.pop("content_sha256", None)
+    if (
+        not _is_sha256(supplied_digest)
+        or supplied_digest != _canonical_json_sha256(digest_payload)
+    ):
+        reasons.append("current_campaign_policy_digest_invalid")
+    declared = str(declared_sha256 or "")
+    if declared and (not _is_sha256(declared) or declared != supplied_digest):
+        reasons.append("current_campaign_policy_declared_digest_mismatch")
+    return supplied_digest if not reasons else "", sorted(set(reasons))
+
+
+def _ledger_historical_host_replay_recorded(ledger: Mapping[str, Any]) -> bool:
+    input_validation = dict(ledger.get("input_validation") or {})
+    stock_authority = dict(input_validation.get("stock_authority") or {})
+    try:
+        replayed_claims = int(stock_authority.get("host_replayed_claim_count") or 0)
+    except (TypeError, ValueError):
+        replayed_claims = 0
+    if replayed_claims > 0:
+        return True
+    return any(
+        bool(dict(row.get("stock") or {}).get("closure_replay_bindings"))
+        for row in (ledger.get("molecules") or {}).values()
+        if isinstance(row, Mapping)
+    )
+
+
+def _canonical_json_sha256(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _is_sha256(value: Any) -> bool:
+    return bool(_SHA256_PATTERN.fullmatch(str(value or "").strip().lower()))
 
 
 def compile_explored_route_forest(
     blackboard: dict[str, Any],
     *,
     run_dir: str | Path | None = None,
+    trusted_stock_provider_instances: Mapping[str, Any] | None = None,
     max_visual_branches: int | None = None,
     max_proposal_branches: int | None = None,
     max_template_branches: int | None = None,
 ) -> dict[str, Any]:
     """Project a complex blackboard into user-facing explored route branches."""
-    compiler = _RouteForestCompiler(blackboard, run_dir=run_dir)
+    compiler = _RouteForestCompiler(
+        blackboard,
+        run_dir=run_dir,
+        trusted_stock_provider_instances=trusted_stock_provider_instances,
+    )
     compiler.add_direct_verified_route_branch()
     compiler.add_stitched_verified_route_branch()
     compiler.add_subgoal_verified_route_branches()
     compiler.add_route_portfolio_branches()
     compiler.add_visual_branches(limit=max_visual_branches)
     compiler.add_process_evidence_branches()
-    compiler.add_route_consensus_branches(limit=max_proposal_branches)
+    # Graph hypotheses are the canonical route projection.  Consensus rows
+    # already represented by one of their explicit graph edges are merged
+    # into that edge instead of being rendered a second time as a one-step
+    # branch.
     compiler.add_route_consensus_graph_branches(limit=max_proposal_branches)
+    compiler.add_route_consensus_branches(limit=max_proposal_branches)
     compiler.add_proposal_branches(limit=max_proposal_branches)
     compiler.add_template_branches(limit=max_template_branches)
     compiler.add_exact_row_branch()
@@ -112,6 +422,7 @@ def write_route_forest_artifacts(
     run_dir: str | Path,
     forest_output: str | Path | None = None,
     html_output: str | Path | None = None,
+    trusted_stock_provider_instances: Mapping[str, Any] | None = None,
     max_visual_branches: int | None = None,
     max_proposal_branches: int | None = None,
     max_template_branches: int | None = None,
@@ -123,6 +434,7 @@ def write_route_forest_artifacts(
     forest = compile_explored_route_forest(
         blackboard,
         run_dir=run_path,
+        trusted_stock_provider_instances=trusted_stock_provider_instances,
         max_visual_branches=max_visual_branches,
         max_proposal_branches=max_proposal_branches,
         max_template_branches=max_template_branches,
@@ -148,9 +460,23 @@ def render_route_forest_html(forest: dict[str, Any]) -> str:
 
 
 class _RouteForestCompiler:
-    def __init__(self, blackboard: dict[str, Any], *, run_dir: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        blackboard: dict[str, Any],
+        *,
+        run_dir: str | Path | None = None,
+        trusted_stock_provider_instances: Mapping[str, Any] | None = None,
+    ) -> None:
         self.blackboard = dict(blackboard or {})
         self.run_dir = str(run_dir or "")
+        # ``None`` is intentionally distinct from an explicitly supplied
+        # empty host trust set.  A serialized replay binding records history;
+        # it cannot authenticate itself for the current display process.
+        self.trusted_stock_provider_instances = (
+            dict(trusted_stock_provider_instances)
+            if trusted_stock_provider_instances is not None
+            else None
+        )
         self.evidence = dict(self.blackboard.get("literature_evidence") or {})
         self.nodes: dict[str, dict[str, Any]] = {}
         self.steps: dict[str, dict[str, Any]] = {}
@@ -170,6 +496,7 @@ class _RouteForestCompiler:
             "solver_truncated": False,
             "reasons": [],
         }
+        self._frontier_ledger_cache: dict[str, Any] | None = None
 
     def finish(self) -> dict[str, Any]:
         self._finalize_trust_vectors()
@@ -180,8 +507,13 @@ class _RouteForestCompiler:
         target = self._target()
         route_consensus = self._route_consensus_view()
         route_consensus_graph = self._route_consensus_graph_view()
+        authority_graph, authority_graph_source = (
+            self._frontier_authority_route_consensus_graph()
+        )
         route_portfolio = dict(route_consensus_graph.get("route_portfolio") or {})
         primary_selection = self._primary_selection()
+        frontier_ledger = self._frontier_ledger_view()
+        semantic_summary = self._semantic_summary(frontier_ledger=frontier_ledger)
         synthesis_class_counts: dict[str, int] = {}
         for branch in self.branches:
             synthesis_class = str(branch.get("synthesis_class") or "unspecified")
@@ -193,6 +525,46 @@ class _RouteForestCompiler:
             "target": target,
             "counts": {
                 "branches": len(self.branches),
+                "explored_branch_views": len(self.branches),
+                "agent_tasks_completed": int(
+                    (semantic_summary.get("agent_tasks") or {}).get("completed") or 0
+                ),
+                "agent_tasks_total": int(
+                    (semantic_summary.get("agent_tasks") or {}).get("total") or 0
+                ),
+                "l0_advisory_branches": int(
+                    (semantic_summary.get("route_states") or {}).get("l0_advisory") or 0
+                ),
+                "reaction_validated_branches": int(
+                    (semantic_summary.get("route_states") or {}).get("reaction_validated") or 0
+                ),
+                "stock_closed_branches": int(
+                    (semantic_summary.get("route_states") or {}).get("stock_closed") or 0
+                ),
+                "complete_portfolio_routes": int(
+                    (semantic_summary.get("route_states") or {}).get("complete_portfolio") or 0
+                ),
+                "verified_parent_routes": int(
+                    (semantic_summary.get("route_states") or {}).get("verified_parent") or 0
+                ),
+                "ledger_l0_break_suggestions": int(
+                    (frontier_ledger.get("counts") or {}).get("l0_break_suggestion_edges") or 0
+                ),
+                "ledger_expanded_work_molecules": int(
+                    (frontier_ledger.get("counts") or {}).get("expanded_work_molecules") or 0
+                ),
+                "ledger_l2_reaction_edges": int(
+                    (frontier_ledger.get("counts") or {}).get("l2_reaction_edges") or 0
+                ),
+                "ledger_l3_precedent_edges": int(
+                    (frontier_ledger.get("counts") or {}).get("l3_precedent_edges") or 0
+                ),
+                "ledger_l4_procurement_edges": int(
+                    (frontier_ledger.get("counts") or {}).get("l4_procurement_edges") or 0
+                ),
+                "ledger_stock_closed_molecules": int(
+                    (frontier_ledger.get("counts") or {}).get("stock_closed_molecules") or 0
+                ),
                 "nodes": len(self.nodes),
                 "steps": len(self.steps),
                 "visual_chains": len(self.evidence.get("visual_chains") or []),
@@ -227,6 +599,9 @@ class _RouteForestCompiler:
             },
             "primary_branch_id": str(primary_selection.get("primary_branch_id") or ""),
             "primary_selection": primary_selection,
+            "semantic_summary": semantic_summary,
+            "frontier_ledger": frontier_ledger,
+            "display_policy": self._display_policy(),
             "branches": self.branches,
             "nodes": sorted(self.nodes.values(), key=lambda row: str(row.get("node_id") or "")),
             "steps": sorted(self.steps.values(), key=lambda row: str(row.get("step_id") or "")),
@@ -242,6 +617,12 @@ class _RouteForestCompiler:
             },
             "route_consensus": route_consensus,
             "route_consensus_graph": route_consensus_graph,
+            "canonical_route_consensus_graph": (
+                authority_graph
+                if authority_graph_source != "caller_advisory_route_consensus_graph"
+                else {}
+            ),
+            "canonical_route_consensus_graph_source": authority_graph_source,
             "route_portfolio_projection": dict(self._portfolio_projection),
             "evidence_index": self._evidence_index(),
             "run_trace": self._run_trace(),
@@ -251,13 +632,1126 @@ class _RouteForestCompiler:
                 "Named or visual-inferred nodes may intentionally omit SMILES when exact structure recovery was not reliable.",
                 "Solved stitched branches are rebuilt only from revalidated proof inputs as stock-to-frontier-to-target DAGs.",
                 "Visual, process, and consensus branches remain independent advisory alternatives.",
-                "Route consensus branches are advisory disconnections, never solved or executable routes.",
+                "Consensus edges already present in a graph hypothesis are merged into that graph edge and are not projected as duplicate one-step branches.",
+                "Standalone route consensus branches are advisory disconnections not represented in the graph; they are never solved or executable routes.",
                 "Route consensus graph branches assemble frontier expansions but remain advisory and non-executable.",
+                "Agent task completion, reaction validation, stock closure, and complete portfolio closure are separate display states.",
                 "Codex role channels are displayed separately but share one correlated support group.",
                 "The dependency graph is molecule-reaction bipartite; no edge is inferred from adjacent array positions.",
                 "Pairwise replacement interfaces are diagnostics only and never authorize a single-step splice.",
                 "Replacement previews require backend connectivity, stock, and reaction-proof revalidation of the complete route.",
             ],
+        }
+
+    def _semantic_summary(self, *, frontier_ledger: dict[str, Any]) -> dict[str, Any]:
+        """Expose orthogonal execution and chemistry states for honest UI counts."""
+        team = dict(self.blackboard.get("codex_agent_team") or {})
+        runtime = dict(team.get("runtime_summary") or {})
+        children = [dict(row) for row in runtime.get("children") or [] if isinstance(row, dict)]
+        campaign = dict(team.get("campaign") or {})
+        if children:
+            agent_total = len(children)
+            agent_completed = sum(
+                str(row.get("state") or "").lower() in {"succeeded", "completed"}
+                for row in children
+            )
+        else:
+            runs = [dict(row) for row in campaign.get("runs") or [] if isinstance(row, dict)]
+            agent_total = len(runs)
+            agent_completed = sum(
+                str(row.get("status") or row.get("team_status") or "").lower()
+                in {"accepted", "accepted_draft", "completed", "succeeded"}
+                or row.get("team_report_accepted") is True
+                for row in runs
+            )
+
+        route_states = {
+            "l0_rejected": 0,
+            "l0_advisory": 0,
+            "reaction_validated": 0,
+            "stock_closed": 0,
+            "complete_portfolio": 0,
+            "verified_parent": 0,
+        }
+        for branch in self.branches:
+            vector = dict(branch.get("trust_vector") or {})
+            tier = str(vector.get("proof_tier") or "L0_advisory")
+            kind = str(branch.get("kind") or "")
+            if tier == "L0_rejected":
+                route_states["l0_rejected"] += 1
+            elif tier in {"L0_advisory", "L0_materialized"} and branch.get(
+                "advisory_only"
+            ) is not False:
+                route_states["l0_advisory"] += 1
+            if PROOF_TIER_RANK.get(tier, 0) >= PROOF_TIER_RANK["L2_reaction_validated"]:
+                route_states["reaction_validated"] += 1
+            dependency = self._branch_dependency_view(branch)
+            if dependency.get("all_leaves_stock_bound") is True:
+                route_states["stock_closed"] += 1
+            if kind == "proof_eligible_portfolio_route" and branch.get("complete") is True:
+                route_states["complete_portfolio"] += 1
+            if (
+                branch.get("solved") is True
+                and branch.get("executable") is True
+                and branch.get("advisory_only") is False
+            ):
+                route_states["verified_parent"] += 1
+        ledger_counts = dict(frontier_ledger.get("counts") or {})
+        ledger_closure = dict(frontier_ledger.get("closure") or {})
+        ledger_authoritative = frontier_ledger.get("authoritative") is True
+        if not ledger_authoritative:
+            # Keep historical counts in the ledger view for diagnostics, but
+            # never project them into completion/progress semantics.
+            ledger_counts = self._empty_frontier_ledger_counts()
+        route_states.update(
+            {
+                "ledger_authoritative": ledger_authoritative,
+                "l0_break_suggestion_edges": int(
+                    ledger_counts.get("l0_break_suggestion_edges") or 0
+                ),
+                "expanded_work_molecules": int(
+                    ledger_counts.get("expanded_work_molecules") or 0
+                ),
+                "l2_reaction_edges": int(ledger_counts.get("l2_reaction_edges") or 0),
+                "l3_precedent_edges": int(ledger_counts.get("l3_precedent_edges") or 0),
+                "l4_procurement_edges": int(
+                    ledger_counts.get("l4_procurement_edges") or 0
+                ),
+                "stock_closed_molecules": int(
+                    ledger_counts.get("stock_closed_molecules") or 0
+                ),
+                "benchmark_only_stock_molecules": int(
+                    ledger_counts.get("benchmark_only_stock_molecules") or 0
+                ),
+                "procurement_boundary_molecules": int(
+                    ledger_counts.get("procurement_boundary_molecules") or 0
+                ),
+                "any_benchmark_route_closed": ledger_closure.get(
+                    "any_benchmark_route_closed"
+                )
+                is True,
+                "all_explored_benchmark_closed": ledger_closure.get(
+                    "all_explored_benchmark_closed"
+                )
+                is True,
+                "any_procurement_route_closed": ledger_closure.get(
+                    "any_procurement_route_closed"
+                )
+                is True,
+                "all_explored_procurement_closed": ledger_closure.get(
+                    "all_explored_procurement_closed"
+                )
+                is True,
+                "any_route_closed": ledger_closure.get("any_route_closed") is True,
+                "all_explored_graph_closed": ledger_closure.get(
+                    "all_explored_graph_closed"
+                )
+                is True,
+                "l3_parent_solved": ledger_closure.get("l3_parent_solved") is True,
+                "l4_procurement_ready": ledger_closure.get("l4_procurement_ready")
+                is True,
+            }
+        )
+        return {
+            "schema_version": "route_forest_semantic_summary.v1",
+            "agent_tasks": {
+                "completed": int(agent_completed),
+                "total": int(agent_total),
+                "team_artifact_accepted": team.get("accepted") is True,
+                # Campaign completion is a scheduler observation.  Only the
+                # digest-bound full frontier ledger can authorize graph
+                # closure in this projection.
+                "proof_closed": ledger_closure.get("all_explored_graph_closed")
+                is True,
+                "campaign_claimed_graph_complete": campaign.get("graph_complete") is True,
+                "semantics": "task completion records execution only; it is not route proof",
+            },
+            "route_states": route_states,
+            "frontier_ledger": frontier_ledger,
+            "semantics": {
+                "branch": "one explored display view, not necessarily a complete route",
+                "l0_rejected": "rejected or structurally incomplete exploration record",
+                "l0_advisory": "unvalidated proposal or hypothesis",
+                "reaction_validated": "all displayed route proof tiers reach L2 reaction validation or above",
+                "stock_closed": "every explicit synthesis leaf is bound to accepted stock evidence",
+                "complete_portfolio": "complete proof-eligible AND/OR route selected by the portfolio solver",
+                "verified_parent": "deterministically verified executable parent route",
+                "l0_break_suggestion_edges": "proposed disconnections that have not reached L2 reaction validation",
+                "expanded_work_molecules": "molecule frontiers with a succeeded proposal-expansion queue job",
+                "l2_reaction_edges": "exact reaction edges accepted by the current host verifier at L2",
+                "l3_precedent_edges": "L3 exact-precedent reaction edges; this is not by itself a solved parent route",
+                "stock_closed_molecules": "molecule boundaries accepted by a trusted stock provider",
+                "benchmark_only_stock_molecules": "benchmark membership closes a search leaf but never proves procurement",
+                "procurement_boundary_molecules": "commercial, in-house, or common-commodity boundaries with procurement authority",
+                "any_benchmark_route_closed": "existential benchmark-search fixed point; procurement boundaries are a stronger valid search leaf",
+                "all_explored_benchmark_closed": "universal benchmark-search fixed point over every reachable edge and leaf",
+                "any_procurement_route_closed": "existential fixed point whose leaves all have procurement authority",
+                "all_explored_procurement_closed": "universal fixed point whose leaves all have procurement authority",
+                "any_route_closed": "compatibility alias for any_benchmark_route_closed; never a procurement claim",
+                "all_explored_graph_closed": "compatibility alias for all_explored_benchmark_closed; never a procurement claim",
+                "l3_parent_solved": "a complete executable parent route whose weakest reaction edge reaches L3",
+                "l4_procurement_ready": "a complete executable L4 parent route plus a positive procurement-only fixed point",
+            },
+        }
+
+    def _frontier_ledger_view(self) -> dict[str, Any]:
+        """Return a compact, fail-closed view of ``frontier_ledger.v1``.
+
+        A graph/team summary is an index only.  Positive closure claims are
+        projected exclusively from a complete ledger whose content digest,
+        nested shape, summary binding, and target identity all validate.
+        """
+
+        if self._frontier_ledger_cache is not None:
+            return dict(self._frontier_ledger_cache)
+
+        summary, summary_source = self._frontier_ledger_summary_candidate()
+        summary_reasons: list[str] = []
+        if not summary:
+            summary_reasons.append("frontier_ledger_summary_missing")
+        elif summary.get("schema_version") != "frontier_ledger_summary.v1":
+            summary_reasons.append("frontier_ledger_summary_schema_invalid")
+        if summary and summary.get("input_valid") is not True:
+            summary_reasons.append("frontier_ledger_summary_inputs_invalid")
+        if summary and summary.get("ledger_validation_accepted") is not True:
+            summary_reasons.append("frontier_ledger_summary_validation_not_accepted")
+        for field in (
+            "any_benchmark_route_closed",
+            "all_explored_benchmark_closed",
+            "any_procurement_route_closed",
+            "all_explored_procurement_closed",
+        ):
+            if summary and not isinstance(summary.get(field), bool):
+                summary_reasons.append(
+                    f"frontier_ledger_summary_{field}_missing_or_invalid"
+                )
+
+        candidates = self._frontier_ledger_candidates(summary)
+        rejection_reasons: list[str] = list(summary_reasons)
+        accepted: dict[str, Any] = {}
+        accepted_source = ""
+        for source, candidate in candidates:
+            if not isinstance(candidate, dict) or not candidate:
+                continue
+            reasons = (
+                list(validate_frontier_ledger(candidate))
+                if validate_frontier_ledger is not None
+                else ["frontier_ledger_validator_unavailable"]
+            )
+            reasons.extend(summary_reasons)
+            reasons.extend(self._frontier_ledger_consistency_reasons(candidate))
+            root_smiles = str((candidate.get("root") or {}).get("canonical_smiles") or "")
+            target_smiles = str(self._target().get("smiles") or "")
+            if target_smiles and (
+                not root_smiles or not _same_molecule(root_smiles, target_smiles)
+            ):
+                reasons.append("frontier_ledger_target_mismatch")
+            if summary:
+                expected_digest = str(
+                    summary.get("frontier_ledger_content_sha256")
+                    or summary.get("ledger_content_sha256")
+                    or ""
+                )
+                if not expected_digest:
+                    reasons.append("frontier_ledger_summary_digest_missing")
+                elif expected_digest != str(candidate.get("content_sha256") or ""):
+                    reasons.append("frontier_ledger_summary_digest_mismatch")
+                ledger_summary = dict(candidate.get("summary") or {})
+                for field in (
+                    "any_benchmark_route_closed",
+                    "all_explored_benchmark_closed",
+                    "any_procurement_route_closed",
+                    "all_explored_procurement_closed",
+                    "any_route_closed",
+                    "all_explored_graph_closed",
+                    "reachable_molecule_count",
+                    "reachable_edge_count",
+                ):
+                    if field in summary and summary.get(field) != ledger_summary.get(field):
+                        reasons.append(f"frontier_ledger_summary_{field}_mismatch")
+            if reasons:
+                rejection_reasons.extend(reasons)
+                continue
+            accepted = dict(candidate)
+            accepted_source = source
+            break
+
+        parent_state = self._parent_route_proof_state()
+        if not accepted:
+            if not candidates:
+                rejection_reasons.append("frontier_ledger_artifact_missing")
+            view = {
+                "schema_version": "route_forest_frontier_ledger_view.v1",
+                "source_schema_version": "",
+                "available": False,
+                "authoritative": False,
+                "historical_host_replay_recorded": False,
+                "current_host_replay_verified": False,
+                "current_input_bindings_verified": False,
+                "source_ref": "",
+                "summary_source": summary_source,
+                "content_sha256": "",
+                "validation_reasons": sorted(
+                    set(rejection_reasons or ["frontier_ledger_artifact_missing"])
+                ),
+                "authority_blockers": sorted(
+                    set(rejection_reasons or ["frontier_ledger_artifact_missing"])
+                ),
+                "input_bindings": {},
+                "current_identities": {},
+                "stage_authority": self._frontier_stage_authority_projection(
+                    authoritative=False,
+                    molecules={},
+                    edges={},
+                    frontier_queue={},
+                ),
+                "counts": self._empty_frontier_ledger_counts(),
+                "closure": {
+                    "any_benchmark_route_closed": False,
+                    "all_explored_benchmark_closed": False,
+                    "any_procurement_route_closed": False,
+                    "all_explored_procurement_closed": False,
+                    "any_route_closed": False,
+                    "all_explored_graph_closed": False,
+                    "l3_parent_solved": parent_state["l3_parent_solved"],
+                    "l4_parent_route_proof_ready": parent_state[
+                        "l4_procurement_ready"
+                    ],
+                    "l4_procurement_ready": False,
+                },
+                "input_validation": {},
+                "semantics": {
+                    "missing_or_invalid_ledger_fails_closed": True,
+                    "branch_count_is_not_completion": True,
+                    "parent_route_proof_is_independent_from_hypergraph_closure": True,
+                },
+            }
+            self._frontier_ledger_cache = view
+            return dict(view)
+
+        ledger_summary = dict(accepted.get("summary") or {})
+        authority_context = self._current_frontier_authority_context()
+        authority = frontier_ledger_current_authority_evidence(
+            accepted,
+            route_consensus_graph=authority_context["route_consensus_graph"],
+            frontier_queue=authority_context["frontier_queue"],
+            campaign_policy=authority_context["campaign_policy"],
+            campaign_policy_sha256=str(
+                authority_context.get("campaign_policy_sha256") or ""
+            ),
+            trusted_stock_provider_instances=self.trusted_stock_provider_instances,
+        )
+        authoritative = authority.get("authoritative") is True
+        molecules = {
+            str(key): dict(value)
+            for key, value in (accepted.get("molecules") or {}).items()
+            if isinstance(value, dict)
+        }
+        edges = {
+            str(key): dict(value)
+            for key, value in (accepted.get("edges") or {}).items()
+            if isinstance(value, dict)
+        }
+        achieved_levels = [
+            int((row.get("reaction_proof") or {}).get("achieved_proof_level") or 0)
+            for row in edges.values()
+        ]
+        leaf_rows = [
+            row
+            for row in molecules.values()
+            if not (row.get("proposal") or {}).get("outgoing_edge_signatures")
+        ]
+        counts = {
+            "proposal_edges": len(edges),
+            "l0_break_suggestion_edges": sum(level < 2 for level in achieved_levels),
+            "expanded_work_molecules": sum(
+                (row.get("work") or {}).get("proposal_expansion_succeeded") is True
+                for row in molecules.values()
+            ),
+            "open_work_molecules": sum(
+                (row.get("work") or {}).get("open") is True
+                for row in molecules.values()
+            ),
+            "l2_reaction_edges": sum(level == 2 for level in achieved_levels),
+            "l3_precedent_edges": sum(level == 3 for level in achieved_levels),
+            "l4_procurement_edges": sum(level >= 4 for level in achieved_levels),
+            "reaction_validated_edges": sum(level >= 2 for level in achieved_levels),
+            "stock_closed_molecules": sum(
+                (row.get("stock") or {}).get("closed") is True
+                for row in molecules.values()
+            ),
+            "benchmark_only_stock_molecules": sum(
+                (row.get("stock") or {}).get("benchmark_only") is True
+                for row in molecules.values()
+            ),
+            "procurement_boundary_molecules": sum(
+                (row.get("stock") or {}).get("procurement_boundary_closed") is True
+                for row in molecules.values()
+            ),
+            "stock_closed_leaves": sum(
+                (row.get("stock") or {}).get("closed") is True for row in leaf_rows
+            ),
+            "benchmark_only_stock_leaves": sum(
+                (row.get("stock") or {}).get("benchmark_only") is True
+                for row in leaf_rows
+            ),
+            "procurement_boundary_leaves": sum(
+                (row.get("stock") or {}).get("procurement_boundary_closed") is True
+                for row in leaf_rows
+            ),
+            "reachable_leaves": len(leaf_rows),
+            "reachable_molecules": int(
+                ledger_summary.get("reachable_molecule_count") or len(molecules)
+            ),
+            "reachable_edges": int(ledger_summary.get("reachable_edge_count") or len(edges)),
+        }
+        observed_closure = {
+            "any_benchmark_route_closed": ledger_summary.get(
+                "any_benchmark_route_closed"
+            )
+            is True,
+            "all_explored_benchmark_closed": ledger_summary.get(
+                "all_explored_benchmark_closed"
+            )
+            is True,
+            "any_procurement_route_closed": ledger_summary.get(
+                "any_procurement_route_closed"
+            )
+            is True,
+            "all_explored_procurement_closed": ledger_summary.get(
+                "all_explored_procurement_closed"
+            )
+            is True,
+            "any_route_closed": ledger_summary.get("any_route_closed") is True,
+            "all_explored_graph_closed": ledger_summary.get(
+                "all_explored_graph_closed"
+            )
+            is True,
+        }
+        view = {
+            "schema_version": "route_forest_frontier_ledger_view.v1",
+            "source_schema_version": str(accepted.get("schema_version") or ""),
+            "available": True,
+            "authoritative": authoritative,
+            "historical_host_replay_recorded": authority.get(
+                "historical_host_replay_recorded"
+            )
+            is True,
+            "current_host_replay_verified": authority.get(
+                "current_host_replay_verified"
+            )
+            is True,
+            "current_input_bindings_verified": authority.get(
+                "current_input_bindings_verified"
+            )
+            is True,
+            "source_ref": accepted_source,
+            "summary_source": summary_source,
+            "authority_graph_source": str(
+                authority_context.get("route_consensus_graph_source") or ""
+            ),
+            "content_sha256": str(accepted.get("content_sha256") or ""),
+            "required_reaction_proof_level": int(
+                accepted.get("required_reaction_proof_level") or 2
+            ),
+            "validation_reasons": list(authority.get("blockers") or []),
+            "authority_blockers": list(authority.get("blockers") or []),
+            "input_bindings": dict(authority.get("input_bindings") or {}),
+            "current_identities": dict(authority.get("current_identities") or {}),
+            "stage_authority": self._frontier_stage_authority_projection(
+                authoritative=authoritative,
+                molecules=molecules,
+                edges=edges,
+                frontier_queue=authority_context["frontier_queue"],
+            ),
+            "counts": counts,
+            "observed_closure": observed_closure,
+            "closure": {
+                "any_benchmark_route_closed": bool(
+                    authoritative
+                    and observed_closure["any_benchmark_route_closed"]
+                ),
+                "all_explored_benchmark_closed": bool(
+                    authoritative
+                    and observed_closure["all_explored_benchmark_closed"]
+                ),
+                "any_procurement_route_closed": bool(
+                    authoritative
+                    and observed_closure["any_procurement_route_closed"]
+                ),
+                "all_explored_procurement_closed": bool(
+                    authoritative
+                    and observed_closure["all_explored_procurement_closed"]
+                ),
+                "any_route_closed": bool(
+                    authoritative and observed_closure["any_route_closed"]
+                ),
+                "all_explored_graph_closed": bool(
+                    authoritative
+                    and observed_closure["all_explored_graph_closed"]
+                ),
+                "l3_parent_solved": parent_state["l3_parent_solved"],
+                "l4_parent_route_proof_ready": parent_state[
+                    "l4_procurement_ready"
+                ],
+                "l4_procurement_ready": bool(
+                    authoritative
+                    and
+                    parent_state["l4_procurement_ready"]
+                    and observed_closure["any_procurement_route_closed"]
+                ),
+            },
+            "input_validation": dict(accepted.get("input_validation") or {}),
+            "semantics": {
+                "missing_or_invalid_ledger_fails_closed": True,
+                "branch_count_is_not_completion": True,
+                "l0_is_unvalidated_proposed_edge_count": True,
+                "work_is_durable_queue_execution_not_route_proof": True,
+                "reaction_counts_are_exact_edge_proof_counts": True,
+                "stock_counts_are_molecule_boundaries_not_complete_routes": True,
+                "benchmark_stock_closure_is_not_procurement": True,
+                "procurement_uses_procurement_boundary_closed_only": True,
+                "any_and_all_closure_are_distinct_fixed_points": True,
+                "generic_any_all_mean_benchmark_search_closure": True,
+                "procurement_closure_has_an_independent_fixed_point": True,
+                "l4_procurement_requires_parent_and_procurement_fixed_point": True,
+                "parent_route_proof_is_independent_from_hypergraph_closure": True,
+                "historical_replay_record_is_not_current_authority": True,
+                "current_host_provider_replay_must_be_passed_explicitly": True,
+                "graph_queue_policy_identity_bindings_are_required": True,
+            },
+        }
+        self._frontier_ledger_cache = view
+        return dict(view)
+
+    @staticmethod
+    def _frontier_stage_authority_projection(
+        *,
+        authoritative: bool,
+        molecules: Mapping[str, Mapping[str, Any]],
+        edges: Mapping[str, Mapping[str, Any]],
+        frontier_queue: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Project only current-authority facts needed by UI stage filters.
+
+        The browser must not infer durable expansion, reaction replay, or stock
+        closure from branch counts or proof colours.  Entries are therefore
+        exposed only after the complete ledger and its current graph/queue/
+        provider bindings have passed host validation.
+        """
+
+        semantics = {
+            "expanded_requires_succeeded_proposal_expansion_job": True,
+            "reaction_requires_current_host_edge_replay": True,
+            "stock_requires_current_host_provider_replay_for_every_leaf": True,
+            "benchmark_stock_is_not_procurement": True,
+            "empty_or_unbound_projection_fails_closed": True,
+        }
+        if not authoritative:
+            return {
+                "schema_version": "route_forest_stage_authority.v1",
+                "authoritative": False,
+                "molecules": [],
+                "edges": [],
+                "reasons": ["frontier_ledger_not_current_authority"],
+                "semantics": semantics,
+            }
+
+        succeeded_expansion_jobs: dict[str, list[str]] = {}
+        for raw_job in frontier_queue.get("jobs") or []:
+            if not isinstance(raw_job, Mapping):
+                continue
+            job = dict(raw_job)
+            if (
+                str(job.get("state") or "") != "succeeded"
+                or str(job.get("closure_kind") or "") != "proposal_expansion"
+            ):
+                continue
+            smiles = _canonical_molecule_smiles(str(job.get("frontier_smiles") or ""))
+            job_id = str(job.get("job_id") or "")
+            if smiles and job_id:
+                succeeded_expansion_jobs.setdefault(smiles, []).append(job_id)
+
+        molecule_rows: list[dict[str, Any]] = []
+        for canonical_smiles, raw in sorted(molecules.items()):
+            row = dict(raw)
+            work = dict(row.get("work") or {})
+            stock = dict(row.get("stock") or {})
+            host_replay_verified = stock.get("host_replay_verified") is True
+            canonical = _canonical_molecule_smiles(
+                str(row.get("canonical_smiles") or canonical_smiles)
+            )
+            ledger_work_job_ids = {
+                str(value) for value in work.get("job_ids") or [] if value
+            }
+            verified_expansion_job_ids = sorted(
+                ledger_work_job_ids.intersection(
+                    succeeded_expansion_jobs.get(canonical, [])
+                )
+            )
+            current_observation_ids = sorted(
+                str(value)
+                for value in stock.get("current_observation_ids") or []
+                if value
+            )
+            closure_job_ids = sorted(
+                str(value) for value in stock.get("closure_job_ids") or [] if value
+            )
+            stock_evidence_complete = bool(
+                host_replay_verified
+                and current_observation_ids
+                and closure_job_ids
+            )
+            molecule_rows.append(
+                {
+                    "canonical_smiles": canonical,
+                    "node_ids": sorted(
+                        str(value) for value in row.get("node_ids") or [] if value
+                    ),
+                    "work": {
+                        "proposal_expansion_succeeded": work.get(
+                            "proposal_expansion_succeeded"
+                        )
+                        is True
+                        and bool(verified_expansion_job_ids),
+                        "job_ids": verified_expansion_job_ids,
+                    },
+                    "stock": {
+                        "benchmark_search_boundary_closed": bool(
+                            stock_evidence_complete
+                            and stock.get("benchmark_search_boundary_closed")
+                            is True
+                        ),
+                        "procurement_boundary_closed": bool(
+                            stock_evidence_complete
+                            and stock.get("procurement_boundary_closed") is True
+                        ),
+                        "host_replay_verified": host_replay_verified,
+                        "current_observation_ids": current_observation_ids,
+                        "closure_job_ids": closure_job_ids,
+                    },
+                }
+            )
+
+        edge_rows: list[dict[str, Any]] = []
+        for signature, raw in sorted(edges.items()):
+            row = dict(raw)
+            proposal = dict(row.get("proposal") or {})
+            proof = dict(row.get("reaction_proof") or {})
+            authority = str(proof.get("authority") or "")
+            achieved_level = int(proof.get("achieved_proof_level") or 0)
+            step_ids = sorted(
+                {
+                    str(value)
+                    for value in [
+                        *(proposal.get("step_ids") or []),
+                        *(proof.get("step_ids") or []),
+                    ]
+                    if value
+                }
+            )
+            current_host_validated = bool(
+                achieved_level >= 2
+                and authority == "current_host_verifier_replay"
+                and isinstance(proof.get("host_replay_binding"), dict)
+                and proof.get("host_replay_binding")
+            )
+            edge_rows.append(
+                {
+                    "exact_edge_signature": str(
+                        row.get("exact_edge_signature") or signature
+                    ),
+                    "step_ids": step_ids,
+                    "product_smiles": str(row.get("product_smiles") or ""),
+                    "precursor_smiles": sorted(
+                        str(value)
+                        for value in row.get("precursor_smiles") or []
+                        if value
+                    ),
+                    "reaction_proof": {
+                        "achieved_proof_level": achieved_level,
+                        "authority": authority,
+                        "current_host_reaction_validated": current_host_validated,
+                        "proof_request_ids": sorted(
+                            str(value)
+                            for value in proof.get("proof_request_ids") or []
+                            if value
+                        ),
+                    },
+                }
+            )
+
+        return {
+            "schema_version": "route_forest_stage_authority.v1",
+            "authoritative": True,
+            "molecules": molecule_rows,
+            "edges": edge_rows,
+            "reasons": [],
+            "semantics": semantics,
+        }
+
+    @staticmethod
+    def _empty_frontier_ledger_counts() -> dict[str, int]:
+        return {
+            "proposal_edges": 0,
+            "l0_break_suggestion_edges": 0,
+            "expanded_work_molecules": 0,
+            "open_work_molecules": 0,
+            "l2_reaction_edges": 0,
+            "l3_precedent_edges": 0,
+            "l4_procurement_edges": 0,
+            "reaction_validated_edges": 0,
+            "stock_closed_molecules": 0,
+            "benchmark_only_stock_molecules": 0,
+            "procurement_boundary_molecules": 0,
+            "stock_closed_leaves": 0,
+            "benchmark_only_stock_leaves": 0,
+            "procurement_boundary_leaves": 0,
+            "reachable_leaves": 0,
+            "reachable_molecules": 0,
+            "reachable_edges": 0,
+        }
+
+    @staticmethod
+    def _frontier_ledger_consistency_reasons(value: dict[str, Any]) -> list[str]:
+        """Recompute ledger fixed points before exposing closure to the UI."""
+
+        summary = value.get("summary")
+        root = value.get("root")
+        molecules = value.get("molecules")
+        edges = value.get("edges")
+        if not all(isinstance(row, dict) for row in (summary, root, molecules, edges)):
+            return ["frontier_ledger_projection_shape_invalid"]
+        reasons: list[str] = []
+        try:
+            required_level = int(value.get("required_reaction_proof_level") or 2)
+        except (TypeError, ValueError):
+            return ["frontier_ledger_required_proof_level_invalid"]
+        if required_level not in {2, 3, 4}:
+            reasons.append("frontier_ledger_required_proof_level_invalid")
+
+        root_smiles = str(root.get("canonical_smiles") or "")
+        if not root_smiles or root_smiles not in molecules:
+            reasons.append("frontier_ledger_root_molecule_missing")
+        outgoing: dict[str, list[str]] = {}
+        stock_closed: dict[str, bool] = {}
+        procurement_closed: dict[str, bool] = {}
+        terminal_closed: dict[str, bool] = {}
+        for smiles, raw in molecules.items():
+            molecule = dict(raw) if isinstance(raw, dict) else {}
+            signatures = (molecule.get("proposal") or {}).get(
+                "outgoing_edge_signatures"
+            )
+            stock = (molecule.get("stock") or {}).get("closed")
+            procurement = (molecule.get("stock") or {}).get(
+                "procurement_boundary_closed"
+            )
+            terminal = (
+                (molecule.get("reaction_proof") or {}).get("terminal_closure") or {}
+            ).get("closed")
+            if not isinstance(signatures, list) or any(
+                not isinstance(item, str) or item not in edges for item in signatures
+            ):
+                reasons.append(f"frontier_ledger_molecule_outgoing_invalid:{smiles}")
+                signatures = []
+            if (
+                not isinstance(stock, bool)
+                or not isinstance(procurement, bool)
+                or not isinstance(terminal, bool)
+            ):
+                reasons.append(f"frontier_ledger_molecule_boundary_invalid:{smiles}")
+            outgoing[str(smiles)] = list(signatures)
+            stock_closed[str(smiles)] = stock is True
+            procurement_closed[str(smiles)] = procurement is True
+            terminal_closed[str(smiles)] = terminal is True
+
+        proof_closed: dict[str, bool] = {}
+        precursors_by_edge: dict[str, list[str]] = {}
+        for signature, raw in edges.items():
+            edge = dict(raw) if isinstance(raw, dict) else {}
+            product = str(edge.get("product_smiles") or "")
+            precursors = edge.get("precursor_smiles")
+            proof = dict(edge.get("reaction_proof") or {})
+            closed = proof.get("closed")
+            achieved = proof.get("achieved_proof_level")
+            if (
+                product not in molecules
+                or not isinstance(precursors, list)
+                or not precursors
+                or any(not isinstance(item, str) or item not in molecules for item in precursors)
+                or signature not in outgoing.get(product, [])
+            ):
+                reasons.append(f"frontier_ledger_edge_dependency_invalid:{signature}")
+                precursors = []
+            if (
+                not isinstance(closed, bool)
+                or isinstance(achieved, bool)
+                or not isinstance(achieved, int)
+                or not 0 <= achieved <= 4
+                or closed is not (achieved >= required_level)
+            ):
+                reasons.append(f"frontier_ledger_edge_proof_invalid:{signature}")
+            proof_closed[str(signature)] = closed is True
+            precursors_by_edge[str(signature)] = [str(item) for item in precursors]
+
+        def fixed_point(boundaries: dict[str, bool]) -> tuple[dict[str, bool], dict[str, bool]]:
+            any_values = {
+                str(smiles): boundaries.get(str(smiles), False)
+                or terminal_closed.get(str(smiles), False)
+                for smiles in molecules
+            }
+            all_values = {
+                str(smiles): bool(
+                    not outgoing.get(str(smiles))
+                    and (
+                        boundaries.get(str(smiles), False)
+                        or terminal_closed.get(str(smiles), False)
+                    )
+                )
+                for smiles in molecules
+            }
+            for _ in range(max(1, len(molecules) + 1)):
+                next_any = dict(any_values)
+                next_all = dict(all_values)
+                for smiles in sorted(str(item) for item in molecules):
+                    alternatives = outgoing.get(smiles, [])
+                    if not alternatives:
+                        continue
+                    next_any[smiles] = bool(
+                        any_values[smiles]
+                        or any(
+                            proof_closed.get(signature, False)
+                            and all(
+                                any_values.get(item, False)
+                                for item in precursors_by_edge.get(signature, [])
+                            )
+                            for signature in alternatives
+                        )
+                    )
+                    next_all[smiles] = bool(
+                        all(
+                            proof_closed.get(signature, False)
+                            and all(
+                                all_values.get(item, False)
+                                for item in precursors_by_edge.get(signature, [])
+                            )
+                            for signature in alternatives
+                        )
+                    )
+                if next_any == any_values and next_all == all_values:
+                    break
+                any_values, all_values = next_any, next_all
+            return any_values, all_values
+
+        any_closed, all_closed = fixed_point(stock_closed)
+        procurement_any, procurement_all = fixed_point(procurement_closed)
+
+        for smiles, raw in molecules.items():
+            closure = (
+                dict((raw or {}).get("closure") or {})
+                if isinstance(raw, dict)
+                else {}
+            )
+            expected = {
+                "any_benchmark_route_closed": any_closed.get(str(smiles), False),
+                "all_explored_benchmark_closed": all_closed.get(
+                    str(smiles), False
+                ),
+                "any_procurement_route_closed": procurement_any.get(
+                    str(smiles), False
+                ),
+                "all_explored_procurement_closed": procurement_all.get(
+                    str(smiles), False
+                ),
+                "any_route_closed": any_closed.get(str(smiles), False),
+                "all_explored_graph_closed": all_closed.get(str(smiles), False),
+            }
+            for field, expected_value in expected.items():
+                if closure.get(field) is not expected_value:
+                    reasons.append(
+                        f"frontier_ledger_molecule_closure_mismatch:{smiles}:{field}"
+                    )
+        for signature, raw in edges.items():
+            closure = dict((raw or {}).get("closure") or {}) if isinstance(raw, dict) else {}
+            edge_any = bool(
+                proof_closed.get(str(signature), False)
+                and all(
+                    any_closed.get(item, False)
+                    for item in precursors_by_edge.get(str(signature), [])
+                )
+            )
+            edge_all = bool(
+                proof_closed.get(str(signature), False)
+                and all(
+                    all_closed.get(item, False)
+                    for item in precursors_by_edge.get(str(signature), [])
+                )
+            )
+            procurement_edge_any = bool(
+                proof_closed.get(str(signature), False)
+                and all(
+                    procurement_any.get(item, False)
+                    for item in precursors_by_edge.get(str(signature), [])
+                )
+            )
+            procurement_edge_all = bool(
+                proof_closed.get(str(signature), False)
+                and all(
+                    procurement_all.get(item, False)
+                    for item in precursors_by_edge.get(str(signature), [])
+                )
+            )
+            expected = {
+                "any_benchmark_route_closed": edge_any,
+                "all_explored_benchmark_closed": edge_all,
+                "any_procurement_route_closed": procurement_edge_any,
+                "all_explored_procurement_closed": procurement_edge_all,
+                "any_route_closed": edge_any,
+                "all_explored_graph_closed": edge_all,
+            }
+            for field, expected_value in expected.items():
+                if closure.get(field) is not expected_value:
+                    reasons.append(
+                        f"frontier_ledger_edge_closure_mismatch:{signature}:{field}"
+                    )
+
+        expected_summary_closure = {
+            "any_benchmark_route_closed": any_closed.get(root_smiles, False),
+            "all_explored_benchmark_closed": all_closed.get(root_smiles, False),
+            "any_procurement_route_closed": procurement_any.get(
+                root_smiles, False
+            ),
+            "all_explored_procurement_closed": procurement_all.get(
+                root_smiles, False
+            ),
+            "any_route_closed": any_closed.get(root_smiles, False),
+            "all_explored_graph_closed": all_closed.get(root_smiles, False),
+        }
+        for field, expected in expected_summary_closure.items():
+            if summary.get(field) is not expected:
+                reasons.append(f"frontier_ledger_summary_closure_mismatch:{field}")
+        expected_counts = {
+            "reachable_molecule_count": len(molecules),
+            "reachable_edge_count": len(edges),
+            "reaction_proven_edge_count": sum(proof_closed.values()),
+            "stock_closed_molecule_count": sum(stock_closed.values()),
+            "procurement_boundary_closed_molecule_count": sum(
+                procurement_closed.values()
+            ),
+        }
+        for field, expected in expected_counts.items():
+            if summary.get(field) != expected:
+                reasons.append(f"frontier_ledger_summary_{field}_invalid")
+        return sorted(set(reasons))
+
+    def _frontier_ledger_summary_candidate(self) -> tuple[dict[str, Any], str]:
+        graph, graph_source = self._frontier_authority_route_consensus_graph()
+        caller_graph = self.blackboard.get("route_consensus_graph")
+        team = dict(self.blackboard.get("codex_agent_team") or {})
+        campaign = dict(team.get("campaign") or {})
+        rows = [
+            (f"{graph_source}.frontier_ledger_summary", graph.get("frontier_ledger_summary")),
+            ("route_consensus_graph.frontier_ledger_summary", (caller_graph or {}).get("frontier_ledger_summary") if isinstance(caller_graph, dict) else None),
+            ("blackboard.frontier_ledger_summary", self.blackboard.get("frontier_ledger_summary")),
+            ("codex_agent_team.frontier_ledger_summary", team.get("frontier_ledger_summary")),
+            ("codex_agent_team.campaign.frontier_ledger_summary", campaign.get("frontier_ledger_summary")),
+        ]
+        for source, value in rows:
+            if isinstance(value, dict) and value:
+                return dict(value), source
+        return {}, ""
+
+    def _frontier_ledger_candidates(
+        self,
+        summary: dict[str, Any],
+    ) -> list[tuple[str, dict[str, Any]]]:
+        graph, graph_source = self._frontier_authority_route_consensus_graph()
+        caller_graph = self.blackboard.get("route_consensus_graph")
+        team = dict(self.blackboard.get("codex_agent_team") or {})
+        campaign = dict(team.get("campaign") or {})
+        candidates: list[tuple[str, dict[str, Any]]] = []
+        embedded = [
+            (f"{graph_source}.frontier_ledger", graph.get("frontier_ledger")),
+            ("route_consensus_graph.frontier_ledger", (caller_graph or {}).get("frontier_ledger") if isinstance(caller_graph, dict) else None),
+            ("blackboard.frontier_ledger", self.blackboard.get("frontier_ledger")),
+            ("codex_agent_team.frontier_ledger", team.get("frontier_ledger")),
+            ("codex_agent_team.campaign.frontier_ledger", campaign.get("frontier_ledger")),
+        ]
+        refs: list[tuple[str, Any]] = [
+            ("frontier_ledger_summary.source_ref", summary.get("source_ref")),
+            ("frontier_ledger_summary.frontier_ledger_ref", summary.get("frontier_ledger_ref")),
+            ("blackboard.frontier_ledger_ref", self.blackboard.get("frontier_ledger_ref")),
+            ("codex_agent_team.frontier_ledger_ref", team.get("frontier_ledger_ref")),
+            ("codex_agent_team.campaign.frontier_ledger_ref", campaign.get("frontier_ledger_ref")),
+        ]
+        refs.extend(
+            (f"artifact_refs.{key}", value)
+            for key, value in sorted((self.blackboard.get("artifact_refs") or {}).items())
+            if "frontier_ledger" in str(key).lower() or "frontier_ledger" in str(value).lower()
+        )
+        seen_paths: set[str] = set()
+        for source, value in refs:
+            path = self._resolve_artifact_path(value)
+            path_key = str(path or "")
+            if not path_key or path_key in seen_paths:
+                continue
+            seen_paths.add(path_key)
+            payload = self._read_json_dict(path)
+            if payload:
+                candidates.append((path_key, payload))
+        # The persisted, summary-bound artifact is the preferred projection
+        # source.  Embedded copies are portability fallbacks and still have
+        # to match the same summary digest and target identity.
+        for source, value in embedded:
+            if isinstance(value, dict) and value:
+                candidates.append((source, dict(value)))
+        return candidates
+
+    def _current_frontier_authority_context(self) -> dict[str, Any]:
+        """Resolve only host-supplied current inputs; never infer authority."""
+
+        graph, graph_source = self._frontier_authority_route_consensus_graph()
+        team = dict(self.blackboard.get("codex_agent_team") or {})
+        campaign = dict(team.get("campaign") or {})
+
+        queue = (
+            dict(campaign.get("frontier_queue") or {})
+            if isinstance(campaign.get("frontier_queue"), Mapping)
+            else {}
+        )
+        if not queue:
+            queue = (
+                dict(self.blackboard.get("frontier_queue") or {})
+                if isinstance(self.blackboard.get("frontier_queue"), Mapping)
+                else {}
+            )
+        if not queue:
+            for ref in (
+                campaign.get("frontier_queue_ref"),
+                team.get("frontier_queue_ref"),
+                self.blackboard.get("frontier_queue_ref"),
+            ):
+                queue = self._read_json_dict(self._resolve_artifact_path(ref))
+                if queue:
+                    break
+
+        policy = (
+            dict(campaign.get("campaign_policy") or {})
+            if isinstance(campaign.get("campaign_policy"), Mapping)
+            else {}
+        )
+        if not policy:
+            policy = (
+                dict(team.get("campaign_policy") or {})
+                if isinstance(team.get("campaign_policy"), Mapping)
+                else {}
+            )
+        if not policy:
+            for ref in (
+                campaign.get("campaign_policy_ref"),
+                team.get("campaign_policy_ref"),
+                self.blackboard.get("campaign_policy_ref"),
+            ):
+                policy = self._read_json_dict(self._resolve_artifact_path(ref))
+                if policy:
+                    break
+        declared_policy_digests = {
+            str(value)
+            for value in (
+                campaign.get("campaign_policy_sha256"),
+                team.get("campaign_policy_sha256"),
+                self.blackboard.get("campaign_policy_sha256"),
+            )
+            if str(value or "")
+        }
+        declared_policy_digest = (
+            next(iter(declared_policy_digests))
+            if len(declared_policy_digests) == 1
+            else "invalid-conflicting-campaign-policy-digests"
+            if declared_policy_digests
+            else ""
+        )
+        return {
+            "route_consensus_graph": graph,
+            "route_consensus_graph_source": graph_source,
+            "frontier_queue": queue,
+            "campaign_policy": policy,
+            "campaign_policy_sha256": declared_policy_digest,
+        }
+
+    def _frontier_authority_route_consensus_graph(
+        self,
+    ) -> tuple[dict[str, Any], str]:
+        """Prefer the durable union graph; caller fusion is display fallback."""
+
+        direct = self.blackboard.get("canonical_route_consensus_graph")
+        if isinstance(direct, Mapping) and direct.get("schema_version") == (
+            "route_consensus_graph.v1"
+        ):
+            return dict(direct), "canonical_route_consensus_graph"
+        reconciliation = self.blackboard.get(
+            "codex_campaign_proof_reconciliation"
+        )
+        if isinstance(reconciliation, Mapping):
+            nested = reconciliation.get("canonical_route_consensus_graph")
+            if isinstance(nested, Mapping) and nested.get("schema_version") == (
+                "route_consensus_graph.v1"
+            ):
+                return (
+                    dict(nested),
+                    "codex_campaign_proof_reconciliation.canonical_route_consensus_graph",
+                )
+        artifact_refs = dict(self.blackboard.get("artifact_refs") or {})
+        canonical_ref = artifact_refs.get("canonical_route_consensus_graph")
+        canonical = self._read_json_dict(
+            self._resolve_artifact_path(canonical_ref)
+        )
+        if canonical.get("schema_version") == "route_consensus_graph.v1":
+            return canonical, "artifact_refs.canonical_route_consensus_graph"
+        caller = self.blackboard.get("route_consensus_graph")
+        if isinstance(caller, Mapping):
+            return dict(caller), "caller_advisory_route_consensus_graph"
+        return {}, "missing_route_consensus_graph"
+
+    def _parent_route_proof_state(self) -> dict[str, bool]:
+        parent_rows = [
+            branch
+            for branch in self.branches
+            if branch.get("solved") is True
+            and branch.get("executable") is True
+            and branch.get("advisory_only") is False
+            and branch.get("not_parent_route_proof") is False
+        ]
+        ranks = [
+            PROOF_TIER_RANK.get(
+                str((branch.get("trust_vector") or {}).get("proof_tier") or ""),
+                0,
+            )
+            for branch in parent_rows
+        ]
+        return {
+            "l3_parent_solved": any(
+                rank >= PROOF_TIER_RANK["L3_precedent_supported"] for rank in ranks
+            ),
+            "l4_procurement_ready": any(
+                rank >= PROOF_TIER_RANK["L4_procurement_ready"] for rank in ranks
+            ),
+        }
+
+    def _display_policy(self) -> dict[str, Any]:
+        return {
+            "schema_version": "route_forest_display_policy.v1",
+            "default_overview_top_k": 12,
+            "default_group_visible_count": 5,
+            "ranking": [
+                "verified_parent_route",
+                "complete_portfolio",
+                "stock_closure",
+                "reaction_proof_tier",
+                "confidence",
+                "route_depth",
+            ],
+            "semantics": "remaining branches are collapsed for display only and stay available on demand",
         }
 
     def _artifact_revision_view(self) -> dict[str, Any]:
@@ -1979,12 +3473,29 @@ class _RouteForestCompiler:
                 str(row.get("consensus_id") or ""),
             )
         )
+        represented_signatures = self._selected_graph_edge_signatures(limit=limit)
+        merged_count = sum(
+            _semantic_reaction_edge_key(
+                str(row.get("product_smiles") or ""),
+                _consensus_precursor_smiles(row),
+            ) in represented_signatures
+            for row in proposals
+        )
+        proposals = [
+            row
+            for row in proposals
+            if _semantic_reaction_edge_key(
+                str(row.get("product_smiles") or ""),
+                _consensus_precursor_smiles(row),
+            ) not in represented_signatures
+        ]
         target = self._target()
         target_smiles = str(target.get("smiles") or "").strip()
         consensus_target_smiles = str(consensus.get("target_smiles") or "").strip()
         route_level_refs = self._route_consensus_route_refs()
 
         selected = self._limited_rows(proposals, category="route_consensus", limit=limit)
+        self._projection_coverage["route_consensus"]["merged_into_graph_count"] = int(merged_count)
         for index, proposal in enumerate(selected, start=1):
             product_smiles = str(proposal.get("product_smiles") or "").strip()
             precursor_smiles = _consensus_precursor_smiles(proposal)
@@ -2135,6 +3646,32 @@ class _RouteForestCompiler:
             actual_branch.update(consensus_metadata)
             actual_branch["route_level_source_refs"] = route_level_refs
             self._consensus_branch_ids[consensus_id] = str(actual_branch.get("branch_id") or branch_id)
+
+    def _selected_graph_edge_signatures(self, *, limit: int | None) -> set[str]:
+        graph = self._route_consensus_graph_payload()
+        if not graph:
+            return set()
+        steps = {
+            str(row.get("step_id") or ""): dict(row)
+            for row in graph.get("steps") or []
+            if isinstance(row, dict)
+        }
+        routes = [dict(row) for row in graph.get("route_hypotheses") or [] if isinstance(row, dict)]
+        routes.sort(key=lambda row: (-float(row.get("rank_score") or 0.0), str(row.get("route_id") or "")))
+        selected = routes if limit is None else routes[: max(0, int(limit))]
+        signatures: set[str] = set()
+        for route in selected:
+            for step_id in route.get("forward_step_ids") or []:
+                step = steps.get(str(step_id)) or {}
+                if not step:
+                    continue
+                signature = _semantic_reaction_edge_key(
+                    str(step.get("product_smiles") or ""),
+                    [str(value) for value in step.get("precursor_smiles") or []],
+                )
+                if signature:
+                    signatures.add(signature)
+        return signatures
 
     def add_route_portfolio_branches(self) -> None:
         """Project every proof-eligible Top-K selection as its own closed DAG.
@@ -2854,6 +4391,22 @@ class _RouteForestCompiler:
                     "not_parent_route_proof": True,
                 }
             )
+            actual_branch_id = str(branch.get("branch_id") or branch_id)
+            merged_ids = _dedupe(
+                [
+                    str(value)
+                    for graph_step in graph_steps
+                    for value in graph_step.get("proposal_ids") or []
+                    if str(value).strip()
+                ]
+            )
+            branch["merged_consensus_ids"] = merged_ids
+            branch["semantic_projection"] = "canonical_multistep_graph"
+            for consensus_id in merged_ids:
+                self._consensus_branch_ids.setdefault(consensus_id, actual_branch_id)
+            for step_id in rendered_step_ids:
+                self.steps[step_id]["merged_consensus_details"] = True
+                self.steps[step_id]["semantic_projection"] = "canonical_graph_edge"
 
     def _route_consensus_graph_payload(self) -> dict[str, Any]:
         if self._codex_team_projection_reasons():
@@ -4171,6 +5724,15 @@ class _RouteForestCompiler:
         placeholder_candidates = [
             row for row in candidate_records if not _source_candidate_has_real_source(row)
         ]
+        source_identity_summary = dict(
+            self.evidence.get("source_identity_summary") or {}
+        )
+
+        def identity_count(field: str) -> int:
+            try:
+                return max(0, int(source_identity_summary.get(field) or 0))
+            except (TypeError, ValueError):
+                return 0
 
         def candidate_view(row: dict[str, Any]) -> dict[str, Any]:
             doi = str(row.get("doi") or "").strip()
@@ -4204,9 +5766,27 @@ class _RouteForestCompiler:
             ][:20],
             "placeholder_candidates": [candidate_view(row) for row in placeholder_candidates][:20],
             "source_candidate_summary": {
+                # Candidate rows are representations awaiting/holding source
+                # locators.  They are not a count of independent documents or
+                # source groups.
                 "real_source_count": len(real_candidates),
+                "real_source_candidate_record_count": len(real_candidates),
                 "placeholder_count": len(placeholder_candidates),
                 "record_count": len(candidate_records),
+            },
+            "source_identity_summary": {
+                "schema_version": "route_forest_source_identity_summary.v1",
+                "document_count": identity_count("document_count"),
+                "independent_source_group_count": identity_count(
+                    "independent_source_group_count"
+                ),
+                "representation_count": identity_count("representation_count"),
+                "candidate_record_count": len(candidate_records),
+                "real_source_candidate_record_count": len(real_candidates),
+                "semantics": {
+                    "candidate_records_are_not_independent_sources": True,
+                    "document_and_representation_counts_are_distinct": True,
+                },
             },
             "exact_chain_audits": [
                 {
@@ -4264,6 +5844,15 @@ class _RouteForestCompiler:
         real_source_refs = [
             value for value in source_refs if not _placeholder_source_ref(value)
         ]
+        identity_summary = dict(
+            self.evidence.get("source_identity_summary") or {}
+        )
+
+        def identity_count(field: str) -> int:
+            try:
+                return max(0, int(identity_summary.get(field) or 0))
+            except (TypeError, ValueError):
+                return 0
         actions = [
             {
                 "round_index": int(row.get("round_index") or 0),
@@ -4288,13 +5877,20 @@ class _RouteForestCompiler:
                 # their original all-record semantics.  Consumers that need
                 # validated locators must use the explicit real_* fields.
                 "source_candidates": len(source_candidates),
+                "candidate_record_count": len(source_candidates),
                 "real_source_candidates": real_source_count,
+                "real_source_candidate_records": real_source_count,
                 "placeholder_candidates": placeholder_count,
                 "source_candidate_records": len(source_candidates),
                 "source_refs": len(source_refs),
                 "real_source_refs": len(real_source_refs),
                 "source_ref_records": len(source_refs),
                 "placeholder_source_refs": len(source_refs) - len(real_source_refs),
+                "document_count": identity_count("document_count"),
+                "independent_source_group_count": identity_count(
+                    "independent_source_group_count"
+                ),
+                "representation_count": identity_count("representation_count"),
                 "visual_chains": len(self.evidence.get("visual_chains") or []),
                 "process_evidence_rows": len(self.evidence.get("process_evidence_rows") or []),
                 "exact_rows": len(self.evidence.get("exact_rows") or []),
@@ -5131,6 +6727,17 @@ def _canonical_molecule_smiles(smiles: str) -> str:
     return canonical
 
 
+def _semantic_reaction_edge_key(product_smiles: str, precursor_smiles: list[str]) -> str:
+    """Canonical identity for one retrosynthetic hyperedge across projections."""
+    product = _canonical_molecule_smiles(product_smiles) or str(product_smiles or "").strip()
+    precursors = sorted(
+        _canonical_molecule_smiles(value) or str(value or "").strip()
+        for value in precursor_smiles
+        if str(value or "").strip()
+    )
+    return f"{product}>>{'.'.join(precursors)}" if product and precursors else ""
+
+
 def _route_step_reactants(step: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for key in (
@@ -5221,8 +6828,29 @@ def _consensus_support_group(
     evidence_level: str,
     source_refs: list[str],
     evidence_refs: list[str],
+    *,
+    authority_bound: bool | None = None,
+    authority_basis: str = "",
 ) -> str:
     """Derive support identity without trusting producer-authored groups."""
+
+    normalized_channel = str(source_channel or "other").strip().lower().replace(
+        "-", "_"
+    )
+    if normalized_channel in {"chem_enzy", "template", "stock"}:
+        expected_basis = {
+            "chem_enzy": "deterministic_chemenzy_adapter",
+            "template": "deterministic_template_adapter",
+            "stock": "deterministic_stock_provider",
+        }[normalized_channel]
+        if authority_bound is not True:
+            return (
+                "codex_model"
+                if authority_bound is False
+                else "legacy_unverified_support"
+            )
+        if str(authority_basis or "") != expected_basis:
+            return "legacy_unverified_support"
 
     return source_record_support_group(
         source_channel,
@@ -5255,6 +6883,12 @@ def _consensus_support_records(
         evidence_level = str(raw.get("evidence_level") or "model_only")
         source_refs = _source_ref_values(raw.get("source_refs"))
         evidence_refs = _source_ref_values(raw.get("evidence_refs"))
+        authority_bound = (
+            raw.get("authority_bound")
+            if isinstance(raw.get("authority_bound"), bool)
+            else None
+        )
+        authority_basis = str(raw.get("authority_basis") or "")
         records.append(
             {
                 "candidate_id": str(raw.get("candidate_id") or ""),
@@ -5266,10 +6900,14 @@ def _consensus_support_records(
                     evidence_level,
                     source_refs,
                     evidence_refs,
+                    authority_bound=authority_bound,
+                    authority_basis=authority_basis,
                 ),
                 "declared_support_group": str(raw.get("support_group") or ""),
                 "source_refs": source_refs,
                 "evidence_refs": evidence_refs,
+                "authority_bound": authority_bound,
+                "authority_basis": authority_basis,
             }
         )
     if limit is None:
@@ -5294,6 +6932,12 @@ def _consensus_independent_support_groups(
                     str(row.get("evidence_level") or "model_only"),
                     _source_ref_values(row.get("source_refs")),
                     _source_ref_values(row.get("evidence_refs")),
+                    authority_bound=(
+                        row.get("authority_bound")
+                        if isinstance(row.get("authority_bound"), bool)
+                        else None
+                    ),
+                    authority_basis=str(row.get("authority_basis") or ""),
                 )
                 for row in all_records
             ]

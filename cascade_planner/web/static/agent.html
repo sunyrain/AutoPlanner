@@ -85,22 +85,33 @@
           </div>
           <fieldset class="settings-group">
             <legend>搜索与子 Agent 上限</legend>
+            <label for="run-profile">运行配置</label>
+            <select id="run-profile" aria-describedby="run-profile-hint">
+              <option value="smoke">Smoke · 接线检查（低成本，不用于路线结论）</option>
+              <option value="standard" selected>Standard · 生产默认（约 6 轮 / 深度 6 / 24 次有效扩展）</option>
+              <option value="deep">Deep · 复杂目标（高成本，最高深度 10 / 80 次有效扩展）</option>
+            </select>
+            <p id="run-profile-hint" class="field-hint">扩展数只统计接受的唯一 frontier；失败重试使用独立 attempt 额度。默认库存为 PaRoutes n1 benchmark membership，不代表商业可采购。</p>
             <div class="two-col">
               <div>
                 <label for="max-rounds">黑板轮数</label>
-                <input id="max-rounds" type="number" min="1" max="30" value="7">
+                <input id="max-rounds" type="number" min="1" max="30" value="6">
               </div>
               <div>
                 <label for="codex-team-depth">Codex 路线深度</label>
-                <input id="codex-team-depth" type="number" min="1" max="6" value="2">
+                <input id="codex-team-depth" type="number" min="1" max="12" value="6">
               </div>
               <div>
-                <label for="codex-team-expansions">Codex frontier 次数</label>
-                <input id="codex-team-expansions" type="number" min="1" max="24" value="4">
+                <label for="codex-team-expansions">有效 frontier 扩展</label>
+                <input id="codex-team-expansions" type="number" min="1" max="96" value="24">
+              </div>
+              <div>
+                <label for="codex-team-attempts">Agent 尝试额度</label>
+                <input id="codex-team-attempts" type="number" min="1" max="288" value="72">
               </div>
               <div>
                 <label for="timeout-s">总超时秒</label>
-                <input id="timeout-s" type="number" min="60" max="86400" value="3600">
+                <input id="timeout-s" type="number" min="60" max="86400" value="7200">
               </div>
               <div>
                 <label for="chemenzy-runs">ChemEnzy</label>
@@ -139,6 +150,28 @@
             <option value="web_search,browser,literature_search">联网检索 + 浏览器 + 文献</option>
             <option value="none">不使用规划器外部工具</option>
           </select>
+
+          <label for="closure-objective">路线闭合目标</label>
+          <select id="closure-objective">
+            <option value="benchmark_search" selected>基准搜索闭合</option>
+            <option value="procurement">可采购闭合</option>
+            <option value="in_house">内部库存闭合</option>
+          </select>
+
+          <label for="exploration-mode">路线探索模式</label>
+          <select id="exploration-mode">
+            <option value="exhaustive" selected>穷尽全部已接受备选</option>
+            <option value="first_solved">首条闭合路线即停止</option>
+          </select>
+
+          <label for="child-acceptance-mode">子报告接纳策略</label>
+          <select id="child-acceptance-mode">
+            <option value="strict_all" selected>严格：全部角色有效</option>
+            <option value="valid_subset_l0">安全降级：有效子集仅作 L0 建议</option>
+          </select>
+
+          <label for="campaign-lock-timeout">Campaign 单写锁等待（秒）</label>
+          <input id="campaign-lock-timeout" type="number" min="0.1" max="86400" step="1" value="3600">
 
           <fieldset class="check-row">
             <legend>执行策略</legend>

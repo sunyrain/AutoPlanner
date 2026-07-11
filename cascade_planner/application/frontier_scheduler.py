@@ -23,7 +23,19 @@ from uuid import uuid4
 
 from rdkit import Chem, RDLogger
 
-from cascade_planner.providers.contracts import ProviderContext, StockProvider
+from cascade_planner.providers.contracts import (
+    ProviderContext,
+    ProviderKind,
+    StockProvider,
+    validate_provider_result,
+)
+from cascade_planner.providers.stock import (
+    build_stock_observation_state,
+    build_stock_provider_observation,
+    replay_stock_provider_result,
+    stock_provider_set_authority_binding,
+    validate_stock_observation_state,
+)
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -220,6 +232,81 @@ class PersistentFrontierQueue:
             self._write(job.run_id, state)
         return job
 
+    def upsert_stock_observations(self, job: FrontierJob) -> FrontierJob:
+        """Insert proposal work or atomically refresh its orthogonal stock facts.
+
+        Stock is molecule-scoped rather than route-node-scoped.  Refreshing
+        one occurrence therefore updates every queued occurrence of the same
+        canonical molecule, while preserving each job's proposal lease,
+        retries, and terminal proposal result.  The observation history is
+        append-only by content identity; ``current`` is replaced by the exact
+        provider set invoked for this refresh, so removal or revocation cannot
+        leave a stale positive boundary behind.
+        """
+
+        incoming = job.metadata.get("stock_observations")
+        reasons = validate_stock_observation_state(
+            incoming,
+            expected_smiles=job.frontier_smiles,
+        )
+        if reasons:
+            raise ValueError(
+                "invalid stock observations supplied to queue: "
+                + ",".join(reasons)
+            )
+        incoming_state = dict(incoming)
+        with self._locked(job.run_id):
+            state = self._read(job.run_id)
+            by_id = {row.job_id: row for row in state["jobs"]}
+            by_key = {row.idempotency_key: row for row in state["jobs"]}
+            existing = by_id.get(job.job_id) or by_key.get(job.idempotency_key)
+            if existing is not None and _job_semantics(existing) != _job_semantics(job):
+                raise FrontierIdempotencyConflict(
+                    "frontier job identity reused for different semantic work"
+                )
+            if existing is None and any(dep == job.job_id for dep in job.dependency_ids):
+                raise ValueError("frontier job cannot depend on itself")
+
+            same_molecule = [
+                row for row in state["jobs"] if row.frontier_smiles == job.frontier_smiles
+            ]
+            previous_states = [
+                dict(row.metadata.get("stock_observations") or {})
+                for row in same_molecule
+                if isinstance(row.metadata.get("stock_observations"), Mapping)
+            ]
+            merged_state = build_stock_observation_state(
+                provider_set_binding=dict(
+                    incoming_state.get("provider_set_binding") or {}
+                ),
+                current_observations=[
+                    dict(row)
+                    for row in incoming_state.get("current") or []
+                    if isinstance(row, Mapping)
+                ],
+                refreshed_at=str(incoming_state.get("refreshed_at") or ""),
+                previous_states=[*previous_states, incoming_state],
+            )
+
+            target: FrontierJob | None = None
+            updated_rows: list[FrontierJob] = []
+            for row in state["jobs"]:
+                if row.frontier_smiles != job.frontier_smiles:
+                    updated_rows.append(row)
+                    continue
+                refreshed = _refresh_job_stock_metadata(row, merged_state)
+                updated_rows.append(refreshed)
+                if existing is not None and refreshed.job_id == existing.job_id:
+                    target = refreshed
+            if existing is None:
+                target = _refresh_job_stock_metadata(job, merged_state)
+                updated_rows.append(target)
+            if target is None:
+                raise FrontierQueueError("stock observation refresh lost target job")
+            state["jobs"] = updated_rows
+            self._write(job.run_id, state)
+            return target
+
     def get(self, run_id: str, job_id: str) -> FrontierJob | None:
         return next((row for row in self._read(run_id)["jobs"] if row.job_id == job_id), None)
 
@@ -242,6 +329,7 @@ class PersistentFrontierQueue:
         limit: int = 1,
         lease_seconds: float = 300.0,
         now: str | None = None,
+        trusted_stock_provider_instances: Mapping[str, Any] | None = None,
     ) -> list[FrontierJob]:
         if not worker_id or limit < 1 or lease_seconds <= 0:
             raise ValueError("valid worker_id, limit and lease_seconds are required")
@@ -256,6 +344,11 @@ class PersistentFrontierQueue:
                 row
                 for row in state["jobs"]
                 if row.state in {FrontierJobState.PENDING, FrontierJobState.RETRY_WAIT}
+                and row.metadata.get("proposal_expansion_allowed") is not False
+                and not _host_replayed_stock_closed(
+                    row,
+                    trusted_stock_provider_instances=trusted_stock_provider_instances,
+                )
                 and (not row.available_at or _parse_time(row.available_at) <= clock)
                 and all(
                     by_id.get(dep) is not None
@@ -353,6 +446,12 @@ class PersistentFrontierQueue:
                 closure_kind=closure_kind,
                 achieved_proof_level=int(achieved_proof_level),
                 result_ref=result_ref,
+                metadata={
+                    **dict(row.metadata),
+                    "completed_lease_token_sha256": hashlib.sha256(
+                        row.lease_token.encode("utf-8")
+                    ).hexdigest(),
+                },
                 updated_at=_format_time(clock),
             )
 
@@ -363,6 +462,197 @@ class PersistentFrontierQueue:
             transform=transform,
             idempotent_terminal=(result_ref, closure_kind, int(achieved_proof_level)),
         )
+
+    def enable_proposal_expansion(
+        self,
+        run_id: str,
+        job_id: str,
+        *,
+        validated_parent_step_ids: Sequence[str],
+        campaign_identity_sha256: str,
+        campaign_root_smiles: str,
+        now: str | None = None,
+    ) -> FrontierJob:
+        """Monotonically unlock one pending Codex frontier after L2 proof."""
+
+        validated = sorted(
+            {str(item) for item in validated_parent_step_ids if str(item)}
+        )
+        if not validated:
+            raise ValueError("at least one validated parent step is required")
+        if not _valid_sha256(campaign_identity_sha256) or not campaign_root_smiles:
+            raise ValueError("campaign identity bindings are required")
+        clock = _coerce_time(now)
+        with self._locked(run_id):
+            state = self._read(run_id)
+            found: FrontierJob | None = None
+            updated: list[FrontierJob] = []
+            for row in state["jobs"]:
+                if row.job_id != job_id:
+                    updated.append(row)
+                    continue
+                metadata = dict(row.metadata)
+                if (
+                    metadata.get("campaign_identity_sha256")
+                    != campaign_identity_sha256
+                    or metadata.get("campaign_root_smiles") != campaign_root_smiles
+                ):
+                    raise FrontierQueueError(
+                        "proposal expansion campaign identity fence mismatch"
+                    )
+                parent_ids = {
+                    str(item) for item in metadata.get("parent_step_ids") or [] if str(item)
+                }
+                matched = sorted(parent_ids.intersection(validated))
+                if not matched:
+                    raise FrontierQueueError(
+                        "validated proof does not bind an inbound parent step"
+                    )
+                if row.state == FrontierJobState.SUCCEEDED:
+                    return row
+                if row.state not in {
+                    FrontierJobState.PENDING,
+                    FrontierJobState.RETRY_WAIT,
+                }:
+                    raise FrontierQueueError(
+                        "only pending proposal work can be proof-enabled"
+                    )
+                if metadata.get("proposal_expansion_allowed") is True:
+                    return row
+                found = replace(
+                    row,
+                    metadata={
+                        **metadata,
+                        "proposal_expansion_allowed": True,
+                        "proposal_expansion_gate": {
+                            "schema_version": "proposal_expansion_gate.v1",
+                            "status": "enabled_by_current_host_l2_parent_proof",
+                            "validated_parent_step_ids": matched,
+                            "enabled_at": _format_time(clock),
+                        },
+                    },
+                    updated_at=_format_time(clock),
+                )
+                updated.append(found)
+            if found is None:
+                raise KeyError(f"unknown frontier job: {job_id}")
+            state["jobs"] = updated
+            self._write(run_id, state)
+            return found
+
+    def adopt_prepared_result(
+        self,
+        run_id: str,
+        job_id: str,
+        *,
+        result_ref: str,
+        prepared_attempt: int,
+        prepared_lease_token_sha256: str,
+        campaign_identity_sha256: str,
+        campaign_root_smiles: str,
+        now: str | None = None,
+    ) -> FrontierJob:
+        """Atomically adopt a host-validated proposal-expansion commit.
+
+        This is the queue side of the campaign's transactional outbox.  The
+        caller must first replay the immutable commit; the queue independently
+        fences that commit to the exact campaign, job attempt, and lease that
+        prepared it.  No other closure kind can be created through this API.
+        """
+
+        if not result_ref:
+            raise ValueError("result_ref is required")
+        if prepared_attempt < 1:
+            raise ValueError("prepared_attempt must be positive")
+        if not _valid_sha256(prepared_lease_token_sha256):
+            raise ValueError("prepared lease token digest is invalid")
+        if not _valid_sha256(campaign_identity_sha256) or not campaign_root_smiles:
+            raise ValueError("campaign identity bindings are required")
+        clock = _coerce_time(now)
+        with self._locked(run_id):
+            state = self._read(run_id)
+            found: FrontierJob | None = None
+            updated: list[FrontierJob] = []
+            for row in state["jobs"]:
+                if row.job_id != job_id:
+                    updated.append(row)
+                    continue
+                metadata = dict(row.metadata)
+                if (
+                    metadata.get("campaign_identity_sha256")
+                    != campaign_identity_sha256
+                    or metadata.get("campaign_root_smiles") != campaign_root_smiles
+                    or row.attempt != int(prepared_attempt)
+                ):
+                    raise FrontierQueueError(
+                        "prepared result campaign or attempt fence mismatch"
+                    )
+                if row.state == FrontierJobState.SUCCEEDED:
+                    recovery_metadata = metadata.get("prepared_result_recovery")
+                    completed_lease_digest = str(
+                        metadata.get("completed_lease_token_sha256")
+                        or (
+                            recovery_metadata.get("lease_token_sha256")
+                            if isinstance(recovery_metadata, Mapping)
+                            else ""
+                        )
+                        or ""
+                    )
+                    if (
+                        row.result_ref == result_ref
+                        and row.closure_kind == "proposal_expansion"
+                        and row.achieved_proof_level == 0
+                        and completed_lease_digest == prepared_lease_token_sha256
+                    ):
+                        return row
+                    raise FrontierQueueError(
+                        "succeeded frontier is bound to a different terminal result"
+                    )
+                if row.state in {FrontierJobState.FAILED, FrontierJobState.CANCELLED}:
+                    raise FrontierQueueError(
+                        "terminal failed or cancelled frontier cannot adopt a prepared result"
+                    )
+                if row.state == FrontierJobState.LEASED:
+                    lease_digest = hashlib.sha256(
+                        row.lease_token.encode("utf-8")
+                    ).hexdigest()
+                else:
+                    lease_digest = str(metadata.get("last_lease_token_sha256") or "")
+                if lease_digest != prepared_lease_token_sha256:
+                    raise FrontierQueueError("prepared result lease fence mismatch")
+                found = replace(
+                    row,
+                    state=FrontierJobState.SUCCEEDED,
+                    available_at="",
+                    lease_owner="",
+                    lease_token="",
+                    lease_expires_at="",
+                    heartbeat_at="",
+                    closure_kind="proposal_expansion",
+                    achieved_proof_level=0,
+                    result_ref=result_ref,
+                    metadata={
+                        **metadata,
+                        "prepared_result_recovery": {
+                            "schema_version": "frontier_prepared_result_recovery.v1",
+                            "adopted": True,
+                            "attempt": int(prepared_attempt),
+                            "lease_token_sha256": prepared_lease_token_sha256,
+                            "result_ref": result_ref,
+                            "adopted_at": _format_time(clock),
+                        },
+                        "completed_lease_token_sha256": (
+                            prepared_lease_token_sha256
+                        ),
+                    },
+                    updated_at=_format_time(clock),
+                )
+                updated.append(found)
+            if found is None:
+                raise KeyError(f"unknown frontier job: {job_id}")
+            state["jobs"] = updated
+            self._write(run_id, state)
+            return found
 
     def fail(
         self,
@@ -392,6 +682,12 @@ class PersistentFrontierQueue:
                 lease_expires_at="",
                 heartbeat_at="",
                 failure_reasons=tuple([*row.failure_reasons, reason]),
+                metadata={
+                    **dict(row.metadata),
+                    "last_lease_token_sha256": hashlib.sha256(
+                        row.lease_token.encode("utf-8")
+                    ).hexdigest(),
+                },
                 updated_at=_format_time(clock),
             )
 
@@ -401,6 +697,78 @@ class PersistentFrontierQueue:
             lease_token=lease_token,
             transform=transform,
         )
+
+    def merge_parent_step_ids(
+        self,
+        run_id: str,
+        job_id: str,
+        *,
+        parent_step_ids: Sequence[str],
+        campaign_identity_sha256: str,
+        campaign_root_smiles: str,
+        campaign_policy_sha256: str = "",
+        now: str | None = None,
+    ) -> FrontierJob:
+        """Monotonically attach newly observed inbound graph edges to a job.
+
+        A canonical molecule may first be discovered through one reaction and
+        later acquire another inbound edge after evidence fusion.  Reusing the
+        molecule-level queue job must not freeze the first edge set forever,
+        otherwise a valid proof on the later edge can never unlock expansion.
+        """
+
+        observed = sorted({str(item) for item in parent_step_ids if str(item)})
+        if not observed:
+            raise ValueError("at least one parent step id is required")
+        if not _valid_sha256(campaign_identity_sha256) or not campaign_root_smiles:
+            raise ValueError("campaign identity bindings are required")
+        if campaign_policy_sha256 and not _valid_sha256(campaign_policy_sha256):
+            raise ValueError("campaign policy binding is invalid")
+        clock = _coerce_time(now)
+        with self._locked(run_id):
+            state = self._read(run_id)
+            found: FrontierJob | None = None
+            updated: list[FrontierJob] = []
+            for row in state["jobs"]:
+                if row.job_id != job_id:
+                    updated.append(row)
+                    continue
+                metadata = dict(row.metadata)
+                if (
+                    metadata.get("campaign_identity_sha256")
+                    != campaign_identity_sha256
+                    or metadata.get("campaign_root_smiles")
+                    != campaign_root_smiles
+                    or (
+                        campaign_policy_sha256
+                        and metadata.get("campaign_policy_sha256")
+                        != campaign_policy_sha256
+                    )
+                ):
+                    raise FrontierQueueError(
+                        "parent-edge merge campaign identity fence mismatch"
+                    )
+                merged = sorted(
+                    {
+                        *(
+                            str(item)
+                            for item in metadata.get("parent_step_ids") or []
+                            if str(item)
+                        ),
+                        *observed,
+                    }
+                )
+                found = row if merged == metadata.get("parent_step_ids") else replace(
+                    row,
+                    metadata={**metadata, "parent_step_ids": merged},
+                    updated_at=_format_time(clock),
+                )
+                updated.append(found)
+            if found is None:
+                raise KeyError(f"unknown frontier job: {job_id}")
+            state["jobs"] = updated
+            self._write(run_id, state)
+            return found
 
     def recover_expired(
         self,
@@ -422,6 +790,63 @@ class PersistentFrontierQueue:
             if changed:
                 self._write(run_id, state)
             return changed
+
+    def migrate_legacy_benchmark_stock_authority(
+        self,
+        run_id: str,
+        *,
+        now: str | None = None,
+    ) -> list[FrontierJob]:
+        """Downgrade legacy benchmark leaves that impersonated proof level 4.
+
+        Older snapshots used level 4 as a generic stock-terminal sentinel.
+        Benchmark membership is still a valid benchmark search boundary, but
+        never commercial procurement authority.  This migration is monotonic
+        and downgrade-only; it cannot create a closure or upgrade any job.
+        """
+
+        clock = _format_time(_coerce_time(now))
+        changed: list[FrontierJob] = []
+        with self._locked(run_id):
+            state = self._read(run_id)
+            updated: list[FrontierJob] = []
+            for row in state["jobs"]:
+                metadata = dict(row.metadata)
+                audit = metadata.get("stock_audit")
+                payload = (
+                    dict(audit.get("payload") or {})
+                    if isinstance(audit, Mapping)
+                    else {}
+                )
+                is_legacy_benchmark = bool(
+                    row.state == FrontierJobState.SUCCEEDED
+                    and row.closure_kind == "stock_boundary"
+                    and payload.get("boundary_type") == "benchmark_stock"
+                    and (
+                        row.achieved_proof_level != 0
+                        or metadata.get("stock_boundary_authority")
+                        != "benchmark_membership_only"
+                    )
+                )
+                if not is_legacy_benchmark:
+                    updated.append(row)
+                    continue
+                migrated = replace(
+                    row,
+                    achieved_proof_level=0,
+                    metadata={
+                        **metadata,
+                        "stock_boundary_authority": "benchmark_membership_only",
+                        "legacy_benchmark_proof_level_migrated": True,
+                    },
+                    updated_at=clock,
+                )
+                changed.append(migrated)
+                updated.append(migrated)
+            if changed:
+                state["jobs"] = updated
+                self._write(run_id, state)
+        return changed
 
     def invalidate_succeeded_result(
         self,
@@ -583,6 +1008,12 @@ class PersistentFrontierQueue:
                     lease_expires_at="",
                     heartbeat_at="",
                     failure_reasons=tuple([*row.failure_reasons, "lease_expired"]),
+                    metadata={
+                        **dict(row.metadata),
+                        "last_lease_token_sha256": hashlib.sha256(
+                            row.lease_token.encode("utf-8")
+                        ).hexdigest(),
+                    },
                     updated_at=_format_time(now),
                 )
             )
@@ -671,9 +1102,17 @@ class PersistentFrontierQueue:
 class FrontierScheduler:
     """Submit frontiers through a stock-first terminal audit."""
 
-    def __init__(self, queue: PersistentFrontierQueue, stock_provider: StockProvider) -> None:
+    def __init__(
+        self,
+        queue: PersistentFrontierQueue,
+        stock_provider: StockProvider
+        | Sequence[StockProvider]
+        | Mapping[str, StockProvider],
+    ) -> None:
         self.queue = queue
-        self.stock_provider = stock_provider
+        self.stock_providers = _coerce_stock_providers(stock_provider)
+        # Compatibility for callers that inspect the old singular attribute.
+        self.stock_provider = self.stock_providers[0]
 
     def submit(
         self,
@@ -703,11 +1142,40 @@ class FrontierScheduler:
             case_id=case_id,
             target_smiles=canonical,
         )
-        stock_result = self.stock_provider.invoke(
-            {"smiles": canonical, **dict(stock_request or {})},
-            context=context,
+        observations: list[dict[str, Any]] = []
+        for provider in self.stock_providers:
+            request = _stock_request_for_provider(
+                canonical,
+                stock_request=stock_request,
+                provider_id=str(provider.descriptor.provider_id),
+            )
+            try:
+                result = provider.invoke(request, context=context)
+            except Exception as exc:  # noqa: BLE001 - every provider is observed
+                observations.append(
+                    build_stock_provider_observation(
+                        provider,
+                        request=request,
+                        observed_at=clock,
+                        invocation_error=f"{type(exc).__name__}:{exc}",
+                    )
+                )
+                continue
+            observations.append(
+                build_stock_provider_observation(
+                    provider,
+                    request=request,
+                    observed_at=clock,
+                    provider_result=result.to_dict(),
+                )
+            )
+        observation_state = build_stock_observation_state(
+            provider_set_binding=stock_provider_set_authority_binding(
+                self.stock_providers
+            ),
+            current_observations=observations,
+            refreshed_at=clock,
         )
-        stock_closed = bool(stock_result.accepted and stock_result.payload.get("accepted") is True)
         semantic = {
             "run_id": run_id,
             "frontier_smiles": canonical,
@@ -729,23 +1197,49 @@ class FrontierScheduler:
             diversity_gain=diversity_gain,
             estimated_cost_units=estimated_cost_units,
             dependency_ids=tuple(sorted(set(str(item) for item in dependency_ids))),
-            state=FrontierJobState.SUCCEEDED if stock_closed else FrontierJobState.PENDING,
+            state=FrontierJobState.PENDING,
             max_attempts=max_attempts,
-            closure_kind="stock_boundary" if stock_closed else "",
-            achieved_proof_level=4 if stock_closed else 0,
-            result_ref=(
-                f"provider-result:sha256:{stock_result.content_hash}" if stock_closed else ""
-            ),
-            failure_reasons=tuple(stock_result.reasons) if not stock_closed else (),
+            closure_kind="",
+            achieved_proof_level=0,
+            result_ref="",
+            failure_reasons=(),
             created_at=clock,
             updated_at=clock,
             metadata={
-                "stock_audit": _json_value(stock_result.to_dict()),
-                "stock_audit_preceded_agent_work": True,
                 **_json_value(dict(metadata or {})),
+                "stock_observations": observation_state,
+                "stock_audit_preceded_agent_work": True,
             },
         )
-        return self.queue.enqueue(job)
+        return self.queue.upsert_stock_observations(job)
+
+    def refresh(
+        self,
+        job: FrontierJob,
+        *,
+        case_id: str,
+        stock_request: Mapping[str, Any] | None = None,
+        now: str | None = None,
+    ) -> FrontierJob:
+        """Re-audit stock while preserving the exact proposal-work identity."""
+
+        return self.submit(
+            run_id=job.run_id,
+            case_id=case_id,
+            frontier_smiles=job.frontier_smiles,
+            frontier_node_id=job.frontier_node_id,
+            idempotency_key=job.idempotency_key,
+            stock_request=stock_request,
+            required_proof_level=job.required_proof_level,
+            proof_deficit=job.proof_deficit,
+            closure_probability=job.closure_probability,
+            diversity_gain=job.diversity_gain,
+            estimated_cost_units=job.estimated_cost_units,
+            dependency_ids=job.dependency_ids,
+            max_attempts=job.max_attempts,
+            metadata=job.metadata,
+            now=now,
+        )
 
 
 FrontierHandler = Callable[[FrontierJob], Awaitable[Mapping[str, Any]]]
@@ -761,6 +1255,7 @@ class FrontierExecutor:
         worker_id: str,
         max_concurrency: int = 4,
         lease_seconds: float = 300.0,
+        trusted_stock_provider_instances: Mapping[str, Any] | None = None,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be positive")
@@ -768,6 +1263,9 @@ class FrontierExecutor:
         self.worker_id = worker_id
         self.max_concurrency = int(max_concurrency)
         self.lease_seconds = float(lease_seconds)
+        self.trusted_stock_provider_instances = dict(
+            trusted_stock_provider_instances or {}
+        )
 
     async def run_ready(self, run_id: str, handler: FrontierHandler) -> list[FrontierJob]:
         claimed = self.queue.claim(
@@ -775,6 +1273,7 @@ class FrontierExecutor:
             worker_id=self.worker_id,
             limit=self.max_concurrency,
             lease_seconds=self.lease_seconds,
+            trusted_stock_provider_instances=self.trusted_stock_provider_instances,
         )
         semaphore = asyncio.Semaphore(self.max_concurrency)
 
@@ -858,8 +1357,14 @@ def assess_frontier_completeness(
     *,
     open_proof_frontiers: Sequence[Mapping[str, Any] | str] = (),
     required_proof_level: int = 2,
+    trusted_stock_provider_instances: Mapping[str, Any] | None = None,
 ) -> FrontierCompletenessReport:
-    """Assess graph closure independently of queue occupancy."""
+    """Return a diagnostic terminal audit independently of queue occupancy.
+
+    Positive stock rows are accepted only after current-host provider replay.
+    The hypergraph ledger remains the campaign completion authority; this
+    helper intentionally cannot authorize reaction-edge closure.
+    """
 
     terminals = list(dict.fromkeys(_canonical_smiles(item) for item in terminal_smiles))
     terminals = [item for item in terminals if item]
@@ -872,19 +1377,14 @@ def assess_frontier_completeness(
     for smiles in terminals:
         candidates = by_smiles.get(smiles, [])
         stock = any(
-            row.state == FrontierJobState.SUCCEEDED and row.closure_kind == "stock_boundary"
-            for row in candidates
-        )
-        reaction = any(
-            row.state == FrontierJobState.SUCCEEDED
-            and row.closure_kind in {"reaction_route", "verified_precedent"}
-            and row.achieved_proof_level >= required_proof_level
+            _host_replayed_stock_closed(
+                row,
+                trusted_stock_provider_instances=trusted_stock_provider_instances,
+            )
             for row in candidates
         )
         if stock:
             stock_closed += 1
-        elif reaction:
-            reaction_closed += 1
         else:
             unresolved.append(
                 {
@@ -896,6 +1396,7 @@ def assess_frontier_completeness(
                     "best_proof_level": max(
                         (row.achieved_proof_level for row in candidates), default=0
                     ),
+                    "queue_work_cannot_authorize_reaction_closure": True,
                 }
             )
     for frontier in open_proof_frontiers:
@@ -930,6 +1431,215 @@ def _job_semantics(job: FrontierJob) -> dict[str, Any]:
     }
 
 
+def _coerce_stock_providers(
+    value: StockProvider | Sequence[StockProvider] | Mapping[str, StockProvider],
+) -> tuple[StockProvider, ...]:
+    if isinstance(value, Mapping):
+        providers = list(value.values())
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        providers = list(value)
+    else:
+        providers = [value]
+    if not providers:
+        raise ValueError("at least one stock provider is required")
+    by_id: dict[str, StockProvider] = {}
+    for provider in providers:
+        descriptor = getattr(provider, "descriptor", None)
+        provider_id = str(getattr(descriptor, "provider_id", "") or "")
+        if (
+            not provider_id
+            or getattr(descriptor, "kind", None) != ProviderKind.STOCK
+            or not callable(getattr(provider, "invoke", None))
+        ):
+            raise TypeError("frontier scheduler requires stock providers")
+        if provider_id in by_id:
+            raise ValueError(f"duplicate stock provider id: {provider_id}")
+        by_id[provider_id] = provider
+    return tuple(by_id[key] for key in sorted(by_id))
+
+
+def _stock_request_for_provider(
+    canonical_smiles: str,
+    *,
+    stock_request: Mapping[str, Any] | None,
+    provider_id: str,
+) -> dict[str, Any]:
+    raw = dict(stock_request or {})
+    overrides = raw.pop("providers", {})
+    specific = (
+        dict(overrides.get(provider_id) or {})
+        if isinstance(overrides, Mapping)
+        and isinstance(overrides.get(provider_id), Mapping)
+        else {}
+    )
+    # The canonical frontier identity always wins over caller material.
+    return _json_value({**raw, **specific, "smiles": canonical_smiles})
+
+
+def _stock_observation_result_rows(
+    observation_state: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    return [
+        dict(row.get("provider_result") or {})
+        for row in observation_state.get("current") or []
+        if isinstance(row, Mapping)
+        and isinstance(row.get("provider_result"), Mapping)
+        and row.get("provider_result")
+    ]
+
+
+def _accepted_stock_result_rows(
+    observation_state: Mapping[str, Any],
+    *,
+    expected_smiles: str,
+) -> list[dict[str, Any]]:
+    if validate_stock_observation_state(
+        observation_state,
+        expected_smiles=expected_smiles,
+    ):
+        return []
+    accepted: list[dict[str, Any]] = []
+    for result in _stock_observation_result_rows(observation_state):
+        payload = result.get("payload")
+        payload_row = dict(payload) if isinstance(payload, Mapping) else {}
+        if (
+            not validate_provider_result(result)
+            and result.get("provider_kind") == ProviderKind.STOCK.value
+            and result.get("output_schema") == "stock_boundary.v1"
+            and result.get("accepted") is True
+            and payload_row.get("schema_version") == "stock_boundary.v1"
+            and payload_row.get("accepted") is True
+            and _canonical_smiles(payload_row.get("canonical_smiles"))
+            == expected_smiles
+            and payload_row.get("boundary_type")
+            in {
+                "benchmark_stock",
+                "commercially_orderable",
+                "in_house_available",
+                "common_commodity",
+            }
+        ):
+            accepted.append(result)
+    return accepted
+
+
+def _refresh_job_stock_metadata(
+    job: FrontierJob,
+    observation_state: Mapping[str, Any],
+) -> FrontierJob:
+    state = _json_value(dict(observation_state))
+    results = _stock_observation_result_rows(state)
+    accepted = _accepted_stock_result_rows(
+        state,
+        expected_smiles=job.frontier_smiles,
+    )
+
+    def result_priority(result: Mapping[str, Any]) -> tuple[int, str]:
+        boundary = str(dict(result.get("payload") or {}).get("boundary_type") or "")
+        return (
+            0
+            if boundary
+            in {"commercially_orderable", "in_house_available", "common_commodity"}
+            else 1
+            if boundary == "benchmark_stock"
+            else 2,
+            str(result.get("provider_id") or ""),
+        )
+
+    preferred = min(accepted or results, key=result_priority, default={})
+    boundary_types = {
+        str(dict(result.get("payload") or {}).get("boundary_type") or "")
+        for result in accepted
+    }
+    procurement_closed = bool(
+        boundary_types
+        & {"commercially_orderable", "in_house_available", "common_commodity"}
+    )
+    metadata = {
+        **dict(job.metadata),
+        "stock_observations": state,
+        "stock_audits": results,
+        # Transitional read compatibility only.  Scientific authority reads
+        # ``stock_observations.current`` and replays it with host providers.
+        "stock_audit": preferred,
+        "stock_observation_current_closed": bool(accepted),
+        "stock_boundary_authority": (
+            "procurement_boundary"
+            if procurement_closed
+            else "benchmark_membership_only"
+            if "benchmark_stock" in boundary_types
+            else "none"
+        ),
+        "stock_audit_preceded_agent_work": True,
+    }
+    updates: dict[str, Any] = {
+        "metadata": metadata,
+        "updated_at": str(state.get("refreshed_at") or job.updated_at),
+    }
+    if job.closure_kind == "stock_boundary":
+        # One-time migration from the legacy conflated representation.  The
+        # proposal queue becomes pending again, but claim() will suppress it
+        # while a current stock observation closes the molecule.
+        updates.update(
+            {
+                "state": FrontierJobState.PENDING,
+                "available_at": "",
+                "lease_owner": "",
+                "lease_token": "",
+                "lease_expires_at": "",
+                "heartbeat_at": "",
+                "closure_kind": "",
+                "achieved_proof_level": 0,
+                "result_ref": "",
+                "failure_reasons": (),
+                "metadata": {
+                    **metadata,
+                    "legacy_stock_boundary_migrated_to_observation": True,
+                },
+            }
+        )
+    return replace(job, **updates)
+
+
+def _host_replayed_stock_closed(
+    job: FrontierJob,
+    *,
+    trusted_stock_provider_instances: Mapping[str, Any] | None,
+) -> bool:
+    observation_state = job.metadata.get("stock_observations")
+    if (
+        not isinstance(observation_state, Mapping)
+        or not trusted_stock_provider_instances
+        or validate_stock_observation_state(
+            observation_state,
+            expected_smiles=job.frontier_smiles,
+        )
+    ):
+        return False
+    try:
+        expected_set = stock_provider_set_authority_binding(
+            trusted_stock_provider_instances
+        )
+    except (TypeError, ValueError):
+        return False
+    if observation_state.get("provider_set_binding") != expected_set:
+        return False
+    for observation in observation_state.get("current") or []:
+        if not isinstance(observation, Mapping):
+            continue
+        result = observation.get("provider_result")
+        if not isinstance(result, Mapping) or result.get("accepted") is not True:
+            continue
+        binding, reasons = replay_stock_provider_result(
+            result,
+            expected_smiles=job.frontier_smiles,
+            trusted_provider_instances=trusted_stock_provider_instances,
+        )
+        if binding and not reasons:
+            return True
+    return False
+
+
 def _canonical_smiles(value: Any) -> str:
     mol = Chem.MolFromSmiles(str(value or "").strip())
     return Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True) if mol is not None else ""
@@ -944,6 +1654,11 @@ def _digest(value: Any) -> str:
         default=str,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _valid_sha256(value: Any) -> bool:
+    text = str(value or "")
+    return len(text) == 64 and all(character in "0123456789abcdef" for character in text)
 
 
 def _json_value(value: Any) -> Any:

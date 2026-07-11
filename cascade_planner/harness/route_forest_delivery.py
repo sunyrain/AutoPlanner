@@ -147,11 +147,11 @@ _UNSAFE_SVG_VALUE_PATTERN = re.compile(
 def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, Any]:
     """Create the self-contained UI projection without duplicating audit data.
 
-    The complete forest remains authoritative and is bound by
-    ``source_forest_sha256``.  Pairwise interface diagnostics can be quadratic
-    and are not used to authorize replacements, so only their summary is sent
-    to the browser.  Authoritative replacement records and semantics remain
-    exact.
+    The complete forest is byte-bound by ``source_forest_sha256``.  Neither
+    that digest nor ``delivery_sha256`` authenticates a producer or grants
+    closeout authority.  Pairwise interface diagnostics can be quadratic and
+    are not used to authorize replacements, so only their summary is sent to
+    the browser.  Backend replacement records and semantics remain exact.
     """
 
     if not isinstance(forest, Mapping):
@@ -169,7 +169,12 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
         source.get("replacement_validation") or {}
     )
     layout = build_dependency_layout_projection(graph)
-    lanes = build_branch_lane_projection(branches, graph, steps)
+    lanes = build_branch_lane_projection(
+        branches,
+        graph,
+        steps,
+        frontier_ledger=source.get("frontier_ledger"),
+    )
 
     payload: dict[str, Any] = {
         "schema_version": DELIVERY_SCHEMA_VERSION,
@@ -180,6 +185,9 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
         "counts": _copy_mapping(source.get("counts")),
         "primary_branch_id": str(source.get("primary_branch_id") or ""),
         "primary_selection": _copy_mapping(source.get("primary_selection")),
+        "semantic_summary": _copy_mapping(source.get("semantic_summary")),
+        "frontier_ledger": _copy_mapping(source.get("frontier_ledger")),
+        "display_policy": _copy_mapping(source.get("display_policy")),
         "source_revision_context": _copy_mapping(source.get("artifact_revision")),
         "projection_coverage": _copy_mapping(source.get("projection_coverage")),
         "nodes": nodes,
@@ -196,12 +204,19 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
         ),
         "route_consensus": _copy_mapping(source.get("route_consensus")),
         "route_consensus_graph": _copy_mapping(source.get("route_consensus_graph")),
+        "canonical_route_consensus_graph": _copy_mapping(
+            source.get("canonical_route_consensus_graph")
+        ),
+        "canonical_route_consensus_graph_source": str(
+            source.get("canonical_route_consensus_graph_source") or ""
+        ),
         "evidence_index": _copy_mapping(source.get("evidence_index")),
         "run_trace": _copy_mapping(source.get("run_trace")),
         "design_notes": _copy_list(source.get("design_notes")),
         "delivery_semantics": {
-            "authority": "read_only_projection_bound_to_complete_forest",
-            "source_digest": "canonical_sorted_json_sha256",
+            "authority": "none_byte_integrity_projection_only",
+            "delivery_sha256": "canonical_json_byte_integrity_not_authentication",
+            "source_digest": "canonical_json_byte_integrity_not_authentication",
             "replacement_records": "exact_backend_and_or_validation_records",
             "interface_diagnostics": "summary_only_non_authoritative",
             "dependency_edges": "explicit_source_and_target_ids_only",
@@ -209,10 +224,18 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
                 "reaction_step_id_joins_top_level_steps_for_trust_and_visual_encoding"
             ),
             "array_adjacency": "never_creates_an_edge",
+            "frontier_ledger": (
+                "digest_bound_fail_closed_closure_projection"
+            ),
+            "canonical_route_consensus_graph": (
+                "frontier_ledger_authority_input_caller_graph_is_display_only"
+            ),
+            "branch_count": "exploration_views_only_never_completion_authority",
             "source_revision_context": (
                 "source_context_only_never_self_authenticates_delivery"
             ),
             "current_closeout_authority": "external_validated_manifest_only",
+            "digest_does_not_grant_closeout_authority": True,
             "embedded_json_digest": (
                 "sha256_utf8_of_safe_sorted_compact_json_without_embedded_json_sha256"
             ),
@@ -229,7 +252,11 @@ def route_forest_delivery_integrity_reasons(
     *,
     source_forest: Mapping[str, Any] | None = None,
 ) -> list[str]:
-    """Validate a compact payload and its optional authoritative source."""
+    """Validate byte integrity against an optional complete source forest.
+
+    Success establishes deterministic projection and byte equality only.  It
+    does not authenticate the producer or grant external closeout authority.
+    """
 
     if not isinstance(payload, Mapping):
         return ["invalid_route_forest_delivery_payload"]
@@ -387,6 +414,7 @@ def _route_forest_source_integrity_reasons(
             source,
             mapping_fields=(
                 "artifact_revision",
+                "canonical_route_consensus_graph",
                 "counts",
                 "dependency_graph",
                 "evidence_index",
@@ -407,7 +435,12 @@ def _route_forest_source_integrity_reasons(
                 "relationships",
                 "steps",
             ),
-            string_fields=("case_id", "primary_branch_id", "schema_version"),
+            string_fields=(
+                "canonical_route_consensus_graph_source",
+                "case_id",
+                "primary_branch_id",
+                "schema_version",
+            ),
             scope="route_forest_source",
             required=False,
         )
@@ -454,6 +487,7 @@ def _route_forest_delivery_shape_reasons(
         payload,
         mapping_fields=(
             "branch_lanes",
+            "canonical_route_consensus_graph",
             "counts",
             "delivery_semantics",
             "dependency_graph",
@@ -479,6 +513,7 @@ def _route_forest_delivery_shape_reasons(
         ),
         string_fields=(
             "case_id",
+            "canonical_route_consensus_graph_source",
             "delivery_sha256",
             "embedded_json_sha256",
             "primary_branch_id",

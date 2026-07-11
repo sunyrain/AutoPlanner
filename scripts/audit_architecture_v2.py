@@ -15,7 +15,18 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from cascade_planner.application.frontier_ledger import (  # noqa: E402
+    FRONTIER_LEDGER_SCHEMA,
+    validate_frontier_ledger,
+)
 from cascade_planner.harness.parent_route_proof import is_solved_parent_route_proof  # noqa: E402
+from cascade_planner.harness.route_forest import (  # noqa: E402
+    frontier_ledger_current_authority_evidence,
+)
+from cascade_planner.providers.stock import (  # noqa: E402
+    SnapshotStockProvider,
+    build_trusted_stock_provider_instances,
+)
 from cascade_planner.runtime.artifact_revision import (  # noqa: E402
     ArtifactRevisionError,
     load_latest_closeout_artifact,
@@ -36,23 +47,52 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
     compatibility_graph = _load(root / "route_consensus_graph_fused.json")
     if not compatibility_graph:
         compatibility_graph = dict(team.get("route_consensus_graph") or {})
+    compatibility_authority_graph = _load(
+        root / "route_consensus_graph_canonical.json"
+    )
+    if not compatibility_authority_graph:
+        compatibility_authority_graph = dict(
+            compatibility_board.get("canonical_route_consensus_graph") or {}
+        )
+    if not compatibility_authority_graph:
+        reconciliation = _load(root / "codex_campaign_proof_reconciliation.json")
+        compatibility_authority_graph = dict(
+            reconciliation.get("canonical_route_consensus_graph") or {}
+        )
+    compatibility_ledger = _load(root / "frontier_ledger.json")
     compatibility_forest = _load(root / "explored_route_forest.json")
     compatibility_final = _load(root / "final_verdict.json")
     compatibility_proof = dict(compatibility_board.get("parent_route_proof") or {})
     closeout = validate_latest_closeout_revision(root)
+    closeout_manifest_path = str(closeout.get("manifest_path") or "").strip()
+    closeout_manifest = _load(Path(closeout_manifest_path)) if closeout_manifest_path else {}
+    closeout_artifact_ids = {
+        str(row.get("artifact_id") or "")
+        for row in closeout_manifest.get("artifacts") or []
+        if isinstance(row, Mapping)
+    }
     cas_decision: dict[str, Any] = {}
     cas_graph: dict[str, Any] = {}
+    cas_authority_graph: dict[str, Any] = {}
     cas_forest: dict[str, Any] = {}
+    cas_ledger: dict[str, Any] = {}
     cas_load_errors: list[str] = []
     if closeout.get("accepted") is True:
         try:
             cas_decision = load_latest_closeout_decision(root)
         except (ArtifactRevisionError, OSError, ValueError) as exc:
             cas_load_errors.append(f"decision:{type(exc).__name__}:{exc}")
-        for artifact_id, destination in (
+        artifact_destinations = [
             ("route_consensus_graph", "graph"),
             ("explored_route_forest", "forest"),
-        ):
+        ]
+        if "canonical_route_consensus_graph" in closeout_artifact_ids:
+            artifact_destinations.append(
+                ("canonical_route_consensus_graph", "authority_graph")
+            )
+        if "frontier_ledger" in closeout_artifact_ids:
+            artifact_destinations.append(("frontier_ledger", "ledger"))
+        for artifact_id, destination in artifact_destinations:
             try:
                 value = load_latest_closeout_artifact(root, artifact_id)
             except (ArtifactRevisionError, OSError, ValueError) as exc:
@@ -60,11 +100,21 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
                 continue
             if destination == "graph":
                 cas_graph = value
+            elif destination == "authority_graph":
+                cas_authority_graph = value
+            elif destination == "ledger":
+                cas_ledger = value
             else:
                 cas_forest = value
 
     graph = cas_graph or compatibility_graph
+    authority_graph = (
+        cas_authority_graph
+        or compatibility_authority_graph
+        or graph
+    )
     forest = cas_forest or compatibility_forest
+    frontier_ledger = cas_ledger if cas_decision else compatibility_ledger
     proof = (
         dict(cas_decision.get("parent_route_proof") or {})
         if cas_decision
@@ -97,13 +147,34 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
     ]
     projection = dict(forest.get("projection_coverage") or {})
     target_smiles = str(target.get("target_smiles") or "")
-    closeout_manifest_path = str(closeout.get("manifest_path") or "").strip()
-    closeout_manifest = _load(Path(closeout_manifest_path)) if closeout_manifest_path else {}
-    closeout_artifact_ids = {
-        str(row.get("artifact_id") or "")
-        for row in closeout_manifest.get("artifacts") or []
-        if isinstance(row, Mapping)
-    }
+    campaign_policy = _audit_campaign_policy(root, campaign=campaign, team=team)
+    trusted_stock_providers, stock_replay_context_reasons = (
+        _audit_trusted_stock_providers(
+            root,
+            campaign_policy=campaign_policy,
+        )
+    )
+    frontier_ledger_evidence = _frontier_ledger_evidence(
+        frontier_ledger,
+        expected_target_smiles=str(
+            authority_graph.get("target_smiles") or target_smiles
+        ),
+        route_consensus_graph=authority_graph,
+        frontier_queue=queue,
+        campaign_policy=campaign_policy,
+        campaign_policy_sha256=str(
+            campaign.get("campaign_policy_sha256")
+            or team.get("campaign_policy_sha256")
+            or ""
+        ),
+        trusted_stock_provider_instances=trusted_stock_providers,
+    )
+    frontier_ledger_evidence["stock_replay_context_reasons"] = list(
+        stock_replay_context_reasons
+    )
+    frontier_ledger_evidence["authority_source"] = (
+        "committed_cas_revision" if cas_decision else "compatibility_projection"
+    )
     cas_proof_snapshot = dict(cas_decision.get("proof_snapshot") or {})
     cas_verdict_core = dict(cas_decision.get("final_verdict_core") or {})
     cas_proof_solved = is_solved_parent_route_proof(
@@ -137,6 +208,17 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
         ),
         "forest_matches_cas": (
             compatibility_forest == forest if cas_forest else None
+        ),
+        "frontier_ledger_matches_cas": (
+            compatibility_ledger == frontier_ledger if cas_ledger else None
+        ),
+        "canonical_authority_graph_matches_cas": (
+            compatibility_authority_graph == authority_graph
+            if cas_authority_graph
+            else None
+        ),
+        "caller_graph_is_display_portfolio_projection_only": bool(
+            authority_graph is not graph or compatibility_authority_graph
         ),
         "drift_is_diagnostic_only": True,
     }
@@ -237,6 +319,39 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
             if isinstance(row, Mapping)
         ],
     )
+    l4_procurement_route_ids = sorted(
+        str(route.get("route_id") or "")
+        for route, evidence in zip(portfolio_routes, portfolio_route_evidence)
+        if evidence["contract_valid"] is True
+        and int(evidence.get("recomputed_weakest_proof_level") or -1) >= 4
+        and bool(evidence.get("stock_binding_evidence"))
+        and all(
+            row.get("procurement_boundary_valid") is True
+            for row in evidence.get("stock_binding_evidence") or []
+        )
+        and route.get("procurement_ready") is True
+        and str(route.get("route_id") or "")
+    )
+    completion_truth = {
+        "schema_version": "architecture_completion_truth.v1",
+        "ledger_required_reaction_proof_level": frontier_ledger_evidence[
+            "required_reaction_proof_level"
+        ],
+        "any_route_closed": frontier_ledger_evidence["effective_any_route_closed"],
+        "all_explored_graph_closed": frontier_ledger_evidence[
+            "effective_all_explored_graph_closed"
+        ],
+        "l3_parent_route_solved": cas_proof_solved,
+        "l4_procurement_route_ready": bool(l4_procurement_route_ids),
+        "l4_procurement_route_ids": l4_procurement_route_ids,
+        "semantics": {
+            "any_route_is_existential_hypergraph_closure": True,
+            "all_explored_is_universal_hypergraph_closure": True,
+            "l3_parent_requires_deterministic_parent_proof": True,
+            "l4_procurement_requires_a_contract_valid_all_l4_route": True,
+            "no_completion_field_implies_another_stronger_field": True,
+        },
+    }
 
     capability_gates = {
         "provider_spi": ROOT.joinpath("cascade_planner/providers/contracts.py").is_file(),
@@ -252,6 +367,9 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
         "persistent_frontier_scheduler": ROOT.joinpath(
             "cascade_planner/application/frontier_scheduler.py"
         ).is_file(),
+        "unified_frontier_ledger_projection": ROOT.joinpath(
+            "cascade_planner/application/frontier_ledger.py"
+        ).is_file(),
         "and_or_diverse_portfolio": ROOT.joinpath(
             "cascade_planner/application/route_portfolio.py"
         ).is_file(),
@@ -261,7 +379,9 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
         "global_dependency_dag": ROOT.joinpath(
             "cascade_planner/harness/route_forest.py"
         ).is_file(),
-        "tiered_ci": ROOT.joinpath(".github/workflows/ci.yml").is_file(),
+        "codex_edge_verification_bridge": ROOT.joinpath(
+            "cascade_planner/harness/codex_edge_verification.py"
+        ).is_file(),
     }
     executable_contracts = {
         "codex_team_report": _contract_evidence(
@@ -294,6 +414,16 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
                 _content_sha256_valid(queue) is not False,
                 all(row.get("schema_version") == "frontier_job.v1" for row in jobs),
             ),
+        ),
+        "frontier_ledger": _contract_evidence(
+            artifact=(
+                "committed_cas_revision:frontier_ledger"
+                if cas_decision
+                else "frontier_ledger.json"
+            ),
+            observed_schema=frontier_ledger.get("schema_version"),
+            expected_schema=FRONTIER_LEDGER_SCHEMA,
+            required_shapes=(frontier_ledger_evidence["contract_valid"],),
         ),
         "route_portfolio": _contract_evidence(
             artifact="route_consensus_graph_fused.json:route_portfolio",
@@ -372,9 +502,13 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
         "hypergraph_v2_valid": overlay.get("validation", {}).get("valid") is True,
         "codex_source_correlation_honest": codex_correlation_honest,
         "true_independent_multi_source_edge_present": bool(multi_source_edges),
-        "every_frontier_proof_closed": (
-            campaign.get("frontier_completeness", {}).get("complete") is True
-        ),
+        "frontier_ledger_authority_valid": frontier_ledger_evidence[
+            "authority_valid"
+        ],
+        "any_route_closed": completion_truth["any_route_closed"],
+        "all_explored_graph_closed": completion_truth[
+            "all_explored_graph_closed"
+        ],
         "proof_eligible_portfolio_valid": portfolio_contract_valid,
         "selected_route_dags_acyclic": selected_route_dags_acyclic,
         "portfolio_routes_projected": portfolio_routes_projected,
@@ -389,6 +523,11 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
         ),
         "global_projection_complete": projection.get("complete") is True,
         "closeout_revision_valid": closeout.get("accepted") is True,
+        "closeout_frontier_ledger_bound": bool(
+            "frontier_ledger" in closeout_artifact_ids
+            and cas_ledger
+            and frontier_ledger_evidence["contract_valid"] is True
+        ),
         "closeout_parent_proof_bound": bool(
             "parent_route_proof_snapshot" in closeout_artifact_ids
             and cas_proof_binding_valid
@@ -457,6 +596,8 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
             "completeness": dict(campaign.get("frontier_completeness") or {}),
             "proposal_graph_exhausted": campaign.get("proposal_graph_exhausted") is True,
         },
+        "frontier_ledger": frontier_ledger_evidence,
+        "completion_truth": completion_truth,
         "portfolio": {
             "route_count": len(portfolio_routes),
             "complete_candidate_count": int(portfolio.get("complete_candidate_count") or 0),
@@ -493,6 +634,11 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
             **closeout,
             "authority_source": authority_source,
             "artifact_ids": sorted(closeout_artifact_ids),
+            "frontier_ledger_bound": bool(
+                "frontier_ledger" in closeout_artifact_ids
+                and cas_ledger
+                and frontier_ledger_evidence["contract_valid"] is True
+            ),
             "proof_bound": cas_proof_binding_valid,
             "final_verdict_bound": cas_final_binding_valid,
             "cas_decision_schema": str(cas_decision.get("schema_version") or ""),
@@ -544,6 +690,357 @@ def _content_sha256_valid(value: Mapping[str, Any]) -> bool | None:
         separators=(",", ":"),
     ).encode("utf-8")
     return expected == hashlib.sha256(encoded).hexdigest()
+
+
+def _audit_campaign_policy(
+    root: Path,
+    *,
+    campaign: Mapping[str, Any],
+    team: Mapping[str, Any],
+) -> dict[str, Any]:
+    for value in (campaign.get("campaign_policy"), team.get("campaign_policy")):
+        if isinstance(value, Mapping) and value:
+            return dict(value)
+    for value in (
+        campaign.get("campaign_policy_ref"),
+        team.get("campaign_policy_ref"),
+    ):
+        text = str(value or "").strip()
+        if not text:
+            continue
+        raw = Path(text).expanduser()
+        candidates = [raw, root / raw, root / "codex_retrosynthesis_team" / raw.name]
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                continue
+            policy = _load(resolved)
+            if policy:
+                return policy
+    return {}
+
+
+def _audit_trusted_stock_providers(
+    root: Path,
+    *,
+    campaign_policy: Mapping[str, Any],
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    """Rebuild only host-owned provider state materialized by the policy."""
+
+    policy = dict(campaign_policy or {})
+    binding = dict(policy.get("stock_authority_binding") or {})
+    descriptor = dict(binding.get("provider_descriptor") or {})
+    provider_id = str(descriptor.get("provider_id") or "")
+    if not provider_id:
+        return None, ("campaign_policy_stock_provider_descriptor_missing",)
+    if provider_id == "autoplanner.snapshot_stock":
+        snapshot_hashes = [
+            str(item)
+            for item in binding.get("trusted_snapshot_sha256") or []
+            if str(item)
+        ]
+        if snapshot_hashes:
+            # Hashes identify snapshots but cannot reconstruct their contents.
+            # Serialized queue envelopes are not a substitute for host trust.
+            return None, ("current_host_stock_snapshot_material_missing",)
+        provider = SnapshotStockProvider(trusted_snapshots=[])
+        return {provider.descriptor.provider_id: provider}, ()
+    if provider_id != "autoplanner.benchmark_catalog_stock":
+        return None, ("campaign_policy_stock_provider_not_allowlisted",)
+
+    artifact_text = str(binding.get("catalog_artifact") or "").strip()
+    if not artifact_text:
+        return None, ("campaign_policy_benchmark_catalog_artifact_missing",)
+    raw_artifact = Path(artifact_text).expanduser()
+    artifact = next(
+        (
+            candidate.resolve()
+            for candidate in (raw_artifact, root / raw_artifact, ROOT / raw_artifact)
+            if candidate.is_file()
+        ),
+        raw_artifact,
+    )
+    providers, reasons = build_trusted_stock_provider_instances(
+        benchmark_catalog_artifact=artifact,
+        benchmark_catalog_sha256=str(binding.get("catalog_sha256") or ""),
+        benchmark_catalog_name=str(binding.get("catalog_name") or ""),
+    )
+    if reasons or provider_id not in providers:
+        return None, tuple(
+            sorted(
+                set(
+                    [
+                        *reasons,
+                        *( ["current_host_benchmark_provider_missing"] if provider_id not in providers else [] ),
+                    ]
+                )
+            )
+        )
+    return providers, ()
+
+
+def _frontier_ledger_evidence(
+    value: Mapping[str, Any],
+    *,
+    expected_target_smiles: str,
+    route_consensus_graph: Mapping[str, Any] | None = None,
+    frontier_queue: Mapping[str, Any] | None = None,
+    campaign_policy: Mapping[str, Any] | None = None,
+    campaign_policy_sha256: str = "",
+    trusted_stock_provider_instances: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Audit one serialized ledger without trusting its positive summary.
+
+    A digest-valid ledger can still be an honest negative projection of
+    invalid upstream authority.  ``contract_valid`` therefore covers schema,
+    digest, shape, semantic consistency, and producer fail-closed behavior,
+    while ``authority_valid`` additionally requires every joined input to be
+    valid.  Effective closure claims require both.
+    """
+
+    row = dict(value) if isinstance(value, Mapping) else {}
+    present = bool(row)
+    if present:
+        try:
+            validator_reasons = validate_frontier_ledger(row)
+        except (TypeError, ValueError, OverflowError) as exc:
+            validator_reasons = [
+                f"frontier_ledger_validator_exception:{type(exc).__name__}"
+            ]
+    else:
+        validator_reasons = ["frontier_ledger_missing"]
+    reasons = list(validator_reasons)
+    schema_valid = row.get("schema_version") == FRONTIER_LEDGER_SCHEMA
+    try:
+        digest_valid = _content_sha256_valid(row) is True
+    except (TypeError, ValueError, OverflowError):
+        digest_valid = False
+    summary = (
+        dict(row["summary"])
+        if isinstance(row.get("summary"), Mapping)
+        else {}
+    )
+    root = dict(row["root"]) if isinstance(row.get("root"), Mapping) else {}
+    molecules = (
+        dict(row["molecules"])
+        if isinstance(row.get("molecules"), Mapping)
+        else {}
+    )
+    root_smiles = str(root.get("canonical_smiles") or "")
+
+    claimed_any_raw = summary.get("any_route_closed")
+    claimed_all_raw = summary.get("all_explored_graph_closed")
+    claimed_any = claimed_any_raw is True
+    claimed_all = claimed_all_raw is True
+    if not isinstance(claimed_any_raw, bool):
+        reasons.append("frontier_ledger_any_route_closed_not_boolean")
+    if not isinstance(claimed_all_raw, bool):
+        reasons.append("frontier_ledger_all_explored_graph_closed_not_boolean")
+    if claimed_all and not claimed_any:
+        reasons.append("frontier_ledger_all_closed_without_any_closed")
+
+    count_fields = (
+        "reachable_molecule_count",
+        "reachable_edge_count",
+        "reaction_proven_edge_count",
+        "stock_closed_molecule_count",
+        "proposal_pending_molecule_count",
+        "proposal_expansion_eligible_molecule_count",
+        "work_pending_molecule_count",
+        "stock_pending_leaf_count",
+        "reaction_proof_pending_edge_count",
+        "dependency_pending_edge_count",
+        "open_work_molecule_count",
+        "fixed_point_iterations",
+    )
+    summary_counts: dict[str, int] = {}
+    for field in count_fields:
+        raw_count = summary.get(field)
+        if (
+            isinstance(raw_count, bool)
+            or not isinstance(raw_count, int)
+            or raw_count < 0
+        ):
+            reasons.append(f"frontier_ledger_summary_count_invalid:{field}")
+            continue
+        summary_counts[field] = raw_count
+
+    if summary_counts.get("reachable_molecule_count") != len(molecules):
+        reasons.append("frontier_ledger_reachable_molecule_count_mismatch")
+    raw_edges = row.get("edges")
+    edge_count = len(raw_edges) if isinstance(raw_edges, Mapping) else -1
+    if summary_counts.get("reachable_edge_count") != edge_count:
+        reasons.append("frontier_ledger_reachable_edge_count_mismatch")
+    count_limits = (
+        ("reaction_proven_edge_count", "reachable_edge_count"),
+        ("stock_closed_molecule_count", "reachable_molecule_count"),
+        ("proposal_pending_molecule_count", "reachable_molecule_count"),
+        (
+            "proposal_expansion_eligible_molecule_count",
+            "proposal_pending_molecule_count",
+        ),
+        ("work_pending_molecule_count", "reachable_molecule_count"),
+        ("stock_pending_leaf_count", "reachable_molecule_count"),
+        ("reaction_proof_pending_edge_count", "reachable_edge_count"),
+        ("dependency_pending_edge_count", "reachable_edge_count"),
+        ("open_work_molecule_count", "reachable_molecule_count"),
+    )
+    for field, limit_field in count_limits:
+        if (
+            field in summary_counts
+            and limit_field in summary_counts
+            and summary_counts[field] > summary_counts[limit_field]
+        ):
+            reasons.append(f"frontier_ledger_summary_count_exceeds_limit:{field}")
+    if summary_counts.get("fixed_point_iterations", 0) < 1:
+        reasons.append("frontier_ledger_fixed_point_iterations_invalid")
+    if claimed_all and any(
+        summary_counts.get(field, -1) != 0
+        for field in (
+            "proposal_pending_molecule_count",
+            "stock_pending_leaf_count",
+            "reaction_proof_pending_edge_count",
+            "dependency_pending_edge_count",
+        )
+    ):
+        reasons.append("frontier_ledger_all_closed_with_pending_graph_facts")
+
+    raw_root_molecule = molecules.get(root_smiles)
+    root_molecule = (
+        dict(raw_root_molecule) if isinstance(raw_root_molecule, Mapping) else {}
+    )
+    root_closure = (
+        dict(root_molecule["closure"])
+        if isinstance(root_molecule.get("closure"), Mapping)
+        else {}
+    )
+    root_closure_matches = bool(
+        root_smiles
+        and root_molecule
+        and root_closure.get("any_route_closed") is claimed_any_raw
+        and root_closure.get("all_explored_graph_closed") is claimed_all_raw
+    )
+    if not root_closure_matches:
+        reasons.append("frontier_ledger_root_summary_mismatch")
+    target_matches = bool(
+        root_smiles
+        and (
+            not expected_target_smiles
+            or root_smiles == str(expected_target_smiles)
+        )
+    )
+    if not target_matches:
+        reasons.append("frontier_ledger_target_mismatch")
+
+    try:
+        required_level = int(row.get("required_reaction_proof_level"))
+    except (TypeError, ValueError):
+        required_level = 0
+    if required_level not in {2, 3, 4}:
+        reasons.append("frontier_ledger_required_proof_level_invalid")
+
+    input_validation = (
+        dict(row["input_validation"])
+        if isinstance(row.get("input_validation"), Mapping)
+        else {}
+    )
+    input_names = ("graph", "frontier_queue", "reaction_proof_state")
+    input_status = {
+        name: bool(
+            isinstance(input_validation.get(name), Mapping)
+            and input_validation[name].get("valid") is True
+        )
+        for name in input_names
+    }
+    inputs_valid = all(input_status.values())
+    invalid_inputs = [name for name, accepted in input_status.items() if not accepted]
+
+    semantics = (
+        dict(row["semantics"])
+        if isinstance(row.get("semantics"), Mapping)
+        else {}
+    )
+    semantics_declared = bool(
+        semantics.get(
+            "proposal_work_stock_reaction_proof_and_dependencies_are_orthogonal"
+        )
+        is True
+        and semantics.get("invalid_authority_fails_closed") is True
+        and semantics.get("route_hypotheses_are_not_consumed") is True
+    )
+    if not semantics_declared:
+        reasons.append("frontier_ledger_semantics_incomplete")
+
+    producer_fail_closed = bool(
+        present
+        and schema_valid
+        and digest_valid
+        and not (not inputs_valid and (claimed_any or claimed_all))
+    )
+    if not producer_fail_closed:
+        reasons.append("frontier_ledger_invalid_authority_not_failed_closed")
+
+    contract_reasons = sorted(set(reasons))
+    contract_valid = not contract_reasons
+    current_authority = frontier_ledger_current_authority_evidence(
+        row,
+        route_consensus_graph=route_consensus_graph,
+        frontier_queue=frontier_queue,
+        campaign_policy=campaign_policy,
+        campaign_policy_sha256=campaign_policy_sha256,
+        trusted_stock_provider_instances=trusted_stock_provider_instances,
+    )
+    authority_blockers = list(current_authority.get("blockers") or [])
+    authority_valid = bool(
+        contract_valid
+        and inputs_valid
+        and current_authority.get("authoritative") is True
+    )
+    return {
+        "schema_version": "frontier_ledger_audit_evidence.v1",
+        "artifact": "frontier_ledger.json",
+        "present": present,
+        "observed_schema": str(row.get("schema_version") or ""),
+        "schema_valid": schema_valid,
+        "content_sha256_valid": digest_valid,
+        "validator_reasons": sorted(set(validator_reasons)),
+        "root_canonical_smiles": root_smiles,
+        "target_matches": target_matches,
+        "root_summary_matches": root_closure_matches,
+        "required_reaction_proof_level": required_level,
+        "input_authority": input_status,
+        "invalid_inputs": invalid_inputs,
+        "all_input_authority_valid": inputs_valid,
+        "historical_host_replay_recorded": current_authority.get(
+            "historical_host_replay_recorded"
+        )
+        is True,
+        "current_host_replay_verified": current_authority.get(
+            "current_host_replay_verified"
+        )
+        is True,
+        "current_input_bindings_verified": current_authority.get(
+            "current_input_bindings_verified"
+        )
+        is True,
+        "current_identities": dict(current_authority.get("current_identities") or {}),
+        "input_bindings": dict(current_authority.get("input_bindings") or {}),
+        "authority_blockers": authority_blockers,
+        "producer_fail_closed": producer_fail_closed,
+        "semantics_declared": semantics_declared,
+        "claimed_any_route_closed": claimed_any,
+        "claimed_all_explored_graph_closed": claimed_all,
+        "summary_counts": summary_counts,
+        "effective_any_route_closed": bool(authority_valid and claimed_any),
+        "effective_all_explored_graph_closed": bool(
+            authority_valid and claimed_all
+        ),
+        "contract_valid": contract_valid,
+        "authority_valid": authority_valid,
+        "reasons": sorted(set([*contract_reasons, *authority_blockers])),
+        "contract_reasons": contract_reasons,
+    }
 
 
 def _contract_evidence(
@@ -876,6 +1373,9 @@ def _stock_binding_evidence(
         return {
             "schema_version": "exact_stock_binding_audit.v1",
             "molecule_id": molecule_id,
+            "boundary_type": "",
+            "benchmark_only": False,
+            "procurement_boundary_valid": False,
             "valid": False,
             "reasons": ["exact_stock_binding_missing"],
         }
@@ -922,9 +1422,37 @@ def _stock_binding_evidence(
             for item in proof_authorities
         ):
             reasons.append("exact_stock_binding_proof_bank_authority_invalid")
+    boundary_type = str(row.get("boundary_type") or "")
+    benchmark_only = bool(
+        boundary_type == "benchmark_stock"
+        or row.get("benchmark_membership") is True
+    )
+    procurement_boundary_valid = bool(
+        not reasons
+        and not benchmark_only
+        and boundary_type
+        in {
+            "commercially_orderable",
+            "in_house_available",
+            "common_commodity",
+        }
+        and (
+            boundary_type != "commercially_orderable"
+            or (
+                row.get("commercial_orderability_claimed") is True
+                and row.get("snapshot_digest_replayed") is True
+                and row.get("provider_trust_authority")
+                == "autoplanner_host_builtin_allowlist.v1"
+                and _is_sha256(row.get("provider_descriptor_sha256"))
+            )
+        )
+    )
     return {
         "schema_version": "exact_stock_binding_audit.v1",
         "molecule_id": molecule_id,
+        "boundary_type": boundary_type,
+        "benchmark_only": benchmark_only,
+        "procurement_boundary_valid": procurement_boundary_valid,
         "binding_authority": authority,
         "binding_sha256_valid": _embedded_digest_valid(row, "binding_sha256"),
         "valid": not reasons,
@@ -1254,6 +1782,8 @@ def _human(report: Mapping[str, Any]) -> str:
     capability = dict(report.get("capability_surface") or {})
     executable = dict(report.get("executable_contract_evidence") or {})
     acceptance = dict(report.get("run_acceptance") or {})
+    ledger = dict(report.get("frontier_ledger") or {})
+    completion = dict(report.get("completion_truth") or {})
     verdict = dict(report.get("final_verdict") or {})
     gaps = ", ".join(str(item) for item in report.get("remaining_gaps") or []) or "none"
     return "\n".join(
@@ -1264,6 +1794,16 @@ def _human(report: Mapping[str, Any]) -> str:
             f"({executable.get('coverage_percent')}%)",
             f"Run acceptance: {acceptance.get('passed')}/{acceptance.get('total')} "
             f"({acceptance.get('completion_percent')}%)",
+            "Closure truth: "
+            f"any-route={completion.get('any_route_closed')} / "
+            f"all-explored={completion.get('all_explored_graph_closed')} / "
+            f"L3-parent={completion.get('l3_parent_route_solved')} / "
+            f"L4-procurement={completion.get('l4_procurement_route_ready')}",
+            "Frontier ledger: "
+            f"schema={ledger.get('schema_valid')} / "
+            f"digest={ledger.get('content_sha256_valid')} / "
+            f"fail-closed={ledger.get('producer_fail_closed')} / "
+            f"authority={ledger.get('authority_valid')}",
             f"Final verdict: {verdict.get('verdict')} / {verdict.get('route_status')} / "
             f"solved={verdict.get('solved')}",
             f"Remaining gaps: {gaps}",

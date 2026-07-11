@@ -1,31 +1,31 @@
-# Testing and CI
+# Local testing
 
 AutoPlanner's default test suite is deterministic and offline. It does not
 launch Codex, call a hosted model, read `key.txt`, use a GitHub SSH key, fetch
-literature, or require model weights. Live provider checks are a separate,
-explicitly opted-in activity and are never part of required CI.
+literature, or require model weights. Live provider checks are separate,
+explicitly opted-in activities. This repository intentionally has no GitHub
+Actions workflow; validation is run locally before a direct release push.
 
 ## Test environments
 
-Python 3.11 is the cross-platform CI version. Python 3.12 is the primary local
-development version. Install the standalone offline test stack with:
+Python 3.11 and 3.12 are supported local development versions. Install the
+standalone offline test stack with:
 
 ```bash
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
 ```
 
-The CI workflow first installs the CPU wheel for PyTorch from the official
-PyTorch wheel index, then installs `requirements-dev.txt`. This prevents a test
-job from acquiring a GPU runtime. `requirements.txt` is needed for inference development,
+For a CPU-only workstation, install the matching CPU wheel for PyTorch before
+`requirements-dev.txt`. `requirements.txt` is needed for inference development,
 not for the deterministic contract suite.
 
 ## Fast architecture contracts
 
 This layer exercises the current route graph, source fusion, proof boundary,
 provider registry, stock snapshots, persistent frontier scheduler, route
-portfolio, runtime atomicity, and generic hardcoding guard. It is the same
-selection run on Linux and Windows for every pull request:
+portfolio, campaign recovery, runtime atomicity, and generic hardcoding guard.
+Run this selection before committing architecture changes:
 
 ```bash
 python -m pytest -q -p no:cacheprovider \
@@ -42,7 +42,24 @@ python -m pytest -q -p no:cacheprovider \
   tests/test_provider_registry.py \
   tests/test_stock_provider.py \
   tests/test_frontier_scheduler.py \
+  tests/test_frontier_ledger.py \
+  tests/test_codex_edge_verification.py \
+  tests/test_blackboard_events.py \
+  tests/test_admitted_hyperedges.py \
+  tests/test_action_evidence_loop.py \
+  tests/test_codex_retrosynthesis_team.py \
+  tests/test_codex_team_source_lifecycle.py \
+  tests/test_codex_team_controller_integration.py \
+  tests/test_evidence_first_controller_integration.py \
+  tests/test_literature_source_documents.py \
+  tests/test_compound_label_bindings.py \
   tests/test_route_portfolio.py \
+  tests/test_portfolio_supplemental_bindings.py \
+  tests/test_route_admission.py \
+  tests/test_chem_enzy_guidance.py \
+  tests/test_route_forest.py \
+  tests/test_route_forest_layout.py \
+  tests/test_route_forest_delivery.py \
   tests/test_audit_architecture_v2.py
 ```
 
@@ -76,32 +93,75 @@ Remove-Item Env:AUTOPLANNER_LIVE_CODEX_ENTRY_SMOKE
 Three live/optional tests are expected to skip in the default environment. A
 skip is not a solved-route assertion and does not relax any parent proof gate.
 
-## CI layers
+The central P0 tests must cover these failure boundaries:
 
-| Job | Trigger | Scope |
-| --- | --- | --- |
-| `quality-and-safety` | Every PR and `main` push | Fatal Ruff rules across Python; strict Ruff on upgraded architecture; tracked credential/private-token scan. |
-| `architecture-contracts` | Every PR and `main` push | Fast proof/fusion/runtime/hardcoding selection on both Linux and Windows. |
-| `full-linux` | Every PR and `main` push | Every offline test, with a JUnit report. |
-| `full-windows` | Weekly schedule or manual dispatch | Every offline test on Windows, with a JUnit report. |
+- campaign attempts are counted from immutable started events across resumes,
+  separately from accepted expansions, and global budgets cannot shrink;
+- strict child acceptance remains the default, while `valid_subset_l0` accepts
+  only a host-observed quorum after complete spawn coverage and caps every
+  recovered edge to non-authoritative L0; hard coordinator/runtime/tool
+  failures still reject;
+- campaign execution and proof reconciliation share a whole-transaction OS
+  lock, so concurrent callers cannot consume the final accepted slot twice;
+- a valid prepared expansion commit can be adopted after an interruption only
+  under the exact campaign/job/attempt/lease fence; malformed or terminally
+  failed work cannot be adopted;
+- a non-root precursor stays proposal-ineligible until a current-host L2 proof
+  binds one of its exact inbound parent step IDs;
+- a late exact row retains its complete reactant set and mapped reaction,
+  unlocks the matching child exactly once, and reconciliation consumes neither
+  Agent attempts nor accepted-expansion budget;
+- source-bound PDF material may enter the canonical graph only as L0 search
+  admission; tampered provenance is quarantined and only the out-of-band
+  registry may grant literature/L3 precedent;
+- the caller-advisory graph may contain unsupported suggestions, while the
+  ledger, RouteForest authority stages, and closeout dependencies bind the
+  smaller canonical durable graph;
+- blackboard checkpoints use CAS/tombstones and action outbox replay, and only
+  a final unterminated crash fragment may be forensically isolated; terminated
+  corruption, duplicate keys, non-finite values, and identity/digest drift fail
+  closed;
+- impossible self/ancestor cycles, element deficits, and large atom jumps are
+  rejected by the shared consensus/ChemEnzy admission gate before ranking;
+- per-edge materialization cache hits are replayed by the current verifier,
+  while tampering, input/version drift, and injected mappers fail closed or
+  bypass persistence;
+- Codex self-reported evidence/confidence cannot raise authority ranking;
+- ChemEnzy's bounded guidance batch is selected from digest-bound canonical
+  frontier state before truncation, remains deterministic and structurally
+  diverse, and audits selected/dropped IDs while ignoring model-authored
+  confidence/evidence/validation flags;
+- source group, logical document, and concrete representation counts remain
+  distinct, and a source-local compound-label/structure conflict fails closed;
+- benchmark/search and procurement stock planes are replayed through trusted
+  provider instances and all four ledger fixed points are recomputed;
+- UI stage membership is derived from current ledger/queue/edge/leaf evidence,
+  never from branch count or colour; the fully-expanded stage requires every
+  nonempty step to have a succeeded queue binding, while partial i/N progress
+  remains non-authoritative and legacy/empty filtered views fail closed.
 
-The workflow grants only `contents: read`, disables checkout credential
-persistence, supplies no API secrets, and explicitly disables the live Codex
-smoke flag. Required tests must remain runnable under that policy.
+These are integrity and authority-replay tests, not cryptographic-authentication
+tests. A matching SHA-256 detects canonical-content drift; it is not a security
+signature for a repository or run directory controlled by an attacker.
 
 Whole-repository strict Ruff is not yet an honest gate: the retained research
-and legacy surfaces have pre-existing style debt. CI therefore applies
-syntax/undefined-name rules to all active Python and the normal strict Ruff
-rules to the upgraded application, provider, route, runtime, proof, and test
-surfaces. Move a module into the strict list when modernizing it; do not silence
-new findings with blanket ignores.
+and legacy surfaces have pre-existing style debt. Apply syntax/undefined-name
+checks to all active Python and normal strict Ruff rules to the upgraded
+application, provider, route, runtime, proof, and test surfaces. Move a module
+into the strict set when modernizing it; do not silence new findings with
+blanket ignores.
 
 ## Safety and hardcoding gates
 
-CI rejects tracked `key.txt`, `psaaword.txt`, and non-example `.env` files. It
-also scans tracked content for private-key headers and common live token
-signatures. `.env.example` and `.env.local.example` may contain placeholders,
-never usable credentials.
+Before a direct push, verify that `key.txt`, `psaaword.txt`, non-example `.env`
+files, private-key headers, and live token signatures are not tracked.
+`.env.example` and `.env.local.example` may contain placeholders, never usable
+credentials.
+
+Also run `git diff --check`, inspect `git status --short`, and verify that
+`.github/workflows/` contains no workflow. There is no CI/Actions fallback: a
+direct push is allowed only after the local targeted and complete offline tests
+have passed.
 
 `tests/test_generic_hardcoding_guards.py` is the fast molecule-hardcoding gate.
 New planner behavior should be driven by structure, typed evidence, provider

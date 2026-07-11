@@ -17,6 +17,10 @@ from typing import Any, ClassVar, Mapping, Sequence
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.harness.reaction_step_verifier import (
+    REACTION_STEP_VERIFIER_VERSION,
+)
+
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -37,6 +41,11 @@ class RoutePortfolioItem:
     portfolio_score: float
     complete: bool
     reaction_validated: bool
+    procurement_ready: bool = False
+    target_stock_available: bool = False
+    target_stock_boundary_type: str = ""
+    target_benchmark_membership: bool = False
+    target_commercially_orderable: bool = False
     unresolved_frontiers: tuple[Mapping[str, Any], ...] = ()
     schema_version: ClassVar[str] = "route_portfolio_item.v1"
 
@@ -82,6 +91,7 @@ class RoutePortfolioReport:
             "reasons": list(self.reasons),
             "selection_policy": "and_or_closure_then_maximal_marginal_relevance",
             "requires_explicit_stock_and_reaction_proof": True,
+            "zero_reaction_target_stock_is_not_reaction_or_procurement_proof": True,
         }
         payload["content_sha256"] = _digest(payload)
         return payload
@@ -100,6 +110,7 @@ def solve_diverse_routes(
     *,
     stock_molecule_ids: Sequence[str],
     edge_proof_levels: Mapping[str, int | Mapping[str, Any]],
+    stock_bindings: Mapping[str, Mapping[str, Any]] | None = None,
     top_k: int = 5,
     min_reaction_proof_level: int = 2,
     max_depth: int = 20,
@@ -107,7 +118,7 @@ def solve_diverse_routes(
     diversity_weight: float = 0.25,
     fixed_selections: Mapping[str, str] | None = None,
 ) -> RoutePortfolioReport:
-    """Return top-K complete, reaction-validated and structurally diverse DAGs."""
+    """Return top-K closed DAGs, including explicitly typed target-stock leaves."""
 
     if top_k < 1 or max_depth < 1 or max_enumerated_routes < 1:
         raise ValueError("route portfolio bounds must be positive")
@@ -237,8 +248,9 @@ def solve_diverse_routes(
             edges=edges,
             edge_proof_levels=edge_proof_levels,
             min_reaction_proof_level=min_reaction_proof_level,
+            stock_bindings=stock_bindings or {},
         )
-        if item.complete and item.reaction_validated:
+        if item.complete and (item.reaction_validated or item.target_stock_available):
             complete_items.append(item)
     complete_items.sort(key=lambda row: (-row.base_score, row.route_id))
     selected = _mmr_select(complete_items, top_k=top_k, diversity_weight=diversity_weight)
@@ -262,6 +274,7 @@ def validate_route_replacement(
     *,
     stock_molecule_ids: Sequence[str],
     edge_proof_levels: Mapping[str, int | Mapping[str, Any]],
+    stock_bindings: Mapping[str, Mapping[str, Any]] | None = None,
     base_selections: Mapping[str, str],
     product_molecule_id: str,
     replacement_hyperedge_id: str,
@@ -275,6 +288,7 @@ def validate_route_replacement(
         overlay,
         stock_molecule_ids=stock_molecule_ids,
         edge_proof_levels=edge_proof_levels,
+        stock_bindings=stock_bindings,
         top_k=1,
         min_reaction_proof_level=min_reaction_proof_level,
         fixed_selections=selections,
@@ -299,6 +313,7 @@ def validate_portfolio_replacements(
     portfolio: RoutePortfolioReport | Mapping[str, Any],
     stock_molecule_ids: Sequence[str],
     edge_proof_levels: Mapping[str, int | Mapping[str, Any]],
+    stock_bindings: Mapping[str, Mapping[str, Any]] | None = None,
     min_reaction_proof_level: int = 2,
     max_candidates: int = 100,
 ) -> dict[str, Any]:
@@ -397,6 +412,7 @@ def validate_portfolio_replacements(
             overlay,
             stock_molecule_ids=stock_molecule_ids,
             edge_proof_levels=edge_proof_levels,
+            stock_bindings=stock_bindings,
             base_selections=spec["base_selections"],
             product_molecule_id=str(spec["product_molecule_id"]),
             replacement_hyperedge_id=str(spec["replacement_hyperedge_id"]),
@@ -479,6 +495,11 @@ def build_route_verifier_bundle(reports: Sequence[Mapping[str, Any]]) -> dict[st
 def derive_portfolio_bindings(
     overlay: Mapping[str, Any],
     verifier: Mapping[str, Any],
+    *,
+    supplemental_edge_verification_reports: Sequence[Mapping[str, Any]] = (),
+    supplemental_reaction_validations: Sequence[Mapping[str, Any]] = (),
+    supplemental_stock_provider_results: Sequence[Mapping[str, Any]] = (),
+    trusted_stock_provider_instances: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Bind independently replayed root/child verifier proofs to v2 identities."""
 
@@ -546,6 +567,53 @@ def derive_portfolio_bindings(
     proof_by_signature: dict[tuple[str, tuple[str, ...]], dict[str, Any]] = {}
     materialized_terminals: set[str] = set()
     stock_evidence_candidates: dict[str, list[dict[str, Any]]] = {}
+    report_validation_wrappers, accepted_edge_report_count = (
+        _supplemental_edge_validation_wrappers(
+            supplemental_edge_verification_reports
+        )
+    )
+    validation_wrappers_by_sha256 = {
+        _digest(dict(row)): dict(row)
+        for row in [
+            *report_validation_wrappers,
+            *[
+                dict(item)
+                for item in supplemental_reaction_validations
+                if isinstance(item, Mapping)
+            ],
+        ]
+    }
+    accepted_supplemental_reaction_validations = [
+        (replayed, str(row.get("content_sha256") or _digest(row)))
+        for row in validation_wrappers_by_sha256.values()
+        if isinstance(row, Mapping)
+        and (replayed := _replay_supplemental_reaction_validation(row))
+    ]
+    _merge_exact_proof_sources(
+        proof_by_signature,
+        [
+            (
+                validation,
+                {
+                    "proof_source": "supplemental_reaction_validation.v2_replayed",
+                    "proof_bank_entry_id": "",
+                    "proof_bank_entry_sha256": "",
+                    "verifier_report_id": (
+                        f"codex-edge-verifier:{source_sha256[:24]}"
+                    ),
+                    "verifier_source_sha256": source_sha256,
+                    "verifier_target_smiles": root_smiles,
+                },
+            )
+            for validation, source_sha256 in accepted_supplemental_reaction_validations
+        ],
+    )
+    accepted_supplemental_stock_boundaries = _supplemental_stock_evidence(
+        supplemental_stock_provider_results,
+        stock_evidence_candidates=stock_evidence_candidates,
+        materialized_terminals=materialized_terminals,
+        trusted_stock_provider_instances=(trusted_stock_provider_instances or {}),
+    )
     replayed_entry_count = 0
     for context in contexts:
         report = dict(context["verifier_report"])
@@ -682,6 +750,25 @@ def derive_portfolio_bindings(
             "catalog_id": str(evidence.get("catalog_id") or ""),
             "catalog_sha256": str(evidence.get("catalog_sha256") or "").lower(),
             "lookup_basis": str(evidence.get("lookup_basis") or ""),
+            "boundary_type": str(evidence.get("boundary_type") or ""),
+            "benchmark_membership": evidence.get("benchmark_membership") is True,
+            "commercial_orderability_claimed": (
+                evidence.get("commercial_orderability_claimed") is True
+            ),
+            "provider_id": str(evidence.get("provider_id") or ""),
+            "provider_descriptor_sha256": str(
+                evidence.get("provider_descriptor_sha256") or ""
+            ),
+            "provider_trust_authority": str(
+                evidence.get("provider_trust_authority") or ""
+            ),
+            "artifact_hash_replayed": evidence.get("artifact_hash_replayed") is True,
+            "canonical_membership_replayed": (
+                evidence.get("canonical_membership_replayed") is True
+            ),
+            "snapshot_digest_replayed": (
+                evidence.get("snapshot_digest_replayed") is True
+            ),
             "stock_audit_sha256": str(selected["authority_sha256"]),
             "evidence_sha256": _digest(evidence_payload),
             "binding_authority": str(selected["authority"]),
@@ -727,24 +814,56 @@ def derive_portfolio_bindings(
         row["proof_bank_present"] and row["accepted"] is not True
         for row in report_audits
     )
+    root_stock_binding = dict(
+        stock_bindings.get(str(overlay.get("root_molecule_id") or "")) or {}
+    )
+    root_boundary_type = str(root_stock_binding.get("boundary_type") or "")
+    target_stock_status = {
+        "target_stock_available": bool(root_stock_binding),
+        "boundary_type": root_boundary_type,
+        "benchmark_membership": bool(
+            root_stock_binding.get("benchmark_membership") is True
+            or root_boundary_type == "benchmark_stock"
+        ),
+        "commercially_orderable": bool(
+            root_stock_binding.get("commercial_orderability_claimed") is True
+            and root_boundary_type == "commercially_orderable"
+        ),
+        "reaction_validation_not_applicable": bool(root_stock_binding),
+        "procurement_ready": False,
+    }
     payload = {
         "schema_version": "route_portfolio_bindings.v1",
         "stock_molecule_ids": stock_ids,
         "edge_proof_levels": dict(sorted(edge_levels.items())),
         "exact_edge_proof_bindings": dict(sorted(exact_edge_bindings.items())),
         "stock_bindings": dict(sorted(stock_bindings.items())),
+        "target_stock_status": target_stock_status,
         "matched_edge_count": len(edge_levels),
         "proof_step_count": len(proof_by_signature),
+        "accepted_supplemental_reaction_validation_count": len(
+            accepted_supplemental_reaction_validations
+        ),
+        "accepted_supplemental_edge_verification_report_count": (
+            accepted_edge_report_count
+        ),
+        "accepted_supplemental_stock_boundary_count": len(
+            accepted_supplemental_stock_boundaries
+        ),
         "matched_stock_terminal_count": len(stock_ids),
         "materialized_terminal_count": len(materialized_terminals),
         "unmatched_materialized_terminals": unmatched_terminals,
-        "stock_binding_valid": bool(contexts),
+        "stock_binding_valid": bool(contexts or accepted_supplemental_stock_boundaries),
         "all_materialized_terminals_proven": bool(
             materialized_terminals and not unmatched_terminals
         ),
         "stock_binding_source": "independent_stock_catalog_audit.terminal_evidence",
         "proof_binding_source": (
-            "route_verifier_bundle.v1"
+            "route_verifier_bundle_plus_codex_edge_verification.v1"
+            if accepted_supplemental_reaction_validations and contexts
+            else "codex_edge_verification_report.v1"
+            if accepted_supplemental_reaction_validations
+            else "route_verifier_bundle.v1"
             if bundle_meta["input_schema_version"] == "route_verifier_bundle.v1"
             else (
                 "strictly_replayed_route_proof_bank.v1"
@@ -965,6 +1084,330 @@ def _merge_exact_proof_sources(
                 proof_by_signature[signature] = binding
 
 
+def _supplemental_edge_validation_wrappers(
+    values: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Extract replay wrappers only from intact, internally linked reports."""
+
+    wrappers_by_sha256: dict[str, dict[str, Any]] = {}
+    accepted_report_sha256: set[str] = set()
+    for raw in values:
+        if not isinstance(raw, Mapping):
+            continue
+        report = dict(raw)
+        expected_sha256 = str(report.pop("content_sha256", "")).lower()
+        if (
+            raw.get("schema_version") != "codex_edge_verification_report.v1"
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+            or expected_sha256 != _digest(report)
+            or raw.get("no_solved_claim") is not True
+        ):
+            continue
+        edges = [
+            dict(row)
+            for row in raw.get("edge_verifications") or []
+            if isinstance(row, Mapping)
+        ]
+        wrappers = [
+            dict(row)
+            for row in raw.get("reaction_validations") or []
+            if isinstance(row, Mapping)
+        ]
+        try:
+            edge_count = int(raw.get("edge_count") or 0)
+        except (TypeError, ValueError):
+            continue
+        if (
+            edge_count != len(edges)
+            or edge_count != len(wrappers)
+            or len(edges) != len(raw.get("edge_verifications") or [])
+            or len(wrappers) != len(raw.get("reaction_validations") or [])
+        ):
+            continue
+        report_wrappers: list[dict[str, Any]] = []
+        linked = True
+        for edge, wrapper in zip(edges, wrappers):
+            candidate = edge.get("materialized_candidate")
+            if (
+                edge.get("schema_version") != "codex_edge_verification.v1"
+                or not isinstance(candidate, Mapping)
+                or dict(candidate)
+                != dict(wrapper.get("materialized_candidate") or {})
+            ):
+                linked = False
+                break
+            report_wrappers.append(wrapper)
+        if not linked:
+            continue
+        accepted_report_sha256.add(expected_sha256)
+        for wrapper in report_wrappers:
+            wrappers_by_sha256.setdefault(_digest(wrapper), wrapper)
+    return list(wrappers_by_sha256.values()), len(accepted_report_sha256)
+
+
+def _supplemental_stock_evidence(
+    values: Sequence[Mapping[str, Any]],
+    *,
+    stock_evidence_candidates: dict[str, list[dict[str, Any]]],
+    materialized_terminals: set[str],
+    trusted_stock_provider_instances: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Rebind host-produced stock provider envelopes to portfolio molecules."""
+
+    accepted: list[dict[str, Any]] = []
+    for raw in values:
+        if not isinstance(raw, Mapping):
+            continue
+        result = dict(raw)
+        payload = result.get("payload")
+        if (
+            not isinstance(payload, Mapping)
+            or payload.get("accepted") is not True
+        ):
+            continue
+        smiles = _canonical_smiles(payload.get("canonical_smiles"))
+        if not smiles:
+            continue
+        evidence = _replay_trusted_stock_provider_result(
+            result,
+            expected_smiles=smiles,
+            trusted_stock_provider_instances=trusted_stock_provider_instances,
+        )
+        if not _valid_stock_evidence(evidence):
+            continue
+        source_sha256 = str(result.get("content_hash") or _digest(result))
+        materialized_terminals.add(smiles)
+        stock_evidence_candidates.setdefault(smiles, []).append(
+            {
+                "evidence": evidence,
+                "authority": "verified_stock_provider_envelope",
+                "authority_sha256": source_sha256,
+                "report_id": f"stock-provider:{source_sha256[:24]}",
+                "verifier_source_sha256": source_sha256,
+                "proof_bank_entry_id": "",
+                "proof_bank_entry_sha256": "",
+                "stock_evidence_binding_sha256": "",
+            }
+        )
+        accepted.append(result)
+    return accepted
+
+
+def _stock_evidence_from_provider_payload(
+    result: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    *,
+    provider_descriptor_sha256: str,
+) -> dict[str, Any]:
+    boundary_type = str(payload.get("boundary_type") or "")
+    if boundary_type == "commercially_orderable":
+        offers = [
+            dict(row)
+            for row in payload.get("offers") or []
+            if isinstance(row, Mapping)
+            and row.get("available") is True
+            and row.get("snapshot_verified") is True
+        ]
+        offers.sort(
+            key=lambda row: (
+                str(row.get("supplier") or ""),
+                str(row.get("catalog_number") or ""),
+                str(row.get("snapshot_sha256") or ""),
+            )
+        )
+        if not offers:
+            return {}
+        offer = offers[0]
+        return {
+            "in_stock": True,
+            "catalog_id": ":".join(
+                value
+                for value in (
+                    str(offer.get("supplier") or ""),
+                    str(offer.get("catalog_number") or ""),
+                )
+                if value
+            ),
+            "catalog_sha256": str(offer.get("snapshot_sha256") or "").lower(),
+            "lookup_basis": "verified_commercial_snapshot_provider",
+            "provider_id": str(result.get("provider_id") or ""),
+            "provider_descriptor_sha256": provider_descriptor_sha256,
+            "provider_trust_authority": "autoplanner_host_builtin_allowlist.v1",
+            "boundary_type": boundary_type,
+            "benchmark_membership": False,
+            "commercial_orderability_claimed": True,
+            "snapshot_digest_replayed": True,
+        }
+    if boundary_type == "benchmark_stock":
+        bindings = [
+            dict(row)
+            for row in payload.get("catalog_bindings") or []
+            if isinstance(row, Mapping)
+        ]
+        bindings.sort(
+            key=lambda row: (
+                str(row.get("catalog_name") or row.get("catalog_id") or ""),
+                str(row.get("catalog_sha256") or ""),
+            )
+        )
+        for binding in bindings:
+            digest = str(binding.get("catalog_sha256") or "").lower()
+            catalog_id = str(
+                binding.get("catalog_name") or binding.get("catalog_id") or ""
+            )
+            if catalog_id and re.fullmatch(r"[0-9a-f]{64}", digest):
+                return {
+                    "in_stock": True,
+                    "catalog_id": catalog_id,
+                    "catalog_sha256": digest,
+                    "lookup_basis": f"verified_{boundary_type}_provider",
+                    "provider_id": str(result.get("provider_id") or ""),
+                    "provider_descriptor_sha256": provider_descriptor_sha256,
+                    "provider_trust_authority": (
+                        "autoplanner_host_builtin_allowlist.v1"
+                    ),
+                    "boundary_type": boundary_type,
+                    "benchmark_membership": True,
+                    "commercial_orderability_claimed": False,
+                    "catalog_artifact": str(binding.get("catalog_path") or ""),
+                    "artifact_hash_replayed": True,
+                    "canonical_membership_replayed": True,
+                }
+    return {}
+
+
+def _replay_trusted_stock_provider_result(
+    result: Mapping[str, Any],
+    *,
+    expected_smiles: str,
+    trusted_stock_provider_instances: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Re-invoke one allowlisted stock implementation from materialized input.
+
+    A valid provider-envelope hash only proves internal consistency.  It does
+    not prove that the named provider exists, that a benchmark file still has
+    the asserted bytes, or that a supplier snapshot was signed over the fields
+    being consumed.  This boundary therefore binds the exact built-in host
+    descriptor and reconstructs the provider result before extracting evidence.
+    """
+
+    try:
+        from cascade_planner.providers.contracts import (
+            ProviderContext,
+            validate_provider_result,
+        )
+        from cascade_planner.providers.stock import (
+            BenchmarkCatalogStockProvider,
+            SnapshotStockProvider,
+        )
+    except ImportError:
+        return {}
+
+    provider_id = str(result.get("provider_id") or "")
+    provider_classes = {
+        SnapshotStockProvider.descriptor.provider_id: SnapshotStockProvider,
+        BenchmarkCatalogStockProvider.descriptor.provider_id: (
+            BenchmarkCatalogStockProvider
+        ),
+    }
+    provider_class = provider_classes.get(provider_id)
+    if provider_class is None:
+        return {}
+    descriptor = provider_class.descriptor
+    if validate_provider_result(result, descriptor=descriptor):
+        return {}
+    if (
+        result.get("accepted") is not True
+        or result.get("output_schema") != "stock_boundary.v1"
+        or result.get("provider_kind") != "stock"
+    ):
+        return {}
+    payload = result.get("payload")
+    if not isinstance(payload, Mapping):
+        return {}
+    payload_row = dict(payload)
+    if (
+        payload_row.get("accepted") is not True
+        or _canonical_smiles(payload_row.get("canonical_smiles")) != expected_smiles
+    ):
+        return {}
+    context = ProviderContext(
+        run_id="portfolio-stock-replay",
+        case_id="portfolio-stock-replay",
+        target_smiles=expected_smiles,
+    )
+    try:
+        if provider_class is BenchmarkCatalogStockProvider:
+            bindings = [
+                dict(row)
+                for row in payload_row.get("catalog_bindings") or []
+                if isinstance(row, Mapping)
+            ]
+            if len(bindings) != 1:
+                return {}
+            binding = bindings[0]
+            artifact = str(binding.get("catalog_path") or "").strip()
+            catalog_sha256 = str(binding.get("catalog_sha256") or "").lower()
+            catalog_name = str(binding.get("catalog_name") or "").strip()
+            if (
+                not artifact
+                or not catalog_name
+                or binding.get("artifact_hash_verified") is not True
+                or binding.get("commercial_orderability_claimed") is not False
+                or artifact not in {str(value) for value in result.get("source_refs") or []}
+            ):
+                return {}
+            provider = BenchmarkCatalogStockProvider(
+                catalog_artifact=artifact,
+                catalog_sha256=catalog_sha256,
+                catalog_name=catalog_name,
+            )
+            replayed = provider.invoke(
+                {"schema_version": "stock_lookup_request.v1", "smiles": expected_smiles},
+                context=context,
+            ).to_dict()
+        else:
+            # A digest-consistent snapshot embedded in the envelope is not a
+            # trust root: an attacker can invent both its fields and hash.  It
+            # is only a replay request against a host-owned provider instance
+            # whose construction-time trust set was established out-of-band.
+            provider = trusted_stock_provider_instances.get(provider_id)
+            if type(provider) is not SnapshotStockProvider:
+                return {}
+            offers = [
+                dict(row)
+                for row in payload_row.get("offers") or []
+                if isinstance(row, Mapping)
+            ]
+            if not offers or len(offers) != len(payload_row.get("offers") or []):
+                return {}
+            requests: list[dict[str, Any]] = []
+            for offer in offers:
+                snapshot = offer.get("snapshot")
+                if not isinstance(snapshot, Mapping):
+                    return {}
+                snapshot_row = dict(snapshot)
+                supplied_sha256 = str(offer.get("snapshot_sha256") or "").lower()
+                requests.append({**snapshot_row, "snapshot_sha256": supplied_sha256})
+            replayed = provider.invoke(
+                {
+                    "schema_version": "stock_lookup_request.v1",
+                    "smiles": expected_smiles,
+                    "offers": requests,
+                },
+                context=context,
+            ).to_dict()
+    except (OSError, TypeError, ValueError):
+        return {}
+    if replayed != dict(result):
+        return {}
+    return _stock_evidence_from_provider_payload(
+        replayed,
+        dict(replayed.get("payload") or {}),
+        provider_descriptor_sha256=_digest(descriptor.to_dict()),
+    )
+
+
 def _bind_proofs_to_overlay_edges(
     overlay: Mapping[str, Any],
     *,
@@ -1099,6 +1542,99 @@ def _strict_legacy_verifier_valid(
     )
 
 
+def _replay_supplemental_reaction_validation(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Recompute a supplemental edge proof from its materialized candidate.
+
+    The producer's proof and digest are comparison copies only.  Authority is
+    granted solely to the result produced here by the currently imported host
+    verifier.  Stock closure is forced off because it is independently rebound
+    by the portfolio stock boundary.
+    """
+
+    row = dict(value or {})
+    expected_sha256 = str(row.pop("content_sha256", "")).lower()
+    if (
+        value.get("schema_version") != "supplemental_reaction_validation.v2"
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+        or expected_sha256 != _digest(row)
+        or value.get("no_solved_claim") is not True
+        or value.get("stock_authority_disabled_for_replay") is not True
+    ):
+        return {}
+    candidate_raw = value.get("materialized_candidate")
+    mapper_raw = value.get("mapper_output")
+    claimed_step_raw = value.get("claimed_step_proof")
+    claimed_route_raw = value.get("claimed_route_validation")
+    if not all(
+        isinstance(item, Mapping)
+        for item in (candidate_raw, mapper_raw, claimed_step_raw, claimed_route_raw)
+    ):
+        return {}
+    candidate = dict(candidate_raw)
+    mapper_output = dict(mapper_raw)
+    claimed_step = dict(claimed_step_raw)
+    claimed_route = dict(claimed_route_raw)
+    raw_product = str(candidate.get("product_smiles") or "")
+    raw_reactants = candidate.get("reactant_smiles")
+    if not isinstance(raw_reactants, list) or not raw_reactants:
+        return {}
+    canonical_product = _canonical_smiles(raw_product)
+    canonical_reactants = [_canonical_smiles(item) for item in raw_reactants]
+    if (
+        candidate.get("schema_version") != "materialized_reaction_candidate.v1"
+        or candidate.get("no_solved_claim") is not True
+        or candidate.get("not_parent_route_proof") is not True
+        or candidate.get("advisory_input") is not True
+        or not canonical_product
+        or canonical_product != raw_product
+        or any(not item for item in canonical_reactants)
+        or sorted(canonical_reactants) != list(raw_reactants)
+        or str(candidate.get("reaction_smiles") or "")
+        != f"{'.'.join(canonical_reactants)}>>{canonical_product}"
+    ):
+        return {}
+    mapped_reaction = str(candidate.get("atom_mapped_reaction_smiles") or "")
+    if (
+        mapper_output.get("schema_version") != "atom_mapper_output.v1"
+        or str(mapper_output.get("input_reaction_smiles") or "")
+        != str(candidate.get("reaction_smiles") or "")
+        or str(mapper_output.get("mapped_reaction_smiles") or "")
+        != mapped_reaction
+        or str(mapper_output.get("mapping_source") or "")
+        != str(candidate.get("mapping_source") or "")
+        or not mapped_reaction
+        or ":" not in mapped_reaction
+        or ">>" not in mapped_reaction
+    ):
+        return {}
+    try:
+        from cascade_planner.harness.reaction_step_verifier import (
+            verify_reaction_route,
+            verify_reaction_step,
+        )
+    except ImportError:
+        return {}
+    replayed_step = verify_reaction_step(
+        candidate,
+        graph_and_stock_closed=False,
+    )
+    replayed_route = verify_reaction_route(
+        [candidate],
+        graph_and_stock_closed=False,
+    )
+    if (
+        replayed_step != claimed_step
+        or replayed_route != claimed_route
+        or list(replayed_route.get("step_proofs") or []) != [replayed_step]
+        or replayed_route.get("accepted") is not True
+        or not _valid_reaction_route_digest(replayed_route)
+    ):
+        return {}
+    return replayed_route
+
+
 def _valid_reaction_route_digest(value: Mapping[str, Any]) -> str:
     row = dict(value or {})
     expected = str(row.pop("proof_digest", "")).lower()
@@ -1177,13 +1713,25 @@ def _exact_proof_binding(
     if named_level in {"L3_precedent_supported", "L4_procurement_ready"}:
         if (
             not accepted
+            or str(row.get("validator_version") or "")
+            != REACTION_STEP_VERIFIER_VERSION
             or not _mapping_consistency_checks_pass(checks)
             or checks.get("trusted_precedent_bound") is not True
             or not strict_precedent
         ):
             level = 0
     elif named_level == "L2_reaction_validated":
-        if not accepted:
+        transform_audit = dict(row.get("deterministic_transform_audit") or {})
+        if (
+            not accepted
+            or not _mapping_consistency_checks_pass(checks)
+            or checks.get("deterministic_transform_reapplied") is not True
+            or transform_audit.get("schema_version")
+            != "deterministic_transform_reapply_audit.v1"
+            or transform_audit.get("accepted") is not True
+            or str(row.get("validator_version") or "")
+            != REACTION_STEP_VERIFIER_VERSION
+        ):
             level = 0
     elif named_level == "L2_mapping_consistent":
         # Atom-map consistency is useful advisory evidence, but it cannot
@@ -1229,7 +1777,6 @@ def _mapping_consistency_checks_pass(checks: Mapping[str, Any]) -> bool:
         "mapped_reaction_present",
         "mapped_product_matches",
         "mapped_reactants_match",
-        "atom_maps_complete",
         "atom_maps_unique",
         "product_atoms_have_reactant_provenance",
         "mapped_elements_preserved",
@@ -1240,7 +1787,18 @@ def _mapping_consistency_checks_pass(checks: Mapping[str, Any]) -> bool:
         "reaction_edit_budget_plausible",
         "stereochemical_product_matches",
     )
-    return all(checks.get(key) is True for key in required)
+    mapping_policy_satisfied = bool(
+        (
+            checks.get("product_atom_maps_complete") is True
+            and checks.get("reactant_departing_atoms_plausible") is True
+        )
+        # Compatibility for digest-valid v2 fixtures; accepted authority is
+        # still rejected above unless the validator version is current.
+        or checks.get("atom_maps_complete") is True
+    )
+    return mapping_policy_satisfied and all(
+        checks.get(key) is True for key in required
+    )
 
 
 def _strict_trusted_precedent_binding(
@@ -1429,6 +1987,7 @@ def _portfolio_item(
     edges: Mapping[str, Mapping[str, Any]],
     edge_proof_levels: Mapping[str, int | Mapping[str, Any]],
     min_reaction_proof_level: int,
+    stock_bindings: Mapping[str, Mapping[str, Any]],
 ) -> RoutePortfolioItem:
     selections = tuple(sorted(candidate.selection.items()))
     selected_edges = [edges[edge_id] for _, edge_id in selections]
@@ -1450,9 +2009,22 @@ def _portfolio_item(
     reaction_validated = bool(selections) and all(
         level >= min_reaction_proof_level for level in proof_levels
     )
-    if not selections and root_id in candidate.stock:
-        reaction_validated = True
-        weakest = 4
+    target_stock_available = bool(not selections and root_id in candidate.stock)
+    target_stock_binding = dict(stock_bindings.get(root_id) or {})
+    target_boundary_type = str(target_stock_binding.get("boundary_type") or "")
+    target_benchmark_membership = bool(
+        target_stock_available
+        and (
+            target_stock_binding.get("benchmark_membership") is True
+            or target_boundary_type == "benchmark_stock"
+        )
+    )
+    target_commercially_orderable = bool(
+        target_stock_available
+        and target_boundary_type == "commercially_orderable"
+        and target_stock_binding.get("commercial_orderability_claimed") is True
+    )
+    procurement_ready = bool(selections and reaction_validated and weakest >= 4)
     proof_score = weakest / 4.0
     support_score = min(len(support_groups) / 3.0, 1.0)
     length_penalty = min(len(selections) / 50.0, 0.25)
@@ -1480,6 +2052,15 @@ def _portfolio_item(
         portfolio_score=base_score,
         complete=complete,
         reaction_validated=reaction_validated,
+        procurement_ready=procurement_ready,
+        target_stock_available=target_stock_available,
+        target_stock_boundary_type=(
+            target_boundary_type
+            if target_stock_available
+            else ""
+        ),
+        target_benchmark_membership=target_benchmark_membership,
+        target_commercially_orderable=target_commercially_orderable,
         unresolved_frontiers=tuple(candidate.unresolved),
     )
 

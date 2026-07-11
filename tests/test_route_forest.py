@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from pathlib import Path
+from unittest.mock import patch
 
+from cascade_planner.application.frontier_ledger import exact_edge_signature
 from cascade_planner.harness.route_forest import (
     SCHEMA_VERSION,
     _branch_title_for_display,
@@ -18,14 +21,434 @@ from cascade_planner.harness.route_forest import (
     write_route_forest_artifacts,
 )
 from cascade_planner.harness.parent_route_proof import compile_stitched_parent_route_proof
+from cascade_planner.harness.reaction_step_verifier import verify_reaction_step
 from cascade_planner.harness.route_verifier import verify_chemenzy_raw_routes
 from cascade_planner.harness.stitched_route import compile_stitched_semisynthesis_route
+from cascade_planner.providers.contracts import ProviderContext
+from cascade_planner.providers.stock import (
+    BenchmarkCatalogStockProvider,
+    replay_stock_provider_result,
+)
 
 
 _SOURCE_FIXTURE = Path(__file__).parent / "fixtures" / "source_evidence_stub.pdf"
 _SOURCE_PAGE_FIXTURE = Path(__file__).parent / "fixtures" / "source_page.ppm"
 _SOURCE_MANIFEST_FIXTURE = Path(__file__).parent / "fixtures" / "source_evidence_manifest.json"
 _TRUSTED_REGISTRY_FIXTURE = Path(__file__).parent / "fixtures" / "trusted_literature_step_registry.json"
+
+
+def _frontier_ledger_fixture(catalog_dir: Path) -> tuple[dict, dict]:
+    """Small internally consistent ledger with one closed and one open option."""
+
+    target = "CCOC(C)=O"
+    closed_precursors = ["CC(=O)Cl", "CCO"]
+    closed_edge = exact_edge_signature(target, closed_precursors)
+    open_edge = exact_edge_signature(target, ["C"])
+    materialized = {
+        "schema_version": "materialized_reaction_candidate.v1",
+        "step_id": "step:closed",
+        "product_smiles": target,
+        "reactant_smiles": closed_precursors,
+        "atom_mapped_reaction_smiles": (
+            "[CH3:4][C:5](=[O:6])[Cl:7].[CH3:1][CH2:2][OH:3]"
+            ">>[CH3:4][C:5](=[O:6])[O:3][CH2:2][CH3:1]"
+        ),
+        "mapping_source": "route_forest_fixture",
+    }
+    closed_proof = verify_reaction_step(materialized)
+    assert closed_proof["accepted"] is True
+
+    stock_bindings: dict[str, dict] = {}
+    catalog = catalog_dir / "route-forest-stock.smi"
+    catalog.write_text("CC(=O)Cl\nCCO\n", encoding="utf-8")
+    provider = BenchmarkCatalogStockProvider(
+        catalog_artifact=catalog,
+        catalog_sha256=hashlib.sha256(catalog.read_bytes()).hexdigest(),
+        catalog_name="route-forest-fixture",
+    )
+    providers = {provider.descriptor.provider_id: provider}
+    for index, smiles in enumerate(closed_precursors, start=1):
+        result = provider.invoke(
+            {"schema_version": "stock_lookup_request.v1", "smiles": smiles},
+            context=ProviderContext(
+                run_id="route-forest-fixture",
+                case_id="route-forest-fixture",
+                target_smiles=smiles,
+            ),
+        ).to_dict()
+        binding, replay_reasons = replay_stock_provider_result(
+            result,
+            expected_smiles=smiles,
+            trusted_provider_instances=providers,
+        )
+        assert not replay_reasons
+        stock_bindings[smiles] = {
+            **binding,
+            "job_id": f"stock:{index}",
+            "achieved_proof_level": 0,
+            "boundary_type": "benchmark_stock",
+        }
+
+    def digest(value: object) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    def molecule(
+        smiles: str,
+        *,
+        outgoing: list[str],
+        incoming: list[str] | None = None,
+        expanded: bool = False,
+        stock_closed: bool = False,
+        any_closed: bool = False,
+        all_closed: bool = False,
+    ) -> dict:
+        return {
+            "schema_version": "frontier_ledger_molecule.v1",
+            "canonical_smiles": smiles,
+            "node_ids": [],
+            "proposal": {
+                "state": "expanded" if outgoing else "frontier",
+                "outgoing_edge_signatures": outgoing,
+                "alternative_count": len(outgoing),
+            },
+            "work": {
+                "job_ids": ["frontier:expanded"] if expanded else [],
+                "states": ["succeeded"] if expanded else [],
+                "open": False,
+                "proposal_expansion_allowed": False,
+                "proposal_expansion_succeeded": expanded,
+                "queue_dependency_ids": [],
+            },
+            "stock": {
+                "closed": stock_closed,
+                "search_boundary_closed": stock_closed,
+                "benchmark_search_boundary_closed": stock_closed,
+                "closure_job_ids": (
+                    [stock_bindings[smiles]["job_id"]] if stock_closed else []
+                ),
+                "boundary_types": ["benchmark_stock"] if stock_closed else [],
+                "benchmark_membership_closed": stock_closed,
+                "benchmark_only": stock_closed,
+                "procurement_boundary_closed": False,
+                "commercial_orderability_closed": False,
+                "host_replay_verified": stock_closed,
+                "current_observation_ids": (
+                    [f"stock-observation:{smiles}"] if stock_closed else []
+                ),
+                "closure_replay_bindings": (
+                    [stock_bindings[smiles]] if stock_closed else []
+                ),
+                "rejected_stock_job_ids": [],
+                "replay_rejection_reasons": {},
+            },
+            "reaction_proof": {
+                "outgoing_edge_count": len(outgoing),
+                "closed_outgoing_edge_count": 1 if closed_edge in outgoing else 0,
+                "all_outgoing_edges_proven": bool(outgoing) and outgoing == [closed_edge],
+                "terminal_closure": {
+                    "closed": False,
+                    "closure_job_ids": [],
+                    "best_proof_level": 0,
+                },
+            },
+            "dependencies": {
+                "outgoing_edge_signatures": outgoing,
+                "incoming_edge_signatures": list(incoming or []),
+            },
+            "closure": {
+                "any_benchmark_route_closed": any_closed,
+                "all_explored_benchmark_closed": all_closed,
+                "any_procurement_route_closed": False,
+                "all_explored_procurement_closed": False,
+                "any_route_closed": any_closed,
+                "all_explored_graph_closed": all_closed,
+            },
+        }
+
+    def edge(
+        signature: str,
+        *,
+        precursors: list[str],
+        achieved: int,
+        any_closed: bool,
+        all_closed: bool,
+    ) -> dict:
+        closed = achieved >= 2
+        step_id = "step:closed" if closed else "step:open"
+        return {
+            "schema_version": "frontier_ledger_edge.v1",
+            "exact_edge_signature": signature,
+            "product_smiles": target,
+            "precursor_smiles": precursors,
+            "proposal": {
+                "present": True,
+                "step_ids": [step_id],
+                "proposal_ids": [],
+                "source_refs": [],
+                "evidence_refs": [],
+            },
+            "work": {
+                "product_frontier_job_ids": [],
+                "proof_request_ids": [],
+                "open_proof_work": not closed,
+            },
+            "stock": {
+                "precursor_count": len(precursors),
+                "stock_closed_precursor_count": len(precursors) if all_closed else 0,
+                "all_precursors_stock_closed": all_closed,
+            },
+            "reaction_proof": {
+                "closed": closed,
+                "required_proof_level": 2,
+                "achieved_proof_level": achieved,
+                "proof_level": str(closed_proof["proof_level"]) if closed else "",
+                "authority": "current_host_verifier_replay" if closed else "none",
+                "proof_request_ids": [],
+                "step_ids": [step_id],
+                "exact_edge_signature": signature,
+                "host_replay_binding": (
+                    {
+                        "schema_version": "frontier_ledger_host_replay_binding.v1",
+                        "proof_request_id": "proof:closed",
+                        "materialized_candidate": materialized,
+                        "materialized_candidate_sha256": digest(materialized),
+                        "proof": closed_proof,
+                        "proof_authority": "current_host_verifier_replay",
+                    }
+                    if closed
+                    else {}
+                ),
+            },
+            "dependencies": {
+                "requires_molecule_smiles": precursors,
+                "precursor_edge_options": {item: [] for item in sorted(set(precursors))},
+                "required_by_edge_signatures": [],
+            },
+            "closure": {
+                "any_benchmark_route_closed": any_closed,
+                "all_explored_benchmark_closed": all_closed,
+                "any_procurement_route_closed": False,
+                "all_explored_procurement_closed": False,
+                "any_route_closed": any_closed,
+                "all_explored_graph_closed": all_closed,
+            },
+        }
+
+    payload = {
+        "schema_version": "frontier_ledger.v1",
+        "root": {
+            "canonical_smiles": target,
+            "node_ids": [],
+            "closure": {
+                "any_benchmark_route_closed": True,
+                "all_explored_benchmark_closed": False,
+                "any_procurement_route_closed": False,
+                "all_explored_procurement_closed": False,
+                "any_route_closed": True,
+                "all_explored_graph_closed": False,
+            },
+        },
+        "required_reaction_proof_level": 2,
+        "molecules": {
+            target: molecule(
+                target,
+                outgoing=[closed_edge, open_edge],
+                expanded=True,
+                any_closed=True,
+                all_closed=False,
+            ),
+            "CC(=O)Cl": molecule(
+                "CC(=O)Cl",
+                outgoing=[],
+                incoming=[closed_edge],
+                stock_closed=True,
+                any_closed=True,
+                all_closed=True,
+            ),
+            "CCO": molecule(
+                "CCO",
+                outgoing=[],
+                incoming=[closed_edge],
+                stock_closed=True,
+                any_closed=True,
+                all_closed=True,
+            ),
+            "C": molecule("C", outgoing=[], incoming=[open_edge]),
+        },
+        "edges": {
+            closed_edge: edge(
+                closed_edge,
+                precursors=closed_precursors,
+                achieved=2,
+                any_closed=True,
+                all_closed=True,
+            ),
+            open_edge: edge(
+                open_edge,
+                precursors=["C"],
+                achieved=0,
+                any_closed=False,
+                all_closed=False,
+            ),
+        },
+        "summary": {
+            "any_benchmark_route_closed": True,
+            "all_explored_benchmark_closed": False,
+            "any_procurement_route_closed": False,
+            "all_explored_procurement_closed": False,
+            "any_route_closed": True,
+            "all_explored_graph_closed": False,
+            "reachable_molecule_count": 4,
+            "reachable_edge_count": 2,
+            "reaction_proven_edge_count": 1,
+            "stock_closed_molecule_count": 2,
+            "benchmark_membership_closed_molecule_count": 2,
+            "procurement_boundary_closed_molecule_count": 0,
+            "proposal_pending_molecule_count": 1,
+            "proposal_expansion_eligible_molecule_count": 0,
+            "work_pending_molecule_count": 0,
+            "stock_pending_leaf_count": 1,
+            "reaction_proof_pending_edge_count": 1,
+            "dependency_pending_edge_count": 1,
+            "open_work_molecule_count": 0,
+            "fixed_point_iterations": 2,
+            "benchmark_fixed_point_iterations": 2,
+            "procurement_fixed_point_iterations": 1,
+        },
+        "input_validation": {
+            "graph": {"valid": True, "reasons": []},
+            "frontier_queue": {"valid": True, "reasons": []},
+            "reaction_proof_state": {"valid": True, "reasons": []},
+            "stock_authority": {
+                "valid": True,
+                "positive_claim_count": 2,
+                "host_replayed_claim_count": 2,
+                "rejected_claim_count": 0,
+                "rejection_reasons": [],
+                "authority_boundary": "current_host_stock_provider_replay",
+            },
+        },
+        "semantics": {
+            "invalid_authority_fails_closed": True,
+            "generic_any_all_mean_benchmark_search_closure": True,
+            "procurement_closure_has_an_independent_fixed_point": True,
+        },
+    }
+    payload["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return payload, providers
+
+
+def _bind_frontier_ledger_inputs(
+    ledger: dict,
+    *,
+    case_id: str,
+    provider: BenchmarkCatalogStockProvider,
+) -> tuple[dict, dict, dict]:
+    def digest(value: object) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    target = str(ledger["root"]["canonical_smiles"])
+    steps = []
+    for index, edge in enumerate(ledger["edges"].values(), start=1):
+        precursors = list(edge["precursor_smiles"])
+        edge_step_ids = list((edge.get("proposal") or {}).get("step_ids") or [])
+        step_id = str(edge_step_ids[0] if edge_step_ids else f"step:{index}")
+        steps.append(
+            {
+                "schema_version": "route_consensus_step.v1",
+                "step_id": step_id,
+                "signature": f"{target}<-{'.'.join(sorted(precursors))}",
+                "product_smiles": target,
+                "precursor_smiles": precursors,
+            }
+        )
+    graph = {
+        "schema_version": "route_consensus_graph.v1",
+        "case_id": case_id,
+        "target_smiles": target,
+        "steps": steps,
+        "nodes": [],
+        "route_hypotheses": [],
+    }
+    graph_identity = digest(
+        {
+            "schema_version": graph["schema_version"],
+            "case_id": case_id,
+            "target_smiles": target,
+            "steps": sorted(
+                [
+                    {
+                        "step_id": row["step_id"],
+                        "signature": row["signature"],
+                        "product_smiles": row["product_smiles"],
+                        "precursor_smiles": sorted(row["precursor_smiles"]),
+                    }
+                    for row in steps
+                ],
+                key=lambda row: (row["step_id"], row["signature"]),
+            ),
+        }
+    )
+    queue = {
+        "schema_version": "frontier_queue.v1",
+        "run_id": case_id,
+        "revision": 7,
+        "jobs": [
+            {
+                "job_id": "frontier:expanded",
+                "frontier_smiles": target,
+                "state": "succeeded",
+                "closure_kind": "proposal_expansion",
+            }
+        ],
+    }
+    queue["content_sha256"] = digest(queue)
+    policy = {
+        "schema_version": "codex_retrosynthesis_campaign_policy.v1",
+        "case_id": case_id,
+        "canonical_target_smiles": target,
+        "stock_authority_binding": {
+            "provider_descriptor": provider.descriptor.to_dict(),
+            "catalog_artifact": str(provider.catalog_artifact),
+            "catalog_sha256": str(provider.catalog_sha256),
+            "catalog_name": str(provider.catalog_name),
+        },
+    }
+    policy["content_sha256"] = digest(policy)
+    ledger["input_bindings"] = {
+        "schema_version": "frontier_ledger_input_bindings.v1",
+        "graph_identity_sha256": graph_identity,
+        "frontier_queue_content_sha256": queue["content_sha256"],
+        "frontier_queue_revision": queue["revision"],
+        "campaign_policy_sha256": policy["content_sha256"],
+    }
+    ledger.pop("content_sha256", None)
+    ledger["content_sha256"] = digest(ledger)
+    return graph, queue, policy
 
 
 def _sample_paclitaxel_blackboard() -> dict:
@@ -158,12 +581,20 @@ def _solved_parent_proof(*, route: dict | None = None, target_smiles: str = "CCO
             }
         ],
     }
-    verifier = verify_chemenzy_raw_routes(raw, target_smiles=target_smiles)
-    return compile_stitched_parent_route_proof(
-        target_smiles=target_smiles,
-        target_name="test target",
-        parent_verifier=verifier,
-    )
+    # This helper represents an authoritative parent proof, so bind its exact
+    # source row through the independently curated fixture registry.  Atom-map
+    # consistency alone is intentionally insufficient after the verifier
+    # hardening.
+    with patch.dict(
+        "os.environ",
+        {"AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY": str(_TRUSTED_REGISTRY_FIXTURE)},
+    ):
+        verifier = verify_chemenzy_raw_routes(raw, target_smiles=target_smiles)
+        return compile_stitched_parent_route_proof(
+            target_smiles=target_smiles,
+            target_name="test target",
+            parent_verifier=verifier,
+        )
 
 
 def _strict_literature_step(
@@ -671,6 +1102,44 @@ def test_route_forest_does_not_trust_declared_groups_without_source_records() ->
     assert branch["multi_source"] is False
 
 
+def test_route_forest_requires_bound_computational_source_authority() -> None:
+    blackboard = _sample_route_consensus_blackboard()
+    proposal = blackboard["codex_agent_team"]["route_consensus"]["proposals"][1]
+    proposal["source_records"] = [
+        {
+            "candidate_id": "legacy-chemenzy",
+            "source_channel": "chem_enzy",
+            "evidence_level": "computational",
+            "confidence": "high",
+            "authority_bound": False,
+            "authority_basis": "unbound_producer",
+            "source_refs": [],
+            "evidence_refs": [],
+        }
+    ]
+
+    unbound = compile_explored_route_forest(blackboard)
+    branch = next(
+        row
+        for row in unbound["branches"]
+        if row.get("consensus_id") == "consensus:hydration"
+    )
+    assert branch["independent_support_groups"] == ["codex_model"]
+
+    record = proposal["source_records"][0]
+    record["authority_bound"] = True
+    record["authority_basis"] = "deterministic_chemenzy_adapter"
+    bound = compile_explored_route_forest(blackboard)
+    branch = next(
+        row
+        for row in bound["branches"]
+        if row.get("consensus_id") == "consensus:hydration"
+    )
+    assert branch["independent_support_groups"] == [
+        "computational:chem_enzy"
+    ]
+
+
 def test_route_forest_does_not_display_consensus_from_rejected_team() -> None:
     blackboard = _sample_route_consensus_blackboard()
     blackboard["codex_agent_team"]["accepted"] = False
@@ -765,27 +1234,55 @@ def test_route_forest_counts_real_sources_separately_from_placeholders() -> None
         "doi:10.1021/np990040k",
         "query:paclitaxel:total_synthesis",
     ]
+    evidence["source_identity_summary"] = {
+        "schema_version": "literature_source_identity_summary.v1",
+        "document_count": 1,
+        "independent_source_group_count": 1,
+        "representation_count": 2,
+    }
 
     forest = compile_explored_route_forest(blackboard)
     counts = forest["run_trace"]["literature_counts"]
     index = forest["evidence_index"]
 
     assert counts["source_candidates"] == 3
+    assert counts["candidate_record_count"] == 3
     assert counts["real_source_candidates"] == 2
+    assert counts["real_source_candidate_records"] == 2
     assert counts["placeholder_candidates"] == 1
     assert counts["source_candidate_records"] == 3
     assert counts["source_refs"] == 2
     assert counts["real_source_refs"] == 1
     assert counts["placeholder_source_refs"] == 1
+    assert counts["document_count"] == 1
+    assert counts["independent_source_group_count"] == 1
+    assert counts["representation_count"] == 2
     assert len(index["source_candidates"]) == 3
     assert len(index["real_source_candidates"]) == 2
     assert len(index["placeholder_candidates"]) == 1
     assert index["source_candidate_summary"] == {
         "real_source_count": 2,
+        "real_source_candidate_record_count": 2,
         "placeholder_count": 1,
         "record_count": 3,
     }
+    assert index["source_identity_summary"] == {
+        "schema_version": "route_forest_source_identity_summary.v1",
+        "document_count": 1,
+        "independent_source_group_count": 1,
+        "representation_count": 2,
+        "candidate_record_count": 3,
+        "real_source_candidate_record_count": 2,
+        "semantics": {
+            "candidate_records_are_not_independent_sources": True,
+            "document_and_representation_counts_are_distinct": True,
+        },
+    }
     assert index["placeholder_candidates"][0]["placeholder_only"] is True
+    html = render_route_forest_html(forest)
+    assert "独立信源组" in html
+    assert "文献文档" in html
+    assert "候选记录" in html
 
 
 def test_route_forest_applies_strict_locator_rules_to_source_metrics() -> None:
@@ -964,7 +1461,8 @@ def test_route_forest_does_not_invent_atorvastatin_process_route_from_source_met
     assert "advanced ketal ester intermediate 4" not in haystack
 
 
-def test_route_forest_does_not_integrate_source_metadata_with_verified_route() -> None:
+def test_route_forest_does_not_integrate_source_metadata_with_verified_route(monkeypatch) -> None:
+    monkeypatch.setenv("AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY", str(_TRUSTED_REGISTRY_FIXTURE))
     blackboard = _sample_atorvastatin_blackboard()
     blackboard["target_profile"]["target_name"] = "test target"
     blackboard["target_profile"]["target_smiles"] = "CCO"
@@ -974,6 +1472,11 @@ def test_route_forest_does_not_integrate_source_metadata_with_verified_route() -
 
     assert [row["kind"] for row in forest["branches"]] == ["direct_verified_route"]
     assert forest["relationships"] == []
+    # Parent-route proof is an independent L3 authority; it does not invent a
+    # hypergraph-closure claim when the frontier ledger is absent.
+    assert forest["frontier_ledger"]["closure"]["l3_parent_solved"] is True
+    assert forest["frontier_ledger"]["closure"]["l4_procurement_ready"] is False
+    assert forest["frontier_ledger"]["closure"]["any_route_closed"] is False
 
 
 def test_stitched_route_ignores_loose_top_level_route_injection(monkeypatch) -> None:
@@ -1363,7 +1866,8 @@ def test_route_forest_projects_process_evidence_as_advisory_anchor() -> None:
     assert "生物合成 / 生物转化" in render_route_forest_html(forest)
 
 
-def test_route_forest_classifies_only_structured_route_metadata() -> None:
+def test_route_forest_classifies_only_structured_route_metadata(monkeypatch) -> None:
+    monkeypatch.setenv("AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY", str(_TRUSTED_REGISTRY_FIXTURE))
     forest = compile_explored_route_forest(
         {
             "case_id": "structured_route_classification",
@@ -1414,7 +1918,8 @@ def test_route_forest_classifies_only_structured_route_metadata() -> None:
     )
 
 
-def test_parent_proof_does_not_promote_unbound_process_backbone() -> None:
+def test_parent_proof_does_not_promote_unbound_process_backbone(monkeypatch) -> None:
+    monkeypatch.setenv("AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY", str(_TRUSTED_REGISTRY_FIXTURE))
     forest = compile_explored_route_forest(
         {
             "case_id": "unbound_display_backbone",
@@ -1479,7 +1984,8 @@ def test_route_forest_adds_unclosed_exploration_diagnostic_when_blackboard_is_no
     assert "source candidates: 1" in haystack
 
 
-def test_route_forest_projects_direct_verified_chemenzy_route(tmp_path) -> None:
+def test_route_forest_projects_direct_verified_chemenzy_route(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY", str(_TRUSTED_REGISTRY_FIXTURE))
     result_path = tmp_path / "guided_chemenzy_result.json"
     raw = {
         "target": "CCO",
@@ -1607,7 +2113,8 @@ def test_guided_l1_or_l2_route_without_parent_proof_is_advisory(tmp_path) -> Non
     assert forest["primary_selection"]["advisory_only"] is True
 
 
-def test_explicit_unresolved_final_verdict_cannot_display_solved_branch() -> None:
+def test_explicit_unresolved_final_verdict_cannot_display_solved_branch(monkeypatch) -> None:
+    monkeypatch.setenv("AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY", str(_TRUSTED_REGISTRY_FIXTURE))
     forest = compile_explored_route_forest(
         {
             "case_id": "unresolved-verdict-overrides-display",
@@ -1754,7 +2261,8 @@ def test_route_forest_embeds_molecule_svgs_and_step_conditions() -> None:
     assert "条件" in html
 
 
-def test_direct_parent_proof_still_projects_without_artifact(tmp_path) -> None:
+def test_direct_parent_proof_still_projects_without_artifact(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY", str(_TRUSTED_REGISTRY_FIXTURE))
     blackboard = {
         "case_id": "embedded_parent_route_test",
         "target_profile": {
@@ -2691,7 +3199,16 @@ def test_route_forest_marks_closeout_revision_as_source_context_only() -> None:
     assert "source_context_only_never_self_authenticates_delivery" in html
 
 
-def test_route_forest_propagates_only_deterministically_reverified_reaction_proof_tier() -> None:
+def test_route_forest_propagates_only_deterministically_reverified_reaction_proof_tier(
+    monkeypatch,
+) -> None:
+    # Keep a registry entry with the same reaction digest in scope.  A digest
+    # match alone is not a precedent binding: this input intentionally omits
+    # source-detail evidence, so the edge must remain mapping-only.
+    monkeypatch.setenv(
+        "AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY",
+        str(_TRUSTED_REGISTRY_FIXTURE),
+    )
     raw = {
         "target": "CCO",
         "routes": [
@@ -2701,29 +3218,36 @@ def test_route_forest_propagates_only_deterministically_reverified_reaction_proo
                     "terminal_reactants": ["CC", "O"],
                     "terminal_stock_status": {"CC": True, "O": True},
                 },
-                    "steps": [
-                        {
-                            **_strict_literature_step(
-                                step_id="common_stock_to_ethanol",
-                                reactants=["CC", "O"],
-                                product="CCO",
-                                atom_mapped_reaction_smiles=(
-                                    "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]"
-                                ),
-                            ),
-                            "stock_status": {"CC": True, "O": True},
-                        }
-                    ],
+                "steps": [
+                    {
+                        "step_id": "mapping_only_common_stock_to_ethanol",
+                        "reactant_smiles": ["CC", "O"],
+                        "product_smiles": "CCO",
+                        "atom_mapped_reaction_smiles": (
+                            "[CH3:1][CH3:2].[OH2:3]>>[CH3:1][CH2:2][OH:3]"
+                        ),
+                        "stock_status": {"CC": True, "O": True},
+                    }
+                ],
             }
         ],
     }
     verifier = verify_chemenzy_raw_routes(raw, target_smiles="CCO")
-    assert verifier["reaction_validation"]["accepted"] is True
+    assert verifier["reaction_validation"]["accepted"] is False
+    assert verifier["reaction_validation"]["proof_level"] == "L2_mapping_consistent"
+    step_proof = verifier["reaction_validation"]["step_proofs"][0]
+    assert step_proof["checks"]["deterministic_transform_reapplied"] is False
+    assert step_proof["checks"]["trusted_precedent_bound"] is False
+    assert step_proof["deterministic_transform_audit"]["transform_family"] == ""
+    assert "reaction_centre_not_in_deterministic_transform_registry" in step_proof[
+        "reasons"
+    ]
     proof = compile_stitched_parent_route_proof(
         target_smiles="CCO",
         target_name="ethanol",
         parent_verifier=verifier,
     )
+    assert proof["accepted"] is False
 
     forest = compile_explored_route_forest(
         {
@@ -2733,12 +3257,9 @@ def test_route_forest_propagates_only_deterministically_reverified_reaction_proo
         }
     )
 
-    assert forest["branches"][0]["kind"] == "direct_verified_route"
-    step = forest["steps"][0]
-    assert step["reaction_step_proof"]["proof_source"] == "deterministic_reverified_route"
-    assert step["trust_vector"]["proof_tier"] == "L3_precedent_supported"
-    assert step["trust_vector"]["forward_feasibility"] == 0.95
-    assert forest["branches"][0]["trust_vector"]["proof_tier"] == "L3_precedent_supported"
+    assert not any(row["kind"] == "direct_verified_route" for row in forest["branches"])
+    assert forest["counts"]["reaction_validated_branches"] == 0
+    assert "parent_route_reaction_steps_not_validated" in proof["reasons"]
 
 
 def test_exact_precedent_without_l2_reaction_proof_does_not_skip_to_l3(monkeypatch) -> None:
@@ -2765,3 +3286,355 @@ def test_exact_precedent_without_l2_reaction_proof_does_not_skip_to_l3(monkeypat
     assert step["trust_vector"]["status"]["forward_feasibility"] == (
         "precedent_without_L2_reaction_validation"
     )
+
+
+def test_route_forest_uses_canonical_graph_for_ledger_and_caller_for_display(
+    tmp_path,
+) -> None:
+    ledger, providers = _frontier_ledger_fixture(tmp_path)
+    canonical_graph, queue, policy = _bind_frontier_ledger_inputs(
+        ledger,
+        case_id="canonical-authority-ui",
+        provider=next(iter(providers.values())),
+    )
+    caller_graph = copy.deepcopy(canonical_graph)
+    caller_graph["steps"].append(
+        {
+            "schema_version": "route_consensus_step.v1",
+            "step_id": "step:caller-only",
+            "signature": f"{canonical_graph['target_smiles']}<-[13CH4]",
+            "product_smiles": canonical_graph["target_smiles"],
+            "precursor_smiles": ["[13CH4]"],
+        }
+    )
+    ledger_path = tmp_path / "frontier_ledger.json"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+    summary = {
+        "schema_version": "frontier_ledger_summary.v1",
+        "content_sha256": ledger["content_sha256"],
+        "frontier_ledger_content_sha256": ledger["content_sha256"],
+        "source_ref": str(ledger_path),
+        "input_valid": True,
+        "ledger_validation_accepted": True,
+        "any_benchmark_route_closed": True,
+        "all_explored_benchmark_closed": False,
+        "any_procurement_route_closed": False,
+        "all_explored_procurement_closed": False,
+        "any_route_closed": True,
+        "all_explored_graph_closed": False,
+        "reachable_molecule_count": 4,
+        "reachable_edge_count": 2,
+        "summary": dict(ledger["summary"]),
+    }
+
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "canonical-authority-ui",
+            "target_profile": {
+                "target_name": "ethyl acetate",
+                "target_smiles": canonical_graph["target_smiles"],
+            },
+            "route_consensus_graph": caller_graph,
+            "caller_advisory_route_consensus_graph": caller_graph,
+            "canonical_route_consensus_graph": canonical_graph,
+            "frontier_ledger_summary": summary,
+            "codex_agent_team": {
+                "accepted": True,
+                "campaign": {
+                    "frontier_queue": queue,
+                    "campaign_policy": policy,
+                    "campaign_policy_sha256": policy["content_sha256"],
+                }
+            },
+            "artifact_refs": {"frontier_ledger": str(ledger_path)},
+        },
+        run_dir=tmp_path,
+        trusted_stock_provider_instances=providers,
+    )
+
+    assert len(caller_graph["steps"]) > len(canonical_graph["steps"])
+    assert forest["frontier_ledger"]["authoritative"] is True
+    assert forest["frontier_ledger"]["authority_graph_source"] == (
+        "canonical_route_consensus_graph"
+    )
+    assert forest["route_consensus_graph"]["step_count"] == len(
+        caller_graph["steps"]
+    )
+    assert forest["canonical_route_consensus_graph"]["steps"] == (
+        canonical_graph["steps"]
+    )
+
+
+def test_route_forest_projects_digest_bound_frontier_ledger_states(tmp_path) -> None:
+    ledger, providers = _frontier_ledger_fixture(tmp_path)
+    graph, queue, policy = _bind_frontier_ledger_inputs(
+        ledger,
+        case_id="frontier-ledger-ui",
+        provider=next(iter(providers.values())),
+    )
+    ledger_path = tmp_path / "frontier_ledger.json"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+    summary = {
+        "schema_version": "frontier_ledger_summary.v1",
+        "content_sha256": ledger["content_sha256"],
+        "frontier_ledger_content_sha256": ledger["content_sha256"],
+        "source_ref": str(ledger_path),
+        "input_valid": True,
+        "ledger_validation_accepted": True,
+        "any_benchmark_route_closed": True,
+        "all_explored_benchmark_closed": False,
+        "any_procurement_route_closed": False,
+        "all_explored_procurement_closed": False,
+        "any_route_closed": True,
+        "all_explored_graph_closed": False,
+        "reachable_molecule_count": 4,
+        "reachable_edge_count": 2,
+        "summary": dict(ledger["summary"]),
+    }
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "frontier-ledger-ui",
+            "target_profile": {
+                "target_name": "ethyl acetate",
+                "target_smiles": "CCOC(C)=O",
+            },
+            "route_consensus_graph": {
+                **graph,
+                "frontier_ledger_summary": summary,
+            },
+            "codex_agent_team": {
+                "campaign": {
+                    "frontier_queue": queue,
+                    "campaign_policy": policy,
+                    "campaign_policy_sha256": policy["content_sha256"],
+                }
+            },
+            "artifact_refs": {"frontier_ledger": str(ledger_path)},
+        },
+        run_dir=tmp_path,
+        trusted_stock_provider_instances=providers,
+    )
+
+    view = forest["frontier_ledger"]
+    assert view["authoritative"] is True
+    assert view["historical_host_replay_recorded"] is True
+    assert view["current_host_replay_verified"] is True
+    assert view["current_input_bindings_verified"] is True
+    assert view["validation_reasons"] == []
+    stage_authority = view["stage_authority"]
+    assert stage_authority["authoritative"] is True
+    assert {
+        row["canonical_smiles"]
+        for row in stage_authority["molecules"]
+        if row["work"]["proposal_expansion_succeeded"]
+    } == {"CCOC(C)=O"}
+    assert {
+        row["canonical_smiles"]
+        for row in stage_authority["molecules"]
+        if row["stock"]["benchmark_search_boundary_closed"]
+    } == {"CC(=O)Cl", "CCO"}
+    assert {
+        step_id
+        for row in stage_authority["edges"]
+        if row["reaction_proof"]["current_host_reaction_validated"]
+        for step_id in row["step_ids"]
+    } == {"step:closed"}
+    assert view["counts"] == {
+        "proposal_edges": 2,
+        "l0_break_suggestion_edges": 1,
+        "expanded_work_molecules": 1,
+        "open_work_molecules": 0,
+        "l2_reaction_edges": 1,
+        "l3_precedent_edges": 0,
+        "l4_procurement_edges": 0,
+        "reaction_validated_edges": 1,
+        "stock_closed_molecules": 2,
+        "benchmark_only_stock_molecules": 2,
+        "procurement_boundary_molecules": 0,
+        "stock_closed_leaves": 2,
+        "benchmark_only_stock_leaves": 2,
+        "procurement_boundary_leaves": 0,
+        "reachable_leaves": 3,
+        "reachable_molecules": 4,
+        "reachable_edges": 2,
+    }
+    assert view["closure"] == {
+        "any_benchmark_route_closed": True,
+        "all_explored_benchmark_closed": False,
+        "any_procurement_route_closed": False,
+        "all_explored_procurement_closed": False,
+        "any_route_closed": True,
+        "all_explored_graph_closed": False,
+        "l3_parent_solved": False,
+        "l4_parent_route_proof_ready": False,
+        "l4_procurement_ready": False,
+    }
+    route_states = forest["semantic_summary"]["route_states"]
+    assert route_states["l0_break_suggestion_edges"] == 1
+    assert route_states["expanded_work_molecules"] == 1
+    assert route_states["l2_reaction_edges"] == 1
+    assert route_states["l3_precedent_edges"] == 0
+    assert route_states["stock_closed_molecules"] == 2
+    assert route_states["any_benchmark_route_closed"] is True
+    assert route_states["all_explored_benchmark_closed"] is False
+    assert route_states["any_procurement_route_closed"] is False
+    assert route_states["all_explored_procurement_closed"] is False
+    assert route_states["any_route_closed"] is True
+    assert route_states["all_explored_graph_closed"] is False
+    html = render_route_forest_html(forest)
+    assert ledger["content_sha256"] in html
+    assert "ANY BENCHMARK ROUTE" in html
+    assert "ANY PROCUREMENT ROUTE" in html
+    assert "benchmark membership 不参与此判定" in html
+    assert '"any_route_closed":true' in html
+
+    without_current_host = compile_explored_route_forest(
+        {
+            "case_id": "frontier-ledger-ui",
+            "target_profile": {
+                "target_name": "ethyl acetate",
+                "target_smiles": "CCOC(C)=O",
+            },
+            "route_consensus_graph": {
+                **graph,
+                "frontier_ledger_summary": summary,
+            },
+            "codex_agent_team": {
+                "campaign": {
+                    "frontier_queue": queue,
+                    "campaign_policy": policy,
+                    "campaign_policy_sha256": policy["content_sha256"],
+                }
+            },
+            "artifact_refs": {"frontier_ledger": str(ledger_path)},
+        },
+        run_dir=tmp_path,
+    )["frontier_ledger"]
+    assert without_current_host["available"] is True
+    assert without_current_host["authoritative"] is False
+    assert without_current_host["historical_host_replay_recorded"] is True
+    assert without_current_host["current_host_replay_verified"] is False
+    assert without_current_host["stage_authority"]["authoritative"] is False
+    assert without_current_host["stage_authority"]["molecules"] == []
+    assert without_current_host["closure"]["any_route_closed"] is False
+    assert "current_host_stock_provider_replay_not_supplied" in without_current_host[
+        "authority_blockers"
+    ]
+
+    changed_queue = dict(queue)
+    changed_queue["revision"] = 8
+    changed_queue.pop("content_sha256")
+    changed_queue["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            changed_queue,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    stale_view = compile_explored_route_forest(
+        {
+            "case_id": "frontier-ledger-ui",
+            "target_profile": {
+                "target_name": "ethyl acetate",
+                "target_smiles": "CCOC(C)=O",
+            },
+            "route_consensus_graph": {
+                **graph,
+                "frontier_ledger_summary": summary,
+            },
+            "codex_agent_team": {
+                "campaign": {
+                    "frontier_queue": changed_queue,
+                    "campaign_policy": policy,
+                    "campaign_policy_sha256": policy["content_sha256"],
+                }
+            },
+            "artifact_refs": {"frontier_ledger": str(ledger_path)},
+        },
+        run_dir=tmp_path,
+        trusted_stock_provider_instances=providers,
+    )["frontier_ledger"]
+    assert stale_view["authoritative"] is False
+    assert stale_view["closure"]["any_route_closed"] is False
+    assert "frontier_ledger_queue_digest_binding_mismatch" in stale_view[
+        "authority_blockers"
+    ]
+    assert "frontier_ledger_queue_revision_binding_mismatch" in stale_view[
+        "authority_blockers"
+    ]
+
+
+def test_route_forest_fails_closed_without_full_valid_frontier_ledger() -> None:
+    forged_summary = {
+        "schema_version": "frontier_ledger_summary.v1",
+        "frontier_ledger_content_sha256": "f" * 64,
+        "source_ref": "missing/frontier_ledger.json",
+        "input_valid": True,
+        "ledger_validation_accepted": True,
+        "any_route_closed": True,
+        "all_explored_graph_closed": True,
+        "reachable_molecule_count": 99,
+        "reachable_edge_count": 99,
+    }
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "missing-ledger-fail-closed",
+            "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+            "route_consensus_graph": {
+                "schema_version": "route_consensus_graph.v1",
+                "frontier_ledger_summary": forged_summary,
+                "route_hypotheses": [],
+                "steps": [],
+                "nodes": [],
+            },
+            "retrosynthetic_proposals": [
+                {
+                    "proposal_id": "proposal:not-completion",
+                    "proposal_label": "display-only disconnection",
+                    "product_smiles": "CCO",
+                    "precursor_smiles": "CC",
+                }
+            ],
+        }
+    )
+
+    assert forest["counts"]["branches"] == 1
+    view = forest["frontier_ledger"]
+    assert view["authoritative"] is False
+    assert view["closure"]["any_benchmark_route_closed"] is False
+    assert view["closure"]["any_procurement_route_closed"] is False
+    assert view["closure"]["any_route_closed"] is False
+    assert view["closure"]["all_explored_graph_closed"] is False
+    assert view["counts"]["proposal_edges"] == 0
+    assert "frontier_ledger_artifact_missing" in view["validation_reasons"]
+    assert forest["semantic_summary"]["route_states"]["any_route_closed"] is False
+
+
+def test_route_forest_rejects_frontier_ledger_summary_drift(tmp_path) -> None:
+    ledger, _ = _frontier_ledger_fixture(tmp_path)
+    ledger_path = tmp_path / "frontier_ledger.json"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+    forest = compile_explored_route_forest(
+        {
+            "case_id": "frontier-ledger-summary-drift",
+            "target_profile": {"target_name": "ethanol", "target_smiles": "CCO"},
+            "frontier_ledger_summary": {
+                "schema_version": "frontier_ledger_summary.v1",
+                "frontier_ledger_content_sha256": ledger["content_sha256"],
+                "source_ref": str(ledger_path),
+                "input_valid": True,
+                "ledger_validation_accepted": True,
+                "any_route_closed": False,
+                "all_explored_graph_closed": False,
+                "reachable_molecule_count": 4,
+                "reachable_edge_count": 2,
+            },
+        },
+        run_dir=tmp_path,
+    )
+
+    assert forest["frontier_ledger"]["authoritative"] is False
+    assert "frontier_ledger_summary_any_route_closed_mismatch" in forest[
+        "frontier_ledger"
+    ]["validation_reasons"]

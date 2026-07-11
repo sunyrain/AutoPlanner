@@ -9,12 +9,14 @@ may mark a case solved.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from collections import defaultdict
 from typing import Any, Iterable
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.routes.admission import audit_retrosynthetic_candidate
 from cascade_planner.source_locators import (
     canonical_traceable_source_ref,
     source_record_support_group,
@@ -84,33 +86,226 @@ def normalize_route_candidate(
     precursors = [_canonical_smiles(value) for value in precursor_values]
     if not precursor_values or any(not value for value in precursors):
         reasons.append("invalid_precursor_smiles")
-    precursors = sorted(_dedupe(value for value in precursors if value))
+    # Preserve precursor multiplicity: two identical molecules in a
+    # homocoupling are a different reaction from one molecule, even though
+    # frontier scheduling may later audit that canonical stock subject once.
+    precursors = sorted(value for value in precursors if value)
     if product and precursors and product in precursors and len(precursors) == 1:
         reasons.append("identity_proposal")
+    if product and precursors:
+        admission_reasons = list(
+            audit_retrosynthetic_candidate(product, precursors).get("reasons") or []
+        )
+        # Preserve the long-standing public reason for a single exact identity
+        # while using the shared reason for multi-component self-return cycles.
+        if product in precursors and len(precursors) == 1:
+            admission_reasons = [
+                reason
+                for reason in admission_reasons
+                if reason != "target_or_current_node_self_loop"
+            ]
+        reasons.extend(admission_reasons)
 
-    source_channel = _normalize_source_channel(raw.get("source_channel") or default_source_channel)
-    evidence_level = _normalize_evidence_level(raw.get("evidence_level"))
-    if evidence_level == "validated" and not allow_trusted_validated_evidence:
+    normalization_records: list[dict[str, Any]] = []
+    acquisition_hints: list[dict[str, Any]] = []
+    host_authority_binding = str(raw.get("_host_authority_binding") or "").strip()
+    source_channel, source_channel_record = _normalize_source_channel_with_record(
+        raw.get("source_channel") or default_source_channel
+    )
+    producer_is_codex = source_channel.startswith("codex_")
+    trusted_validated_binding = bool(
+        not producer_is_codex
+        and (
+            allow_trusted_validated_evidence
+            or host_authority_binding == "deterministic_reaction_validation"
+        )
+    )
+    trusted_literature_binding = bool(
+        not producer_is_codex
+        and (
+            allow_trusted_literature_exact_evidence
+            or host_authority_binding == "validated_source_detail_literature_step"
+        )
+    )
+    trusted_computational_binding = bool(
+        not producer_is_codex
+        and host_authority_binding
+        and host_authority_binding
+        == {
+            "chem_enzy": "deterministic_chemenzy_adapter",
+            "template": "deterministic_template_adapter",
+            "stock": "deterministic_stock_provider",
+        }.get(source_channel, "")
+    )
+    if source_channel_record:
+        normalization_records.append(source_channel_record)
+        if source_channel_record.get("reason") == "invalid_enum_value":
+            acquisition_hints.append(
+                _enum_acquisition_hint(
+                    source_channel_record,
+                    accepted_values=SOURCE_CHANNELS,
+                )
+            )
+
+    producer_evidence_value = raw.get(
+        "producer_evidence_level",
+        raw.get("evidence_level"),
+    )
+    producer_confidence_value = raw.get(
+        "producer_confidence",
+        raw.get("confidence"),
+    )
+    producer_evidence_raw = raw.get(
+        "producer_evidence_level_raw",
+        producer_evidence_value,
+    )
+    producer_confidence_raw = raw.get(
+        "producer_confidence_raw",
+        producer_confidence_value,
+    )
+    producer_evidence_level, producer_evidence_record = (
+        _normalize_evidence_level_with_record(producer_evidence_value)
+    )
+    producer_confidence, producer_confidence_record = (
+        _normalize_confidence_with_record(producer_confidence_value)
+    )
+    # A consensus replay carries both the already-normalized advisory value
+    # and the producer's original token.  Re-evaluate that token so malformed
+    # metadata remains visible after blackboard/graph reconstruction.
+    if "producer_evidence_level_raw" in raw:
+        _, producer_evidence_record = _normalize_evidence_level_with_record(
+            producer_evidence_raw
+        )
+    if "producer_confidence_raw" in raw:
+        _, producer_confidence_record = _normalize_confidence_with_record(
+            producer_confidence_raw
+        )
+    for record, accepted_values in (
+        (producer_evidence_record, EVIDENCE_LEVEL_WEIGHT),
+        (producer_confidence_record, CONFIDENCE_WEIGHT),
+    ):
+        if not record:
+            continue
+        normalization_records.append(record)
+        if record.get("reason") == "invalid_enum_value":
+            acquisition_hints.append(
+                _enum_acquisition_hint(record, accepted_values=accepted_values)
+            )
+
+    # Producer fields are observations, not permissions.  Every serialized
+    # producer is unbound until a host adapter emits a private capability for
+    # this exact record.  This applies to legacy/provider strings as well as
+    # Codex roles: writing ``chem_enzy`` or ``high`` into a blackboard cannot
+    # mint computational authority or an independent support group.
+    authority_bound = bool(
+        (
+            trusted_validated_binding
+            and producer_evidence_level == "validated"
+        )
+        or (
+            trusted_literature_binding
+            and producer_evidence_level == "literature_exact"
+        )
+        or (
+            trusted_computational_binding
+            and producer_evidence_level in {"computational", "analogy"}
+        )
+    )
+    unbound_producer = not authority_bound
+    authority_evidence_level = producer_evidence_level
+    authority_confidence = producer_confidence
+    authority_basis = host_authority_binding or "unbound_producer"
+    if (
+        authority_evidence_level == "validated"
+        and not trusted_validated_binding
+        and not producer_is_codex
+    ):
         # Validation authority must arrive out-of-band from deterministic code;
-        # a model-authored field cannot validate itself.
+        # a non-Codex source field cannot validate itself either.
         reasons.append("untrusted_self_validated_evidence_claim")
     literature_exact_downgraded = bool(
-        evidence_level == "literature_exact"
+        authority_evidence_level == "literature_exact"
         and (
-            not allow_trusted_literature_exact_evidence
-            or source_channel.startswith("codex_")
+            not trusted_literature_binding
         )
     )
     if literature_exact_downgraded:
-        # A Codex child naming a DOI is a literature claim, not a second
-        # independent source.  Only deterministic source-detail adapters may
-        # opt into exact-literature authority after document/step binding.
-        evidence_level = "analogy"
-    confidence = _normalize_confidence(raw.get("confidence"))
+        # Only deterministic source-detail adapters may opt into exact
+        # literature authority after document/step binding.
+        authority_evidence_level = "analogy"
+        authority_basis = "untrusted_literature_claim"
+        normalization_records.append(
+            _authority_normalization_record(
+                field="authority_evidence_level",
+                input_value="literature_exact",
+                normalized_value="analogy",
+                reason="trusted_source_detail_binding_missing",
+            )
+        )
+        acquisition_hints.append(
+            {
+                "schema_version": "route_candidate_acquisition_hint.v1",
+                "hint_type": "trusted_source_detail_binding",
+                "reason": "literature_exact_authority_not_host_bound",
+                "required_binding": "validated_source_detail_literature_step",
+            }
+        )
+    elif authority_evidence_level == "literature_exact":
+        authority_basis = host_authority_binding or "trusted_literature_adapter"
+    elif authority_evidence_level == "validated":
+        authority_basis = host_authority_binding or "trusted_validation_adapter"
+    elif trusted_computational_binding and authority_bound:
+        authority_basis = host_authority_binding
+    if unbound_producer:
+        claimed_evidence_level = authority_evidence_level
+        authority_evidence_level = "model_only"
+        authority_confidence = "low"
+        if claimed_evidence_level != authority_evidence_level:
+            normalization_records.append(
+                _authority_normalization_record(
+                    field="authority_evidence_level",
+                    input_value=claimed_evidence_level,
+                    normalized_value=authority_evidence_level,
+                    reason=(
+                        "unbound_codex_producer_cannot_set_evidence_authority"
+                        if producer_is_codex
+                        else "unbound_producer_cannot_set_evidence_authority"
+                    ),
+                )
+            )
+        if producer_confidence != authority_confidence:
+            normalization_records.append(
+                _authority_normalization_record(
+                    field="authority_confidence",
+                    input_value=producer_confidence,
+                    normalized_value=authority_confidence,
+                    reason=(
+                        "unbound_codex_producer_cannot_set_confidence_authority"
+                        if producer_is_codex
+                        else "unbound_producer_cannot_set_confidence_authority"
+                    ),
+                )
+            )
+        acquisition_hints.append(
+            {
+                "schema_version": "route_candidate_acquisition_hint.v1",
+                "hint_type": "host_evidence_binding",
+                "reason": (
+                    "codex_producer_metadata_is_advisory_only"
+                    if producer_is_codex
+                    else "producer_metadata_is_advisory_only"
+                ),
+                "required_binding": (
+                    "deterministic_reaction_validation_or_trusted_source_detail_step"
+                    if producer_is_codex
+                    else "deterministic_reaction_validation_or_trusted_source_detail_step_or_provider_envelope"
+                ),
+            }
+        )
     source_refs = _dedupe(_texts(raw.get("source_refs")))
     evidence_refs = _dedupe(_texts(raw.get("evidence_refs")))
     source_aliases = _literature_source_aliases([*source_refs, *evidence_refs])
-    if evidence_level == "literature_exact" and not any(
+    if authority_evidence_level == "literature_exact" and not any(
         _traceable_literature_ref(ref) for ref in [*source_refs, *evidence_refs]
     ):
         reasons.append("exact_literature_without_source_ref")
@@ -132,8 +327,21 @@ def normalize_route_candidate(
         "source_channel": source_channel,
         "source_refs": source_refs,
         "evidence_refs": evidence_refs,
-        "evidence_level": evidence_level,
-        "confidence": confidence,
+        # Compatibility fields intentionally expose the host-derived values;
+        # every existing scorer therefore fails closed without needing to know
+        # about the additive provenance fields.
+        "evidence_level": authority_evidence_level,
+        "confidence": authority_confidence,
+        "producer_evidence_level_raw": _enum_input_text(producer_evidence_raw),
+        "producer_evidence_level": producer_evidence_level,
+        "producer_confidence_raw": _enum_input_text(producer_confidence_raw),
+        "producer_confidence": producer_confidence,
+        "authority_evidence_level": authority_evidence_level,
+        "authority_confidence": authority_confidence,
+        "authority_basis": authority_basis,
+        "authority_bound": authority_bound,
+        "normalization_records": _dedupe_records(normalization_records),
+        "acquisition_hints": _dedupe_records(acquisition_hints),
         "conditions": _dedupe(_texts(raw.get("conditions"))),
         "catalyst": str(raw.get("catalyst") or "").strip(),
         "enzyme": str(raw.get("enzyme") or "").strip(),
@@ -145,7 +353,13 @@ def normalize_route_candidate(
         ),
         "required_validation": _dedupe(_texts(raw.get("required_validation"))),
         "report_ref": str(report_ref or raw.get("report_ref") or "").strip(),
-        "support_group": _support_group(source_channel, evidence_level, source_refs, evidence_refs),
+        "support_group": _support_group(
+            source_channel,
+            authority_evidence_level,
+            source_refs,
+            evidence_refs,
+            authority_bound=authority_bound,
+        ),
         "source_identity_aliases": source_aliases,
         "no_solved_claim": True,
         "not_parent_route_proof": True,
@@ -165,6 +379,20 @@ def fuse_route_candidates(
     accepted: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     for index, raw in enumerate(candidates):
+        raw_product = (
+            _canonical_smiles(raw.get("product_smiles"))
+            if isinstance(raw, dict)
+            else ""
+        )
+        if target and raw_product and raw_product != target:
+            rejected.append(
+                {
+                    "index": index,
+                    "candidate_id": str(raw.get("candidate_id") or ""),
+                    "reasons": ["candidate_product_does_not_match_requested_target"],
+                }
+            )
+            continue
         report_ref = str(raw.get("report_ref") or "") if isinstance(raw, dict) else ""
         normalized, reasons = normalize_route_candidate(
             raw,
@@ -209,11 +437,21 @@ def fuse_route_candidates(
             "proposal_count": len(proposals),
             "channel_counts": dict(sorted(channel_counts.items())),
             "multi_source_proposals": sum(1 for row in proposals if row["source_diversity"] > 1),
+            "authority_capped_candidate_count": sum(
+                1 for row in accepted if row.get("authority_bound") is False
+            ),
+            "normalization_record_count": sum(
+                len(row.get("normalization_records") or []) for row in accepted
+            ),
         },
         "semantics": {
             "advisory_only": True,
             "deterministic_parent_proof_required": True,
             "no_solved_claim": True,
+            "authority_ranking": "host_derived",
+            "producer_evidence_and_confidence": "advisory_only",
+            "unbound_producer_authority_evidence_level": "model_only",
+            "unbound_producer_authority_confidence": "low",
         },
     }
 
@@ -250,6 +488,14 @@ def consensus_to_blackboard_proposals(consensus: dict[str, Any]) -> list[dict[st
             "multi_component_precursor_set": len(proposal.get("precursor_smiles") or []) > 1,
             "transformation_idea": " | ".join(proposal.get("rationales") or []),
             "confidence": str(proposal.get("confidence") or "low"),
+            "authority_evidence_level": str(
+                proposal.get("authority_evidence_level")
+                or proposal.get("evidence_level")
+                or "model_only"
+            ),
+            "authority_policy": str(proposal.get("authority_policy") or "host_derived"),
+            "producer_evidence_levels": list(proposal.get("producer_evidence_levels") or []),
+            "producer_confidences": list(proposal.get("producer_confidences") or []),
             "consensus_score": float(proposal.get("rank_score") or 0.0),
             "consensus_status": status,
             "recursive_expandable": bool(proposal.get("precursor_smiles")),
@@ -261,6 +507,8 @@ def consensus_to_blackboard_proposals(consensus: dict[str, Any]) -> list[dict[st
             "source_refs": list(proposal.get("source_refs") or []),
             "risk_flags": list(proposal.get("limitations") or []),
             "required_verification": list(proposal.get("required_validation") or []),
+            "normalization_records": list(proposal.get("normalization_records") or []),
+            "acquisition_hints": list(proposal.get("acquisition_hints") or []),
             "not_exact_literature_segment": status != "evidence_backed_draft",
             "not_parent_route_proof": True,
             "no_solved_claim": True,
@@ -275,6 +523,7 @@ def _proposal_independent_support_groups(proposal: dict[str, Any]) -> list[str]:
             _normalize_evidence_level(record.get("evidence_level")),
             _texts(record.get("source_refs")),
             _texts(record.get("evidence_refs")),
+            authority_bound=record.get("authority_bound") is True,
         )
         for record in proposal.get("source_records") or []
         if isinstance(record, dict)
@@ -331,13 +580,23 @@ def _fuse_group(signature: str, rows: list[dict[str, Any]], *, target: str) -> d
     _reconcile_literature_support_groups(rows)
     channels = sorted({row["source_channel"] for row in rows})
     support_groups = sorted({row["support_group"] for row in rows})
-    evidence_levels = [row["evidence_level"] for row in rows]
+    evidence_levels = [row["authority_evidence_level"] for row in rows]
     source_records = [
         {
             "candidate_id": row["candidate_id"],
             "source_channel": row["source_channel"],
-            "evidence_level": row["evidence_level"],
-            "confidence": row["confidence"],
+            "evidence_level": row["authority_evidence_level"],
+            "confidence": row["authority_confidence"],
+            "producer_evidence_level_raw": row["producer_evidence_level_raw"],
+            "producer_evidence_level": row["producer_evidence_level"],
+            "producer_confidence_raw": row["producer_confidence_raw"],
+            "producer_confidence": row["producer_confidence"],
+            "authority_evidence_level": row["authority_evidence_level"],
+            "authority_confidence": row["authority_confidence"],
+            "authority_basis": row["authority_basis"],
+            "authority_bound": row["authority_bound"],
+            "normalization_records": list(row["normalization_records"]),
+            "acquisition_hints": list(row["acquisition_hints"]),
             "source_refs": row["source_refs"],
             "evidence_refs": row["evidence_refs"],
             "report_ref": row["report_ref"],
@@ -384,6 +643,15 @@ def _fuse_group(signature: str, rows: list[dict[str, Any]], *, target: str) -> d
         "source_refs": _dedupe(ref for row in rows for ref in row["source_refs"]),
         "evidence_refs": _dedupe(ref for row in rows for ref in row["evidence_refs"]),
         "evidence_level": max(evidence_levels, key=lambda value: EVIDENCE_LEVEL_WEIGHT[value]),
+        "authority_evidence_level": max(
+            evidence_levels,
+            key=lambda value: EVIDENCE_LEVEL_WEIGHT[value],
+        ),
+        "authority_policy": "host_derived",
+        "producer_evidence_levels": _dedupe(
+            row["producer_evidence_level"] for row in rows
+        ),
+        "producer_confidences": _dedupe(row["producer_confidence"] for row in rows),
         "confidence": _confidence_label(rank_score),
         "confidence_score": round(confidence_score, 4),
         "rank_score": round(rank_score, 4),
@@ -395,6 +663,16 @@ def _fuse_group(signature: str, rows: list[dict[str, Any]], *, target: str) -> d
         "condition_conflicts": _condition_conflicts(condition_support),
         "limitations": _dedupe(value for row in rows for value in row["limitations"]),
         "required_validation": _dedupe(value for row in rows for value in row["required_validation"]),
+        "normalization_records": _dedupe_records(
+            record
+            for row in rows
+            for record in row["normalization_records"]
+        ),
+        "acquisition_hints": _dedupe_records(
+            hint
+            for row in rows
+            for hint in row["acquisition_hints"]
+        ),
         "target_match": bool(target and first["product_smiles"] == target),
         "not_parent_route_proof": True,
         "no_solved_claim": True,
@@ -407,7 +685,8 @@ def _combined_confidence(rows: list[dict[str, Any]]) -> float:
     strongest: dict[str, float] = {}
     for row in rows:
         weight = math.sqrt(
-            EVIDENCE_LEVEL_WEIGHT[row["evidence_level"]] * CONFIDENCE_WEIGHT[row["confidence"]]
+            EVIDENCE_LEVEL_WEIGHT[row["authority_evidence_level"]]
+            * CONFIDENCE_WEIGHT[row["authority_confidence"]]
         )
         group = row["support_group"]
         strongest[group] = max(strongest.get(group, 0.0), weight)
@@ -433,7 +712,11 @@ def _support_group(
     evidence_level: str,
     source_refs: list[str],
     evidence_refs: list[str],
+    *,
+    authority_bound: bool,
 ) -> str:
+    if not authority_bound and source_channel in {"chem_enzy", "template", "stock"}:
+        return "codex_model"
     return source_record_support_group(
         source_channel,
         evidence_level,
@@ -559,6 +842,13 @@ def _role_source_channel(role: Any) -> str:
 
 
 def _normalize_source_channel(value: Any) -> str:
+    normalized, _ = _normalize_source_channel_with_record(value)
+    return normalized
+
+
+def _normalize_source_channel_with_record(
+    value: Any,
+) -> tuple[str, dict[str, Any] | None]:
     text = str(value or "other").strip().lower().replace("-", "_")
     aliases = {
         "chemenzy": "chem_enzy",
@@ -566,20 +856,123 @@ def _normalize_source_channel(value: Any) -> str:
         "analog_literature": "literature_analogy",
         "codex_enzyme": "codex_chemoenzymatic",
     }
-    text = aliases.get(text, text)
-    return text if text in SOURCE_CHANNELS else "other"
+    normalized = aliases.get(text, text)
+    if normalized not in SOURCE_CHANNELS:
+        return "other", _enum_normalization_record(
+            field="source_channel",
+            input_value=value,
+            normalized_value="other",
+            reason="invalid_enum_value",
+        )
+    if normalized != text:
+        return normalized, _enum_normalization_record(
+            field="source_channel",
+            input_value=value,
+            normalized_value=normalized,
+            reason="enum_alias_canonicalized",
+        )
+    return normalized, None
 
 
 def _normalize_evidence_level(value: Any) -> str:
+    normalized, _ = _normalize_evidence_level_with_record(value)
+    return normalized
+
+
+def _normalize_evidence_level_with_record(
+    value: Any,
+) -> tuple[str, dict[str, Any] | None]:
     text = str(value or "model_only").strip().lower().replace("-", "_")
     aliases = {"exact": "literature_exact", "model": "model_only", "verified": "validated"}
-    text = aliases.get(text, text)
-    return text if text in EVIDENCE_LEVEL_WEIGHT else "model_only"
+    normalized = aliases.get(text, text)
+    if normalized not in EVIDENCE_LEVEL_WEIGHT:
+        return "model_only", _enum_normalization_record(
+            field="producer_evidence_level",
+            input_value=value,
+            normalized_value="model_only",
+            reason="invalid_enum_value",
+        )
+    if normalized != text:
+        return normalized, _enum_normalization_record(
+            field="producer_evidence_level",
+            input_value=value,
+            normalized_value=normalized,
+            reason="enum_alias_canonicalized",
+        )
+    return normalized, None
 
 
 def _normalize_confidence(value: Any) -> str:
+    normalized, _ = _normalize_confidence_with_record(value)
+    return normalized
+
+
+def _normalize_confidence_with_record(
+    value: Any,
+) -> tuple[str, dict[str, Any] | None]:
     text = str(value or "low").strip().lower().replace("-", "_")
-    return text if text in CONFIDENCE_WEIGHT else "low"
+    if text not in CONFIDENCE_WEIGHT:
+        return "low", _enum_normalization_record(
+            field="producer_confidence",
+            input_value=value,
+            normalized_value="low",
+            reason="invalid_enum_value",
+        )
+    return text, None
+
+
+def _enum_normalization_record(
+    *,
+    field: str,
+    input_value: Any,
+    normalized_value: str,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": "route_candidate_normalization.v1",
+        "field": field,
+        "input_value": _enum_input_text(input_value),
+        "normalized_value": normalized_value,
+        "reason": reason,
+        "authority_effect": "conservative_default",
+    }
+
+
+def _authority_normalization_record(
+    *,
+    field: str,
+    input_value: Any,
+    normalized_value: str,
+    reason: str,
+) -> dict[str, Any]:
+    record = _enum_normalization_record(
+        field=field,
+        input_value=input_value,
+        normalized_value=normalized_value,
+        reason=reason,
+    )
+    record["authority_effect"] = "authority_capped"
+    return record
+
+
+def _enum_acquisition_hint(
+    record: dict[str, Any],
+    *,
+    accepted_values: Iterable[str],
+) -> dict[str, Any]:
+    return {
+        "schema_version": "route_candidate_acquisition_hint.v1",
+        "hint_type": "producer_enum_correction",
+        "field": str(record.get("field") or ""),
+        "reason": str(record.get("reason") or "invalid_enum_value"),
+        "accepted_values": sorted(str(value) for value in accepted_values),
+    }
+
+
+def _enum_input_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
 def _confidence_label(score: float) -> str:
@@ -662,3 +1055,17 @@ def _dedupe(values: Iterable[Any]) -> list[str]:
         seen.add(text)
         out.append(text)
     return out
+
+
+def _dedupe_records(values: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    rows: list[dict[str, Any]] = []
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        key = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(dict(value))
+    return rows

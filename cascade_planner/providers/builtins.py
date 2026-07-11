@@ -22,6 +22,11 @@ _HOST_BUILTIN_TRUST_POLICY: dict[str, dict[str, Any]] = {
         "correlation_group": "stock_snapshot",
         "deterministic": True,
     },
+    "autoplanner.benchmark_catalog_stock": {
+        "kind": ProviderKind.STOCK,
+        "correlation_group": "benchmark_catalog_artifact",
+        "deterministic": True,
+    },
     "autoplanner.reaction_route_verifier": {
         "kind": ProviderKind.VERIFIER,
         "correlation_group": "deterministic_reaction_verifier",
@@ -62,7 +67,7 @@ class ReactionRouteVerifierProvider:
     descriptor = ProviderDescriptor(
         provider_id="autoplanner.reaction_route_verifier",
         kind=ProviderKind.VERIFIER,
-        version="1.1.0",
+        version="1.2.0",
         input_schemas=("reaction_route_verification_request.v1",),
         output_schemas=("reaction_route_validation.v1",),
         correlation_group="deterministic_reaction_verifier",
@@ -75,6 +80,7 @@ class ReactionRouteVerifierProvider:
         *,
         trusted_precedent_bindings: Mapping[str, Mapping[str, Any]] | None = None,
         verified_procurement_bindings: Mapping[str, Mapping[str, Any]] | None = None,
+        trusted_stock_providers: Mapping[str, Any] | None = None,
     ) -> None:
         # Privileged overlays are construction-time dependencies.  They cannot
         # be supplied through an invoke request controlled by a model/client.
@@ -88,6 +94,7 @@ class ReactionRouteVerifierProvider:
             for key, value in (verified_procurement_bindings or {}).items()
             if isinstance(value, Mapping)
         }
+        self._trusted_stock_providers = dict(trusted_stock_providers or {})
 
     def invoke(
         self,
@@ -103,6 +110,7 @@ class ReactionRouteVerifierProvider:
             graph_and_stock_closed=bool(request.get("graph_and_stock_closed")),
             trusted_precedent_bindings=self._trusted_precedent_bindings,
             procurement_bindings=self._verified_procurement_bindings,
+            trusted_stock_providers=self._trusted_stock_providers,
         )
         privileged_request_fields = sorted(
             field
@@ -171,8 +179,26 @@ class CodexRetrosynthesisProvider:
         context: ProviderContext,
     ) -> ProviderResultEnvelope:
         from cascade_planner.orchestration.codex_retrosynthesis import (
+            RetrosynthesisTeamConfig,
             run_codex_retrosynthesis_campaign,
         )
+
+        effective_config = self.config or RetrosynthesisTeamConfig()
+        config_updates: dict[str, Any] = {}
+        if isinstance(request.get("reaction_proofs"), Mapping):
+            config_updates["reaction_proofs"] = {
+                str(key): dict(value)
+                for key, value in request["reaction_proofs"].items()
+                if isinstance(value, Mapping)
+            }
+        if isinstance(request.get("reaction_proof_reports"), list):
+            config_updates["reaction_proof_reports"] = [
+                dict(row)
+                for row in request["reaction_proof_reports"]
+                if isinstance(row, Mapping)
+            ]
+        if config_updates:
+            effective_config = replace(effective_config, **config_updates)
 
         report = run_codex_retrosynthesis_campaign(
             case_id=str(request.get("case_id") or context.case_id),
@@ -186,7 +212,7 @@ class CodexRetrosynthesisProvider:
                 for row in request.get("literature_sources") or []
                 if isinstance(row, Mapping)
             ],
-            config=self.config,
+            config=effective_config,
             runner=self.runner,
             stock_provider=self.stock_provider,
         )

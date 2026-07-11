@@ -16,7 +16,9 @@ from typing import Any
 
 
 LAYOUT_SCHEMA_VERSION = "route_forest_layout.v1"
-BRANCH_LANE_SCHEMA_VERSION = "route_forest_branch_lanes.v1"
+BRANCH_LANE_SCHEMA_VERSION = "route_forest_branch_lanes.v2"
+BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION = "route_forest_branch_stage_evidence.v2"
+STAGE_AUTHORITY_SCHEMA_VERSION = "route_forest_stage_authority.v1"
 
 _PROOF_RANK = {
     "L0_rejected": 0,
@@ -266,8 +268,18 @@ def build_branch_lane_projection(
     branches: Sequence[Mapping[str, Any]],
     graph: Mapping[str, Any],
     steps: Sequence[Mapping[str, Any]] = (),
+    *,
+    frontier_ledger: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Project every listed branch into a stable lane using explicit edges."""
+    """Project every listed branch into a stable lane using explicit edges.
+
+    Stage membership is deliberately stricter than visual proof-tier styling.
+    Only the suggestion view is an advisory classification.  Expanded,
+    reaction-validated, and stock-closed membership must be justified by the
+    current authoritative frontier-ledger projection supplied by the compiler.
+    Missing or ambiguous authority fails closed and remains visible in each
+    lane's ``stage_evidence`` reasons.
+    """
 
     if not isinstance(graph, Mapping):
         raise ValueError("branch_lane_dependency_graph_invalid")
@@ -324,6 +336,8 @@ def build_branch_lane_projection(
         for row in graph.get("nodes") or []
     }
     edges = [dict(row) for row in graph.get("edges") or []]
+    stage_authority = _prepare_stage_authority(frontier_ledger)
+    molecule_smiles_by_node_id = _graph_molecule_smiles_by_node_id(graph_nodes)
 
     lane_rows: list[dict[str, Any]] = []
     for branch in branch_rows:
@@ -368,6 +382,21 @@ def build_branch_lane_projection(
         kind_label = _branch_kind_label(branch, kind)
         proof_tier = _branch_proof_tier(branch, step_ids, step_by_id)
         category = _branch_category(branch, kind)
+        all_leaves_stock_bound = view.get("all_leaves_stock_bound") is True
+        stage_evidence = _branch_stage_evidence(
+            kind=kind,
+            proof_tier=proof_tier,
+            step_ids=step_ids,
+            step_by_id=step_by_id,
+            view=view,
+            molecule_smiles_by_node_id=molecule_smiles_by_node_id,
+            stage_authority=stage_authority,
+        )
+        stage_memberships = [
+            stage
+            for stage in ("suggestion", "expanded", "reaction", "stock")
+            if (stage_evidence.get(stage) or {}).get("member") is True
+        ]
         lane_rows.append(
             {
                 "branch_id": branch_id,
@@ -379,6 +408,8 @@ def build_branch_lane_projection(
                 "category": category,
                 "proof_tier": proof_tier,
                 "proof_rank": _PROOF_RANK.get(proof_tier, -1),
+                "stage_memberships": stage_memberships,
+                "stage_evidence": stage_evidence,
                 "is_primary": bool(branch.get("is_primary")),
                 "listed": branch.get("listed") is not False,
                 "solved": branch.get("solved") is True,
@@ -403,7 +434,7 @@ def build_branch_lane_projection(
                 "max_layer": int(lane_layout.get("max_layer") or 0),
                 "dependency_count": len(view.get("dependencies") or []),
                 "acyclic": view.get("acyclic") is not False,
-                "all_leaves_stock_bound": view.get("all_leaves_stock_bound") is True,
+                "all_leaves_stock_bound": all_leaves_stock_bound,
             }
         )
 
@@ -437,7 +468,7 @@ def build_branch_lane_projection(
 
     projection: dict[str, Any] = {
         "schema_version": BRANCH_LANE_SCHEMA_VERSION,
-        "algorithm": "explicit_branch_dependency_lanes.v1",
+        "algorithm": "explicit_branch_dependency_lanes.v2",
         "branch_count": len(lane_rows),
         "listed_branch_count": sum(bool(row["listed"]) for row in lane_rows),
         "groups": group_rows,
@@ -446,6 +477,22 @@ def build_branch_lane_projection(
             "shared_molecules": "visual_aliases_keep_canonical_graph_node_id",
             "edges": "selected_only_by_explicit_reaction_step_binding",
             "array_adjacency": "never_creates_an_edge",
+            "stage_views": (
+                "overlapping_memberships_derived_from_branch_stage_evidence_only"
+            ),
+            "suggestion": "advisory_non_rejected_l0_classification",
+            "expanded": (
+                "every_nonempty_branch_step_requires_current_canonical_queue_"
+                "succeeded_binding"
+            ),
+            "reaction": "every_nonempty_branch_step_requires_current_host_l2_or_higher",
+            "stock": (
+                "every_synthesis_leaf_requires_current_authority_audit;_benchmark_and_"
+                "procurement_scopes_remain_distinct"
+            ),
+            "legacy_hints": (
+                "proof_tier_and_all_leaves_stock_bound_never_authorize_stage_membership"
+            ),
         },
     }
     projection["layout_sha256"] = canonical_sha256(projection)
@@ -744,6 +791,448 @@ def _branch_category(branch: Mapping[str, Any], kind: str) -> str:
     if kind == "diagnostic_failure":
         return "diagnostic"
     return "advisory"
+
+
+def _prepare_stage_authority(
+    frontier_ledger: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Normalize the compiler's current-authority projection without guessing.
+
+    The RouteForest compiler has already performed graph/queue/policy/provider
+    identity validation.  Layout consumes its compact, per-record projection;
+    it never promotes the aggregate counts or closure booleans back into
+    branch-level authority.
+    """
+
+    ledger = dict(frontier_ledger) if isinstance(frontier_ledger, Mapping) else {}
+    raw = ledger.get("stage_authority")
+    stage = dict(raw) if isinstance(raw, Mapping) else {}
+    reasons: list[str] = []
+    if not ledger:
+        reasons.append("frontier_ledger_missing")
+    elif ledger.get("authoritative") is not True:
+        reasons.append("frontier_ledger_not_authoritative")
+    if not stage:
+        reasons.append("stage_authority_missing")
+    elif stage.get("schema_version") != STAGE_AUTHORITY_SCHEMA_VERSION:
+        reasons.append("stage_authority_schema_invalid")
+    if stage and stage.get("authoritative") is not True:
+        reasons.append("stage_authority_not_authoritative")
+    for blocker in _safe_string_list(stage.get("reasons")):
+        reasons.append(f"stage_authority_blocker:{blocker}")
+
+    molecule_values = stage.get("molecules")
+    edge_values = stage.get("edges")
+    if stage and not isinstance(molecule_values, list):
+        reasons.append("stage_authority_molecules_invalid")
+    if stage and not isinstance(edge_values, list):
+        reasons.append("stage_authority_edges_invalid")
+    molecule_rows = (
+        [dict(row) for row in molecule_values if isinstance(row, Mapping)]
+        if isinstance(molecule_values, list)
+        else []
+    )
+    edge_rows = (
+        [dict(row) for row in edge_values if isinstance(row, Mapping)]
+        if isinstance(edge_values, list)
+        else []
+    )
+    if isinstance(molecule_values, list) and len(molecule_rows) != len(molecule_values):
+        reasons.append("stage_authority_molecule_record_invalid")
+    if isinstance(edge_values, list) and len(edge_rows) != len(edge_values):
+        reasons.append("stage_authority_edge_record_invalid")
+
+    molecules_by_smiles: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for index, row in enumerate(molecule_rows):
+        smiles = str(row.get("canonical_smiles") or "")
+        if not smiles:
+            reasons.append(f"stage_authority_molecule_identity_missing:{index}")
+            continue
+        molecules_by_smiles[smiles].append(row)
+    edges_by_step_id: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    edges_by_signature: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for index, row in enumerate(edge_rows):
+        signature = str(row.get("exact_edge_signature") or "")
+        if not signature:
+            reasons.append(f"stage_authority_edge_signature_missing:{index}")
+            continue
+        edges_by_signature[signature].append(row)
+        raw_step_ids = row.get("step_ids")
+        if not isinstance(raw_step_ids, list):
+            reasons.append(f"stage_authority_edge_step_ids_invalid:{index}")
+            continue
+        for step_id in _dedupe_strings(raw_step_ids):
+            edges_by_step_id[step_id].append(row)
+    if any(len(rows) > 1 for rows in molecules_by_smiles.values()):
+        reasons.append("stage_authority_molecule_identity_duplicate")
+    if any(len(rows) > 1 for rows in edges_by_signature.values()):
+        reasons.append("stage_authority_edge_signature_duplicate")
+
+    return {
+        "available": not reasons,
+        "schema_version": str(stage.get("schema_version") or ""),
+        "authority_source": "frontier_ledger.stage_authority",
+        "ledger_content_sha256": str(ledger.get("content_sha256") or ""),
+        "reasons": sorted(set(reasons)),
+        "molecules_by_smiles": molecules_by_smiles,
+        "edges_by_step_id": edges_by_step_id,
+        "edges_by_signature": edges_by_signature,
+    }
+
+
+def _graph_molecule_smiles_by_node_id(
+    graph_nodes: Mapping[str, Mapping[str, Any]],
+) -> dict[str, str]:
+    values: dict[str, set[str]] = defaultdict(set)
+    for node in graph_nodes.values():
+        if str(node.get("node_type") or "") != "molecule":
+            continue
+        node_id = str(node.get("molecule_node_id") or "")
+        smiles = str(node.get("canonical_isomeric_smiles") or "")
+        if node_id and smiles:
+            values[node_id].add(smiles)
+    # Conflicting aliases are intentionally omitted so stock membership fails
+    # closed rather than selecting an arbitrary molecule identity.
+    return {
+        node_id: next(iter(smiles))
+        for node_id, smiles in values.items()
+        if len(smiles) == 1
+    }
+
+
+def _branch_stage_evidence(
+    *,
+    kind: str,
+    proof_tier: str,
+    step_ids: Sequence[str],
+    step_by_id: Mapping[str, Mapping[str, Any]],
+    view: Mapping[str, Any],
+    molecule_smiles_by_node_id: Mapping[str, str],
+    stage_authority: Mapping[str, Any],
+) -> dict[str, Any]:
+    suggestion = _suggestion_stage_evidence(kind=kind, proof_tier=proof_tier)
+    expanded = _expanded_stage_evidence(
+        step_ids=step_ids,
+        step_by_id=step_by_id,
+        stage_authority=stage_authority,
+    )
+    reaction = _reaction_stage_evidence(
+        step_ids=step_ids,
+        step_by_id=step_by_id,
+        stage_authority=stage_authority,
+    )
+    stock = _stock_stage_evidence(
+        leaf_node_ids=_safe_string_list(view.get("root_molecule_node_ids")),
+        molecule_smiles_by_node_id=molecule_smiles_by_node_id,
+        stage_authority=stage_authority,
+    )
+    return {
+        "schema_version": BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION,
+        "authority_source": str(stage_authority.get("authority_source") or ""),
+        "authority_available": stage_authority.get("available") is True,
+        "authority_reasons": list(stage_authority.get("reasons") or []),
+        "ledger_content_sha256": str(
+            stage_authority.get("ledger_content_sha256") or ""
+        ),
+        "suggestion": suggestion,
+        "expanded": expanded,
+        "reaction": reaction,
+        "stock": stock,
+        "semantics": {
+            "memberships_are_overlapping": True,
+            "expanded_member_requires_every_synthesis_step": True,
+            "partial_expansion_is_progress_only_not_stage_membership": True,
+            "aggregate_branch_proof_tier_never_authorizes_reaction": True,
+            "stock_tier_or_alias_never_authorizes_stock": True,
+            "missing_or_ambiguous_authority_fails_closed": True,
+        },
+    }
+
+
+def _suggestion_stage_evidence(*, kind: str, proof_tier: str) -> dict[str, Any]:
+    rank = _PROOF_RANK.get(proof_tier, -1)
+    member = kind != "diagnostic_failure" and 1 <= rank <= 2
+    reasons: list[str] = []
+    if kind == "diagnostic_failure":
+        reasons.append("diagnostic_branch_excluded")
+    elif proof_tier == "L0_rejected":
+        reasons.append("l0_rejected_excluded")
+    elif not member:
+        reasons.append("not_advisory_l0_stage")
+    return {
+        "member": member,
+        "authority": "advisory_classification_not_route_completion_authority",
+        "proof_tier": proof_tier,
+        "reasons": reasons,
+    }
+
+
+def _expanded_stage_evidence(
+    *,
+    step_ids: Sequence[str],
+    step_by_id: Mapping[str, Mapping[str, Any]],
+    stage_authority: Mapping[str, Any],
+) -> dict[str, Any]:
+    reasons = list(stage_authority.get("reasons") or [])
+    matched_step_ids: list[str] = []
+    matched_edge_signatures: list[str] = []
+    matched_job_ids: list[str] = []
+    if stage_authority.get("available") is True:
+        molecules_by_smiles = stage_authority.get("molecules_by_smiles") or {}
+        for step_id in step_ids:
+            matches = _authority_edges_for_display_step(
+                step_id,
+                step_by_id=step_by_id,
+                stage_authority=stage_authority,
+            )
+            if len(matches) != 1:
+                reasons.append(
+                    f"expanded_edge_binding_{'missing' if not matches else 'ambiguous'}:{step_id}"
+                )
+                continue
+            edge = matches[0]
+            product_smiles = str(edge.get("product_smiles") or "")
+            molecules = list(molecules_by_smiles.get(product_smiles) or [])
+            if len(molecules) != 1:
+                reasons.append(
+                    "expanded_product_molecule_binding_"
+                    f"{'missing' if not molecules else 'ambiguous'}:{step_id}"
+                )
+                continue
+            work = molecules[0].get("work")
+            work = dict(work) if isinstance(work, Mapping) else {}
+            job_ids = _safe_string_list(work.get("job_ids"))
+            if work.get("proposal_expansion_succeeded") is not True or not job_ids:
+                reasons.append(f"succeeded_expansion_binding_missing:{step_id}")
+                continue
+            matched_step_ids.append(step_id)
+            signature = str(edge.get("exact_edge_signature") or "")
+            if signature:
+                matched_edge_signatures.append(signature)
+            matched_job_ids.extend(job_ids)
+    if not step_ids:
+        reasons.append("branch_steps_empty")
+    matched_step_ids = sorted(set(matched_step_ids))
+    matched_step_id_set = set(matched_step_ids)
+    remaining_step_ids = sorted(
+        step_id for step_id in step_ids if step_id not in matched_step_id_set
+    )
+    required_step_count = len(step_ids)
+    matched_step_count = len(matched_step_ids)
+    fully_expanded = bool(step_ids) and matched_step_count == required_step_count
+    partial_expanded = 0 < matched_step_count < required_step_count
+    if partial_expanded:
+        reasons.append(
+            f"route_only_partially_expanded:{matched_step_count}/{required_step_count}"
+        )
+    return {
+        "member": fully_expanded,
+        "fully_expanded": fully_expanded,
+        "partial_expanded": partial_expanded,
+        "authority": "current_canonical_frontier_queue_succeeded_expansion",
+        "matched_step_count": matched_step_count,
+        "required_step_count": required_step_count,
+        "remaining_step_ids": remaining_step_ids,
+        "matched_step_ids": matched_step_ids,
+        "matched_edge_signatures": sorted(set(matched_edge_signatures)),
+        "matched_job_ids": sorted(set(matched_job_ids)),
+        "reasons": sorted(set(reasons)),
+        "semantics": {
+            "member_means_fully_expanded": True,
+            "every_synthesis_step_requires_current_queue_success": True,
+            "partial_expanded_is_non_authoritative_progress": True,
+            "empty_route_fails_closed": True,
+        },
+    }
+
+
+def _reaction_stage_evidence(
+    *,
+    step_ids: Sequence[str],
+    step_by_id: Mapping[str, Mapping[str, Any]],
+    stage_authority: Mapping[str, Any],
+) -> dict[str, Any]:
+    reasons = list(stage_authority.get("reasons") or [])
+    matched_step_ids: list[str] = []
+    matched_edge_signatures: list[str] = []
+    matched_proof_request_ids: list[str] = []
+    if not step_ids:
+        reasons.append("branch_steps_empty")
+    elif stage_authority.get("available") is True:
+        for step_id in step_ids:
+            matches = _authority_edges_for_display_step(
+                step_id,
+                step_by_id=step_by_id,
+                stage_authority=stage_authority,
+            )
+            if len(matches) != 1:
+                reasons.append(
+                    f"reaction_edge_binding_{'missing' if not matches else 'ambiguous'}:{step_id}"
+                )
+                continue
+            edge = matches[0]
+            proof = edge.get("reaction_proof")
+            proof = dict(proof) if isinstance(proof, Mapping) else {}
+            level = proof.get("achieved_proof_level")
+            if isinstance(level, bool) or not isinstance(level, int) or level < 2:
+                reasons.append(f"current_host_l2_reaction_proof_missing:{step_id}")
+                continue
+            if str(proof.get("authority") or "") != "current_host_verifier_replay":
+                reasons.append(f"current_host_reaction_authority_missing:{step_id}")
+                continue
+            if proof.get("current_host_reaction_validated") is not True:
+                reasons.append(f"current_host_reaction_binding_missing:{step_id}")
+                continue
+            matched_step_ids.append(step_id)
+            signature = str(edge.get("exact_edge_signature") or "")
+            if signature:
+                matched_edge_signatures.append(signature)
+            matched_proof_request_ids.extend(
+                _safe_string_list(proof.get("proof_request_ids"))
+            )
+    member = bool(step_ids) and len(matched_step_ids) == len(step_ids)
+    return {
+        "member": member,
+        "authority": "current_host_verifier_replay",
+        "minimum_achieved_proof_level": 2,
+        "matched_step_ids": sorted(set(matched_step_ids)),
+        "matched_edge_signatures": sorted(set(matched_edge_signatures)),
+        "matched_proof_request_ids": sorted(set(matched_proof_request_ids)),
+        "reasons": sorted(set(reasons)),
+    }
+
+
+def _authority_edges_for_display_step(
+    display_step_id: str,
+    *,
+    step_by_id: Mapping[str, Mapping[str, Any]],
+    stage_authority: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Join a display step only through explicit compiler-retained bindings."""
+
+    step = step_by_id.get(display_step_id) or {}
+    authority_step_ids = _dedupe_strings(
+        [
+            display_step_id,
+            step.get("graph_step_id"),
+            *(
+                step.get("authority_step_ids")
+                if isinstance(step.get("authority_step_ids"), list)
+                else []
+            ),
+        ]
+    )
+    reaction_proof = step.get("reaction_step_proof")
+    reaction_proof = (
+        dict(reaction_proof) if isinstance(reaction_proof, Mapping) else {}
+    )
+    edge_signatures = _dedupe_strings(
+        [
+            step.get("frontier_exact_edge_signature"),
+            step.get("exact_edge_signature"),
+            step.get("portfolio_hyperedge_id"),
+            reaction_proof.get("exact_edge_signature"),
+        ]
+    )
+    matches: dict[str, dict[str, Any]] = {}
+    edges_by_step_id = stage_authority.get("edges_by_step_id") or {}
+    for authority_step_id in authority_step_ids:
+        for row in edges_by_step_id.get(authority_step_id) or []:
+            signature = str(row.get("exact_edge_signature") or "")
+            matches[signature or canonical_sha256(row)] = row
+    edges_by_signature = stage_authority.get("edges_by_signature") or {}
+    for signature in edge_signatures:
+        for row in edges_by_signature.get(signature) or []:
+            matches[signature] = row
+    return [matches[key] for key in sorted(matches)]
+
+
+def _stock_stage_evidence(
+    *,
+    leaf_node_ids: Sequence[str],
+    molecule_smiles_by_node_id: Mapping[str, str],
+    stage_authority: Mapping[str, Any],
+) -> dict[str, Any]:
+    reasons = list(stage_authority.get("reasons") or [])
+    leaf_records: list[dict[str, Any]] = []
+    observation_ids: list[str] = []
+    closure_job_ids: list[str] = []
+    if not leaf_node_ids:
+        reasons.append("synthesis_leaves_empty")
+    elif stage_authority.get("available") is True:
+        molecules_by_smiles = stage_authority.get("molecules_by_smiles") or {}
+        for node_id in leaf_node_ids:
+            smiles = str(molecule_smiles_by_node_id.get(node_id) or "")
+            if not smiles:
+                reasons.append(f"stock_leaf_identity_missing:{node_id}")
+                continue
+            matches = list(molecules_by_smiles.get(smiles) or [])
+            if len(matches) != 1:
+                reasons.append(
+                    f"stock_leaf_audit_{'missing' if not matches else 'ambiguous'}:{node_id}"
+                )
+                continue
+            stock = matches[0].get("stock")
+            stock = dict(stock) if isinstance(stock, Mapping) else {}
+            current_observation_ids = _safe_string_list(
+                stock.get("current_observation_ids")
+            )
+            jobs = _safe_string_list(stock.get("closure_job_ids"))
+            current_audit = (
+                stock.get("host_replay_verified") is True
+                and bool(current_observation_ids)
+                and bool(jobs)
+            )
+            if not current_audit:
+                reasons.append(f"stock_leaf_current_authority_missing:{node_id}")
+            record = {
+                "node_id": node_id,
+                "canonical_smiles": smiles,
+                "current_authority_audit": current_audit,
+                "benchmark_closed": (
+                    current_audit
+                    and stock.get("benchmark_search_boundary_closed") is True
+                ),
+                "procurement_closed": (
+                    current_audit and stock.get("procurement_boundary_closed") is True
+                ),
+                "current_observation_ids": current_observation_ids,
+                "closure_job_ids": jobs,
+            }
+            leaf_records.append(record)
+            observation_ids.extend(current_observation_ids)
+            closure_job_ids.extend(jobs)
+
+    every_leaf_bound = bool(leaf_node_ids) and len(leaf_records) == len(leaf_node_ids)
+    procurement = every_leaf_bound and all(
+        row["procurement_closed"] for row in leaf_records
+    )
+    benchmark = every_leaf_bound and all(row["benchmark_closed"] for row in leaf_records)
+    scope = "procurement" if procurement else "benchmark" if benchmark else "none"
+    if every_leaf_bound and scope == "none":
+        reasons.append("not_all_synthesis_leaves_stock_closed")
+    return {
+        "member": scope != "none",
+        "authority": "current_host_stock_provider_replay",
+        "closure_scope": scope,
+        "benchmark_closed": benchmark,
+        "procurement_closed": procurement,
+        "leaf_node_ids": list(leaf_node_ids),
+        "leaf_records": leaf_records,
+        "matched_current_observation_ids": sorted(set(observation_ids)),
+        "matched_closure_job_ids": sorted(set(closure_job_ids)),
+        "reasons": sorted(set(reasons)),
+        "semantics": {
+            "benchmark_is_not_procurement": True,
+            "every_synthesis_leaf_requires_current_authority": True,
+        },
+    }
+
+
+def _safe_string_list(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return _dedupe_strings(value)
 
 
 def _branch_kind_label(branch: Mapping[str, Any], kind: str) -> str:

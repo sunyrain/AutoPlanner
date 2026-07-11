@@ -162,6 +162,11 @@ def test_branch_lanes_include_only_explicit_edges_and_have_local_layouts() -> No
     assert lane["dependency_count"] == 0
     assert lane["component_count"] == 2
     assert lane["proof_tier"] == "L0_advisory"
+    assert lane["stage_memberships"] == ["suggestion"]
+    assert lane["stage_evidence"]["authority_available"] is False
+    assert "frontier_ledger_missing" in lane["stage_evidence"]["expanded"][
+        "reasons"
+    ]
     assert {row["graph_node_id"] for row in lane["node_layout"]} == {
         "m:a",
         "r:1",
@@ -363,3 +368,507 @@ def test_branch_lane_projection_validates_complete_graph_before_lane_filtering()
 
     with pytest.raises(ValueError, match="dependency_graph_edge_endpoint_missing"):
         build_branch_lane_projection([], graph, [])
+
+
+def _stage_authority(
+    *,
+    edge_rows: list[dict] | None = None,
+    molecule_rows: list[dict] | None = None,
+    authoritative: bool = True,
+) -> dict:
+    return {
+        "schema_version": "route_forest_frontier_ledger_view.v1",
+        "authoritative": authoritative,
+        "content_sha256": "a" * 64,
+        "stage_authority": {
+            "schema_version": "route_forest_stage_authority.v1",
+            "authoritative": authoritative,
+            "molecules": list(molecule_rows or []),
+            "edges": list(edge_rows or []),
+        },
+    }
+
+
+def _stage_matrix_projection(
+    *,
+    proof_tier: str = "L0_advisory",
+    edge_proof_level: int = 1,
+    edge_authority: str = "none",
+    expansion_succeeded: bool = False,
+    expansion_job_ids: list[str] | None = None,
+    benchmark_closed: bool = False,
+    procurement_closed: bool = False,
+    current_observation_ids: list[str] | None = None,
+    stock_job_ids: list[str] | None = None,
+    host_replay_verified: bool = False,
+    all_leaves_stock_bound: bool = False,
+    authority: bool = True,
+) -> dict:
+    branch_id = "branch:matrix"
+    step_id = "step:matrix"
+    graph = {
+        "nodes": [
+            {
+                **_node("graph:leaf"),
+                "molecule_node_id": "mol:leaf",
+                "canonical_isomeric_smiles": "C",
+            },
+            _node("graph:reaction", node_type="reaction", step=step_id),
+            {
+                **_node("graph:product"),
+                "molecule_node_id": "mol:product",
+                "canonical_isomeric_smiles": "CC",
+            },
+        ],
+        "edges": [
+            _edge(
+                "display:in",
+                "graph:leaf",
+                "graph:reaction",
+                step=step_id,
+                branch=branch_id,
+            ),
+            _edge(
+                "display:out",
+                "graph:reaction",
+                "graph:product",
+                step=step_id,
+                branch=branch_id,
+            ),
+        ],
+        "branch_views": [
+            {
+                "branch_id": branch_id,
+                "step_ids": [step_id],
+                "topological_step_ids": [step_id],
+                "root_molecule_node_ids": ["mol:leaf"],
+                "all_leaves_stock_bound": all_leaves_stock_bound,
+                "dependencies": [],
+                "acyclic": True,
+            }
+        ],
+    }
+    frontier_ledger = _stage_authority(
+        authoritative=authority,
+        edge_rows=[
+            {
+                "exact_edge_signature": "edge:matrix",
+                "step_ids": [step_id],
+                "product_smiles": "CC",
+                "precursor_smiles": ["C"],
+                "reaction_proof": {
+                    "achieved_proof_level": edge_proof_level,
+                    "authority": edge_authority,
+                    "current_host_reaction_validated": (
+                        edge_proof_level >= 2
+                        and edge_authority == "current_host_verifier_replay"
+                    ),
+                    "proof_request_ids": ["proof:matrix"],
+                },
+            }
+        ],
+        molecule_rows=[
+            {
+                "canonical_smiles": "C",
+                "node_ids": ["mol:leaf"],
+                "work": {
+                    "proposal_expansion_succeeded": False,
+                    "job_ids": [],
+                },
+                "stock": {
+                    "benchmark_search_boundary_closed": benchmark_closed,
+                    "procurement_boundary_closed": procurement_closed,
+                    "host_replay_verified": host_replay_verified,
+                    "current_observation_ids": list(current_observation_ids or []),
+                    "closure_job_ids": list(stock_job_ids or []),
+                },
+            },
+            {
+                "canonical_smiles": "CC",
+                "node_ids": ["mol:product"],
+                "work": {
+                    "proposal_expansion_succeeded": expansion_succeeded,
+                    "job_ids": list(expansion_job_ids or []),
+                },
+                "stock": {
+                    "benchmark_search_boundary_closed": False,
+                    "procurement_boundary_closed": False,
+                    "host_replay_verified": False,
+                    "current_observation_ids": [],
+                    "closure_job_ids": [],
+                },
+            },
+        ],
+    )
+    return build_branch_lane_projection(
+        [
+            {
+                "branch_id": branch_id,
+                "kind": "route_consensus",
+                "step_ids": [step_id],
+                "weakest_proof_tier": proof_tier,
+            }
+        ],
+        graph,
+        [
+            {
+                "step_id": step_id,
+                "branch_id": branch_id,
+                "trust_vector": {"proof_tier": proof_tier},
+            }
+        ],
+        frontier_ledger=frontier_ledger,
+    )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "memberships", "stock_scope"),
+    [
+        ({"proof_tier": "L0_rejected"}, [], "none"),
+        ({"proof_tier": "L0_materialized"}, ["suggestion"], "none"),
+        ({"authority": False}, ["suggestion"], "none"),
+        (
+            {
+                "expansion_succeeded": True,
+                "expansion_job_ids": ["expand:1"],
+            },
+            ["suggestion", "expanded"],
+            "none",
+        ),
+        (
+            {
+                "proof_tier": "L4_procurement_ready",
+                "edge_proof_level": 2,
+                "edge_authority": "current_host_verifier_replay",
+            },
+            ["reaction"],
+            "none",
+        ),
+        (
+            {
+                "benchmark_closed": True,
+                "host_replay_verified": True,
+                "current_observation_ids": ["observation:benchmark"],
+                "stock_job_ids": ["stock:benchmark"],
+            },
+            ["suggestion", "stock"],
+            "benchmark",
+        ),
+        (
+            {
+                "procurement_closed": True,
+                "host_replay_verified": True,
+                "current_observation_ids": ["observation:procurement"],
+                "stock_job_ids": ["stock:procurement"],
+            },
+            ["suggestion", "stock"],
+            "procurement",
+        ),
+        (
+            {
+                "proof_tier": "L4_procurement_ready",
+                "edge_proof_level": 4,
+                "edge_authority": "current_host_verifier_replay",
+                "benchmark_closed": True,
+                "all_leaves_stock_bound": True,
+            },
+            ["reaction"],
+            "none",
+        ),
+        (
+            {
+                "proof_tier": "L4_procurement_ready",
+                "edge_proof_level": 4,
+                "edge_authority": "current_host_verifier_replay",
+                "expansion_succeeded": True,
+                "expansion_job_ids": ["expand:1"],
+                "procurement_closed": True,
+                "host_replay_verified": True,
+                "current_observation_ids": ["observation:procurement"],
+                "stock_job_ids": ["stock:procurement"],
+            },
+            ["expanded", "reaction", "stock"],
+            "procurement",
+        ),
+    ],
+)
+def test_branch_stage_authority_matrix_fails_closed_without_exact_bindings(
+    overrides: dict,
+    memberships: list[str],
+    stock_scope: str,
+) -> None:
+    projection = _stage_matrix_projection(**overrides)
+    lane = projection["lanes"][0]
+
+    assert projection["schema_version"] == "route_forest_branch_lanes.v2"
+    assert (
+        lane["stage_evidence"]["schema_version"]
+        == "route_forest_branch_stage_evidence.v2"
+    )
+    assert lane["stage_memberships"] == memberships
+    assert lane["stage_evidence"]["stock"]["closure_scope"] == stock_scope
+    assert lane["stage_evidence"]["stock"]["semantics"][
+        "benchmark_is_not_procurement"
+    ] is True
+
+
+def test_expanded_stage_requires_every_step_and_reports_partial_progress() -> None:
+    branch_id = "branch:two-step"
+    step_ids = ["step:one", "step:two"]
+    branch = {
+        "branch_id": branch_id,
+        "kind": "route_consensus",
+        "step_ids": step_ids,
+        "weakest_proof_tier": "L0_materialized",
+    }
+    graph = {
+        "nodes": [],
+        "edges": [],
+        "branch_views": [
+            {
+                "branch_id": branch_id,
+                "step_ids": step_ids,
+                "root_molecule_node_ids": [],
+            }
+        ],
+    }
+    steps = [
+        {"step_id": step_id, "branch_id": branch_id} for step_id in step_ids
+    ]
+    ledger = _stage_authority(
+        edge_rows=[
+            {
+                "exact_edge_signature": "edge:one",
+                "step_ids": ["step:one"],
+                "product_smiles": "CC",
+            },
+            {
+                "exact_edge_signature": "edge:two",
+                "step_ids": ["step:two"],
+                "product_smiles": "CCC",
+            },
+        ],
+        molecule_rows=[
+            {
+                "canonical_smiles": "CC",
+                "work": {
+                    "proposal_expansion_succeeded": True,
+                    "job_ids": ["expand:one"],
+                },
+            },
+            {
+                "canonical_smiles": "CCC",
+                "work": {
+                    "proposal_expansion_succeeded": False,
+                    "job_ids": [],
+                },
+            },
+        ],
+    )
+
+    partial = build_branch_lane_projection(
+        [branch], graph, steps, frontier_ledger=ledger
+    )["lanes"][0]
+    expanded = partial["stage_evidence"]["expanded"]
+
+    assert partial["stage_memberships"] == ["suggestion"]
+    assert expanded["member"] is False
+    assert expanded["fully_expanded"] is False
+    assert expanded["partial_expanded"] is True
+    assert expanded["matched_step_count"] == 1
+    assert expanded["required_step_count"] == 2
+    assert expanded["matched_step_ids"] == ["step:one"]
+    assert expanded["remaining_step_ids"] == ["step:two"]
+    assert "route_only_partially_expanded:1/2" in expanded["reasons"]
+    assert expanded["semantics"][
+        "partial_expanded_is_non_authoritative_progress"
+    ] is True
+
+    complete_ledger = copy.deepcopy(ledger)
+    second_work = complete_ledger["stage_authority"]["molecules"][1]["work"]
+    second_work["proposal_expansion_succeeded"] = True
+    second_work["job_ids"] = ["expand:two"]
+    complete = build_branch_lane_projection(
+        [branch], graph, steps, frontier_ledger=complete_ledger
+    )["lanes"][0]
+    complete_expanded = complete["stage_evidence"]["expanded"]
+
+    assert complete["stage_memberships"] == ["suggestion", "expanded"]
+    assert complete_expanded["member"] is True
+    assert complete_expanded["fully_expanded"] is True
+    assert complete_expanded["partial_expanded"] is False
+    assert complete_expanded["matched_step_count"] == 2
+    assert complete_expanded["required_step_count"] == 2
+    assert complete_expanded["remaining_step_ids"] == []
+
+
+def test_expanded_stage_fails_closed_for_branch_without_steps() -> None:
+    branch_id = "branch:empty"
+    lane = build_branch_lane_projection(
+        [
+            {
+                "branch_id": branch_id,
+                "kind": "route_consensus",
+                "step_ids": [],
+                "weakest_proof_tier": "L0_advisory",
+            }
+        ],
+        {
+            "nodes": [],
+            "edges": [],
+            "branch_views": [
+                {
+                    "branch_id": branch_id,
+                    "step_ids": [],
+                    "root_molecule_node_ids": [],
+                }
+            ],
+        },
+        [],
+        frontier_ledger=_stage_authority(),
+    )["lanes"][0]
+    expanded = lane["stage_evidence"]["expanded"]
+
+    assert lane["stage_memberships"] == ["suggestion"]
+    assert expanded["member"] is False
+    assert expanded["fully_expanded"] is False
+    assert expanded["partial_expanded"] is False
+    assert expanded["matched_step_count"] == 0
+    assert expanded["required_step_count"] == 0
+    assert "branch_steps_empty" in expanded["reasons"]
+
+
+def test_reaction_stage_requires_every_step_to_have_current_host_l2_binding() -> None:
+    projection = _stage_matrix_projection(
+        proof_tier="L4_procurement_ready",
+        edge_proof_level=4,
+        edge_authority="current_host_verifier_replay",
+    )
+    lane = projection["lanes"][0]
+    branch = {
+        "branch_id": lane["branch_id"],
+        "kind": "route_consensus",
+        "step_ids": ["step:matrix", "step:unbound"],
+        "weakest_proof_tier": "L4_procurement_ready",
+    }
+    graph = {
+        "nodes": [],
+        "edges": [],
+        "branch_views": [
+            {
+                "branch_id": lane["branch_id"],
+                "step_ids": ["step:matrix", "step:unbound"],
+                "root_molecule_node_ids": [],
+            }
+        ],
+    }
+    ledger = _stage_authority(
+        edge_rows=[
+            {
+                "exact_edge_signature": "edge:matrix",
+                "step_ids": ["step:matrix"],
+                "product_smiles": "CC",
+                "reaction_proof": {
+                    "achieved_proof_level": 4,
+                    "authority": "current_host_verifier_replay",
+                    "current_host_reaction_validated": True,
+                    "proof_request_ids": ["proof:matrix"],
+                },
+            }
+        ],
+    )
+
+    strict = build_branch_lane_projection(
+        [branch],
+        graph,
+        [
+            {"step_id": "step:matrix", "branch_id": lane["branch_id"]},
+            {
+                "step_id": "step:unbound",
+                "branch_id": lane["branch_id"],
+                "trust_vector": {"proof_tier": "L4_procurement_ready"},
+            },
+        ],
+        frontier_ledger=ledger,
+    )["lanes"][0]
+
+    assert "reaction" not in strict["stage_memberships"]
+    assert strict["stage_evidence"]["reaction"]["matched_step_ids"] == [
+        "step:matrix"
+    ]
+    assert "reaction_edge_binding_missing:step:unbound" in strict[
+        "stage_evidence"
+    ]["reaction"]["reasons"]
+
+
+def test_stage_authority_joins_regenerated_display_step_by_explicit_graph_step_id() -> (
+    None
+):
+    branch_id = "branch:display"
+    display_step_id = "display:step:1"
+    source_step_id = "consensus:step:1"
+    ledger = _stage_authority(
+        edge_rows=[
+            {
+                "exact_edge_signature": "edge:source",
+                "step_ids": [source_step_id],
+                "product_smiles": "CC",
+                "precursor_smiles": ["C"],
+                "reaction_proof": {
+                    "achieved_proof_level": 2,
+                    "authority": "current_host_verifier_replay",
+                    "current_host_reaction_validated": True,
+                    "proof_request_ids": ["proof:source"],
+                },
+            }
+        ],
+        molecule_rows=[
+            {
+                "canonical_smiles": "CC",
+                "node_ids": [],
+                "work": {
+                    "proposal_expansion_succeeded": True,
+                    "job_ids": ["expand:source"],
+                },
+                "stock": {},
+            }
+        ],
+    )
+
+    lane = build_branch_lane_projection(
+        [
+            {
+                "branch_id": branch_id,
+                "kind": "route_consensus_graph",
+                "step_ids": [display_step_id],
+                "weakest_proof_tier": "L2_reaction_validated",
+            }
+        ],
+        {
+            "nodes": [],
+            "edges": [],
+            "branch_views": [
+                {
+                    "branch_id": branch_id,
+                    "step_ids": [display_step_id],
+                    "root_molecule_node_ids": [],
+                }
+            ],
+        },
+        [
+            {
+                "step_id": display_step_id,
+                "branch_id": branch_id,
+                "graph_step_id": source_step_id,
+            }
+        ],
+        frontier_ledger=ledger,
+    )["lanes"][0]
+
+    assert lane["stage_memberships"] == ["expanded", "reaction"]
+    assert lane["stage_evidence"]["expanded"]["matched_edge_signatures"] == [
+        "edge:source"
+    ]
+    assert lane["stage_evidence"]["reaction"]["matched_step_ids"] == [
+        display_step_id
+    ]

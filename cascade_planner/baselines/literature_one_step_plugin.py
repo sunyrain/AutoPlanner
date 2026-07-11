@@ -238,6 +238,10 @@ class LiteratureTemplateOneStepWrapper:
                 self.state.source_policy_skips += 1
                 return base
         try:
+            # The wrapper is the production integration path; count its calls
+            # so runtime diagnostics can distinguish "loaded and consulted"
+            # from a plugin that was merely present in request metadata.
+            self.state.calls += 1
             rows = self.plugin.one_step_rows(str(target or ""), top_k=self.config.max_added)
         except Exception as exc:  # pragma: no cover - plugin must not break native search
             self.state.record_error(exc)

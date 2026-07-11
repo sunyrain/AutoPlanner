@@ -3,7 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 
-from scripts.audit_architecture_v2 import audit_run
+from cascade_planner.application.frontier_ledger import project_frontier_ledger
+from scripts.audit_architecture_v2 import _frontier_ledger_evidence, audit_run
 from cascade_planner.runtime.artifact_revision import publish_closeout_revision
 
 
@@ -41,6 +42,69 @@ def with_named_hash(value: dict, field: str) -> dict:
 
 def sha(label: str) -> str:
     return hashlib.sha256(label.encode("utf-8")).hexdigest()
+
+
+def frontier_ledger_fixture(
+    *,
+    any_route_closed: bool,
+    all_explored_graph_closed: bool,
+    inputs_valid: bool = True,
+) -> dict:
+    graph = {
+        "schema_version": "route_consensus_graph.v1",
+        "case_id": "test",
+        "target_smiles": "CCO",
+        "nodes": [],
+        "steps": [],
+    }
+    queue = with_content_hash(
+        {
+            "schema_version": "frontier_queue.v1",
+            "run_id": "test",
+            "revision": 1,
+            "jobs": [],
+        }
+    )
+    proof_state = with_content_hash(
+        {
+            "schema_version": "codex_retrosynthesis_reaction_proof_state.v1",
+            "graph_identity_sha256": with_content_hash(
+                {
+                    "schema_version": graph["schema_version"],
+                    "case_id": graph["case_id"],
+                    "target_smiles": graph["target_smiles"],
+                    "steps": [],
+                }
+            )["content_sha256"],
+            "records": [],
+        }
+    )
+    ledger = project_frontier_ledger(
+        graph,
+        queue,
+        proof_state,
+        campaign_policy_sha256=sha("fixture-policy"),
+    )
+    if any_route_closed or all_explored_graph_closed:
+        # Deliberately forge a digest-valid positive claim without a stock
+        # replay binding.  The current validator must reject it.
+        for container in (
+            ledger["root"]["closure"],
+            ledger["molecules"]["CCO"]["closure"],
+            ledger["summary"],
+        ):
+            container["any_benchmark_route_closed"] = any_route_closed
+            container["all_explored_benchmark_closed"] = (
+                all_explored_graph_closed
+            )
+            container["any_route_closed"] = any_route_closed
+            container["all_explored_graph_closed"] = all_explored_graph_closed
+        ledger["molecules"]["CCO"]["stock"]["closed"] = any_route_closed
+        ledger["summary"]["stock_closed_molecule_count"] = int(any_route_closed)
+    if not inputs_valid:
+        for key in ("graph", "frontier_queue", "reaction_proof_state"):
+            ledger["input_validation"][key]["valid"] = False
+    return with_content_hash(ledger)
 
 
 def _route_nodes(route: dict, edges_by_id: dict[str, dict]) -> tuple[set[str], set[str]]:
@@ -141,9 +205,110 @@ def test_architecture_audit_separates_engineering_from_run_acceptance(tmp_path) 
         report["run_acceptance"]["gates"]["backend_revalidated_replacement_available"]
         is False
     )
+    assert report["completion_truth"] == {
+        "schema_version": "architecture_completion_truth.v1",
+        "ledger_required_reaction_proof_level": 0,
+        "any_route_closed": False,
+        "all_explored_graph_closed": False,
+        "l3_parent_route_solved": False,
+        "l4_procurement_route_ready": False,
+        "l4_procurement_route_ids": [],
+        "semantics": {
+            "any_route_is_existential_hypergraph_closure": True,
+            "all_explored_is_universal_hypergraph_closure": True,
+            "l3_parent_requires_deterministic_parent_proof": True,
+            "l4_procurement_requires_a_contract_valid_all_l4_route": True,
+            "no_completion_field_implies_another_stronger_field": True,
+        },
+    }
 
 
-def _write_portfolio_run(tmp_path, *, routes: list[dict], edges: list[dict]) -> None:
+def test_frontier_ledger_audit_checks_digest_and_fails_closed() -> None:
+    ledger = frontier_ledger_fixture(
+        any_route_closed=True,
+        all_explored_graph_closed=True,
+    )
+    forged_positive = _frontier_ledger_evidence(
+        ledger,
+        expected_target_smiles="CCO",
+    )
+
+    assert forged_positive["schema_valid"] is True
+    assert forged_positive["content_sha256_valid"] is True
+    assert forged_positive["producer_fail_closed"] is True
+    assert forged_positive["contract_valid"] is False
+    assert forged_positive["authority_valid"] is False
+    assert forged_positive["effective_any_route_closed"] is False
+    assert forged_positive["effective_all_explored_graph_closed"] is False
+    assert "current_host_stock_provider_replay_not_supplied" in forged_positive[
+        "authority_blockers"
+    ]
+
+    structurally_valid = _frontier_ledger_evidence(
+        frontier_ledger_fixture(
+            any_route_closed=False,
+            all_explored_graph_closed=False,
+        ),
+        expected_target_smiles="CCO",
+    )
+    assert structurally_valid["contract_valid"] is True
+    assert structurally_valid["authority_valid"] is False
+    assert structurally_valid["current_input_bindings_verified"] is False
+
+    digest_tampered = json.loads(json.dumps(ledger))
+    digest_tampered["summary"]["all_explored_graph_closed"] = False
+    tampered = _frontier_ledger_evidence(
+        digest_tampered,
+        expected_target_smiles="CCO",
+    )
+    assert tampered["content_sha256_valid"] is False
+    assert tampered["authority_valid"] is False
+    assert tampered["effective_any_route_closed"] is False
+
+    invalid_authority = frontier_ledger_fixture(
+        any_route_closed=True,
+        all_explored_graph_closed=True,
+        inputs_valid=False,
+    )
+    failed_open = _frontier_ledger_evidence(
+        invalid_authority,
+        expected_target_smiles="CCO",
+    )
+    assert failed_open["producer_fail_closed"] is False
+    assert failed_open["authority_valid"] is False
+    assert failed_open["effective_any_route_closed"] is False
+
+    malformed = with_content_hash({**ledger, "summary": ["not", "an", "object"]})
+    malformed_evidence = _frontier_ledger_evidence(
+        malformed,
+        expected_target_smiles="CCO",
+    )
+    assert malformed_evidence["contract_valid"] is False
+    assert malformed_evidence["effective_any_route_closed"] is False
+
+    inconsistent = json.loads(json.dumps(ledger))
+    inconsistent["summary"]["reachable_molecule_count"] = 2
+    inconsistent = with_content_hash(inconsistent)
+    inconsistent_evidence = _frontier_ledger_evidence(
+        inconsistent,
+        expected_target_smiles="CCO",
+    )
+    assert "frontier_ledger_reachable_molecule_count_mismatch" in inconsistent_evidence[
+        "reasons"
+    ]
+    assert inconsistent_evidence["authority_valid"] is False
+
+
+def _write_portfolio_run(
+    tmp_path,
+    *,
+    routes: list[dict],
+    edges: list[dict],
+    proof_level: int = 3,
+) -> None:
+    named_proof_level = (
+        "L4_procurement_ready" if proof_level == 4 else "L3_precedent_supported"
+    )
     write(tmp_path / "target_input.json", {"target_name": "test", "target_smiles": "CCO"})
     write(tmp_path / "preflight.json", {"accepted": True, "inchi_key": "TEST"})
     write(
@@ -208,7 +373,12 @@ def _write_portfolio_run(tmp_path, *, routes: list[dict], edges: list[dict]) -> 
                 "independent_support_groups": list(
                     route.get("independent_support_groups") or ["literature:fixture"]
                 ),
-                "weakest_proof_level": int(route.get("weakest_proof_level") or 3),
+                "weakest_proof_level": int(
+                    route.get("weakest_proof_level") or proof_level
+                ),
+                "procurement_ready": bool(
+                    route.get("procurement_ready") is True or proof_level == 4
+                ),
                 "mean_edge_rank": float(route.get("mean_edge_rank") or 0.8),
                 "base_score": float(route.get("base_score") or 0.8),
                 "diversity_score": float(route.get("diversity_score") or 1.0),
@@ -260,8 +430,8 @@ def _write_portfolio_run(tmp_path, *, routes: list[dict], edges: list[dict]) -> 
                 "product_molecule_id": product_id,
                 "precursor_molecule_ids": precursor_ids,
                 "structure_signature_sha256": signature,
-                "proof_level": "L3_precedent_supported",
-                "portfolio_proof_level": 3,
+                "proof_level": named_proof_level,
+                "portfolio_proof_level": proof_level,
                 "advisory": False,
                 "proof_accepted": True,
                 "proof_digest": sha(f"proof:{edge_id}"),
@@ -291,6 +461,22 @@ def _write_portfolio_run(tmp_path, *, routes: list[dict], edges: list[dict]) -> 
                 "catalog_id": f"catalog:{molecule_id}",
                 "catalog_sha256": sha(f"catalog:{molecule_id}"),
                 "lookup_basis": "exact_canonical_smiles",
+                "boundary_type": (
+                    "commercially_orderable"
+                    if proof_level == 4
+                    else "benchmark_stock"
+                ),
+                "benchmark_membership": proof_level != 4,
+                "commercial_orderability_claimed": proof_level == 4,
+                "snapshot_digest_replayed": proof_level == 4,
+                "provider_trust_authority": (
+                    "autoplanner_host_builtin_allowlist.v1"
+                    if proof_level == 4
+                    else ""
+                ),
+                "provider_descriptor_sha256": (
+                    sha(f"provider:{molecule_id}") if proof_level == 4 else ""
+                ),
                 "stock_audit_sha256": sha(f"stock-audit:{molecule_id}"),
                 "evidence_sha256": sha(f"stock-evidence:{molecule_id}"),
                 "binding_authority": "strictly_replayed_route_proof_bank.v1",
@@ -312,7 +498,9 @@ def _write_portfolio_run(tmp_path, *, routes: list[dict], edges: list[dict]) -> 
         {
             "schema_version": "route_portfolio_bindings.v1",
             "stock_molecule_ids": all_leaves,
-            "edge_proof_levels": {edge_id: 3 for edge_id in exact_bindings},
+            "edge_proof_levels": {
+                edge_id: proof_level for edge_id in exact_bindings
+            },
             "exact_edge_proof_bindings": exact_bindings,
             "stock_bindings": stock_bindings,
             "matched_edge_count": len(exact_bindings),
@@ -525,6 +713,66 @@ def test_architecture_audit_validates_every_portfolio_route_and_allows_overlay_c
     assert report["portfolio"]["selected_route_evidence"][0]["contract_valid"] is True
     assert report["projection"]["explored_overlay_acyclic"] is False
     assert report["projection"]["explored_overlay_cycles_are_allowed"] is True
+
+
+def test_architecture_audit_reports_l4_procurement_separately_from_parent_proof(
+    tmp_path,
+) -> None:
+    edges = [
+        {
+            "hyperedge_id": "edge:target",
+            "product_molecule_id": "target",
+            "precursor_molecule_ids": ["stock"],
+        }
+    ]
+    route = {
+        "schema_version": "route_portfolio_item.v1",
+        "route_id": "route:l4",
+        "complete": True,
+        "reaction_validated": True,
+        "selected_hyperedges": [
+            {"product_molecule_id": "target", "hyperedge_id": "edge:target"}
+        ],
+    }
+    _write_portfolio_run(
+        tmp_path,
+        routes=[route],
+        edges=edges,
+        proof_level=4,
+    )
+
+    report = audit_run(tmp_path)
+
+    assert report["completion_truth"]["l4_procurement_route_ready"] is True
+    assert report["completion_truth"]["l4_procurement_route_ids"] == ["route:l4"]
+    assert report["completion_truth"]["l3_parent_route_solved"] is False
+
+    graph_path = tmp_path / "route_consensus_graph_fused.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    bindings = graph["route_portfolio_bindings"]
+    stock_binding = bindings["stock_bindings"]["stock"]
+    stock_binding.update(
+        {
+            "boundary_type": "benchmark_stock",
+            "benchmark_membership": True,
+            "commercial_orderability_claimed": False,
+            "snapshot_digest_replayed": False,
+            "provider_trust_authority": "",
+            "provider_descriptor_sha256": "",
+        }
+    )
+    bindings["stock_bindings"]["stock"] = with_named_hash(
+        stock_binding,
+        "binding_sha256",
+    )
+    graph["route_portfolio_bindings"] = with_content_hash(bindings)
+    write(graph_path, graph)
+
+    benchmark_only = audit_run(tmp_path)
+    assert benchmark_only["portfolio"]["selected_route_evidence"][0][
+        "contract_valid"
+    ] is True
+    assert benchmark_only["completion_truth"]["l4_procurement_route_ready"] is False
 
 
 def test_architecture_audit_rejects_one_invalid_or_cyclic_selected_route(tmp_path) -> None:
@@ -774,6 +1022,7 @@ def test_architecture_audit_prefers_cas_decision_and_forest_over_drifted_views(
     _write_portfolio_run(tmp_path, routes=[], edges=[])
     proof_snapshot_path = tmp_path / "parent_route_proof_snapshot.json"
     verdict_core_path = tmp_path / "final_verdict_core.json"
+    frontier_ledger_path = tmp_path / "frontier_ledger.json"
     proof_snapshot = {
         "schema_version": "parent_route_proof_snapshot.v1",
         "case_id": "test",
@@ -801,15 +1050,24 @@ def test_architecture_audit_prefers_cas_decision_and_forest_over_drifted_views(
     }
     write(proof_snapshot_path, proof_snapshot)
     write(verdict_core_path, verdict_core)
+    write(
+        frontier_ledger_path,
+        frontier_ledger_fixture(
+            any_route_closed=False,
+            all_explored_graph_closed=False,
+        ),
+    )
     publish_closeout_revision(
         tmp_path,
         artifacts={
             "route_consensus_graph": tmp_path / "route_consensus_graph_fused.json",
+            "frontier_ledger": frontier_ledger_path,
             "parent_route_proof_snapshot": proof_snapshot_path,
             "final_verdict_core": verdict_core_path,
             "explored_route_forest": tmp_path / "explored_route_forest.json",
         },
         dependencies={
+            "frontier_ledger": ("route_consensus_graph",),
             "parent_route_proof_snapshot": ("route_consensus_graph",),
             "final_verdict_core": ("parent_route_proof_snapshot",),
             "explored_route_forest": (
@@ -838,6 +1096,13 @@ def test_architecture_audit_prefers_cas_decision_and_forest_over_drifted_views(
             "projection_coverage": {"complete": False},
         },
     )
+    write(
+        frontier_ledger_path,
+        frontier_ledger_fixture(
+            any_route_closed=True,
+            all_explored_graph_closed=True,
+        ),
+    )
 
     report = audit_run(tmp_path)
 
@@ -845,10 +1110,14 @@ def test_architecture_audit_prefers_cas_decision_and_forest_over_drifted_views(
     assert report["closeout"]["authority_source"] == "committed_cas_revision"
     assert report["run_acceptance"]["gates"]["closeout_parent_proof_bound"] is True
     assert report["run_acceptance"]["gates"]["closeout_final_verdict_bound"] is True
+    assert report["run_acceptance"]["gates"]["closeout_frontier_ledger_bound"] is True
+    assert report["frontier_ledger"]["authority_source"] == "committed_cas_revision"
+    assert report["completion_truth"]["any_route_closed"] is False
     assert report["final_verdict"]["verdict"] == "unresolved"
     assert report["final_verdict"]["solved"] is False
     assert report["projection"]["projection_complete"] is True
     assert report["compatibility_projection"]["board_parent_proof_matches_cas"] is False
     assert report["compatibility_projection"]["final_verdict_semantics_match_cas"] is False
     assert report["compatibility_projection"]["forest_matches_cas"] is False
+    assert report["compatibility_projection"]["frontier_ledger_matches_cas"] is False
     assert report["compatibility_projection"]["drift_is_diagnostic_only"] is True

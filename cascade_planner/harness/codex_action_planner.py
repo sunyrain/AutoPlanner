@@ -19,6 +19,7 @@ from cascade_planner.agent.codex_worker import WorkerBudget, WorkerTask, run_cod
 from cascade_planner.harness.agent_action_planner import (
     build_child_expansion_payload_from_blackboard,
     build_guided_chemenzy_payload_from_blackboard,
+    independent_literature_source_keys,
     plan_action_batch,
     validate_action_batch,
 )
@@ -153,6 +154,12 @@ def plan_action_batch_with_codex(
         "fallback_used": False,
         "tool_policy": tool_policy,
     }
+    normalization_audit = dict(batch.get("normalization_audit") or {})
+    if normalization_audit:
+        batch["codex_action_planner"]["normalization_audit"] = normalization_audit
+        batch["codex_action_planner"]["payload_normalization_used"] = bool(
+            normalization_audit.get("payload_changes")
+        )
     return batch
 
 
@@ -410,6 +417,18 @@ def _accepted_repaired_codex_batch(
         "fallback_used": False,
         "tool_policy": dict(tool_policy or {}),
     }
+    local_repair_audit = dict(out.get("repair_audit") or {})
+    if local_repair_audit:
+        metadata["repair_audit"] = local_repair_audit
+        metadata["repair_reasons"] = [
+            str(item)
+            for item in local_repair_audit.get("trigger_reasons") or []
+            if str(item or "").strip()
+        ]
+    normalization_audit = dict(out.get("normalization_audit") or {})
+    if normalization_audit:
+        metadata["normalization_audit"] = normalization_audit
+        metadata["payload_normalization_used"] = bool(normalization_audit.get("payload_changes"))
     if repair_record:
         metadata["repair_record_ref"] = str(repair_record.get("record_ref") or "")
         metadata["repair_record_status"] = str(repair_record.get("status") or "")
@@ -433,6 +452,7 @@ def _locally_repair_invalid_codex_batch(
     actions = [dict(row) for row in repaired.get("actions") or [] if isinstance(row, dict)]
     if not actions:
         return None
+    original_actions = deepcopy(actions)
 
     for action in actions:
         payload = _repair_codex_action_payload(
@@ -441,19 +461,26 @@ def _locally_repair_invalid_codex_batch(
             blackboard=blackboard,
         )
         action["payload"] = payload
-        if str(action.get("action_type") or "") in {
-            "search_literature",
+        action_type = str(action.get("action_type") or "")
+        if action_type == "search_literature":
+            payload["max_sources"] = _bounded_source_count(payload.get("max_sources"), default=3)
+        elif action_type in {
             "extract_pdf_literature_structures",
             "extract_visual_literature_chain",
             "resolve_literature_structure_task",
             "compile_exact_literature_rows",
-        }:
-            payload["max_sources"] = min(max(1, int(payload.get("max_sources") or 1)), 1)
+        } and "max_sources" in payload:
+            # Follow-up actions are source-bound and consume one document at a
+            # time; only discovery may intentionally return 2-3 independent
+            # sources.
+            payload["max_sources"] = 1
 
     if "visual_total_budget_exceeded" in reasons:
         actions = _trim_visual_budget_actions(actions, blackboard=blackboard)
     if "scout_total_budget_exceeded" in reasons:
         actions = [row for row in actions if str(row.get("action_type") or "") != "search_literature"]
+    if "literature_source_round_budget_exceeded" in reasons:
+        actions = _trim_literature_source_budget_actions(actions, max_sources=3)
     if any(str(reason).startswith("failure_critic_requires_failure_evidence") for reason in reasons):
         actions = [row for row in actions if str(row.get("action_type") or "") != "build_failure_critic_report"]
     if any(str(reason).startswith("extract_pdf_literature_structures_requires_pdf_binding") for reason in reasons):
@@ -522,7 +549,122 @@ def _locally_repair_invalid_codex_batch(
     repaired["semantics"]["planner_can_emit_solved"] = False
     repaired["semantics"]["raw_reaction_output_allowed"] = False
     repaired["semantics"]["deterministic_validator_required"] = True
+    repaired["repair_audit"] = _local_repair_audit(
+        original_actions,
+        repaired["actions"],
+        trigger_reasons=sorted(reasons),
+    )
     return repaired
+
+
+def _bounded_source_count(value: Any, *, default: int = 1, maximum: int = 3) -> int:
+    try:
+        parsed = int(value if value not in (None, "") else default)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return max(1, min(int(maximum), parsed))
+
+
+def _literature_action_source_cost(action: dict[str, Any]) -> int:
+    action_type = str(action.get("action_type") or "")
+    if action_type not in {
+        "search_literature",
+        "extract_pdf_literature_structures",
+        "extract_visual_literature_chain",
+        "resolve_literature_structure_task",
+        "compile_exact_literature_rows",
+    }:
+        return 0
+    if action_type == "search_literature":
+        return _bounded_source_count((action.get("payload") or {}).get("max_sources"), default=3)
+    return 1
+
+
+def _trim_literature_source_budget_actions(
+    actions: list[dict[str, Any]],
+    *,
+    max_sources: int,
+) -> list[dict[str, Any]]:
+    """Preserve bound follow-ups, then fit discovery into the remaining cap."""
+    capacity = max(0, int(max_sources or 0))
+    bound_followup_count = min(
+        capacity,
+        sum(
+            1
+            for row in actions
+            if _literature_action_source_cost(row) > 0
+            and str(row.get("action_type") or "") != "search_literature"
+        ),
+    )
+    remaining_search = max(0, capacity - bound_followup_count)
+    kept_followups = 0
+    out: list[dict[str, Any]] = []
+    for raw in actions:
+        action = dict(raw)
+        cost = _literature_action_source_cost(action)
+        if cost <= 0:
+            out.append(action)
+            continue
+        if str(action.get("action_type") or "") != "search_literature":
+            if kept_followups >= bound_followup_count:
+                continue
+            out.append(action)
+            kept_followups += 1
+            continue
+        if remaining_search <= 0:
+            continue
+        if cost > remaining_search:
+            action["payload"] = dict(action.get("payload") or {})
+            action["payload"]["max_sources"] = remaining_search
+            cost = remaining_search
+        if cost <= remaining_search:
+            out.append(action)
+            remaining_search -= cost
+    return out
+
+
+def _local_repair_audit(
+    before: list[dict[str, Any]],
+    after: list[dict[str, Any]],
+    *,
+    trigger_reasons: list[str],
+) -> dict[str, Any]:
+    def identity(row: dict[str, Any], index: int) -> str:
+        return str(row.get("action_id") or f"{row.get('action_type') or 'action'}:{index}")
+
+    before_index = {identity(row, idx): dict(row) for idx, row in enumerate(before)}
+    after_index = {identity(row, idx): dict(row) for idx, row in enumerate(after)}
+    dropped = [key for key in before_index if key not in after_index]
+    inserted = [key for key in after_index if key not in before_index]
+    payload_changes: list[dict[str, Any]] = []
+    for key in sorted(set(before_index) & set(after_index)):
+        old_payload = dict(before_index[key].get("payload") or {})
+        new_payload = dict(after_index[key].get("payload") or {})
+        changed_keys = sorted(
+            field
+            for field in set(old_payload) | set(new_payload)
+            if old_payload.get(field) != new_payload.get(field)
+        )
+        if changed_keys:
+            payload_changes.append(
+                {
+                    "action_id": key,
+                    "action_type": str(after_index[key].get("action_type") or ""),
+                    "changed_payload_fields": changed_keys,
+                    "before_max_sources": old_payload.get("max_sources"),
+                    "after_max_sources": new_payload.get("max_sources"),
+                }
+            )
+    return {
+        "schema_version": "codex_action_batch_local_repair_audit.v1",
+        "trigger_reasons": [str(item) for item in trigger_reasons if str(item or "").strip()],
+        "before_action_count": len(before),
+        "after_action_count": len(after),
+        "dropped_action_ids": dropped,
+        "inserted_action_ids": inserted,
+        "payload_changes": payload_changes,
+        "silent_repair": False,
+    }
 
 
 def _trim_actions_for_required_broad_template(actions: list[dict[str, Any]], *, max_actions: int = 3) -> list[dict[str, Any]]:
@@ -688,12 +830,15 @@ def _codex_action_planner_task(
         "Keep the JSON small: rationale under 45 words, expected_artifact under 12 words, success_condition under 20 words, "
         "and payload as a skeleton with fewer than 12 scalar/list fields. "
         "If two recent rounds produced no useful artifact, either change direction or choose stop_unresolved. "
-        "Use search_literature only when source evidence or target-proximal bridge evidence is missing. "
-        "For search_literature, include only search_intent and short queries; local repair will add source_acquisition_policy. "
+        "Use search_literature when source evidence/target-proximal bridge evidence is missing, when discovered metadata still needs accessible "
+        "HTML/PDF material, or when fewer than two independent logical source groups are present. Article and SI documents sharing one DOI are "
+        "one source group. For search_literature, include search_intent, short queries, and max_sources up to 3; local repair preserves a 2-3 source "
+        "request and adds source acquisition/independence policies. "
         "Default to online source acquisition through web/browser/literature search. "
         "Do not ask for local PDF fallback unless the user explicitly supplied a PDF/source seed or the blackboard already has same-target local PDF candidates. "
         "Placeholders are allowed only after online access failures. "
-        "Use visual/PDF extraction only after a source candidate or local PDF is available. "
+        "Continue discovered evidence across rounds: acquire accessible HTML/PDF material, render a source-bound PDF, extract visual structures, "
+        "resolve open compound labels, then compile exact rows. Use visual/PDF extraction only after a source candidate or local PDF is available. "
         "Use compile_exact_literature_rows only after current visual/source-detail extraction has produced uncompiled molecular steps; "
         "process, fermentation, feedstock-mixture, organism, strain, or biotransformation evidence is an objective/anchor signal, not an exact reaction row. "
         "When process evidence names an advanced intermediate, feedstock, endpoint, or transformation but lacks exact SMILES, treat it as a route-closure anchor: "
@@ -790,6 +935,7 @@ def _normalize_codex_batch(
 ) -> dict[str, Any]:
     case_id = str(blackboard.get("case_id") or payload.get("case_id") or "case")
     actions: list[dict[str, Any]] = []
+    normalization_changes: list[dict[str, Any]] = []
     seen: dict[str, int] = {}
     for idx, raw in enumerate(payload.get("actions") or [], start=1):
         if not isinstance(raw, dict):
@@ -800,7 +946,8 @@ def _normalize_codex_batch(
         if not action_id:
             suffix = f"{action_type}_{seen[action_type]}" if action_type else f"action_{idx}"
             action_id = f"r{int(round_index)}:{suffix}"
-        repair_payload = dict(raw.get("payload") or {})
+        original_payload = deepcopy(dict(raw.get("payload") or {}))
+        repair_payload = dict(original_payload)
         repair_payload.setdefault("_planner_action_id", action_id)
         repair_payload.setdefault("_planner_expected_artifact", str(raw.get("expected_artifact") or ""))
         repair_payload.setdefault("_planner_rationale", str(raw.get("rationale") or ""))
@@ -822,6 +969,14 @@ def _normalize_codex_batch(
             "_planner_success_condition",
         ):
             action["payload"].pop(internal_key, None)
+        payload_audit = _payload_normalization_audit(
+            action_id=action_id,
+            action_type=action_type,
+            before=original_payload,
+            after=dict(action.get("payload") or {}),
+        )
+        if payload_audit:
+            normalization_changes.append(payload_audit)
         for key, value in raw.items():
             key_l = str(key).lower()
             if key_l in {"verdict", "route_status", "status"} or key_l in FORBIDDEN_RAW_REACTION_KEYS:
@@ -842,7 +997,48 @@ def _normalize_codex_batch(
     hints = _normalize_planner_source_hints(payload.get("planner_source_hints") or [])
     if hints:
         batch["planner_source_hints"] = hints
+    batch["normalization_audit"] = {
+        "schema_version": "codex_action_batch_normalization_audit.v1",
+        "payload_changes": normalization_changes,
+        "changed_action_count": len(normalization_changes),
+        "silent_repair": False,
+    }
     return batch
+
+
+def _payload_normalization_audit(
+    *,
+    action_id: str,
+    action_type: str,
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> dict[str, Any]:
+    changed_fields = sorted(
+        field
+        for field in set(before) | set(after)
+        if before.get(field) != after.get(field)
+    )
+    if not changed_fields:
+        return {}
+    added = [field for field in changed_fields if field not in before]
+    removed = [field for field in changed_fields if field not in after]
+    normalized = [field for field in changed_fields if field in before and field in after]
+    reasons = [
+        *[f"payload_field_completed:{field}" for field in added],
+        *[f"payload_field_removed_by_contract:{field}" for field in removed],
+        *[f"payload_field_normalized:{field}" for field in normalized],
+    ]
+    return {
+        "action_id": str(action_id or ""),
+        "action_type": str(action_type or ""),
+        "changed_payload_fields": changed_fields,
+        "added_payload_fields": added,
+        "removed_payload_fields": removed,
+        "normalized_payload_fields": normalized,
+        "reasons": reasons,
+        "before_max_sources": before.get("max_sources"),
+        "after_max_sources": after.get("max_sources"),
+    }
 
 
 def _repair_codex_action_payload(action_type: str, payload: dict[str, Any], *, blackboard: dict[str, Any]) -> dict[str, Any]:
@@ -897,6 +1093,16 @@ def _repair_search_literature_payload(payload: dict[str, Any], *, blackboard: di
     policy["no_solved_claim"] = True
     policy["fallback_order"] = ["codex_online", *(["local_pdf"] if local_pdf_allowed else []), "placeholder"]
     raw["source_acquisition_policy"] = policy
+    raw["max_sources"] = _bounded_source_count(raw.get("max_sources"), default=3)
+    independence = dict(raw.get("source_independence_policy") or {})
+    independence["schema_version"] = "agentic_source_independence_policy.v1"
+    independence["group_by"] = ["doi", "pii", "patent_family", "canonical_source_ref", "title"]
+    independence["article_and_supporting_information_share_source_group"] = True
+    independence["require_distinct_source_groups"] = True
+    independence["no_solved_claim"] = True
+    raw["source_independence_policy"] = independence
+    raw.setdefault("minimum_independent_sources", 2)
+    raw.setdefault("preferred_independent_sources", 3)
     raw["no_solved_claim"] = True
     raw["codex_payload_repair"] = {
         "schema_version": "codex_action_payload_repair.v1",
@@ -1847,6 +2053,21 @@ def _repair_child_expansion_payload(payload: dict[str, Any], *, blackboard: dict
     raw_child_targets = raw.pop("child_targets", None)
     targets = raw_targets if isinstance(raw_targets, list) else raw_child_targets
     if not isinstance(targets, list) or not targets:
+        singular: Any = None
+        for field in ("subgoal_target", "child_target", "target"):
+            value = raw.get(field)
+            if (isinstance(value, dict) and value) or (isinstance(value, str) and value.strip()):
+                singular = raw.pop(field)
+                break
+        if isinstance(singular, dict):
+            targets = [singular]
+        elif isinstance(singular, str) and singular.strip():
+            targets = [{"smiles": singular.strip(), "name": "child_target_1"}]
+    if not isinstance(targets, list) or not targets:
+        direct_smiles = str(raw.pop("target_smiles", "") or raw.get("smiles") or "").strip()
+        if direct_smiles:
+            targets = [{"smiles": direct_smiles, "name": str(raw.pop("target_name", "") or "child_target_1")}]
+    if not isinstance(targets, list) or not targets:
         targets = list(base_payload.get("subgoal_targets") or [])
     if not targets:
         return {
@@ -1884,7 +2105,10 @@ def _repair_child_expansion_payload(payload: dict[str, Any], *, blackboard: dict
         },
     )
     repaired["schema_version"] = "route_expansion_subgoal_search_payload.v1"
-    repaired["max_targets"] = _positive_int_or_default(repaired.get("max_targets"), 2)
+    repaired["max_targets"] = min(
+        len(repaired_targets),
+        _positive_int_or_default(repaired.get("max_targets"), len(repaired_targets)),
+    )
     repaired["no_solved_claim"] = True
     repaired["child_policy_runtime_rebuild"] = True
     repaired["subgoal_targets"] = repaired_targets
@@ -2911,7 +3135,19 @@ def _action_payload_requirements(
         "search_actions": {
             "search_literature": {
                 "currently_required_when_selected": True,
-                "accepted_payload_fields": ["search_intent", "query", "queries", "search_queries", "source_acquisition_policy"],
+                "accepted_payload_fields": [
+                    "search_intent",
+                    "query",
+                    "queries",
+                    "search_queries",
+                    "max_sources",
+                    "minimum_independent_sources",
+                    "preferred_independent_sources",
+                    "known_independent_source_keys",
+                    "exclude_source_refs",
+                    "source_acquisition_policy",
+                    "source_independence_policy",
+                ],
                 "required_policy_fields": [
                     "codex_online_first",
                     "local_pdf_fallback_allowed",
@@ -3193,6 +3429,10 @@ def _search_payload_requirement_guidance(blackboard: dict[str, Any]) -> dict[str
             for row in planner_hints[:4]
         ],
         "source_candidate_count": len(evidence.get("source_candidates") or []),
+        "independent_source_group_count": len(independent_literature_source_keys(blackboard)),
+        "minimum_independent_source_groups": 2,
+        "preferred_independent_source_groups": 3,
+        "article_and_supporting_information_share_source_group": True,
         "structure_resolution_task_count": len(evidence.get("structure_resolution_tasks") or []),
         "fallback_order": ["codex_online", "local_pdf", "placeholder"],
         "auto_local_pdf_requires_agent_discovered_metadata": True,

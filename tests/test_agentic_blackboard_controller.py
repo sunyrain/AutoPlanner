@@ -38,11 +38,13 @@ from cascade_planner.harness.agentic_blackboard_controller import (
     _blackboard_step_summary,
     _capability_check_planner_history,
     _capability_check_source_acquisition,
+    _codex_campaign_stock_provider_results,
     _codex_scout_timeout_s,
     _codex_literature_scout_task,
     _inject_pdf_defaults,
     _local_pdf_cache_match_report,
     _merge_local_pdf_scout_report,
+    _replay_codex_campaign_stock_provider_results,
     _refresh_blackboard_from_local_pdf_proxy_downloads,
     _validate_agentic_final_verdict,
     _visual_action_output_dir,
@@ -87,6 +89,11 @@ from cascade_planner.harness.tools import (
     _visual_literature_timeout_s,
     execute_local_tool,
     run_guided_chemenzy_rerun,
+)
+from cascade_planner.providers.contracts import ProviderContext
+from cascade_planner.providers.stock import (
+    SnapshotStockProvider,
+    stock_snapshot_sha256,
 )
 from cascade_planner.harness.visual_literature_chain_agent import (
     _candidate_chain_from_parsed,
@@ -395,6 +402,131 @@ def _test_analogical_template_requirements():
             "validate_template_application",
         )
     }
+
+
+def test_campaign_stock_results_include_every_current_provider_observation():
+    benchmark = {
+        "provider_id": "autoplanner.benchmark_catalog_stock",
+        "accepted": True,
+        "content_hash": "benchmark-result",
+        "payload": {"canonical_smiles": "CC", "boundary_type": "benchmark_stock"},
+    }
+    commercial = {
+        "provider_id": "autoplanner.snapshot_stock",
+        "accepted": True,
+        "content_hash": "commercial-result",
+        "payload": {
+            "canonical_smiles": "CC",
+            "boundary_type": "commercially_orderable",
+        },
+    }
+    historical = {
+        "provider_id": "autoplanner.snapshot_stock",
+        "accepted": False,
+        "content_hash": "historical-result",
+        "payload": {"canonical_smiles": "CC", "boundary_type": "unavailable"},
+    }
+    board = {
+        "codex_agent_team": {
+            "campaign": {
+                "frontier_queue": {
+                    "jobs": [
+                        {
+                            "metadata": {
+                                # Compatibility alias duplicates the first
+                                # current observation and must not double count.
+                                "stock_audit": benchmark,
+                                "stock_observations": {
+                                    "current": [
+                                        {"provider_result": benchmark},
+                                        {"provider_result": commercial},
+                                    ],
+                                    "history": [{"provider_result": historical}],
+                                },
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    }
+
+    rows = _codex_campaign_stock_provider_results(board)
+
+    assert {row["provider_id"] for row in rows} == {
+        "autoplanner.benchmark_catalog_stock",
+        "autoplanner.snapshot_stock",
+    }
+    assert {row["content_hash"] for row in rows} == {
+        "benchmark-result",
+        "commercial-result",
+    }
+
+
+def test_campaign_stock_closure_requires_current_host_provider_replay():
+    snapshot = {
+        "schema_version": "stock_offer_snapshot.v1",
+        "smiles": "CCO",
+        "supplier": "trusted-supplier",
+        "catalog_number": "ETH-1",
+        "checked_at": "2026-07-10T00:00:00Z",
+        "available": True,
+    }
+    provider = SnapshotStockProvider(trusted_snapshots=[snapshot])
+    result = provider.invoke(
+        {
+            "schema_version": "stock_lookup_request.v1",
+            "smiles": "CCO",
+            "offers": [
+                {**snapshot, "snapshot_sha256": stock_snapshot_sha256(snapshot)}
+            ],
+        },
+        context=ProviderContext(
+            run_id="stock-replay-test",
+            case_id="stock-replay-test",
+            target_smiles="CCO",
+        ),
+    ).to_dict()
+    trusted = {provider.descriptor.provider_id: provider}
+
+    accepted = _replay_codex_campaign_stock_provider_results(
+        [result],
+        trusted_stock_provider_instances=trusted,
+    )
+    assert accepted["closed_smiles"] == ["CCO"]
+    assert accepted["accepted_result_count"] == 1
+
+    forged = json.loads(json.dumps(result))
+    forged["payload"]["offers"][0]["snapshot"]["supplier"] = "forged-supplier"
+    envelope = dict(forged)
+    envelope.pop("content_hash", None)
+    forged["content_hash"] = hashlib.sha256(
+        json.dumps(
+            envelope,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+
+    rejected = _replay_codex_campaign_stock_provider_results(
+        [forged],
+        trusted_stock_provider_instances=trusted,
+    )
+    assert rejected["closed_smiles"] == []
+    assert rejected["accepted_result_count"] == 0
+    assert rejected["rejected_result_count"] == 1
+    assert rejected["replays"][0]["authority_binding"] == {}
+
+    missing_provider = _replay_codex_campaign_stock_provider_results(
+        [result],
+        trusted_stock_provider_instances={},
+    )
+    assert missing_provider["closed_smiles"] == []
+    assert "trusted_provider_missing" in " ".join(
+        missing_provider["replays"][0]["reasons"]
+    )
 
 
 class AgenticBlackboardControllerTest(unittest.TestCase):
@@ -4914,6 +5046,14 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
             ["advanced_same_scaffold_terminal"],
         )
 
+    @patch.dict(
+        os.environ,
+        {
+            "AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY": str(
+                _SOURCE_FIXTURES / "trusted_literature_step_registry.json"
+            )
+        },
+    )
     def test_direct_parent_verifier_drives_deterministic_stitch_fast_path(self):
         target = TargetInput(
             target_name="ethanol",
@@ -4942,6 +5082,12 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 round_index=1,
                 run_dir=tmp,
             )
+            self.assertEqual(len(board["chemenzy_route_proof_banks"]), 1)
+            stored_bank = board["chemenzy_route_proof_banks"][0]
+            self.assertEqual(
+                stored_bank["route_proof_bank"], verifier["route_proof_bank"]
+            )
+            self.assertTrue(stored_bank["requires_current_host_replay"])
             batch = plan_action_batch(board, round_index=2)
             self.assertEqual([row["action_type"] for row in batch["actions"]], ["stitch_parent_route"])
             payload = batch["actions"][0]["payload"]
@@ -5840,12 +5986,25 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 row["source_key"]: row
                 for row in evidence["source_lifecycle"]
             }
-            self.assertEqual(lifecycle["doi:10.1000/example"]["stage"], "local_pdf_proxy_requested")
+            source = lifecycle["document:doi:10.1000/example:article"]
+            self.assertEqual(source["stage"], "local_pdf_proxy_requested")
             self.assertEqual(
-                lifecycle["doi:10.1000/example"]["next_recommended_stage"],
+                source["independent_source_group"], "doi:10.1000/example"
+            )
+            self.assertEqual(
+                source["next_recommended_stage"],
                 "await_local_pdf_proxy_download",
             )
-            self.assertEqual(lifecycle["doi:10.1000/example"]["counts"]["local_pdf_proxy_requests"], 1)
+            self.assertEqual(source["counts"]["local_pdf_proxy_requests"], 1)
+            self.assertEqual(
+                evidence["source_identity_summary"]["document_count"], 1
+            )
+            self.assertEqual(
+                evidence["source_identity_summary"][
+                    "independent_source_group_count"
+                ],
+                1,
+            )
             queue_path = local_pdf_proxy_request_queue_path(Path(tmp))
             queued = load_pdf_requests(queue_path)
             self.assertEqual(len(queued), 1)
@@ -6680,6 +6839,14 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertTrue(scout_validations[-1]["accepted"], scout_validations[-1]["reasons"])
         self.assertNotIn("typed_artifact_validation_failed:literature_scout_report", result["artifact_bundle"]["safety_flags"])
 
+    @patch.dict(
+        os.environ,
+        {
+            "AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY": str(
+                _SOURCE_FIXTURES / "trusted_literature_step_registry.json"
+            )
+        },
+    )
     def test_parent_proof_mock_is_required_for_agentic_solved(self):
         verifier = _strict_parent_route_verifier("CCO", reactants=["CC", "O"])
         proof = compile_stitched_parent_route_proof(

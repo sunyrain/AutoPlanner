@@ -235,6 +235,17 @@ def apply_chem_enzy_search_policy(
     context["terminal_blacklist"] = list(policy.terminal_blacklist)
     context["anchor_whitelist"] = list(policy.anchor_whitelist)
     context["preferred_subgoal"] = dict(policy.preferred_subgoal or {})
+    guidance = chem_enzy_guidance_contract(policy)
+    context["guided_policy_requested"] = True
+    context["guidance_contract"] = {
+        "schema_version": guidance["schema_version"],
+        "enabled": guidance["enabled"],
+        "policy_id": guidance["policy_id"],
+        "preferred_smiles": list(guidance["preferred_smiles"]),
+        "preferred_precursor_sets": list(guidance["preferred_precursor_sets"]),
+        "terminal_blacklist": list(guidance["terminal_blacklist"]),
+        "raw_reaction_injection": False,
+    }
     if policy.source_budget.get("preferred_reaction_domains"):
         context["preferred_reaction_domains"] = list(policy.source_budget["preferred_reaction_domains"])
     active_failure_modes = list(context.get("active_failure_modes") or [])
@@ -253,6 +264,10 @@ def apply_chem_enzy_search_policy(
     flags["cascade_source_policy"] = source_policy
     flags["use_cascade_source_policy"] = True
     flags[POLICY_SEARCH_FLAG] = policy.to_dict()
+    # This contract is consumed by the ChemEnzy one-step adapter.  It contains
+    # molecule priorities only; no reaction candidate is injected.
+    flags["chem_enzy_guidance"] = guidance
+    flags["starting_molecule_exclusions"] = list(guidance["terminal_blacklist"])
 
     budget = policy.budget
     return replace(
@@ -457,11 +472,13 @@ def validate_chem_enzy_search_policy_payload(payload: dict[str, Any]) -> dict[st
 
 
 def chem_enzy_policy_trace_from_search_flags(search_flags: dict[str, Any] | None) -> dict[str, Any] | None:
-    payload = dict(search_flags or {}).get(POLICY_SEARCH_FLAG)
+    flags = dict(search_flags or {})
+    payload = flags.get(POLICY_SEARCH_FLAG)
     if not payload:
         return None
     validation = validate_chem_enzy_search_policy_payload(dict(payload or {}))
     budget = dict((payload or {}).get("budget") or {})
+    guidance = dict(flags.get("chem_enzy_guidance") or {})
     return {
         "schema_version": CHEM_ENZY_POLICY_TRACE_SCHEMA,
         "policy_id": str((payload or {}).get("policy_id") or ""),
@@ -476,6 +493,55 @@ def chem_enzy_policy_trace_from_search_flags(search_flags: dict[str, Any] | None
             "expansion_topk": int(budget.get("expansion_topk") or 0),
         },
         "validation": validation,
+        "raw_reaction_injection": False,
+        "guidance_contract": {
+            "schema_version": str(guidance.get("schema_version") or ""),
+            "enabled": bool(guidance.get("enabled")),
+            "preferred_smiles_count": len(guidance.get("preferred_smiles") or []),
+            "preferred_precursor_set_count": len(guidance.get("preferred_precursor_sets") or []),
+            "terminal_blacklist_count": len(guidance.get("terminal_blacklist") or []),
+            "ranking_signal": str(guidance.get("ranking_signal") or ""),
+            "hard_filters": list(guidance.get("hard_filters") or []),
+            "raw_reaction_injection": False,
+        },
+    }
+
+
+def chem_enzy_guidance_contract(
+    policy_or_payload: ChemEnzySearchPolicy | dict[str, Any],
+) -> dict[str, Any]:
+    """Compile molecule hints into the executable ChemEnzy ranking contract."""
+    policy = _policy_from_payload(policy_or_payload)
+    preferred, precursor_sets = _preferred_hint_smiles(policy)
+    anchors = sorted({value for value in (_canonical_smiles(item) for item in policy.anchor_whitelist) if value})
+    blacklist = sorted({value for value in (_canonical_smiles(item) for item in policy.terminal_blacklist) if value})
+    preferred = sorted(set(preferred) | set(anchors))
+    return {
+        "schema_version": "chem_enzy_guidance.v1",
+        "enabled": bool(preferred or precursor_sets or blacklist),
+        "policy_id": policy.policy_id,
+        "preferred_smiles": preferred,
+        "preferred_precursor_sets": [list(item) for item in precursor_sets],
+        "anchor_smiles": anchors,
+        "terminal_blacklist": blacklist,
+        "ranking_signal": "precursor_exact_set_component_and_similarity_cost",
+        "exact_set_cost_reward": 2.4,
+        "exact_component_cost_reward": 1.25,
+        "similarity_cost_reward": 0.65,
+        "similarity_threshold": 0.55,
+        "terminal_blacklist_cost_penalty": 3.0,
+        "hard_filter_element_inventory": True,
+        "max_tolerated_missing_heavy_atoms": 3,
+        "hard_filter_large_atom_jump": True,
+        "large_atom_jump_threshold": 15,
+        "hard_filter_self_loop": True,
+        "hard_filters": [
+            "element_inventory_not_conserved",
+            "large_atom_jump",
+            "target_or_current_node_self_loop",
+            "vendor_ancestor_cycle",
+        ],
+        "not_raw_reaction_injection": True,
         "raw_reaction_injection": False,
     }
 
@@ -761,6 +827,71 @@ def _canonical_smiles(smiles: str) -> str:
     if mol is None:
         return ""
     return Chem.MolToSmiles(mol, isomericSmiles=True)
+
+
+_GUIDANCE_SMILES_FIELDS = {
+    "anchor_smiles",
+    "hypothetical_precursor_targets",
+    "main_reactant_smiles",
+    "precursor_set_smiles",
+    "precursor_smiles",
+    "preferred_precursor_smiles",
+    "preferred_subgoals",
+    "reactant_smiles",
+    "resolved_advisory_anchor_targets",
+    "semisynthesis_anchor_smiles",
+}
+
+
+def _preferred_hint_smiles(policy: ChemEnzySearchPolicy) -> tuple[list[str], list[tuple[str, ...]]]:
+    preferred: set[str] = set()
+    precursor_sets: set[tuple[str, ...]] = set()
+
+    def consume(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if str(key) in _GUIDANCE_SMILES_FIELDS:
+                    consume_smiles(item)
+                elif isinstance(item, (dict, list, tuple)):
+                    consume(item)
+            return
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                consume(item)
+
+    def consume_smiles(value: Any) -> None:
+        if isinstance(value, dict):
+            for key in ("smiles", "precursor_smiles", "precursor_set_smiles", "main_reactant_smiles"):
+                if value.get(key):
+                    consume_smiles(value[key])
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                consume_smiles(item)
+            return
+        text = str(value or "").strip()
+        if not text:
+            return
+        components = tuple(
+            sorted(
+                {
+                    canonical
+                    for canonical in (_canonical_smiles(item) for item in text.split("."))
+                    if canonical
+                }
+            )
+        )
+        if not components:
+            return
+        preferred.update(components)
+        if len(components) > 1:
+            precursor_sets.add(components)
+
+    consume(policy.preferred_subgoal)
+    for field_name in _GUIDANCE_SMILES_FIELDS:
+        if field_name in policy.source_budget:
+            consume_smiles(policy.source_budget[field_name])
+    return sorted(preferred), sorted(precursor_sets)
 
 
 def _has_raw_reaction_payload(value: Any) -> bool:

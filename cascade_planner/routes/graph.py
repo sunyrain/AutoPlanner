@@ -192,41 +192,188 @@ def select_route_consensus_frontier(
     *,
     limit: int = 8,
 ) -> list[dict[str, Any]]:
-    nodes = {str(row.get("node_id") or ""): dict(row) for row in graph.get("nodes") or [] if isinstance(row, Mapping)}
+    """Select every reachable, expandable molecule frontier.
+
+    Route hypotheses are a bounded presentation projection (24 by default),
+    so they cannot be the authority for scheduler coverage.  Derive the
+    frontier from the complete reachable graph instead; otherwise alternatives
+    omitted by route enumeration are never expanded or stock-audited.
+    """
+
+    max_depth = int((graph.get("limits") or {}).get("max_depth") or 1)
+    rows = [
+        row
+        for row in route_consensus_frontier_records(graph)
+        if row.get("reason") == "unexpanded"
+        and int(row.get("depth") or 0) < max_depth
+    ]
+    rows.sort(
+        key=lambda row: (
+            -float(row.get("priority_score") or 0.0),
+            int(row.get("depth") or 0),
+            str(row.get("node_id") or ""),
+        )
+    )
+    return rows[: max(0, int(limit))]
+
+
+def route_consensus_frontier_records(
+    graph: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Return all terminal frontiers in the complete reachable graph.
+
+    ``assemble_route_consensus_graph`` already restricts ``nodes`` and
+    ``steps`` to the target-reachable, depth-bounded subgraph.  This function
+    therefore works directly from those records and is independent of the
+    bounded ``route_hypotheses`` enumeration.
+
+    A terminal is one of:
+
+    - an unexpanded reachable molecule;
+    - a molecule first reached at the configured depth boundary; or
+    - a molecule whose available outgoing steps are all cyclic.
+
+    The cycle rule preserves the route enumerator's fail-closed behavior while
+    avoiding path Cartesian products merely to discover scheduler work.
+    """
+
+    nodes = {
+        str(row.get("node_id") or ""): dict(row)
+        for row in graph.get("nodes") or []
+        if isinstance(row, Mapping) and str(row.get("node_id") or "")
+    }
+    steps = [
+        dict(row)
+        for row in graph.get("steps") or []
+        if isinstance(row, Mapping) and str(row.get("step_id") or "")
+    ]
+    steps_by_product: dict[str, list[dict[str, Any]]] = defaultdict(list)
     parent_steps: dict[str, list[str]] = defaultdict(list)
     step_scores: dict[str, float] = {}
-    for step in graph.get("steps") or []:
-        if not isinstance(step, Mapping):
-            continue
+    adjacency: dict[str, set[str]] = defaultdict(set)
+    for step in steps:
         step_id = str(step.get("step_id") or "")
+        product_id = str(step.get("product_node_id") or "")
+        precursor_ids = [
+            str(value)
+            for value in step.get("precursor_node_ids") or []
+            if str(value or "")
+        ]
+        if product_id:
+            steps_by_product[product_id].append(step)
+            adjacency[product_id].update(precursor_ids)
         step_scores[step_id] = float(step.get("rank_score") or 0.0)
-        for node_id in step.get("precursor_node_ids") or []:
-            parent_steps[str(node_id)].append(step_id)
-    frontier: dict[str, dict[str, Any]] = {}
+        for precursor_id in precursor_ids:
+            parent_steps[precursor_id].append(step_id)
+
+    node_depths = {
+        node_id: int(node.get("min_depth") or 0)
+        for node_id, node in nodes.items()
+    }
+    cyclic_step_ids = _cyclic_step_ids(
+        steps,
+        adjacency=adjacency,
+        node_depths=node_depths,
+    )
     max_depth = int((graph.get("limits") or {}).get("max_depth") or 1)
-    for route in graph.get("route_hypotheses") or []:
-        if not isinstance(route, Mapping):
+    root_node_id = str(graph.get("root_node_id") or "")
+    target_smiles = str(graph.get("target_smiles") or "")
+    rows: list[dict[str, Any]] = []
+    for node_id, node in nodes.items():
+        depth = int(node.get("min_depth") or 0)
+        outgoing = steps_by_product.get(node_id) or []
+        if depth >= max_depth:
+            reason = "depth_limit"
+        elif not outgoing:
+            reason = "unexpanded"
+        elif all(
+            str(step.get("step_id") or "") in cyclic_step_ids
+            for step in outgoing
+        ):
+            reason = "cycle_cut"
+        else:
             continue
-        for row in route.get("frontier") or []:
-            if not isinstance(row, Mapping) or row.get("reason") != "unexpanded":
-                continue
-            node_id = str(row.get("node_id") or "")
-            node = nodes.get(node_id) or {}
-            depth = int(row.get("depth") or node.get("min_depth") or 0)
-            if not node_id or depth >= max_depth:
-                continue
-            refs = sorted(set(parent_steps.get(node_id) or []))
-            priority = max((step_scores.get(step_id, 0.0) for step_id in refs), default=0.0)
-            frontier[node_id] = {
+        refs = sorted(set(parent_steps.get(node_id) or []))
+        priority = max(
+            (step_scores.get(step_id, 0.0) for step_id in refs),
+            default=0.0,
+        )
+        rows.append(
+            {
                 "node_id": node_id,
-                "target_smiles": str(node.get("smiles") or ""),
+                "target_smiles": str(
+                    node.get("smiles")
+                    or (target_smiles if node_id == root_node_id else "")
+                    or ""
+                ),
                 "depth": depth,
                 "parent_step_ids": refs,
-                "reason": "unexpanded",
+                "reason": reason,
                 "priority_score": round(priority, 4),
             }
-    rows = sorted(frontier.values(), key=lambda row: (-float(row["priority_score"]), int(row["depth"]), row["node_id"]))
-    return rows[: max(0, int(limit))]
+        )
+    return sorted(
+        rows,
+        key=lambda row: (
+            int(row.get("depth") or 0),
+            str(row.get("node_id") or ""),
+            str(row.get("reason") or ""),
+        ),
+    )
+
+
+def _cyclic_step_ids(
+    steps: Iterable[Mapping[str, Any]],
+    *,
+    adjacency: Mapping[str, set[str]],
+    node_depths: Mapping[str, int],
+) -> set[str]:
+    """Return depth-oriented back-steps that point into graph ancestry.
+
+    Merely belonging to a strongly connected component is insufficient: in
+    ``A -> B -> A`` the forward ``A -> B`` step remains usable and only the
+    return ``B -> A`` step is cut.  Minimum reachable depth orients that
+    distinction without enumerating bounded route combinations.
+    """
+
+    reachable_cache: dict[tuple[str, str], bool] = {}
+
+    def reaches(start: str, target: str) -> bool:
+        key = (start, target)
+        if key in reachable_cache:
+            return reachable_cache[key]
+        pending = [start]
+        seen: set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current == target:
+                reachable_cache[key] = True
+                return True
+            if current in seen:
+                continue
+            seen.add(current)
+            pending.extend(
+                value
+                for value in adjacency.get(current) or set()
+                if value not in seen
+            )
+        reachable_cache[key] = False
+        return False
+
+    cyclic: set[str] = set()
+    for step in steps:
+        step_id = str(step.get("step_id") or "")
+        product_id = str(step.get("product_node_id") or "")
+        product_depth = int(node_depths.get(product_id, 0))
+        if step_id and product_id and any(
+            int(node_depths.get(str(precursor_id), product_depth + 1))
+            <= product_depth
+            and reaches(str(precursor_id), product_id)
+            for precursor_id in step.get("precursor_node_ids") or []
+            if str(precursor_id or "")
+        ):
+            cyclic.add(step_id)
+    return cyclic
 
 
 def _merge_step(signature: str, rows: list[tuple[dict[str, Any], dict[str, Any]]]) -> dict[str, Any]:
@@ -234,7 +381,17 @@ def _merge_step(signature: str, rows: list[tuple[dict[str, Any], dict[str, Any]]
     expansions = [row[1] for row in rows]
     first = proposals[0]
     product = _canonical_smiles(first.get("product_smiles"))
-    precursors = sorted({_canonical_smiles(value) for value in first.get("precursor_smiles") or []})
+    # Precursor multiplicity is chemical stoichiometry, not display noise.
+    # Preserve the multiset so homocouplings/dimerizations cannot collapse
+    # into a different one-component reaction edge.
+    precursors = sorted(
+        value
+        for value in (
+            _canonical_smiles(item)
+            for item in first.get("precursor_smiles") or []
+        )
+        if value
+    )
     source_records = _dedupe_records(
         record
         for proposal in proposals
@@ -282,6 +439,36 @@ def _merge_step(signature: str, rows: list[tuple[dict[str, Any], dict[str, Any]]
         "conflict_ids": [],
         "rank_score": round(max(float(row.get("rank_score") or 0.0) for row in proposals), 4),
         "confidence": str(max(proposals, key=lambda row: float(row.get("rank_score") or 0.0)).get("confidence") or "low"),
+        "authority_evidence_level": str(
+            max(
+                proposals,
+                key=lambda row: float(row.get("rank_score") or 0.0),
+            ).get("authority_evidence_level")
+            or "model_only"
+        ),
+        "authority_policy": "host_derived",
+        "producer_evidence_levels": _dedupe_text(
+            value
+            for proposal in proposals
+            for value in proposal.get("producer_evidence_levels") or []
+        ),
+        "producer_confidences": _dedupe_text(
+            value
+            for proposal in proposals
+            for value in proposal.get("producer_confidences") or []
+        ),
+        "normalization_records": _dedupe_records(
+            record
+            for proposal in proposals
+            for record in proposal.get("normalization_records") or []
+            if isinstance(record, Mapping)
+        ),
+        "acquisition_hints": _dedupe_records(
+            record
+            for proposal in proposals
+            for record in proposal.get("acquisition_hints") or []
+            if isinstance(record, Mapping)
+        ),
         "limitations": _dedupe_text(value for row in proposals for value in row.get("limitations") or []),
         "required_validation": _dedupe_text(value for row in proposals for value in row.get("required_validation") or []),
         "advisory_only": True,
@@ -558,7 +745,11 @@ def _expansion_summary(expansion: Mapping[str, Any]) -> dict[str, Any]:
 
 def _step_signature(product: Any, precursors: Iterable[Any]) -> str:
     product_value = _canonical_smiles(product)
-    precursor_values = sorted({_canonical_smiles(value) for value in precursors if _canonical_smiles(value)})
+    precursor_values = sorted(
+        value
+        for value in (_canonical_smiles(item) for item in precursors)
+        if value
+    )
     if not product_value or not precursor_values:
         return ""
     return f"{product_value}<-{'.'.join(precursor_values)}"
@@ -634,4 +825,6 @@ def _advisory_semantics() -> dict[str, Any]:
         "advisory_only": True,
         "no_solved_claim": True,
         "deterministic_parent_proof_required": True,
+        "authority_ranking": "host_derived",
+        "producer_evidence_and_confidence": "advisory_only",
     }

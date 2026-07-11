@@ -9,10 +9,10 @@ The proof levels are deliberately monotonic:
 
 ``L0`` materialized structures
 ``L1`` graph and stock closed (assigned by the route verifier)
-``L2_mapping_consistent`` complete atom-mapped reaction is internally
-consistent, but remains advisory
-``L2_reaction_validated`` a trusted deterministic transform was reapplied and
-its reaction centre matched (reserved until such a replayer is configured)
+``L2_mapping_consistent`` product-complete atom mapping with bounded departing
+reactant atoms is internally consistent, but remains advisory
+``L2_reaction_validated`` a host-derived deterministic transform was reapplied
+and its reaction centre matched a conservative built-in family
 ``L3`` mapping consistency plus an exact precedent revalidated against the
 trusted registry and materialized source evidence
 ``L4`` L3 plus complete conditions and procurement evidence
@@ -34,7 +34,7 @@ RDLogger.DisableLog("rdApp.*")
 
 REACTION_STEP_PROOF_SCHEMA = "reaction_step_proof.v1"
 REACTION_ROUTE_PROOF_SCHEMA = "reaction_route_validation.v1"
-REACTION_STEP_VERIFIER_VERSION = "autoplanner.reaction_step_verifier.v1"
+REACTION_STEP_VERIFIER_VERSION = "autoplanner.reaction_step_verifier.v3"
 
 PROOF_LEVEL_ORDER = {
     "L0_materialized": 0,
@@ -59,6 +59,7 @@ class ReactionStepProof:
     mapping_source: str = ""
     atom_map_audit: dict[str, Any] = field(default_factory=dict)
     bond_change_audit: dict[str, Any] = field(default_factory=dict)
+    deterministic_transform_audit: dict[str, Any] = field(default_factory=dict)
     trusted_precedent_binding: dict[str, Any] = field(default_factory=dict)
     procurement_binding: dict[str, Any] = field(default_factory=dict)
     reaction_digest: str = ""
@@ -78,6 +79,7 @@ def verify_reaction_step(
     graph_and_stock_closed: bool = False,
     trusted_precedent_binding: Mapping[str, Any] | None = None,
     procurement_binding: Mapping[str, Any] | None = None,
+    trusted_stock_providers: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Materialize and independently validate one reaction edge."""
     raw = dict(step or {})
@@ -97,6 +99,8 @@ def verify_reaction_step(
         "mapped_product_matches": False,
         "mapped_reactants_match": False,
         "atom_maps_complete": False,
+        "product_atom_maps_complete": False,
+        "reactant_departing_atoms_plausible": False,
         "atom_maps_unique": False,
         "product_atoms_have_reactant_provenance": False,
         "mapped_elements_preserved": False,
@@ -105,6 +109,7 @@ def verify_reaction_step(
         "ring_change_plausible": False,
         "bond_change_present": False,
         "reaction_edit_budget_plausible": False,
+        "deterministic_transform_reapplied": False,
         "stereochemical_product_matches": False,
         "trusted_precedent_bound": False,
         "conditions_complete": False,
@@ -121,6 +126,7 @@ def verify_reaction_step(
     checks["mapped_reaction_present"] = bool(mapped_reaction)
     atom_audit: dict[str, Any] = {}
     bond_audit: dict[str, Any] = {}
+    transform_audit: dict[str, Any] = {}
     if checks["structures_materialized"] and mapped_reaction:
         atom_audit, bond_audit = _audit_mapped_reaction(
             mapped_reaction,
@@ -131,6 +137,8 @@ def verify_reaction_step(
             "mapped_product_matches",
             "mapped_reactants_match",
             "atom_maps_complete",
+            "product_atom_maps_complete",
+            "reactant_departing_atoms_plausible",
             "atom_maps_unique",
             "product_atoms_have_reactant_provenance",
             "mapped_elements_preserved",
@@ -144,8 +152,17 @@ def verify_reaction_step(
         checks["reaction_edit_budget_plausible"] = bool(
             bond_audit.get("reaction_edit_budget_plausible")
         )
+        transform_audit = _deterministic_transform_reapply_audit(
+            mapped_reaction,
+            atom_audit=atom_audit,
+            bond_audit=bond_audit,
+        )
+        checks["deterministic_transform_reapplied"] = bool(
+            transform_audit.get("accepted")
+        )
         reasons.extend(str(value) for value in atom_audit.get("reasons") or [])
         reasons.extend(str(value) for value in bond_audit.get("reasons") or [])
+        reasons.extend(str(value) for value in transform_audit.get("reasons") or [])
     elif checks["structures_materialized"]:
         reasons.append("complete_atom_mapped_reaction_missing")
 
@@ -168,6 +185,7 @@ def verify_reaction_step(
     checks["procurement_bound"] = _procurement_binding(
         procurement,
         expected_reactants=reactants,
+        trusted_stock_providers=trusted_stock_providers,
     )
 
     l2_checks = (
@@ -175,7 +193,8 @@ def verify_reaction_step(
         "mapped_reaction_present",
         "mapped_product_matches",
         "mapped_reactants_match",
-        "atom_maps_complete",
+        "product_atom_maps_complete",
+        "reactant_departing_atoms_plausible",
         "atom_maps_unique",
         "product_atoms_have_reactant_provenance",
         "mapped_elements_preserved",
@@ -189,12 +208,19 @@ def verify_reaction_step(
     mapping_consistent = all(checks[key] for key in l2_checks)
     # Atom-map consistency alone cannot establish a chemically meaningful
     # transform: a cut/glue construction can conserve atoms and maps while
-    # inventing an implausible reaction.  Until a deterministic template
-    # reapply + reaction-centre matcher is wired here, exact curated precedent
-    # is the only authority that upgrades the edge beyond advisory L2.
-    reaction_validated = bool(mapping_consistent and checks["trusted_precedent_bound"])
-    if reaction_validated:
+    # inventing an implausible reaction.  Only a host-derived reaction-centre
+    # matcher or an independently rebound exact precedent can promote it.
+    deterministic_transform_validated = bool(
+        mapping_consistent and checks["deterministic_transform_reapplied"]
+    )
+    precedent_validated = bool(
+        mapping_consistent and checks["trusted_precedent_bound"]
+    )
+    reaction_validated = deterministic_transform_validated or precedent_validated
+    if precedent_validated:
         proof_level = "L3_precedent_supported"
+    elif deterministic_transform_validated:
+        proof_level = "L2_reaction_validated"
     elif mapping_consistent:
         proof_level = "L2_mapping_consistent"
         reasons.append("mapping_consistent_without_trusted_transform_or_precedent")
@@ -216,6 +242,7 @@ def verify_reaction_step(
         "reactant_smiles": sorted(reactants),
         "mapped_reaction": mapped_reaction,
         "mapping_source": mapping_source,
+        "deterministic_transform_audit": transform_audit,
         "graph_and_stock_closed": bool(graph_and_stock_closed),
         "trusted_precedent_binding": precedent,
         "procurement_binding": procurement,
@@ -235,6 +262,7 @@ def verify_reaction_step(
         "mapping_source": mapping_source,
         "atom_map_audit": atom_audit,
         "bond_change_audit": bond_audit,
+        "deterministic_transform_audit": transform_audit,
         "trusted_precedent_binding": precedent,
         "procurement_binding": procurement,
         "reaction_digest": reaction_digest,
@@ -254,6 +282,7 @@ def verify_reaction_step(
         mapping_source=mapping_source,
         atom_map_audit=atom_audit,
         bond_change_audit=bond_audit,
+        deterministic_transform_audit=transform_audit,
         trusted_precedent_binding=precedent,
         procurement_binding=procurement,
         reaction_digest=reaction_digest,
@@ -268,6 +297,7 @@ def verify_reaction_route(
     graph_and_stock_closed: bool,
     trusted_precedent_bindings: Mapping[str, Mapping[str, Any]] | None = None,
     procurement_bindings: Mapping[str, Mapping[str, Any]] | None = None,
+    trusted_stock_providers: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the weakest-link proof summary for a materialized route."""
     rows = [dict(step) for step in steps if isinstance(step, Mapping)]
@@ -283,6 +313,7 @@ def verify_reaction_route(
                 graph_and_stock_closed=graph_and_stock_closed,
                 trusted_precedent_binding=precedents.get(step_id),
                 procurement_binding=procurement.get(step_id),
+                trusted_stock_providers=trusted_stock_providers,
             )
         )
     weakest_level = min(
@@ -392,9 +423,25 @@ def _audit_mapped_reaction(
 
     reactant_atoms, duplicate_reactant_maps, reactant_unmapped = _mapped_atoms(reactant_mols)
     product_atoms, duplicate_product_maps, product_unmapped = _mapped_atoms([product_mol])
+    # Atom mappers commonly leave atoms that depart the recorded major product
+    # (water, halide, protecting-group fragments) unmapped.  Requiring every
+    # reactant atom to survive into the product made ordinary dehydration,
+    # substitution, and deprotection reactions impossible.  Authority instead
+    # requires complete product provenance and a conservative bound on atoms
+    # that disappear from the recorded major-product equation.
     atom_maps_complete = not reactant_unmapped and not product_unmapped
+    product_atom_maps_complete = not product_unmapped
     atom_maps_unique = not duplicate_reactant_maps and not duplicate_product_maps
     new_product_maps = sorted(set(product_atoms) - set(reactant_atoms))
+    departing_reactant_maps = sorted(set(reactant_atoms) - set(product_atoms))
+    departing_reactant_heavy_atom_count = (
+        int(reactant_unmapped) + len(departing_reactant_maps)
+    )
+    max_departing_reactant_heavy_atoms = 12
+    departing_atoms_plausible = (
+        departing_reactant_heavy_atom_count
+        <= max_departing_reactant_heavy_atoms
+    )
     element_mismatches = sorted(
         map_num
         for map_num in set(product_atoms) & set(reactant_atoms)
@@ -402,8 +449,11 @@ def _audit_mapped_reaction(
     )
     provenance = not new_product_maps
     elements_preserved = not element_mismatches
-    if not atom_maps_complete:
+    if not product_atom_maps_complete:
         reasons.append("atom_mapping_incomplete")
+        reasons.append("product_atom_mapping_incomplete")
+    if not departing_atoms_plausible:
+        reasons.append("reactant_departing_atom_budget_exceeded")
     if not atom_maps_unique:
         reasons.append("atom_mapping_not_unique")
     if not provenance:
@@ -459,6 +509,8 @@ def _audit_mapped_reaction(
         "mapped_product_matches": mapped_product_matches,
         "mapped_reactants_match": mapped_reactants_match,
         "atom_maps_complete": atom_maps_complete,
+        "product_atom_maps_complete": product_atom_maps_complete,
+        "reactant_departing_atoms_plausible": departing_atoms_plausible,
         "atom_maps_unique": atom_maps_unique,
         "product_atoms_have_reactant_provenance": provenance,
         "mapped_elements_preserved": elements_preserved,
@@ -478,6 +530,9 @@ def _audit_mapped_reaction(
         "product_heavy_atom_map_count": len(product_atoms),
         "unmapped_reactant_heavy_atom_count": reactant_unmapped,
         "unmapped_product_heavy_atom_count": product_unmapped,
+        "departing_reactant_atom_maps": departing_reactant_maps,
+        "departing_reactant_heavy_atom_count": departing_reactant_heavy_atom_count,
+        "max_departing_reactant_heavy_atoms": max_departing_reactant_heavy_atoms,
         "duplicate_reactant_atom_maps": sorted(duplicate_reactant_maps),
         "duplicate_product_atom_maps": sorted(duplicate_product_maps),
         "new_product_atom_maps": new_product_maps,
@@ -505,6 +560,274 @@ def _audit_mapped_reaction(
         "reasons": bond_reasons,
     }
     return atom_audit, bond_audit
+
+
+def _deterministic_transform_reapply_audit(
+    reaction_smiles: str,
+    *,
+    atom_audit: Mapping[str, Any],
+    bond_audit: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Reapply mapped bond edits and match a conservative transform family.
+
+    This is intentionally narrower than a reaction classifier.  It recognizes
+    common one-centre functional-group operations whose local edit pattern can
+    be recomputed from the mapped structures.  Unrecognized C--C construction,
+    multi-centre annulation and model-provided family labels remain advisory.
+    """
+
+    base_checks = (
+        "mapped_product_matches",
+        "mapped_reactants_match",
+        "product_atom_maps_complete",
+        "reactant_departing_atoms_plausible",
+        "atom_maps_unique",
+        "product_atoms_have_reactant_provenance",
+        "mapped_elements_preserved",
+        "mapped_reactant_components_contribute",
+        "scaffold_continuity_plausible",
+        "ring_change_plausible",
+        "stereochemical_product_matches",
+    )
+    if not all(atom_audit.get(key) is True for key in base_checks):
+        return {
+            "schema_version": "deterministic_transform_reapply_audit.v1",
+            "accepted": False,
+            "transform_family": "",
+            "product_bonds_reconstructed": False,
+            "reasons": ["mapping_audit_not_eligible_for_transform_reapply"],
+        }
+    if (
+        bond_audit.get("bond_change_present") is not True
+        or bond_audit.get("reaction_edit_budget_plausible") is not True
+    ):
+        return {
+            "schema_version": "deterministic_transform_reapply_audit.v1",
+            "accepted": False,
+            "transform_family": "",
+            "product_bonds_reconstructed": False,
+            "reasons": ["bond_change_audit_not_eligible_for_transform_reapply"],
+        }
+
+    parts = str(reaction_smiles or "").split(">")
+    if len(parts) != 3:
+        return {
+            "schema_version": "deterministic_transform_reapply_audit.v1",
+            "accepted": False,
+            "transform_family": "",
+            "product_bonds_reconstructed": False,
+            "reasons": ["invalid_atom_mapped_reaction_shape"],
+        }
+    reactant_mols = [
+        Chem.MolFromSmiles(value) for value in parts[0].split(".") if value
+    ]
+    product_mol = Chem.MolFromSmiles(parts[2])
+    if not reactant_mols or any(mol is None for mol in reactant_mols) or product_mol is None:
+        return {
+            "schema_version": "deterministic_transform_reapply_audit.v1",
+            "accepted": False,
+            "transform_family": "",
+            "product_bonds_reconstructed": False,
+            "reasons": ["mapped_reaction_not_materialized"],
+        }
+
+    reactant_atoms, reactant_components = _mapped_atom_context(reactant_mols)
+    product_atoms, _ = _mapped_atom_context([product_mol])
+    reactant_bonds = _mapped_bonds(reactant_mols)
+    product_bonds = _mapped_bonds([product_mol])
+    formed = product_bonds - reactant_bonds
+    broken = reactant_bonds - product_bonds
+    product_maps = set(product_atoms)
+    reapplied = (reactant_bonds - broken) | formed
+    retained_reapplied = {
+        row for row in reapplied if row[0] in product_maps and row[1] in product_maps
+    }
+    reconstructed = retained_reapplied == product_bonds
+    transform_family = _recognized_transform_family(
+        formed=formed,
+        broken=broken,
+        reactant_atoms=reactant_atoms,
+        product_atoms=product_atoms,
+        reactant_components=reactant_components,
+        product_bonds=product_bonds,
+        unmapped_heavy_neighbors_by_mapped_center=(
+            _unmapped_heavy_neighbors_by_mapped_center(reactant_mols)
+        ),
+    )
+    reasons: list[str] = []
+    if not reconstructed:
+        reasons.append("bond_edits_do_not_reconstruct_product")
+    if not transform_family:
+        reasons.append("reaction_centre_not_in_deterministic_transform_registry")
+    return {
+        "schema_version": "deterministic_transform_reapply_audit.v1",
+        "accepted": bool(reconstructed and transform_family),
+        "transform_family": transform_family,
+        "product_bonds_reconstructed": reconstructed,
+        "formed_or_changed_bonds": [list(row) for row in sorted(formed)],
+        "broken_or_changed_bonds": [list(row) for row in sorted(broken)],
+        "registry_policy": "host_derived_local_reaction_centre_allowlist.v2",
+        "model_reaction_family_ignored": True,
+        "reasons": reasons,
+    }
+
+
+def _recognized_transform_family(
+    *,
+    formed: set[tuple[int, int, str]],
+    broken: set[tuple[int, int, str]],
+    reactant_atoms: Mapping[int, int],
+    product_atoms: Mapping[int, int],
+    reactant_components: Mapping[int, int],
+    product_bonds: set[tuple[int, int, str]],
+    unmapped_heavy_neighbors_by_mapped_center: Mapping[int, tuple[int, ...]],
+) -> str:
+    edit_count = len(formed) + len(broken)
+    if edit_count <= 0 or edit_count > 3:
+        return ""
+
+    formed_by_pair = {(left, right): order for left, right, order in formed}
+    broken_by_pair = {(left, right): order for left, right, order in broken}
+    changed_pairs = set(formed_by_pair) & set(broken_by_pair)
+    if len(formed) == len(broken) == len(changed_pairs) == 1:
+        pair = next(iter(changed_pairs))
+        elements = tuple(sorted(reactant_atoms.get(value, 0) for value in pair))
+        old_order = broken_by_pair[pair]
+        new_order = formed_by_pair[pair]
+        if old_order != new_order:
+            if elements == (6, 8) and {old_order, new_order} <= {"SINGLE", "DOUBLE"}:
+                return "carbonyl_alcohol_redox"
+            if elements == (6, 6) and {old_order, new_order} <= {"SINGLE", "DOUBLE", "TRIPLE"}:
+                return "carbon_unsaturation_interconversion"
+            if elements == (6, 7) and {old_order, new_order} <= {"SINGLE", "DOUBLE"}:
+                return "imine_amine_interconversion"
+
+    # Primary amide/oxime-like C--N single bond to nitrile accompanied by loss
+    # of a mapped oxygen from the same centre.
+    triple_cn = [
+        row
+        for row in formed
+        if row[2] == "TRIPLE"
+        and tuple(sorted(reactant_atoms.get(value, 0) for value in row[:2])) == (6, 7)
+    ]
+    if len(triple_cn) == 1:
+        carbon, nitrogen = _ordered_element_pair(
+            triple_cn[0][:2], reactant_atoms, first_atomic_number=6
+        )
+        if carbon and nitrogen:
+            cn_single_broken = (min(carbon, nitrogen), max(carbon, nitrogen), "SINGLE") in broken
+            oxygen_loss = 8 in unmapped_heavy_neighbors_by_mapped_center.get(
+                carbon,
+                (),
+            ) or any(
+                carbon in row[:2]
+                and reactant_atoms.get(row[0] if row[1] == carbon else row[1]) == 8
+                and (row[0] not in product_atoms or row[1] not in product_atoms)
+                for row in broken
+            )
+            if cn_single_broken and oxygen_loss and edit_count <= 3:
+                return "amide_or_oxime_dehydration_to_nitrile"
+
+    formed_only_pairs = [row for row in formed if row[:2] not in changed_pairs]
+    broken_only_pairs = [row for row in broken if row[:2] not in changed_pairs]
+    if len(formed_only_pairs) == 1 and len(broken_only_pairs) <= 1:
+        new_bond = formed_only_pairs[0]
+        if new_bond[2] != "SINGLE":
+            return ""
+        carbon, hetero = _ordered_hetero_bond(new_bond[:2], product_atoms)
+        if carbon and hetero:
+            different_components = (
+                reactant_components.get(carbon) is not None
+                and reactant_components.get(hetero) is not None
+                and reactant_components.get(carbon) != reactant_components.get(hetero)
+            )
+            carbonyl_present = any(
+                carbon in row[:2]
+                and row[2] == "DOUBLE"
+                and product_atoms.get(row[0] if row[1] == carbon else row[1]) == 8
+                for row in product_bonds
+            )
+            leaving_group_ok = not broken_only_pairs or all(
+                carbon in row[:2]
+                and (row[0] not in product_atoms or row[1] not in product_atoms)
+                and reactant_atoms.get(row[0] if row[1] == carbon else row[1])
+                in {7, 8, 9, 16, 17, 35, 53}
+                for row in broken_only_pairs
+            )
+            if different_components and leaving_group_ok and carbonyl_present:
+                return "acyl_substitution_coupling"
+            if different_components and leaving_group_ok and broken_only_pairs:
+                return "heteroatom_nucleophilic_substitution"
+
+    if not formed and len(broken) == 1:
+        left, right, order = next(iter(broken))
+        retained = left if left in product_atoms and right not in product_atoms else right if right in product_atoms and left not in product_atoms else 0
+        leaving = right if retained == left else left if retained == right else 0
+        if (
+            retained
+            and leaving
+            and order == "SINGLE"
+            and product_atoms.get(retained) in {7, 8, 16}
+            and reactant_atoms.get(leaving) in {6, 14, 15, 16}
+        ):
+            return "heteroatom_deprotection_or_cleavage"
+    return ""
+
+
+def _mapped_atom_context(mols: Iterable[Any]) -> tuple[dict[int, int], dict[int, int]]:
+    atoms: dict[int, int] = {}
+    components: dict[int, int] = {}
+    for component_index, mol in enumerate(mols):
+        for atom in mol.GetAtoms():
+            map_num = int(atom.GetAtomMapNum())
+            if atom.GetAtomicNum() <= 1 or map_num <= 0:
+                continue
+            atoms[map_num] = int(atom.GetAtomicNum())
+            components[map_num] = component_index
+    return atoms, components
+
+
+def _unmapped_heavy_neighbors_by_mapped_center(
+    mols: Iterable[Any],
+) -> dict[int, tuple[int, ...]]:
+    """Return departing unmapped atom elements adjacent to retained map centres."""
+
+    values: dict[int, list[int]] = {}
+    for mol in mols:
+        for atom in mol.GetAtoms():
+            if atom.GetAtomicNum() <= 1 or int(atom.GetAtomMapNum()) > 0:
+                continue
+            for neighbor in atom.GetNeighbors():
+                map_num = int(neighbor.GetAtomMapNum())
+                if neighbor.GetAtomicNum() <= 1 or map_num <= 0:
+                    continue
+                values.setdefault(map_num, []).append(int(atom.GetAtomicNum()))
+    return {
+        map_num: tuple(sorted(elements))
+        for map_num, elements in values.items()
+    }
+
+
+def _ordered_element_pair(
+    pair: tuple[int, int],
+    atoms: Mapping[int, int],
+    *,
+    first_atomic_number: int,
+) -> tuple[int, int]:
+    left, right = pair
+    if atoms.get(left) == first_atomic_number:
+        return left, right
+    if atoms.get(right) == first_atomic_number:
+        return right, left
+    return 0, 0
+
+
+def _ordered_hetero_bond(
+    pair: tuple[int, int],
+    atoms: Mapping[int, int],
+) -> tuple[int, int]:
+    carbon, other = _ordered_element_pair(pair, atoms, first_atomic_number=6)
+    return (carbon, other) if carbon and atoms.get(other) in {7, 8, 16} else (0, 0)
 
 
 def _mapped_atoms(mols: Iterable[Any]) -> tuple[dict[int, int], set[int], int]:
@@ -679,6 +1002,7 @@ def _procurement_binding(
     value: Mapping[str, Any],
     *,
     expected_reactants: tuple[str, ...],
+    trusted_stock_providers: Mapping[str, Any] | None = None,
 ) -> bool:
     if (
         not value
@@ -689,14 +1013,13 @@ def _procurement_binding(
     results = value.get("stock_provider_results")
     if not isinstance(results, list) or not results:
         return False
-    try:
-        from cascade_planner.providers.contracts import validate_provider_result
-    except ImportError:
+    providers = dict(trusted_stock_providers or {})
+    if not providers:
         return False
     covered: set[str] = set()
     content_hashes: list[str] = []
     for result in results:
-        if not isinstance(result, Mapping) or validate_provider_result(result):
+        if not isinstance(result, Mapping):
             return False
         envelope = dict(result)
         payload = envelope.get("payload")
@@ -708,6 +1031,8 @@ def _procurement_binding(
             or not isinstance(payload, Mapping)
             or payload.get("accepted") is not True
         ):
+            return False
+        if not _trusted_commercial_stock_result_replays(envelope, providers=providers):
             return False
         molecule = _canonical_smiles(payload.get("canonical_smiles"))
         if not molecule or molecule not in expected_reactants:
@@ -742,8 +1067,14 @@ def build_verified_procurement_binding(
     stock_provider_results: Iterable[Mapping[str, Any]],
     *,
     reactant_smiles: Iterable[Any],
+    trusted_stock_providers: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Construct a replayable L4 binding from verified stock envelopes."""
+    """Construct an L4 binding only after host-provider instance replay.
+
+    A provider id plus a self-computed content hash is not an authority.  The
+    caller must supply the construction-time trusted provider instances; the
+    verifier invokes them again and compares the complete result envelope.
+    """
     results = [dict(row) for row in stock_provider_results if isinstance(row, Mapping)]
     reactants = sorted(
         {value for value in (_canonical_smiles(item) for item in reactant_smiles) if value}
@@ -760,9 +1091,68 @@ def build_verified_procurement_binding(
         "stock_provider_results": results,
         "binding_digest": _digest(payload),
     }
-    if not _procurement_binding(binding, expected_reactants=tuple(reactants)):
+    if not _procurement_binding(
+        binding,
+        expected_reactants=tuple(reactants),
+        trusted_stock_providers=trusted_stock_providers,
+    ):
         binding["accepted"] = False
     return binding
+
+
+def _trusted_commercial_stock_result_replays(
+    result: Mapping[str, Any],
+    *,
+    providers: Mapping[str, Any],
+) -> bool:
+    """Replay a commercial snapshot through the exact trusted host provider."""
+    try:
+        from cascade_planner.providers.contracts import (
+            ProviderContext,
+            ProviderKind,
+            validate_provider_result,
+        )
+        from cascade_planner.providers.stock import SnapshotStockProvider
+    except ImportError:
+        return False
+    envelope = dict(result)
+    provider_id = str(envelope.get("provider_id") or "")
+    provider = providers.get(provider_id)
+    # Subclasses can replace ``invoke`` while reusing a trusted-looking
+    # descriptor.  Procurement authority is intentionally narrower than a
+    # general provider protocol.
+    if type(provider) is not SnapshotStockProvider:
+        return False
+    descriptor = provider.descriptor
+    if (
+        descriptor.kind is not ProviderKind.STOCK
+        or descriptor.provider_id != provider_id
+        or validate_provider_result(envelope, descriptor=descriptor)
+    ):
+        return False
+    payload = envelope.get("payload")
+    if not isinstance(payload, Mapping) or payload.get("boundary_type") != "commercially_orderable":
+        return False
+    molecule = _canonical_smiles(payload.get("canonical_smiles"))
+    offers = [dict(row) for row in payload.get("offers") or [] if isinstance(row, Mapping)]
+    if not molecule or not offers:
+        return False
+    try:
+        replayed = provider.invoke(
+            {
+                "schema_version": "stock_lookup_request.v1",
+                "smiles": molecule,
+                "offers": offers,
+            },
+            context=ProviderContext(
+                run_id="reaction-proof-replay",
+                case_id="reaction-proof-replay",
+                target_smiles=molecule,
+            ),
+        ).to_dict()
+    except Exception:
+        return False
+    return replayed == envelope
 
 
 def _is_sha256(value: str) -> bool:

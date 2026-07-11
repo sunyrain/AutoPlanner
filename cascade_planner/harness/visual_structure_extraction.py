@@ -10,6 +10,8 @@ from typing import Any
 from rdkit import Chem, RDLogger
 from rdkit.Chem import Descriptors, rdMolDescriptors
 
+from cascade_planner.source_locators import independent_source_group
+
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -88,6 +90,43 @@ def validate_visual_structure_chain(
     continuity = _continuity_audit(validated_steps, target_smiles=target_smiles or str(payload.get("target_smiles") or ""))
     if require_contiguous and not continuity["accepted"]:
         reasons.extend(continuity["reasons"])
+    compound_binding_audit = _compound_label_binding_audit(
+        validated_steps,
+        source={
+            "source_ref": payload.get("source_ref"),
+            "doi": payload.get("doi"),
+            "patent_publication": payload.get("patent_publication"),
+            "patent_family": payload.get("patent_family"),
+            "document_id": payload.get("document_id"),
+        },
+    )
+    conflicted_labels = {
+        str(row.get("normalized_label") or "")
+        for row in compound_binding_audit.get("conflicts") or []
+    }
+    if conflicted_labels:
+        reasons.append("compound_label_structure_conflict")
+        for step in validated_steps:
+            labels = {
+                _normalized_compound_label(step.get("product_label")),
+                *{
+                    _normalized_compound_label(label)
+                    for label in step.get("reactant_labels") or []
+                },
+            }
+            step_conflicts = sorted((labels - {""}) & conflicted_labels)
+            if not step_conflicts:
+                continue
+            step["accepted"] = False
+            step["reasons"] = sorted(
+                {
+                    *[str(item) for item in step.get("reasons") or []],
+                    *[
+                        f"compound_label_structure_conflict:{label}"
+                        for label in step_conflicts
+                    ],
+                }
+            )
 
     result = {
         "schema_version": VISUAL_STRUCTURE_VALIDATION_SCHEMA,
@@ -106,11 +145,15 @@ def validate_visual_structure_chain(
         "evidence_refs": _string_list(payload.get("evidence_refs")),
         "steps": validated_steps,
         "compound_reports": list(compound_map.values()),
+        "compound_binding_audit": compound_binding_audit,
         "continuity_audit": continuity,
         "summary": {
             "step_count": len(validated_steps),
             "accepted_step_count": sum(1 for step in validated_steps if step.get("accepted")),
             "compound_count": len(compound_map),
+            "compound_label_conflict_count": len(
+                compound_binding_audit.get("conflicts") or []
+            ),
             "chain_contiguous": bool(continuity.get("accepted")),
             "target_match": bool(continuity.get("target_match")),
         },
@@ -467,6 +510,78 @@ def _record_compound(compound_map: dict[str, dict[str, Any]], *, label: str, rep
     )
     if label and label not in existing["compound_labels"]:
         existing["compound_labels"].append(label)
+
+
+def _compound_label_binding_audit(
+    steps: list[dict[str, Any]],
+    *,
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    """Bind source-local compound labels to one canonical structure.
+
+    Compound labels are local identifiers, not names.  Silently accepting two
+    structures for the same label (for example two incompatible ``C16``
+    assignments) corrupts every downstream reaction edge, so conflicts fail
+    the complete extraction closed.
+    """
+
+    observations: dict[str, dict[str, dict[str, Any]]] = {}
+
+    def add(label: Any, report: Any, *, step_id: str, role: str) -> None:
+        normalized_label = _normalized_compound_label(label)
+        row = dict(report) if isinstance(report, dict) else {}
+        canonical = str(row.get("canonical_smiles") or "")
+        if not normalized_label or not canonical:
+            return
+        binding = observations.setdefault(normalized_label, {}).setdefault(
+            canonical,
+            {
+                "canonical_smiles": canonical,
+                "formula": str(row.get("formula") or ""),
+                "step_ids": [],
+                "roles": [],
+            },
+        )
+        if step_id and step_id not in binding["step_ids"]:
+            binding["step_ids"].append(step_id)
+        if role and role not in binding["roles"]:
+            binding["roles"].append(role)
+
+    for step in steps:
+        step_id = str(step.get("step_id") or "")
+        add(step.get("product_label"), step.get("product"), step_id=step_id, role="product")
+        labels = list(step.get("reactant_labels") or [])
+        reports = list(step.get("reactants") or [])
+        for index, report in enumerate(reports):
+            label = labels[index] if index < len(labels) else ""
+            add(label, report, step_id=step_id, role=f"reactant:{index + 1}")
+
+    bindings: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    for label in sorted(observations):
+        structures = [observations[label][key] for key in sorted(observations[label])]
+        row = {
+            "normalized_label": label,
+            "structure_count": len(structures),
+            "structures": structures,
+        }
+        bindings.append(row)
+        if len(structures) > 1:
+            conflicts.append(row)
+    return {
+        "schema_version": "source_compound_label_binding_audit.v1",
+        "accepted": not conflicts,
+        "independent_source_group": independent_source_group(source),
+        "document_id": str(source.get("document_id") or ""),
+        "bindings": bindings,
+        "conflicts": conflicts,
+        "conflict_count": len(conflicts),
+        "rule": "one_source_local_compound_label_must_bind_one_canonical_structure",
+    }
+
+
+def _normalized_compound_label(value: Any) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
 
 
 def _short_excerpt(text: str, *, max_words: int = 36) -> str:

@@ -43,6 +43,41 @@ def _forest() -> dict:
             "proof_level": "parent_route_proof",
             "advisory_only": False,
         },
+        "semantic_summary": {
+            "schema_version": "route_forest_semantic_summary.v1",
+            "agent_tasks": {"completed": 2, "total": 2},
+        },
+        "frontier_ledger": {
+            "schema_version": "route_forest_frontier_ledger_view.v1",
+            "source_schema_version": "frontier_ledger.v1",
+            "authoritative": True,
+            "content_sha256": "a" * 64,
+            "validation_reasons": [],
+            "counts": {
+                "l0_break_suggestion_edges": 0,
+                "expanded_work_molecules": 1,
+                "l2_reaction_edges": 1,
+                "l3_precedent_edges": 0,
+                "stock_closed_leaves": 1,
+                "reachable_leaves": 1,
+            },
+            "closure": {
+                "any_benchmark_route_closed": True,
+                "all_explored_benchmark_closed": True,
+                "any_procurement_route_closed": False,
+                "all_explored_procurement_closed": False,
+                "any_route_closed": True,
+                "all_explored_graph_closed": True,
+                "l3_parent_solved": True,
+                "l4_parent_route_proof_ready": False,
+                "l4_procurement_ready": False,
+            },
+        },
+        "display_policy": {
+            "schema_version": "route_forest_display_policy.v1",
+            "default_overview_top_k": 12,
+            "default_group_visible_count": 5,
+        },
         "nodes": [
             {
                 "node_id": molecule_a,
@@ -552,6 +587,15 @@ def _resign_payload(payload: dict) -> None:
 
 def test_delivery_payload_is_digest_bound_compact_and_non_mutating() -> None:
     forest = _forest()
+    forest["canonical_route_consensus_graph"] = {
+        "schema_version": "route_consensus_graph.v1",
+        "case_id": "compact-delivery",
+        "target_smiles": "CCO",
+        "steps": [],
+    }
+    forest["canonical_route_consensus_graph_source"] = (
+        "canonical_route_consensus_graph"
+    )
     original = copy.deepcopy(forest)
 
     payload = build_route_forest_delivery_payload(forest)
@@ -564,6 +608,24 @@ def test_delivery_payload_is_digest_bound_compact_and_non_mutating() -> None:
     assert len(payload["embedded_json_sha256"]) == 64
     assert "artifact_revision" not in payload
     assert payload["source_revision_context"] == forest["artifact_revision"]
+    assert payload["semantic_summary"] == forest["semantic_summary"]
+    assert payload["frontier_ledger"] == forest["frontier_ledger"]
+    assert payload["canonical_route_consensus_graph"] == forest[
+        "canonical_route_consensus_graph"
+    ]
+    assert payload["canonical_route_consensus_graph_source"] == (
+        "canonical_route_consensus_graph"
+    )
+    assert payload["display_policy"] == forest["display_policy"]
+    assert payload["delivery_semantics"]["branch_count"] == (
+        "exploration_views_only_never_completion_authority"
+    )
+    assert payload["delivery_semantics"]["authority"] == (
+        "none_byte_integrity_projection_only"
+    )
+    assert payload["delivery_semantics"][
+        "digest_does_not_grant_closeout_authority"
+    ] is True
     assert all(
         "structure_svg" not in row for row in payload["dependency_graph"]["nodes"]
     )
@@ -1003,12 +1065,20 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
         "navToggle",
         "inspectorToggle",
         "branchSearch",
+        "stageFilterBar",
+        "stageFilterStatus",
+        "partialExpandedSummary",
         "branchFilterBar",
         "branchGroups",
         "evidenceStats",
         "graphTitle",
         "graphSubtitle",
         "graphVisibleCount",
+        "closureStatusTitle",
+        "ledgerAuthorityBadge",
+        "ledgerProgressMetrics",
+        "closureStatusGrid",
+        "overviewToggle",
         "graphViewport",
         "mainRoute",
         "graphMinimap",
@@ -1026,9 +1096,29 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
         assert f'id="{element_id}"' in template
     for action in ("fit", "zoom-in", "zoom-out", "reset"):
         assert f'data-graph-action="{action}"' in template
+    for stage in ("all", "suggestion", "expanded", "reaction", "stock"):
+        assert f'data-stage-filter="{stage}"' in template
+    assert template.count('aria-controls="branchGroups"') >= 5
+    assert "laneMatchesStage" in script
+    assert "route_forest_branch_lanes.v2" in script
+    assert "route_forest_branch_stage_evidence.v2" in script
+    assert "stageMembershipIsAuthoritative" in script
+    assert "partialExpansionProgress" in script
+    assert "fully_expanded" in script
+    assert "partial_expanded" in script
+    assert "all_leaves_stock_bound" not in script
+    assert "旧版数据、聚合 proof tier、步骤数量与库存别名" in script
+    assert "ensureSelectedBranchMatchesFilters();" in script
+    assert "clearReplacementPreviewForFilterChange" in script
+    assert "state.selectedBranchId = next?.branch_id || '';" in script
+    assert "当前筛选没有权威绑定路线" in script
+    assert 'role="status" aria-live="polite"' in script
     for phrase in (
         "Consensus evidence audit",
-        "真实信源",
+        "独立信源组",
+        "文献文档",
+        "来源表示",
+        "候选记录",
         "同分候选",
         "展示锚点",
         "Independent support groups",
@@ -1042,8 +1132,33 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
         "Projection truncated",
         "Delivery bytes verified",
         "current closeout requires external manifest",
+        "完整 portfolio",
+        "全路径已展开",
+        "仅部分展开，不计入本阶段",
+        "不计入“全路径已展开”",
+        "部分展开",
+        "数量不代表完整路线数",
+        "default_overview_top_k",
+        "L0 断键边",
+        "已展开 work",
+        "L2 反应边",
+        "L3 先例边",
+        "ANY BENCHMARK ROUTE",
+        "ALL BENCHMARK GRAPH",
+        "ANY PROCUREMENT ROUTE",
+        "ALL PROCUREMENT GRAPH",
+        "L3 PARENT SOLVED",
+        "L4 PROCUREMENT",
+        "结论 fail-closed",
+        "搜索库存叶",
+        "benchmark 不等于可采购",
+        "交付字节完整性未验证",
     ):
         assert phrase in script
+    assert "deliveryIntegrityStatus === 'verified'" in script
+    assert "deliveryBytesVerified && frontierLedger.authoritative === true" in script
+    assert "交付仅字节完整" in script
+    assert "external_closeout_authority: false" in script
     assert "get('embed') === '1'" in script
     assert "data-replacement-id" in script
     assert "node.structure_svg" in script
@@ -1058,3 +1173,50 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
     assert "row.evidence_refs" in script
     assert "Array.isArray(row.values)" in script
     assert "row.source_group || row.source_ref" not in script
+
+
+def test_delivery_stage_views_ignore_aggregate_hints_and_preserve_exact_authority() -> (
+    None
+):
+    aggregate_only = _forest()
+    aggregate_lane = build_route_forest_delivery_payload(aggregate_only)[
+        "branch_lanes"
+    ]["lanes"][0]
+
+    assert aggregate_lane["proof_tier"] == "L2_reaction_validated"
+    assert aggregate_lane["stage_memberships"] == []
+    assert "stage_authority_missing" in aggregate_lane["stage_evidence"][
+        "reaction"
+    ]["reasons"]
+
+    authoritative = _forest()
+    authoritative["frontier_ledger"]["stage_authority"] = {
+        "schema_version": "route_forest_stage_authority.v1",
+        "authoritative": True,
+        "molecules": [],
+        "edges": [
+            {
+                "exact_edge_signature": "edge:main",
+                "step_ids": ["step:main"],
+                "product_smiles": "CCO",
+                "precursor_smiles": ["CC"],
+                "reaction_proof": {
+                    "achieved_proof_level": 2,
+                    "authority": "current_host_verifier_replay",
+                    "current_host_reaction_validated": True,
+                    "proof_request_ids": ["proof:main"],
+                },
+            }
+        ],
+        "reasons": [],
+    }
+    payload = build_route_forest_delivery_payload(authoritative)
+    lane = payload["branch_lanes"]["lanes"][0]
+
+    assert lane["stage_memberships"] == ["reaction"]
+    assert lane["stage_evidence"]["reaction"]["matched_step_ids"] == [
+        "step:main"
+    ]
+    assert route_forest_delivery_integrity_reasons(
+        payload, source_forest=authoritative
+    ) == []

@@ -1,6 +1,6 @@
 # AutoPlanner Architecture V2
 
-Last update: 2026-07-10.
+Last update: 2026-07-12.
 
 This document is the normative architecture for the active AutoPlanner
 mainline. It explains how Codex-driven exploration, multi-source route fusion,
@@ -24,8 +24,10 @@ content-bound deterministic checks may promote a complete parent route.
    roles are one model support group, not four independent scientific sources.
 5. A route is no stronger than its weakest reaction step and unresolved
    terminal frontier.
-6. Queue exhaustion, child-target success, literature similarity, consensus
-   score, and a plausible diagram are never substitutes for parent-route proof.
+6. Queue exhaustion, agent-task success, child-target success, literature
+   similarity, consensus score, and a plausible diagram are never substitutes
+   for reaction proof or parent-route closure. Execution success and
+   `proof_closed` are separate fields.
 7. A replacement keeps the exact product identity, may introduce a different
    precursor set, and is valid only after the complete AND/OR route re-solves
    connectivity, stock, and reaction proof. A UI splice cannot alter truth.
@@ -33,6 +35,11 @@ content-bound deterministic checks may promote a complete parent route.
    are compatibility views, not sufficient provenance.
 9. Missing proof is emitted as a machine-readable negative proof; it is never
    converted into a success by presentation logic.
+10. Campaign queue state, graph proposals, stock boundaries, reaction proof,
+    and hypergraph dependencies remain orthogonal authorities. Their only
+    unified completion view is the deterministic, content-hashed
+    `frontier_ledger.v1` projection; no second mutable expansion state may
+    infer closure from a bounded route list.
 
 ## System map and authority flow
 
@@ -45,13 +52,19 @@ flowchart LR
     C --> A3[Chemoenzymatic child]
     C --> A4[Evidence critic child]
     A1 & A2 & A3 & A4 --> E[Typed provider envelopes]
-    E --> F[Per-product multi-source fusion]
+    E --> L[2-3 independent-source acquisition lifecycle]
+    L --> F[Per-product multi-source fusion]
     F --> H[Reaction Hypergraph V2]
     H --> S[Persistent stock-first proposal-expansion scheduler]
     S --> C
-    H --> V[L0-L4 deterministic reaction proof]
+    H --> M[Exact edge materialization and atom mapping]
+    M --> V[Host-replayed L0-L4 reaction proof]
+    V --> Q[Durable reaction proof state]
+    Q --> S
+    H & S & Q --> J[frontier_ledger.v1 fact projection]
     V --> O[AND/OR Top-K diverse portfolio]
     O --> D[Global molecule-reaction graph and route DAGs]
+    J --> D
     D --> U[Trust-coloured read-only UI]
     V --> R[Deterministic parent proof]
     R --> X[Immutable CAS closeout revision]
@@ -68,11 +81,13 @@ publication planes have deliberately different permissions:
 | Proof | Replay structures, atom maps, connectivity, stock, precedent, and procurement | Trust producer booleans | Deterministic verifier |
 | Publication | Freeze mutually consistent graph, proof, and view artifacts | Publish mixed revisions as current truth | Validated CAS manifest |
 
-The loop through `S` and Codex persists proposal expansion only. It does not
-enqueue reaction-proof or CAS-publication jobs. Reaction replay, proof-bank
-construction, portfolio binding/solving, replacement replay, parent proof, and
-closeout are downstream deterministic stages with their own artifacts and
-authority checks.
+The persistent scheduler still owns proposal-expansion jobs only; reaction
+proof and CAS publication are not disguised as successful queue jobs. Between
+useful evidence rounds, however, the controller materializes the current
+consensus edges, replays mapping and host transform checks, writes durable
+proof state, and resumes the same campaign queue with those proof results and
+newly acquired evidence. This is a feedback loop between distinct authorities,
+not a collapse of proposal success into proof success.
 
 ## 1. Codex coordinator and direct child agents
 
@@ -102,11 +117,132 @@ text cannot impersonate literature, a different agent, or a deterministic
 verifier. Oversized, malformed, duplicate, role-mismatched, or unobserved
 reports are retained as rejected observations with stable reason codes.
 
+Strict all-child acceptance remains the default. A new campaign may instead
+bind `child_acceptance_mode=valid_subset_l0` into its immutable policy. That
+mode still requires the host to observe an explicit spawn for every required
+role, rejects coordinator/runtime/tool/identity failures, and requires a
+host-derived quorum of `max(2, ceil(required_roles / 2))` valid final reports.
+Only the valid child finals are fused; coordinator-restated candidates are
+ignored. Every recovered proposal is forcibly capped at
+`L0/model_only/low`, is not authority-bound, and cannot close a route or make a
+solved claim. This recovers useful hypotheses from one incomplete sibling
+without converting partial model agreement into scientific evidence.
+
 The same direct-team contract applies recursively to unresolved molecule
-frontiers. Depth, expansion count, batch size, tool calls, bytes, and time are
-bounded. Recursion expands the proposal graph; it does not prove the route.
-When the mainline fails, the case stops unresolved rather than silently handing
-scientific ownership to a deterministic fallback planner.
+frontiers. Depth, cumulative accepted expansions, per-invocation accepted
+expansions, attempts, batch size, tool calls, bytes, and time are bounded
+separately. A failed child attempt does not consume the accepted-expansion
+budget, and a later invocation resumes pending work from the same durable run
+directory. The standard launcher profile is six action rounds, depth six,
+24 cumulative accepted expansions, one bootstrap expansion, at most two
+accepted expansions and four total attempts per invocation. Recursion expands
+the proposal graph; it does not prove the route. When the mainline fails, the
+case stops unresolved rather than silently handing scientific ownership to a
+deterministic fallback planner.
+
+### Campaign durability, attempt accounting, and prepared-result recovery
+
+One run directory owns one fenced campaign. `campaign_identity.json` binds the
+case and canonical root target; `campaign_policy.json` additionally binds
+maximum depth, reaction-proof floor, verifier version, and the effective stock
+provider/catalog authority. Changing one of those authority-bearing policy
+fields requires a new campaign. Accepted-expansion and Agent-attempt limits are
+stored separately in an append-only `campaign_budget_events/` chain. Budget
+events may extend either limit monotonically, but cannot shrink or silently
+replace an earlier envelope. When `max_attempt_runs` is not set through the
+Python configuration, it defaults to the greater of three times the cumulative
+accepted-expansion budget and the per-invocation attempt cap; the standard
+24-expansion profile therefore has a 72-attempt campaign ceiling in addition
+to its four-attempt invocation ceiling.
+
+The campaign entry point and proof reconciliation also share a non-stealable
+OS advisory lock for the complete run-directory transaction. The lock is held
+across the model call, commit preparation, queue adoption, and reconciliation;
+it has a configurable wait timeout but no stale-file takeover. This closes the
+window in which two controller processes could both observe the final accepted
+slot and overspend it.
+
+Every actual Agent call consumes one durable campaign-wide attempt before the
+call begins. Under the campaign attempt lock, the queue lease and
+`campaign_attempts/<attempt-id>/started.json` event are created before model
+work. A separate immutable `terminal.json` records the operational outcome.
+The attempt ID binds campaign identity, job ID, queue attempt, and a digest of
+the lease token. On restart, the ledger is replayed from these events; an
+unterminated start still consumes attempt budget. `campaign_state.json` and its
+run summaries are disposable projections and cannot restore or erase calls.
+
+An accepted team report is copied into the campaign object store and an
+immutable, campaign/job/attempt/lease-fenced expansion commit is prepared
+before the queue is marked succeeded. Those two filesystem writes are not a
+cross-file atomic transaction. Recovery instead uses a prepared-result outbox
+pattern: startup validates the report object and commit, then the queue adopts
+that exact prepared result under its own lock. A different attempt, lease,
+campaign, target, failed/cancelled terminal job, or invalid commit is rejected.
+Only a successfully adopted queue result becomes proposal authority; an
+attempt event by itself never becomes an expansion. Content hashes detect
+canonical-content drift but are not signatures and do not defend against an
+attacker who can rewrite every trusted local authority input.
+
+The orchestration-owned `codex_retrosynthesis_team/team_report.json` is never a
+controller scratch file. Controller refreshes write `controller_projection.json`
+instead. The durable expansion set is reconstructed from succeeded, fenced
+campaign commits and placed first in a monotonic union with evidence/ChemEnzy/
+legacy graph projections. A failed reconciliation may add a failure projection,
+but it cannot replace an earlier accepted team report, erase a committed
+expansion, or turn the fused graph into a second mutable campaign state.
+
+### Controller recovery and canonical graph authority
+
+`blackboard_events/events.jsonl` is a controller recovery journal, not a
+scientific trust root. One run-wide process lock serializes controller
+invocations; every checkpoint uses expected-head CAS and explicit tombstones,
+so a stale sparse projection cannot resurrect a removed field. External actions
+follow `started -> result_prepared -> committed`: the attempt budget is reserved
+before execution, a prepared result can be replayed without another tool call,
+and a started action with no prepared result becomes indeterminate instead of
+being retried automatically. Recovery removes Codex graph, proof, stock,
+solved, and closeout authority and requires their current-host providers to
+replay them. Journal SHA-256 values detect drift; they are not signatures.
+
+The JSONL reader uses strict duplicate-key and finite-number parsing. A crash
+may leave one invalid final fragment without a newline; while holding the
+journal lock, the host preserves its raw bytes and digest in a non-authoritative
+forensic sidecar, fsyncs the evidence, and truncates only that tail. A valid
+event without a final newline is retained. Any terminated corrupt record or
+identity, sequence, chain, digest, parent, or binding ambiguity remains
+fail-closed.
+
+The controller intentionally publishes two graph views:
+
+- `route_consensus_graph` is the caller-advisory fusion used for L0
+  disconnection suggestions, analogies, portfolios, and display;
+- `canonical_route_consensus_graph` is rebuilt only from fenced Codex commits
+  and campaign-bound, current-host-replayed external-admission events.
+
+Only the canonical graph feeds reaction-proof state, frontier jobs, the
+frontier ledger, completion, RouteForest authority stages, and closeout
+dependencies. Unsupported advisory edges remain visible but cannot affect
+budget, proof, stock, or completion. The external-admission journal persists
+the complete replay material and an authority-free receipt for each exact
+edge; restart replays both and downgrades the reconstructed candidate to
+`model_only` L0 before any verifier runs.
+
+An accepted Codex team is not required for this replay path. If exact
+literature or ChemEnzy material produces a host-replayable admission receipt,
+the controller opens or resumes the same identity- and policy-bound campaign
+with an empty Codex commit set and reconciles that external edge directly.
+Rejected or missing Codex output therefore cannot veto an independent source.
+Invalid material is quarantined; reconciliation failure publishes an empty
+identity-bound authority graph and never falls back to the caller-advisory
+graph for ledger completion.
+
+There are two distinct literature gates. A source-bound materialized PDF claim
+may receive `materialized_literature_search_admission.v1`, which grants search
+admission only and still requires mapping/reaction verification for L2. It does
+not grant literature precedent, stock, or solved status. L3 remains restricted
+to a current-host match in the out-of-band trusted literature-step registry.
+This separation lets newly extracted sources enter verification without
+letting model-translated structures certify themselves.
 
 ## 2. Provider SPI
 
@@ -210,6 +346,15 @@ Cycles, unresolved frontiers, depth limits, conflicts, rejected records, and
 alternative sets are first-class output. They must not be omitted to make a
 route appear complete.
 
+All proposal sources pass the same structure-derived admission gate before
+ranking or queue publication. It rejects invalid structures, self/ancestor
+cycles, elemental deficits, and implausible heavy-atom jumps while preserving
+precursor multiplicity. The gate is shared by consensus and both guided and
+unguided ChemEnzy execution. An admitted Codex precursor is also emitted as an
+explicit recursive child-target task and ranking bias; it is not left as prompt
+text. That task still requires an exact current-host L2 inbound parent edge
+before the durable campaign may expand it.
+
 ## 4. Evidence correlation groups
 
 Source channels describe how a claim arrived. Correlation groups describe how
@@ -235,6 +380,49 @@ local copies joined by explicit provenance are collapsed to one scholarly
 source identity. A generic `accepted=true` row with a DOI-shaped string is only
 literature analogy and cannot manufacture independent support.
 
+For an unresolved evidence requirement, the action planner may pursue two or
+three independent source groups in one lifecycle. Metadata discovery alone is
+not completion: the lifecycle continues through acquisition, PDF/HTML binding,
+rendering, visual or deterministic extraction, structure resolution, and exact
+reaction rows where available. An article and its supporting information are
+distinct documents but one scholarly source group; they cannot satisfy a
+two-source requirement by themselves. Subsequent rounds exclude already-seen
+source groups and seek genuinely independent support.
+
+An exact-row blackboard record is compact but reaction-complete: it retains the
+full precursor set, product, mapped reaction when present, conditions, exact
+source locator, validation binding, and evidence references. Dropping the
+reactants or mapping would turn a discovered source into an unusable summary,
+so the evidence-first controller regression requires a late exact row itself to
+materialize and unlock the matching frontier without a test-only mapper.
+
+Source identity is explicitly three-layered:
+
+| Layer | Host-derived identity | What it counts |
+| --- | --- | --- |
+| Independent source group | Patent family, canonical publication identifier such as DOI/patent/PMID/PMC/PII, or normalized title fallback | Correlated scientific support; article and SI count once |
+| Logical document | Explicit document ID, otherwise source group plus content scope such as article or supporting information | Acquisition/extraction progress; article and SI remain distinct |
+| Representation | Canonical DOI/URL/database locator or local-PDF locator | Concrete copies of one logical document; it never adds independence |
+
+For a single extracted source payload, compound numbers are source-local
+labels rather than molecule identities. The visual structure validator records
+`source_compound_label_binding_audit.v1` and requires each normalized label to
+bind one canonical structure. If the same label, such as `C16`, resolves to two
+different canonical SMILES in that payload, every affected step is rejected
+with `compound_label_structure_conflict`. The audit carries the independent
+source group and document ID, but it does not claim that identical labels in
+different publications refer to the same compound; cross-document identity
+still requires structure-based reconciliation.
+
+Consensus ranking is host-derived. Producer `evidence_level` and `confidence`
+tokens are retained as advisory provenance, while all scorers consume the
+separate `authority_evidence_level` and `authority_confidence`. Every unbound
+producer is forced to `model_only`/`low` even when it self-reports a trusted
+channel, `validated`, `literature_exact`, or `high`. The producer claim remains
+visible for acquisition and audit, while a self-validated non-Codex claim is
+rejected. Only a host adapter that binds an exact source-detail step, a
+deterministic provider envelope, or reaction validation may raise authority.
+
 ## 5. Reaction proof L0-L4
 
 `cascade_planner/harness/reaction_step_verifier.py` emits
@@ -245,7 +433,7 @@ Levels are monotonic and computed, never accepted from candidate booleans.
 | --- | --- | --- | --- |
 | L0 | `L0_materialized` | Valid product and all reactant structures | The edge is structurally stated, not validated |
 | L1 | `L1_graph_and_stock_closed` | L0 plus route connectivity and terminal stock closure | The route graph closes, but reaction chemistry is not yet proven |
-| L2-M | `L2_mapping_consistent` | Complete mapped reaction passes deterministic structural audit | Identity, unique maps, provenance, elements, component contribution, scaffold continuity, bounded edits, and stereochemistry pass; portfolio proof level is zero and this remains advisory |
+| L2-M | `L2_mapping_consistent` | Product-complete mapped reaction passes deterministic structural audit | Identity, unique product provenance, bounded departing reactant atoms, elements, component contribution, scaffold continuity, bounded edits, and stereochemistry pass; portfolio proof level is zero and this remains advisory |
 | L2-R | `L2_reaction_validated` | A trusted deterministic transform is reapplied and its reaction centre matches | This may satisfy the portfolio edge floor; a producer label, mapping-only proof, or self-hashed payload cannot create it |
 | L3 | `L3_precedent_supported` | Mapping consistency plus trusted out-of-band exact precedent binding | The reaction is eligible for current parent-route authority |
 | L4 | `L4_procurement_ready` | L3 plus complete conditions and procurement binding | The step is operationally bound to conditions and materials |
@@ -255,12 +443,16 @@ The route-forest compatibility view spells L1 as
 above. No other level may be renamed or inferred from a colour.
 
 L2 explicitly checks the materialized mapped reaction against the separately
-declared product and complete reactant set. It requires complete and unique
-atom maps, product-atom provenance from reactants, element preservation, a real
-bond change, and a stereochemically matching product. It also rejects mapped
+declared product and complete reactant set. Every product heavy atom must have
+a unique, element-preserving reactant provenance map. Reactant atoms absent
+from the recorded major product may remain unmapped only within the explicit
+departing-atom budget; this permits normal dehydration, substitution, and
+deprotection without permitting an unlimited atom jump. It also requires a
+real bond change and a stereochemically matching product, and rejects mapped
 components that contribute nothing, atom-balanced fragment piles without a
-continuous precursor scaffold, more than two net new rings, or more than eight
-bond edits in one step. Self-reported validation or convergence booleans have
+continuous precursor scaffold, more than twelve departing reactant heavy
+atoms, more than two net new rings, or more than eight bond edits in one step.
+Self-reported validation or convergence booleans have
 no authority; the validator recomputes every listed check from structures.
 Mapping consistency alone cannot establish a meaningful transformation, so an
 `L2_mapping_consistent` edge is explicitly mapped to portfolio proof level zero
@@ -268,6 +460,24 @@ and cannot enter the proof-eligible portfolio. `L2_reaction_validated` is a
 separate named level reserved for trusted deterministic transform reapplication
 and reaction-centre matching. The current verifier must not infer it from atom
 mapping, candidate booleans, or a digest the candidate can recompute.
+
+At each closeout refresh, every exact consensus product/precursor hyperedge is
+materialized as a reaction candidate. Existing atom-mapped reactions are
+preferred; an optional batch mapper may fill missing maps, and missing mapper
+support remains an explicit negative reason. The host then recomputes mapping
+consistency and conservatively reapplies supported transform families. Only a
+matching host transform may reach `L2_reaction_validated`; generic cut/glue or
+mapping-only candidates remain advisory. Digest-valid proof records are stored
+in `reaction_proof_state.json` and fed back into later campaign resumes, so a
+new source or proof can unlock pending frontiers without restarting the run.
+
+Default-mapper work is persisted per exact edge under the run's private work
+directory. The cache key binds the complete materialized candidate, canonical
+product/precursors, each precursor's current stock state, mapper contract, and
+reaction-verifier version. Every hit is replayed by the current host verifier;
+corruption, self-consistent tampering, input drift, or version drift produces a
+miss for that edge only. Injected/opaque mappers bypass persistence. Cache
+records are resumable work products, never reaction or parent-route authority.
 
 L3 requires a digest-bound registry entry whose authority is
 `human_curator` or `deterministic_structure_parser`. The production registry is
@@ -302,6 +512,11 @@ both positive and negative attempts. Final `solved` requires a valid
 `stitched_parent_route_proof.v1`, exact target equivalence, graph and stock
 closure, every reaction at least L3, no unexplained large atom jump, connected
 child/literature segments when stitched, and analogy used only as rationale.
+Reaction validation and precedent support are independent clauses. A stitched
+literature segment may combine with stock-closed L2 subgoal routes as a visible
+`reaction_validated_l2_candidate`, but each literature and subgoal segment is
+replayed from embedded proof inputs and must independently reach L3 before the
+stitch or parent proof can be `solved`.
 
 ## 6. Persistent stock-first frontier scheduler
 
@@ -335,13 +550,25 @@ frontier scheduler persists `proposal_expansion` jobs: stock lookup happens
 before expansion, and an accepted team contributes typed candidate hyperedges.
 A successful job is deliberately proof level zero. Empty queue, depth, budget,
 or retry exhaustion therefore reports proposal-expansion state only and never
-means reaction proof, route closure, or `solved`.
+means reaction proof, route closure, or `solved`. Depth and cycle boundary
+leaves are stock-audited before they are closed as non-expandable.
 
-Reaction-step replay, `route_proof_bank.v1` construction and entry replay,
-exact portfolio binding, AND/OR solving, replacement validation, parent proof,
-and CAS publication run downstream of the Codex campaign. They have
-content-bound artifacts and explicit failure reasons, but they are not proof
-job states in the same persistent frontier queue.
+Expansion is evidence-first. The root job is explicitly eligible, but a newly
+discovered precursor job is created with `proposal_expansion_allowed=false`
+after its stock audit unless at least one exact inbound parent step has reached
+`L2_reaction_validated` under the current host verifier. A later proof refresh
+may monotonically enable a pending or retry-wait job only when the proof's step
+ID intersects that job's recorded parent-step IDs and the campaign identity and
+root target fences match. Thus an unmaterialized or self-reported parent edge
+cannot spend recursive Agent budget. L2 unlocks proposal exploration only; it
+does not grant L3 parent-route or L4 procurement authority.
+
+Reaction-step replay and durable proof-state updates run between campaign
+invocations; `route_proof_bank.v1` construction and entry replay, exact
+portfolio binding, AND/OR solving, replacement validation, parent proof, and
+CAS publication remain deterministic downstream stages. None of them becomes
+a successful proposal job. Their results may guide a later resume, but only
+the appropriate proof artifact carries proof authority.
 
 Commercial stock is represented by `stock_boundary.v1` and timestamped
 `stock_offer.v1` records. Supplier, catalog number, canonical structure,
@@ -354,6 +581,116 @@ timezone-qualified ISO-8601, and availability must be a real boolean. Only
 snapshots or snapshot artifacts loaded when the provider is constructed are
 trusted; an invoke request that invents or flips `available=true` cannot close
 a stock boundary even if it hashes its own forged payload.
+
+The standard launcher loads `config/trusted_stock_catalogs.json`, resolves the
+pinned PaRoutes n1 CSV, and verifies its SHA-256 before starting expensive
+work. This provider means exact membership in a reproducible benchmark catalog
+only. It explicitly sets `commercial_orderability_claimed=false` and must not
+be displayed as supplier availability, price, lead time, or procurement
+readiness. Real commercial claims require timestamped supplier snapshots. The
+CLI accepts repeatable operator-selected `--trusted-stock-snapshot` artifacts;
+each observation must carry the SHA-256 of its canonical snapshot content, and
+`procurement` campaigns fail before model execution when none are configured.
+Selecting the artifact is the operator trust decision. Its digest detects
+mutation but is not a supplier signature and does not make an old observation
+live.
+
+Benchmark membership may close a leaf for a reproducible benchmark/search
+fixed point, but its frontier job remains `achieved_proof_level=0` with
+`benchmark_membership_only` authority. The ledger marks that stock projection
+`benchmark_only=true` and never upgrades it to procurement. Only validated
+`commercially_orderable`, `in_house_available`, or `common_commodity`
+boundaries may carry stock-boundary level 4. Stock closure is accepted only
+after the current host re-invokes the construction-time trusted provider and
+matches its provider result, replay request, descriptor/version, canonical
+molecule, and boundary level; merely validating an embedded envelope hash is
+insufficient. A full L4 route still requires every reaction edge to have
+trusted precedent, complete conditions, and a validated procurement binding.
+
+### Unified frontier fact projection
+
+`cascade_planner/application/frontier_ledger.py` eliminates the former
+ambiguity between campaign expansion state, blackboard summaries, bounded
+route hypotheses, and proof closeout. It exposes one deterministic operation:
+
+```python
+project_frontier_ledger(
+    route_consensus_graph,
+    frontier_queue,
+    reaction_proof_state,
+    required_reaction_proof_level=2,
+)
+```
+
+The controller writes the result as `frontier_ledger.json`. The ledger is a
+read-only fact projection, not another scheduler. For every target-reachable
+molecule and exact reaction edge it keeps five concerns separate:
+
+| Concern | Authoritative input | Meaning |
+| --- | --- | --- |
+| Proposal | Complete `route_consensus_graph.v1` steps | Which alternatives exist |
+| Work | Digest-valid `frontier_queue.v1` jobs | What is pending, leased, retried, or terminal |
+| Stock | Host-validated stock-provider envelope on a stock job | Which molecule is an independently closed boundary |
+| Reaction proof | Exact-edge, current-host-replayed proof record | Which proposed reaction passed the configured L2/L3/L4 floor |
+| Dependencies | Complete target-reachable AND/OR hypergraph | Which precursors every alternative requires |
+
+Closure is a least fixed point over the complete reachable hypergraph. It does
+not read `route_hypotheses`, Top-K display limits, branch counts, or queue
+occupancy. The ledger computes two provider-replayed stock planes, each with an
+existential and a universal fixed point:
+
+| Field | Leaf authority | Fixed-point meaning |
+| --- | --- | --- |
+| `any_benchmark_route_closed` | Any accepted search boundary, including pinned benchmark membership or a stronger stock boundary | At least one proven alternative recursively closes |
+| `all_explored_benchmark_closed` | Same search-boundary plane | Every reachable alternative edge and every precursor branch recursively closes |
+| `any_procurement_route_closed` | Only replayed commercial, in-house, or common-commodity boundaries at stock level 4 | At least one proven alternative closes with procurement-capable leaves |
+| `all_explored_procurement_closed` | Same procurement-boundary plane | Every reachable alternative and leaf closes on the procurement plane |
+
+`any_route_closed` and `all_explored_graph_closed` are compatibility aliases
+for the first pair and are never procurement claims. All four use the ledger's
+configured reaction-proof floor; a procurement-leaf fixed point at an L2 edge
+floor is still not a fully L4 reaction route. A cycle cannot prove itself
+without an independent replayed stock or verified terminal boundary.
+
+The summary exposes orthogonal backlog counters instead of one overloaded
+"branch" number: `proposal_pending_molecule_count`,
+`proposal_expansion_eligible_molecule_count`, `work_pending_molecule_count`,
+`stock_pending_leaf_count`, `reaction_proof_pending_edge_count`, and
+`dependency_pending_edge_count`. For example, a depth-limited leaf may remain
+proposal-pending for graph completeness while being ineligible for another
+Codex expansion; those are intentionally different facts.
+
+`content_sha256` binds the canonical JSON projection but is an integrity
+commitment, not an authorization signature. `validate_frontier_ledger`
+reconstructs exact-edge topology and all four fixed points rather than trusting
+re-hashed closure booleans. The graph, queue, and reaction-proof envelopes are
+validated independently and their results remain visible under
+`input_validation`. Invalid schema, digest, exact-edge binding, stock
+authority, or proof authority forces effective closure false. A consumer must
+call the validator and gate positive summary fields on all three
+input-validation results; merely re-hashing an invalid upstream record does
+not grant authority.
+
+### Guided ChemEnzy feedback
+
+Codex or evidence-derived precursor hints are compiled into a typed guidance
+contract and consumed by the native one-step model wrapper. They affect actual
+candidate cost and ranking, rather than appearing only in prompt text. The
+bounded guidance batch is selected before truncation from the canonical graph
+and current frontier ledger. Open, non-stock, expansion-eligible targets are
+layered by canonical depth, with deterministic structure diversity and stable
+proposal identity as tie-breakers. Model-authored confidence, evidence,
+validation, and authority flags are explicitly ignored. The selection audit
+records ledger binding, selected/dropped proposal IDs, rank reasons, and every
+ignored self-reported field, so the first 12 serialized proposals no longer
+monopolize ChemEnzy work.
+
+The wrapper also rejects self-loops, canonical ancestor cycles, obvious element
+deficits, implausible heavy-atom jumps, and terminal-blacklist candidates while
+preserving trusted stock terminals. Runtime call counts, accepted/rejected
+rows, cost adjustments, and rejection reasons are emitted in a guidance
+consumption audit. Guidance remains proposal authority: it cannot inject an
+unverified raw reaction or bypass reaction and route verification.
 
 ## 7. AND/OR closure and Top-K route portfolio
 
@@ -526,10 +863,32 @@ packs lanes into a two-dimensional route-cluster overview and also exposes the
 canonical shared graph and a selected branch DAG. All filters, layout presets,
 pane sizes, zoom, and selection state are presentation-only.
 
-The default projection lists every available branch and candidate. If an
-explicit caller limit is used, `route_forest_projection_coverage.v1` records
-available, rendered, omitted, limit, and truncated counts per category, and the
-UI shows a prominent truncation warning.
+The default workbench prioritizes a compact Top-K of high-value, structurally
+distinct branches and groups or collapses the remainder. This is presentation
+state only: the full explored forest stays available through expansion and
+filters. `route_forest_display_policy.v1` records the initial Top-K/grouping
+policy, while `route_forest_projection_coverage.v1` continues to record
+available, rendered, omitted, limit, and producer-truncation counts. Trust
+colour always means proof tier; task completion, L0 materialization,
+`L2_reaction_validated`, stock closure, portfolio eligibility, and parent-route
+completion are shown as separate semantics rather than one generic success
+badge.
+
+The four route-stage views are likewise evidence projections, not colour
+aliases. `route_forest_stage_authority.v1` is emitted only after the complete
+ledger, current graph/queue/policy identities, reaction replay, and supplied
+stock providers validate. A branch is a break suggestion only when it is a
+non-rejected L0 proposal; fully expanded only when every nonempty route step
+has a matched, current, succeeded proposal-expansion queue binding. A route
+with only some matched steps is reported separately as non-authoritative
+`partial_expanded` progress and never enters the fully-expanded filter.
+Reaction-validated requires every nonempty step to bind uniquely to
+current-host L2-R or stronger; and stock-closed
+only when every nonempty synthesis leaf has current provider replay plus
+observation and closure-job IDs. Benchmark/search closure and procurement
+closure remain separately labelled. Old or incomplete deliveries fail closed
+for stages they cannot prove, and filtering to zero branches produces an
+explicit empty state rather than a stale canvas or inspector selection.
 
 Safe alternatives are backend full-route validation records. Invalid candidates
 remain visible with rejection reasons but are not selectable. An accepted row
@@ -593,6 +952,7 @@ not fabricated immutable provenance.
 | Replacement full-route replay cannot close new precursors | Visible catalog rejection; not selectable |
 | Artifact or dependency digest drifts | Do not activate revision; quarantine new projection |
 | Child route closes but parent bridge does not | `child_solved_parent_unresolved` |
+| Agent task succeeds but its edge is unproved | Record task success and keep `proof_closed=false` with the open proof reason |
 
 ## 12. Paclitaxel acceptance contract
 
@@ -631,17 +991,25 @@ The acceptance gates are:
 | Alternatives | Return all valid routes up to configured K, diversity-selected; never pad with advisory options |
 | Replacement | Exact product is retained; alternate side-chain/core/coupling precursors pass backend full-route connectivity, stock, and proof replay |
 | UI | Complete global molecule-reaction graph and route DAGs, trust vectors, legend, conflicts, rejections, and no hidden truncation |
-| Closeout | Consensus, graph/portfolio, parent-proof snapshot, final-verdict core, forest, and HTML belong to one validated committed CAS revision |
+| Closeout | Consensus, graph/portfolio, frontier ledger, parent-proof snapshot, final-verdict core, forest, and HTML belong to one validated committed CAS revision |
 | Verdict | `solved=true` only when deterministic parent proof replays successfully; otherwise retain exact missing clauses |
 
-Two different completion statements must remain separate:
+Four ledger fixed points and two stronger route authorities must remain
+separate:
 
-- **Scientific route completion:** at least one exact-target route is fully
-  connected, terminal-closed, and L3-or-better at every reaction under the
-  current safe policy.
-- **Exploration coverage:** all generated alternatives, conflicts, rejected
-  edges, and limits are represented. This can be complete even when no
-  scientific route is solved.
+| Statement | Exact predicate | What it does not imply |
+| --- | --- | --- |
+| Any benchmark/search route closed | `any_benchmark_route_closed` is true at the target under the configured reaction-proof floor and provider-replayed search leaves | All alternatives close; procurement-capable leaves; L3 parent authority |
+| All explored benchmark/search graph closed | `all_explored_benchmark_closed` is true for every target-reachable edge and leaf | Procurement-capable leaves; L3 parent authority |
+| Any procurement-boundary route closed | `any_procurement_route_closed` is true with provider-replayed level-4 stock leaves | All alternatives close; all reaction edges are L4 |
+| All explored procurement-boundary graph closed | `all_explored_procurement_closed` is true across the reachable graph | Every reaction has complete L4 conditions/precedent; parent proof exists |
+| L3 parent route solved | Deterministic parent proof replays one exact-target, connected, stock-closed route and every selected reaction is L3 or L4 | Every explored alternative closes; operational procurement readiness |
+| L4 procurement route ready | At least one contract-valid complete route has every selected reaction at L4 and every leaf has a validated non-benchmark procurement-capable boundary | Exhaustive closure of unrelated alternatives |
+
+Exploration *projection coverage* is a fifth, presentation-oriented statement:
+all generated alternatives, conflicts, rejected edges, and explicit limits are
+represented. It can be complete while every chemistry-closure statement above
+is false.
 
 If only the side-chain route to compound 6 or 10 closes, if compound 5 lacks an
 upstream boundary, if the 11 + 5 -> 12 -> paclitaxel bridge is not exact and
@@ -660,11 +1028,20 @@ verdict together.
 surfaces: a file-presence `capability_surface`, materialized executable-contract
 evidence, and run-specific chemistry acceptance. A 100% capability surface is
 not an engineering-completion claim. For committed runs, the audit reads the
-proof, verdict, graph, and forest from the validated CAS revision first;
-fixed-name blackboard/verdict/forest drift is reported separately and never
-overrides the CAS decision. Portfolio acceptance rechecks every route's
-complete/reaction-validated flags, schema-provided content hash, selected-edge
-binding, and DAG acyclicity.
+proof, verdict, graph, frontier ledger, and forest from the validated CAS
+revision first; fixed-name blackboard/verdict/ledger/forest drift is reported
+separately and never overrides the CAS decision. Portfolio acceptance rechecks
+every route's complete/reaction-validated flags, schema-provided content hash,
+selected-edge binding, and DAG acyclicity. The audit separately validates
+`frontier_ledger.v1` schema, canonical content digest, root binding, input
+authority, semantic consistency, and fail-closed behavior. Its
+current compatibility `completion_truth` object and `--human` output report
+benchmark/search any-route, benchmark/search all-explored, L3-parent, and
+all-L4 procurement readiness independently. The ledger and route forest retain
+the additional two procurement-boundary fixed points; those leaf-plane results
+must not be confused with the stricter all-L4 route audit. L4 readiness is
+recomputed from exact edge levels and commercial/in-house/common leaf bindings;
+benchmark-only leaves explicitly fail that stronger predicate.
 
 ## 13. Verification surface
 
@@ -685,13 +1062,15 @@ python -m pytest -q `
   tests/test_route_verifier.py `
   tests/test_parent_route_proof.py `
   tests/test_frontier_scheduler.py `
+  tests/test_frontier_ledger.py `
   tests/test_route_portfolio.py `
   tests/test_artifact_revision.py `
   tests/test_route_forest.py `
   tests/test_route_forest_delivery.py `
   tests/test_route_forest_layout.py `
   tests/test_route_forest_history_smoke.py `
-  tests/test_web_app.py
+  tests/test_web_app.py `
+  tests/test_audit_architecture_v2.py
 
 Remove-Item Env:AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY
 ```
@@ -700,6 +1079,10 @@ The fixture registry is test-only. Production acceptance must use an
 out-of-band curated registry and real stock/source snapshots. Finish with the
 full suite and `git diff --check`; live retrieval remains a separate opt-in
 smoke test because external availability is not deterministic.
+
+This repository intentionally has no GitHub Actions workflow. These checks,
+credential scans, and the final diff review are local release gates before a
+direct push; the absence of CI does not relax any proof or replay contract.
 
 ## Related documents
 

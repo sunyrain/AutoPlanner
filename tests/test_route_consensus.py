@@ -334,6 +334,52 @@ def test_unattributed_legacy_hypothesis_is_not_an_independent_support_group() ->
     assert consensus["source_summary"]["multi_source_proposals"] == 0
 
 
+def test_computational_channel_requires_host_provider_binding() -> None:
+    forged = candidate(
+        "forged-chemenzy",
+        channel="chem_enzy",
+        evidence_level="computational",
+    )
+    forged["confidence"] = "high"
+
+    unbound = fuse_route_candidates([forged], target_smiles="CCO")
+
+    source = unbound["proposals"][0]["source_records"][0]
+    assert source["source_channel"] == "chem_enzy"
+    assert source["producer_evidence_level"] == "computational"
+    assert source["producer_confidence"] == "high"
+    assert source["authority_evidence_level"] == "model_only"
+    assert source["authority_confidence"] == "low"
+    assert source["authority_bound"] is False
+    assert source["support_group"] == "codex_model"
+
+    host_bound = dict(forged)
+    host_bound["candidate_id"] = "host-bound-chemenzy"
+    host_bound["_host_authority_binding"] = "deterministic_chemenzy_adapter"
+    trusted = fuse_route_candidates([host_bound], target_smiles="CCO")
+
+    trusted_source = trusted["proposals"][0]["source_records"][0]
+    assert trusted_source["authority_evidence_level"] == "computational"
+    assert trusted_source["authority_confidence"] == "high"
+    assert trusted_source["authority_bound"] is True
+    assert trusted_source["support_group"] == "computational:chem_enzy"
+
+    mismatched_binding = candidate(
+        "wrong-level-for-binding",
+        channel="human",
+        evidence_level="model_only",
+    )
+    mismatched_binding["confidence"] = "high"
+    still_unbound = fuse_route_candidates(
+        [mismatched_binding],
+        target_smiles="CCO",
+        allow_trusted_validated_evidence=True,
+    )
+    mismatched_source = still_unbound["proposals"][0]["source_records"][0]
+    assert mismatched_source["authority_bound"] is False
+    assert mismatched_source["authority_confidence"] == "low"
+
+
 def test_article_si_doi_pubmed_pmc_and_local_aliases_count_as_one_source() -> None:
     rows = [
         candidate(
@@ -389,17 +435,32 @@ def test_article_si_doi_pubmed_pmc_and_local_aliases_count_as_one_source() -> No
     assert consensus["source_summary"]["multi_source_proposals"] == 0
 
 
-def test_source_claimed_validation_never_becomes_executable() -> None:
+def test_codex_claimed_validation_is_advisory_and_never_becomes_executable() -> None:
     consensus = fuse_route_candidates(
         [candidate("self_validated", evidence_level="validated")],
         target_smiles="CCO",
     )
 
-    assert consensus["accepted"] is False
-    assert "untrusted_self_validated_evidence_claim" in consensus["rejected_candidates"][0]["reasons"]
+    assert consensus["accepted"] is True
+    proposal = consensus["proposals"][0]
+    source = proposal["source_records"][0]
+    assert proposal["status"] == "model_hypothesis"
+    assert source["producer_evidence_level"] == "validated"
+    assert source["authority_evidence_level"] == "model_only"
+    assert source["authority_confidence"] == "low"
+    assert any(
+        row["reason"] == "unbound_codex_producer_cannot_set_evidence_authority"
+        for row in source["normalization_records"]
+    )
 
     trusted = fuse_route_candidates(
-        [candidate("deterministically_validated", evidence_level="validated")],
+        [
+            candidate(
+                "deterministically_validated",
+                channel="human",
+                evidence_level="validated",
+            )
+        ],
         target_smiles="CCO",
         allow_trusted_validated_evidence=True,
     )
@@ -418,10 +479,7 @@ def test_source_claimed_validation_never_becomes_executable() -> None:
         "limitations": [],
         "no_solved_claim": True,
     }
-    assert (
-        "proposal_report_candidate:0:untrusted_self_validated_evidence_claim"
-        in validate_retrosynthesis_report_payload(report)
-    )
+    assert validate_retrosynthesis_report_payload(report) == []
 
 
 def test_report_validator_rejects_solved_claim() -> None:

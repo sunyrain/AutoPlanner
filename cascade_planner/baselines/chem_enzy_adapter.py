@@ -57,6 +57,16 @@ from cascade_planner.baselines.literature_one_step_plugin import (
     literature_plugin_stats,
     reset_literature_plugin_state,
 )
+from cascade_planner.baselines.chem_enzy_guidance import (
+    ChemEnzyGuidanceConfig,
+    ChemEnzyGuidanceState,
+    ChemEnzyGuidedOneStepWrapper,
+    exclude_guided_terminal_blacklist,
+    guided_policy_config_from_flags,
+    guided_policy_stats,
+    install_canonical_ancestor_cycle_filter,
+    reset_guided_policy_state,
+)
 from cascade_planner.agent.chem_enzy_policy import chem_enzy_policy_trace_from_search_flags
 
 
@@ -280,11 +290,16 @@ class ChemEnzyBackendAdapter:
             reset_native_enzyme_plugin_state(planner, config.target_smiles)
             reset_native_chemical_plugin_state(planner, config.target_smiles)
             reset_literature_plugin_state(planner, config.target_smiles)
+            reset_guided_policy_state(planner, config.target_smiles)
             raw_result = planner.plan(config.target_smiles)
         except Exception as exc:  # pragma: no cover - depends on optional vendor env
             enzyme_plugin_stats = native_enzyme_plugin_stats(planner)
             chemical_plugin_stats = native_chemical_plugin_stats(planner)
             literature_template_plugin_stats = literature_plugin_stats(planner)
+            guidance_stats = guided_policy_stats(planner)
+            availability_report = availability_report or getattr(
+                planner, "_autoplanner_one_step_model_availability", None
+            )
             traceback_text = traceback.format_exc(limit=12)
             return BaselineRunResult(
                 target_smiles=config.target_smiles,
@@ -305,6 +320,8 @@ class ChemEnzyBackendAdapter:
                     **({"native_enzyme_plugin": enzyme_plugin_stats} if enzyme_plugin_stats is not None else {}),
                     **({"native_chemical_plugin": chemical_plugin_stats} if chemical_plugin_stats is not None else {}),
                     **({"literature_template_plugin": literature_template_plugin_stats} if literature_template_plugin_stats is not None else {}),
+                    **({"chem_enzy_guidance": guidance_stats} if guidance_stats is not None else {}),
+                    "starting_molecule_exclusions": _guidance_terminal_exclusion_stats(guidance_stats),
                 },
             )
 
@@ -313,6 +330,10 @@ class ChemEnzyBackendAdapter:
             enzyme_plugin_stats = native_enzyme_plugin_stats(planner)
             chemical_plugin_stats = native_chemical_plugin_stats(planner)
             literature_template_plugin_stats = literature_plugin_stats(planner)
+            guidance_stats = guided_policy_stats(planner)
+            availability_report = availability_report or getattr(
+                planner, "_autoplanner_one_step_model_availability", None
+            )
             return BaselineRunResult(
                 target_smiles=config.target_smiles,
                 backend=BACKEND_NAME,
@@ -331,6 +352,8 @@ class ChemEnzyBackendAdapter:
                     **({"native_enzyme_plugin": enzyme_plugin_stats} if enzyme_plugin_stats is not None else {}),
                     **({"native_chemical_plugin": chemical_plugin_stats} if chemical_plugin_stats is not None else {}),
                     **({"literature_template_plugin": literature_template_plugin_stats} if literature_template_plugin_stats is not None else {}),
+                    **({"chem_enzy_guidance": guidance_stats} if guidance_stats is not None else {}),
+                    "starting_molecule_exclusions": _guidance_terminal_exclusion_stats(guidance_stats),
                 },
             )
 
@@ -364,6 +387,10 @@ class ChemEnzyBackendAdapter:
         enzyme_plugin_stats = native_enzyme_plugin_stats(planner)
         chemical_plugin_stats = native_chemical_plugin_stats(planner)
         literature_template_plugin_stats = literature_plugin_stats(planner)
+        guidance_stats = guided_policy_stats(planner)
+        availability_report = availability_report or getattr(
+            planner, "_autoplanner_one_step_model_availability", None
+        )
         return BaselineRunResult(
             target_smiles=config.target_smiles,
             backend=BACKEND_NAME,
@@ -381,6 +408,8 @@ class ChemEnzyBackendAdapter:
                 **({"native_enzyme_plugin": enzyme_plugin_stats} if enzyme_plugin_stats is not None else {}),
                 **({"native_chemical_plugin": chemical_plugin_stats} if chemical_plugin_stats is not None else {}),
                 **({"literature_template_plugin": literature_template_plugin_stats} if literature_template_plugin_stats is not None else {}),
+                **({"chem_enzy_guidance": guidance_stats} if guidance_stats is not None else {}),
+                "starting_molecule_exclusions": _guidance_terminal_exclusion_stats(guidance_stats),
             },
         )
 
@@ -409,10 +438,13 @@ class ChemEnzyBackendAdapter:
             _patch_optional_easifa_import(self.enable_easifa)
             _patch_optional_graphviz_import(bool(search_config.search_flags.get("viz", False)))
             api = importlib.import_module("retro_planner.api")
+            mol_tree_module = importlib.import_module("retro_planner.search_frame.mcts_star.mol_tree")
+            install_canonical_ancestor_cycle_filter(mol_tree_module)
             _patch_onmt_tokenizer(api, str(vendor_config.get("chem_enzy_onmt_tokenizer") or "char"))
             enzyme_plugin_config = native_enzyme_plugin_config_from_flags(search_config.search_flags)
             chemical_plugin_config = native_chemical_plugin_config_from_flags(search_config.search_flags)
             literature_plugin_config = literature_plugin_config_from_flags(search_config.search_flags)
+            guidance_config = guided_policy_config_from_flags(search_config.search_flags)
             chemical_plugin_config = _chemical_plugin_config_with_base_model(
                 chemical_plugin_config,
                 selected_one_step_models,
@@ -422,9 +454,12 @@ class ChemEnzyBackendAdapter:
                 enzyme_config=enzyme_plugin_config,
                 chemical_config=chemical_plugin_config,
                 literature_config=literature_plugin_config,
+                guidance_config=guidance_config,
             )
-            enzyme_plugin_state, chemical_plugin_state, literature_plugin_state = plugin_states
+            enzyme_plugin_state, chemical_plugin_state, literature_plugin_state, guidance_state = plugin_states
             planner = api.RSPlanner(vendor_config)
+            if availability_report is not None:
+                planner._autoplanner_one_step_model_availability = availability_report
             planner.select_stocks(search_config.stock_names or DEFAULT_STOCKS)
             planner.select_one_step_model(selected_one_step_models)
             if self.enable_condition_prediction:
@@ -440,6 +475,8 @@ class ChemEnzyBackendAdapter:
                 planner._autoplanner_native_chemical_plugin_state = chemical_plugin_state
             if literature_plugin_state is not None:
                 planner._autoplanner_literature_plugin_state = literature_plugin_state
+            if guidance_state is not None:
+                planner._autoplanner_guided_policy_state = guidance_state
             return planner
 
     def _attributes_enabled(self) -> bool:
@@ -567,9 +604,16 @@ def _configure_native_autoplanner_plugins(
     enzyme_config: NativeEnzymePluginConfig,
     chemical_config: NativeChemicalPluginConfig,
     literature_config: LiteratureOneStepPluginConfig | None = None,
+    guidance_config: ChemEnzyGuidanceConfig | None = None,
 ) -> (
     tuple[NativeEnzymePluginState | None, NativeChemicalPluginState | None]
     | tuple[NativeEnzymePluginState | None, NativeChemicalPluginState | None, LiteratureOneStepPluginState | None]
+    | tuple[
+        NativeEnzymePluginState | None,
+        NativeChemicalPluginState | None,
+        LiteratureOneStepPluginState | None,
+        ChemEnzyGuidanceState | None,
+    ]
 ):
     original = getattr(api_module, "_autoplanner_original_prepare_molstar_planner", None)
     if original is None:
@@ -583,11 +627,30 @@ def _configure_native_autoplanner_plugins(
         if literature_config is not None and literature_config.enabled
         else None
     )
-    if enzyme_state is None and chemical_state is None and literature_state is None:
+    guidance_state = (
+        ChemEnzyGuidanceState(config=guidance_config)
+        if guidance_config is not None
+        else None
+    )
+    if enzyme_state is None and chemical_state is None and literature_state is None and guidance_state is None:
         api_module.prepare_molstar_planner = original
+        if guidance_config is not None:
+            return None, None, None, None
         return (None, None, None) if literature_config is not None else (None, None)
 
     def patched_prepare_molstar_planner(*args: Any, **kwargs: Any) -> Any:
+        if guidance_state is not None:
+            if len(args) > 1:
+                mutable_args = list(args)
+                mutable_args[1] = exclude_guided_terminal_blacklist(
+                    mutable_args[1], state=guidance_state
+                )
+                args = tuple(mutable_args)
+            elif "starting_mols" in kwargs:
+                kwargs = dict(kwargs)
+                kwargs["starting_mols"] = exclude_guided_terminal_blacklist(
+                    kwargs["starting_mols"], state=guidance_state
+                )
         if args:
             one_step = args[0]
             if chemical_state is not None:
@@ -596,6 +659,8 @@ def _configure_native_autoplanner_plugins(
                 one_step = LiteratureTemplateOneStepWrapper(one_step, config=literature_config, state=literature_state)
             if enzyme_state is not None:
                 one_step = NativeEnzymeOneStepWrapper(one_step, config=enzyme_config, state=enzyme_state)
+            if guidance_state is not None:
+                one_step = ChemEnzyGuidedOneStepWrapper(one_step, config=guidance_config, state=guidance_state)
             args = (one_step, *args[1:])
         elif "one_step" in kwargs:
             kwargs = dict(kwargs)
@@ -606,10 +671,14 @@ def _configure_native_autoplanner_plugins(
                 one_step = LiteratureTemplateOneStepWrapper(one_step, config=literature_config, state=literature_state)
             if enzyme_state is not None:
                 one_step = NativeEnzymeOneStepWrapper(one_step, config=enzyme_config, state=enzyme_state)
+            if guidance_state is not None:
+                one_step = ChemEnzyGuidedOneStepWrapper(one_step, config=guidance_config, state=guidance_state)
             kwargs["one_step"] = one_step
         return original(*args, **kwargs)
 
     api_module.prepare_molstar_planner = patched_prepare_molstar_planner
+    if guidance_config is not None:
+        return enzyme_state, chemical_state, literature_state, guidance_state
     if literature_config is None:
         return enzyme_state, chemical_state
     return enzyme_state, chemical_state, literature_state
@@ -1123,6 +1192,15 @@ def _float_or_none(value: Any) -> float | None:
 
 def _finite_or_none(value: Any) -> float | None:
     return _float_or_none(value)
+
+
+def _guidance_terminal_exclusion_stats(guidance_stats: dict[str, Any] | None) -> dict[str, Any]:
+    stats = dict(guidance_stats or {})
+    return {
+        "requested": int(stats.get("terminal_stock_exclusions_requested") or 0),
+        "removed": int(stats.get("terminal_stock_exclusions_removed") or 0),
+        "raw_reaction_injection": False,
+    }
 
 
 def _planner_signature(config: RouteSearchConfig) -> str:

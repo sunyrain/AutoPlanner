@@ -6,10 +6,12 @@ from cascade_planner.routes.domain import (
     MoleculeIdentity,
     ReactionCandidateEnvelope,
     ReactionHyperedge,
+    canonicalize_smiles,
 )
 from cascade_planner.routes.graph import (
     assemble_route_consensus_graph,
     make_route_consensus_expansion,
+    route_consensus_frontier_records,
     select_route_consensus_frontier,
 )
 from cascade_planner.harness.route_forest import compile_explored_route_forest, render_route_forest_html
@@ -77,7 +79,13 @@ def _expansion(
 
 def test_two_one_step_expansions_assemble_into_forward_multistep_route() -> None:
     root = _expansion("OCC", "CC=O", source_ref="doi:10.1000/root", depth=0, candidate_id="root")
-    middle = _expansion("CC=O", "C", source_ref="doi:10.1000/middle", depth=1, candidate_id="middle")
+    middle = _expansion(
+        "CC=O",
+        "C=CO",
+        source_ref="doi:10.1000/middle",
+        depth=1,
+        candidate_id="middle",
+    )
 
     graph = assemble_route_consensus_graph(
         [root, middle],
@@ -168,6 +176,131 @@ def test_v2_domain_records_are_stable_content_addressed_and_correlate_codex_role
     assert invalid_codex_group.validate() == ("codex_claim_has_independent_support_group",)
 
 
+def test_codex_self_reported_authority_cannot_increase_rank_before_host_binding() -> None:
+    promoted = _candidate(
+        "producer-promoted",
+        product="CCO",
+        precursors=["CC=O"],
+        source_ref="doi:10.1000/unbound-model-claim",
+        channel="codex_literature",
+    )
+    promoted["evidence_level"] = "validated"
+    promoted["confidence"] = "high"
+    baseline = _candidate(
+        "producer-baseline",
+        product="CCO",
+        precursors=["CC=O"],
+        source_ref="source:model",
+        channel="codex_strategy",
+    )
+    baseline["evidence_level"] = "model_only"
+    baseline["confidence"] = "low"
+
+    promoted_consensus = fuse_route_candidates([promoted], target_smiles="CCO")
+    baseline_consensus = fuse_route_candidates([baseline], target_smiles="CCO")
+    promoted_proposal = promoted_consensus["proposals"][0]
+    source = promoted_proposal["source_records"][0]
+
+    assert promoted_proposal["rank_score"] == baseline_consensus["proposals"][0][
+        "rank_score"
+    ]
+    assert promoted_proposal["status"] == "model_hypothesis"
+    assert source["producer_evidence_level"] == "validated"
+    assert source["producer_confidence"] == "high"
+    assert source["authority_evidence_level"] == "model_only"
+    assert source["authority_confidence"] == "low"
+    assert source["authority_bound"] is False
+    assert {row["reason"] for row in source["normalization_records"]} >= {
+        "unbound_codex_producer_cannot_set_evidence_authority",
+        "unbound_codex_producer_cannot_set_confidence_authority",
+    }
+    assert source["acquisition_hints"] == [
+        {
+            "schema_version": "route_candidate_acquisition_hint.v1",
+            "hint_type": "host_evidence_binding",
+            "reason": "codex_producer_metadata_is_advisory_only",
+            "required_binding": (
+                "deterministic_reaction_validation_or_trusted_source_detail_step"
+            ),
+        }
+    ]
+
+    graph = assemble_route_consensus_graph(
+        [
+            make_route_consensus_expansion(
+                promoted_consensus,
+                requested_product_smiles="CCO",
+                consensus_ref="consensus:producer-promoted",
+                agent_run_ref="agent:producer-promoted",
+                depth=0,
+            )
+        ],
+        case_id="producer-authority",
+        target_smiles="CCO",
+        max_depth=2,
+    )
+    step = graph["steps"][0]
+    assert step["authority_policy"] == "host_derived"
+    assert step["authority_evidence_level"] == "model_only"
+    assert step["producer_evidence_levels"] == ["validated"]
+    assert step["producer_confidences"] == ["high"]
+    assert step["acquisition_hints"][0]["hint_type"] == "host_evidence_binding"
+
+
+def test_invalid_producer_enums_are_explicit_and_trusted_host_evidence_survives() -> None:
+    malformed = _candidate(
+        "malformed-metadata",
+        product="CCO",
+        precursors=["CC=O"],
+        source_ref="source:model",
+        channel="codex_strategy",
+    )
+    malformed["evidence_level"] = "oracle_grade"
+    malformed["confidence"] = "absolutely_certain"
+    malformed_source = fuse_route_candidates(
+        [malformed],
+        target_smiles="CCO",
+    )["proposals"][0]["source_records"][0]
+
+    assert malformed_source["producer_evidence_level_raw"] == "oracle_grade"
+    assert malformed_source["producer_confidence_raw"] == "absolutely_certain"
+    assert malformed_source["producer_evidence_level"] == "model_only"
+    assert malformed_source["producer_confidence"] == "low"
+    invalid_fields = {
+        row["field"]
+        for row in malformed_source["normalization_records"]
+        if row["reason"] == "invalid_enum_value"
+    }
+    assert invalid_fields == {"producer_evidence_level", "producer_confidence"}
+    assert {
+        row["field"]
+        for row in malformed_source["acquisition_hints"]
+        if row["hint_type"] == "producer_enum_correction"
+    } == invalid_fields
+
+    trusted = _candidate(
+        "host-bound-literature",
+        product="CCO",
+        precursors=["CC=O"],
+        source_ref="doi:10.1000/host-bound",
+        channel="literature_exact",
+    )
+    trusted["evidence_level"] = "literature_exact"
+    trusted["confidence"] = "high"
+    trusted_proposal = fuse_route_candidates(
+        [trusted],
+        target_smiles="CCO",
+        allow_trusted_literature_exact_evidence=True,
+    )["proposals"][0]
+    trusted_source = trusted_proposal["source_records"][0]
+
+    assert trusted_source["authority_evidence_level"] == "literature_exact"
+    assert trusted_source["authority_confidence"] == "high"
+    assert trusted_source["authority_bound"] is True
+    assert trusted_source["authority_basis"] == "trusted_literature_adapter"
+    assert trusted_proposal["status"] == "evidence_backed_draft"
+
+
 def test_unexpanded_precursor_is_selected_as_next_codex_frontier() -> None:
     graph = assemble_route_consensus_graph(
         [_expansion("CCO", "CC=O", source_ref="source:model", depth=0, candidate_id="root")],
@@ -184,6 +317,85 @@ def test_unexpanded_precursor_is_selected_as_next_codex_frontier() -> None:
     assert frontier[0]["reason"] == "unexpanded"
 
 
+def test_route_graph_preserves_duplicate_precursor_stoichiometry() -> None:
+    consensus = fuse_route_candidates(
+        [
+            _candidate(
+                "homocoupling",
+                product="CC",
+                precursors=["C", "C"],
+                source_ref="source:model",
+            )
+        ],
+        target_smiles="CC",
+    )
+    expansion = make_route_consensus_expansion(
+        consensus,
+        requested_product_smiles="CC",
+        consensus_ref="consensus:homocoupling",
+        agent_run_ref="agent:homocoupling",
+        depth=0,
+    )
+
+    graph = assemble_route_consensus_graph(
+        [expansion],
+        case_id="homocoupling",
+        target_smiles="CC",
+        max_depth=2,
+    )
+
+    assert graph["steps"][0]["precursor_smiles"] == ["C", "C"]
+    assert len(graph["steps"][0]["precursor_node_ids"]) == 2
+    assert graph["steps"][0]["signature"].endswith("<-C.C")
+
+
+def test_frontier_selection_covers_alternatives_beyond_route_hypothesis_limit() -> None:
+    # Keep every synthetic alternative chemically admissible under the shared
+    # front-door element-inventory filter.  The former bare carbon chains all
+    # omitted the product oxygen, so they were (correctly) rejected before the
+    # route-hypothesis truncation behaviour under test could be exercised.
+    precursors = ["CCO" + "C" * length for length in range(1, 31)]
+    consensus = fuse_route_candidates(
+        [
+            _candidate(
+                f"alternative-{index}",
+                product="CCO",
+                precursors=[precursor],
+                source_ref=f"source:alternative-{index}",
+            )
+            for index, precursor in enumerate(precursors, start=1)
+        ],
+        target_smiles="CCO",
+    )
+    graph = assemble_route_consensus_graph(
+        [
+            make_route_consensus_expansion(
+                consensus,
+                requested_product_smiles="CCO",
+                consensus_ref="consensus:thirty-alternatives",
+                agent_run_ref="agent:thirty-alternatives",
+                depth=0,
+            )
+        ],
+        case_id="thirty-alternatives",
+        target_smiles="CCO",
+        max_depth=3,
+    )
+
+    assert len(graph["route_hypotheses"]) == 24
+    assert graph["truncation"]["route_hypotheses_truncated"] is True
+    frontier = select_route_consensus_frontier(graph, limit=100)
+    assert len(frontier) == 30
+    assert {row["target_smiles"] for row in frontier} == {
+        canonicalize_smiles(value) for value in precursors
+    }
+    assert {
+        row["target_smiles"]
+        for row in route_consensus_frontier_records(graph)
+        if row["reason"] == "unexpanded"
+    } == {canonicalize_smiles(value) for value in precursors}
+
+
 def test_cycle_is_audited_and_cut_from_route_enumeration() -> None:
     graph = assemble_route_consensus_graph(
         [
@@ -198,6 +410,9 @@ def test_cycle_is_audited_and_cut_from_route_enumeration() -> None:
     assert graph["cycles"]
     assert len(graph["route_hypotheses"]) == 1
     assert len(graph["route_hypotheses"][0]["retrosynthetic_step_ids"]) == 1
+    cycle_frontiers = route_consensus_frontier_records(graph)
+    assert [row["target_smiles"] for row in cycle_frontiers] == ["CC=O"]
+    assert cycle_frontiers[0]["reason"] == "cycle_cut"
     assert graph["semantics"]["advisory_only"] is True
 
 
@@ -227,7 +442,13 @@ def test_route_forest_projects_multistep_graph_in_forward_order_with_step_scoped
     graph = assemble_route_consensus_graph(
         [
             _expansion("CCO", "CC=O", source_ref="doi:10.1000/root", depth=0, candidate_id="root"),
-            _expansion("CC=O", "C", source_ref="doi:10.1000/middle", depth=1, candidate_id="middle"),
+            _expansion(
+                "CC=O",
+                "C=CO",
+                source_ref="doi:10.1000/middle",
+                depth=1,
+                candidate_id="middle",
+            ),
         ],
         case_id="ethanol",
         target_smiles="CCO",

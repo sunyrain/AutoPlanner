@@ -4,7 +4,7 @@ Active repository utilities for the Codex-entry harness direction only.
 
 | Script | Run semantics | Purpose |
 |---|---|---|
-| `run_codex_entry_agentic_blackboard.py` | `canonical_multi_agent_controller` | Active mainline: Codex coordinators directly spawn specialist agents for the target and bounded precursor frontiers, assemble a typed multi-source route graph, and delegate final proof authority to deterministic validators. |
+| `run_codex_entry_agentic_blackboard.py` | `canonical_multi_agent_controller` | Active mainline: direct specialist children, 2-3-source acquisition, host-derived ranking, L2-parent-gated recursion, prepared-result recovery, and audited ChemEnzy guidance. The standard profile is 6 rounds/depth 6/24 cumulative accepted expansions (1 bootstrap, 2 per resume, 4 attempts per invocation; default 72 attempts campaign-wide). Pinned PaRoutes membership is benchmark/search closure, never a commercial-stock claim. |
 | `run_codex_entry_controller.py` | `compatibility_controller` | Older controller entry retained for saved-run and integration compatibility; new orchestration belongs in the agentic-blackboard launcher. |
 | `run_open_structure_template_agent.py` | `probe` tool surface | Codex/WellAU structure-template research launcher used by the canonical controller after a literature/source-detail gate. It is not a standalone solved-route authority. |
 | `run_bufotalin_fullflow_wellau.py` | `showcase` | Bufotalin-focused fullflow runner used as the current hard-case replay/report surface. |
@@ -17,7 +17,7 @@ Active repository utilities for the Codex-entry harness direction only.
 | `smoke_route_forest_history.py` | Read-only broad smoke over saved `agent_blackboard.json` histories; compiles and renders route forests in memory. |
 | `evaluate_agentic_run.py` | Standard-library-only evaluator for one saved agentic run, or a baseline/final comparison with fail-closed parent-proof and advisory-route semantics. |
 | `audit_architecture_v2.py` | Report file-presence capability surface, materialized executable-contract evidence, and one run's chemistry acceptance separately. For committed runs it reads CAS proof/verdict/graph/forest first, audits every portfolio item/hash/selected DAG, and reports mutable compatibility drift without overriding CAS authority. |
-| `migrate_codex_campaign_v2.py` | Upgrade a saved pre-outbox Codex frontier campaign to immutable fenced per-job expansion commits without rerunning model work. |
+| `migrate_codex_campaign_v2.py` | Upgrade a saved pre-outbox Codex frontier campaign to immutable fenced per-job expansion commits without rerunning model work. The resulting prepared commits still require queue-side replay/adoption; the migration does not claim a cross-file atomic transaction. |
 | `refresh_agentic_closeout_artifacts.py` | Recompute hypothesis reports and final verdicts for a saved agentic run without rerunning model/PDF/ChemEnzy work. |
 | `resume_agentic_blackboard.py` | Continue a saved agentic run from `agent_blackboard.json`, preserving existing artifacts, budget counters, and closeout auditing. |
 | `monitor_autoplanner_web.py` | Poll the local WebUI service, queue state, CUDA status, and recent output/rejected artifacts. |
@@ -43,6 +43,40 @@ layer retains independent source records and conflicts. Local code owns tool
 execution, persistence, validation, stock audit, and parent-route proof. Codex
 research/planning output is never solved-route authority by itself.
 
+Producer channel/evidence/confidence remains advisory. Consensus scoring uses
+host-derived authority fields, so any unbound `chem_enzy`, `validated`, or
+`high` token is still `model_only`/`low` until a trusted adapter binds a
+provider envelope, exact literature, or deterministic reaction replay. Source
+groups, logical documents, and concrete
+representations are counted separately. Within one extracted source payload,
+one compound label must bind one canonical structure or the affected steps fail
+closed.
+
+The durable campaign writes immutable started/terminal attempt events and
+counts starts across resumes independently from accepted expansions. Accepted
+team output is prepared as a campaign/job/attempt/lease-fenced commit before
+queue completion; startup may replay and adopt that exact result after a crash.
+This is recoverable outbox sequencing, not filesystem-wide atomicity, and its
+content hashes are integrity commitments rather than security signatures.
+
+Strict all-child acceptance is the default. A fresh campaign may use
+`--codex-agent-team-child-acceptance-mode valid_subset_l0` to retain only a
+host-validated child quorum when all roles were explicitly spawned; recovered
+proposals are always non-authoritative L0 and cannot close a route. Campaign
+execution and proof reconciliation share a full-transaction OS lock; configure
+its wait with `--codex-agent-team-authority-lock-timeout-s`.
+
+Only the root frontier is initially proposal-expandable. Other leaves are
+stock-audited and persisted, then enabled only after current-host L2 proof binds
+an inbound parent step. The ledger separately reports existential/universal
+benchmark-search closure and existential/universal procurement-boundary
+closure. Those four fixed points remain distinct from L3 parent proof and from
+a route whose reactions and leaves all satisfy L4 procurement readiness.
+Procurement runs must provide repeatable operator-trusted supplier exports with
+`--trusted-stock-snapshot PATH`; every `stock_offer_snapshot.v1` row is rebound
+to its canonical SHA-256 before the immutable campaign policy is created.
+PaRoutes alone can never satisfy that requirement.
+
 For a stitched parent route, each exact literature edge must be bound to a
 trusted PDF page and every terminal reactant frontier must have its own
 reverified stock closure. A child route, consensus DAG, or accepted visual chain
@@ -61,6 +95,24 @@ D:\conda\envs\py312\python.exe scripts\validate_legacy_example_runs.py --summary
 D:\conda\envs\py312\python.exe scripts\smoke_route_forest_history.py --root results\shared --summary-output results\shared\route_forest_broad_smoke_20260705.json
 D:\conda\envs\py312\python.exe -m pytest -q
 ```
+
+Campaign, evidence-gate, authority-ranking, and ledger changes also require:
+
+```powershell
+D:\conda\envs\py312\python.exe -m pytest -q `
+  tests\test_codex_retrosynthesis_team.py `
+  tests\test_frontier_scheduler.py `
+  tests\test_frontier_ledger.py `
+  tests\test_route_consensus.py `
+  tests\test_literature_source_documents.py `
+  tests\test_compound_label_bindings.py `
+  tests\test_stock_provider.py
+```
+
+The repository intentionally has no GitHub Actions workflow. Run the complete
+offline suite, credential scan, `git diff --check`, and status review locally
+before a direct push; saved-run or live-provider success cannot substitute for
+these contracts.
 
 `validate_example_runs.py` checks the current representative examples against
 expected final verdicts, solved flags, route status, and route-forest HTML

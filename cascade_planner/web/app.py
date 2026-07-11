@@ -67,6 +67,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 RESULTS_DIR = ROOT / "results" / "v2"
 SHARED_RESULTS_DIR = ROOT / "results" / "shared"
 DATA_DIR = ROOT / "data"
+CONFIG_DIR = ROOT / "config"
+TRUSTED_STOCK_CATALOGS_CONFIG = CONFIG_DIR / "trusted_stock_catalogs.json"
 STATIN_SHOWCASE_PATH = ROOT / "results" / "shared" / "statin_panel_20260520" / "web_showcase" / "statin_showcase_routes.json"
 ROUTE_EXAMPLE_SPECS: tuple[dict[str, str], ...] = (
     {
@@ -88,6 +90,20 @@ MAX_SKELETON_STEPS = 8
 DEFAULT_PLANNER_MODE = "advanced"
 CHEMENZY_NATIVE_BACKENDS = {"chem_enzy", "chem_enzy_native", "chemenzy", "chemenzy_native"}
 CODEX_FULLFLOW_BACKENDS = {"codex", "codex_fullflow", "codex_search", "bufotalin_codex_fullflow"}
+CODEX_RUN_PROFILES: dict[str, dict[str, int]] = {
+    "smoke": {
+        "rounds": 1, "depth": 2, "accepted_expansions": 4,
+        "attempt_runs": 12, "per_invocation": 1, "attempts_per_invocation": 2,
+    },
+    "standard": {
+        "rounds": 6, "depth": 6, "accepted_expansions": 24,
+        "attempt_runs": 72, "per_invocation": 2, "attempts_per_invocation": 4,
+    },
+    "deep": {
+        "rounds": 10, "depth": 10, "accepted_expansions": 80,
+        "attempt_runs": 240, "per_invocation": 4, "attempts_per_invocation": 8,
+    },
+}
 
 _RETRO_ENGINE: dict[str, Any] | None = None
 _MODEL_CACHE: dict[tuple[str, str], Any] = {}
@@ -475,11 +491,81 @@ def _run_chem_enzy_native_plan(payload: dict[str, Any], *, job_id: str | None = 
     return output
 
 
+def _codex_run_profile(payload: dict[str, Any]) -> tuple[str, dict[str, int]]:
+    name = str(payload.get("run_profile") or "standard").strip().lower()
+    if name not in CODEX_RUN_PROFILES:
+        abort(400, description="run_profile must be smoke, standard, or deep")
+    return name, dict(CODEX_RUN_PROFILES[name])
+
+
+def _trusted_benchmark_stock_catalog(
+    config_path: str | Path = TRUSTED_STOCK_CATALOGS_CONFIG,
+) -> dict[str, Any]:
+    """Load one operator-owned, hash-pinned benchmark catalog definition."""
+    path = Path(config_path).resolve()
+    if not path.is_file():
+        return {}
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(config, dict) or config.get("schema_version") != "trusted_stock_catalogs.v1":
+        return {}
+    key = str(config.get("default_catalog") or "")
+    row = dict((config.get("catalogs") or {}).get(key) or {})
+    artifact_value = str(row.get("artifact") or "").strip()
+    artifact = (ROOT / artifact_value).resolve() if artifact_value else Path()
+    if (
+        not artifact_value
+        or (artifact != ROOT and not artifact.is_relative_to(ROOT))
+        or not artifact.is_file()
+    ):
+        return {}
+    digest = str(row.get("sha256") or "").strip().lower()
+    if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        return {}
+    return {
+        "artifact": str(artifact),
+        "sha256": digest,
+        "name": str(row.get("name") or key or "benchmark-stock"),
+        "boundary_type": "benchmark_stock",
+        "commercial_orderability_claimed": False,
+    }
+
+
 def _run_codex_fullflow_plan(payload: dict[str, Any], *, job_id: str | None = None) -> dict[str, Any]:
     _validate_web_codex_controls(payload)
+    profile_name, profile = _codex_run_profile(payload)
+    benchmark_stock = _trusted_benchmark_stock_catalog()
+    stock_authority_label = (
+        "benchmark stock membership (not commercial procurement)"
+        if benchmark_stock
+        else "no trusted stock catalog loaded; terminal closure remains fail-closed"
+    )
     target = str(payload.get("target_smiles") or "").strip()
     if Chem.MolFromSmiles(target) is None:
         abort(400, description="target_smiles is not a valid SMILES")
+    closure_objective = str(
+        payload.get("codex_agent_team_closure_objective") or "benchmark_search"
+    ).strip().lower()
+    if closure_objective not in {"benchmark_search", "procurement", "in_house"}:
+        abort(400, description="invalid codex_agent_team_closure_objective")
+    exploration_mode = str(
+        payload.get("codex_agent_team_exploration_mode") or "exhaustive"
+    ).strip().lower()
+    if exploration_mode not in {"first_solved", "exhaustive"}:
+        abort(400, description="invalid codex_agent_team_exploration_mode")
+    child_acceptance_mode = str(
+        payload.get("codex_agent_team_child_acceptance_mode") or "strict_all"
+    ).strip().lower()
+    if child_acceptance_mode not in {"strict_all", "valid_subset_l0"}:
+        abort(400, description="invalid codex_agent_team_child_acceptance_mode")
+    campaign_authority_lock_timeout_s = _as_float(
+        payload.get("codex_agent_team_authority_lock_timeout_s"),
+        3600.0,
+        lo=0.1,
+        hi=24 * 3600.0,
+    )
     run_dir = _codex_fullflow_run_dir(payload)
     run_dir.mkdir(parents=True, exist_ok=True)
     request_path = run_dir / "web_request.json"
@@ -524,7 +610,7 @@ def _run_codex_fullflow_plan(payload: dict[str, Any], *, job_id: str | None = No
             key_path=str(os.environ.get("AUTOPLANNER_CODEX_KEY_PATH") or ROOT / "key.txt"),
             base_url=str(os.environ.get("AUTOPLANNER_CODEX_BASE_URL") or "https://api.wellau.com/v1"),
             model=str(payload.get("model") or "gpt-5.5"),
-            max_rounds=_as_int(payload.get("max_rounds"), 3, lo=1, hi=30),
+            max_rounds=_as_int(payload.get("max_rounds"), profile["rounds"], lo=1, hi=30),
             exhaust_round_budget=_as_bool(payload.get("exhaust_round_budget"), False),
             enable_analogical_templates=_as_bool(payload.get("enable_analogical_templates"), True),
             max_template_applications_per_round=_as_int(payload.get("max_template_applications_per_round"), 5, lo=0, hi=50),
@@ -532,13 +618,31 @@ def _run_codex_fullflow_plan(payload: dict[str, Any], *, job_id: str | None = No
             analog_template_confidence_threshold=str(payload.get("analog_template_confidence_threshold") or "medium"),
             use_codex_action_planner=_as_bool(payload.get("codex_action_planner"), True),
             use_codex_agent_team=_as_bool(payload.get("codex_agent_team"), True),
-            codex_agent_team_max_depth=_as_int(payload.get("codex_agent_team_max_depth"), 2, lo=1, hi=6),
-            codex_agent_team_max_expansions=_as_int(payload.get("codex_agent_team_max_expansions"), 4, lo=1, hi=24),
+            codex_agent_team_max_depth=_as_int(payload.get("codex_agent_team_max_depth"), profile["depth"], lo=1, hi=12),
+            codex_agent_team_max_expansions=_as_int(payload.get("codex_agent_team_max_expansions"), profile["accepted_expansions"], lo=1, hi=96),
+            codex_agent_team_max_attempt_runs=_as_int(
+                payload.get("codex_agent_team_max_attempt_runs"),
+                profile["attempt_runs"],
+                lo=1,
+                hi=288,
+            ),
+            codex_agent_team_bootstrap_expansions=1,
+            codex_agent_team_max_expansions_per_invocation=profile["per_invocation"],
+            codex_agent_team_max_attempt_runs_per_invocation=profile["attempts_per_invocation"],
             codex_agent_team_frontier_batch_size=_as_int(payload.get("codex_agent_team_frontier_batch_size"), 2, lo=1, hi=8),
+            codex_agent_team_closure_objective=closure_objective,
+            codex_agent_team_exploration_mode=exploration_mode,
+            codex_agent_team_child_acceptance_mode=child_acceptance_mode,
+            codex_agent_team_authority_lock_timeout_s=(
+                campaign_authority_lock_timeout_s
+            ),
             codex_agent_team_model=str(
                 payload.get("codex_agent_team_model") or payload.get("model") or "gpt-5.5"
             ),
             codex_agent_team_auth_mode="auto",
+            codex_agent_team_benchmark_stock_catalog_artifact=benchmark_stock.get("artifact", ""),
+            codex_agent_team_benchmark_stock_catalog_sha256=benchmark_stock.get("sha256", ""),
+            codex_agent_team_benchmark_stock_catalog_name=benchmark_stock.get("name", ""),
             stop_on_problem=_as_bool(payload.get("stop_on_problem"), False),
             budget=_codex_fullflow_budget(payload, timeout_s=timeout_s),
             emit_blackboard_steps=True,
@@ -578,6 +682,12 @@ def _run_codex_fullflow_plan(payload: dict[str, Any], *, job_id: str | None = No
         "blackboard_steps": _read_blackboard_step_summary(run_dir),
         "forest_counts": forest_counts,
         "time_s": round(time.monotonic() - started, 3),
+        "run_profile": profile_name,
+        "stock_authority": {
+            **benchmark_stock,
+            "available": bool(benchmark_stock),
+            "label": stock_authority_label,
+        },
         "routes": [],
         "search_status": {
             "status": final.get("route_status") or final.get("verdict") or "unknown",
@@ -590,6 +700,8 @@ def _run_codex_fullflow_plan(payload: dict[str, Any], *, job_id: str | None = No
             "engine": "Codex action planner + ChemEnzy/literature/tools",
             "planner_strategy": "Agentic blackboard fullflow with per-step blackboard snapshots and final route forest.",
             "search_mode": "codex_fullflow",
+            "run_profile": profile_name,
+            "stock_authority_label": stock_authority_label,
             "run_dir": _rel(run_dir),
             "saved_at": "",
             "request_path": _rel(request_path),
@@ -2283,10 +2395,22 @@ def _plan_output_summary(output: dict[str, Any]) -> dict[str, Any]:
         final = dict(output.get("final_verdict") or {})
         counts = dict(output.get("forest_counts") or {})
         ui_metadata = dict(output.get("ui_metadata") or {})
+        complete_routes = int(
+            counts.get("verified_parent_routes")
+            or counts.get("complete_portfolio_routes")
+            or 0
+        )
         return {
             "status": (output.get("search_status") or {}).get("status") or final.get("route_status") or final.get("verdict"),
             "message": (output.get("search_status") or {}).get("message") or final.get("verdict") or "agent fullflow finished",
-            "routes": int(counts.get("branches") or 0),
+            "routes": complete_routes,
+            "complete_routes": complete_routes,
+            "branches": int(counts.get("explored_branch_views") or counts.get("branches") or 0),
+            "l0_advisory": int(counts.get("l0_advisory_branches") or 0),
+            "reaction_validated": int(counts.get("reaction_validated_branches") or 0),
+            "stock_closed": int(counts.get("stock_closed_branches") or 0),
+            "agent_tasks_completed": int(counts.get("agent_tasks_completed") or 0),
+            "agent_tasks_total": int(counts.get("agent_tasks_total") or 0),
             "steps": int(counts.get("steps") or 0),
             "solved": bool(final.get("solved") or final.get("verdict") == "solved"),
             "best_depth": counts.get("steps"),

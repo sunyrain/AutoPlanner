@@ -20,6 +20,7 @@ from cascade_planner.providers.registry import (
     descriptor_from_dict,
 )
 from cascade_planner.providers.stock import (
+    BenchmarkCatalogStockProvider,
     canonicalize_stock_snapshot,
     SnapshotStockProvider,
     stock_snapshot_sha256,
@@ -48,6 +49,7 @@ __all__ = [
     "ProviderResultEnvelope",
     "RendererProvider",
     "StockProvider",
+    "BenchmarkCatalogStockProvider",
     "SnapshotStockProvider",
     "canonicalize_stock_snapshot",
     "stock_snapshot_sha256",

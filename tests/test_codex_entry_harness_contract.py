@@ -38,9 +38,14 @@ from cascade_planner.harness.tools import (
 from cascade_planner.harness.open_research_retrieval import prefetch_open_research_evidence
 from cascade_planner.harness.source_detail_chain_builder import resolve_curator_records_to_source_detail_steps
 from cascade_planner.harness.source_detail_resolution import source_detail_curator_records_path
+from cascade_planner.providers.stock import (
+    canonicalize_stock_snapshot,
+    stock_snapshot_sha256,
+)
 from scripts.run_codex_entry_agentic_blackboard import (
     _codex_action_planner_env_overrides,
     _codex_agent_team_runtime_args,
+    _trusted_stock_snapshots_from_args,
 )
 from scripts.run_codex_entry_controller import _resolve_cli_targets
 from scripts.run_chem_enzy_plan_for_web import _stock_names_from_payload
@@ -203,6 +208,74 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
 
         self.assertEqual(model, "team-model")
         self.assertEqual(auth, "ambient_codex_cli")
+
+    def test_agentic_cli_loads_digest_bound_commercial_stock_snapshot(self):
+        snapshot = canonicalize_stock_snapshot(
+            {
+                "schema_version": "stock_offer_snapshot.v1",
+                "supplier": "Example Supplier",
+                "catalog_number": "EX-001",
+                "canonical_smiles": "CCO",
+                "checked_at": "2026-07-12T00:00:00+00:00",
+                "available": True,
+                "purity": "99%",
+                "pack_size": "1 g",
+                "price": 12.5,
+                "currency": "USD",
+                "region": "US",
+                "lead_time_days": 3,
+                "source_url": "https://supplier.invalid/EX-001",
+                "metadata": {"export_id": "snapshot-001"},
+            }
+        )
+        digest = stock_snapshot_sha256(snapshot)
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp) / "trusted-stock.json"
+            artifact.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "trusted_stock_snapshots.v1",
+                        "snapshots": [{**snapshot, "snapshot_sha256": digest}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            loaded = _trusted_stock_snapshots_from_args(
+                Namespace(trusted_stock_snapshot=[str(artifact)])
+            )
+
+        self.assertEqual(list(loaded), [digest])
+        self.assertEqual(loaded[digest]["canonical_smiles"], "CCO")
+        self.assertEqual(loaded[digest]["snapshot_sha256"], digest)
+
+    def test_agentic_cli_rejects_mutated_commercial_stock_snapshot(self):
+        snapshot = canonicalize_stock_snapshot(
+            {
+                "supplier": "Example Supplier",
+                "catalog_number": "EX-002",
+                "canonical_smiles": "CCO",
+                "checked_at": "2026-07-12T00:00:00+00:00",
+                "available": True,
+                "metadata": {},
+            }
+        )
+        digest = stock_snapshot_sha256(snapshot)
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp) / "tampered-stock.json"
+            artifact.write_text(
+                json.dumps(
+                    {
+                        **snapshot,
+                        "available": False,
+                        "snapshot_sha256": digest,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(SystemExit, "SHA-256 mismatch"):
+                _trusted_stock_snapshots_from_args(
+                    Namespace(trusted_stock_snapshot=[str(artifact)])
+                )
 
     def test_invalid_smiles_stops_before_codex_research_and_emits_invalid_input(self):
         with tempfile.TemporaryDirectory() as tmp:

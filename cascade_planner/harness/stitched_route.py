@@ -12,10 +12,14 @@ from rdkit import Chem, RDLogger
 
 from cascade_planner.harness.route_verifier import (
     is_accepted_route_verifier_report,
+    is_precedent_supported_route_verifier_report,
     is_reaction_validated_route_verifier_report,
     verify_chemenzy_raw_routes,
 )
-from cascade_planner.harness.reaction_step_verifier import verify_reaction_route
+from cascade_planner.harness.reaction_step_verifier import (
+    is_precedent_supported_route,
+    verify_reaction_route,
+)
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -32,15 +36,62 @@ def is_solved_stitched_semisynthesis_route(
     expected_target_smiles: str = "",
 ) -> bool:
     """Recompute a stitched proof from its materialized, source-bound inputs."""
-    if not isinstance(value, dict):
+    route, recomputed, candidate_valid = _replay_stitched_semisynthesis_route(
+        value,
+        expected_target_smiles=expected_target_smiles,
+    )
+    if not candidate_valid:
         return False
+    coverage = dict(route.get("frontier_coverage_audit") or {})
+    recomputed_coverage = dict(recomputed.get("frontier_coverage_audit") or {})
+    return bool(
+        route.get("solved") is True
+        and str(route.get("route_status") or "") == "solved"
+        and recomputed.get("solved") is True
+        and coverage.get("all_frontiers_precedent_supported") is True
+        and recomputed_coverage.get("all_frontiers_precedent_supported") is True
+        and int(coverage.get("precedent_supported_frontier_count") or 0)
+        == int(
+            recomputed_coverage.get("precedent_supported_frontier_count") or 0
+        )
+    )
+
+
+def is_reaction_validated_stitched_semisynthesis_route(
+    value: Any,
+    *,
+    expected_target_smiles: str = "",
+) -> bool:
+    """Return whether the complete stitch replays as a stock-closed L2 candidate.
+
+    This is deliberately weaker than :func:`is_solved_stitched_semisynthesis_route`.
+    It keeps useful L2 candidates visible without allowing them to satisfy the
+    parent route's independent L3 precedent requirement.
+    """
+
+    _, _, candidate_valid = _replay_stitched_semisynthesis_route(
+        value,
+        expected_target_smiles=expected_target_smiles,
+    )
+    return candidate_valid
+
+
+def _replay_stitched_semisynthesis_route(
+    value: Any,
+    *,
+    expected_target_smiles: str,
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    """Rebuild one stitch and validate its non-authoritative stored projection."""
+
+    if not isinstance(value, dict):
+        return {}, {}, False
     route = dict(value)
     inputs = route.get("proof_inputs")
     if not isinstance(inputs, dict):
-        return False
+        return route, {}, False
     target_smiles = str(expected_target_smiles or inputs.get("target_smiles") or "")
     if not target_smiles:
-        return False
+        return route, {}, False
     stored_expansion = inputs.get("route_expansion_result")
     if not isinstance(stored_expansion, dict):
         stored_expansion = {"subgoals": [dict(inputs.get("selected_subgoal") or {})]}
@@ -55,13 +106,10 @@ def is_solved_stitched_semisynthesis_route(
     )
     coverage = dict(route.get("frontier_coverage_audit") or {})
     recomputed_coverage = dict(recomputed.get("frontier_coverage_audit") or {})
-    return bool(
+    candidate_valid = bool(
         route.get("schema_version") == STITCHED_SEMISYNTHESIS_ROUTE_SCHEMA
         and route.get("accepted") is True
-        and route.get("solved") is True
-        and str(route.get("route_status") or "") == "solved"
         and recomputed.get("accepted") is True
-        and recomputed.get("solved") is True
         and coverage.get("schema_version") == "stitched_frontier_coverage_audit.v1"
         and coverage.get("accepted") is True
         and int(coverage.get("frontier_count") or 0) > 0
@@ -76,6 +124,7 @@ def is_solved_stitched_semisynthesis_route(
         and int((route.get("combined_route") or {}).get("combined_step_count") or 0)
         == int((recomputed.get("combined_route") or {}).get("combined_step_count") or 0)
     )
+    return route, recomputed, candidate_valid
 
 
 def compile_stitched_semisynthesis_route(
@@ -249,6 +298,16 @@ def compile_stitched_semisynthesis_route(
     )
     if not frontier_coverage_passed:
         reasons.append("literature_chain_has_unclosed_precursors")
+    precedent_supported_frontier_count = sum(
+        1
+        for row in subgoal_closures
+        if row.get("precedent_supported") is True
+    )
+    all_frontiers_precedent_supported = bool(
+        frontier_coverage_passed
+        and subgoal_closures
+        and precedent_supported_frontier_count == len(subgoal_closures)
+    )
 
     subgoal_summary = next(
         (
@@ -263,6 +322,15 @@ def compile_stitched_semisynthesis_route(
     terminal_match = dict(subgoal_summary.get("terminal_match_audit") or {})
 
     accepted = not sorted(set(reasons))
+    precedent_supported = bool(
+        accepted
+        and chain_summary.get("precedent_supported") is True
+        and all_frontiers_precedent_supported
+    )
+    if accepted and not all_frontiers_precedent_supported:
+        warnings.append("subgoal_route_precedent_support_incomplete")
+    if accepted and chain_summary.get("precedent_supported") is not True:
+        warnings.append("literature_route_precedent_support_incomplete")
     literature_step_count = int(chain_summary["step_count"])
     subgoal_step_count = sum(int(row.get("best_route_step_count") or 0) for row in subgoal_closures)
     parent_bridge_step_count = sum(
@@ -271,8 +339,14 @@ def compile_stitched_semisynthesis_route(
     result = {
         "schema_version": STITCHED_SEMISYNTHESIS_ROUTE_SCHEMA,
         "accepted": accepted,
-        "solved": accepted,
-        "route_status": "solved" if accepted else _failure_status(reasons),
+        "solved": precedent_supported,
+        "route_status": (
+            "solved"
+            if precedent_supported
+            else "reaction_validated_l2_candidate"
+            if accepted
+            else _failure_status(reasons)
+        ),
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "case_id": case_id or str(chain.get("case_id") or ""),
         "target": {
@@ -296,6 +370,12 @@ def compile_stitched_semisynthesis_route(
                 and row.get("stock_audit_passed") is True
                 and (row.get("terminal_match_audit") or {}).get("accepted") is True
             ),
+            "precedent_supported_frontier_count": (
+                precedent_supported_frontier_count
+            ),
+            "all_frontiers_precedent_supported": (
+                all_frontiers_precedent_supported
+            ),
             "frontier_smiles": frontier_smiles,
         },
         "stock_audit_passed": bool(
@@ -314,7 +394,9 @@ def compile_stitched_semisynthesis_route(
                         "segment_id": f"subgoal_stock_closure_{index}",
                         "role": "stock_to_literature_frontier",
                         "status": (
-                            "reaction_validated"
+                            "precedent_supported"
+                            if row.get("precedent_supported")
+                            else "reaction_validated"
                             if row.get("reaction_validated")
                             else "graph_and_stock_closed"
                             if row.get("verifier_accepted")
@@ -335,7 +417,9 @@ def compile_stitched_semisynthesis_route(
                     "segment_id": "source_detail_literature_chain",
                     "role": "literature_frontiers_to_target",
                     "status": (
-                        "reaction_validated"
+                        "precedent_supported"
+                        if chain_summary["precedent_supported"]
+                        else "reaction_validated"
                         if chain_summary["reaction_validated"]
                         else "not_reaction_validated"
                     ),
@@ -358,7 +442,10 @@ def compile_stitched_semisynthesis_route(
             "subgoal_solved_does_not_imply_target_solved_without_stitch": True,
             "literature_segment_requires_source_detail_chain": True,
             "literature_segment_requires_reaction_validation": True,
+            "literature_segment_requires_l3_precedent_for_solved": True,
             "subgoal_segment_requires_route_verifier": True,
+            "subgoal_segment_requires_l3_precedent_for_solved": True,
+            "l2_stitch_remains_displayable_but_not_solved": True,
             "final_verdict_authority": "deterministic_validators",
             "production_write_blocked": True,
         },
@@ -552,6 +639,7 @@ def _literature_chain_summary(
         trusted_precedent_bindings=precedent_bindings,
     )
     reaction_validated = reaction_validation.get("accepted") is True
+    precedent_supported = is_precedent_supported_route(reaction_validation)
     chain_accepted = bool(
         explicit_accepted is True
         and source_detail_schema_valid
@@ -575,6 +663,7 @@ def _literature_chain_summary(
         "frontier_closed_to_terminal": graph_audit["frontier_closed_to_terminal"],
         "graph_terminal_frontier": graph_audit["terminal_frontier"],
         "reaction_validated": reaction_validated,
+        "precedent_supported": precedent_supported,
         "reaction_validation": reaction_validation,
         "verification_level": str(
             reaction_validation.get("proof_level") or "L0_materialized"
@@ -658,6 +747,40 @@ def is_validated_source_detail_literature_step(value: Any) -> bool:
         isinstance(value, dict)
         and _materialized_literature_step(value)
         and _validated_source_detail_literature_step(value)
+    )
+
+
+def is_materialized_source_bound_literature_step(value: Any) -> bool:
+    """Return whether a source-bound row may enter search without precedent.
+
+    This is intentionally weaker than
+    :func:`is_validated_source_detail_literature_step`: it replays the exact
+    structure, document, page, manifest, PDF, and image bindings, but does not
+    consult the curated precedent registry.  Consumers may use it only for L0
+    search admission; it grants neither literature-exact nor L3 authority.
+    """
+
+    if not isinstance(value, dict) or not _materialized_literature_step(value):
+        return False
+    row = dict(value)
+    template_id = str(row.get("source_template_id") or "").strip()
+    validation = dict(row.get("exact_step_validation") or {})
+    evidence = [
+        dict(item)
+        for item in row.get("source_evidence") or []
+        if isinstance(item, dict)
+    ]
+    return bool(
+        template_id.startswith("source_detail_exact_step:")
+        and row.get("source_detail_exact_step") is True
+        and str(row.get("relation_type") or "") == "exact"
+        and str(row.get("source_ref") or "").strip()
+        and validation.get("schema_version") == "template_validation_report.v1"
+        and validation.get("accepted") is True
+        and validation.get("allowed_for_one_step_source") is True
+        and str(validation.get("source_template_id") or "") == template_id
+        and not validation.get("reasons")
+        and any(_materialized_source_evidence_valid(item) for item in evidence)
     )
 
 
@@ -967,11 +1090,23 @@ def _subgoal_summary(
         reverified,
         expected_target_smiles=target_smiles,
     )
+    precedent_supported = is_precedent_supported_route_verifier_report(
+        reverified,
+        expected_target_smiles=target_smiles,
+    )
     materialization = _best_route_materialization(raw, reverified)
+    provided_verifier_bound = _provided_verifier_replay_binding(
+        verifier,
+        reverified=reverified,
+        target_smiles=target_smiles,
+    )
+    provided_validation = dict(verifier.get("reaction_validation") or {})
+    current_validation = dict(reverified.get("reaction_validation") or {})
     return {
         "accepted": verifier_accepted,
         "verifier_accepted": verifier_accepted,
         "reaction_validated": reaction_validated,
+        "precedent_supported": precedent_supported,
         "verification_level": str(reverified.get("verification_level") or "L0_materialized"),
         "reaction_validation": dict(reverified.get("reaction_validation") or {}),
         "route_status": str(reverified.get("route_status") or ""),
@@ -997,16 +1132,58 @@ def _subgoal_summary(
             expected_target_smiles=target_smiles,
         ),
         "verifier_reasons": [str(item) for item in reverified.get("reasons") or []],
-        "provided_verifier_matched_reverification": bool(
-            is_accepted_route_verifier_report(
-                verifier,
-                expected_target_smiles=target_smiles,
-            ) == verifier_accepted
-            and verifier.get("best_route_rank") == reverified.get("best_route_rank")
-            and _safe_int(verifier.get("best_route_step_count"))
-            == _safe_int(reverified.get("best_route_step_count"))
+        # The current host replay is the authority.  A stored verifier only
+        # has to bind the same target and materialized route; its proof digest
+        # may legitimately become stale when exact precedent arrives later.
+        # This lets evidence-first scheduling upgrade L1/L2 to L3 without
+        # rerunning the route proposal, while a swapped/tampered route remains
+        # rejected by exact materialization binding.
+        "provided_verifier_matched_reverification": provided_verifier_bound,
+        "provided_verifier_proof_refreshed": bool(
+            provided_verifier_bound
+            and provided_validation.get("proof_digest")
+            != current_validation.get("proof_digest")
         ),
     }
+
+
+def _provided_verifier_replay_binding(
+    verifier: dict[str, Any],
+    *,
+    reverified: dict[str, Any],
+    target_smiles: str,
+) -> bool:
+    """Bind a historical verifier snapshot to the host-replayed raw route.
+
+    Stored acceptance/proof flags are intentionally ignored.  Exact target,
+    route rank, step count and materialized route identity must match the
+    current replay, which is what grants stock/reaction authority.
+    """
+
+    if verifier.get("schema_version") != "harness_route_verifier_report.v1":
+        return False
+    provided_target_audit = verifier.get("target_equivalence_audit")
+    if not isinstance(provided_target_audit, dict):
+        return False
+    provided_target = _compound_identity(
+        str(
+            provided_target_audit.get("request_canonical_isomeric_smiles")
+            or provided_target_audit.get("request_target_smiles")
+            or ""
+        )
+    )
+    if not _same_compound(provided_target, _compound_identity(target_smiles)):
+        return False
+    provided_route = verifier.get("accepted_route")
+    replayed_route = reverified.get("accepted_route")
+    return bool(
+        isinstance(provided_route, dict)
+        and isinstance(replayed_route, dict)
+        and provided_route == replayed_route
+        and verifier.get("best_route_rank") == reverified.get("best_route_rank")
+        and _safe_int(verifier.get("best_route_step_count"))
+        == _safe_int(reverified.get("best_route_step_count"))
+    )
 
 
 def _parent_bridge_summary(selected_target: dict[str, Any], *, target_smiles: str) -> dict[str, Any]:

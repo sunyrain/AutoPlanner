@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from cascade_planner.agent.chem_enzy_policy import chem_enzy_guidance_contract
 from cascade_planner.agent.route_auditor import audit_route_package, validate_route_audit_report
 from cascade_planner.agent.smiles_first import SmilesFirstWorkflowConfig, run_smiles_first_workflow
 from cascade_planner.baselines.chem_enzy_runtime import (
@@ -462,6 +463,7 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         case_id=str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
     ) if (result.get("routes") or (result.get("result") or {}).get("routes")) else {}
     plugin_runtime = _literature_template_plugin_runtime_diagnostics(result, request)
+    guidance_runtime = _guided_policy_runtime_diagnostics(result, request, plugin_runtime=plugin_runtime)
     proof_blockers = _guided_route_proof_blockers(verifier, plugin_runtime)
     verifier_for_output = _guided_hardened_verifier(verifier, proof_blockers=proof_blockers)
     verifier_accepted = bool(verifier_for_output.get("accepted"))
@@ -473,6 +475,9 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         "result": result,
         "raw_route_verifier": verifier_for_output,
         "literature_template_plugin_runtime": plugin_runtime,
+        "guided_policy_runtime": guidance_runtime,
+        "guided_execution_confirmed": bool(guidance_runtime.get("guided_execution_confirmed")),
+        "execution_mode": str(guidance_runtime.get("execution_mode") or "unguided_fallback"),
         "chemenzy_runtime_diagnostic": runtime_diagnostic,
         "route_status": str(
             verifier_for_output.get("route_status")
@@ -483,11 +488,17 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
     if proof_blockers:
         out["backend_raw_route_verifier"] = verifier
         out["route_proof_blockers"] = proof_blockers
+    if not guidance_runtime.get("guided_execution_confirmed"):
+        out.setdefault("reasons", []).extend(
+            str(item) for item in guidance_runtime.get("reasons") or ["guided_execution_not_confirmed"]
+        )
+        out["reasons"] = sorted(set(out["reasons"]))
     if verifier and not verifier_for_output.get("accepted"):
         out["accepted"] = False
         out["reasons"] = sorted(
             set(
-                [str(item) for item in verifier_for_output.get("reasons") or ["route_verifier_rejected_raw_routes"]]
+                [str(item) for item in out.get("reasons") or []]
+                + [str(item) for item in verifier_for_output.get("reasons") or ["route_verifier_rejected_raw_routes"]]
                 + [str(item) for item in plugin_runtime.get("reasons") or []]
             )
         )
@@ -4629,24 +4640,131 @@ def _literature_template_plugin_runtime_diagnostics(result: dict[str, Any], requ
     plugin = dict(request.get("literature_template_plugin") or {})
     stats = dict(((result.get("raw_backend_metadata") or {}).get("literature_template_plugin") or {}))
     row_count = len(plugin.get("one_step_rows") or [])
+    template_card_count = len(plugin.get("template_cards") or [])
+    default_cards_requested = bool(plugin.get("use_default_template_cards", True))
+    configured_input = bool(row_count or template_card_count or default_cards_requested)
     enabled = bool(plugin.get("enabled"))
     reasons: list[str] = []
     calls = int(stats.get("calls") or 0)
     added = int(stats.get("added_candidates") or 0)
-    if enabled and row_count and stats and calls == 0:
+    if enabled and configured_input and not stats:
+        reasons.append("literature_template_plugin_backend_stats_missing")
+    elif enabled and configured_input and stats and calls == 0:
         reasons.append("literature_template_plugin_not_invoked")
-    elif enabled and row_count and stats and calls > 0 and added == 0:
+    elif enabled and configured_input and stats and calls > 0 and added == 0:
         reasons.append("literature_template_plugin_no_candidates_added")
     return {
         "schema_version": "literature_template_plugin_runtime_diagnostics.v1",
         "enabled_in_request": enabled,
         "request_one_step_row_count": row_count,
+        "request_template_card_count": template_card_count,
+        "default_template_cards_requested": default_cards_requested,
+        "configured_input_available": configured_input,
         "backend_stats_present": bool(stats),
         "calls": calls,
         "candidate_templates": int(stats.get("candidate_templates") or 0),
         "instantiated_candidates": int(stats.get("instantiated_candidates") or 0),
         "added_candidates": added,
         "reasons": reasons,
+    }
+
+
+def _guided_policy_runtime_diagnostics(
+    result: dict[str, Any],
+    request: dict[str, Any],
+    *,
+    plugin_runtime: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Prove that a requested guided run changed or audited native search."""
+    metadata = dict(result.get("raw_backend_metadata") or {})
+    guidance = dict(metadata.get("chem_enzy_guidance") or {})
+    availability = dict(metadata.get("one_step_model_availability") or {})
+    failures = [
+        item
+        for item in [*(result.get("failures") or []), *(result.get("backend_failures") or [])]
+        if isinstance(item, dict)
+    ]
+    if not availability:
+        for failure in failures:
+            failure_metadata = dict(failure.get("raw_backend_metadata") or {})
+            if failure_metadata.get("one_step_model_availability"):
+                availability = dict(failure_metadata["one_step_model_availability"])
+                break
+    plugin_runtime = dict(plugin_runtime or {})
+    policy_requested = bool(request.get("chem_enzy_search_policy") or request.get("search_policy"))
+    requested_hint_count = int(guidance.get("requested_hint_count") or 0)
+    if policy_requested and requested_hint_count <= 0:
+        try:
+            expected_guidance = chem_enzy_guidance_contract(
+                dict(request.get("chem_enzy_search_policy") or request.get("search_policy") or {})
+            )
+        except (TypeError, ValueError):
+            expected_guidance = {}
+        requested_hint_count = len(expected_guidance.get("preferred_smiles") or [])
+    calls = int(guidance.get("calls") or 0)
+    comparisons = int(guidance.get("hint_comparisons") or 0)
+    ranking_confirmed = bool(
+        guidance.get("enabled")
+        and calls > 0
+        and (requested_hint_count == 0 or comparisons > 0)
+    )
+    plugin_confirmed = bool(
+        plugin_runtime.get("enabled_in_request")
+        and plugin_runtime.get("configured_input_available")
+        and int(plugin_runtime.get("calls") or 0) > 0
+    )
+    # When Codex supplied explicit precursor hints, merely invoking an
+    # unrelated literature-template plugin is not proof that those hints
+    # guided native search.  Require observed ranking comparisons in that
+    # case; plugin activity is sufficient only for a policy with no precursor
+    # guidance to consume.
+    confirmed = bool(
+        policy_requested
+        and (
+            ranking_confirmed
+            if requested_hint_count > 0
+            else (ranking_confirmed or plugin_confirmed)
+        )
+    )
+    reasons: list[str] = []
+    if policy_requested and not guidance:
+        reasons.append("guided_policy_adapter_not_loaded")
+    elif policy_requested and guidance.get("enabled") and calls <= 0:
+        reasons.append("guided_policy_adapter_not_invoked")
+    if requested_hint_count > 0 and comparisons <= 0:
+        reasons.append("preferred_precursor_hints_not_consumed")
+    if availability.get("action") == "all_selected_models_unavailable_no_prune":
+        reasons.append("all_selected_one_step_models_unavailable")
+    elif availability.get("unavailable"):
+        reasons.append("one_step_models_pruned_unavailable")
+    failure_categories = {str(item.get("category") or "") for item in failures}
+    failure_text = " ".join(str(item.get("message") or "") for item in failures).lower()
+    if "backend_initialization_failed" in failure_categories:
+        reasons.append("guided_backend_initialization_failed")
+    if any(token in failure_text for token in ("checkpoint", "one-step", "one_step", "onmt", "model path")):
+        reasons.append("guided_one_step_model_runtime_unavailable")
+    reasons.extend(str(item) for item in plugin_runtime.get("reasons") or [])
+    if policy_requested and not confirmed:
+        reasons.append("guided_execution_not_confirmed")
+    return {
+        "schema_version": "guided_chemenzy_runtime_diagnostics.v1",
+        "policy_requested": policy_requested,
+        "guided_execution_confirmed": confirmed,
+        "execution_mode": "guided" if confirmed else "unguided_fallback",
+        "ranking_guidance_confirmed": ranking_confirmed,
+        "template_plugin_guidance_confirmed": plugin_confirmed,
+        "requested_hint_count": requested_hint_count,
+        "hint_comparisons": comparisons,
+        "ranking_signal_applied": bool(guidance.get("ranking_signal_applied")),
+        "hard_filter_executed": bool(guidance.get("hard_filter_executed")),
+        "candidates_rejected": int(guidance.get("candidates_rejected") or 0),
+        "rejected_by_reason": dict(guidance.get("rejected_by_reason") or {}),
+        "one_step_model_availability": availability,
+        "backend_failure_categories": sorted(failure_categories),
+        "guidance_stats_present": bool(guidance),
+        "reasons": sorted(set(reasons)),
+        "raw_reaction_injection": False,
+        "no_solved_claim": True,
     }
 
 

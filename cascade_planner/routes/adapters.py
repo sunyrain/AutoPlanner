@@ -6,10 +6,21 @@ from collections import defaultdict, deque
 from collections.abc import Mapping
 from typing import Any
 
+from cascade_planner.application.frontier_ledger import exact_edge_signature
 from cascade_planner.harness.stitched_route import (
+    is_materialized_source_bound_literature_step,
     is_validated_source_detail_literature_step,
 )
+from cascade_planner.harness.route_verifier import (
+    replay_route_proof_bank_entry,
+    validate_route_proof_bank,
+)
 from cascade_planner.routes.consensus import fuse_route_candidates
+from cascade_planner.routes.admission_receipts import (
+    make_chemenzy_admission_material,
+    make_exact_literature_admission_material,
+    make_materialized_literature_search_admission_material,
+)
 from cascade_planner.routes.domain import canonicalize_smiles, stable_content_hash, stable_domain_id
 from cascade_planner.routes.graph import assemble_route_consensus_graph, make_route_consensus_expansion
 
@@ -44,6 +55,17 @@ def rebuild_consensus_graph_from_blackboard(
         for row in team.get("route_consensus_expansions") or []
         if isinstance(row, Mapping)
     ]
+    chemenzy_candidates, chemenzy_proof_bank_audits, chemenzy_receipts = (
+        _candidates_from_chemenzy_proof_banks(
+            board.get("chemenzy_route_proof_banks") or [],
+        )
+    )
+    exact_candidates, exact_receipts = _candidates_from_exact_rows(
+        (board.get("literature_evidence") or {}).get("exact_rows")
+        or (board.get("literature_evidence") or {}).get("exact_literature_rows")
+        or [],
+        target_smiles=canonical_target or target_smiles,
+    )
 
     candidates: list[dict[str, Any]] = [
         *_candidates_from_consensus(dict(board.get("route_consensus") or {})),
@@ -56,12 +78,8 @@ def rebuild_consensus_graph_from_blackboard(
             board.get("retrosynthetic_proposals") or [],
             target_smiles=canonical_target or target_smiles,
         ),
-        *_candidates_from_exact_rows(
-            (board.get("literature_evidence") or {}).get("exact_rows")
-            or (board.get("literature_evidence") or {}).get("exact_literature_rows")
-            or [],
-            target_smiles=canonical_target or target_smiles,
-        ),
+        *exact_candidates,
+        *chemenzy_candidates,
     ]
     candidates = _dedupe_candidates(candidates)
     buckets, unbucketed = _bucket_candidates_by_product(candidates)
@@ -70,10 +88,11 @@ def rebuild_consensus_graph_from_blackboard(
             rows,
             case_id=case_id,
             target_smiles=product,
-            # Only the deterministic exact-row adapter emits
-            # ``literature_exact``; Codex and legacy claims are already
-            # downgraded to analogy/model evidence before this boundary.
-            allow_trusted_literature_exact_evidence=True,
+            # Trust is candidate-scoped.  The deterministic exact-row adapter
+            # below attaches the private host binding; replayed consensus,
+            # Codex, and legacy rows cannot inherit a global exact-literature
+            # permission merely because they share this product bucket.
+            allow_trusted_literature_exact_evidence=False,
         )
         for product, rows in sorted(buckets.items())
     }
@@ -82,7 +101,7 @@ def rebuild_consensus_graph_from_blackboard(
             [],
             case_id=case_id,
             target_smiles=canonical_target or target_smiles,
-            allow_trusted_literature_exact_evidence=True,
+            allow_trusted_literature_exact_evidence=False,
         )
     consensus = consensuses[canonical_target]
 
@@ -133,6 +152,11 @@ def rebuild_consensus_graph_from_blackboard(
         "consensus_by_product": consensuses,
         "product_neighborhoods": product_neighborhoods,
         "source_summary": aggregate_source_summary,
+        "chemenzy_proof_bank_audits": chemenzy_proof_bank_audits,
+        "admission_receipts": _merge_admission_receipts(
+            exact_receipts,
+            chemenzy_receipts,
+        ),
         "expansions": expansions,
         "graph": graph,
         "semantics": {
@@ -142,6 +166,8 @@ def rebuild_consensus_graph_from_blackboard(
             "fusion_scope": "canonical_product_neighborhood",
             "codex_roles_share_one_support_group": True,
             "v1_consensus_contract_preserved": True,
+            "chemenzy_candidates_require_current_host_proof_bank_replay": True,
+            "external_admission_requires_current_host_provenance_receipt": True,
         },
     }
 
@@ -277,12 +303,20 @@ def _aggregate_source_summary(consensuses: Mapping[str, Mapping[str, Any]]) -> d
     rejected_count = 0
     proposal_count = 0
     multi_source_proposals = 0
+    authority_capped_candidate_count = 0
+    normalization_record_count = 0
     for consensus in consensuses.values():
         summary = dict(consensus.get("source_summary") or {})
         candidate_count += int(summary.get("candidate_count") or 0)
         rejected_count += int(summary.get("rejected_count") or 0)
         proposal_count += int(summary.get("proposal_count") or 0)
         multi_source_proposals += int(summary.get("multi_source_proposals") or 0)
+        authority_capped_candidate_count += int(
+            summary.get("authority_capped_candidate_count") or 0
+        )
+        normalization_record_count += int(
+            summary.get("normalization_record_count") or 0
+        )
         for channel, count in (summary.get("channel_counts") or {}).items():
             channel_counts[str(channel)] += int(count or 0)
     return {
@@ -291,6 +325,8 @@ def _aggregate_source_summary(consensuses: Mapping[str, Mapping[str, Any]]) -> d
         "rejected_count": rejected_count,
         "proposal_count": proposal_count,
         "multi_source_proposals": multi_source_proposals,
+        "authority_capped_candidate_count": authority_capped_candidate_count,
+        "normalization_record_count": normalization_record_count,
         "channel_counts": dict(sorted(channel_counts.items())),
     }
 
@@ -333,6 +369,30 @@ def _candidates_from_consensus(consensus: dict[str, Any]) -> list[dict[str, Any]
                         source_channel=source_channel,
                     ),
                     confidence=str(record.get("confidence") or proposal.get("confidence") or "low"),
+                    producer_evidence_level=str(
+                        record.get("producer_evidence_level")
+                        or record.get("evidence_level")
+                        or "model_only"
+                    ),
+                    producer_evidence_level_raw=str(
+                        record.get("producer_evidence_level_raw")
+                        or record.get("producer_evidence_level")
+                        or record.get("evidence_level")
+                        or "model_only"
+                    ),
+                    producer_confidence=str(
+                        record.get("producer_confidence")
+                        or record.get("confidence")
+                        or proposal.get("confidence")
+                        or "low"
+                    ),
+                    producer_confidence_raw=str(
+                        record.get("producer_confidence_raw")
+                        or record.get("producer_confidence")
+                        or record.get("confidence")
+                        or proposal.get("confidence")
+                        or "low"
+                    ),
                     conditions=_as_text_list(proposal.get("conditions")),
                     catalyst="",
                     enzyme="",
@@ -355,8 +415,11 @@ def _candidates_from_legacy_proposals(values: Any, *, target_smiles: str) -> lis
         precursor = row.get("precursor_smiles") or row.get("precursor_set_smiles") or row.get("precursors")
         if not precursor:
             continue
-        source_channel = _legacy_source_channel(row)
-        evidence_level = _legacy_evidence_level(row, source_channel=source_channel)
+        producer_source_channel = _legacy_source_channel(row)
+        producer_evidence_level = _legacy_evidence_level(
+            row,
+            source_channel=producer_source_channel,
+        )
         candidates.append(
             _candidate(
                 candidate_id=str(row.get("proposal_id") or f"legacy:{index}"),
@@ -364,15 +427,30 @@ def _candidates_from_legacy_proposals(values: Any, *, target_smiles: str) -> lis
                 precursor_smiles=precursor if isinstance(precursor, list) else [str(precursor)],
                 reaction_family=str(row.get("proposal_label") or row.get("reaction_family") or row.get("proposal_type") or "unspecified"),
                 rationale=str(row.get("transformation_idea") or row.get("transformation_rationale") or ""),
-                source_channel=source_channel,
+                # Legacy blackboard labels are producer metadata, not a host
+                # capability.  In particular, a row cannot gain ChemEnzy
+                # authority merely by naming ``chem_enzy_adapter``.
+                source_channel="other",
                 source_refs=_as_text_list(row.get("source_refs")),
                 evidence_refs=_as_text_list(row.get("evidence_refs")),
-                evidence_level=evidence_level,
-                confidence=str(row.get("confidence") or "low"),
+                evidence_level="model_only",
+                confidence="low",
+                producer_evidence_level=producer_evidence_level,
+                producer_evidence_level_raw=str(
+                    row.get("evidence_level") or producer_evidence_level
+                ),
+                producer_confidence=str(row.get("confidence") or "low"),
+                producer_confidence_raw=str(row.get("confidence") or "low"),
                 conditions=_as_text_list(row.get("conditions")),
                 catalyst=str(row.get("catalyst") or ""),
                 enzyme=str(row.get("enzyme") or ""),
-                limitations=_as_text_list(row.get("risk_flags") or row.get("limitations")),
+                limitations=_as_text_list(
+                    [
+                        *(_as_text_list(row.get("risk_flags") or row.get("limitations"))),
+                        "legacy_source_authority_unbound",
+                        f"producer_source_channel:{producer_source_channel}",
+                    ]
+                ),
                 required_validation=_as_text_list(
                     row.get("required_verification") or row.get("required_validation")
                 ),
@@ -382,8 +460,13 @@ def _candidates_from_legacy_proposals(values: Any, *, target_smiles: str) -> lis
     return candidates
 
 
-def _candidates_from_exact_rows(values: Any, *, target_smiles: str) -> list[dict[str, Any]]:
+def _candidates_from_exact_rows(
+    values: Any,
+    *,
+    target_smiles: str,
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     candidates: list[dict[str, Any]] = []
+    receipts: dict[str, list[dict[str, Any]]] = {}
     for index, raw in enumerate(values if isinstance(values, list) else []):
         if not isinstance(raw, Mapping):
             continue
@@ -416,6 +499,9 @@ def _candidates_from_exact_rows(values: Any, *, target_smiles: str) -> list[dict
         if not refs:
             continue
         strict_exact = is_validated_source_detail_literature_step(row)
+        source_bound_search_claim = (
+            is_materialized_source_bound_literature_step(row)
+        )
         evidence_level = "literature_exact" if strict_exact else "analogy"
         source_channel = "literature_exact" if strict_exact else "literature_analogy"
         limitations = _as_text_list(row.get("limitations"))
@@ -427,8 +513,14 @@ def _candidates_from_exact_rows(values: Any, *, target_smiles: str) -> list[dict
             required_validation.extend(
                 ["trusted_source_detail_step_binding", "deterministic_reaction_revalidation"]
             )
-        candidates.append(
-            _candidate(
+            if source_bound_search_claim:
+                limitations.append(
+                    "source_bound_search_admission_is_not_literature_precedent"
+                )
+                required_validation.append(
+                    "trusted_precedent_registry_binding_for_l3"
+                )
+        candidate = _candidate(
                 candidate_id=str(row.get("step_id") or row.get("row_id") or f"exact:{index}"),
                 product_smiles=str(product or target_smiles),
                 precursor_smiles=reactants if isinstance(reactants, list) else [str(reactants)],
@@ -449,13 +541,254 @@ def _candidates_from_exact_rows(values: Any, *, target_smiles: str) -> list[dict
                 limitations=sorted(set(limitations)),
                 required_validation=sorted(set(required_validation)),
                 report_ref=str(row.get("artifact_ref") or ""),
+                host_authority_binding=(
+                    "validated_source_detail_literature_step"
+                    if strict_exact
+                    else ""
+                ),
             )
+        candidates.append(candidate)
+        if strict_exact:
+            material = make_exact_literature_admission_material(row)
+            _append_admission_material(
+                receipts,
+                material,
+                product_smiles=candidate["product_smiles"],
+                precursor_smiles=candidate["precursor_smiles"],
+            )
+        elif source_bound_search_claim:
+            material = make_materialized_literature_search_admission_material(
+                row
+            )
+            _append_admission_material(
+                receipts,
+                material,
+                product_smiles=candidate["product_smiles"],
+                precursor_smiles=candidate["precursor_smiles"],
+            )
+    return candidates, receipts
+
+
+def _candidates_from_chemenzy_proof_banks(
+    values: Any,
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, list[dict[str, Any]]],
+]:
+    """Replay durable ChemEnzy proof banks into canonical route candidates.
+
+    Serialized provider labels are deliberately ignored.  A ChemEnzy step
+    receives computational-source authority only when the complete proof bank
+    validates and every selected entry reproduces exactly under the currently
+    imported host verifier.  One invalid entry rejects the whole bank so a
+    partially tampered route cannot leak individual edges into the graph.
+    """
+
+    raw_values = (
+        list(values)
+        if isinstance(values, list)
+        else [values]
+        if isinstance(values, Mapping)
+        else []
+    )
+    candidates: list[dict[str, Any]] = []
+    audits: list[dict[str, Any]] = []
+    receipts: dict[str, list[dict[str, Any]]] = {}
+    for wrapper_index, raw_wrapper in enumerate(raw_values):
+        if not isinstance(raw_wrapper, Mapping):
+            continue
+        wrapper = dict(raw_wrapper)
+        bank_value = (
+            wrapper
+            if wrapper.get("schema_version") == "route_proof_bank.v1"
+            else wrapper.get("route_proof_bank")
         )
-    return candidates
+        artifact_ref = str(wrapper.get("artifact_ref") or "")
+        bank = dict(bank_value) if isinstance(bank_value, Mapping) else {}
+        target = canonicalize_smiles(bank.get("target_smiles"))
+        bank_hash = str(bank.get("content_hash") or "")
+        reasons = (
+            validate_route_proof_bank(bank, expected_target_smiles=target)
+            if bank and target
+            else ["route_proof_bank_missing_or_target_invalid"]
+        )
+        entries = [
+            dict(row)
+            for row in bank.get("entries") or []
+            if isinstance(row, Mapping)
+        ]
+        replayed_entries: list[dict[str, Any]] = []
+        if not reasons:
+            for entry in entries:
+                proof_id = str(entry.get("proof_id") or "")
+                replay = replay_route_proof_bank_entry(
+                    bank,
+                    proof_id=proof_id,
+                    expected_target_smiles=target,
+                )
+                if replay.get("accepted") is not True:
+                    reasons.extend(
+                        f"entry:{proof_id}:{reason}"
+                        for reason in replay.get("reasons") or [
+                            "route_proof_bank_entry_replay_failed"
+                        ]
+                    )
+                    continue
+                replayed_entries.append(entry)
+
+        bank_candidates: list[dict[str, Any]] = []
+        if not reasons and len(replayed_entries) != len(entries):
+            reasons.append("route_proof_bank_replay_coverage_mismatch")
+        if not reasons:
+            for entry in replayed_entries:
+                proof_id = str(entry.get("proof_id") or "")
+                steps = [
+                    dict(step)
+                    for step in (
+                        (entry.get("materialized_route") or {}).get("steps") or []
+                    )
+                    if isinstance(step, Mapping)
+                ]
+                for step_index, step in enumerate(steps):
+                    product = canonicalize_smiles(
+                        step.get("product_smiles") or step.get("product")
+                    )
+                    raw_reactants = (
+                        step.get("reactant_smiles")
+                        or step.get("precursor_smiles")
+                        or step.get("reactants")
+                        or []
+                    )
+                    reactants = (
+                        list(raw_reactants)
+                        if isinstance(raw_reactants, (list, tuple))
+                        else [raw_reactants]
+                    )
+                    canonical_reactants = [
+                        canonicalize_smiles(value) for value in reactants
+                    ]
+                    if (
+                        not product
+                        or not canonical_reactants
+                        or any(not value for value in canonical_reactants)
+                    ):
+                        reasons.append(
+                            f"entry:{proof_id}:step:{step_index}:materialized_step_invalid"
+                        )
+                        continue
+                    source_refs = _as_text_list(
+                        [
+                            artifact_ref,
+                            f"route-proof-bank:sha256:{bank_hash}" if bank_hash else "",
+                        ]
+                    )
+                    candidate = _candidate(
+                            candidate_id=(
+                                f"chemenzy:{proof_id}:step:{step_index}"
+                            ),
+                            product_smiles=product,
+                            precursor_smiles=canonical_reactants,
+                            reaction_family=str(
+                                step.get("reaction_family")
+                                or step.get("reaction_class")
+                                or step.get("reaction_type")
+                                or "ChemEnzy materialized step"
+                            ),
+                            rationale=(
+                                "current-host replayed ChemEnzy route proof bank step"
+                            ),
+                            source_channel="chem_enzy",
+                            source_refs=source_refs,
+                            evidence_refs=_as_text_list(
+                                [
+                                    proof_id,
+                                    str(entry.get("content_hash") or ""),
+                                ]
+                            ),
+                            evidence_level="computational",
+                            confidence="medium_high",
+                            conditions=_as_text_list(step.get("conditions")),
+                            catalyst=str(step.get("catalyst") or ""),
+                            enzyme=str(step.get("enzyme") or ""),
+                            limitations=[
+                                "route_proof_bank_is_advisory_until_edge_and_frontier_closure"
+                            ],
+                            required_validation=[
+                                "current_host_edge_reaction_verification",
+                                "frontier_and_stock_audit",
+                            ],
+                            report_ref=artifact_ref,
+                            host_authority_binding="deterministic_chemenzy_adapter",
+                        )
+                    bank_candidates.append(candidate)
+                    material = make_chemenzy_admission_material(
+                        bank,
+                        source_entry_id=proof_id,
+                        source_step_index=step_index,
+                        artifact_ref=artifact_ref,
+                    )
+                    _append_admission_material(
+                        receipts,
+                        material,
+                        product_smiles=product,
+                        precursor_smiles=canonical_reactants,
+                    )
+        accepted = not reasons and bool(bank_candidates)
+        if accepted:
+            candidates.extend(bank_candidates)
+        audits.append(
+            {
+                "schema_version": "chemenzy_proof_bank_replay_audit.v1",
+                "wrapper_index": wrapper_index,
+                "artifact_ref": artifact_ref,
+                "target_smiles": target,
+                "bank_content_hash": bank_hash,
+                "accepted": accepted,
+                "entry_count": len(entries),
+                "replayed_entry_count": len(replayed_entries),
+                "candidate_count": len(bank_candidates) if accepted else 0,
+                "reasons": sorted(set(str(reason) for reason in reasons if str(reason))),
+                "no_solved_claim": True,
+            }
+        )
+    return candidates, audits, receipts
+
+
+def _append_admission_material(
+    receipts: dict[str, list[dict[str, Any]]],
+    material: Mapping[str, Any],
+    *,
+    product_smiles: Any,
+    precursor_smiles: Any,
+) -> None:
+    if not material:
+        return
+    signature = exact_edge_signature(product_smiles, precursor_smiles or [])
+    if not signature:
+        return
+    rows = receipts.setdefault(signature, [])
+    normalized = dict(material)
+    if normalized not in rows:
+        rows.append(normalized)
+
+
+def _merge_admission_receipts(
+    *values: Mapping[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    merged: dict[str, list[dict[str, Any]]] = {}
+    for value in values:
+        for signature, materials in value.items():
+            for material in materials:
+                rows = merged.setdefault(str(signature), [])
+                normalized = dict(material)
+                if normalized not in rows:
+                    rows.append(normalized)
+    return {key: rows for key, rows in sorted(merged.items())}
 
 
 def _candidate(**values: Any) -> dict[str, Any]:
-    return {
+    candidate = {
         "schema_version": "retrosynthesis_candidate.v1",
         "candidate_id": str(values["candidate_id"]),
         "product_smiles": str(values["product_smiles"]),
@@ -476,6 +809,20 @@ def _candidate(**values: Any) -> dict[str, Any]:
         "no_solved_claim": True,
         "not_parent_route_proof": True,
     }
+    for field in (
+        "producer_evidence_level",
+        "producer_evidence_level_raw",
+        "producer_confidence",
+        "producer_confidence_raw",
+    ):
+        if field in values:
+            candidate[field] = str(values[field])
+    if values.get("host_authority_binding"):
+        # This private capability is emitted only after the deterministic
+        # source-detail predicate above succeeds.  It is deliberately absent
+        # from Codex child and legacy proposal schemas.
+        candidate["_host_authority_binding"] = str(values["host_authority_binding"])
+    return candidate
 
 
 def _legacy_source_channel(row: dict[str, Any]) -> str:
@@ -511,10 +858,11 @@ def _legacy_evidence_level(row: dict[str, Any], *, source_channel: str) -> str:
 
 def _safe_evidence_level(value: Any, *, source_channel: str = "") -> str:
     text = str(value or "model_only")
-    # Rebuilding is not a validation authority. Preserve trusted lower levels
-    # and downgrade any historical self-claimed validation.
-    if source_channel.startswith("codex_") and text in {"literature_exact", "validated"}:
-        return "analogy" if text == "literature_exact" else "computational"
+    # Rebuilding is not a validation authority.  A historical Codex record is
+    # always replayed at the unbound-model floor; its producer value is copied
+    # separately for advisory/audit display by the caller above.
+    if source_channel.startswith("codex_"):
+        return "model_only"
     return "computational" if text == "validated" else text
 
 

@@ -44,8 +44,7 @@ def compile_retrosynthetic_proposal_bus(
         ],
         key="card_id",
     )[: max(1, int(max_cards or 32))]
-    proposals = _dedupe_rows(
-        [
+    raw_proposals = [
             *_proposals_from_template_applications(blackboard),
             *_proposals_from_visual_chains(blackboard),
             *_proposals_from_exact_rows(blackboard),
@@ -54,9 +53,8 @@ def compile_retrosynthetic_proposal_bus(
             *_proposals_from_failure_feedback(blackboard),
             *_concrete_proposals_from_reaction_idea_cards(blackboard, cards),
             *_strategic_proposals_from_cards(blackboard, cards),
-        ],
-        key="proposal_id",
-    )
+        ]
+    proposals = deduplicate_retrosynthetic_proposals(raw_proposals)
     proposals = sorted(proposals, key=_proposal_sort_key)[: max(1, int(max_proposals or 32))]
     recursive_tasks = recursive_tasks_from_retrosynthetic_proposals(
         blackboard,
@@ -77,11 +75,131 @@ def compile_retrosynthetic_proposal_bus(
                 1 for row in proposals if str(row.get("proposal_type") or "") in {"exact_executable", "semi_executable"}
             ),
             "strategic_proposals": sum(1 for row in proposals if str(row.get("proposal_type") or "") == "strategic"),
+            "raw_projection_proposals": len(raw_proposals),
+            "semantic_edge_proposals": len(proposals),
+            "duplicate_projection_count": max(0, len(raw_proposals) - len(proposals)),
+        },
+        "projection_deduplication": {
+            "schema_version": "retrosynthetic_proposal_projection_deduplication.v1",
+            "key_contract": "canonical_target_plus_canonical_precursor_set; strategic_rows_include_transform_identity",
+            "raw_count": len(raw_proposals),
+            "deduplicated_count": len(proposals),
+            "duplicate_count": max(0, len(raw_proposals) - len(proposals)),
         },
         "allowed_use": "proposal_bus_and_recursive_search_seed_only",
         "not_parent_route_proof": True,
         "no_solved_claim": True,
     }
+
+
+def retrosynthetic_proposal_semantic_key(row: dict[str, Any]) -> str:
+    """Return a stable chemical-edge key shared across proposal channels."""
+    target = _canonical_smiles(str(row.get("target_smiles") or row.get("product_smiles") or ""))
+    precursor = _canonical_smiles(
+        str(row.get("precursor_smiles") or row.get("reactant_smiles") or row.get("precursors_smiles") or "")
+    )
+    if target and precursor:
+        return "edge:" + _short_hash(f"{target}>>{precursor}")
+    # Strategic cards without structures are not chemical edges.  Keep their
+    # transform identity so unrelated high-level ideas do not collapse.
+    transform = " ".join(
+        str(
+            row.get("transformation_idea")
+            or row.get("proposal_label")
+            or row.get("source_type")
+            or row.get("proposal_id")
+            or ""
+        )
+        .strip()
+        .lower()
+        .split()
+    )
+    granularity = str(row.get("proposal_granularity") or row.get("proposal_type") or "").strip().lower()
+    return "strategic:" + _short_hash("|".join([target, precursor, granularity, transform]))
+
+
+def deduplicate_retrosynthetic_proposals(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge duplicate projections without treating corroboration as proof.
+
+    The same target→precursor edge can enter through an exact-row adapter, a
+    visual-chain adapter and a derived reaction-idea card.  UI/graph consumers
+    should see one edge with multiple projection sources, not several routes.
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+    order: list[str] = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        key = retrosynthetic_proposal_semantic_key(row)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(row)
+
+    merged: list[dict[str, Any]] = []
+    for key in order:
+        projections = groups[key]
+        primary = dict(sorted(projections, key=_projection_primary_sort_key)[0])
+        primary["semantic_edge_key"] = key
+        projection_ids = _dedupe(
+            [
+                str(item)
+                for row in projections
+                for item in [str(row.get("proposal_id") or ""), *[str(value) for value in row.get("projection_proposal_ids") or []]]
+                if str(item or "").strip()
+            ]
+        )
+        projection_sources = _dedupe(
+            [
+                str(item)
+                for row in projections
+                for item in [str(row.get("source_type") or ""), *[str(value) for value in row.get("projection_source_types") or []]]
+                if str(item or "").strip()
+            ]
+        )
+        prior_projection_count = max(
+            [int(row.get("projection_count") or 0) for row in projections] or [0]
+        )
+        primary["projection_count"] = max(len(projections), len(projection_ids), prior_projection_count)
+        primary["projection_proposal_ids"] = projection_ids
+        primary["projection_source_types"] = projection_sources
+        for field in ("evidence_refs", "risk_flags", "required_verification"):
+            primary[field] = _dedupe(
+                [
+                    str(item)
+                    for row in projections
+                    for item in row.get(field) or []
+                    if str(item or "").strip()
+                ]
+            )
+        primary["score"] = max(int(row.get("score") or 0) for row in projections)
+        primary["executable"] = any(bool(row.get("executable")) for row in projections)
+        primary["recursive_expandable"] = any(bool(row.get("recursive_expandable")) for row in projections)
+        primary["not_exact_literature_segment"] = all(
+            bool(row.get("not_exact_literature_segment", True)) for row in projections
+        )
+        primary["projection_deduplicated"] = primary["projection_count"] > 1
+        primary["projection_support_is_not_independent_proof"] = True
+        merged.append(primary)
+    return merged
+
+
+def _projection_primary_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
+    source = str(row.get("source_type") or "").lower()
+    source_priority = 5
+    if "exact" in source:
+        source_priority = 0
+    elif source == "analogical_reaction_pair_transfer":
+        source_priority = 1
+    elif "template_application" in source or "process" in source:
+        source_priority = 2
+    elif "visual" in source:
+        source_priority = 3
+    elif "reaction_idea" in source or "strategic" in source:
+        source_priority = 4
+    score_key = _proposal_sort_key(row)
+    return (source_priority, score_key[0], score_key[1])
 
 
 def recursive_tasks_from_retrosynthetic_proposals(

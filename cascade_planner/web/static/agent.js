@@ -53,6 +53,12 @@ const samples = {
   },
 };
 
+const RUN_PROFILES = Object.freeze({
+  smoke: { rounds: 1, depth: 2, expansions: 4, attempts: 12, timeout: 900, chemenzy: 1, subgoal: 1, scout: 1, visual: 0 },
+  standard: { rounds: 6, depth: 6, expansions: 24, attempts: 72, timeout: 7200, chemenzy: 2, subgoal: 4, scout: 3, visual: 3 },
+  deep: { rounds: 10, depth: 10, expansions: 80, attempts: 240, timeout: 21600, chemenzy: 4, subgoal: 8, scout: 6, visual: 6 },
+});
+
 const state = {
   currentJobId: "",
   pollTimer: null,
@@ -225,6 +231,19 @@ function applySample(key) {
   $("subgoal-runs").value = String(sample.subgoal);
 }
 
+function applyRunProfile(name) {
+  const profile = RUN_PROFILES[name] || RUN_PROFILES.standard;
+  $("max-rounds").value = String(profile.rounds);
+  $("codex-team-depth").value = String(profile.depth);
+  $("codex-team-expansions").value = String(profile.expansions);
+  $("codex-team-attempts").value = String(profile.attempts);
+  $("timeout-s").value = String(profile.timeout);
+  $("chemenzy-runs").value = String(profile.chemenzy);
+  $("subgoal-runs").value = String(profile.subgoal);
+  $("scout-calls").value = String(profile.scout);
+  $("visual-calls").value = String(profile.visual);
+}
+
 function renderRouteExamples(data, { preserveRouteInput = false } = {}) {
   const select = $("demo-route");
   const input = $("existing-route");
@@ -294,11 +313,12 @@ function readPayload() {
     planner_backend: "codex_fullflow",
     planner_mode: "codex_fullflow",
     search_preset: "agentic_delivery",
+    run_profile: $("run-profile").value || "standard",
     target_name: $("target-name").value.trim() || "target",
     target_smiles: $("target-smiles").value.trim(),
     family_hint: $("family-hint").value.trim(),
     run_prefix: "ui_agent_fullflow",
-    max_rounds: Number($("max-rounds").value || 3),
+    max_rounds: Number($("max-rounds").value || 6),
     timeout_s: timeout,
     guided_chemenzy_timeout_s: Math.max(300, Math.floor(timeout / 2)),
     max_chem_enzy_runs: chemenzyRuns,
@@ -310,9 +330,14 @@ function readPayload() {
     max_template_applications_per_round: 5,
     codex_action_planner: $("codex-action-planner").checked,
     codex_agent_team: $("codex-agent-team").checked,
-    codex_agent_team_max_depth: Number($("codex-team-depth").value || 2),
-    codex_agent_team_max_expansions: Number($("codex-team-expansions").value || 4),
+    codex_agent_team_max_depth: Number($("codex-team-depth").value || 6),
+    codex_agent_team_max_expansions: Number($("codex-team-expansions").value || 24),
+    codex_agent_team_max_attempt_runs: Number($("codex-team-attempts").value || 72),
     codex_agent_team_model: $("codex-team-model").value.trim(),
+    codex_agent_team_closure_objective: $("closure-objective").value || "benchmark_search",
+    codex_agent_team_exploration_mode: $("exploration-mode").value || "exhaustive",
+    codex_agent_team_child_acceptance_mode: $("child-acceptance-mode").value || "strict_all",
+    codex_agent_team_authority_lock_timeout_s: Number($("campaign-lock-timeout").value || 3600),
     exhaust_round_budget: $("exhaust-round-budget").checked,
     auto_local_pdf_discovery: $("auto-local-pdf").checked,
     model: $("model").value.trim() || "gpt-5.5",
@@ -489,7 +514,9 @@ function renderJob(job) {
   const summary = job.summary || {};
   $("route-state").textContent = summary.solved ? "solved" : (summary.status || job.status || "unknown");
   const counts = [];
-  if (summary.routes != null) counts.push(`${summary.routes} 条分支`);
+  if (summary.branches != null) counts.push(`${summary.branches} 个探索视图`);
+  if (summary.complete_routes != null) counts.push(`${summary.complete_routes} 条完整路线`);
+  if (summary.agent_tasks_total) counts.push(`Agent ${summary.agent_tasks_completed || 0}/${summary.agent_tasks_total}`);
   if (summary.steps != null) counts.push(`${summary.steps} 步`);
   if (summary.time_s != null) counts.push(`${summary.time_s}s`);
   $("route-counts").textContent = counts.join(" · ") || "等待 route forest";
@@ -677,7 +704,7 @@ function completeRouteLoad(path, token, message) {
     $("route-state").textContent = "已载入";
     const counts = message?.counts || {};
     $("route-counts").textContent = counts.branches
-      ? `${counts.branches} 分支 · ${counts.reaction_nodes || counts.steps || 0} 反应`
+      ? `${counts.branches} 探索视图 · ${counts.complete_portfolio_routes || counts.verified_parent_routes || 0} 完整路线 · ${counts.reaction_nodes || counts.steps || 0} 反应`
       : path;
   }
 }
@@ -816,6 +843,7 @@ function bind() {
   $("start-run").addEventListener("click", startRun);
   $("cancel-run").addEventListener("click", cancelRun);
   $("load-existing").addEventListener("click", loadExisting);
+  $("run-profile").addEventListener("change", () => applyRunProfile($("run-profile").value));
   $("route-empty").addEventListener("click", (event) => {
     if (!event.target.closest("[data-retry-route]")) return;
     const path = state.routeFailedPath || normalizeResultPath($("existing-route").value);

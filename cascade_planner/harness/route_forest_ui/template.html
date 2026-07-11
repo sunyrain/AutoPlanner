@@ -81,7 +81,16 @@ __STYLES__
           <input id="branchSearch" type="search" autocomplete="off" placeholder="搜索路线、反应或分子…" />
           <kbd>/</kbd>
         </label>
-        <div id="branchFilterBar" class="filter-bar" role="toolbar" aria-label="路线筛选">
+        <div id="stageFilterBar" class="filter-bar stage-filter-bar" role="group" aria-label="路线阶段视图">
+          <button class="filter-chip is-active" type="button" data-stage-filter="all" aria-controls="branchGroups" aria-pressed="true">全阶段</button>
+          <button class="filter-chip" type="button" data-stage-filter="suggestion" aria-controls="branchGroups" aria-pressed="false">断键建议</button>
+          <button class="filter-chip" type="button" data-stage-filter="expanded" aria-controls="branchGroups" aria-pressed="false">全路径已展开</button>
+          <button class="filter-chip" type="button" data-stage-filter="reaction" aria-controls="branchGroups" aria-pressed="false">反应验证路线</button>
+          <button class="filter-chip" type="button" data-stage-filter="stock" aria-controls="branchGroups" aria-pressed="false">库存闭合路线</button>
+        </div>
+        <p id="partialExpandedSummary" class="stage-progress-note" role="status" aria-live="polite" hidden></p>
+        <p id="stageFilterStatus" class="sr-only" role="status" aria-live="polite"></p>
+        <div id="branchFilterBar" class="filter-bar" role="group" aria-label="路线来源筛选">
           <button class="filter-chip is-active" type="button" data-branch-filter="all" aria-pressed="true">全部</button>
           <button class="filter-chip" type="button" data-branch-filter="verified" aria-pressed="false">已验证</button>
           <button class="filter-chip" type="button" data-branch-filter="evidence" aria-pressed="false">文献</button>
@@ -139,6 +148,20 @@ __STYLES__
         </div>
       </div>
 
+      <section class="closure-status-panel" aria-labelledby="closureStatusTitle">
+        <div class="closure-status-heading">
+          <div>
+            <span class="closure-status-eyebrow">FRONTIER LEDGER</span>
+            <strong id="closureStatusTitle">路线闭合证明</strong>
+          </div>
+          <span id="ledgerAuthorityBadge" class="ledger-authority-badge" role="status">正在校验账本</span>
+        </div>
+        <div class="closure-status-content">
+          <div id="ledgerProgressMetrics" class="ledger-progress-metrics" aria-label="断键、工作、反应与库存进度"></div>
+          <div id="closureStatusGrid" class="closure-status-grid" aria-live="polite"></div>
+        </div>
+      </section>
+
       <div class="graph-toolbar" aria-label="路线图显示设置">
         <div class="toolbar-scroll">
           <div id="graphModeControl" class="graph-mode-control" role="group" aria-label="路线图模式">
@@ -146,6 +169,7 @@ __STYLES__
             <button type="button" data-graph-mode="shared" aria-pressed="false">共享骨架</button>
             <button type="button" data-graph-mode="clusters" aria-pressed="false">路线全景</button>
           </div>
+          <button id="overviewToggle" class="filter-chip overview-toggle" type="button" data-overview-toggle hidden>显示全部探索视图</button>
           <span class="toolbar-spacer" aria-hidden="true"></span>
 
           <details id="graphOptionsPopover" class="graph-options-popover">

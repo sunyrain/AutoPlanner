@@ -1,11 +1,13 @@
 """Policy-driven action planning for agentic blackboard runs."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-import hashlib
 from pathlib import Path
 from typing import Any
+
+from rdkit import Chem, DataStructs
 
 from cascade_planner.agent.action_contracts import (
     ACTION_BATCH_SCHEMA,
@@ -15,6 +17,7 @@ from cascade_planner.agent.action_contracts import (
 )
 from cascade_planner.agent.chem_enzy_policy import validate_chem_enzy_search_policy
 from cascade_planner.harness.parent_route_proof import is_solved_parent_route_proof
+from cascade_planner.source_locators import independent_source_group
 
 
 def plan_action_batch(
@@ -84,8 +87,34 @@ def plan_action_batch(
         )
         return _batch(case_id, round_index, actions[:max_actions], mode=mode)
 
+    # Evidence acquisition is a lifecycle, not a one-shot scout action.  Give
+    # the next materialized stage one reserved slot before generic hypothesis
+    # and critic work can fill the round.  This makes a source discovered in
+    # round N deterministically progress through PDF/render, visual/structure,
+    # and exact-row compilation in later rounds.
+    guided_retry_ready = (
+        _action_count(blackboard, "run_guided_chemenzy") > 0
+        and _can_run_guided_chemenzy(blackboard)
+    )
     if (
-        _two_recent_rounds_without_useful_artifact(blackboard)
+        not _deterministic_route_action_ready(blackboard)
+        and not guided_retry_ready
+        # Structured process evidence carries an explicit route-first bias:
+        # compile its objective/anchor work before spending the reserved slot
+        # on another document render.
+        and not _process_evidence_available(blackboard)
+    ):
+        actions.extend(
+            plan_literature_evidence_followup_actions(
+                blackboard,
+                round_index=round_index,
+                max_actions=min(1, max_actions),
+            )
+        )
+
+    if (
+        not actions
+        and _two_recent_rounds_without_useful_artifact(blackboard)
         and not exhaust_round_budget
         and not _next_local_pdf_source_for_pdf_extraction(blackboard)
         and not _next_local_pdf_source_for_visual_extraction(blackboard)
@@ -168,6 +197,9 @@ def plan_action_batch(
         and _budget_remaining(blackboard, "scout_calls")
         and not _stale_literature_search_repeated(blackboard)
         and not _round_has_action(actions, "search_literature")
+        and not _literature_extraction_pending(blackboard, actions)
+        and not guided_retry_ready
+        and _evidence_followup_search_allowed(blackboard)
     ):
         actions.append(
             _action(
@@ -640,7 +672,7 @@ def validate_action_batch(
                 for reason in _guided_chemenzy_payload_reasons(payload, blackboard=board)
             )
         if action_type == "expand_child_target":
-            child_count += _planned_child_target_count(payload)
+            child_count += planned_child_target_count(payload)
             reasons.extend(f"child_expansion_payload:{idx}:{reason}" for reason in _child_expansion_payload_reasons(payload))
         if action_type == "stitch_parent_route":
             reasons.extend(f"stitch_parent_route_payload:{idx}:{reason}" for reason in _stitch_parent_route_payload_reasons(payload))
@@ -1459,11 +1491,15 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
     )
     visual_exploratory_hints = _visual_exploratory_hints_for_policy(blackboard)
     visual_precursor_targets = _visual_precursor_targets_from_hints(visual_exploratory_hints, limit=8)
-    proposal_rows = [
-        dict(row)
-        for row in blackboard.get("retrosynthetic_proposals") or []
-        if isinstance(row, dict)
-    ][:12]
+    proposal_rows, proposal_selection_audit = select_guided_retrosynthetic_proposals(
+        blackboard,
+        proposals=[
+            dict(row)
+            for row in blackboard.get("retrosynthetic_proposals") or []
+            if isinstance(row, dict)
+        ],
+        limit=12,
+    )
     proposal_precursor_targets = _precursor_targets_from_retrosynthetic_proposals(proposal_rows, limit=12)
     hypothetical_precursor_smiles = [str(row.get("smiles") or "") for row in hypothetical_precursor_targets]
     visual_precursor_smiles = [str(row.get("smiles") or "") for row in visual_precursor_targets]
@@ -1580,6 +1616,7 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
                 "hypothesis_precursor_hints_are_not_proof": True,
                 "visual_connectivity_hints_are_not_proof": bool(visual_exploratory_hints),
                 "retrosynthetic_proposals_are_not_proof": bool(proposal_rows),
+                "retrosynthetic_proposal_selection_audit": proposal_selection_audit,
                 "process_evidence_hints_are_not_proof": bool(process_evidence_rows),
                 "semisynthesis_anchor_hints_are_not_proof": bool(semisynthesis_anchors),
                 "route_objective_hints_are_not_proof": bool(route_objectives),
@@ -1644,7 +1681,561 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
             },
             "mode": "guided",
         }
+}
+
+
+_GUIDED_PROPOSAL_IGNORED_SELF_REPORTED_FIELDS = (
+    "accepted",
+    "achieved_proof_level",
+    "authority_bound",
+    "confidence",
+    "evidence_level",
+    "evidence_refs",
+    "executable",
+    "recursive_expandable",
+    "score",
+    "validated",
+    "validation_tier",
+)
+
+
+def select_guided_retrosynthetic_proposals(
+    blackboard: dict[str, Any],
+    *,
+    proposals: list[dict[str, Any]] | None = None,
+    limit: int = 12,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Choose ChemEnzy proposal hints from current host-derived frontier state.
+
+    The proposal bus is advisory and commonly contains more rows than the
+    guided-search contract can carry.  Selection therefore derives priority
+    from the current canonical frontier ledger, never from model-reported
+    confidence, evidence, validation, or authority fields.  If the ledger is
+    not digest-bound to the current canonical graph, the selector remains
+    deterministic and structurally diverse but marks the result fail-soft and
+    consumes none of the ledger's apparent authority.
+    """
+
+    capacity = max(0, int(limit or 0))
+    raw_rows = proposals
+    if raw_rows is None:
+        raw_rows = [
+            dict(row)
+            for row in blackboard.get("retrosynthetic_proposals") or []
+            if isinstance(row, dict)
+        ]
+    rows = [dict(row) for row in raw_rows if isinstance(row, dict)]
+    authority = _guided_frontier_authority(blackboard)
+    ledger_molecules = (
+        dict(authority["ledger"].get("molecules") or {})
+        if authority["authoritative"]
+        else {}
+    )
+    min_depth_by_smiles = (
+        _canonical_graph_min_depths(authority["canonical_graph"])
+        if authority["authoritative"]
+        else {}
+    )
+    fallback_target = _guided_board_target_smiles(blackboard)
+    candidates: list[dict[str, Any]] = []
+    for row in rows:
+        target_smiles = _guided_canonical_smiles(
+            row.get("target_smiles") or row.get("product_smiles") or fallback_target
+        )
+        precursor_smiles = _guided_canonical_smiles(
+            row.get("precursor_smiles")
+            or row.get("reactant_smiles")
+            or row.get("precursors_smiles")
+        )
+        proposal_id = _guided_proposal_identifier(
+            row,
+            target_smiles=target_smiles,
+            precursor_smiles=precursor_smiles,
+        )
+        ledger_row = (
+            dict(ledger_molecules.get(target_smiles) or {})
+            if target_smiles
+            else {}
+        )
+        frontier_priority = _guided_frontier_priority(
+            ledger_row,
+            min_depth=min_depth_by_smiles.get(target_smiles),
+            authoritative=bool(authority["authoritative"]),
+        )
+        structure_smiles = precursor_smiles or target_smiles
+        candidates.append(
+            {
+                "row": row,
+                "proposal_id": proposal_id,
+                "target_smiles": target_smiles,
+                "precursor_smiles": precursor_smiles,
+                "structure_smiles": structure_smiles,
+                "fingerprint": _guided_structure_fingerprint(structure_smiles),
+                "frontier_priority": frontier_priority,
+                "authority_reasons": _guided_candidate_authority_reasons(
+                    ledger_row,
+                    min_depth=min_depth_by_smiles.get(target_smiles),
+                    authoritative=bool(authority["authoritative"]),
+                ),
+            }
+        )
+
+    ordered = _rank_guided_proposal_candidates(candidates)
+    selected_candidates = ordered[:capacity]
+    selected_ids = [str(row["proposal_id"]) for row in selected_candidates]
+    dropped_ids = [str(row["proposal_id"]) for row in ordered[capacity:]]
+    ranking = []
+    for rank, candidate in enumerate(ordered, start=1):
+        ranking.append(
+            {
+                "proposal_id": str(candidate["proposal_id"]),
+                "rank": rank,
+                "selected": rank <= capacity,
+                "canonical_target_smiles": str(candidate["target_smiles"]),
+                "canonical_precursor_smiles": str(candidate["precursor_smiles"]),
+                "frontier_priority_tier": str(
+                    candidate["frontier_priority"]["tier"]
+                ),
+                "canonical_min_depth": candidate["frontier_priority"]["min_depth"],
+                "max_similarity_to_prior_selection": round(
+                    float(candidate.get("max_similarity_to_prior_selection") or 0.0),
+                    6,
+                ),
+                "ranking_reasons": [
+                    *candidate["authority_reasons"],
+                    str(candidate.get("diversity_reason") or ""),
+                    f"stable_proposal_id_tiebreaker:{candidate['proposal_id']}",
+                ],
+            }
+        )
+    audit = {
+        "schema_version": "guided_retrosynthetic_proposal_selection_audit.v1",
+        "capacity": capacity,
+        "candidate_count": len(ordered),
+        "selected_count": len(selected_candidates),
+        "dropped_count": max(0, len(ordered) - len(selected_candidates)),
+        "selected_proposal_ids": selected_ids,
+        "dropped_proposal_ids": dropped_ids,
+        "selection_authority": (
+            "current_canonical_frontier_ledger"
+            if authority["authoritative"]
+            else "stable_fail_soft_without_frontier_authority"
+        ),
+        "authoritative_frontier_ledger": bool(authority["authoritative"]),
+        "frontier_authority_reasons": list(authority["reasons"]),
+        "frontier_ledger_content_sha256": str(
+            authority["ledger"].get("content_sha256") or ""
+        ),
+        "canonical_graph_identity_sha256": str(
+            authority.get("canonical_graph_identity_sha256") or ""
+        ),
+        "ranking_contract": [
+            "host_ledger_target_stock_open",
+            "host_ledger_target_proposal_frontier",
+            "host_ledger_target_work_open_and_expansion_allowed",
+            "recomputed_canonical_graph_min_depth",
+            "greedy_precursor_structural_diversity",
+            "stable_proposal_id_tiebreaker",
+        ],
+        "ignored_self_reported_fields": list(
+            _GUIDED_PROPOSAL_IGNORED_SELF_REPORTED_FIELDS
+        ),
+        "ranking": ranking,
+        "proposals_are_advisory_not_proof": True,
+        "no_solved_claim": True,
     }
+    return [dict(candidate["row"]) for candidate in selected_candidates], audit
+
+
+def _guided_frontier_authority(blackboard: dict[str, Any]) -> dict[str, Any]:
+    ledger = (
+        dict(blackboard.get("frontier_ledger") or {})
+        if isinstance(blackboard.get("frontier_ledger"), dict)
+        else {}
+    )
+    summary = (
+        dict(blackboard.get("frontier_ledger_summary") or {})
+        if isinstance(blackboard.get("frontier_ledger_summary"), dict)
+        else {}
+    )
+    canonical_graph = (
+        dict(blackboard.get("canonical_route_consensus_graph") or {})
+        if isinstance(blackboard.get("canonical_route_consensus_graph"), dict)
+        else {}
+    )
+    reasons: list[str] = []
+    if ledger.get("schema_version") != "frontier_ledger.v1":
+        reasons.append("frontier_ledger_missing_or_schema_invalid")
+    if summary.get("schema_version") != "frontier_ledger_summary.v1":
+        reasons.append("frontier_ledger_summary_missing_or_schema_invalid")
+    if canonical_graph.get("schema_version") != "route_consensus_graph.v1":
+        reasons.append("canonical_route_consensus_graph_missing_or_schema_invalid")
+    if not isinstance(ledger.get("root"), dict):
+        reasons.append("frontier_ledger_root_invalid")
+    if not isinstance(ledger.get("molecules"), dict):
+        reasons.append("frontier_ledger_molecules_invalid")
+    if not isinstance(ledger.get("edges"), dict):
+        reasons.append("frontier_ledger_edges_invalid")
+
+    supplied_digest = str(ledger.get("content_sha256") or "")
+    digest_payload = dict(ledger)
+    digest_payload.pop("content_sha256", None)
+    calculated_digest = _guided_json_sha256(digest_payload)
+    if not supplied_digest or supplied_digest != calculated_digest:
+        reasons.append("frontier_ledger_content_digest_invalid")
+    if str(summary.get("frontier_ledger_content_sha256") or "") != supplied_digest:
+        reasons.append("frontier_ledger_summary_digest_mismatch")
+    if summary.get("input_valid") is not True:
+        reasons.append("frontier_ledger_summary_inputs_invalid")
+    if summary.get("ledger_validation_accepted") is not True:
+        reasons.append("frontier_ledger_summary_validation_not_accepted")
+
+    input_validation = (
+        dict(ledger.get("input_validation") or {})
+        if isinstance(ledger.get("input_validation"), dict)
+        else {}
+    )
+    for field in ("graph", "frontier_queue", "reaction_proof_state"):
+        row = input_validation.get(field)
+        if not isinstance(row, dict) or row.get("valid") is not True:
+            reasons.append(f"frontier_ledger_{field}_input_invalid")
+    stock_authority = input_validation.get("stock_authority")
+    if (
+        not isinstance(stock_authority, dict)
+        or stock_authority.get("valid") is not True
+        or stock_authority.get("authority_boundary")
+        != "current_host_stock_provider_replay"
+    ):
+        reasons.append("frontier_ledger_stock_authority_invalid")
+
+    graph_identity, graph_identity_reasons = _guided_canonical_graph_identity(
+        canonical_graph
+    )
+    reasons.extend(graph_identity_reasons)
+    input_bindings = (
+        dict(ledger.get("input_bindings") or {})
+        if isinstance(ledger.get("input_bindings"), dict)
+        else {}
+    )
+    if input_bindings.get("schema_version") != "frontier_ledger_input_bindings.v1":
+        reasons.append("frontier_ledger_input_bindings_invalid")
+    if str(input_bindings.get("graph_identity_sha256") or "") != graph_identity:
+        reasons.append("frontier_ledger_canonical_graph_binding_mismatch")
+    ledger_root = (
+        dict(ledger.get("root") or {})
+        if isinstance(ledger.get("root"), dict)
+        else {}
+    )
+    if str(ledger_root.get("canonical_smiles") or "") != _guided_canonical_smiles(
+        canonical_graph.get("target_smiles")
+    ):
+        reasons.append("frontier_ledger_canonical_target_mismatch")
+    if str(canonical_graph.get("case_id") or "") != str(
+        blackboard.get("case_id") or canonical_graph.get("case_id") or ""
+    ):
+        reasons.append("canonical_route_consensus_graph_case_mismatch")
+    return {
+        "authoritative": not reasons,
+        "reasons": sorted(set(reasons)),
+        "ledger": ledger,
+        "canonical_graph": canonical_graph,
+        "canonical_graph_identity_sha256": graph_identity,
+    }
+
+
+def _guided_canonical_graph_identity(
+    graph: dict[str, Any],
+) -> tuple[str, list[str]]:
+    if graph.get("schema_version") != "route_consensus_graph.v1":
+        return "", ["canonical_route_consensus_graph_schema_invalid"]
+    case_id = str(graph.get("case_id") or "").strip()
+    target = _guided_canonical_smiles(graph.get("target_smiles"))
+    reasons: list[str] = []
+    if not case_id:
+        reasons.append("canonical_route_consensus_graph_case_id_missing")
+    if not target:
+        reasons.append("canonical_route_consensus_graph_target_invalid")
+    raw_steps = graph.get("steps")
+    if not isinstance(raw_steps, list):
+        reasons.append("canonical_route_consensus_graph_steps_invalid")
+        raw_steps = []
+    identity_steps: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_steps):
+        if not isinstance(raw, dict):
+            reasons.append(f"canonical_route_consensus_graph_step_invalid:{index}")
+            continue
+        product = _guided_canonical_smiles(raw.get("product_smiles"))
+        precursors = sorted(
+            _guided_canonical_smiles(item)
+            for item in raw.get("precursor_smiles") or []
+        )
+        if (
+            not str(raw.get("step_id") or "")
+            or not str(raw.get("signature") or "")
+            or not product
+            or not precursors
+            or any(not item for item in precursors)
+        ):
+            reasons.append(
+                f"canonical_route_consensus_graph_step_identity_invalid:{index}"
+            )
+            continue
+        identity_steps.append(
+            {
+                "step_id": str(raw.get("step_id") or ""),
+                "signature": str(raw.get("signature") or ""),
+                "product_smiles": product,
+                "precursor_smiles": precursors,
+            }
+        )
+    if reasons:
+        return "", sorted(set(reasons))
+    return (
+        _guided_json_sha256(
+            {
+                "schema_version": "route_consensus_graph.v1",
+                "case_id": case_id,
+                "target_smiles": target,
+                "steps": sorted(
+                    identity_steps,
+                    key=lambda row: (row["step_id"], row["signature"]),
+                ),
+            }
+        ),
+        [],
+    )
+
+
+def _canonical_graph_min_depths(graph: dict[str, Any]) -> dict[str, int]:
+    """Derive depth from digest-bound steps instead of trusting node labels."""
+
+    target = _guided_canonical_smiles(graph.get("target_smiles"))
+    if not target:
+        return {}
+    steps: list[tuple[str, tuple[str, ...]]] = []
+    for raw in graph.get("steps") or []:
+        if not isinstance(raw, dict):
+            continue
+        product = _guided_canonical_smiles(raw.get("product_smiles"))
+        precursors = tuple(
+            smiles
+            for smiles in (
+                _guided_canonical_smiles(item)
+                for item in raw.get("precursor_smiles") or []
+            )
+            if smiles
+        )
+        if product and precursors:
+            steps.append((product, precursors))
+    depths = {target: 0}
+    changed = True
+    while changed:
+        changed = False
+        for product, precursors in steps:
+            if product not in depths:
+                continue
+            next_depth = depths[product] + 1
+            for precursor in precursors:
+                if next_depth < depths.get(precursor, 1_000_000):
+                    depths[precursor] = next_depth
+                    changed = True
+    return depths
+
+
+def _guided_frontier_priority(
+    ledger_row: dict[str, Any],
+    *,
+    min_depth: int | None,
+    authoritative: bool,
+) -> dict[str, Any]:
+    if not authoritative:
+        return {
+            "sort_key": (0, 0, 0),
+            "tier": "fail_soft_unranked_by_frontier",
+            "min_depth": None,
+        }
+    if not ledger_row:
+        return {
+            "sort_key": (6, 1_000_000, 0),
+            "tier": "not_in_canonical_frontier",
+            "min_depth": None,
+        }
+    proposal = dict(ledger_row.get("proposal") or {})
+    work = dict(ledger_row.get("work") or {})
+    stock = dict(ledger_row.get("stock") or {})
+    stock_open = stock.get("closed") is not True
+    proposal_frontier = str(proposal.get("state") or "") == "frontier"
+    work_open = work.get("open") is True
+    expansion_allowed = work.get("proposal_expansion_allowed") is True
+    if stock_open and proposal_frontier and work_open and expansion_allowed:
+        tier, tier_rank = "open_expandable_frontier", 0
+    elif stock_open and proposal_frontier and work_open:
+        tier, tier_rank = "open_gated_frontier_work", 1
+    elif stock_open and proposal_frontier:
+        tier, tier_rank = "open_frontier_without_active_work", 2
+    elif stock_open and work_open:
+        tier, tier_rank = "expanded_target_with_open_work", 3
+    elif stock_open:
+        tier, tier_rank = "canonical_target_already_expanded", 4
+    else:
+        tier, tier_rank = "stock_closed_target", 5
+    resolved_depth = max(0, int(min_depth)) if min_depth is not None else None
+    return {
+        "sort_key": (
+            tier_rank,
+            resolved_depth if resolved_depth is not None else 1_000_000,
+            0,
+        ),
+        "tier": tier,
+        "min_depth": resolved_depth,
+    }
+
+
+def _guided_candidate_authority_reasons(
+    ledger_row: dict[str, Any],
+    *,
+    min_depth: int | None,
+    authoritative: bool,
+) -> list[str]:
+    if not authoritative:
+        return ["fail_soft:no_current_canonical_frontier_authority"]
+    if not ledger_row:
+        return ["canonical_frontier:target_not_present"]
+    proposal = dict(ledger_row.get("proposal") or {})
+    work = dict(ledger_row.get("work") or {})
+    stock = dict(ledger_row.get("stock") or {})
+    return [
+        f"canonical_frontier:stock_open={str(stock.get('closed') is not True).lower()}",
+        f"canonical_frontier:proposal_state={str(proposal.get('state') or 'unknown')}",
+        f"canonical_frontier:work_open={str(work.get('open') is True).lower()}",
+        "canonical_frontier:proposal_expansion_allowed="
+        + str(work.get("proposal_expansion_allowed") is True).lower(),
+        "canonical_frontier:min_depth="
+        + (str(max(0, int(min_depth))) if min_depth is not None else "unknown"),
+    ]
+
+
+def _rank_guided_proposal_candidates(
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    remaining = list(candidates)
+    selected: list[dict[str, Any]] = []
+    selected_targets: set[str] = set()
+    selected_fingerprints: list[Any] = []
+    while remaining:
+        best_frontier_key = min(
+            tuple(candidate["frontier_priority"]["sort_key"])
+            for candidate in remaining
+        )
+        tier = [
+            candidate
+            for candidate in remaining
+            if tuple(candidate["frontier_priority"]["sort_key"])
+            == best_frontier_key
+        ]
+        ranked: list[tuple[tuple[Any, ...], dict[str, Any], float]] = []
+        for candidate in tier:
+            fingerprint = candidate.get("fingerprint")
+            similarities = (
+                DataStructs.BulkTanimotoSimilarity(
+                    fingerprint,
+                    selected_fingerprints,
+                )
+                if fingerprint is not None and selected_fingerprints
+                else []
+            )
+            max_similarity = max(similarities, default=0.0)
+            target_seen = bool(
+                candidate["target_smiles"]
+                and candidate["target_smiles"] in selected_targets
+            )
+            no_structure = fingerprint is None
+            key = (
+                target_seen,
+                no_structure,
+                round(float(max_similarity), 12),
+                str(candidate["structure_smiles"]),
+                str(candidate["proposal_id"]),
+            )
+            ranked.append((key, candidate, float(max_similarity)))
+        _, chosen, max_similarity = min(ranked, key=lambda item: item[0])
+        chosen["max_similarity_to_prior_selection"] = max_similarity
+        chosen["diversity_reason"] = (
+            "structural_diversity:first_selected_structure"
+            if not selected
+            else "structural_diversity:max_similarity_to_prior="
+            f"{max_similarity:.6f}"
+        )
+        selected.append(chosen)
+        remaining.remove(chosen)
+        if chosen["target_smiles"]:
+            selected_targets.add(str(chosen["target_smiles"]))
+        if chosen.get("fingerprint") is not None:
+            selected_fingerprints.append(chosen["fingerprint"])
+    return selected
+
+
+def _guided_proposal_identifier(
+    row: dict[str, Any],
+    *,
+    target_smiles: str,
+    precursor_smiles: str,
+) -> str:
+    explicit = str(row.get("proposal_id") or row.get("semantic_edge_key") or "").strip()
+    if explicit:
+        return explicit
+    retron = " ".join(
+        str(row.get("proposal_label") or row.get("transformation_idea") or "")
+        .lower()
+        .split()
+    )
+    return "anonymous_proposal:" + _guided_json_sha256(
+        {
+            "target_smiles": target_smiles,
+            "precursor_smiles": precursor_smiles,
+            "retron": retron,
+        }
+    )[:16]
+
+
+def _guided_board_target_smiles(blackboard: dict[str, Any]) -> str:
+    target = dict(blackboard.get("target_profile") or {})
+    return _guided_canonical_smiles(
+        target.get("canonical_smiles")
+        or target.get("target_smiles")
+        or blackboard.get("target_smiles")
+    )
+
+
+def _guided_canonical_smiles(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    molecule = Chem.MolFromSmiles(text)
+    if molecule is None:
+        return ""
+    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
+
+
+def _guided_structure_fingerprint(smiles: str) -> Any:
+    molecule = Chem.MolFromSmiles(str(smiles or ""))
+    if molecule is None:
+        return None
+    return Chem.RDKFingerprint(molecule, fpSize=512)
+
+
+def _guided_json_sha256(value: Any) -> str:
+    try:
+        payload = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, OverflowError):
+        return ""
+    return hashlib.sha256(payload).hexdigest()
 
 
 def build_child_expansion_payload_from_blackboard(blackboard: dict[str, Any]) -> dict[str, Any]:
@@ -2262,6 +2853,12 @@ def _visual_extraction_has_rendered_input(
 
 def _needs_literature_bridge(blackboard: dict[str, Any]) -> bool:
     evidence = dict(blackboard.get("literature_evidence") or {})
+    independent_count = len(independent_literature_source_keys(blackboard))
+    if (
+        independent_count < _minimum_independent_literature_sources(blackboard)
+        and not evidence.get("exact_rows")
+    ):
+        return True
     if _awaiting_local_pdf_proxy_download(blackboard) and _source_candidates_have_real_source(blackboard):
         return False
     if evidence.get("source_candidates"):
@@ -2849,12 +3446,34 @@ def _literature_search_payload(blackboard: dict[str, Any], *, intent: str) -> di
         if endpoint_text:
             queries.append(" ".join([target_name, endpoint_text, objective_type, "synthesis evidence"]))
     query_list = _dedupe([query for query in queries if query.strip()])[:12]
+    independent_keys = sorted(independent_literature_source_keys(blackboard))
+    known_source_refs = _dedupe(
+        [
+            str(row.get("source_ref") or row.get("doi") or row.get("url") or "")
+            for row in evidence.get("source_candidates") or []
+            if isinstance(row, dict)
+            and _candidate_has_real_source(row)
+            and str(row.get("source_ref") or row.get("doi") or row.get("url") or "").strip()
+        ]
+    )
+    requested_sources = max(1, min(3, 3 - len(independent_keys)))
     return {
         "schema_version": "agentic_literature_search_payload.v1",
         "search_intent": str(intent or "target_proximal_source_discovery"),
         "queries": query_list,
         "search_queries": query_list,
-        "max_sources": 3,
+        "max_sources": requested_sources,
+        "minimum_independent_sources": _minimum_independent_literature_sources(blackboard),
+        "preferred_independent_sources": 3,
+        "known_independent_source_keys": independent_keys,
+        "exclude_source_refs": known_source_refs,
+        "source_independence_policy": {
+            "schema_version": "agentic_source_independence_policy.v1",
+            "group_by": ["doi", "pii", "patent_family", "canonical_source_ref", "title"],
+            "article_and_supporting_information_share_source_group": True,
+            "require_distinct_source_groups": True,
+            "no_solved_claim": True,
+        },
         "planner_source_hints": [*objective_hints, *planner_hints],
         "route_objectives": [
             dict(row)
@@ -2870,6 +3489,234 @@ def _literature_search_payload(blackboard: dict[str, Any], *, intent: str) -> di
         "source_acquisition_policy": _source_acquisition_policy(),
         "no_solved_claim": True,
     }
+
+
+def independent_literature_source_keys(blackboard: dict[str, Any]) -> set[str]:
+    """Return logical source groups, not per-document PDF identities.
+
+    An article and its SI may be two extractable documents but are one
+    independent source.  This distinction is essential both for scheduling a
+    genuinely multi-source scout and for preventing document count from being
+    reported as source independence.
+    """
+    keys: set[str] = set()
+    for row in (blackboard.get("literature_evidence") or {}).get("source_candidates") or []:
+        if not isinstance(row, dict) or not _candidate_has_real_source(row):
+            continue
+        key = _independent_literature_source_key(row)
+        if key:
+            keys.add(key)
+    return keys
+
+
+def _independent_literature_source_key(row: dict[str, Any]) -> str:
+    host_group = independent_source_group(row)
+    if host_group:
+        return host_group
+    doi = _logical_source_doi(str(row.get("doi") or row.get("source_ref") or row.get("url") or ""))
+    if doi:
+        return f"doi:{doi}"
+    pii = str(row.get("pii") or "").strip().lower()
+    if pii:
+        return f"pii:{pii}"
+    patent_family = str(row.get("patent_family") or row.get("family_id") or "").strip().lower()
+    if patent_family:
+        return f"patent_family:{patent_family}"
+    source_ref = str(row.get("source_ref") or "").strip().lower()
+    if source_ref:
+        return f"ref:{source_ref}"
+    title = " ".join(str(row.get("title") or row.get("source_title") or "").lower().split())
+    if title:
+        return f"title:{title}"
+    url = str(row.get("url") or "").strip().lower()
+    return f"url:{url}" if url else ""
+
+
+def _minimum_independent_literature_sources(blackboard: dict[str, Any]) -> int:
+    belief = dict(blackboard.get("current_belief") or {})
+    constraints = dict(belief.get("constraints") or {})
+    raw = constraints.get("minimum_independent_literature_sources", 2)
+    try:
+        return max(2, min(3, int(raw)))
+    except (TypeError, ValueError):
+        return 2
+
+
+def plan_literature_evidence_followup_actions(
+    blackboard: dict[str, Any],
+    *,
+    round_index: int,
+    max_actions: int = 1,
+) -> list[dict[str, Any]]:
+    """Plan the next executable stage of the literature evidence lifecycle.
+
+    This intentionally returns only actions executable from the *current*
+    blackboard.  Results written by those actions become inputs to the next
+    controller round, so critic/bridge tasks can consume them without a hidden
+    same-snapshot dependency.
+    """
+    limit = max(0, int(max_actions or 0))
+    if limit <= 0:
+        return []
+
+    source = _next_local_pdf_source_for_pdf_extraction(blackboard)
+    if source and not _source_has_pdf_evidence_record(blackboard, source):
+        return [
+            _action(
+                round_index,
+                "extract_pdf_literature_structures",
+                "continue the discovered source lifecycle by materializing PDF pages before visual interpretation",
+                "literature_pdf_structure_evidence.v1",
+                "rendered pages or indexed images are bound to the selected source",
+                _source_candidate_payload(source),
+            )
+        ]
+
+    source = _next_local_pdf_source_for_visual_extraction(blackboard)
+    if source and _budget_remaining(blackboard, "visual_calls"):
+        return [
+            _action(
+                round_index,
+                "extract_visual_literature_chain",
+                "continue the rendered source lifecycle with source-bound structure and scheme extraction",
+                "visual_literature_chain/exact rows artifact",
+                "source-detail steps or explicit structure gaps are recorded",
+                _visual_extraction_payload_from_blackboard(blackboard, source_candidate=source),
+            )
+        ]
+
+    if (
+        _visual_chain_available(blackboard)
+        and (not _exact_rows_available(blackboard) or _exact_rows_incomplete(blackboard))
+        and _visual_gap_repair_needed(blackboard)
+        and not _process_evidence_available(blackboard)
+        and _visual_gap_repair_budget_remaining(blackboard)
+        and (_condition_gap_repair_needed(blackboard) or not _uncompiled_visual_steps_available(blackboard))
+        and _budget_remaining(blackboard, "visual_calls")
+    ):
+        return [
+            _action(
+                round_index,
+                "extract_visual_literature_chain",
+                "continue the evidence lifecycle with a focused repair of source-detail structure or condition gaps",
+                "visual_literature_chain/exact rows artifact",
+                "missing source-detail labels are filled or explicitly rejected",
+                _focused_visual_repair_payload(blackboard),
+            )
+        ]
+
+    task = _next_structure_resolution_task_for_local_resolve(blackboard)
+    if task and _budget_remaining(blackboard, "visual_calls"):
+        return [
+            _action(
+                round_index,
+                "resolve_literature_structure_task",
+                "continue the source lifecycle by resolving an open compound label before exact-row compilation",
+                "literature_structure_resolution_result.v1",
+                "the selected label is source-bound and resolved or explicitly rejected",
+                _structure_resolution_task_payload(blackboard, task),
+            )
+        ]
+
+    if (
+        _structure_resolution_scout_needed(blackboard)
+        and _budget_remaining(blackboard, "scout_calls")
+        and not _stale_literature_search_repeated(blackboard)
+    ):
+        return [
+            _action(
+                round_index,
+                "search_literature",
+                "continue the evidence lifecycle by finding source-detail material for unresolved compound labels",
+                "structure_resolution_source_scout_report.v1",
+                "a new source-bound structure-resolution lead or an explicit unresolved record is produced",
+                _structure_resolution_scout_payload(blackboard),
+            )
+        ]
+
+    if (
+        _visual_chain_available(blackboard)
+        and (not _exact_rows_available(blackboard) or _exact_rows_incomplete(blackboard))
+        and _uncompiled_visual_steps_available(blackboard)
+        and not _compile_exact_rows_exhausted_to_advisory(blackboard)
+        and not _stale_compile_requires_structure_resolution(blackboard)
+    ):
+        return [
+            _action(
+                round_index,
+                "compile_exact_literature_rows",
+                "continue the source lifecycle by compiling source-bound visual steps into exact-row candidates",
+                "compiled exact literature rows",
+                "exact rows are accepted or rejected with an auditable source-detail reason",
+                _compile_exact_rows_payload(blackboard),
+            )
+        ]
+
+    evidence = dict(blackboard.get("literature_evidence") or {})
+    independent_count = len(independent_literature_source_keys(blackboard))
+    metadata_without_document = any(
+        isinstance(row, dict)
+        and _candidate_has_real_source(row)
+        and not str(row.get("local_pdf") or row.get("source_pdf_path") or row.get("pdf_path") or "").strip()
+        for row in evidence.get("source_candidates") or []
+    )
+    needs_independent_source = independent_count < _minimum_independent_literature_sources(blackboard)
+    if (
+        evidence.get("source_candidates")
+        and (metadata_without_document or needs_independent_source)
+        and _budget_remaining(blackboard, "scout_calls")
+        and not _stale_literature_search_repeated(blackboard)
+        and _evidence_followup_search_allowed(blackboard)
+    ):
+        intent = (
+            "source_detail_html_or_pdf_acquisition"
+            if metadata_without_document
+            else "independent_source_expansion"
+        )
+        return [
+            _action(
+                round_index,
+                "search_literature",
+                "continue source acquisition toward accessible full text and genuinely independent corroborating sources",
+                "literature_scout_report.v1",
+                "an accessible HTML/PDF lead or a new independent source group is recorded",
+                _literature_search_payload(blackboard, intent=intent),
+            )
+        ]
+    return []
+
+
+def _evidence_followup_search_allowed(blackboard: dict[str, Any]) -> bool:
+    # A queued PDF proxy is an explicit external wait state.  Repeatedly
+    # scouting the same DOI while it is pending wastes the global scout budget.
+    if _awaiting_local_pdf_proxy_download(blackboard):
+        return False
+    if (
+        _failure_evidence_available(blackboard)
+        and _action_seen(blackboard, "build_failure_critic_report")
+        and not _new_failure_evidence_since_last_critic(blackboard)
+    ):
+        return False
+    return True
+
+
+def _source_has_pdf_evidence_record(blackboard: dict[str, Any], source: dict[str, Any]) -> bool:
+    source_key = _source_key(source)
+    if not source_key:
+        return False
+    for raw in (blackboard.get("literature_evidence") or {}).get("pdf_structure_evidence") or []:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        if row.get("accepted") is False:
+            continue
+        # Article and SI belong to one logical source group for corroboration,
+        # but they remain different extraction documents.  Match the concrete
+        # PDF/document key; the legacy resolver below upgrades a DOI-only
+        # record only when exactly one local document matches it.
+        if source_key in _evidence_document_source_keys(row, blackboard):
+            return True
+    return False
 
 
 def _semisynthesis_source_hints_for_search(blackboard: dict[str, Any]) -> list[dict[str, Any]]:
@@ -4978,7 +5825,16 @@ def _remaining_child_target_budget(blackboard: dict[str, Any]) -> int:
     return max(0, maximum - used)
 
 
-def _planned_child_target_count(payload: dict[str, Any]) -> int:
+def planned_child_target_count(payload: dict[str, Any]) -> int:
+    """Return the number of child runs explicitly requested by a payload.
+
+    Codex commonly emits one target in a singular field (``subgoal_target``,
+    ``child_target`` or a direct ``target_smiles``) while leaving
+    ``max_targets`` unset.  Treating that shape as the historical default of
+    two made an otherwise valid one-target action exceed a one-run global
+    budget and disappear during repair.  The default remains useful only for
+    policy-rebuild payloads that contain no explicit target at all.
+    """
     rows = payload.get("subgoal_targets") or payload.get("child_targets") or []
     try:
         max_targets = max(1, int(payload.get("max_targets") or 2))
@@ -4986,7 +5842,20 @@ def _planned_child_target_count(payload: dict[str, Any]) -> int:
         max_targets = 2
     if isinstance(rows, list) and rows:
         return max(1, min(len(rows), max_targets))
+    for field in ("subgoal_target", "child_target", "target"):
+        value = payload.get(field)
+        if isinstance(value, dict) and value:
+            return 1
+        if isinstance(value, str) and value.strip():
+            return 1
+    if any(str(payload.get(field) or "").strip() for field in ("target_smiles", "smiles")):
+        return 1
     return max_targets
+
+
+def _planned_child_target_count(payload: dict[str, Any]) -> int:
+    """Backward-compatible private alias for older callers/tests."""
+    return planned_child_target_count(payload)
 
 
 def _hypothetical_precursor_evidence_refs(blackboard: dict[str, Any], row: dict[str, Any]) -> list[str]:

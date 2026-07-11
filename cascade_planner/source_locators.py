@@ -18,15 +18,33 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 
 _DOI_PATTERN = re.compile(r"(?i)^10\.\d{4,9}/[-._;()/:A-Z0-9]+$")
 _PII_PATTERN = re.compile(r"(?i)^S\d{12,24}$")
+_PATENT_PUBLICATION_PATTERN = re.compile(
+    r"(?i)^[A-Z]{2}\d{6,14}[A-Z]\d?$"
+)
 _DOMAIN_LABEL_PATTERN = re.compile(r"(?i)^[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?$")
 _PUBMED_HOSTS = {"pubmed.ncbi.nlm.nih.gov", "www.ncbi.nlm.nih.gov"}
 _PMC_HOSTS = {"pmc.ncbi.nlm.nih.gov", "www.ncbi.nlm.nih.gov", "ncbi.nlm.nih.gov"}
 _DOI_HOSTS = {"doi.org", "www.doi.org", "dx.doi.org"}
 _SCIENCEDIRECT_HOSTS = {"sciencedirect.com", "www.sciencedirect.com"}
+_SUPPLEMENTARY_TOKENS = (
+    "supporting-information",
+    "supporting_information",
+    "supplementary-information",
+    "supplementary_information",
+    "suppinfo",
+    "_si.",
+    "_si_",
+    "-si.",
+    "-si-",
+    "_esm.",
+    "_esm_",
+    "mmc1",
+    "moesm",
+)
 
 
 def canonical_traceable_source_ref(value: Any) -> str:
-    """Return a strict canonical DOI/PMID/PMC/URL/PDF/PII locator.
+    """Return a strict canonical DOI/PMID/PMC/patent/URL/PDF/PII locator.
 
     Arbitrary paths and descriptive strings intentionally return ``""``.
     Local files must use the explicit ``local_pdf:`` namespace and end in
@@ -63,6 +81,15 @@ def canonical_traceable_source_ref(value: Any) -> str:
     if prefixed_pii is not None:
         return _canonical_pii(prefixed_pii)
 
+    prefixed_patent = _remove_prefix_case_insensitive(text, "patent:")
+    if prefixed_patent is not None:
+        return _canonical_patent_publication(prefixed_patent)
+    prefixed_patent_publication = _remove_prefix_case_insensitive(
+        text, "patent_publication:"
+    )
+    if prefixed_patent_publication is not None:
+        return _canonical_patent_publication(prefixed_patent_publication)
+
     if _DOI_PATTERN.fullmatch(text):
         return f"doi:{text.lower()}"
     if _PII_PATTERN.fullmatch(text):
@@ -94,6 +121,12 @@ def canonical_traceable_source_ref(value: Any) -> str:
         match = re.search(r"/pii/(S\d{12,24})(?:/|$)", path, flags=re.IGNORECASE)
         if match:
             return _canonical_pii(match.group(1))
+    if host in {"patents.google.com", "www.patents.google.com"}:
+        match = re.fullmatch(r"/patent/([^/]+)(?:/[a-z]{2})?/?", path, re.IGNORECASE)
+        if match:
+            patent = _canonical_patent_publication(match.group(1))
+            if patent:
+                return patent
 
     netloc = f"[{host}]" if ":" in host else host
     if parsed.port is not None:
@@ -120,11 +153,12 @@ def canonical_traceable_source_refs(values: Iterable[Any]) -> list[str]:
 def source_ref_sort_key(value: str) -> tuple[int, str]:
     priorities = {
         "doi": 0,
-        "pmid": 1,
-        "pmc": 2,
-        "pii": 3,
-        "url": 4,
-        "local_pdf": 5,
+        "patent": 1,
+        "pmid": 2,
+        "pmc": 3,
+        "pii": 4,
+        "url": 5,
+        "local_pdf": 6,
     }
     prefix = str(value).split(":", 1)[0]
     return priorities.get(prefix, 99), str(value)
@@ -169,10 +203,149 @@ def source_record_support_group(
     return "codex_model"
 
 
+def independent_source_group(source: Any) -> str:
+    """Return a host-derived publication/family identity for one source row.
+
+    This deliberately ignores local filenames and representation URLs when a
+    stronger publication identifier is present.  Article and SI documents
+    therefore share one independence group without being collapsed into the
+    same document.
+    """
+
+    row = dict(source) if isinstance(source, dict) else {}
+    patent_family = _compact_identity(
+        row.get("patent_family") or row.get("family_id")
+    )
+    if patent_family:
+        return f"patent_family:{patent_family}"
+    aliases = canonical_traceable_source_refs(
+        [
+            row.get("doi"),
+            row.get("patent_publication"),
+            row.get("patent"),
+            row.get("pii"),
+            row.get("pmid"),
+            row.get("pmc"),
+            row.get("source_ref"),
+            row.get("url"),
+        ]
+    )
+    publication_aliases = [
+        alias
+        for alias in aliases
+        if alias.split(":", 1)[0] in {"doi", "patent", "pii", "pmid", "pmc"}
+    ]
+    if publication_aliases:
+        return publication_aliases[0]
+    title = " ".join(
+        str(row.get("title") or row.get("source_title") or "")
+        .strip()
+        .lower()
+        .split()
+    )
+    return f"title:{title}" if title else ""
+
+
+def source_document_identity(source: Any) -> str:
+    """Return a logical document id, distinct from source independence.
+
+    A DOI article and its SI are separate documents in one source group.  A
+    DOI metadata pointer and a downloaded copy of the same scope are one
+    document with multiple representations.
+    """
+
+    row = dict(source) if isinstance(source, dict) else {}
+    document_id = _compact_identity(row.get("document_id"))
+    group = independent_source_group(row)
+    # Historical normalization generated ``pdf:<path hash>`` identifiers.
+    # Those identify a concrete file representation, not a logical document,
+    # and must not split a DOI metadata pointer from its downloaded copy.
+    generated_pdf_id = bool(re.fullmatch(r"pdf:[0-9a-f]{16}", document_id))
+    if document_id and not (group and generated_pdf_id):
+        return f"document:{document_id}"
+    scope = source_content_scope(row)
+    if group:
+        return f"document:{group}:{scope}"
+    local_pdf = str(
+        row.get("local_pdf")
+        or row.get("source_pdf_path")
+        or row.get("pdf_path")
+        or ""
+    ).strip()
+    local_alias = canonical_traceable_source_ref(
+        local_pdf if local_pdf.lower().startswith("local_pdf:") else f"local_pdf:{local_pdf}"
+    )
+    if local_alias:
+        return f"document:{local_alias}"
+    url_alias = canonical_traceable_source_ref(row.get("url"))
+    return f"document:{url_alias}:{scope}" if url_alias else ""
+
+
+def source_content_scope(source: Any) -> str:
+    row = dict(source) if isinstance(source, dict) else {}
+    explicit = str(
+        row.get("content_scope")
+        or row.get("document_type")
+        or row.get("requested_content_scope")
+        or ""
+    ).strip().lower()
+    normalized = explicit.replace("-", "_").replace(" ", "_")
+    locator = str(
+        row.get("local_pdf")
+        or row.get("source_pdf_path")
+        or row.get("pdf_path")
+        or row.get("url")
+        or ""
+    ).strip().lower()
+    inferred_si = any(token in locator for token in _SUPPLEMENTARY_TOKENS)
+    if normalized in {"si", "supporting_information", "supplementary"}:
+        return "supplementary_information"
+    if inferred_si and normalized in {"", "article", "main_article"}:
+        return "supplementary_information"
+    if normalized:
+        return normalized
+    if inferred_si:
+        return "supplementary_information"
+    return "article"
+
+
+def source_record_representations(source: Any) -> list[str]:
+    """Return stable locators for the concrete copies of one document."""
+
+    row = dict(source) if isinstance(source, dict) else {}
+    values: list[Any] = [
+        row.get("source_ref"),
+        row.get("doi"),
+        row.get("patent_publication"),
+        row.get("patent"),
+        row.get("pii"),
+        row.get("pmid"),
+        row.get("pmc"),
+        row.get("url"),
+    ]
+    local_pdf = str(
+        row.get("local_pdf")
+        or row.get("source_pdf_path")
+        or row.get("pdf_path")
+        or ""
+    ).strip()
+    if local_pdf:
+        values.append(
+            local_pdf
+            if local_pdf.lower().startswith("local_pdf:")
+            else f"local_pdf:{local_pdf}"
+        )
+    return canonical_traceable_source_refs(values)
+
+
 def _remove_prefix_case_insensitive(text: str, prefix: str) -> str | None:
     if text[: len(prefix)].lower() != prefix:
         return None
     return text[len(prefix) :].strip()
+
+
+def _compact_identity(value: Any) -> str:
+    return re.sub(r"[^a-z0-9._:-]+", "", str(value or "").strip().lower())
 
 
 def _locator_values(value: Any) -> list[Any]:
@@ -190,8 +363,17 @@ def _compound_locator_aliases(text: str) -> list[str]:
     """Extract only explicitly named locator fields from a compound record."""
 
     aliases: list[str] = []
-    allowed = {"doi", "pmid", "pmc", "pii", "url", "local_pdf"}
-    ignored_metadata = {"patent_publication", "lines"}
+    allowed = {
+        "doi",
+        "pmid",
+        "pmc",
+        "pii",
+        "patent",
+        "patent_publication",
+        "url",
+        "local_pdf",
+    }
+    ignored_metadata = {"lines"}
     segments = text.split(";")
     if len(segments) < 2:
         return []
@@ -241,6 +423,11 @@ def _canonical_pmc(value: str) -> str:
 def _canonical_pii(value: str) -> str:
     text = str(value or "").strip().upper()
     return f"pii:{text}" if _PII_PATTERN.fullmatch(text) else ""
+
+
+def _canonical_patent_publication(value: str) -> str:
+    text = re.sub(r"[\s._/-]+", "", str(value or "").strip()).upper()
+    return f"patent:{text}" if _PATENT_PUBLICATION_PATTERN.fullmatch(text) else ""
 
 
 def _canonical_local_pdf(value: str) -> str:

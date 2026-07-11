@@ -88,6 +88,100 @@ def test_complete_mapped_step_is_mapping_consistent_but_not_parent_eligible() ->
     assert proof["checks"]["mapped_product_matches"] is True
     assert proof["checks"]["mapped_reactants_match"] is True
     assert proof["checks"]["bond_change_present"] is True
+    assert proof["checks"]["deterministic_transform_reapplied"] is False
+    assert proof["checks"]["trusted_precedent_bound"] is False
+    assert proof["deterministic_transform_audit"]["transform_family"] == ""
+    assert "reaction_centre_not_in_deterministic_transform_registry" in proof[
+        "reasons"
+    ]
+
+
+def test_host_reapplied_carbonyl_redox_reaches_l2_reaction_validated() -> None:
+    proof = verify_reaction_step(
+        {
+            "step_id": "ethanol_oxidation_without_precedent",
+            "product_smiles": "CC=O",
+            "reactant_smiles": ["CCO"],
+            "atom_mapped_reaction_smiles": "[CH3:1][CH2:2][OH:3]>>[CH3:1][CH:2]=[O:3]",
+        },
+        graph_and_stock_closed=True,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["proof_level"] == "L2_reaction_validated"
+    assert proof["checks"]["deterministic_transform_reapplied"] is True
+    assert (
+        proof["deterministic_transform_audit"]["transform_family"]
+        == "carbonyl_alcohol_redox"
+    )
+
+
+def test_host_reapplied_acyl_substitution_reaches_l2_reaction_validated() -> None:
+    proof = verify_reaction_step(
+        {
+            "step_id": "methyl_acetamide",
+            "product_smiles": "CC(=O)NC",
+            "reactant_smiles": ["CC(=O)O", "CN"],
+            "atom_mapped_reaction_smiles": (
+                "[CH3:1][C:2](=[O:3])[OH:4].[NH2:5][CH3:6]"
+                ">>[CH3:1][C:2](=[O:3])[NH:5][CH3:6]"
+            ),
+        },
+        graph_and_stock_closed=True,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["proof_level"] == "L2_reaction_validated"
+    assert (
+        proof["deterministic_transform_audit"]["transform_family"]
+        == "acyl_substitution_coupling"
+    )
+
+
+def test_unmapped_departing_oxygen_in_dehydration_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "step_id": "acetamide_dehydration",
+            "product_smiles": "CC#N",
+            "reactant_smiles": ["CC(N)=O"],
+            # RXNMapper may intentionally leave the oxygen that departs the
+            # recorded major product unmapped.
+            "atom_mapped_reaction_smiles": (
+                "[CH3:1][C:2]([NH2:3])=[O]>>[CH3:1][C:2]#[N:3]"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["proof_level"] == "L2_reaction_validated"
+    assert proof["checks"]["atom_maps_complete"] is False
+    assert proof["checks"]["product_atom_maps_complete"] is True
+    assert proof["checks"]["reactant_departing_atoms_plausible"] is True
+    assert proof["atom_map_audit"]["departing_reactant_heavy_atom_count"] == 1
+    assert (
+        proof["deterministic_transform_audit"]["transform_family"]
+        == "amide_or_oxime_dehydration_to_nitrile"
+    )
+
+
+def test_excessive_unmapped_reactant_atom_loss_fails_closed() -> None:
+    proof = verify_reaction_step(
+        {
+            "step_id": "implausible_atom_jump",
+            "product_smiles": "CC",
+            "reactant_smiles": ["C" * 15],
+            "atom_mapped_reaction_smiles": (
+                "[CH3:1][CH2:2]CCCCCCCCCCCCC>>[CH3:1][CH3:2]"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is False
+    assert proof["checks"]["product_atom_maps_complete"] is True
+    assert proof["checks"]["reactant_departing_atoms_plausible"] is False
+    assert "reactant_departing_atom_budget_exceeded" in proof["reasons"]
 
 
 def test_self_reported_validation_cannot_replace_mapping() -> None:
@@ -190,7 +284,8 @@ def test_l4_requires_digest_valid_stock_provider_envelopes(monkeypatch) -> None:
         "available": True,
     }
     offer = {**snapshot, "snapshot_sha256": stock_snapshot_sha256(snapshot)}
-    stock_result = SnapshotStockProvider(trusted_snapshots=[snapshot]).invoke(
+    stock_provider = SnapshotStockProvider(trusted_snapshots=[snapshot])
+    stock_result = stock_provider.invoke(
         {
             "schema_version": "stock_lookup_request.v1",
             "smiles": "CCO",
@@ -201,6 +296,7 @@ def test_l4_requires_digest_valid_stock_provider_envelopes(monkeypatch) -> None:
     binding = build_verified_procurement_binding(
         [stock_result.to_dict()],
         reactant_smiles=["CCO"],
+        trusted_stock_providers={stock_provider.descriptor.provider_id: stock_provider},
     )
     step = _strict_ethanol_oxidation_step()
     step["conditions"] = {
@@ -214,8 +310,21 @@ def test_l4_requires_digest_valid_stock_provider_envelopes(monkeypatch) -> None:
         step,
         graph_and_stock_closed=True,
         procurement_binding=binding,
+        trusted_stock_providers={stock_provider.descriptor.provider_id: stock_provider},
     )
     assert proof["proof_level"] == "L4_procurement_ready"
+
+    untrusted_binding = build_verified_procurement_binding(
+        [stock_result.to_dict()],
+        reactant_smiles=["CCO"],
+    )
+    assert untrusted_binding["accepted"] is False
+    untrusted = verify_reaction_step(
+        step,
+        graph_and_stock_closed=True,
+        procurement_binding=untrusted_binding,
+    )
+    assert untrusted["proof_level"] == "L3_precedent_supported"
 
     forged = dict(binding)
     forged["binding_digest"] = "f" * 64
@@ -223,6 +332,7 @@ def test_l4_requires_digest_valid_stock_provider_envelopes(monkeypatch) -> None:
         step,
         graph_and_stock_closed=True,
         procurement_binding=forged,
+        trusted_stock_providers={stock_provider.descriptor.provider_id: stock_provider},
     )
     assert downgraded["proof_level"] == "L3_precedent_supported"
 

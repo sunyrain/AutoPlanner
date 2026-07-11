@@ -12,7 +12,10 @@ try:  # RDKit is expected in normal AutoPlanner runs, but tests can mock around 
 except Exception:  # pragma: no cover - exercised only in stripped environments.
     Chem = None  # type: ignore[assignment]
 
-from cascade_planner.harness.agent_action_planner import build_guided_chemenzy_payload_from_blackboard
+from cascade_planner.harness.agent_action_planner import (
+    build_guided_chemenzy_payload_from_blackboard,
+    planned_child_target_count,
+)
 from cascade_planner.cascadeboard.route_recovery import canonical_smiles
 from cascade_planner.harness.analogical_reaction_templates import compact_template_application_summary
 from cascade_planner.harness.process_evidence import semisynthesis_anchors_from_process_rows
@@ -21,6 +24,7 @@ from cascade_planner.harness.recursive_hypothesis_tasks import (
 )
 from cascade_planner.harness.retrosynthetic_proposals import (
     compile_retrosynthetic_proposal_bus,
+    deduplicate_retrosynthetic_proposals,
 )
 from cascade_planner.harness.route_objectives import (
     build_broad_transform_templates_from_blackboard,
@@ -33,6 +37,12 @@ from cascade_planner.harness.schemas import write_json
 from cascade_planner.harness.stitched_route import is_validated_source_detail_literature_step
 from cascade_planner.harness.target_side_strategy import build_target_side_disconnection_hypotheses
 from cascade_planner.agent.action_contracts import PLANNER_SOURCE_HINT_SCHEMA
+from cascade_planner.source_locators import (
+    independent_source_group,
+    source_content_scope,
+    source_document_identity,
+    source_record_representations,
+)
 
 
 AGENT_BLACKBOARD_SCHEMA = "agent_blackboard.v1"
@@ -110,6 +120,7 @@ def initialize_agent_blackboard(
         "retrosynthetic_proposal_compile_report": {},
         "proposal_failure_feedback": [],
         "route_proof_bundle": {},
+        "chemenzy_route_proof_banks": [],
         "semisynthesis_anchors": [],
         "recursive_hypothesis_tasks": [],
         "route_expansion_subgoals": [],
@@ -617,7 +628,40 @@ def _normalize_hint_doi(value: str) -> str:
 
 def _refresh_source_lifecycle(board: dict[str, Any]) -> None:
     evidence = dict(board.get("literature_evidence") or {})
-    evidence["source_lifecycle"] = _build_source_lifecycle(evidence)
+    lifecycle = _build_source_lifecycle(evidence)
+    evidence["source_lifecycle"] = lifecycle
+    real_lifecycle = [
+        row
+        for row in lifecycle
+        if (
+            (row.get("stage_flags") or {}).get("source_candidate") is True
+            and (row.get("stage_flags") or {}).get("placeholder_only") is not True
+        )
+        or (row.get("stage_flags") or {}).get("exact_rows_compiled") is True
+    ]
+    groups = {
+        str(row.get("independent_source_group") or "")
+        for row in real_lifecycle
+        if str(row.get("independent_source_group") or "")
+    }
+    representations = {
+        str(item)
+        for row in real_lifecycle
+        for item in row.get("representations") or []
+        if str(item or "")
+    }
+    evidence["source_identity_summary"] = {
+        "schema_version": "literature_source_identity_summary.v1",
+        "document_count": len(real_lifecycle),
+        "independent_source_group_count": len(groups),
+        "representation_count": len(representations),
+        "independent_source_groups": sorted(groups),
+        "semantics": {
+            "document_is_not_independent_source": True,
+            "article_and_si_share_independence_group": True,
+            "url_and_local_pdf_can_represent_one_document": True,
+        },
+    }
     board["literature_evidence"] = evidence
 
 
@@ -632,6 +676,9 @@ def _build_source_lifecycle(evidence: dict[str, Any]) -> list[dict[str, Any]]:
             rows[key] = {
                 "schema_version": "agent_source_lifecycle.v1",
                 "source_key": key,
+                "document_identity": key,
+                "independent_source_group": independent_source_group(source),
+                "representations": [],
                 "source_ref": "",
                 "title": "",
                 "doi": "",
@@ -748,9 +795,21 @@ def _build_source_lifecycle(evidence: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _merge_lifecycle_identity(row: dict[str, Any], source: dict[str, Any]) -> None:
+    group = independent_source_group(source)
+    if group and not str(row.get("independent_source_group") or ""):
+        row["independent_source_group"] = group
+    row["document_identity"] = str(
+        row.get("document_identity") or source_document_identity(source)
+    )
+    row["representations"] = sorted(
+        {
+            *[str(item) for item in row.get("representations") or []],
+            *source_record_representations(source),
+        }
+    )
     identity_fields = {
         "document_id": str(source.get("document_id") or ""),
-        "content_scope": str(source.get("content_scope") or ""),
+        "content_scope": source_content_scope(source),
         "source_ref": str(source.get("source_ref") or ""),
         "title": str(source.get("title") or source.get("source_title") or ""),
         "doi": _normalize_hint_doi(str(source.get("doi") or "")),
@@ -824,6 +883,9 @@ def _finalize_lifecycle_stage(row: dict[str, Any]) -> None:
 
 
 def _lifecycle_source_key(source: dict[str, Any]) -> str:
+    document_identity = source_document_identity(source)
+    if document_identity:
+        return document_identity
     local_pdf = str(
         source.get("local_pdf")
         or source.get("source_pdf_path")
@@ -920,22 +982,11 @@ def update_budget_for_action(
     if action_type == "run_guided_chemenzy":
         budget["chemenzy_runs"] = int(budget.get("chemenzy_runs") or 0) + 1
     if action_type == "expand_child_target":
-        budget["child_target_runs"] = int(budget.get("child_target_runs") or 0) + _planned_child_target_count(action_payload)
+        budget["child_target_runs"] = int(budget.get("child_target_runs") or 0) + planned_child_target_count(action_payload)
     if action_type in {"apply_analogical_template_to_target", "validate_template_application"}:
         budget["template_application_actions"] = int(budget.get("template_application_actions") or 0) + 1
     board["budget_state"] = budget
     return board
-
-
-def _planned_child_target_count(payload: dict[str, Any]) -> int:
-    rows = payload.get("subgoal_targets") or payload.get("child_targets") or []
-    try:
-        max_targets = max(1, int(payload.get("max_targets") or 2))
-    except (TypeError, ValueError):
-        max_targets = 2
-    if isinstance(rows, list) and rows:
-        return max(1, min(len(rows), max_targets))
-    return max_targets
 
 
 def _blackboard_count_summary(blackboard: dict[str, Any]) -> dict[str, int]:
@@ -1023,7 +1074,12 @@ def _refresh_retrosynthetic_proposal_bus(board: dict[str, Any]) -> dict[str, Any
     }
     report = compile_retrosynthetic_proposal_bus(board)
     _extend_unique(board, "reaction_idea_cards", report.get("reaction_idea_cards") or [], unique_key="card_id")
-    _extend_unique(board, "retrosynthetic_proposals", report.get("retrosynthetic_proposals") or [], unique_key="proposal_id")
+    board["retrosynthetic_proposals"] = deduplicate_retrosynthetic_proposals(
+        [
+            *[row for row in board.get("retrosynthetic_proposals") or [] if isinstance(row, dict)],
+            *[row for row in report.get("retrosynthetic_proposals") or [] if isinstance(row, dict)],
+        ]
+    )
     _extend_unique(board, "recursive_hypothesis_tasks", report.get("recursive_hypothesis_tasks") or [], unique_key="task_id")
     refreshed_counts = {
         "reaction_idea_cards": len(board.get("reaction_idea_cards") or []),
@@ -2221,6 +2277,34 @@ def _update_from_guided_chemenzy(board: dict[str, Any], payload: dict[str, Any],
     if not verifier and guided_payload:
         verifier = dict(guided_payload.get("raw_route_verifier") or {})
     if verifier:
+        proof_bank = verifier.get("route_proof_bank")
+        if isinstance(proof_bank, dict):
+            bank_digest = str(proof_bank.get("content_hash") or "")
+            if not bank_digest:
+                bank_digest = hashlib.sha256(
+                    json.dumps(
+                        proof_bank,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        default=str,
+                    ).encode("utf-8")
+                ).hexdigest()
+            _extend_unique(
+                board,
+                "chemenzy_route_proof_banks",
+                [
+                    {
+                        "schema_version": "blackboard_chemenzy_route_proof_bank.v1",
+                        "bank_id": f"chemenzy-proof-bank:{bank_digest}",
+                        "artifact_ref": artifact_ref,
+                        "route_proof_bank": deepcopy(proof_bank),
+                        "no_solved_claim": True,
+                        "requires_current_host_replay": True,
+                    }
+                ],
+                unique_key="bank_id",
+            )
         expected_target_smiles = str((board.get("target_profile") or {}).get("target_smiles") or "")
         belief = dict(board.get("current_belief") or {})
         belief["parent_route_verifier"] = _compact_parent_route_verifier(
@@ -2386,11 +2470,29 @@ def _parent_route_verifier_solved(
 def _exact_rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     explicit = payload.get("exact_rows") or payload.get("one_step_rows")
     if isinstance(explicit, list):
-        return [_row_summary(row, idx) for idx, row in enumerate(explicit, start=1) if isinstance(row, dict)]
+        return [
+            _row_summary(
+                row,
+                idx,
+                compilation_accepted=payload.get("accepted") is True,
+            )
+            for idx, row in enumerate(explicit, start=1)
+            if isinstance(row, dict)
+        ]
     compiled = dict(payload.get("compiled_downstream") or payload)
     plugin = dict(compiled.get("literature_template_plugin") or {})
     rows = plugin.get("one_step_rows") or (plugin.get("plugin_flags") or {}).get("one_step_rows") or []
-    return [_row_summary(row, idx) for idx, row in enumerate(rows, start=1) if isinstance(row, dict)]
+    return [
+        _row_summary(
+            row,
+            idx,
+            compilation_accepted=(
+                payload.get("accepted") is True or compiled.get("accepted") is True
+            ),
+        )
+        for idx, row in enumerate(rows, start=1)
+        if isinstance(row, dict)
+    ]
 
 
 def _literature_terminal_candidates_from_payload(
@@ -2625,19 +2727,94 @@ def _chain_source_ref(chain: dict[str, Any]) -> str:
     return ""
 
 
-def _row_summary(row: dict[str, Any], idx: int) -> dict[str, Any]:
+def _row_summary(
+    row: dict[str, Any],
+    idx: int,
+    *,
+    compilation_accepted: bool = False,
+) -> dict[str, Any]:
+    def string_list(value: Any) -> list[str]:
+        values = [value] if isinstance(value, str) else value
+        if not isinstance(values, (list, tuple)):
+            return []
+        return _dedupe_strings(
+            [str(item).strip() for item in values if str(item).strip()]
+        )
+
     trace = dict(row.get("literature_template_trace") or {})
     template = row.get("template") if isinstance(row.get("template"), dict) else row.get("templates")
     if isinstance(template, dict):
         trace = {**dict(template.get("literature_template_trace") or {}), **trace}
+    raw_reactants = (
+        trace.get("reactant_smiles")
+        or trace.get("precursor_smiles")
+        or row.get("reactant_smiles")
+        or row.get("precursor_smiles")
+        or []
+    )
+    if isinstance(raw_reactants, str):
+        raw_reactants = raw_reactants.split(".")
+    reactant_smiles = string_list(raw_reactants)
+    mapped_reaction = str(
+        trace.get("atom_mapped_reaction_smiles")
+        or trace.get("mapped_reaction_smiles")
+        or row.get("atom_mapped_reaction_smiles")
+        or row.get("mapped_reaction_smiles")
+        or ""
+    ).strip()
+    accepted = bool(
+        compilation_accepted
+        and row.get("accepted", True) is not False
+        and row.get("validated", True) is not False
+    )
     return {
         "schema_version": "agent_exact_literature_row_summary.v1",
         "row_id": str(row.get("row_id") or trace.get("source_template_id") or f"exact_row_{idx}"),
+        "source_template_id": str(
+            trace.get("source_template_id") or row.get("source_template_id") or ""
+        ),
         "source_ref": str(trace.get("source_ref") or row.get("source_ref") or ""),
+        "source_refs": _dedupe_strings(
+            [
+                *string_list(trace.get("source_refs")),
+                *string_list(row.get("source_refs")),
+            ]
+        ),
         "product_smiles": str(trace.get("product_smiles") or row.get("product_smiles") or ""),
         "product_label": str(trace.get("product_label") or row.get("product_label") or row.get("product_name") or ""),
+        "reactant_smiles": reactant_smiles,
+        "reaction_smiles": str(
+            trace.get("reaction_smiles") or row.get("reaction_smiles") or ""
+        ),
+        "atom_mapped_reaction_smiles": mapped_reaction,
+        "reaction_family": str(
+            trace.get("reaction_family") or row.get("reaction_family") or ""
+        ),
+        "conditions": string_list(
+            trace.get("conditions") or row.get("conditions")
+        ),
         "source_locator": str(trace.get("source_locator") or row.get("source_locator") or ""),
-        "evidence_refs": [str(item) for item in trace.get("evidence_refs") or row.get("evidence_refs") or []],
+        "evidence_refs": string_list(
+            trace.get("evidence_refs") or row.get("evidence_refs")
+        ),
+        "source_detail_exact_step": bool(
+            trace.get("source_detail_exact_step")
+            or row.get("source_detail_exact_step")
+        ),
+        "relation_type": str(
+            trace.get("relation_type") or row.get("relation_type") or ""
+        ),
+        "exact_step_validation": _drop_large_fields(
+            trace.get("exact_step_validation")
+            or row.get("exact_step_validation")
+            or {}
+        ),
+        "source_evidence": _drop_large_fields(
+            trace.get("source_evidence") or row.get("source_evidence") or {}
+        ),
+        "accepted": accepted,
+        "validated": accepted,
+        "validation_status": "accepted_by_compiler" if accepted else "unvalidated",
         "confidence": str(row.get("confidence") or "source_detail_exact"),
         "no_solved_claim": True,
     }
@@ -3230,17 +3407,9 @@ def _merge_source_candidate_rows(existing_rows: list[Any], incoming_rows: list[A
 
 
 def _source_candidate_merge_key(row: dict[str, Any]) -> str:
-    local_pdf = str(
-        row.get("local_pdf")
-        or row.get("source_pdf_path")
-        or row.get("pdf_path")
-        or ""
-    ).strip().lower()
-    if local_pdf:
-        return f"pdf:{local_pdf}"
-    document_id = str(row.get("document_id") or "").strip().lower()
-    if document_id:
-        return f"document:{document_id}"
+    logical_document = source_document_identity(row)
+    if logical_document:
+        return logical_document
     doi = _normalize_hint_doi(str(row.get("doi") or ""))
     if doi:
         return f"doi:{doi.lower()}"

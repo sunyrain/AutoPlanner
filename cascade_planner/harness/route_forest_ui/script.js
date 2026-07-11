@@ -6,6 +6,8 @@
   const STORAGE_KEY = `autoplanner.route-forest-ui.v3:${forest.case_id || forest.target?.name || 'route'}`;
   const LEGACY_STORAGE_KEY = 'autoplanner.route-forest-ui.v2';
   const PAN_DRAG_THRESHOLD_PX = 5;
+  const BRANCH_LANE_SCHEMA_VERSION = 'route_forest_branch_lanes.v2';
+  const BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION = 'route_forest_branch_stage_evidence.v2';
   const COPY = Object.freeze({
     consensus: 'Consensus evidence audit',
     support: 'Independent support groups',
@@ -53,6 +55,7 @@
   const graph = forest.dependency_graph || {};
   const layout = forest.dependency_layout || {};
   const lanesProjection = forest.branch_lanes || {};
+  const frontierLedger = forest.frontier_ledger || forest.semantic_summary?.frontier_ledger || {};
   const graphNodes = new Map((graph.nodes || []).map(row => [row.graph_node_id, row]));
   const moleculeNodes = new Map((forest.nodes || []).map(row => [row.node_id, row]));
   const steps = new Map((forest.steps || []).map(row => [row.step_id, row]));
@@ -76,6 +79,7 @@
     selectedStepId: '',
     detailTab: oneOf(persisted.detailTab, ['step', 'evidence', 'alternatives'], 'step'),
     query: '',
+    stageFilter: oneOf(persisted.stageFilter, ['all', 'suggestion', 'expanded', 'reaction', 'stock'], 'all'),
     branchFilter: oneOf(persisted.branchFilter, ['all', 'verified', 'evidence', 'advisory', 'diagnostic'], 'all'),
     proofFilters: new Set(Array.isArray(persisted.proofFilters) ? persisted.proofFilters.filter(tier => allProofTiers.includes(tier)) : allProofTiers),
     kindFilters: new Set(Array.isArray(persisted.kindFilters) ? persisted.kindFilters.filter(kind => allKinds.includes(kind)) : allKinds),
@@ -93,6 +97,8 @@
     zoom: 1,
     panX: 0,
     panY: 0,
+    showAllOverview: false,
+    expandedGroups: new Set(),
     activeReplacement: null
   };
   let renderModel = null;
@@ -136,14 +142,20 @@
     const confidenceScore = { high: 40, medium_high: 30, medium: 20, low: 10, failed: -40 }[
       branch.confidence || lane?.confidence
     ] || 0;
-    const stepScore = Math.min(8, (lane?.step_ids || []).length) * 40;
+    const proofScore = Math.max(0, Number(lane?.proof_rank ?? -1)) * 160;
+    const stockEvidence = lane?.stage_evidence?.stock || {};
+    const stockScore = stockEvidence.member === true
+      ? (stockEvidence.closure_scope === 'procurement' ? 700 : 500) : 0;
+    const primaryScore = lane?.is_primary ? 120 : 0;
+    const stepScore = Math.min(8, (lane?.step_ids || []).length) * 16;
     const sourceScore = Math.min(8, (lane?.source_refs || []).length) * 16;
     const structureScore = Math.min(12, (lane?.graph_node_ids || []).filter(graphNodeId => {
       const graphNode = graphNodes.get(graphNodeId) || {};
       return Boolean(moleculeNodes.get(graphNode.molecule_node_id)?.structure_svg);
     }).length) * 28;
     const failedPenalty = /failed|diagnostic|rejected/i.test(`${lane?.title || ''} ${branch.summary || ''}`) ? 80 : 0;
-    return kindScore + confidenceScore + stepScore + sourceScore + structureScore - failedPenalty;
+    return kindScore + proofScore + stockScore + primaryScore + confidenceScore
+      + stepScore + sourceScore + structureScore - failedPenalty;
   }
   function chooseDefaultBranchId() {
     const primaryId = String(forest.primary_branch_id
@@ -189,7 +201,8 @@
   function persistState() {
     safeStorageSet(STORAGE_KEY, JSON.stringify({
       mode: state.mode, selectedBranchId: state.selectedBranchId, detailTab: state.detailTab,
-      branchFilter: state.branchFilter, proofFilters: [...state.proofFilters],
+      stageFilter: state.stageFilter, branchFilter: state.branchFilter,
+      proofFilters: [...state.proofFilters],
       kindFilters: [...state.kindFilters], edgeFilter: state.edgeFilter,
       orientation: state.orientation, density: state.density, edgeStyle: state.edgeStyle,
       labelMode: state.labelMode, layoutPreset: state.layoutPreset, theme: state.theme,
@@ -241,6 +254,7 @@
         && lane.branch_id === state.activeReplacement?.replacementBranchId;
       if (lane.listed === false && !isReplacementPreview) return false;
       if (isReplacementPreview) return true;
+      if (!laneMatchesStage(lane)) return false;
       if (state.branchFilter !== 'all' && lane.category !== state.branchFilter) return false;
       if (!state.proofFilters.has(lane.proof_tier)) return false;
       if (!state.kindFilters.has(lane.kind)) return false;
@@ -257,7 +271,15 @@
     });
   }
 
-  function renderChrome() {
+  function laneMatchesStage(lane) {
+    if (state.stageFilter === 'all') return true;
+    // Older lane payloads have no per-record authority.  They deliberately
+    // fail closed: proof tiers, step counts, and stock aliases are styling or
+    // aggregate hints and cannot reconstruct expanded/reaction/stock truth.
+    return stageMembershipIsAuthoritative(lane, state.stageFilter);
+  }
+
+  function renderChrome({ refreshIntegrity = true } = {}) {
     const primary = forest.primary_selection || {};
     const primaryBranch = branches.get(primary.primary_branch_id || forest.primary_branch_id) || {};
     const verified = primary.status === 'deterministically_verified'
@@ -267,25 +289,153 @@
       && primaryBranch.executable === true
       && primaryBranch.advisory_only === false
       && primaryBranch.not_parent_route_proof === false;
+    const deliveryBytesVerified = deliveryIntegrityStatus === 'verified';
+    const ledgerAuthoritative = deliveryBytesVerified && frontierLedger.authoritative === true;
+    const closure = frontierLedger.closure || {};
+    const anyRouteClosed = ledgerAuthoritative && closure.any_benchmark_route_closed === true;
+    const allGraphClosed = ledgerAuthoritative && closure.all_explored_benchmark_closed === true;
+    const anyProcurementClosed = ledgerAuthoritative && closure.any_procurement_route_closed === true;
+    const parentL3Solved = deliveryBytesVerified && verified && closure.l3_parent_solved === true;
+    const procurementL4Ready = parentL3Solved
+      && anyProcurementClosed
+      && closure.l4_procurement_ready === true;
     element('pageTitle').textContent = `${targetName()} · 路线工作台`;
     const verdict = element('verdictBadge');
-    verdict.textContent = verified ? '父路线已验证' : '父路线未闭合';
-    verdict.dataset.status = verified ? 'verified' : 'unresolved';
-    verdict.classList.toggle('status-badge--verified', verified);
-    verdict.classList.toggle('status-badge--unresolved', !verified);
-    const counts = forest.counts || {};
+    verdict.textContent = procurementL4Ready ? 'L4 采购就绪'
+      : parentL3Solved ? 'L3 父路线已解'
+        : allGraphClosed ? 'Benchmark 全探索闭合'
+          : anyRouteClosed ? '存在 Benchmark 闭合路线' : '父路线未闭合';
+    const verdictState = procurementL4Ready || parentL3Solved
+      ? 'verified' : anyRouteClosed || allGraphClosed ? 'partial' : 'unresolved';
+    verdict.dataset.status = verdictState;
+    verdict.classList.toggle('status-badge--verified', verdictState === 'verified');
+    verdict.classList.toggle('status-badge--partial', verdictState === 'partial');
+    verdict.classList.toggle('status-badge--unresolved', verdictState === 'unresolved');
+    const agentTasks = forest.semantic_summary?.agent_tasks || {};
+    const ledgerCounts = frontierLedger.counts || {};
+    const ledgerValue = key => ledgerAuthoritative ? Number(ledgerCounts[key] || 0) : '—';
     const overviewRows = [
-      ['分支', counts.branches ?? branches.size], ['反应', counts.reaction_nodes ?? steps.size],
-      ['分子', counts.nodes ?? moleculeNodes.size], ['显式边', counts.dependency_edges ?? (graph.edges || []).length]
+      ['Agent 完成', `${agentTasks.completed || 0}/${agentTasks.total || 0}`],
+      ['L0 断键边', ledgerValue('l0_break_suggestion_edges')],
+      ['已展开 work', ledgerValue('expanded_work_molecules')],
+      ['L2 反应边', ledgerValue('l2_reaction_edges')],
+      ['L3 先例边', ledgerValue('l3_precedent_edges')],
+      ['库存边界叶', ledgerValue('stock_closed_leaves')]
     ];
     if (primary.display_tiebreak_only && Number(primary.tied_candidate_count || 0) > 1) {
       overviewRows.push(['同分候选', Number(primary.tied_candidate_count)]);
     }
     element('overviewMetrics').innerHTML = overviewRows
       .map(([label, value]) => `<span class="metric-chip"><strong>${esc(value)}</strong>${esc(label)}</span>`).join('');
-    renderIntegrityStatus('pending');
+    renderClosureStatus({
+      verified,
+      parentL3Solved,
+      procurementL4Ready,
+      ledgerAuthoritative,
+      deliveryBytesVerified
+    });
+    if (refreshIntegrity) renderIntegrityStatus('pending');
     renderEvidenceStats();
     applyPersistentChromeState();
+  }
+
+  function renderClosureStatus({
+    verified,
+    parentL3Solved,
+    procurementL4Ready,
+    ledgerAuthoritative,
+    deliveryBytesVerified
+  }) {
+    const authoritative = ledgerAuthoritative === true;
+    const closure = frontierLedger.closure || {};
+    const counts = frontierLedger.counts || {};
+    const badge = element('ledgerAuthorityBadge');
+    const digest = String(frontierLedger.content_sha256 || '');
+    const reasons = (frontierLedger.validation_reasons || []).map(String);
+    badge.dataset.authoritative = String(authoritative);
+    badge.dataset.integrity = deliveryIntegrityStatus;
+    badge.textContent = authoritative
+      ? `账本当前复验通过 · 交付仅字节完整 ${digest.slice(0, 10)}`
+      : !deliveryBytesVerified
+        ? deliveryIntegrityStatus === 'pending'
+          ? '正在校验交付字节 · 结论锁定'
+          : '交付字节完整性未验证 · fail-closed'
+        : '无有效账本 · 结论 fail-closed';
+    badge.title = authoritative
+      ? `frontier_ledger.v1 · ${frontierLedger.source_ref || 'embedded'}`
+      : !deliveryBytesVerified
+        ? `delivery_integrity_status:${deliveryIntegrityStatus}`
+        : reasons.join(' · ') || 'frontier_ledger_artifact_missing';
+
+    const countValue = key => authoritative ? Number(counts[key] || 0) : '—';
+    const ratioValue = (numerator, denominator) => authoritative
+      ? `${Number(counts[numerator] || 0)}/${Number(counts[denominator] || 0)}` : '—';
+    const stockDetail = authoritative
+      ? `搜索闭合叶；其中 benchmark ${Number(counts.benchmark_only_stock_leaves || 0)}，采购边界 ${Number(counts.procurement_boundary_leaves || 0)}。benchmark 不等于可采购。`
+      : '缺少有效 frontier ledger；库存与采购均不作正向声明';
+    const progress = [
+      ['L0 断键建议', countValue('l0_break_suggestion_edges'), '未达到 L2 的精确候选反应边'],
+      ['已展开 work', ratioValue('expanded_work_molecules', 'reachable_molecules'), '已成功完成 proposal expansion 的分子 frontier'],
+      ['L2 反应验证', countValue('l2_reaction_edges'), '当前 host verifier 接受的 L2 反应边'],
+      ['L3 精确先例', countValue('l3_precedent_edges'), '绑定精确文献先例的 L3 反应边'],
+      ['搜索库存叶', ratioValue('stock_closed_leaves', 'reachable_leaves'), stockDetail]
+    ];
+    element('ledgerProgressMetrics').innerHTML = progress.map(([label, value, detail]) => `
+      <span class="ledger-progress-chip" data-authoritative="${String(authoritative)}" title="${esc(detail)}">
+        <span>${esc(label)}</span><strong>${esc(value)}</strong>
+      </span>`).join('');
+
+    const ledgerState = value => authoritative ? (value === true ? 'closed' : 'open') : 'unknown';
+    const ledgerValue = (value, positive, negative) => authoritative
+      ? (value === true ? positive : negative) : '账本缺失';
+    const cards = [
+      {
+        label: 'ANY BENCHMARK ROUTE',
+        value: ledgerValue(closure.any_benchmark_route_closed, '存在搜索闭合路线', '尚无搜索闭合路线'),
+        state: ledgerState(closure.any_benchmark_route_closed),
+        detail: '至少一条 AND/OR 路径达到 benchmark-search 闭合；不代表采购闭合'
+      },
+      {
+        label: 'ALL BENCHMARK GRAPH',
+        value: ledgerValue(closure.all_explored_benchmark_closed, 'Benchmark 全探索闭合', '仍有搜索开放分支'),
+        state: ledgerState(closure.all_explored_benchmark_closed),
+        detail: '全部可达反应边与叶节点通过 benchmark-search 固定点闭合'
+      },
+      {
+        label: 'ANY PROCUREMENT ROUTE',
+        value: ledgerValue(closure.any_procurement_route_closed, '存在采购闭合路线', '尚无采购闭合路线'),
+        state: ledgerState(closure.any_procurement_route_closed),
+        detail: '至少一条完整路径的所有叶节点具有商业、在库或通用品采购 authority'
+      },
+      {
+        label: 'ALL PROCUREMENT GRAPH',
+        value: ledgerValue(closure.all_explored_procurement_closed, '采购全探索闭合', '仍有非采购闭合分支'),
+        state: ledgerState(closure.all_explored_procurement_closed),
+        detail: '全部已探索路径通过独立采购固定点；benchmark membership 不参与此判定'
+      },
+      {
+        label: 'L3 PARENT SOLVED',
+        value: !deliveryBytesVerified ? '交付字节未验证'
+          : parentL3Solved ? '父路线已解' : verified ? '证明层级不足' : '未证明',
+        state: !deliveryBytesVerified ? 'unknown' : parentL3Solved ? 'closed' : 'open',
+        detail: '完整父路线的最弱反应达到精确文献先例；独立于搜索账本闭合'
+      },
+      {
+        label: 'L4 PROCUREMENT',
+        value: !deliveryBytesVerified ? '交付字节未验证' : procurementL4Ready ? '采购就绪' : '未证明',
+        state: !deliveryBytesVerified ? 'unknown' : procurementL4Ready ? 'closed' : 'open',
+        detail: `${authoritative ? Number(counts.procurement_boundary_leaves || 0) : '—'} 个采购边界 · ${authoritative ? Number(counts.l4_procurement_edges || 0) : '—'} 条 L4 边；必须同时满足父路线证明与采购固定点`
+      }
+    ];
+    element('closureStatusGrid').innerHTML = cards.map(card => `
+      <article class="closure-status-card" data-state="${esc(card.state)}">
+        <span class="closure-status-dot" aria-hidden="true"></span>
+        <div class="closure-status-copy">
+          <span class="closure-status-label">${esc(card.label)}</span>
+          <strong class="closure-status-value">${esc(card.value)}</strong>
+          <span class="closure-status-detail">${esc(card.detail)}</span>
+        </div>
+      </article>`).join('');
   }
 
   function renderIntegrityStatus(status) {
@@ -320,11 +470,13 @@
     if (!/^[0-9a-f]{64}$/.test(expected) || !forestDataText.includes(marker)) {
       deliveryIntegrityStatus = 'invalid';
       renderIntegrityStatus(deliveryIntegrityStatus);
+      renderChrome({ refreshIntegrity: false });
       return deliveryIntegrityStatus;
     }
     if (!globalThis.crypto?.subtle || typeof TextEncoder === 'undefined') {
       deliveryIntegrityStatus = 'unavailable';
       renderIntegrityStatus(deliveryIntegrityStatus);
+      renderChrome({ refreshIntegrity: false });
       return deliveryIntegrityStatus;
     }
     try {
@@ -336,6 +488,7 @@
       deliveryIntegrityStatus = 'unavailable';
     }
     renderIntegrityStatus(deliveryIntegrityStatus);
+    renderChrome({ refreshIntegrity: false });
     return deliveryIntegrityStatus;
   }
 
@@ -343,7 +496,11 @@
     const counts = forest.counts || {};
     const literature = forest.run_trace?.literature_counts || {};
     const rows = [
-      ['真实信源', literature.real_source_candidates ?? literature.source_candidates ?? 0], ['文献/图像链', counts.visual_chains ?? 0],
+      ['独立信源组', literature.independent_source_group_count ?? 0],
+      ['文献文档', literature.document_count ?? 0],
+      ['来源表示', literature.representation_count ?? 0],
+      ['候选记录', literature.real_source_candidate_records ?? literature.real_source_candidates ?? literature.source_candidates ?? 0],
+      ['文献/图像链', counts.visual_chains ?? 0],
       ['共识候选', counts.route_consensus_proposals ?? 0], ['后端替换', forest.replacement_validation?.validated_count ?? 0]
     ];
     element('evidenceStats').innerHTML = rows.map(([label, value]) =>
@@ -351,6 +508,29 @@
   }
 
   function renderFilters() {
+    const listedLanes = (lanesProjection.lanes || []).filter(lane => lane.listed !== false);
+    const partialExpandedCount = listedLanes.filter(lane => partialExpansionProgress(lane)).length;
+    document.querySelectorAll('[data-stage-filter]').forEach(button => {
+      const active = button.dataset.stageFilter === state.stageFilter;
+      const stage = button.dataset.stageFilter;
+      const count = stage === 'all'
+        ? listedLanes.length
+        : listedLanes.filter(lane => stageMembershipIsAuthoritative(lane, stage)).length;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
+      button.setAttribute('aria-label', `${button.textContent.trim()}，${count} 条路线`);
+      button.dataset.stageCount = String(count);
+      if (stage === 'expanded') {
+        button.title = `${count} 条全路径完成展开；${partialExpandedCount} 条仅部分展开，不计入本阶段`;
+      }
+    });
+    const partialSummary = element('partialExpandedSummary');
+    if (partialSummary) {
+      partialSummary.hidden = partialExpandedCount === 0;
+      partialSummary.textContent = partialExpandedCount
+        ? `另有 ${partialExpandedCount} 条路线仅部分展开；它们保留在探索视图，不计入“全路径已展开”。`
+        : '';
+    }
     document.querySelectorAll('[data-branch-filter]').forEach(button => {
       const active = button.dataset.branchFilter === state.branchFilter;
       button.classList.toggle('is-active', active);
@@ -381,6 +561,7 @@
     }
     const optionChanges = (allProofTiers.length - state.proofFilters.size)
       + (allKinds.length - state.kindFilters.size)
+      + (state.stageFilter !== 'all' ? 1 : 0)
       + (state.edgeFilter === 'selected' ? 1 : 0)
       + (state.orientation !== 'horizontal' ? 1 : 0)
       + (state.density !== 'comfortable' ? 1 : 0)
@@ -398,6 +579,50 @@
     });
   }
 
+  function stageMembershipIsAuthoritative(lane, stage) {
+    if (lanesProjection.schema_version !== BRANCH_LANE_SCHEMA_VERSION) return false;
+    const evidence = lane?.stage_evidence;
+    if (evidence?.schema_version !== BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION) return false;
+    const stageEvidence = evidence?.[stage];
+    const member = stageEvidence?.member === true
+      && Array.isArray(lane?.stage_memberships)
+      && lane.stage_memberships.includes(stage);
+    if (!member || stage !== 'expanded') return member;
+    const matched = Number(stageEvidence.matched_step_count);
+    const required = Number(stageEvidence.required_step_count);
+    return stageEvidence.fully_expanded === true
+      && stageEvidence.partial_expanded === false
+      && Number.isInteger(matched)
+      && Number.isInteger(required)
+      && required > 0
+      && matched === required
+      && Array.isArray(stageEvidence.matched_step_ids)
+      && stageEvidence.matched_step_ids.length === required
+      && Array.isArray(stageEvidence.remaining_step_ids)
+      && stageEvidence.remaining_step_ids.length === 0;
+  }
+
+  function partialExpansionProgress(lane) {
+    const evidence = lane?.stage_evidence;
+    const expanded = evidence?.expanded;
+    if (lanesProjection.schema_version !== BRANCH_LANE_SCHEMA_VERSION
+      || evidence?.schema_version !== BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION
+      || expanded?.partial_expanded !== true
+      || expanded?.fully_expanded === true
+      || expanded?.member === true
+      || lane?.stage_memberships?.includes('expanded')) return null;
+    const matched = Number(expanded.matched_step_count);
+    const required = Number(expanded.required_step_count);
+    if (!Number.isInteger(matched) || !Number.isInteger(required)
+      || matched <= 0 || required <= matched) return null;
+    return {
+      matched,
+      required,
+      remainingStepIds: Array.isArray(expanded.remaining_step_ids) ? expanded.remaining_step_ids : [],
+      reasons: Array.isArray(expanded.reasons) ? expanded.reasons : []
+    };
+  }
+
   function renderBranchGroups({ restoreFocusId = '' } = {}) {
     const lanes = filteredLanes();
     const grouped = new Map();
@@ -408,11 +633,27 @@
     const host = element('branchGroups');
     host.innerHTML = (lanesProjection.groups || []).filter(group => grouped.has(group.kind)).map(group => {
       const rows = grouped.get(group.kind) || [];
+      const visibleLimit = Number(forest.display_policy?.default_group_visible_count || 5);
+      const expanded = state.expandedGroups.has(group.kind) || rows.length <= visibleLimit;
+      const visibleRows = expanded ? rows : rows.slice(0, visibleLimit);
+      const omitted = rows.length - visibleRows.length;
       return `<section class="branch-group" data-branch-kind="${esc(group.kind)}">
-        <div class="branch-group-heading"><strong>${esc(group.label)}</strong><span>${rows.length}</span></div>
-        <div class="branch-group-list">${rows.map(lane => branchCard(lane)).join('')}</div>
+        <div class="branch-group-heading"><strong>${esc(group.label)}</strong><span>${rows.length} 个探索视图</span></div>
+        <div class="branch-group-list">${visibleRows.map(lane => branchCard(lane)).join('')}</div>
+        ${omitted ? `<button class="group-expand-button" type="button" data-expand-group="${esc(group.kind)}">展开其余 ${omitted} 个</button>` : (rows.length > visibleLimit ? `<button class="group-expand-button" type="button" data-collapse-group="${esc(group.kind)}">收起</button>` : '')}
       </section>`;
-    }).join('') || `<div class="empty-state"><strong>没有匹配路线</strong><span>清除搜索或放宽证明层级筛选。</span></div>`;
+    }).join('') || `<div class="empty-state branch-empty-state" role="status" aria-live="polite">
+      <strong>${state.stageFilter === 'all' ? '没有匹配路线' : '当前阶段没有权威绑定路线'}</strong>
+      <span>${state.stageFilter === 'all'
+        ? '清除搜索或放宽筛选条件。'
+        : '旧版数据、聚合 proof tier、步骤数量与库存别名都不会被推断为阶段完成。'}</span>
+      <button class="detail-action" type="button" data-filter-reset>重置筛选</button>
+    </div>`;
+    const status = element('stageFilterStatus');
+    if (status) {
+      const label = document.querySelector(`[data-stage-filter="${state.stageFilter}"]`)?.textContent?.trim() || '当前阶段';
+      status.textContent = `${label}：${lanes.length} 条匹配路线`;
+    }
     updateBranchRovingTabindex();
     if (restoreFocusId) {
       [...host.querySelectorAll('.branch-card[data-branch-id]')].find(row => row.dataset.branchId === restoreFocusId)?.focus();
@@ -422,12 +663,30 @@
   function branchCard(lane) {
     const selected = lane.branch_id === state.selectedBranchId;
     const branch = branches.get(lane.branch_id) || {};
-    const stateLabel = lane.solved && lane.executable && !lane.advisory_only ? '已验证' : '建议';
+    const stageEvidence = lane.stage_evidence?.schema_version === BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION
+      ? lane.stage_evidence : {};
+    const stockEvidence = stageEvidence.stock || {};
+    const partialProgress = partialExpansionProgress(lane);
+    const partialReason = partialProgress
+      ? `仅 ${partialProgress.matched}/${partialProgress.required} 个合成步具有当前 canonical queue succeeded 绑定${partialProgress.remainingStepIds.length ? `；待展开：${partialProgress.remainingStepIds.join('、')}` : ''}${partialProgress.reasons.length ? `；原因：${partialProgress.reasons.join('；')}` : ''}`
+      : '';
+    const partialBadge = partialProgress
+      ? `<span class="branch-badge branch-badge--partial-expanded" title="${esc(partialReason)}">部分展开 ${esc(partialProgress.matched)}/${esc(partialProgress.required)}</span>`
+      : '';
+    const stateLabel = lane.solved && lane.executable && !lane.advisory_only
+      ? '完整父路线'
+      : lane.kind === 'proof_eligible_portfolio_route' ? '完整 portfolio'
+        : stageMembershipIsAuthoritative(lane, 'stock')
+          ? (stockEvidence.closure_scope === 'procurement' ? '采购闭合' : 'Benchmark 闭合')
+          : stageMembershipIsAuthoritative(lane, 'reaction') ? '反应已验证'
+            : stageMembershipIsAuthoritative(lane, 'expanded') ? '全路径已展开'
+              : stageEvidence.suggestion?.member === true ? '断键建议'
+                : partialProgress ? '探索中' : '阶段证据未绑定';
     return `<button class="branch-card ${tierClass(lane.proof_tier)}${selected ? ' is-selected' : ''}" type="button"
       data-branch-id="${esc(lane.branch_id)}" aria-current="${selected ? 'true' : 'false'}" tabindex="-1">
       <span class="branch-card-title">${esc(lane.title || lane.branch_id)}</span>
       <span class="branch-card-meta">${esc((lane.step_ids || []).length)} 步 · ${esc(tierLabel(lane.proof_tier))}</span>
-      <span class="branch-card-badges">${lane.is_primary ? `<span class="branch-badge">${forest.primary_selection?.display_tiebreak_only ? '展示锚点' : '主分支'}</span>` : ''}<span class="branch-badge">${esc(stateLabel)}</span><span class="branch-badge">${esc(synthesisLabel(branch.synthesis_class))}</span></span>
+      <span class="branch-card-badges">${lane.is_primary ? `<span class="branch-badge">${forest.primary_selection?.display_tiebreak_only ? '展示锚点' : '主分支'}</span>` : ''}<span class="branch-badge">${esc(stateLabel)}</span>${partialBadge}<span class="branch-badge">${esc(synthesisLabel(branch.synthesis_class))}</span></span>
     </button>`;
   }
 
@@ -456,10 +715,17 @@
 
   function buildGraphModel() {
     const lanes = filteredLanes({ includeReplacementPreview: true });
-    if (state.mode === 'shared') return buildSharedModel(lanes);
+    if (state.mode === 'shared') return buildSharedModel(overviewLanes(lanes));
     const selected = lanes.find(lane => lane.branch_id === state.selectedBranchId);
-    const activeLanes = state.mode === 'current' ? (selected ? [selected] : []) : lanes;
+    const activeLanes = state.mode === 'current' ? (selected ? [selected] : []) : overviewLanes(lanes);
     return buildLaneModel(activeLanes);
+  }
+
+  function overviewLanes(lanes) {
+    if (state.showAllOverview) return lanes;
+    const topK = Number(forest.display_policy?.default_overview_top_k || 12);
+    return lanes.slice().sort((left, right) => branchDisplayScore(right) - branchDisplayScore(left)
+      || stableTextCompare(left.branch_id, right.branch_id)).slice(0, topK);
   }
 
   function effectiveLaneRows(lanes) {
@@ -627,6 +893,29 @@
     viewport.dataset.orientation = effectiveOrientation();
     const width = Math.max(1, viewport.clientWidth || 1100);
     const height = Math.max(1, viewport.clientHeight || 680);
+    if (!renderModel.instances.length) {
+      const matchingLaneCount = filteredLanes().length;
+      element('mainRoute').innerHTML = `<div class="empty-state graph-empty-state" role="status" aria-live="polite">
+        <strong>${matchingLaneCount ? '匹配路线没有可绘制的显式依赖' : '当前筛选没有权威绑定路线'}</strong>
+        <span>${matchingLaneCount
+          ? '该视图不会根据数组顺序补画分子或反应边。'
+          : '请选择其他阶段，或重置筛选查看全部探索分支。'}</span>
+        <button class="detail-action" type="button" data-filter-reset>重置筛选</button>
+      </div>`;
+      element('graphMinimap').innerHTML = '';
+      element('graphMinimap').hidden = true;
+      element('graphVisibleCount').textContent = `0/${matchingLaneCount} 探索视图 · 0 节点 · 0 边`;
+      element('overviewToggle').hidden = true;
+      element('graphTitle').textContent = matchingLaneCount
+        ? '没有可绘制的显式依赖' : '没有权威绑定路线';
+      element('graphSubtitle').textContent = matchingLaneCount
+        ? COPY.explicitEdges : '阶段筛选只消费后端 v2 authority evidence；旧版聚合提示不会被猜测为完成。';
+      state.zoom = 1;
+      state.panX = 0;
+      state.panY = 0;
+      element('zoomReadout').textContent = '100%';
+      return;
+    }
     const markers = unique(PROOF_ORDER.map(tierClass)).map(cssClass => {
       const tier = PROOF_ORDER.find(value => tierClass(value) === cssClass);
       return `<marker id="arrow-${cssClass}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 z" fill="${TIER_COLOR[tier] || '#64748b'}"></path></marker>`;
@@ -640,19 +929,23 @@
     element('mainRoute').innerHTML = `<svg class="graph-svg dependency-svg" data-layout-packing="${esc(renderModel.packing?.algorithm || 'shared_component_layers.v1')}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="graphTitle graphSubtitle">
       <defs>${markers}</defs><g class="graph-world">${decorations}${edges}${nodes}</g></svg>`;
     const visibleBranches = new Set(renderModel.instances.map(row => row.branchId).filter(Boolean));
-    element('graphVisibleCount').textContent = state.mode === 'shared'
-      ? `${visibleBranches.size || filteredLanes().length}/${(lanesProjection.lanes || []).length} 分支 · ${renderModel.instances.length} 节点 · ${renderModel.edges.length} 边`
-      : `${visibleBranches.size}/${(lanesProjection.lanes || []).length} 分支 · ${renderModel.instances.length} 节点 · ${renderModel.edges.length} 边`;
+    element('graphVisibleCount').textContent = `${visibleBranches.size || (state.mode === 'shared' ? Math.min(filteredLanes().length, Number(forest.display_policy?.default_overview_top_k || 12)) : 0)}/${filteredLanes().length} 探索视图 · ${renderModel.instances.length} 节点 · ${renderModel.edges.length} 边`;
     const replacementPreview = state.activeReplacement && state.mode === 'current';
+    const overviewToggle = element('overviewToggle');
+    const filteredCount = filteredLanes().length;
+    const topK = Number(forest.display_policy?.default_overview_top_k || 12);
+    overviewToggle.hidden = !['clusters', 'shared'].includes(state.mode) || filteredCount <= topK;
+    overviewToggle.textContent = state.showAllOverview
+      ? `仅显示 Top ${topK}` : `显示全部 ${filteredCount} 个探索视图`;
     const currentLane = laneByBranch.get(state.selectedBranchId) || {};
     element('graphTitle').textContent = replacementPreview ? '完整替换路线预览 · 后端已重验'
-      : state.mode === 'clusters' ? `路线全景 · ${(lanesProjection.lanes || []).length} 条分支`
+      : state.mode === 'clusters' ? `路线全景 · ${visibleBranches.size}/${filteredCount} 个探索视图`
         : state.mode === 'shared' ? '共享骨架 · 规范分子–反应图'
           : `重点分支 · ${middleEllipsis(currentLane.title || state.selectedBranchId, 48)}`;
     element('graphSubtitle').textContent = replacementPreview
       ? '当前画布是完整的后端 AND/OR 重验分支；它不是单步拼接，也不建立父路线证明。'
       : state.mode === 'clusters'
-        ? '完整保留所有探索分支；这是专家全景，放大或选择分支后查看化学细节。'
+        ? '默认按闭合度与可信度展示高价值 Top-K；其余探索视图可按需展开，数量不代表完整路线数。'
         : state.mode === 'shared'
           ? '相同规范分子合并显示；线宽表达支持，颜色仅表达反应证明层级。'
           : `${(currentLane.step_ids || []).length} 步 · ${tierLabel(currentLane.proof_tier)} · ${(currentLane.source_refs || []).length} 个来源引用；分子保持中性，证明颜色只用于反应和依赖边。`;
@@ -1142,6 +1435,7 @@
   }
 
   function rerenderForControls({ restoreBranchFocus = '', restoreControl = null } = {}) {
+    ensureSelectedBranchMatchesFilters({ includeReplacementPreview: Boolean(state.activeReplacement) });
     renderFilters();
     renderBranchGroups({ restoreFocusId: restoreBranchFocus });
     renderGraph();
@@ -1151,6 +1445,27 @@
       [...document.querySelectorAll(`[data-${restoreControl.kind}-filter]`)].find(row =>
         row.dataset[`${restoreControl.kind}Filter`] === restoreControl.value)?.focus();
     }
+  }
+
+  function ensureSelectedBranchMatchesFilters({ includeReplacementPreview = false } = {}) {
+    const visible = filteredLanes({ includeReplacementPreview });
+    if (visible.some(lane => lane.branch_id === state.selectedBranchId)) return;
+    state.activeReplacement = null;
+    const next = visible.slice().sort((left, right) =>
+      branchDisplayScore(right) - branchDisplayScore(left)
+      || stableTextCompare(left.branch_id, right.branch_id))[0];
+    state.selectedBranchId = next?.branch_id || '';
+    state.selectedStepId = next?.step_ids?.[0] || '';
+    state.selectedGraphNodeId = '';
+    state.selectedInstanceId = '';
+  }
+
+  function clearReplacementPreviewForFilterChange() {
+    if (!state.activeReplacement) return;
+    state.activeReplacement = null;
+    state.selectedStepId = '';
+    state.selectedGraphNodeId = '';
+    state.selectedInstanceId = '';
   }
 
   function bindEvents() {
@@ -1168,20 +1483,27 @@
         rerenderForControls();
         return;
       }
-      if (target.dataset.branchFilter) { state.branchFilter = target.dataset.branchFilter; rerenderForControls(); return; }
+      if (target.dataset.overviewToggle !== undefined) { state.showAllOverview = !state.showAllOverview; renderGraph(); return; }
+      if (target.dataset.expandGroup) { state.expandedGroups.add(target.dataset.expandGroup); renderBranchGroups(); return; }
+      if (target.dataset.collapseGroup) { state.expandedGroups.delete(target.dataset.collapseGroup); renderBranchGroups(); return; }
+      if (target.dataset.branchFilter) { clearReplacementPreviewForFilterChange(); state.branchFilter = target.dataset.branchFilter; rerenderForControls(); return; }
+      if (target.dataset.stageFilter) { clearReplacementPreviewForFilterChange(); state.stageFilter = target.dataset.stageFilter; rerenderForControls(); return; }
       if (target.dataset.proofFilter) {
+        clearReplacementPreviewForFilterChange();
         const tier = target.dataset.proofFilter;
         state.proofFilters.has(tier) ? state.proofFilters.delete(tier) : state.proofFilters.add(tier);
         rerenderForControls({ restoreControl: { kind: 'proof', value: tier } }); return;
       }
       if (target.dataset.kindFilter) {
+        clearReplacementPreviewForFilterChange();
         const kind = target.dataset.kindFilter;
         state.kindFilters.has(kind) ? state.kindFilters.delete(kind) : state.kindFilters.add(kind);
         rerenderForControls({ restoreControl: { kind: 'kind', value: kind } }); return;
       }
       if (target.dataset.edgeFilter) { state.edgeFilter = target.dataset.edgeFilter; rerenderForControls({ restoreControl: { kind: 'edge', value: target.dataset.edgeFilter } }); return; }
       if (target.dataset.filterReset !== undefined) {
-        state.branchFilter = 'all'; state.proofFilters = new Set(allProofTiers);
+        clearReplacementPreviewForFilterChange();
+        state.stageFilter = 'all'; state.branchFilter = 'all'; state.proofFilters = new Set(allProofTiers);
         state.kindFilters = new Set(allKinds); state.edgeFilter = 'all'; state.query = '';
         element('branchSearch').value = ''; rerenderForControls(); return;
       }
@@ -1209,6 +1531,7 @@
       applyPersistentChromeState(); rerenderForControls();
     });
     element('branchSearch').addEventListener('input', event => {
+      clearReplacementPreviewForFilterChange();
       state.query = event.target.value;
       rerenderForControls();
     });
@@ -1465,6 +1788,8 @@
   }
 
   function init() {
+    ensureSelectedBranchMatchesFilters();
+    persistState();
     renderChrome();
     const integrityCheck = verifyEmbeddedDeliveryDigest();
     updateMobileNavigation(state.navOpen ? 'nav' : state.inspectorOpen ? 'inspector' : 'graph');
@@ -1488,6 +1813,8 @@
       delivery_sha256: forest.delivery_sha256 || '',
       source_forest_sha256: forest.source_forest_sha256 || '',
       integrity_status: deliveryIntegrityStatus,
+      byte_integrity_status: deliveryIntegrityStatus,
+      external_closeout_authority: false,
       counts: forest.counts || {}
     }, '*');
   }

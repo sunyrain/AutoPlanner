@@ -32,7 +32,9 @@ CLOSEOUT_VALIDATION_SCHEMA = "closeout_revision_validation.v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _REQUIRED_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "route_consensus_graph": ("route_consensus",),
-    "parent_route_proof_snapshot": ("route_consensus_graph",),
+    "canonical_route_consensus_graph": (
+        "codex_campaign_proof_reconciliation",
+    ),
     "final_verdict_core": ("parent_route_proof_snapshot",),
     "explored_route_forest": (
         "route_consensus",
@@ -384,6 +386,29 @@ def validate_closeout_manifest(
                 reasons.append(
                     f"closeout_required_dependency_missing:{artifact_id}:{required_dependency}"
                 )
+        if artifact_id in {"frontier_ledger", "parent_route_proof_snapshot"}:
+            authority_graph_id = (
+                "canonical_route_consensus_graph"
+                if "canonical_route_consensus_graph" in index
+                else "route_consensus_graph"
+            )
+            if (
+                authority_graph_id in index
+                and authority_graph_id not in dependency_ids
+            ):
+                reasons.append(
+                    "closeout_required_dependency_missing:"
+                    f"{artifact_id}:{authority_graph_id}"
+                )
+        if (
+            artifact_id == "explored_route_forest"
+            and "canonical_route_consensus_graph" in index
+            and "canonical_route_consensus_graph" not in dependency_ids
+        ):
+            reasons.append(
+                "closeout_required_dependency_missing:"
+                "explored_route_forest:canonical_route_consensus_graph"
+            )
     reasons.extend(_dependency_cycle_reasons(index))
     reasons.extend(_decision_semantic_reasons(root, index))
 

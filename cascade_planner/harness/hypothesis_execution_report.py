@@ -95,6 +95,43 @@ def _candidate_execution_row(candidate: dict[str, Any], matches: list[dict[str, 
             "reasons": ["candidate_not_found_in_route_expansion_results"],
             "no_parent_solved_claim": True,
         }
+    if str(match.get("execution_kind") or "") == "codex_frontier_expansion":
+        proof_closed = bool(match.get("proof_closed"))
+        return {
+            "schema_version": "hypothesis_candidate_execution.v1",
+            "candidate_id": str(candidate.get("candidate_id") or ""),
+            "precursor_role": str(candidate.get("precursor_role") or match.get("target_name") or ""),
+            "precursor_smiles": str(candidate.get("precursor_smiles") or match.get("target_smiles") or ""),
+            "execution_status": (
+                "executed_verified_child_route"
+                if proof_closed
+                else "executed_advisory_frontier_expansion"
+            ),
+            "execution_kind": "codex_frontier_expansion",
+            "agent_task_completed": True,
+            "frontier_proof_closed": proof_closed,
+            "verifier_accepted": proof_closed,
+            "solved": False,
+            "route_status": (
+                "child_route_verified_parent_unresolved"
+                if proof_closed
+                else "frontier_expanded_pending_reaction_and_stock_proof"
+            ),
+            "route_count": int(match.get("route_count") or 0),
+            "accepted_route_count": int(bool(proof_closed)),
+            "rejected_route_count": 0,
+            "reasons": (
+                []
+                if proof_closed
+                else [
+                    "codex_frontier_was_expanded_but_is_not_proof_closed",
+                    *[str(value) for value in match.get("reasons") or []],
+                ]
+            ),
+            "frontier_job_id": str(match.get("frontier_job_id") or ""),
+            "team_report_ref": str(match.get("team_report_ref") or ""),
+            "no_parent_solved_claim": True,
+        }
     verifier = dict(match.get("verifier") or {})
     accepted = bool(match.get("accepted") or verifier.get("accepted"))
     solved = bool(match.get("solved"))
@@ -151,6 +188,52 @@ def _route_expansion_subgoal_rows(
             )
             row["target_name"] = str(subgoal.get("name") or row.get("target_name") or "")
             rows.append(row)
+    rows.extend(_codex_frontier_execution_rows(artifacts))
+    return rows
+
+
+def _codex_frontier_execution_rows(artifacts: dict[str, Any]) -> list[dict[str, Any]]:
+    team = artifacts.get("codex_retrosynthesis_team")
+    if not isinstance(team, dict):
+        return []
+    campaign = dict(team.get("campaign") or {})
+    queue = dict(campaign.get("frontier_queue") or {})
+    jobs = {
+        str(row.get("job_id") or ""): dict(row)
+        for row in queue.get("jobs") or []
+        if isinstance(row, dict) and str(row.get("job_id") or "")
+    }
+    rows: list[dict[str, Any]] = []
+    for raw in campaign.get("runs") or []:
+        if not isinstance(raw, dict) or raw.get("accepted") is not True:
+            continue
+        run = dict(raw)
+        job_id = str(run.get("frontier_job_id") or "")
+        job = jobs.get(job_id, {})
+        try:
+            achieved = int(job.get("achieved_proof_level") or 0)
+            required = int(job.get("required_proof_level") or 2)
+        except (TypeError, ValueError):
+            achieved, required = 0, 2
+        proof_closed = bool(
+            job
+            and achieved >= required
+            and str(job.get("closure_kind") or "")
+            in {"stock_boundary", "reaction_validated", "verified_route"}
+        )
+        rows.append(
+            {
+                "execution_kind": "codex_frontier_expansion",
+                "target_smiles": str(run.get("target_smiles") or job.get("frontier_smiles") or ""),
+                "target_name": str((job.get("metadata") or {}).get("target_name") or ""),
+                "frontier_job_id": job_id,
+                "team_report_ref": str(run.get("team_report_ref") or ""),
+                "agent_task_completed": True,
+                "proof_closed": proof_closed,
+                "route_count": 1,
+                "reasons": [] if proof_closed else ["frontier_agent_task_completed_without_proof_closure"],
+            }
+        )
     return rows
 
 

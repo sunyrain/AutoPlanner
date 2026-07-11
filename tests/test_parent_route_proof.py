@@ -1,4 +1,5 @@
 import unittest
+import copy
 import hashlib
 import os
 from pathlib import Path
@@ -16,6 +17,7 @@ from cascade_planner.harness.route_verifier import (
 from cascade_planner.harness.runner import emit_final_verdict
 from cascade_planner.harness.stitched_route import (
     compile_stitched_semisynthesis_route,
+    is_reaction_validated_stitched_semisynthesis_route,
     is_solved_stitched_semisynthesis_route,
 )
 
@@ -631,6 +633,35 @@ class ParentRouteProofTest(unittest.TestCase):
         self.assertFalse(stitch["subgoal_closure"]["stock_audit_passed"])
         self.assertIn("subgoal_stock_audit_not_passed", stitch["reasons"])
 
+    def test_stitch_rejects_historical_verifier_bound_to_different_route(self):
+        raw = _materialized_subgoal_raw("CCO")
+        verifier = copy.deepcopy(_strict_subgoal_verifier("CCO"))
+        verifier["accepted_route"]["steps"][0]["product_smiles"] = "CCN"
+
+        stitch = compile_stitched_semisynthesis_route(
+            literature_chain_audit={
+                "schema_version": "source_detail_route_chain_audit.v1",
+                "accepted": True,
+                "target_smiles": "CC=O",
+                "terminal_smiles": "CCO",
+                "terminal_reached": True,
+                "source_ref": "doi:10.1000/revalidatable-stitch",
+                "chain": [
+                    _strict_literature_step(
+                        step_id="ethanol_oxidation",
+                        reactants=["CCO"],
+                        product="CC=O",
+                    )
+                ],
+            },
+            subgoal_verifier=verifier,
+            subgoal_raw_result=raw,
+            target_smiles="CC=O",
+        )
+
+        self.assertFalse(stitch["accepted"])
+        self.assertIn("subgoal_verifier_reverification_mismatch", stitch["reasons"])
+
     def test_bare_parent_proof_booleans_cannot_emit_solved_verdict(self):
         bare = {"accepted": True, "solved": True, "route_status": "solved"}
 
@@ -1032,9 +1063,20 @@ class ParentRouteProofTest(unittest.TestCase):
         self.assertTrue(stitch["accepted"], stitch["reasons"])
         self.assertEqual(stitch["frontier_coverage_audit"]["frontier_count"], 2)
         self.assertEqual(stitch["frontier_coverage_audit"]["closed_frontier_count"], 2)
+        self.assertEqual(
+            stitch["frontier_coverage_audit"]["precedent_supported_frontier_count"],
+            2,
+        )
+        self.assertTrue(
+            stitch["frontier_coverage_audit"]["all_frontiers_precedent_supported"]
+        )
         self.assertEqual(len(stitch["subgoal_closures"]), 2)
         self.assertTrue(is_solved_stitched_semisynthesis_route(stitch, expected_target_smiles="CCOO"))
         proof = compile_stitched_parent_route_proof(target_smiles="CCOO", stitched_route=stitch)
+        self.assertTrue(proof["proof_clauses"]["all_reaction_steps_validated"])
+        self.assertTrue(
+            proof["proof_clauses"]["all_reaction_steps_precedent_supported"]
+        )
         self.assertTrue(is_solved_parent_route_proof(proof, expected_target_smiles="CCOO"))
 
         missing_one = compile_stitched_semisynthesis_route(
@@ -1044,6 +1086,207 @@ class ParentRouteProofTest(unittest.TestCase):
         )
         self.assertFalse(missing_one["accepted"])
         self.assertIn("literature_chain_has_unclosed_precursors", missing_one["reasons"])
+
+    def test_l2_subgoal_stitch_remains_displayable_but_cannot_solve_parent(self):
+        oxygen_raw = {
+            "target": "O",
+            "search_status": {"solved": True},
+            "routes": [
+                {
+                    "route_rank": 0,
+                    "metrics": {
+                        "terminal_reactants": ["O=O"],
+                        "terminal_stock_status": {"O=O": True},
+                    },
+                    "steps": [
+                        {
+                            **_strict_literature_step(
+                                step_id="oxygen_reduction",
+                                reactants=["O=O"],
+                                product="O",
+                            ),
+                            "stock_status": {"O=O": True},
+                        }
+                    ],
+                }
+            ],
+        }
+        literature = {
+            "schema_version": "source_detail_route_chain_audit.v1",
+            "accepted": True,
+            "target_smiles": "CCOO",
+            "terminal_smiles": "CCO",
+            "terminal_reached": True,
+            "source_ref": "doi:10.1000/revalidatable-stitch",
+            "chain": [
+                _strict_literature_step(
+                    step_id="multi_frontier",
+                    reactants=["CCO", "O"],
+                    product="CCOO",
+                )
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            catalog = Path(directory) / "acetaldehyde.csv"
+            catalog.write_text("CC=O\n", encoding="utf-8")
+            ethanol_l2_raw = {
+                "target": "CCO",
+                "search_status": {"solved": True},
+                "stock_catalog_context": {
+                    "effective_stock_names": ["fixture_acetaldehyde"],
+                    "catalog_bindings": [
+                        {
+                            "name": "fixture_acetaldehyde",
+                            "path": str(catalog),
+                            "sha256": hashlib.sha256(catalog.read_bytes()).hexdigest(),
+                        }
+                    ],
+                },
+                "routes": [
+                    {
+                        "route_rank": 0,
+                        "metrics": {
+                            "terminal_reactants": ["CC=O"],
+                            "terminal_stock_status": {"CC=O": True},
+                        },
+                        "steps": [
+                            {
+                                "product": "CCO",
+                                "reactant_smiles": ["CC=O"],
+                                "stock_status": {"CC=O": True},
+                                "atom_mapped_reaction_smiles": (
+                                    "[CH3:1][CH:2]=[O:3]>>"
+                                    "[CH3:1][CH2:2][OH:3]"
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            }
+            ethanol_l2_verifier = verify_chemenzy_raw_routes(
+                ethanol_l2_raw,
+                target_smiles="CCO",
+            )
+            expansion = {
+                "subgoals": [
+                    {
+                        "accepted": True,
+                        "subgoal": {"name": "ethanol frontier", "smiles": "CCO"},
+                        "verifier": ethanol_l2_verifier,
+                        "raw_result": ethanol_l2_raw,
+                    },
+                    {
+                        "accepted": True,
+                        "subgoal": {"name": "water frontier", "smiles": "O"},
+                        "verifier": verify_chemenzy_raw_routes(
+                            oxygen_raw,
+                            target_smiles="O",
+                        ),
+                        "raw_result": oxygen_raw,
+                    },
+                ]
+            }
+
+            stitch = compile_stitched_semisynthesis_route(
+                literature_chain_audit=literature,
+                route_expansion_result=expansion,
+                target_smiles="CCOO",
+            )
+
+            self.assertTrue(stitch["accepted"], stitch["reasons"])
+            self.assertFalse(stitch["solved"])
+            self.assertEqual(stitch["route_status"], "reaction_validated_l2_candidate")
+            self.assertTrue(stitch["stock_audit_passed"])
+            self.assertEqual(
+                stitch["frontier_coverage_audit"]["closed_frontier_count"],
+                2,
+            )
+            self.assertEqual(
+                stitch["frontier_coverage_audit"][
+                    "precedent_supported_frontier_count"
+                ],
+                1,
+            )
+            self.assertFalse(
+                stitch["frontier_coverage_audit"][
+                    "all_frontiers_precedent_supported"
+                ]
+            )
+            self.assertTrue(
+                is_reaction_validated_stitched_semisynthesis_route(
+                    stitch,
+                    expected_target_smiles="CCOO",
+                )
+            )
+            self.assertFalse(
+                is_solved_stitched_semisynthesis_route(
+                    stitch,
+                    expected_target_smiles="CCOO",
+                )
+            )
+
+            proof = compile_stitched_parent_route_proof(
+                target_smiles="CCOO",
+                stitched_route=stitch,
+            )
+            self.assertFalse(proof["accepted"])
+            self.assertFalse(proof["solved"])
+            self.assertTrue(proof["proof_clauses"]["all_reaction_steps_validated"])
+            self.assertFalse(
+                proof["proof_clauses"]["all_reaction_steps_precedent_supported"]
+            )
+            self.assertIn("reaction_step_precedent_incomplete", proof["reasons"])
+            self.assertIn(
+                "reaction_step_precedent_incomplete",
+                proof["proof_attempt"]["missing_requirements"],
+            )
+            self.assertEqual(proof["proof_evidence"]["stitched_route"], {})
+            self.assertEqual(proof["proof_evidence"]["stitched_route_attempt"], stitch)
+            self.assertFalse(
+                is_solved_parent_route_proof(
+                    proof,
+                    expected_target_smiles="CCOO",
+                )
+            )
+
+            forged_stitch = copy.deepcopy(stitch)
+            forged_stitch["solved"] = True
+            forged_stitch["route_status"] = "solved"
+            forged_stitch["frontier_coverage_audit"][
+                "precedent_supported_frontier_count"
+            ] = 2
+            forged_stitch["frontier_coverage_audit"][
+                "all_frontiers_precedent_supported"
+            ] = True
+            for closure in forged_stitch["subgoal_closures"]:
+                closure["precedent_supported"] = True
+            self.assertFalse(
+                is_solved_stitched_semisynthesis_route(
+                    forged_stitch,
+                    expected_target_smiles="CCOO",
+                )
+            )
+
+            forged_parent = copy.deepcopy(proof)
+            forged_parent["accepted"] = True
+            forged_parent["solved"] = True
+            forged_parent["route_status"] = "solved"
+            forged_parent["reasons"] = []
+            for clause in forged_parent["proof_clauses"]:
+                forged_parent["proof_clauses"][clause] = True
+            forged_parent["proof_attempt"]["accepted"] = True
+            forged_parent["proof_attempt"]["missing_requirements"] = []
+            forged_parent["proof_attempt"][
+                "reaction_steps_precedent_supported"
+            ] = True
+            forged_parent["proof_evidence"]["stitched_route"] = forged_stitch
+            self.assertFalse(
+                is_solved_parent_route_proof(
+                    forged_parent,
+                    expected_target_smiles="CCOO",
+                )
+            )
 
     def test_pdf_manifest_cannot_validate_unregistered_step_chemistry(self):
         stitch = compile_stitched_semisynthesis_route(
