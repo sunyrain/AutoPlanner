@@ -155,6 +155,42 @@ def compile_failure_critic_report(
         next_action_bias.append("run_guided_chemenzy")
         constraints["guided_standard_after_probe_pending"] = True
 
+    verification_failures = {
+        reason
+        for reason in (
+            "guided_chemenzy_verification_rejected",
+            "guided_chemenzy_verification_missing",
+        )
+        if reason in source_reasons
+    }
+    if verification_failures:
+        route_failures.append(
+            _failure(
+                "guided_chemenzy_host_verification_failed",
+                {
+                    "route_status": "unresolved",
+                    "raw_search_status_is_authority": False,
+                    "reasons": sorted(verification_failures),
+                },
+                "ChemEnzy returned raw candidates, but no current-host verifier accepted a route",
+            )
+        )
+        next_action_bias.extend(
+            [
+                "generate_disconnection_hypotheses",
+                "expand_child_target",
+                "search_literature",
+            ]
+        )
+        blocked_directions.append(
+            {
+                "schema_version": "agent_blocked_direction.v1",
+                "direction": "accept_raw_chemenzy_solved_without_host_verification",
+                "reason": sorted(verification_failures)[0],
+            }
+        )
+        constraints["raw_chemenzy_solved_is_not_proof"] = True
+
     if any(reason in source_reasons for reason in ("no_route_found", "guided_chemenzy_no_route_found", "guided_chemenzy_unresolved")):
         route_failures.append(_failure("no_route_found", {"route_status": "unresolved"}, "guided Chemenzy returned no route for the parent target"))
         bridge_tasks.append(

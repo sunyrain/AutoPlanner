@@ -568,3 +568,268 @@ def test_explicit_child_history_dedupes_canonical_equivalent_smiles(monkeypatch,
     assert captured == ["CCO"]
     assert duplicate["result"]["status"] == "exhausted"
     assert duplicate["result"]["reasons"] == ["explicit_child_targets_already_attempted"]
+
+
+def _raw_stock_solved_but_invalid_result() -> dict:
+    return {
+        "schema_version": "chemenzy_web_result.v1",
+        "ok": True,
+        "accepted": True,
+        "n_results": 9,
+        "routes": [
+            {"route_rank": index, "steps": [], "metrics": {"route_solved": True}}
+            for index in range(9)
+        ],
+        "search_status": {"status": "solved", "solved": True},
+    }
+
+
+def _atom_balance_rejected_verifier() -> dict:
+    return {
+        "schema_version": "harness_route_verifier_report.v1",
+        "accepted": False,
+        "route_status": "fake_closed_rejected",
+        "reasons": ["atom_balance_violation"],
+        "warnings": [],
+        "route_count": 9,
+        "accepted_route_count": 0,
+        "rejected_route_count": 9,
+        "best_route_step_count": 0,
+        "failure_events": [
+            {"reason": "atom_balance_violation", "route_rank": index}
+            for index in range(9)
+        ],
+    }
+
+
+def test_raw_solved_is_not_attempt_authority_when_host_verifier_rejects() -> None:
+    standard = resolve_chemenzy_budget(
+        target_smiles=NIRMATRELVIR,
+        action_kind="child",
+        payload={},
+        policy={},
+        authority="host_profile",
+        attempt_index=1,
+    )
+    rejected = classify_chemenzy_attempt_outcome(
+        standard,
+        _raw_stock_solved_but_invalid_result(),
+        verifier=_atom_balance_rejected_verifier(),
+        verified_solved=False,
+    )
+
+    assert rejected["outcome"] == "verification_rejected"
+    assert rejected["raw_solved"] is True
+    assert rejected["verified_solved"] is False
+    assert rejected["raw_route_count"] == 9
+    assert rejected["verified_route_count"] == 0
+    assert rejected["next_attempt_kind"] == "retry"
+    assert rejected["blocks_same_attempt"] is True
+    assert rejected["raw_search_status_is_authority"] is False
+
+    retry = resolve_chemenzy_budget(
+        target_smiles=NIRMATRELVIR,
+        action_kind="child",
+        payload={},
+        policy={},
+        authority="host_profile",
+        attempt_index=2,
+        prior_attempt=rejected,
+    )
+    assert retry.attempt_kind == "retry"
+
+
+def test_rejected_raw_solved_probe_advances_to_standard_without_no_route_blocker() -> None:
+    probe = resolve_chemenzy_budget(
+        target_smiles=NIRMATRELVIR,
+        action_kind="guided",
+        payload={"initial_probe": True},
+        policy={},
+        authority="planner_advisory",
+        attempt_index=1,
+    )
+    rejected = classify_chemenzy_attempt_outcome(
+        probe,
+        _raw_stock_solved_but_invalid_result(),
+        verifier=_atom_balance_rejected_verifier(),
+        verified_solved=False,
+    )
+
+    assert rejected["outcome"] == "verification_rejected"
+    assert rejected["next_attempt_kind"] == "standard"
+    assert rejected["blocks_same_attempt"] is False
+    assert rejected["search_exhaustive"] is False
+    standard = resolve_chemenzy_budget(
+        target_smiles=NIRMATRELVIR,
+        action_kind="guided",
+        payload={"initial_probe": True},
+        policy={},
+        authority="planner_advisory",
+        attempt_index=2,
+        prior_attempt=rejected,
+    )
+    assert standard.attempt_kind == "standard"
+
+
+def test_native_guided_and_child_outcomes_require_host_verified_route(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    def fake_execute(**_kwargs):
+        return _raw_stock_solved_but_invalid_result()
+
+    def fake_feedback(*_args, **_kwargs):
+        return {
+            "schema_version": "route_failure_feedback.v1",
+            "accepted": True,
+            "terminal_blacklist": [],
+            "frontier_research_targets": [],
+            "query_hints": [],
+        }
+
+    monkeypatch.setattr(
+        "cascade_planner.harness.tools._execute_chemenzy_request",
+        fake_execute,
+    )
+    monkeypatch.setattr(
+        "cascade_planner.harness.tools.verify_chemenzy_raw_routes",
+        lambda *_args, **_kwargs: _atom_balance_rejected_verifier(),
+    )
+    monkeypatch.setattr(
+        "cascade_planner.harness.tools.compile_route_failure_feedback",
+        fake_feedback,
+    )
+    monkeypatch.setattr(
+        "cascade_planner.harness.tools.write_route_failure_feedback",
+        lambda *_args, **_kwargs: str(tmp_path / "route_failure_feedback.json"),
+    )
+
+    native_state = ToolExecutionState(
+        run_dir=tmp_path / "native",
+        target_input={"target_name": "Nirmatrelvir", "target_smiles": NIRMATRELVIR},
+        preflight={"case_id": "native"},
+        budget=HarnessBudget(max_chem_enzy_runs=1),
+    )
+    native_state.run_dir.mkdir(parents=True)
+    native = run_chemenzy(native_state, {})
+    native_attempt = native["chem_enzy_attempt_outcome"]
+    assert native_attempt["outcome"] == "verification_rejected"
+    assert native_attempt["raw_solved"] is True
+    assert native_attempt["verified_solved"] is False
+    assert native["result"]["raw_route_verifier"]["accepted"] is False
+    host_verification = native["result"]["host_route_verification"]
+    assert host_verification["backend_cascade_verifier_gate_enabled"] is False
+    assert host_verification["invalid_raw_routes_retained_for_diagnostics"] is True
+    assert host_verification["host_verifier_remains_authority_when_backend_gate_disabled"] is True
+
+    guided_state = ToolExecutionState(
+        run_dir=tmp_path / "guided",
+        target_input={"target_name": "Nirmatrelvir", "target_smiles": NIRMATRELVIR},
+        preflight={"case_id": "guided", "target_profile": {"heavy_atoms": 35}},
+        budget=HarnessBudget(max_guided_chemenzy_runs=2),
+    )
+    guided_state.run_dir.mkdir(parents=True)
+    guided = run_guided_chemenzy_rerun(
+        guided_state,
+        {
+            "codex_payload_repair": {"schema_version": "codex_action_payload_repair.v1"},
+            "guided_policy_runtime_rebuild": True,
+            "initial_probe": True,
+            "chem_enzy_search_policy": _guided_policy(),
+        },
+    )
+    guided_result = guided["result"]
+    guided_attempt = guided_result["chem_enzy_attempt_outcome"]
+    assert guided_result["solved"] is False
+    assert guided_attempt["outcome"] == "verification_rejected"
+    assert guided_attempt["next_attempt_kind"] == "standard"
+    guided_standard = run_guided_chemenzy_rerun(
+        guided_state,
+        {
+            "codex_payload_repair": {"schema_version": "codex_action_payload_repair.v1"},
+            "guided_policy_runtime_rebuild": True,
+            "initial_probe": True,
+            "chem_enzy_search_policy": _guided_policy(),
+        },
+    )["result"]
+    standard_attempt = guided_standard["chem_enzy_attempt_outcome"]
+    assert standard_attempt["attempt_kind"] == "standard"
+    assert standard_attempt["outcome"] == "verification_rejected"
+    assert standard_attempt["next_attempt_kind"] == "retry"
+    assert standard_attempt["blocks_same_attempt"] is True
+
+    board = initialize_agent_blackboard(
+        target_input=guided_state.target_input,
+        preflight={
+            "accepted": True,
+            "case_id": "guided",
+            "canonical_smiles": NIRMATRELVIR,
+            "target_profile": {"heavy_atoms": 35},
+        },
+        max_rounds=3,
+        budget_limits={"max_guided_chemenzy_runs": 2},
+    )
+    board["literature_evidence"]["source_candidates"] = [
+        {"source_ref": "doi:10.1000/outcome", "doi": "10.1000/outcome"}
+    ]
+    board["budget_state"]["chemenzy_runs"] = 1
+    board = update_blackboard_from_action(
+        board,
+        action={"action_id": "probe", "action_type": "run_guided_chemenzy"},
+        action_result=guided_result,
+        round_index=1,
+        run_dir=guided_state.run_dir,
+    )
+    assert board["current_belief"]["pending_chemenzy_attempt"]["attempt_kind"] == "standard"
+    assert not any(row.get("reason") == "no_route_found" for row in board["route_failures"])
+    board["budget_state"]["chemenzy_runs"] = 2
+    board = update_blackboard_from_action(
+        board,
+        action={"action_id": "standard", "action_type": "run_guided_chemenzy"},
+        action_result=guided_standard,
+        round_index=2,
+        run_dir=guided_state.run_dir,
+    )
+    assert any(
+        row.get("reason") == "guided_chemenzy_verification_rejected"
+        for row in board["route_failures"]
+    )
+    critic = compile_failure_critic_report(blackboard=board)
+    assert critic["constraints"]["raw_chemenzy_solved_is_not_proof"] is True
+    assert any(
+        row.get("direction") == "accept_raw_chemenzy_solved_without_host_verification"
+        for row in critic["blocked_directions"]
+    )
+
+    child_state = ToolExecutionState(
+        run_dir=tmp_path / "child",
+        target_input={"target_name": "parent", "target_smiles": NIRMATRELVIR},
+        preflight={"case_id": "child", "target_profile": {"heavy_atoms": 35}},
+        budget=HarnessBudget(max_route_expansion_subgoal_runs=1),
+    )
+    child_state.run_dir.mkdir(parents=True)
+    child = run_route_expansion_subgoal_search(
+        child_state,
+        {
+            "codex_payload_repair": {"schema_version": "codex_action_payload_repair.v1"},
+            "child_policy_runtime_rebuild": True,
+            "max_targets": 1,
+            "subgoal_targets": [
+                {
+                    "name": "complex child",
+                    "smiles": NIRMATRELVIR_PRIMARY_AMIDE,
+                    "exact_target_override": True,
+                    "target_equivalence_audit_required": True,
+                    "policy_runtime_rebuild": True,
+                }
+            ],
+        },
+    )
+    child_row = child["result"]["subgoals"][0]
+    child_attempt = child_row["chem_enzy_attempt_outcome"]
+    assert child_row["raw_solved"] is True
+    assert child_row["verified_solved"] is False
+    assert child_row["solved"] is False
+    assert child_row["route_status"] == "fake_closed_rejected"
+    assert child_attempt["outcome"] == "verification_rejected"
+    assert child_attempt["next_attempt_kind"] == "retry"

@@ -2433,7 +2433,17 @@ def _guided_chemenzy_unresolved_failures(payload: dict[str, Any], *, artifact_re
     if not payload:
         return []
     attempt_outcome = dict(payload.get("chem_enzy_attempt_outcome") or {})
-    if str(attempt_outcome.get("outcome") or "") == "probe_exhausted":
+    outcome_name = str(attempt_outcome.get("outcome") or "")
+    attempt_kind = str(attempt_outcome.get("attempt_kind") or "")
+    next_attempt_kind = str(attempt_outcome.get("next_attempt_kind") or "")
+    if (
+        outcome_name == "probe_exhausted"
+        or (
+            outcome_name in {"verification_rejected", "verification_missing"}
+            and attempt_kind == "probe"
+            and next_attempt_kind == "standard"
+        )
+    ):
         return [
             {
                 "schema_version": "agent_route_failure.v1",
@@ -2445,6 +2455,34 @@ def _guided_chemenzy_unresolved_failures(payload: dict[str, Any], *, artifact_re
                 "attempt_kind": "probe",
                 "next_attempt_kind": "standard",
                 "search_exhaustive": False,
+                "attempt_outcome": outcome_name,
+                "raw_solved": bool(attempt_outcome.get("raw_solved")),
+                "verified_solved": False,
+            }
+        ]
+    if outcome_name in {"verification_rejected", "verification_missing"}:
+        return [
+            {
+                "schema_version": "agent_route_failure.v1",
+                "reason": (
+                    "guided_chemenzy_verification_rejected"
+                    if outcome_name == "verification_rejected"
+                    else "guided_chemenzy_verification_missing"
+                ),
+                "route_status": "unresolved",
+                "artifact_ref": artifact_ref,
+                "failure_class": "guided_chemenzy_host_verification",
+                "attempt_id": str(attempt_outcome.get("attempt_id") or ""),
+                "attempt_kind": attempt_kind,
+                "next_attempt_kind": next_attempt_kind,
+                "search_exhaustive": bool(
+                    attempt_outcome.get("search_exhaustive")
+                ),
+                "blocks_same_attempt": bool(
+                    attempt_outcome.get("blocks_same_attempt")
+                ),
+                "raw_solved": bool(attempt_outcome.get("raw_solved")),
+                "verified_solved": False,
             }
         ]
     raw = payload.get("result") if isinstance(payload.get("result"), dict) else {}

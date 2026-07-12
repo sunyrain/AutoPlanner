@@ -390,8 +390,18 @@ def run_chemenzy(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str
         output_path=state.run_dir / "chemenzy_native_raw_result.json",
         timeout_s=_bounded_timeout_s(payload.get("timeout_s"), state.budget.chem_enzy_timeout_s),
     )
-    attempt_outcome = _attach_chemenzy_attempt_audit(state, result, resolution=resolution)
-    _attach_native_route_verifier(state, result)
+    verifier = _attach_native_route_verifier(
+        state,
+        result,
+        expected_target_smiles=target_smiles,
+    )
+    attempt_outcome = _attach_chemenzy_attempt_audit(
+        state,
+        result,
+        resolution=resolution,
+        verifier=verifier,
+        expected_target_smiles=target_smiles,
+    )
     state.artifacts["chemenzy"] = result
     write_json(state.run_dir / "chemenzy_native_raw_result.json", result)
     return {
@@ -402,14 +412,24 @@ def run_chemenzy(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str
     }
 
 
-def _attach_native_route_verifier(state: ToolExecutionState, result: dict[str, Any]) -> dict[str, Any]:
+def _attach_native_route_verifier(
+    state: ToolExecutionState,
+    result: dict[str, Any],
+    *,
+    expected_target_smiles: str = "",
+) -> dict[str, Any]:
     """Attach the deterministic raw-route verifier for any native ChemEnzy routes."""
     routes = result.get("routes") or (dict(result.get("result") or {}).get("routes") if isinstance(result.get("result"), dict) else [])
     if not routes:
         return {}
     verifier = verify_chemenzy_raw_routes(
         result,
-        target_smiles=str(state.target_input.get("target_smiles") or result.get("target") or ""),
+        target_smiles=str(
+            expected_target_smiles
+            or state.target_input.get("target_smiles")
+            or result.get("target")
+            or ""
+        ),
         case_id=str(state.preflight.get("case_id") or state.target_input.get("target_name") or "case"),
     )
     if verifier:
@@ -499,7 +519,6 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         output_path=state.run_dir / "guided_chemenzy_raw_result.json",
         timeout_s=_codex_repaired_or_bounded_timeout_s(payload, state.budget.guided_chemenzy_timeout_s),
     )
-    attempt_outcome = _attach_chemenzy_attempt_audit(state, result, resolution=resolution)
     runtime_diagnostic = _guided_chemenzy_runtime_diagnostic(result)
     verifier = verify_chemenzy_raw_routes(
         result,
@@ -510,7 +529,14 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
     guidance_runtime = _guided_policy_runtime_diagnostics(result, request, plugin_runtime=plugin_runtime)
     proof_blockers = _guided_route_proof_blockers(verifier, plugin_runtime)
     verifier_for_output = _guided_hardened_verifier(verifier, proof_blockers=proof_blockers)
-    verifier_accepted = bool(verifier_for_output.get("accepted"))
+    attempt_outcome = _attach_chemenzy_attempt_audit(
+        state,
+        result,
+        resolution=resolution,
+        verifier=verifier_for_output,
+        expected_target_smiles=target_smiles,
+    )
+    verifier_accepted = bool(attempt_outcome.get("verified_solved"))
     out = {
         "schema_version": "guided_chemenzy_rerun_result.v1",
         "accepted": bool(result.get("ok") or result.get("accepted", result.get("exit_code") == 0)) and (verifier_accepted if verifier else True),
@@ -854,13 +880,19 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             output_path=raw_path,
             timeout_s=_codex_repaired_or_bounded_timeout_s(payload, state.budget.guided_chemenzy_timeout_s),
         )
-        attempt_outcome = _attach_chemenzy_attempt_audit(state, raw, resolution=resolution)
         verifier = verify_chemenzy_raw_routes(
             raw,
             target_smiles=target["smiles"],
             case_id=f"{state.preflight.get('case_id') or state.target_input.get('target_name') or 'case'}:{safe_name}",
         ) if (raw.get("routes") or (raw.get("result") or {}).get("routes")) else {}
-        verifier_accepted = bool(verifier.get("accepted"))
+        attempt_outcome = _attach_chemenzy_attempt_audit(
+            state,
+            raw,
+            resolution=resolution,
+            verifier=verifier,
+            expected_target_smiles=target_smiles,
+        )
+        verifier_accepted = bool(attempt_outcome.get("verified_solved"))
         parent_relevance = _route_expansion_parent_relevance_gate(target)
         accepted = bool(verifier_accepted and parent_relevance.get("accepted"))
         row_reasons = [str(item) for item in verifier.get("reasons") or [] if str(item or "").strip()]
@@ -873,7 +905,14 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
         route_status = (
             "solved" if accepted
             else "child_component_not_parent_proximal" if verifier_accepted and not parent_relevance.get("accepted")
-            else str(verifier.get("route_status") or ("solved" if (raw.get("search_status") or {}).get("solved") else "unresolved"))
+            else str(
+                verifier.get("route_status")
+                or (
+                    "verification_missing"
+                    if attempt_outcome.get("raw_solved")
+                    else "unresolved"
+                )
+            )
         )
         row = {
             "schema_version": "route_expansion_subgoal_result.v1",
@@ -884,6 +923,7 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             "raw_result_path": str(raw_path),
             "raw_ok": bool(raw.get("ok") or raw.get("accepted", raw.get("exit_code") == 0)),
             "raw_solved": bool((raw.get("search_status") or {}).get("solved")),
+            "verified_solved": bool(attempt_outcome.get("verified_solved")),
             "route_count": len(raw.get("routes") or []),
             "verifier": verifier,
             "verifier_accepted_before_parent_relevance_gate": verifier_accepted,
@@ -962,6 +1002,8 @@ def _chemenzy_request_from_payload(state: ToolExecutionState, payload: dict[str,
         "chem_enzy_budget_resolution",
         "chem_enzy_action_kind",
         "chem_enzy_attempt_kind",
+        "enable_rule_verifier_gate",
+        "cascade_verifier_gate",
     ):
         if key in payload:
             request[key] = payload[key]
@@ -1099,6 +1141,8 @@ def _attach_chemenzy_attempt_audit(
     result: dict[str, Any],
     *,
     resolution: ChemEnzyBudgetResolution,
+    verifier: dict[str, Any] | None = None,
+    expected_target_smiles: str = "",
 ) -> dict[str, Any]:
     embedded = result.get("chem_enzy_budget_resolution")
     effective_resolution = resolution
@@ -1107,11 +1151,83 @@ def _attach_chemenzy_attempt_audit(
             effective_resolution = resolution_from_dict(embedded)
         except (TypeError, ValueError):
             effective_resolution = resolution
-    outcome = classify_chemenzy_attempt_outcome(effective_resolution, result)
+    verifier_report = dict(verifier or {})
+    verified_solved = _current_host_verifier_solved(
+        verifier_report,
+        expected_target_smiles=(
+            expected_target_smiles
+            or effective_resolution.target_smiles
+        ),
+    )
+    outcome = classify_chemenzy_attempt_outcome(
+        effective_resolution,
+        result,
+        verifier=verifier_report,
+        verified_solved=verified_solved,
+    )
     result["chem_enzy_budget_resolution"] = effective_resolution.to_dict()
     result["chem_enzy_attempt_outcome"] = outcome
+    result["raw_solved"] = bool(outcome.get("raw_solved"))
+    result["verified_solved"] = bool(outcome.get("verified_solved"))
+    result["raw_search_status_is_authority"] = False
+    raw_result = (
+        dict(result.get("result") or {})
+        if isinstance(result.get("result"), dict)
+        else result
+    )
+    route_metrics = dict(raw_result.get("route_set_metrics") or {})
+    ui_metadata = dict(raw_result.get("ui_metadata") or {})
+    backend_gate = dict(
+        route_metrics.get("cascade_verifier_gate")
+        or ui_metadata.get("cascade_verifier_gate")
+        or {}
+    )
+    result["host_route_verification"] = {
+        "schema_version": "chemenzy_host_route_verification.v1",
+        "verifier_present": bool(outcome.get("verifier_present")),
+        "raw_solved": bool(outcome.get("raw_solved")),
+        "verified_solved": bool(outcome.get("verified_solved")),
+        "raw_route_count": int(outcome.get("raw_route_count") or 0),
+        "verified_route_count": int(outcome.get("verified_route_count") or 0),
+        "verifier_route_status": str(outcome.get("verifier_route_status") or ""),
+        "backend_cascade_verifier_gate_enabled": backend_gate.get("enabled") is True,
+        "invalid_raw_routes_retained_for_diagnostics": bool(
+            int(outcome.get("raw_route_count") or 0) > 0
+            and not outcome.get("verified_solved")
+        ),
+        "host_verifier_remains_authority_when_backend_gate_disabled": True,
+        "raw_search_status_is_authority": False,
+    }
     state.artifacts.setdefault("chemenzy_attempts", []).append(dict(outcome))
     return outcome
+
+
+def _current_host_verifier_solved(
+    verifier: dict[str, Any],
+    *,
+    expected_target_smiles: str,
+) -> bool:
+    """Interpret only the verifier object returned by this host call.
+
+    Production reports pass the complete replaying validator.  The compact
+    fallback keeps injected unit-test host verifiers compatible; it is never
+    read from backend result payloads and still rejects any reasons or a
+    non-solved status.
+    """
+
+    if not verifier:
+        return False
+    if is_accepted_route_verifier_report(
+        verifier,
+        expected_target_smiles=expected_target_smiles,
+    ):
+        return True
+    return bool(
+        verifier.get("accepted") is True
+        and not verifier.get("reasons")
+        and str(verifier.get("route_status") or "").strip().lower()
+        in {"solved", "graph_and_stock_closed", "reaction_validated"}
+    )
 
 
 def _target_search_name(state: ToolExecutionState) -> str:

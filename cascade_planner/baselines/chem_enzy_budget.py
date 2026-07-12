@@ -256,6 +256,9 @@ def finalize_effective_chemenzy_budget(
 def classify_chemenzy_attempt_outcome(
     resolution: ChemEnzyBudgetResolution,
     result: Mapping[str, Any],
+    *,
+    verifier: Mapping[str, Any] | None = None,
+    verified_solved: bool | None = None,
 ) -> dict[str, Any]:
     raw_result = result.get("result") if isinstance(result.get("result"), Mapping) else result
     search_status = raw_result.get("search_status") if isinstance(raw_result.get("search_status"), Mapping) else {}
@@ -264,7 +267,7 @@ def classify_chemenzy_attempt_outcome(
         route_count = max(len(routes), int(raw_result.get("n_results") or 0))
     except (TypeError, ValueError):
         route_count = len(routes)
-    solved = bool(raw_result.get("solved") or search_status.get("solved"))
+    raw_solved = bool(raw_result.get("solved") or search_status.get("solved"))
     status = str(search_status.get("status") or raw_result.get("status") or "").strip().lower()
     diagnoses = [
         str(item).strip().lower()
@@ -277,11 +280,48 @@ def classify_chemenzy_attempt_outcome(
         for item in diagnoses
         for token in ("initialization_failed", "runtime_unavailable", "capability_probe")
     )
+    verifier_report = dict(verifier or {})
+    verifier_present = bool(verifier_report)
+    verifier_route_status = str(
+        verifier_report.get("route_status") or ""
+    ).strip().lower()
+    verified_solved_bool = bool(verified_solved) if verified_solved is not None else bool(
+        verifier_present
+        and verifier_report.get("accepted") is True
+        and verifier_route_status
+        in {"solved", "graph_and_stock_closed", "reaction_validated"}
+        and _safe_nonnegative_int(verifier_report.get("accepted_route_count")) > 0
+    )
+    verified_route_count = (
+        _safe_nonnegative_int(verifier_report.get("accepted_route_count"))
+        if verifier_present
+        else 0
+    )
 
-    if solved:
+    if verified_solved_bool:
         outcome = "solved"
         next_attempt = ""
         blocks_same_attempt = False
+    elif verifier_present:
+        outcome = "verification_rejected"
+        next_attempt = (
+            "standard"
+            if resolution.attempt_kind == "probe"
+            else "retry"
+            if resolution.attempt_kind == "standard"
+            else ""
+        )
+        blocks_same_attempt = resolution.attempt_kind != "probe"
+    elif raw_solved:
+        outcome = "verification_missing"
+        next_attempt = (
+            "standard"
+            if resolution.attempt_kind == "probe"
+            else "retry"
+            if resolution.attempt_kind == "standard"
+            else ""
+        )
+        blocks_same_attempt = resolution.attempt_kind != "probe"
     elif route_count > 0:
         outcome = "route_candidates_returned"
         next_attempt = ""
@@ -319,10 +359,25 @@ def classify_chemenzy_attempt_outcome(
         "target_smiles": resolution.target_smiles,
         "canonical_target_smiles": resolution.canonical_target_smiles,
         "route_count": route_count,
+        "raw_route_count": route_count,
+        "verified_route_count": verified_route_count,
+        "raw_solved": raw_solved,
+        "verified_solved": verified_solved_bool,
+        "solved": verified_solved_bool,
         "search_status": status,
         "search_exhaustive": resolution.attempt_kind != "probe",
         "next_attempt_kind": next_attempt,
         "blocks_same_attempt": blocks_same_attempt,
+        "verifier_present": verifier_present,
+        "verifier_accepted_claim": verifier_report.get("accepted") is True,
+        "verifier_route_status": verifier_route_status,
+        "verifier_reasons": [
+            str(item)
+            for item in verifier_report.get("reasons") or []
+            if str(item or "").strip()
+        ][:20],
+        "verification_authority": "host_route_verifier",
+        "raw_search_status_is_authority": False,
         "budget_resolution": resolution.to_dict(),
     }
 
@@ -375,9 +430,17 @@ def _resolve_attempt_kind(
 ) -> ChemEnzyAttemptKind:
     prior = dict(prior_attempt or {})
     prior_outcome = str(prior.get("outcome") or "").strip().lower()
+    prior_next_attempt = str(prior.get("next_attempt_kind") or "").strip().lower()
+    if prior_next_attempt in {"standard", "retry"}:
+        return prior_next_attempt  # type: ignore[return-value]
     if prior_outcome == "probe_exhausted":
         return "standard"
-    if prior_outcome in {"search_exhausted", "timeout"}:
+    if prior_outcome in {
+        "search_exhausted",
+        "timeout",
+        "verification_rejected",
+        "verification_missing",
+    }:
         return "retry"
 
     requested = str(payload.get("attempt_kind") or payload.get("chem_enzy_attempt_kind") or "").strip().lower()
@@ -487,6 +550,13 @@ def _optional_positive_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _safe_nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _optional_positive_float(value: Any) -> float | None:
