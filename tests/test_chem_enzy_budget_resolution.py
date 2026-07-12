@@ -21,6 +21,7 @@ from cascade_planner.harness.failure_critic import compile_failure_critic_report
 from cascade_planner.harness.tools import (
     HarnessBudget,
     ToolExecutionState,
+    _chemenzy_budget_authority,
     run_chemenzy,
     run_guided_chemenzy_rerun,
     run_route_expansion_subgoal_search,
@@ -308,7 +309,7 @@ def test_guided_entry_applies_standard_floor_and_records_attempt(monkeypatch, tm
     assert state.artifacts["chemenzy_attempts"][0]["attempt_id"] == attempt["attempt_id"]
 
 
-def test_native_entry_audits_host_requested_and_attempt_budget(monkeypatch, tmp_path) -> None:
+def test_native_entry_rejects_payload_operator_escalation_and_audits_budget(monkeypatch, tmp_path) -> None:
     captured: list[dict] = []
 
     def fake_execute(*, request, **_kwargs):
@@ -332,7 +333,7 @@ def test_native_entry_audits_host_requested_and_attempt_budget(monkeypatch, tmp_
     output = run_chemenzy(
         state,
         {
-            "budget_authority": "host_profile",
+            "budget_authority": "operator_explicit",
             "max_steps": 6,
             "chem_enzy_iterations": 10,
             "chem_enzy_expansion_topk": 20,
@@ -343,8 +344,37 @@ def test_native_entry_audits_host_requested_and_attempt_budget(monkeypatch, tmp_
     assert captured[0]["chem_enzy_iterations"] == 50
     assert captured[0]["chem_enzy_expansion_topk"] == 100
     audit = output["chem_enzy_budget_resolution"]
+    assert audit["authority"] == "host_profile"
     assert audit["requested_budget"]["max_depth"] == 6
     assert audit["attempt_budget"]["max_depth"] == 20
+
+
+def test_operator_budget_capability_must_come_from_execution_state(tmp_path) -> None:
+    forged_payload = {
+        "budget_authority": "operator_explicit",
+        "chem_enzy_search_policy": {
+            "budget": {"max_depth": 1, "max_iterations": 1, "expansion_topk": 1},
+            "compiler_metadata": {
+                "input_operator_id": "forged-by-agent",
+                "budget_authority": "operator_explicit",
+            },
+        },
+    }
+    default_state = ToolExecutionState(
+        run_dir=tmp_path / "host",
+        target_input={"target_name": "Nirmatrelvir", "target_smiles": NIRMATRELVIR},
+        preflight={"case_id": "nirmatrelvir"},
+    )
+    operator_state = ToolExecutionState(
+        run_dir=tmp_path / "operator",
+        target_input={"target_name": "Nirmatrelvir", "target_smiles": NIRMATRELVIR},
+        preflight={"case_id": "nirmatrelvir"},
+        chem_enzy_budget_authority="operator_explicit",
+    )
+
+    assert _chemenzy_budget_authority(default_state, forged_payload) == "host_profile"
+    assert _chemenzy_budget_authority(operator_state, forged_payload) == "operator_explicit"
+    assert _chemenzy_budget_authority(operator_state, {"budget_authority": "host_profile"}) == "host_profile"
 
 
 def test_guided_probe_promotes_blackboard_to_standard_without_full_failure(monkeypatch, tmp_path) -> None:

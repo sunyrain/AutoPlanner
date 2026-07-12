@@ -134,6 +134,10 @@ class ToolExecutionState:
     base_url: str = "https://api.wellau.com/v1"
     model: str = "gpt-5.5"
     run_semantics: str = CANONICAL_RUN_SEMANTICS
+    # Budget authority is execution-context capability, never action payload.
+    # Agent-produced payloads may request or downgrade a budget, but cannot
+    # mint the operator capability that disables host profile floors.
+    chem_enzy_budget_authority: str = "host_profile"
     mock_tool_results: dict[str, Any] = field(default_factory=dict)
     chem_enzy_runs: int = 0
     guided_chemenzy_runs: int = 0
@@ -370,7 +374,7 @@ def run_chemenzy(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str
         action_kind="native",
         payload=payload,
         policy={},
-        authority=_chemenzy_budget_authority(payload, action_kind="native", policy={}),
+        authority=_chemenzy_budget_authority(state, payload),
         attempt_index=int(prior_attempt.get("attempt_index") or 0) + 1,
         prior_attempt=prior_attempt,
         timeout_cap_s=state.budget.chem_enzy_timeout_s,
@@ -468,7 +472,7 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         action_kind="guided",
         payload=payload,
         policy=policy,
-        authority=_chemenzy_budget_authority(payload, action_kind="guided", policy=policy),
+        authority=_chemenzy_budget_authority(state, payload),
         attempt_index=int(prior_attempt.get("attempt_index") or 0) + 1,
         prior_attempt=prior_attempt,
         timeout_cap_s=state.budget.guided_chemenzy_timeout_s,
@@ -809,11 +813,7 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             action_kind="child",
             payload=budget_payload,
             policy=child_policy,
-            authority=_chemenzy_budget_authority(
-                authority_payload,
-                action_kind="child",
-                policy=child_policy,
-            ),
+            authority=_chemenzy_budget_authority(state, authority_payload),
             attempt_index=int(prior_attempt.get("attempt_index") or 0) + 1,
             prior_attempt=prior_attempt,
             timeout_cap_s=state.budget.guided_chemenzy_timeout_s,
@@ -1052,31 +1052,28 @@ def _target_heavy_atoms(state: ToolExecutionState, *, target_smiles: str = "") -
 
 
 def _chemenzy_budget_authority(
+    state: ToolExecutionState,
     payload: dict[str, Any],
-    *,
-    action_kind: str,
-    policy: dict[str, Any],
 ) -> str:
+    """Return the host-held budget capability for one tool execution.
+
+    ``payload`` and embedded policies are untrusted action material.  They may
+    force the least-privileged planner tier, but they can never upgrade the
+    execution context to ``operator_explicit``.  That capability exists only
+    when the host constructing ``ToolExecutionState`` grants it out of band.
+    """
+
     if isinstance(payload.get("codex_payload_repair"), dict):
         return "planner_advisory"
-    explicit = str(payload.get("budget_authority") or "").strip()
-    if explicit in {"planner_advisory", "host_profile", "operator_explicit"}:
-        return explicit
-    compiler = dict(policy.get("compiler_metadata") or {})
-    if compiler.get("input_operator_id") or compiler.get("budget_authority") == "operator_explicit":
-        return "operator_explicit"
-    if action_kind == "native":
-        return "operator_explicit"
-    if policy.get("budget") and not (
-        payload.get("guided_policy_runtime_rebuild") or payload.get("child_policy_runtime_rebuild")
-    ):
-        return "operator_explicit"
-    explicit_policy = payload.get("chem_enzy_search_policy") or payload.get("search_policy")
-    if isinstance(explicit_policy, dict) and explicit_policy and not (
-        payload.get("guided_policy_runtime_rebuild") or payload.get("child_policy_runtime_rebuild")
-    ):
-        return "operator_explicit"
-    return "host_profile"
+    requested = str(payload.get("budget_authority") or "").strip()
+    if requested == "planner_advisory":
+        return "planner_advisory"
+    trusted = str(state.chem_enzy_budget_authority or "host_profile").strip()
+    if trusted not in {"planner_advisory", "host_profile", "operator_explicit"}:
+        return "host_profile"
+    if requested == "host_profile" and trusted == "operator_explicit":
+        return "host_profile"
+    return trusted
 
 
 def _last_chemenzy_attempt(
