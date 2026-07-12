@@ -47,7 +47,10 @@ python -m pytest -q -p no:cacheprovider \
   tests/test_blackboard_events.py \
   tests/test_admitted_hyperedges.py \
   tests/test_action_evidence_loop.py \
+  tests/test_evidence_capability_queue.py \
   tests/test_codex_retrosynthesis_team.py \
+  tests/test_child_candidate_quarantine_v3.py \
+  tests/test_reaction_family_authority.py \
   tests/test_codex_team_source_lifecycle.py \
   tests/test_codex_team_controller_integration.py \
   tests/test_evidence_first_controller_integration.py \
@@ -57,9 +60,13 @@ python -m pytest -q -p no:cacheprovider \
   tests/test_portfolio_supplemental_bindings.py \
   tests/test_route_admission.py \
   tests/test_chem_enzy_guidance.py \
+  tests/test_chem_enzy_budget_resolution.py \
   tests/test_route_forest.py \
+  tests/test_route_forest_edge_evidence.py \
   tests/test_route_forest_layout.py \
   tests/test_route_forest_delivery.py \
+  tests/test_edge_evidence_binding_set.py \
+  tests/test_trusted_precedent_curation_outbox.py \
   tests/test_audit_architecture_v2.py
 ```
 
@@ -97,11 +104,12 @@ The central P0 tests must cover these failure boundaries:
 
 - campaign attempts are counted from immutable started events across resumes,
   separately from accepted expansions, and global budgets cannot shrink;
-- strict child acceptance remains the default, while `valid_subset_l0` accepts
-  only a host-observed quorum after complete spawn coverage; a 4/4 run retains
-  the strict tier, while an actually used subset fallback caps every recovered
-  edge to non-authoritative L0; hard coordinator/runtime/tool failures still
-  reject, and both tiers survive immutable commit/restart replay;
+- strict child acceptance remains the default; v3 quarantines only allowlisted
+  local chemistry failures, reconciles raw/admitted/rejected candidate counts,
+  preserves a mixed report as strict, rejects an originally nonempty/all-rejected
+  report, and keeps fatal coordinator/runtime/schema/identity failures report-wide;
+  `valid_subset_l0` accepts only a host-observed role quorum after complete spawn
+  coverage and caps recovered edges to non-authoritative L0;
 - campaign execution and proof reconciliation share a whole-transaction OS
   lock, so concurrent callers cannot consume the final accepted slot twice;
 - proof-only reconciliation keeps its per-call expansion delta separate from
@@ -127,8 +135,13 @@ The central P0 tests must cover these failure boundaries:
   a final unterminated crash fragment may be forensically isolated; terminated
   corruption, duplicate keys, non-finite values, and identity/digest drift fail
   closed;
-- impossible self/ancestor cycles, element deficits, and large atom jumps are
-  rejected by the shared consensus/ChemEnzy admission gate before ranking;
+- impossible self/ancestor cycles, element deficits, large atom jumps, and
+  redundant advanced precursor fragments are rejected by the shared
+  consensus/ChemEnzy admission gate before ranking;
+- ChemEnzy requested, approved-attempt, and backend-effective budgets reconcile;
+  complex standard/retry floors cannot be bypassed by an Agent self-declaring
+  operator authority, probe exhaustion stays non-terminal, and explicit child
+  payloads do not inherit an unrelated cumulative offset;
 - per-edge materialization cache hits are replayed by the current verifier,
   while tampering, input/version drift, and injected mappers fail closed or
   bypass persistence;
@@ -151,6 +164,14 @@ The central P0 tests must cover these failure boundaries:
   for unknown/incomplete model or stock configuration and all-missing models;
 - source group, logical document, and concrete representation counts remain
   distinct, and a source-local compound-label/structure conflict fails closed;
+- one derived source-capability queue is shared by context, deterministic
+  scheduling, validation, and costs; strict render eligibility requires actual
+  accepted page artifacts, Patent URL aliases replay canonically, and per-action
+  salvage never weakens whole-batch raw-reaction/solved safety failures;
+- exact evidence binds only to the identical current-host reaction digest;
+  malformed raw structures, computational groups, bare citations, and another
+  edge's source set cannot increase trusted-source width or corroboration, and a
+  curation outbox cannot itself grant L3 authority;
 - benchmark/search and procurement stock planes are replayed through trusted
   provider instances and all four ledger fixed points are recomputed;
 - UI stage membership is derived from current ledger/queue/edge/leaf evidence,

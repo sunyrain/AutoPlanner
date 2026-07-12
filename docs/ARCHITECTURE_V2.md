@@ -117,6 +117,17 @@ text cannot impersonate literature, a different agent, or a deterministic
 verifier. Oversized, malformed, duplicate, role-mismatched, or unobserved
 reports are retained as rejected observations with stable reason codes.
 
+Report validity and candidate validity are separate. Fatal report, schema,
+runtime, identity, spawn, wait, or target failures reject the complete report.
+After a valid report is admitted, the host independently replays each candidate
+and may quarantine only allowlisted local chemistry failures: invalid
+product/precursor material, identity/self-loop, ancestor cycle, element deficit,
+an excessive atom jump, or a large redundant precursor already unnecessary for
+the product atom inventory. Mixed reports keep their strict role completion;
+raw/admitted/rejected counts and candidate digests must reconcile. A report that
+originally contained candidates but loses all of them fails, while an originally
+empty valid specialist report is allowed.
+
 Strict all-child acceptance remains the default. A new campaign may instead
 bind `child_acceptance_mode=valid_subset_l0` into its immutable policy. That
 mode still requires the host to observe an explicit spawn for every required
@@ -128,9 +139,10 @@ downgrade a complete team. A 4/4 valid run records `acceptance_tier=strict_all`
 and follows the normal consensus path. Only when the valid-subset fallback is
 actually used is every recovered proposal forcibly capped at
 `L0/model_only/low`, made non-authority-bound, and prevented from closing a
-route or making a solved claim. `autoplanner.child_acceptance.v2` binds this
-tier distinction into immutable campaign policy, so a campaign created under
-the earlier v1 behavior must restart in a fresh run directory. This recovers
+route or making a solved claim. `autoplanner.child_acceptance.v3` binds this
+tier distinction and candidate quarantine into immutable campaign policy, and
+coordinator v4 binds one exact product-to-precursor hyperedge per proposal. A
+campaign created under v1/v2 must restart in a fresh run directory. This recovers
 useful hypotheses from one incomplete sibling without converting partial
 model agreement into scientific evidence.
 
@@ -145,6 +157,13 @@ accepted expansions and four total attempts per invocation. Recursion expands
 the proposal graph; it does not prove the route. When the mainline fails, the
 case stops unresolved rather than silently handing scientific ownership to a
 deterministic fallback planner.
+
+ChemEnzy has a separate per-attempt contract. Requested, policy, profile, floor,
+cap, host-approved attempt, and backend-effective budgets are serialized
+independently. Complex standard and retry attempts cannot silently inherit a
+probe-sized plan; a no-route probe is non-exhaustive and advances to standard.
+The `operator_explicit` tier is an out-of-band execution-context capability,
+not a payload field an Agent can mint.
 
 ### Campaign durability, attempt accounting, and prepared-result recovery
 
@@ -370,8 +389,9 @@ route appear complete.
 
 All proposal sources pass the same structure-derived admission gate before
 ranking or queue publication. It rejects invalid structures, self/ancestor
-cycles, elemental deficits, and implausible heavy-atom jumps while preserving
-precursor multiplicity. The gate is shared by consensus and both guided and
+cycles, elemental deficits, implausible heavy-atom jumps, and redundant advanced
+precursor fragments while preserving meaningful precursor multiplicity. Small
+salts/leaving groups and single-precursor deprotections remain exempt. The gate is shared by consensus and both guided and
 unguided ChemEnzy execution. An admitted Codex precursor is also emitted as an
 explicit recursive child-target task and ranking bias; it is not left as prompt
 text. That task still requires an exact current-host L2 inbound parent edge
@@ -380,8 +400,10 @@ before the durable campaign may expand it.
 ## 4. Evidence correlation groups
 
 Source channels describe how a claim arrived. Correlation groups describe how
-many independent supports it actually represents. Ranking and UI width use
-the latter.
+many independent supports it actually represents. Only reaction-edge-local,
+host-replayed trusted precedent groups may affect evidence width or
+corroboration; generic/model/computational groups remain useful provenance but
+count as zero trusted sources.
 
 | Claim origin | Correlation treatment |
 | --- | --- |
@@ -402,6 +424,14 @@ local copies joined by explicit provenance are collapsed to one scholarly
 source identity. A generic `accepted=true` row with a DOI-shaped string is only
 literature analogy and cannot manufacture independent support.
 
+The source lifecycle is a pure projection, not another mutable scheduler state.
+`source_capability_queue.v1` is derived from the blackboard and shared by the
+deterministic planner, Codex decision context, validator, and action cost audit.
+PDF render capability requires an accepted artifact, positive page count, and
+real readable render paths. Action validation is per sibling so one invalid
+source request can be removed without discarding unrelated valid work, while
+unsafe raw-reaction or solved claims remain report-wide failures.
+
 For an unresolved evidence requirement, the action planner may pursue two or
 three independent source groups in one lifecycle. Metadata discovery alone is
 not completion: the lifecycle continues through acquisition, PDF/HTML binding,
@@ -417,6 +447,14 @@ source locator, validation binding, and evidence references. Dropping the
 reactants or mapping would turn a discovered source into an unusable summary,
 so the evidence-first controller regression requires a late exact row itself to
 materialize and unlock the matching frontier without a test-only mapper.
+
+Every trusted exact-row support is projected through
+`edge_evidence_binding_set.v1`. The current host must parse every original
+structure, reproduce the identical canonical product/reactant multiset and
+reaction digest, replay the row, and bind it to the current verification report.
+The sidecar cannot modify hypergraph identity or proof tier. Article and SI for
+one DOI collapse to one independent group, and a production-blocked curation
+outbox cannot grant L3 without a separate approved registry binding.
 
 Source identity is explicitly three-layered:
 
@@ -868,8 +906,10 @@ Visual encoding is deterministic:
 | Precedent-supported L3 | teal | Solid |
 | Procurement-ready L4 | green | Double/strong |
 
-Colour means proof tier, line width means independent support-group count,
-opacity means mean trust dimension, and dash/texture exposes uncertainty. The
+Colour means proof tier, line width means trusted reaction-edge-local independent
+source count, opacity means mean trust dimension, and dash/texture exposes
+uncertainty. Branch aggregation uses the weakest reaction edge, with coverage
+only as a tie-break; several strong edges cannot mask one unsupported step. The
 JSON legend is authoritative; consumers should not hard-code a semantic from
 colour alone.
 

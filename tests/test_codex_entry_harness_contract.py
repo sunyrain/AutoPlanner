@@ -2190,7 +2190,9 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertTrue(result.output["result"]["accepted"])
         self.assertEqual(request["max_steps"], 9)
         self.assertEqual(request["chem_enzy_iterations"], 12)
-        self.assertEqual(request["chem_enzy_expansion_topk"], 33)
+        # A compiled policy without an out-of-band operator capability remains
+        # host-profile authority, so the simple-target standard floor is 50.
+        self.assertEqual(request["chem_enzy_expansion_topk"], 50)
         self.assertEqual(request["chem_enzy_search_policy"]["policy_id"], "ethanol_policy_1")
         self.assertTrue(request["literature_template_plugin"]["enabled"])
         self.assertEqual(request["literature_template_plugin"]["one_step_rows"][0]["reactants"], "CC.O")
@@ -2853,7 +2855,7 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertNotEqual(request["target_smiles"], "CCCC")
         self.assertEqual(request["max_steps"], 11)
         self.assertEqual(request["chem_enzy_iterations"], 22)
-        self.assertEqual(request["chem_enzy_expansion_topk"], 44)
+        self.assertEqual(request["chem_enzy_expansion_topk"], 50)
         self.assertEqual(persisted["accepted_subgoal_count"], 1)
         self.assertEqual(persisted["scope"], "route_expansion_subgoals")
         self.assertFalse(persisted["parent_route_solved"])
@@ -3050,7 +3052,7 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
         self.assertEqual(request["chem_enzy_search_policy"]["policy_id"], "source_detail_child_policy")
         self.assertEqual(request["max_steps"], 7)
         self.assertEqual(request["chem_enzy_iterations"], 13)
-        self.assertEqual(request["chem_enzy_expansion_topk"], 21)
+        self.assertEqual(request["chem_enzy_expansion_topk"], 50)
         self.assertTrue(request["literature_template_plugin"]["enabled"])
         self.assertEqual(request["literature_template_plugin"]["one_step_rows"][0]["reactants"], "CC.O")
         self.assertEqual(persisted["subgoals"][0]["subgoal"]["source"], "source_detail_one_step_reactant")

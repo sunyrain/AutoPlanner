@@ -13,8 +13,10 @@ target input
 -> blackboard state
 -> Codex coordinator calls spawn_agent for each specialist role
 -> child reports return typed RetrosynthesisProposalReport artifacts
+-> the host quarantines invalid candidate siblings without trusting report-level claims
 -> provider envelopes bind schemas, versions, hashes, and correlation groups
--> evidence actions acquire 2-3 independent source groups through exact rows
+-> one derived source-capability queue schedules discovery, rendering, visual extraction,
+   exact-row compilation, and proof work; invalid actions do not discard valid siblings
 -> route consensus fuses every canonical product intermediate independently
 -> stock-first persistent frontiers launch bounded direct Codex child teams
 -> frontier neighborhoods assemble into the V2 reaction-hypergraph overlay
@@ -25,6 +27,8 @@ target input
 -> exact rows retain product, every reactant, source binding, and atom mapping
 -> every consensus edge is materialized, mapped where possible, cached per
    exact input, and replayed by conservative current-host transforms
+-> trusted evidence bindings are joined to their exact reaction digest; source count
+   cannot be borrowed from another edge or inferred from a bare citation
 -> a current-host L2 parent proof unlocks its precursor frontier, and the same
    campaign resumes without letting unproved edges spend recursive Agent calls
 -> frontier_ledger.v1 projects the complete reachable graph, durable work,
@@ -64,7 +68,18 @@ an explicit role marker; a matching `wait` terminal event and strict child JSON
 report are both required. Merely writing role-shaped prose, returning ambiguous
 JSON, or completing without an accepted report does not satisfy this contract.
 
-`strict_all` remains the default child policy. For a fresh campaign,
+`strict_all` remains the default child policy. Child acceptance v3 has two
+independent fail-closed boundaries. Fatal report/runtime/schema/identity failures
+still reject the role or attempt, while a structurally local candidate failure
+(invalid molecule, identity edge, ancestor cycle, element deficit, excessive
+atom jump, or a large redundant precursor already unnecessary for product atom
+inventory) quarantines only that candidate. A mixed valid/invalid report may
+therefore remain a strict 4/4 result; its raw, admitted, and rejected candidate
+counts and per-candidate digests must reconcile exactly. A report that originally
+contained candidates but has all of them quarantined fails; an intentionally
+empty, otherwise valid specialist report remains legal.
+
+For a fresh campaign,
 `--codex-agent-team-child-acceptance-mode valid_subset_l0` safely recovers a
 host-derived quorum when every role was explicitly spawned but one sibling did
 not return a valid final report. Enabling the policy does not downgrade a 4/4
@@ -73,9 +88,11 @@ actually required, it never trusts coordinator-restated candidates: accepted
 sibling finals are revalidated and forcibly reduced to L0/model-only/low, with
 no authority or solved claim. Timeout, nonzero exit, tool/runtime/identity
 failure, missing spawn coverage, and sub-quorum output still reject the
-attempt. This corrected tier behavior is bound as
-`autoplanner.child_acceptance.v2`; do not reuse a v1 campaign directory—start
-a fresh run so the immutable policy records the v2 contract.
+attempt. Coordinator v4 additionally requires each proposal to describe one
+exact product-to-precursor hyperedge; family labels are selected from host
+authority and consensus, never from a model's confidence token. These semantics
+are bound as `autoplanner.child_acceptance.v3`; do not resume a v1/v2 campaign
+directory—start a fresh run so the immutable policy records the v3 contract.
 
 Codex can delegate, plan, search, rank, and draft typed artifacts. It cannot
 directly mark a case solved, inject raw reactions, write production KB entries,
@@ -180,6 +197,29 @@ its canonical graph and ledger contain replayed external edges. Invalid
 receipts are quarantined, and a failed reconcile uses an empty identity-bound
 authority graph rather than promoting the caller-advisory graph.
 
+Source lifecycle state is not maintained by a second planner-owned queue. The
+host derives `source_capability_queue.v1` from the current blackboard on every
+round, and the deterministic planner, Codex decision snapshot, validator, and
+cost accounting all read that same projection. A source becomes render-capable
+only after an accepted PDF artifact contains a positive page count and actual
+readable render paths. Canonical locator replay treats Google Patents URLs and
+their `patent:<publication>` handles as the same traceable source, while opaque
+legacy aliases remain non-authoritative. Validation is per action: an invalid
+Patent visual request can be dropped without losing a valid Science extraction
+or child expansion in the same batch; unsafe solved/raw-reaction material still
+fails the whole batch.
+
+ChemEnzy uses a host-owned per-attempt budget contract. The audit keeps requested,
+policy, profile, floor, cap, approved attempt, and backend-effective values
+separate. A complex standard attempt is at least depth/iterations/top-k
+`20/50/100`, a retry is `20/60/120`, and a probe is capped at
+`6/10/20/180s`. A no-route probe records `probe_exhausted`, not an exhaustive
+failure, and may advance to a standard attempt. Budget authority is an
+execution-context capability: an Agent payload cannot self-declare
+`operator_explicit` to bypass the host floor. Explicit child target lists start
+at offset zero and are deduplicated by canonical structure rather than by the
+length of unrelated prior results.
+
 By default the launcher also reads `config/trusted_stock_catalogs.json` and
 verifies the pinned PaRoutes n1 CSV SHA-256 before execution. This is a
 reproducible `benchmark_stock` boundary only. It explicitly makes no commercial
@@ -208,6 +248,7 @@ stock boundary types eligible for level 4 after their own authority replay.
 - `cascade_planner/harness/agent_action_planner.py`
 - `cascade_planner/harness/codex_action_planner.py`
 - `cascade_planner/harness/agentic_blackboard.py`
+- `cascade_planner/harness/source_capabilities.py`
 - `cascade_planner/harness/route_objectives.py`
 - `cascade_planner/harness/analogical_reaction_templates.py`
 - `cascade_planner/harness/parent_route_proof.py`
@@ -215,6 +256,7 @@ stock boundary types eligible for level 4 after their own authority replay.
 - `cascade_planner/agent/action_contracts.py`
 - `cascade_planner/orchestration/codex_retrosynthesis.py`
 - `cascade_planner/harness/codex_edge_verification.py`
+- `cascade_planner/baselines/chem_enzy_budget.py`
 - `cascade_planner/baselines/chem_enzy_guidance.py`
 - `cascade_planner/routes/consensus.py`
 - `cascade_planner/routes/graph.py`
@@ -360,6 +402,19 @@ whose reaction centre replays may reach `L2_reaction_validated`; generic
 cut/glue remains L0/L2-mapping-only. Digest-valid results are persisted in
 `reaction_proof_state.json` and supplied to the next bounded campaign resume.
 `agent_task_succeeded` and `proof_closed` therefore remain visibly separate.
+
+`edge_evidence_binding_sets.v1` is a digest-bound sidecar over that verified
+chemistry. Every exact row is revalidated by the current host and may bind only
+the identical canonical product/reactant multiset and reaction digest. All raw
+structures must parse; invalid reactants cannot be filtered away before a
+match. The set preserves every eligible exact row, selects one deterministic
+primary row for conditions, and counts corroboration only across independent,
+trusted precedent groups. Article and SI representations of one DOI remain one
+source group; computational/model channels and naked citations count as zero.
+Corroboration never upgrades L0-L4 proof level. Model-produced curation
+candidates are written to a production-blocked outbox; only an out-of-band
+curator or deterministic approved parser may create the separate trusted
+registry binding required for L3.
 
 Recursive expansion is gated by that proof refresh. The campaign root is
 eligible immediately; a child precursor is stock-audited and persisted but is
@@ -513,8 +568,11 @@ The route forest is a complete molecule-reaction bipartite dependency
 projection with explicit edges. A closed selected route is a DAG; cycles in the
 full explored proposal overlay are shown explicitly. Its trust vector separates
 identity, connectivity, source independence, stock, conditions, and forward
-feasibility. Colour is the proof tier; width is independent support-group count;
-opacity is mean trust; pattern exposes uncertainty. The canonical forest is
+feasibility. Colour is the proof tier; width is the number of trusted,
+reaction-edge-local independent sources; opacity is mean trust; pattern exposes
+uncertainty. Branch-level source strength is the minimum across its reaction
+steps, and default ranking is weakest-edge-first before coverage tie-breaks, so
+several well-supported steps cannot hide one unsupported edge. The canonical forest is
 untruncated by default, while the initial viewport may collapse lower-value
 branches under the recorded display policy. Any explicit producer limit records
 omitted counts and displays a warning. The emitted legend maps rejected L0 to
@@ -621,7 +679,8 @@ persisted in `chem_enzy_runtime_preflight.json` and attached to the run result.
 Guidance is executable, not decorative: policy precursor hints compile into a
 typed guidance contract consumed by the native one-step wrapper, which adjusts
 candidate costs/ranking and hard-rejects self-loops, ancestor cycles, obvious
-element deficits, implausible heavy-atom jumps, and disallowed terminal
+element deficits, implausible heavy-atom jumps, redundant advanced fragments,
+and disallowed terminal
 candidates. Trusted stock terminals are preserved. The run emits consumption
 counts, cost changes, accepted rows, and exact rejection reasons. These changes
 improve proposal quality but do not inject raw reactions or bypass deterministic
