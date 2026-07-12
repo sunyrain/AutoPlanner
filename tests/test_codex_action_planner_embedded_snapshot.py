@@ -322,6 +322,65 @@ def test_oversized_handoff_is_bounded_without_losing_core_pending_state(
     assert "source-bound-process.pdf" in fixed_compact
     assert "resolve:compound-7" in fixed_compact
     assert "d" * 64 in fixed_compact
+    fixed_handoff = fixed_payload["blackboard_handoff"]
+    assert fixed_handoff["action_requirements"]["source_sensitive_actions"][
+        "extract_pdf_literature_structures"
+    ]["currently_required"] is True
+    assert "source_capability_id" in fixed_handoff["action_requirements"][
+        "source_sensitive_actions"
+    ]["extract_pdf_literature_structures"]["accepted_payload_fields"]
+    assert fixed_payload["no_file_read_required"] is True
+    assert fixed_payload["shell_read_allowed"] is False
+
+
+def test_handoff_hard_bound_handles_hostile_utf8_numbers_and_keys(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    board = _planner_board(tmp_path)
+    snapshot_path = _write_codex_blackboard_snapshot(
+        board,
+        run_dir=tmp_path,
+        round_index=2,
+    )
+    handoff = json.loads(snapshot_path.read_text(encoding="utf-8"))["blackboard"]
+    handoff["case_id"] = "🧪" * 20_000
+    handoff["target_profile"]["target_name"] = "🧬" * 20_000
+    handoff["state_counts"]["source_candidates"] = 10**20_000
+    handoff["route_board"]["frontier_ledger"]["hostile_nonfinite"] = float(
+        "nan"
+    )
+    handoff["route_board"]["frontier_ledger"].update(
+        {
+            f"hostile-{'🔬' * 400}-{index}": {
+                f"nested-{'🧫' * 400}": "⚗️" * 4_000,
+            }
+            for index in range(100)
+        }
+    )
+    handoff["action_requirements"][f"hostile-{'🧯' * 4_000}"] = {
+        "payload": "💥" * 20_000,
+    }
+    monkeypatch.setattr(
+        codex_action_planner,
+        "_planner_prompt_snapshot_max_bytes",
+        lambda: 7_000,
+    )
+
+    payload, bounds = _bounded_planner_prompt_payload(handoff, round_index=2)
+    compact = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+    assert bounds["within_bound"] is True
+    assert bounds["embedded_bytes"] <= 7_000
+    assert len(_planner_json_bytes(payload)) == bounds["embedded_bytes"]
+    assert "doi:10.1000/embedded.snapshot" in compact
+    assert "source-bound-process.pdf" in compact
+    assert "resolve:compound-7" in compact
+    assert "d" * 64 in compact
+    assert "source_capability_id" in compact
+    assert payload["no_file_read_required"] is True
+    assert payload["input_refs_are_audit_only"] is True
+    assert payload["shell_read_allowed"] is False
 
 
 def test_main_and_repair_share_verified_bounded_snapshot(tmp_path: Path) -> None:

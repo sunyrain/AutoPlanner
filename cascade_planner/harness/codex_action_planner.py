@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import math
 import os
 import re
 from copy import deepcopy
@@ -2903,17 +2904,13 @@ def _absolute_minimum_planner_handoff(handoff: dict[str, Any]) -> dict[str, Any]
     parent_proof = _planner_prompt_mapping(route.get("parent_route_proof"))
     return {
         "schema_version": "codex_action_planner_blackboard_handoff.v1",
-        "case_id": _planner_prompt_text(handoff.get("case_id"), 160),
+        "case_id": _planner_prompt_text(handoff.get("case_id"), 96),
         "target_profile": {
-            "target_name": _planner_prompt_text(target.get("target_name"), 160),
-            "target_smiles": _planner_prompt_text(target.get("target_smiles"), 520),
+            "target_name": _planner_prompt_text(target.get("target_name"), 96),
+            "target_smiles": _planner_prompt_text(target.get("target_smiles"), 320),
             "canonical_smiles": _planner_prompt_text(
-                target.get("canonical_smiles"), 520
+                target.get("canonical_smiles"), 320
             ),
-            "family_hint": _planner_prompt_text(target.get("family_hint"), 160),
-            "heavy_atoms": _planner_prompt_count(target.get("heavy_atoms")),
-            "rings": _planner_prompt_count(target.get("rings")),
-            "stereocenters": _planner_prompt_count(target.get("stereocenters")),
             "valid": target.get("valid") is True,
         },
         "state_counts": {
@@ -2932,7 +2929,7 @@ def _absolute_minimum_planner_handoff(handoff: dict[str, Any]) -> dict[str, Any]
             )
         },
         "evidence_board": {
-            "source_capability_queue": _fixed_prompt_source_capability_queue(
+            "source_capability_queue": _minimum_prompt_source_capability_queue(
                 evidence.get("source_capability_queue")
             ),
             "pending_source_counts": {
@@ -2952,20 +2949,11 @@ def _absolute_minimum_planner_handoff(handoff: dict[str, Any]) -> dict[str, Any]
                     evidence.get("structure_resolution_tasks")
                 ),
             },
-            "pending_local_pdf_proxy_sources": _fixed_prompt_source_rows(
-                evidence.get("pending_local_pdf_proxy_sources"), limit=1
+            "pending_pdf_extraction_sources": _minimum_prompt_pending_pdf_rows(
+                evidence
             ),
-            "pending_pdf_extraction_sources": _fixed_prompt_source_rows(
-                evidence.get("pending_pdf_extraction_sources"), limit=2
-            ),
-            "pending_visual_extraction_sources": _fixed_prompt_source_rows(
-                evidence.get("pending_visual_extraction_sources"), limit=2
-            ),
-            "source_candidates": _fixed_prompt_source_rows(
-                evidence.get("source_candidates"), limit=2
-            ),
-            "structure_resolution_tasks": _fixed_prompt_structure_tasks(
-                evidence.get("structure_resolution_tasks"), limit=2
+            "structure_resolution_tasks": _minimum_prompt_structure_tasks(
+                evidence.get("structure_resolution_tasks")
             ),
         },
         "route_board": {
@@ -2984,17 +2972,14 @@ def _absolute_minimum_planner_handoff(handoff: dict[str, Any]) -> dict[str, Any]
                     parent_proof.get("proof_mode"), 100
                 ),
                 "status": _planner_prompt_text(parent_proof.get("status"), 100),
-                "reasons": _fixed_prompt_text_list(
-                    parent_proof.get("reasons"), limit=4, string_limit=180
-                ),
             },
-            "frontier_ledger": _fixed_prompt_frontier_ledger(
+            "frontier_ledger": _minimum_prompt_frontier_ledger(
                 route.get("frontier_ledger")
             ),
         },
         "decision_board": {
             "next_action_bias": _fixed_prompt_text_list(
-                decision.get("next_action_bias"), limit=4, string_limit=120
+                decision.get("next_action_bias"), limit=2, string_limit=80
             ),
             "blocked_direction_count": _planner_prompt_list_count(
                 decision.get("blocked_directions")
@@ -3018,7 +3003,7 @@ def _absolute_minimum_planner_handoff(handoff: dict[str, Any]) -> dict[str, Any]
                 decision.get("budget_remaining")
             ),
         },
-        "action_requirements": _fixed_prompt_action_requirements(
+        "action_requirements": _minimum_prompt_action_requirements(
             handoff.get("action_requirements")
         ),
         "safety_boundaries": _fixed_prompt_safety_boundaries(
@@ -3039,7 +3024,12 @@ def _planner_prompt_prefix(value: Any, limit: int) -> list[Any]:
 
 
 def _planner_prompt_text(value: Any, limit: int) -> str:
-    return str(value or "")[: max(0, int(limit))]
+    text = str(value or "")
+    byte_limit = max(0, int(limit))
+    encoded = text.encode("utf-8")
+    if len(encoded) <= byte_limit:
+        return text
+    return encoded[:byte_limit].decode("utf-8", errors="ignore")
 
 
 def _planner_prompt_count(value: Any) -> int:
@@ -3141,6 +3131,121 @@ def _fixed_prompt_source_capability_queue(value: Any) -> dict[str, Any]:
         "capabilities": capabilities,
         "no_solved_claim": True,
     }
+
+
+def _minimum_prompt_source_capability_queue(value: Any) -> dict[str, Any]:
+    queue = _planner_prompt_mapping(value)
+    budget = _planner_prompt_mapping(queue.get("budget"))
+    priority = {
+        "extract_pdf_literature_structures": 0,
+        "resolve_literature_structure_task": 1,
+        "extract_visual_literature_chain": 2,
+        "compile_exact_literature_rows": 3,
+        "search_literature": 4,
+    }
+    raw_capabilities = (
+        list(queue.get("capabilities")[:24])
+        if isinstance(queue.get("capabilities"), (list, tuple))
+        else []
+    )
+    ranked = sorted(
+        (
+            (index, _planner_prompt_mapping(raw))
+            for index, raw in enumerate(raw_capabilities)
+            if _planner_prompt_mapping(raw)
+        ),
+        key=lambda item: (
+            item[1].get("eligible") is not True,
+            priority.get(str(item[1].get("action_type") or ""), 99),
+            item[0],
+        ),
+    )[:2]
+    capabilities: list[dict[str, Any]] = []
+    for _, row in ranked:
+        binding = _planner_prompt_mapping(row.get("payload_binding"))
+        cost = _planner_prompt_mapping(row.get("cost"))
+        capabilities.append(
+            {
+                "capability_id": _planner_prompt_text(
+                    row.get("capability_id"), 112
+                ),
+                "action_type": _planner_prompt_text(row.get("action_type"), 72),
+                "source_ref": _planner_prompt_text(row.get("source_ref"), 180),
+                "payload_binding": {
+                    key: _planner_prompt_text(binding.get(key), limit)
+                    for key, limit in (
+                        ("source_ref", 180),
+                        ("pdf_path", 280),
+                        ("task_id", 160),
+                        ("chain_id", 160),
+                    )
+                    if str(binding.get(key) or "").strip()
+                },
+                "literature_source_units": _planner_prompt_count(
+                    cost.get("literature_source_units")
+                ),
+                "visual_calls": _planner_prompt_count(cost.get("visual_calls")),
+                "eligible": row.get("eligible") is True,
+            }
+        )
+    return {
+        "schema_version": _planner_prompt_text(queue.get("schema_version"), 64),
+        "content_sha256": _planner_prompt_text(queue.get("content_sha256"), 80),
+        "literature_source_units_remaining_this_round": _planner_prompt_count(
+            budget.get("literature_source_units_remaining_this_round")
+        ),
+        "capabilities": capabilities,
+    }
+
+
+def _minimum_prompt_pending_pdf_rows(evidence: dict[str, Any]) -> list[dict[str, Any]]:
+    for key in (
+        "pending_pdf_extraction_sources",
+        "pending_local_pdf_proxy_sources",
+        "source_candidates",
+    ):
+        values = evidence.get(key)
+        if not isinstance(values, (list, tuple)):
+            continue
+        for raw in values[:24]:
+            row = _planner_prompt_mapping(raw)
+            pdf_path = (
+                row.get("local_pdf")
+                or row.get("pdf_path")
+                or row.get("source_pdf_path")
+            )
+            if not row or not str(pdf_path or "").strip():
+                continue
+            return [
+                {
+                    "source_ref": _planner_prompt_text(row.get("source_ref"), 180),
+                    "doi": _planner_prompt_text(row.get("doi"), 96),
+                    "title": _planner_prompt_text(
+                        row.get("title") or row.get("source_title"), 96
+                    ),
+                    "local_pdf": _planner_prompt_text(pdf_path, 280),
+                }
+            ]
+    return []
+
+
+def _minimum_prompt_structure_tasks(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    for raw in value[:24]:
+        row = _planner_prompt_mapping(raw)
+        if not row:
+            continue
+        return [
+            {
+                "task_id": _planner_prompt_text(row.get("task_id"), 160),
+                "label": _planner_prompt_text(row.get("label"), 96),
+                "source_ref": _planner_prompt_text(row.get("source_ref"), 180),
+                "status": _planner_prompt_text(row.get("status"), 48),
+                "no_solved_claim": True,
+            }
+        ]
+    return []
 
 
 def _fixed_prompt_source_rows(value: Any, *, limit: int) -> list[dict[str, Any]]:
@@ -3262,6 +3367,35 @@ def _fixed_prompt_frontier_ledger(value: Any) -> dict[str, Any]:
     }
 
 
+def _minimum_prompt_frontier_ledger(value: Any) -> dict[str, Any]:
+    ledger = _planner_prompt_mapping(value)
+    pending = _planner_prompt_mapping(ledger.get("pending_counts"))
+    root = _planner_prompt_mapping(ledger.get("root"))
+    return {
+        "frontier_ledger_content_sha256": _planner_prompt_text(
+            ledger.get("frontier_ledger_content_sha256"), 80
+        ),
+        "input_valid": ledger.get("input_valid") is True,
+        "ledger_validation_accepted": ledger.get("ledger_validation_accepted")
+        is True,
+        "root_canonical_smiles": _planner_prompt_text(
+            root.get("canonical_smiles"), 240
+        ),
+        "pending_counts": {
+            key: _planner_prompt_count(pending.get(key))
+            for key in (
+                "proposal_pending_molecule_count",
+                "proposal_expansion_eligible_molecule_count",
+                "stock_pending_leaf_count",
+                "reaction_proof_pending_edge_count",
+            )
+        },
+        "open_frontier_molecule_count": _planner_prompt_count(
+            ledger.get("open_frontier_molecule_count")
+        ),
+    }
+
+
 def _fixed_prompt_budget_remaining(value: Any) -> dict[str, int]:
     budget = _planner_prompt_mapping(value)
     return {
@@ -3327,6 +3461,106 @@ def _fixed_prompt_action_requirements(value: Any) -> dict[str, Any]:
             ),
         },
     }
+
+
+def _minimum_prompt_action_requirements(value: Any) -> dict[str, Any]:
+    requirements = _planner_prompt_mapping(value)
+    source_sensitive = _planner_prompt_mapping(
+        requirements.get("source_sensitive_actions")
+    )
+    preferred_fields = {
+        "extract_pdf_literature_structures": (
+            "source_capability_id",
+            "source_ref",
+            "doi",
+            "pdf_path",
+            "local_pdf",
+        ),
+        "extract_visual_literature_chain": (
+            "source_capability_id",
+            "source_ref",
+            "pdf_path",
+            "task_id",
+            "chain_id",
+        ),
+        "resolve_literature_structure_task": (
+            "source_capability_id",
+            "task_id",
+            "source_ref",
+            "pdf_path",
+            "artifact_ref",
+        ),
+        "compile_exact_literature_rows": (
+            "source_capability_id",
+            "chain_id",
+            "source_ref",
+            "artifact_ref",
+        ),
+    }
+    source_rows: dict[str, Any] = {}
+    for action_type, preferred in preferred_fields.items():
+        row = _planner_prompt_mapping(source_sensitive.get(action_type))
+        accepted = {
+            str(item)
+            for item in row.get("accepted_payload_fields") or []
+            if isinstance(item, str)
+        }
+        source_rows[action_type] = {
+            "currently_required": row.get("currently_required") is True,
+            "requires_pdf_path": row.get("requires_pdf_path") is True,
+            "requires_uncompiled_visual_steps": row.get(
+                "requires_uncompiled_visual_steps"
+            )
+            is True,
+            "accepted_payload_fields": [
+                field for field in preferred if field in accepted
+            ],
+        }
+    search = _planner_prompt_mapping(requirements.get("search_literature"))
+    guided = _planner_prompt_mapping(requirements.get("run_guided_chemenzy"))
+    return {
+        "source_sensitive_actions": source_rows,
+        "search_literature": {
+            "currently_required_when_selected": search.get(
+                "currently_required_when_selected"
+            )
+            is True,
+            "accepted_payload_fields": _preferred_prompt_fields(
+                search.get("accepted_payload_fields"),
+                (
+                    "search_intent",
+                    "queries",
+                    "max_sources",
+                    "minimum_independent_sources",
+                    "exclude_source_refs",
+                ),
+            ),
+        },
+        "run_guided_chemenzy": {
+            "currently_required_when_selected": guided.get(
+                "currently_required_when_selected"
+            )
+            is True,
+            "accepted_payload_fields": _preferred_prompt_fields(
+                guided.get("accepted_payload_fields"),
+                (
+                    "initial_probe",
+                    "search_mode",
+                    "max_steps",
+                    "chem_enzy_iterations",
+                    "chem_enzy_expansion_topk",
+                    "timeout_s",
+                ),
+            ),
+        },
+    }
+
+
+def _preferred_prompt_fields(value: Any, preferred: tuple[str, ...]) -> list[str]:
+    accepted = {
+        str(item) for item in value or [] if isinstance(item, str)
+    } if isinstance(value, (list, tuple)) else set()
+    return [field for field in preferred if field in accepted]
 
 
 def _fixed_prompt_safety_boundaries(value: Any) -> dict[str, Any]:
@@ -3397,10 +3631,16 @@ def _truncate_planner_prompt_value(
             rows.append({"__omitted_item_count": len(value) - int(list_limit)})
         return rows
     if isinstance(value, str):
-        return value[: max(0, int(string_limit))]
-    if value is None or isinstance(value, (bool, int, float)):
+        return _planner_prompt_text(value, string_limit)
+    if value is None or isinstance(value, bool):
         return value
-    return str(value)[: max(0, int(string_limit))]
+    if isinstance(value, int):
+        return _planner_prompt_count(value)
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return 0.0
+        return max(-1_000_000_000.0, min(1_000_000_000.0, value))
+    return _planner_prompt_text(value, string_limit)
 
 
 def _planner_prompt_snapshot_max_bytes() -> int:
