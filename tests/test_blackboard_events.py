@@ -681,6 +681,104 @@ def test_started_without_prepared_is_charged_and_never_auto_retried(
     assert failure["charged_attempt_count"] == 1
 
 
+def test_raw_journal_binding_survives_host_capability_payload_normalization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cascade_planner.harness.agentic_blackboard_controller as controller
+
+    run_dir = tmp_path / "raw-binding-effective-execution"
+    source_pdf = tmp_path / "source.pdf"
+    source_pdf.write_bytes(b"%PDF-1.4\nsource\n")
+    page_image = tmp_path / "page.png"
+    page_image.write_bytes(b"materialized-page")
+    execute_payloads: list[dict] = []
+    original_execute = controller._execute_agent_action
+    original_prepare = controller.prepare_blackboard_action_result
+
+    def planner(**kwargs):
+        return {
+            "schema_version": "agent_action_batch.v1",
+            "case_id": "normalized journal binding",
+            "round_index": kwargs["round_index"],
+            "actions": [
+                {
+                    "schema_version": "agent_action.v1",
+                    "action_id": "pdf:normalized",
+                    "action_type": "extract_pdf_literature_structures",
+                    "rationale": "render the only current PDF",
+                    "expected_artifact": "literature_pdf_structure_evidence.v1",
+                    "success_condition": "rendered evidence is recorded",
+                    "payload": {},
+                }
+            ],
+        }
+
+    def counted_execute(*args, **kwargs):
+        execute_payloads.append(dict(kwargs["action"].get("payload") or {}))
+        return original_execute(*args, **kwargs)
+
+    def crash_before_prepare(*args, **kwargs):
+        raise RuntimeError("injected crash after normalized execution")
+
+    mock_result = {
+        "schema_version": "literature_pdf_structure_evidence.v1",
+        "accepted": True,
+        "source_ref": "doi:10.1000/journal-binding",
+        "source_pdf_path": str(source_pdf),
+        "rendered_page_count": 1,
+        "rendered_pages": [{"page_number": 1, "image_path": str(page_image)}],
+        "reasons": [],
+    }
+    monkeypatch.setattr(controller, "_execute_agent_action", counted_execute)
+    monkeypatch.setattr(
+        controller,
+        "prepare_blackboard_action_result",
+        crash_before_prepare,
+    )
+    with pytest.raises(RuntimeError, match="normalized execution"):
+        run_agentic_blackboard_controller(
+            target_name="normalized journal binding",
+            target_smiles="CCO",
+            output_dir=run_dir,
+            literature_pdf_path=source_pdf,
+            literature_pdf_source_ref="doi:10.1000/journal-binding",
+            auto_discover_local_pdfs=False,
+            max_rounds=1,
+            action_planner=planner,
+            mock_tool_results={"extract_pdf_literature_structures": mock_result},
+            use_codex_action_planner=False,
+        )
+    assert len(execute_payloads) == 1
+    assert execute_payloads[0]["source_capability_id"].startswith(
+        "source-capability:sha256:"
+    )
+
+    monkeypatch.setattr(
+        controller,
+        "prepare_blackboard_action_result",
+        original_prepare,
+    )
+    resumed = run_agentic_blackboard_controller(
+        target_name="normalized journal binding",
+        target_smiles="CCO",
+        output_dir=run_dir,
+        literature_pdf_path=source_pdf,
+        literature_pdf_source_ref="doi:10.1000/journal-binding",
+        auto_discover_local_pdfs=False,
+        max_rounds=1,
+        action_planner=planner,
+        mock_tool_results={"extract_pdf_literature_structures": mock_result},
+        use_codex_action_planner=False,
+    )
+
+    assert len(execute_payloads) == 1
+    assert any(
+        "blackboard_action_recovery_blocked" in str(flag)
+        for flag in resumed["agent_blackboard"]["safety_flags"]
+    )
+
+
 def _torn_tail_sidecars(journal_path: Path) -> list[Path]:
     return sorted(
         journal_path.parent.glob(f"{journal_path.stem}.torn-tail.*.json")

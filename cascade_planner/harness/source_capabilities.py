@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -206,6 +207,19 @@ def build_source_capability_queue(
     blocked: list[dict[str, Any]] = []
     visual_remaining = _budget_remaining(budget, "visual_calls", "max_visual_calls")
     scout_remaining = _budget_remaining(budget, "scout_calls", "max_scout_calls")
+    open_task_rows = [
+        (
+            task,
+            _source_for_task(task, documents),
+            _structure_task_targets_input_identity(task, board),
+        )
+        for task in sorted(_open_structure_tasks(evidence), key=_stable_row_key)
+    ]
+    open_task_document_identities = {
+        str(source.get("document_identity") or "")
+        for _, source, _ in open_task_rows
+        if str(source.get("document_identity") or "")
+    }
 
     for identity, document in sorted(documents.items()):
         source = _merged_source_record(identity, document["rows"])
@@ -235,6 +249,11 @@ def build_source_capability_queue(
             )
             continue
         if not document["visualized"]:
+            # A concrete structure-resolution task is the next stage for this
+            # document.  Do not reissue the broader visual call while that
+            # narrower current-host capability remains open.
+            if identity in open_task_document_identities:
+                continue
             capability = _source_capability(
                 action_type="extract_visual_literature_chain",
                 document_identity=identity,
@@ -256,9 +275,17 @@ def build_source_capability_queue(
                 reason=reason,
             )
 
-    for task in sorted(_open_structure_tasks(evidence), key=_stable_row_key):
-        source = _source_for_task(task, documents)
-        capability = _task_capability(task, source=source)
+    for task, source, target_identity_shortcut in open_task_rows:
+        capability = _task_capability(
+            task,
+            source=source,
+            target_identity_shortcut=target_identity_shortcut,
+            target_smiles=str(
+                target.get("target_smiles")
+                or target.get("canonical_smiles")
+                or ""
+            ),
+        )
         reason = ""
         if cap < 1:
             reason = "literature_source_round_budget_exhausted"
@@ -274,7 +301,10 @@ def build_source_capability_queue(
     for chain in sorted(visual_rows, key=_stable_row_key):
         if not _visual_chain_has_uncompiled_steps(chain, evidence.get("exact_rows") or []):
             continue
-        capability = _compile_capability(chain)
+        capability = _compile_capability(
+            chain,
+            source=_source_for_task(chain, documents),
+        )
         _append_eligible_or_blocked(
             capabilities,
             blocked,
@@ -354,29 +384,70 @@ def matching_source_capabilities(
         body.get("source_capability_id") or body.get("capability_id") or ""
     ).strip()
     if capability_id:
-        return [
+        return _compatible_capabilities(body, [
             row
             for row in candidates
             if str(row.get("capability_id") or "") == capability_id
+        ])
+    task_id = str(body.get("task_id") or "").strip()
+    if task_id:
+        return _compatible_capabilities(body, [
+            row
+            for row in candidates
+            if task_id
+            == str(dict(row.get("payload_binding") or {}).get("task_id") or "")
+        ])
+    chain_id = str(
+        body.get("chain_id") or body.get("visual_chain_id") or ""
+    ).strip()
+    if chain_id:
+        return _compatible_capabilities(body, [
+            row
+            for row in candidates
+            if chain_id
+            in {
+                str(
+                    dict(row.get("payload_binding") or {}).get("chain_id") or ""
+                ),
+                str(
+                    dict(row.get("payload_binding") or {}).get(
+                        "visual_chain_id"
+                    )
+                    or ""
+                ),
+            }
+        ])
+    if action_type == "resolve_literature_structure_task":
+        raw_expected_labels = body.get("expected_labels") or []
+        expected_labels = (
+            list(raw_expected_labels)
+            if isinstance(raw_expected_labels, (list, tuple))
+            else [raw_expected_labels]
+        )
+        requested_labels = _normalized_structure_labels(
+            [
+                body.get("label"),
+                body.get("compound_label"),
+                *expected_labels,
+            ]
+        )
+        label_matches = [
+            row
+            for row in candidates
+            if _normalized_structure_labels(
+                [dict(row.get("payload_binding") or {}).get("label")]
+            )
+            & requested_labels
         ]
+        if label_matches:
+            candidates = label_matches
     if not _source_aliases(body) and len(candidates) == 1:
-        return candidates
+        return _compatible_capabilities(body, candidates)
     matches: list[dict[str, Any]] = []
     body_aliases = _source_aliases(body)
     body_document = source_document_identity(body)
-    task_id = str(body.get("task_id") or "").strip()
-    chain_id = str(body.get("chain_id") or body.get("visual_chain_id") or "").strip()
     for row in candidates:
         binding = dict(row.get("payload_binding") or {})
-        if task_id and task_id == str(binding.get("task_id") or ""):
-            matches.append(row)
-            continue
-        if chain_id and chain_id in {
-            str(binding.get("chain_id") or ""),
-            str(binding.get("visual_chain_id") or ""),
-        }:
-            matches.append(row)
-            continue
         if body_document and body_document == str(row.get("document_identity") or ""):
             matches.append(row)
             continue
@@ -390,7 +461,147 @@ def matching_source_capabilities(
         for row in matches
         if str(row.get("capability_id") or "")
     }
-    return [unique[key] for key in sorted(unique)]
+    return _compatible_capabilities(
+        body,
+        [unique[key] for key in sorted(unique)],
+    )
+
+
+def source_capability_effective_payload(
+    payload: Mapping[str, Any],
+    capability: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Overlay host-derived binding fields after one capability is selected."""
+
+    out = dict(payload or {})
+    out.update(dict(capability.get("payload_binding") or {}))
+    capability_id = str(capability.get("capability_id") or "")
+    if capability_id:
+        out["source_capability_id"] = capability_id
+    return out
+
+
+def _compatible_capabilities(
+    payload: Mapping[str, Any],
+    candidates: Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        dict(row)
+        for row in candidates
+        if _payload_authority_fields_match_capability(payload, row)
+    ]
+
+
+def _payload_authority_fields_match_capability(
+    payload: Mapping[str, Any],
+    capability: Mapping[str, Any],
+) -> bool:
+    body = dict(payload or {})
+    row = dict(capability or {})
+    binding = dict(row.get("payload_binding") or {})
+    source = dict(row.get("source") or {})
+
+    scalar_selectors = (
+        ("source_capability_id", "capability_id"),
+        ("capability_id", "capability_id"),
+        ("task_id", "task_id"),
+    )
+    for payload_field, binding_field in scalar_selectors:
+        explicit = str(body.get(payload_field) or "").strip()
+        if not explicit:
+            continue
+        observed = str(
+            row.get(binding_field)
+            if binding_field == "capability_id"
+            else binding.get(binding_field)
+            or ""
+        ).strip()
+        if explicit != observed:
+            return False
+
+    explicit_chain_id = str(
+        body.get("chain_id") or body.get("visual_chain_id") or ""
+    ).strip()
+    if explicit_chain_id and explicit_chain_id not in {
+        str(binding.get("chain_id") or "").strip(),
+        str(binding.get("visual_chain_id") or "").strip(),
+    }:
+        return False
+
+    capability_aliases = _source_aliases({**source, **binding})
+    for locator_field in (
+        "source_ref",
+        "doi",
+        "pii",
+        "url",
+        "patent",
+        "patent_publication",
+    ):
+        explicit_locator = str(body.get(locator_field) or "").strip()
+        if not explicit_locator:
+            continue
+        requested_aliases = _source_aliases({locator_field: explicit_locator})
+        if requested_aliases:
+            if not requested_aliases & capability_aliases:
+                return False
+            continue
+        # Legacy fixtures and imported records may carry a non-canonical DOI or
+        # URL spelling.  It has no authority beyond exact equality with the
+        # current host source record; it must never alias a different locator.
+        raw_allowed = {
+            str(source.get(locator_field) or "").strip().casefold(),
+            str(binding.get(locator_field) or "").strip().casefold(),
+        } - {""}
+        if explicit_locator.casefold() not in raw_allowed:
+            return False
+
+    explicit_paths = _normalized_local_paths(body)
+    if explicit_paths:
+        capability_paths = _normalized_local_paths({**source, **binding})
+        if not capability_paths or not explicit_paths <= capability_paths:
+            return False
+
+    explicit_document_id = str(body.get("document_id") or "").strip().casefold()
+    if explicit_document_id:
+        allowed_document_ids = {
+            str(source.get("document_id") or "").strip().casefold(),
+            str(binding.get("document_id") or "").strip().casefold(),
+            str(row.get("document_identity") or "").strip().casefold(),
+        } - {""}
+        if explicit_document_id not in allowed_document_ids:
+            return False
+
+    explicit_artifact_ref = str(body.get("artifact_ref") or "").strip()
+    if explicit_artifact_ref:
+        allowed_artifact_refs = {
+            str(source.get("artifact_ref") or "").strip(),
+            str(binding.get("artifact_ref") or "").strip(),
+            *(
+                str(item or "").strip()
+                for item in row.get("prerequisite_evidence_refs") or []
+            ),
+        } - {""}
+        if explicit_artifact_ref not in allowed_artifact_refs:
+            return False
+
+    for field in ("run_visual", "target_identity_shortcut"):
+        if field not in body:
+            continue
+        if not isinstance(body.get(field), bool):
+            return False
+        if body.get(field) is not bool(binding.get(field, False)):
+            return False
+    return True
+
+
+def _normalized_local_paths(value: Mapping[str, Any]) -> set[str]:
+    return {
+        os.path.normcase(
+            os.path.abspath(os.path.expanduser(str(value.get(field) or "").strip()))
+        )
+        for field in ("pdf_path", "local_pdf", "source_pdf_path")
+        if str(value.get(field) or "").strip()
+    }
 
 
 def source_action_is_eligible(
@@ -441,11 +652,29 @@ def _resolve_or_register_document(
     *,
     role: str,
 ) -> str:
+    aliases = _source_aliases(row)
+    if not _has_concrete_document_binding(row):
+        matches = [
+            key
+            for key, value in documents.items()
+            if aliases and aliases & set(value.get("aliases") or set())
+        ]
+        if len(documents) == 1 and not _has_source_identity_locator(row):
+            matches = [next(iter(documents))]
+        if len(matches) != 1:
+            # A publication locator does not distinguish an article from its
+            # SI/correction documents.  Never let the default ``article`` scope
+            # silently bind document-ambiguous evidence to the first record.
+            return ""
+        tagged = dict(row)
+        tagged["_capability_record_role"] = role
+        documents[matches[0]]["rows"].append(tagged)
+        documents[matches[0]]["aliases"].update(aliases)
+        return matches[0]
     identity = _document_identity(row)
     if identity in documents:
         _register_document(documents, row, role=role)
         return identity
-    aliases = _source_aliases(row)
     matches = [
         key
         for key, value in documents.items()
@@ -464,6 +693,43 @@ def _resolve_or_register_document(
         documents[only_identity]["rows"].append(tagged)
         return only_identity
     return _register_document(documents, row, role=role)
+
+
+def _has_concrete_document_binding(row: Mapping[str, Any]) -> bool:
+    if any(
+        str(row.get(field) or "").strip()
+        for field in (
+            "document_id",
+            "local_pdf",
+            "source_pdf_path",
+            "pdf_path",
+            "content_scope",
+            "document_type",
+            "requested_content_scope",
+        )
+    ):
+        return True
+    for field in ("source_ref", "url"):
+        canonical = canonical_traceable_source_ref(row.get(field))
+        if canonical.startswith(("url:", "local_pdf:")):
+            return True
+    return False
+
+
+def _has_source_identity_locator(row: Mapping[str, Any]) -> bool:
+    return any(
+        str(row.get(field) or "").strip()
+        for field in (
+            "source_ref",
+            "doi",
+            "pii",
+            "url",
+            "patent",
+            "patent_publication",
+            "title",
+            "source_title",
+        )
+    )
 
 
 def _has_document_locator(row: Mapping[str, Any]) -> bool:
@@ -690,7 +956,13 @@ def _source_payload_binding(source: Mapping[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _task_capability(task: dict[str, Any], *, source: dict[str, Any]) -> dict[str, Any]:
+def _task_capability(
+    task: dict[str, Any],
+    *,
+    source: dict[str, Any],
+    target_identity_shortcut: bool,
+    target_smiles: str,
+) -> dict[str, Any]:
     payload = _source_payload_binding(source)
     payload.update(
         {
@@ -698,10 +970,14 @@ def _task_capability(task: dict[str, Any], *, source: dict[str, Any]) -> dict[st
             "label": str(task.get("label") or task.get("compound_label") or ""),
             "source_ref": str(task.get("source_ref") or payload.get("source_ref") or ""),
             "artifact_ref": str(task.get("artifact_ref") or ""),
-            "run_visual": bool(task.get("run_visual", True)),
+            "run_visual": bool(task.get("run_visual", True))
+            and not target_identity_shortcut,
             "no_solved_claim": True,
         }
     )
+    if target_identity_shortcut:
+        payload["target_identity_shortcut"] = True
+        payload["target_smiles"] = str(target_smiles or "")
     identity_payload = {
         "action_type": "resolve_literature_structure_task",
         "task_id": payload["task_id"],
@@ -727,13 +1003,18 @@ def _task_capability(task: dict[str, Any], *, source: dict[str, Any]) -> dict[st
     }
 
 
-def _compile_capability(chain: dict[str, Any]) -> dict[str, Any]:
-    payload = {
+def _compile_capability(
+    chain: dict[str, Any],
+    *,
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    payload = _source_payload_binding(source)
+    payload.update({
         "chain_id": str(chain.get("chain_id") or chain.get("artifact_ref") or ""),
-        "source_ref": str(chain.get("source_ref") or ""),
+        "source_ref": str(chain.get("source_ref") or payload.get("source_ref") or ""),
         "artifact_ref": str(chain.get("artifact_ref") or ""),
         "no_solved_claim": True,
-    }
+    })
     payload = {key: value for key, value in payload.items() if value not in (None, "")}
     identity_payload = {
         "action_type": "compile_exact_literature_rows",
@@ -743,14 +1024,14 @@ def _compile_capability(chain: dict[str, Any]) -> dict[str, Any]:
         "schema_version": SOURCE_CAPABILITY_SCHEMA,
         "capability_id": f"source-capability:sha256:{_digest(identity_payload)}",
         "action_type": "compile_exact_literature_rows",
-        "document_identity": _document_identity(chain),
-        "independent_source_group": independent_source_group(chain),
+        "document_identity": str(source.get("document_identity") or _document_identity(chain)),
+        "independent_source_group": str(source.get("independent_source_group") or independent_source_group(chain)),
         "source_ref": str(chain.get("source_ref") or ""),
         "source_title": str(chain.get("source_title") or chain.get("title") or ""),
         "stage_from": "visual_extracted",
         "stage_to": "exact_rows_compiled_or_rejected",
         "payload_binding": payload,
-        "source": {},
+        "source": source,
         "cost": action_resource_cost("compile_exact_literature_rows", payload),
         "priority": 260,
         "prerequisite_evidence_refs": _visual_chain_ids(chain),
@@ -842,12 +1123,131 @@ def _open_structure_tasks(evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _structure_task_targets_input_identity(
+    task: Mapping[str, Any],
+    blackboard: Mapping[str, Any],
+) -> bool:
+    label = _structure_identity_key(task.get("label") or task.get("compound_label"))
+    if not label:
+        return False
+    target = dict(blackboard.get("target_profile") or {})
+    aliases = target.get("target_aliases") or target.get("aliases") or []
+    if isinstance(aliases, str):
+        aliases = [aliases]
+    target_keys = {
+        _structure_identity_key(target.get("target_name")),
+        _structure_identity_key(target.get("name")),
+        _structure_identity_key(blackboard.get("case_id")),
+        *(_structure_identity_key(value) for value in aliases),
+    } - {""}
+    return any(_structure_identity_labels_match(label, key) for key in target_keys)
+
+
+def _structure_identity_key(value: Any) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", str(value or "").casefold()))
+
+
+def _structure_identity_labels_match(label: str, target: str) -> bool:
+    if not label or not target:
+        return False
+    if label == target:
+        return True
+    without_number = re.sub(
+        r"\s+(?:compound\s+)?\d+[a-z]?$",
+        "",
+        label,
+    ).strip()
+    return bool(without_number and without_number == target)
+
+
+def _normalized_structure_labels(values: Iterable[Any]) -> set[str]:
+    return {
+        " ".join(str(value or "").strip().casefold().split())
+        for value in values
+        if str(value or "").strip()
+    }
+
+
 def _visual_chain_is_materialized(row: Mapping[str, Any]) -> bool:
     value = dict(row or {})
-    if value.get("accepted") is True or _visual_step_count(value) > 0:
+    # ``accepted`` is a current-host stage outcome.  A valid zero-step result
+    # means visual inspection completed and intentionally handed work to a
+    # structure-resolution task; it must not trigger the same visual call again.
+    if value.get("accepted") is True:
         return True
-    reasons = {str(item) for item in value.get("reasons") or []}
-    return "visual_input_images_missing" not in reasons
+    step_count = _visual_step_count(value)
+    if step_count <= 0 and _visual_terminal_empty_outcome(value):
+        return True
+    try:
+        structure_task_count = int(
+            value.get("structure_resolution_task_count") or 0
+        )
+    except (TypeError, ValueError):
+        structure_task_count = 0
+    if (
+        value.get("schema_version") == "agent_visual_chain_summary.v1"
+        and step_count <= 0
+        and structure_task_count > 0
+        and value.get("extraction_gaps")
+    ):
+        return True
+    if step_count <= 0:
+        return False
+
+    # A recorded attempt is not the same thing as a materialized visual chain.
+    # In particular, transient runtime/auth failures must remain retryable.  The
+    # quality flags are accepted as explicit legacy equivalents because they
+    # are derived by the host visual-chain auditor from the materialized steps.
+    quality = dict(value.get("candidate_quality") or {})
+    accepted_materialization = bool(
+        value.get("exact_ready") is True
+        or value.get("exploratory_accepted") is True
+        or quality.get("accepted") is True
+        or quality.get("exact_ready") is True
+        or quality.get("exploratory_accepted") is True
+    )
+    if accepted_materialization:
+        return True
+
+    # Host summaries may intentionally retain useful partial steps while
+    # rejecting exact-route promotion because a condition/structure gap remains.
+    # The positive host step count plus an explicit unresolved-gap record is the
+    # materialization witness; a bare producer count is not sufficient.
+    return bool(
+        value.get("schema_version") == "agent_visual_chain_summary.v1"
+        and (
+            value.get("steps")
+            or value.get("extraction_gaps")
+            or value.get("gap_labels")
+            or value.get("condition_gap_labels")
+            or value.get("missing_expected_labels")
+        )
+    )
+
+
+def _visual_terminal_empty_outcome(value: Mapping[str, Any]) -> bool:
+    reasons = {
+        str(item or "").strip().casefold()
+        for item in value.get("reasons") or []
+        if str(item or "").strip()
+    }
+    retryable = {
+        "visual_direct_api_failed",
+        "visual_literature_chain_timeout",
+        "visual_api_auth_failed",
+        "visual_model_unavailable",
+        "visual_input_images_missing",
+        "visual_literature_chain_json_parse_failed",
+        "codex_visual_chain_nonzero_exit",
+    }
+    terminal_empty = {
+        "no_relevant_steps",
+        "no_relevant_visual_steps",
+        "no_source_relevant_steps",
+        "no_candidate_steps_after_visual_review",
+        "visual_review_completed_no_candidates",
+    }
+    return bool(reasons & terminal_empty) and not bool(reasons & retryable)
 
 
 def _visual_chain_has_uncompiled_steps(

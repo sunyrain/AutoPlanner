@@ -511,17 +511,31 @@ def run_agentic_blackboard_controller(
             break
 
         round_useful = False
-        for action in action_batch.get("actions") or []:
+        action_validation_rows = {
+            int(row.get("index") or 0): dict(row)
+            for row in validation.get("action_validations") or []
+            if isinstance(row, dict)
+        }
+        for action_index, raw_action in enumerate(action_batch.get("actions") or []):
+            journal_action = deepcopy(dict(raw_action))
+            action = deepcopy(journal_action)
+            action_validation = dict(action_validation_rows.get(action_index) or {})
+            effective_payload = action_validation.get("effective_payload")
+            if isinstance(effective_payload, dict):
+                action["payload"] = dict(effective_payload)
+            host_resource_cost = dict(action_validation.get("cost") or {})
+            action["_host_resource_cost"] = host_resource_cost
             action_type = str(action.get("action_type") or "")
             reserved_board = update_budget_for_action(
                 blackboard,
                 action_type,
                 payload=dict(action.get("payload") or {}),
+                resource_cost=host_resource_cost,
             )
             blackboard, action_lifecycle = begin_blackboard_action(
                 run_dir,
                 blackboard,
-                action=action,
+                action=journal_action,
                 round_index=round_index,
                 reserved_budget_state=dict(
                     reserved_board.get("budget_state") or {}
@@ -655,7 +669,7 @@ def run_agentic_blackboard_controller(
                 blackboard, prepared_event = prepare_blackboard_action_result(
                     run_dir,
                     blackboard,
-                    action=action,
+                    action=journal_action,
                     round_index=round_index,
                     started_event=dict(
                         action_lifecycle.get("started_event") or {}
@@ -675,7 +689,7 @@ def run_agentic_blackboard_controller(
             blackboard, committed_event = commit_prepared_blackboard_action(
                 run_dir,
                 blackboard,
-                action=action,
+                action=journal_action,
                 round_index=round_index,
                 prepared_event=dict(prepared_event or {}),
             )

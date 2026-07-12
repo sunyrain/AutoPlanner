@@ -967,6 +967,7 @@ def update_blackboard_from_action(
         "blackboard_counts_after": after_counts,
         "blackboard_delta": delta,
         "changed_blackboard_fields": [str(key) for key, value in delta.items() if value],
+        "resource_cost": dict(action.get("_host_resource_cost") or {}),
     }
     board.setdefault("action_history", []).append(history)
     return board
@@ -976,10 +977,28 @@ def update_budget_for_action(
     blackboard: dict[str, Any],
     action_type: str,
     payload: dict[str, Any] | None = None,
+    *,
+    resource_cost: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     board = deepcopy(blackboard)
     budget = dict(board.get("budget_state") or {})
     action_payload = dict(payload or {})
+    if resource_cost is not None:
+        cost = dict(resource_cost)
+        for cost_key, budget_key in (
+            ("scout_calls", "scout_calls"),
+            ("visual_calls", "visual_calls"),
+            ("chemenzy_runs", "chemenzy_runs"),
+            ("child_target_runs", "child_target_runs"),
+            ("template_application_actions", "template_application_actions"),
+        ):
+            try:
+                increment = max(0, int(cost.get(cost_key) or 0))
+            except (TypeError, ValueError):
+                increment = 0
+            budget[budget_key] = int(budget.get(budget_key) or 0) + increment
+        board["budget_state"] = budget
+        return board
     if action_type == "search_literature":
         budget["scout_calls"] = int(budget.get("scout_calls") or 0) + 1
     if action_type == "extract_visual_literature_chain":

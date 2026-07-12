@@ -23,9 +23,10 @@ from cascade_planner.harness.source_capabilities import (
     action_resource_cost,
     build_source_capability_queue,
     eligible_source_capabilities,
+    matching_source_capabilities,
     pdf_evidence_has_materialized_render,
     pdf_evidence_render_paths,
-    source_action_is_eligible,
+    source_capability_effective_payload,
 )
 from cascade_planner.source_locators import independent_source_group
 
@@ -665,6 +666,14 @@ def validate_action_batch(
     scout_action_count = 0
     visual_action_count = 0
     template_action_count = 0
+    host_action_costs = [
+        action_resource_cost(action if isinstance(action, dict) else "")
+        for action in actions
+    ]
+    effective_payloads = [
+        dict(action.get("payload") or {}) if isinstance(action, dict) else {}
+        for action in actions
+    ]
     for idx, action in enumerate(actions):
         if not isinstance(action, dict):
             reasons.append(f"action_not_object:{idx}")
@@ -680,6 +689,35 @@ def validate_action_batch(
         if contains_raw_reaction_payload(action):
             reasons.append("raw_reaction_injection")
         payload = dict(action.get("payload") or {})
+        source_capability_eligible = False
+        source_capability: dict[str, Any] = {}
+        if action_type in SOURCE_SENSITIVE_ACTIONS:
+            source_matches = matching_source_capabilities(
+                capability_queue,
+                action_type=action_type,
+                payload=payload,
+            )
+            source_capability_eligible = len(source_matches) == 1
+            if source_capability_eligible:
+                source_capability = dict(source_matches[0])
+                host_action_costs[idx] = dict(
+                    source_capability.get("cost") or action_resource_cost(action)
+                )
+                effective_payloads[idx] = source_capability_effective_payload(
+                    payload,
+                    source_capability,
+                )
+                payload = effective_payloads[idx]
+            # Focused visual gap repair is the one deliberate capability-queue
+            # exception: its current rendered input is revalidated directly.
+            if (
+                action_type == "extract_visual_literature_chain"
+                and bool(payload.get("focused_gap_repair"))
+            ):
+                source_capability_eligible = _focused_visual_gap_repair_is_eligible(
+                    payload,
+                    board,
+                )
         if action_type == "run_guided_chemenzy":
             chemenzy_count += 1
             reasons.extend(
@@ -701,33 +739,28 @@ def validate_action_batch(
                 reasons.append(
                     f"extract_pdf_literature_structures_requires_pdf_binding:{idx}"
                 )
-            elif eligible_source_capabilities(
-                capability_queue,
-                "extract_pdf_literature_structures",
-            ) and not source_action_is_eligible(
-                capability_queue,
-                action_type=action_type,
-                payload=payload,
-            ):
+            elif not source_capability_eligible:
                 reasons.append(
                     f"source_capability_not_eligible:{idx}:{action_type}"
                 )
         if action_type == "extract_visual_literature_chain":
-            visual_action_count += 1
-            capability_eligible = source_action_is_eligible(
-                capability_queue,
-                action_type=action_type,
-                payload=payload,
+            visual_action_count += int(
+                host_action_costs[idx].get("visual_calls") or 0
             )
-            if bool(payload.get("focused_gap_repair")):
-                capability_eligible = _visual_extraction_has_rendered_input(
-                    payload,
-                    board,
-                )
-            if not capability_eligible:
+            if not source_capability_eligible:
                 reasons.append(
                     f"extract_visual_literature_chain_requires_rendered_pdf_evidence:{idx}"
                 )
+        if (
+            action_type in SOURCE_SENSITIVE_ACTIONS
+            and action_type
+            not in {
+                "extract_pdf_literature_structures",
+                "extract_visual_literature_chain",
+            }
+            and not source_capability_eligible
+        ):
+            reasons.append(f"source_capability_not_eligible:{idx}:{action_type}")
         if (
             action_type in SOURCE_SENSITIVE_ACTIONS
             and str(
@@ -735,15 +768,13 @@ def validate_action_batch(
                 or payload.get("capability_id")
                 or ""
             ).strip()
-            and not source_action_is_eligible(
-                capability_queue,
-                action_type=action_type,
-                payload=payload,
-            )
+            and not source_capability_eligible
         ):
             reasons.append(f"source_capability_not_current:{idx}:{action_type}")
-        if action_type == "resolve_literature_structure_task" and bool(payload.get("run_visual", True)):
-            visual_action_count += 1
+        if action_type == "resolve_literature_structure_task":
+            visual_action_count += int(
+                host_action_costs[idx].get("visual_calls") or 0
+            )
         if action_type == "resolve_literature_structure_task":
             reasons.extend(
                 f"resolve_literature_structure_task_payload:{idx}:{reason}"
@@ -775,7 +806,7 @@ def validate_action_batch(
             "resolve_literature_structure_task",
             "compile_exact_literature_rows",
         }:
-            source_count += action_resource_cost(action).get(
+            source_count += host_action_costs[idx].get(
                 "literature_source_units",
                 0,
             )
@@ -784,9 +815,18 @@ def validate_action_batch(
                 blackboard=board,
             ):
                 reasons.append(f"source_sensitive_action_missing_source_binding:{idx}:{action_type}")
-        if _stale_action_repeated(board, action):
+        effective_action = dict(action)
+        effective_action["payload"] = dict(effective_payloads[idx])
+        if _stale_action_repeated(board, effective_action):
             reasons.append(f"stale_action_repeated:{idx}:{action_type}")
-    if _must_stop_or_change_direction(board, actions):
+    effective_actions = [
+        {
+            **(dict(action) if isinstance(action, dict) else {}),
+            "payload": dict(effective_payloads[index]),
+        }
+        for index, action in enumerate(actions)
+    ]
+    if _must_stop_or_change_direction(board, effective_actions):
         reasons.append("planner_must_stop_or_change_direction_after_two_unproductive_rounds")
     if _advisory_broad_template_required(board, actions):
         reasons.append("advisory_visual_template_requires_broad_template")
@@ -817,6 +857,8 @@ def validate_action_batch(
     action_validations, batch_reasons = _partition_action_validation_reasons(
         actions,
         sorted(set(reasons)),
+        host_action_costs=host_action_costs,
+        effective_payloads=effective_payloads,
     )
     return {
         "schema_version": "agent_action_batch_validation.v1",
@@ -851,6 +893,9 @@ _ACTION_LOCAL_REASON_PATTERNS = tuple(
 def _partition_action_validation_reasons(
     actions: list[Any],
     reasons: list[str],
+    *,
+    host_action_costs: list[dict[str, int]],
+    effective_payloads: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[str]]:
     per_action: dict[int, list[str]] = {index: [] for index in range(len(actions))}
     batch_reasons: list[str] = []
@@ -876,7 +921,8 @@ def _partition_action_validation_reasons(
                 "action_type": str(action.get("action_type") or ""),
                 "accepted": not local_reasons,
                 "reasons": local_reasons,
-                "cost": action_resource_cost(action),
+                "cost": dict(host_action_costs[index]),
+                "effective_payload": dict(effective_payloads[index]),
             }
         )
     return rows, sorted(set(batch_reasons))
@@ -2979,6 +3025,67 @@ def _visual_extraction_has_rendered_input(
     return len(candidates) == 1 and bool(rendered)
 
 
+def _focused_visual_gap_repair_is_eligible(
+    payload: dict[str, Any],
+    blackboard: dict[str, Any],
+) -> bool:
+    """Validate the one source-capability exception against current host state."""
+
+    if not _visual_extraction_has_rendered_input(payload, blackboard):
+        return False
+    if not _visual_gap_repair_needed(blackboard):
+        return False
+    if not _visual_gap_repair_budget_remaining(blackboard):
+        return False
+    if not _budget_remaining(blackboard, "visual_calls"):
+        return False
+
+    gap_document_keys = _visual_gap_document_keys(blackboard)
+    payload_document_keys = _matching_local_pdf_document_keys(payload, blackboard)
+    payload_key = _source_key(payload)
+    if payload_key:
+        payload_document_keys.add(payload_key)
+    return bool(
+        len(gap_document_keys) == 1
+        and len(payload_document_keys & gap_document_keys) == 1
+    )
+
+
+def _visual_gap_document_keys(blackboard: dict[str, Any]) -> set[str]:
+    evidence = dict((blackboard or {}).get("literature_evidence") or {})
+    rendered = _pdf_structure_source_keys(blackboard)
+    gap_rows = [
+        dict(row)
+        for row in evidence.get("visual_chains") or []
+        if isinstance(row, dict)
+        and (
+            row.get("gap_labels")
+            or row.get("condition_gap_labels")
+            or row.get("missing_expected_labels")
+            or row.get("extraction_gaps")
+        )
+    ]
+    keys: set[str] = set()
+    for row in gap_rows:
+        direct_key = _source_key(row)
+        mapped_keys = (
+            _matching_local_pdf_document_keys(row, blackboard) & rendered
+        )
+        if direct_key and direct_key in mapped_keys:
+            keys.add(direct_key)
+            continue
+        if mapped_keys:
+            keys.update(mapped_keys)
+            continue
+        if direct_key and direct_key in rendered:
+            keys.add(direct_key)
+    if not keys and len(gap_rows) == 1 and len(rendered) == 1:
+        # A locator-free legacy summary can bind only when both sides are
+        # unambiguous in current host state.
+        keys = set(rendered)
+    return keys
+
+
 def _needs_literature_bridge(blackboard: dict[str, Any]) -> bool:
     evidence = dict(blackboard.get("literature_evidence") or {})
     independent_count = len(independent_literature_source_keys(blackboard))
@@ -4171,7 +4278,12 @@ def _visual_gap_source_candidate(blackboard: dict[str, Any]) -> dict[str, Any]:
     for row in (blackboard.get("literature_evidence") or {}).get("visual_chains") or []:
         if not isinstance(row, dict):
             continue
-        if not (row.get("gap_labels") or row.get("extraction_gaps") or row.get("missing_expected_labels")):
+        if not (
+            row.get("gap_labels")
+            or row.get("condition_gap_labels")
+            or row.get("extraction_gaps")
+            or row.get("missing_expected_labels")
+        ):
             continue
         key = _source_key(row)
         for candidate in _local_pdf_source_candidates(blackboard):
@@ -4322,6 +4434,19 @@ def _structure_resolution_task_payload(blackboard: dict[str, Any], task: dict[st
     if task.get("source_locator"):
         hint_parts.append(f"Prior locator: {task.get('source_locator')}.")
     payload["route_sequence_hint"] = " ".join(part for part in hint_parts if str(part or "").strip())
+    task_id = str(task.get("task_id") or "")
+    if task_id:
+        queue = build_source_capability_queue(
+            blackboard,
+            round_index=_source_capability_round_index(blackboard),
+        )
+        matches = matching_source_capabilities(
+            queue,
+            action_type="resolve_literature_structure_task",
+            payload={"task_id": task_id},
+        )
+        if len(matches) == 1:
+            payload = source_capability_effective_payload(payload, matches[0])
     return payload
 
 

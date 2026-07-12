@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -1674,7 +1675,11 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         after_pdf = update_budget_for_action(board, "extract_pdf_literature_structures", payload={})
         after_visual = update_budget_for_action(board, "extract_visual_literature_chain", payload={})
 
-        self.assertTrue(validation["accepted"], validation["reasons"])
+        self.assertFalse(validation["accepted"])
+        self.assertIn(
+            "source_capability_not_eligible:0:extract_pdf_literature_structures",
+            validation["reasons"],
+        )
         self.assertEqual(after_pdf["budget_state"]["visual_calls"], 2)
         self.assertEqual(after_visual["budget_state"]["visual_calls"], 3)
 
@@ -2675,16 +2680,33 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         bound_validation = validate_action_batch(bound_batch, blackboard=board)
         unrendered_validation = validate_action_batch(unrendered_batch, blackboard=board)
 
-        self.assertFalse(unbound_validation["accepted"])
-        self.assertIn(
-            "source_sensitive_action_missing_source_binding:0:extract_visual_literature_chain",
-            unbound_validation["reasons"],
+        self.assertTrue(unbound_validation["accepted"], unbound_validation["reasons"])
+        self.assertEqual(
+            unbound_validation["action_validations"][0]["effective_payload"][
+                "source_ref"
+            ],
+            "doi:first",
         )
         self.assertTrue(bound_validation["accepted"], bound_validation["reasons"])
         self.assertFalse(unrendered_validation["accepted"])
         self.assertIn(
             "extract_visual_literature_chain_requires_rendered_pdf_evidence:0",
             unrendered_validation["reasons"],
+        )
+
+        both_rendered = deepcopy(board)
+        both_rendered["literature_evidence"]["pdf_structure_evidence"].append(
+            _rendered_pdf_evidence(
+                source_ref="doi:second",
+                pdf_path="/tmp/second.pdf",
+                evidence_id="second",
+            )
+        )
+        ambiguous = validate_action_batch(unbound_batch, blackboard=both_rendered)
+        self.assertFalse(ambiguous["accepted"])
+        self.assertIn(
+            "extract_visual_literature_chain_requires_rendered_pdf_evidence:0",
+            ambiguous["reasons"],
         )
 
     def test_action_batch_validation_allows_single_source_extraction_default(self):
@@ -2728,8 +2750,22 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         board = {
             "literature_evidence": {
                 "visual_chains": [
-                    {"chain_id": "visual:first", "source_ref": "doi:first", "source_pdf_path": "/tmp/first.pdf"},
-                    {"chain_id": "visual:second", "source_ref": "doi:second", "source_pdf_path": "/tmp/second.pdf"},
+                    {
+                        "chain_id": "visual:first",
+                        "source_ref": "doi:first",
+                        "source_pdf_path": "/tmp/first.pdf",
+                        "accepted": True,
+                        "candidate_step_count": 1,
+                        "steps": [{"step_id": "first:1"}],
+                    },
+                    {
+                        "chain_id": "visual:second",
+                        "source_ref": "doi:second",
+                        "source_pdf_path": "/tmp/second.pdf",
+                        "accepted": True,
+                        "candidate_step_count": 1,
+                        "steps": [{"step_id": "second:1"}],
+                    },
                 ]
             }
         }
@@ -6950,6 +6986,8 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertIn("child_solved_promoted_without_parent_proof", validation["reasons"])
 
     def test_pdf_structure_action_updates_blackboard_without_solved_claim(self):
+        source_pdf = Path("source.pdf")
+
         def planner(**kwargs):
             round_index = kwargs["round_index"]
             return {
@@ -6964,7 +7002,10 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                         "rationale": "local PDF source should be rendered before visual chain extraction",
                         "expected_artifact": "literature_pdf_structure_evidence.v1",
                         "success_condition": "rendered pages are available",
-                        "payload": {},
+                        "payload": {
+                            "source_ref": "doi:10.1000/pdf-case",
+                            "pdf_path": str(source_pdf),
+                        },
                     }
                 ],
             }
@@ -6987,10 +7028,17 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as tmp:
+            source_pdf = Path(tmp) / "source.pdf"
+            source_pdf.write_bytes(b"%PDF-1.4\nmock\n")
+            pdf_result["source_ref"] = "doi:10.1000/pdf-case"
+            pdf_result["source_pdf_path"] = str(source_pdf)
             result = run_agentic_blackboard_controller(
                 target_name="pdf_case",
                 target_smiles="CCO",
                 output_dir=tmp,
+                literature_pdf_path=source_pdf,
+                literature_pdf_source_ref="doi:10.1000/pdf-case",
+                auto_discover_local_pdfs=False,
                 max_rounds=1,
                 action_planner=planner,
                 mock_tool_results={"extract_pdf_literature_structures": pdf_result},
