@@ -835,6 +835,31 @@ the ledger fixed point closes or the explicit 24-expansion/72-attempt limits are
 reached. The v5 recovery is strong evidence that durability and control flow now
 work; it is deliberately not reported as a solved Nirmatrelvir synthesis.
 
+### Nirmatrelvir v8 diagnostic
+
+`results/shared/nirmatrelvir_codex_closure_20260712_v8` was stopped after its
+diagnostic objective was met so that the verified architecture changes could be
+published. It is an interrupted workspace-only run, not a closeout artifact and
+not a solved-route claim. The root team and three completed child-frontier teams
+all reconciled their raw/admitted/quarantined candidate partitions. Patent and
+Science PDF actions each rendered 50 pages, and independent actions survived in
+the same round even when another action could not be admitted.
+
+The host-approved complex-target ChemEnzy budget reached 20 routes, depth 50,
+and 100 iterations. It produced nine raw backend routes, but the host verifier
+rejected all nine. They shared one chemically invalid edge whose product gains
+three carbon atoms and one oxygen atom without corresponding reactants. The host
+verifier is now authoritative for attempt outcome: a backend `solved` label with
+a rejected route is recorded as `verification_rejected`, remains diagnostic,
+and cannot close the campaign or advance proof tier.
+
+The run therefore demonstrates persistent Codex frontier expansion, bounded
+multi-source extraction, and deep ChemEnzy execution while honestly retaining
+`route_solved=false`. It still uses a pinned PaRoutes benchmark stock snapshot,
+not a live supplier catalog, and it has no approved trusted precedent registry.
+Those external authorities remain prerequisites for procurement closure (L4)
+and trusted parent-route proof (L3), respectively.
+
 ## Supporting Docs
 
 - [Architecture V2](ARCHITECTURE_V2.md)
