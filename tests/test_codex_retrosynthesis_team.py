@@ -1146,8 +1146,8 @@ def test_campaign_policy_binds_child_acceptance_mode_roles_and_quorum(
     assert proposal_policy["child_acceptance_mode"] == "strict_all"
     assert proposal_policy["child_roles"] == list(DEFAULT_CHILD_ROLES)
     assert proposal_policy["derived_valid_child_quorum"] == 2
-    assert proposal_policy["child_acceptance_contract_version"].endswith(".v2")
-    assert proposal_policy["coordinator_contract_version"].endswith(".v3")
+    assert proposal_policy["child_acceptance_contract_version"].endswith(".v3")
+    assert proposal_policy["coordinator_contract_version"].endswith(".v4")
 
     with pytest.raises(ValueError, match="campaign policy mismatch"):
         run_codex_retrosynthesis_campaign(

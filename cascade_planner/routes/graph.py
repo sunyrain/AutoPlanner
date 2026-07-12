@@ -11,6 +11,7 @@ from typing import Any
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.routes.consensus import select_reaction_family
 from cascade_planner.routes.overlay import build_route_hypergraph_v2_overlay
 
 
@@ -398,6 +399,46 @@ def _merge_step(signature: str, rows: list[tuple[dict[str, Any], dict[str, Any]]
         for record in proposal.get("source_records") or []
         if isinstance(record, Mapping)
     )
+    reaction_family_rows = [
+        record
+        for record in source_records
+        if str(record.get("reaction_family") or "").strip()
+    ]
+    if not reaction_family_rows:
+        # Compatibility for route_consensus.v1 objects written before
+        # source-level reaction-family provenance was retained.
+        for proposal in proposals:
+            selection = dict(proposal.get("reaction_family_selection") or {})
+            support_groups = list(
+                selection.get("support_groups")
+                or proposal.get("independent_support_groups")
+                or []
+            )
+            reaction_family_rows.append(
+                {
+                    "candidate_id": str(proposal.get("consensus_id") or ""),
+                    "reaction_family": str(
+                        proposal.get("reaction_family") or "unspecified"
+                    ),
+                    "source_channel": "other",
+                    "support_group": (
+                        str(support_groups[0])
+                        if len(support_groups) == 1
+                        else "legacy_unverified_support"
+                    ),
+                    "authority_bound": selection.get("authority_bound") is True,
+                    "authority_evidence_level": str(
+                        selection.get("authority_evidence_level")
+                        or proposal.get("authority_evidence_level")
+                        or "model_only"
+                    ),
+                    "authority_basis": str(
+                        selection.get("authority_basis")
+                        or "legacy_consensus_family_fallback"
+                    ),
+                }
+            )
+    reaction_family_selection = select_reaction_family(reaction_family_rows)
     conditions = _dedupe_text(value for proposal in proposals for value in proposal.get("conditions") or [])
     catalysts = _dedupe_text(value for proposal in proposals for value in proposal.get("catalysts") or [])
     enzymes = _dedupe_text(value for proposal in proposals for value in proposal.get("enzymes") or [])
@@ -423,8 +464,9 @@ def _merge_step(signature: str, rows: list[tuple[dict[str, Any], dict[str, Any]]
         "precursor_smiles": precursors,
         "proposal_ids": _dedupe_text(str(row.get("consensus_id") or "") for row in proposals),
         "origin_expansion_ids": _dedupe_text(str(row.get("expansion_id") or "") for row in expansions),
-        "reaction_family": str(max(proposals, key=lambda row: float(row.get("rank_score") or 0.0)).get("reaction_family") or "unspecified"),
+        "reaction_family": str(reaction_family_selection["value"]),
         "reaction_families": _dedupe_text(value for row in proposals for value in row.get("reaction_families") or []),
+        "reaction_family_selection": reaction_family_selection,
         "rationales": _dedupe_text(value for row in proposals for value in row.get("rationales") or []),
         "source_channels": _dedupe_text(value for row in proposals for value in row.get("source_channels") or []),
         "source_records": source_records,

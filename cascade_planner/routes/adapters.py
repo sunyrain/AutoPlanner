@@ -359,8 +359,17 @@ def _candidates_from_consensus(consensus: dict[str, Any]) -> list[dict[str, Any]
                     candidate_id=str(record.get("candidate_id") or proposal.get("consensus_id") or "consensus"),
                     product_smiles=str(proposal.get("product_smiles") or ""),
                     precursor_smiles=list(proposal.get("precursor_smiles") or []),
-                    reaction_family=str(proposal.get("reaction_family") or "unspecified"),
-                    rationale=" | ".join(str(value) for value in proposal.get("rationales") or []),
+                    reaction_family=str(
+                        record.get("reaction_family")
+                        or proposal.get("reaction_family")
+                        or "unspecified"
+                    ),
+                    rationale=str(
+                        record.get("transformation_rationale")
+                        or " | ".join(
+                            str(value) for value in proposal.get("rationales") or []
+                        )
+                    ),
                     source_channel=source_channel,
                     source_refs=_as_text_list(record.get("source_refs")),
                     evidence_refs=_as_text_list(record.get("evidence_refs")),

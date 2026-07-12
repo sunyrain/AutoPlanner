@@ -12,7 +12,7 @@ import hashlib
 import json
 import math
 from collections import defaultdict
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from rdkit import Chem, RDLogger
 
@@ -547,8 +547,14 @@ def _proposal_independent_support_groups(proposal: dict[str, Any]) -> list[str]:
     return []
 
 
-def validate_retrosynthesis_report_payload(payload: Any) -> list[str]:
-    """Validate a child-agent proposal report; returns stable reason codes."""
+def validate_retrosynthesis_report_envelope_payload(payload: Any) -> list[str]:
+    """Validate report-wide identity and safety without rejecting local candidates.
+
+    Candidate chemistry is intentionally audited separately by the trusted
+    orchestrator.  Keeping this boundary explicit lets one structurally bad
+    proposal be quarantined without weakening report-level JSON, identity,
+    solved-claim, or raw-reaction safeguards.
+    """
     if not isinstance(payload, dict):
         return ["proposal_report_payload_not_object"]
     reasons: list[str] = []
@@ -560,12 +566,31 @@ def validate_retrosynthesis_report_payload(payload: Any) -> list[str]:
         reasons.append("missing_proposal_report_agent_role")
     if payload.get("no_solved_claim") is not True or _contains_solved_claim(payload):
         reasons.append("proposal_report_direct_solved_claim")
+    if _contains_raw_reaction(payload):
+        reasons.append("proposal_report_raw_reaction_payload")
     candidates = payload.get("candidates")
     if not isinstance(candidates, list):
         reasons.append("proposal_report_candidates_not_list")
         candidates = []
     if len(candidates) > 24:
         reasons.append("proposal_report_candidate_limit_exceeded")
+    return sorted(set(reasons))
+
+
+def validate_retrosynthesis_report_payload(payload: Any) -> list[str]:
+    """Validate a complete proposal report; returns stable reason codes.
+
+    This compatibility API retains the historical aggregate behavior.  Child
+    acceptance v3 uses :func:`validate_retrosynthesis_report_envelope_payload`
+    and records candidate admission independently.
+    """
+
+    reasons = validate_retrosynthesis_report_envelope_payload(payload)
+    if not isinstance(payload, dict):
+        return reasons
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list):
+        return reasons
     for index, raw in enumerate(candidates):
         _, candidate_reasons = normalize_route_candidate(
             raw if isinstance(raw, dict) else {},
@@ -578,12 +603,15 @@ def validate_retrosynthesis_report_payload(payload: Any) -> list[str]:
 def _fuse_group(signature: str, rows: list[dict[str, Any]], *, target: str) -> dict[str, Any]:
     first = rows[0]
     _reconcile_literature_support_groups(rows)
+    reaction_family_selection = select_reaction_family(rows)
     channels = sorted({row["source_channel"] for row in rows})
     support_groups = sorted({row["support_group"] for row in rows})
     evidence_levels = [row["authority_evidence_level"] for row in rows]
     source_records = [
         {
             "candidate_id": row["candidate_id"],
+            "reaction_family": row["reaction_family"],
+            "transformation_rationale": row["transformation_rationale"],
             "source_channel": row["source_channel"],
             "evidence_level": row["authority_evidence_level"],
             "confidence": row["authority_confidence"],
@@ -631,8 +659,9 @@ def _fuse_group(signature: str, rows: list[dict[str, Any]], *, target: str) -> d
         "product_smiles": first["product_smiles"],
         "precursor_smiles": list(first["precursor_smiles"]),
         "precursor_set_smiles": first["precursor_set_smiles"],
-        "reaction_family": _best_reaction_family(rows),
+        "reaction_family": reaction_family_selection["value"],
         "reaction_families": _dedupe(row["reaction_family"] for row in rows),
+        "reaction_family_selection": reaction_family_selection,
         "rationales": _dedupe(row["transformation_rationale"] for row in rows if row["transformation_rationale"]),
         "source_channels": channels,
         "source_channel_count": len(channels),
@@ -822,12 +851,149 @@ def _proposal_signature(product: str, precursors: list[str]) -> str:
     return f"{product}<-{'.'.join(sorted(precursors))}"
 
 
+def select_reaction_family(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    """Select one display family without turning model repetition into authority.
+
+    Authority-bound evidence outranks unbound producer labels.  Within one
+    authority tier, support is counted by independent support group rather than
+    by record count or Codex role.  An unresolved tie remains explicit instead
+    of being silently broken by lexicographic order.
+    """
+
+    candidates: list[dict[str, Any]] = []
+    for raw in rows:
+        if not isinstance(raw, Mapping):
+            continue
+        family = str(raw.get("reaction_family") or "").strip()
+        if not family or family == "unspecified":
+            continue
+        authority_bound = raw.get("authority_bound") is True
+        evidence_level = str(
+            raw.get("authority_evidence_level")
+            or raw.get("evidence_level")
+            or "model_only"
+        )
+        support_group = str(raw.get("support_group") or "").strip()
+        if not support_group:
+            source_channel = str(raw.get("source_channel") or "other")
+            support_group = (
+                "codex_model"
+                if source_channel.startswith("codex_")
+                else f"unbound:{source_channel}"
+            )
+        candidates.append(
+            {
+                "value": family,
+                "authority_bound": authority_bound,
+                "authority_evidence_level": evidence_level,
+                "authority_priority": (
+                    1 if authority_bound else 0,
+                    EVIDENCE_LEVEL_WEIGHT.get(evidence_level, 0.0),
+                ),
+                "authority_basis": str(
+                    raw.get("authority_basis") or "unbound_producer"
+                ),
+                "support_group": support_group,
+                "candidate_id": str(raw.get("candidate_id") or ""),
+            }
+        )
+
+    if not candidates:
+        return {
+            "schema_version": "reaction_family_selection.v1",
+            "status": "missing",
+            "value": "unspecified",
+            "authority_basis": "none",
+            "authority_bound": False,
+            "authority_evidence_level": "model_only",
+            "support_groups": [],
+            "candidate_ids": [],
+            "alternatives": [],
+        }
+
+    top_priority = max(row["authority_priority"] for row in candidates)
+    top_rows = [
+        row for row in candidates if row["authority_priority"] == top_priority
+    ]
+    by_family: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in top_rows:
+        by_family[row["value"]].append(row)
+    top_group_count = max(
+        len({row["support_group"] for row in family_rows})
+        for family_rows in by_family.values()
+    )
+    winners = sorted(
+        family
+        for family, family_rows in by_family.items()
+        if len({row["support_group"] for row in family_rows}) == top_group_count
+    )
+    selected = winners[0] if len(winners) == 1 else "unspecified"
+    selected_rows = by_family.get(selected, [])
+    authority_rows = selected_rows or top_rows
+    alternatives = []
+    for family in sorted(by_family):
+        family_rows = by_family[family]
+        alternatives.append(
+            {
+                "value": family,
+                "authority_bound": any(
+                    row["authority_bound"] for row in family_rows
+                ),
+                "authority_evidence_level": max(
+                    (
+                        row["authority_evidence_level"]
+                        for row in family_rows
+                    ),
+                    key=lambda value: EVIDENCE_LEVEL_WEIGHT.get(value, 0.0),
+                ),
+                "support_groups": sorted(
+                    {row["support_group"] for row in family_rows}
+                ),
+                "candidate_ids": sorted(
+                    {
+                        row["candidate_id"]
+                        for row in family_rows
+                        if row["candidate_id"]
+                    }
+                ),
+            }
+        )
+    return {
+        "schema_version": "reaction_family_selection.v1",
+        "status": (
+            "ambiguous"
+            if len(winners) > 1
+            else (
+                "selected_authority_bound"
+                if top_priority[0]
+                else "selected_advisory"
+            )
+        ),
+        "value": selected,
+        "authority_basis": (
+            "unresolved_equal_priority_conflict"
+            if len(winners) > 1
+            else sorted({row["authority_basis"] for row in authority_rows})[0]
+        ),
+        "authority_bound": bool(top_priority[0]) if len(winners) == 1 else False,
+        "authority_evidence_level": max(
+            (row["authority_evidence_level"] for row in authority_rows),
+            key=lambda value: EVIDENCE_LEVEL_WEIGHT.get(value, 0.0),
+        ),
+        "support_groups": sorted(
+            {row["support_group"] for row in authority_rows}
+        ),
+        "candidate_ids": sorted(
+            {row["candidate_id"] for row in authority_rows if row["candidate_id"]}
+        ),
+        "alternatives": alternatives,
+    }
+
+
 def _best_reaction_family(rows: list[dict[str, Any]]) -> str:
-    values = [row["reaction_family"] for row in rows if row["reaction_family"] != "unspecified"]
-    if not values:
-        return "unspecified"
-    counts = {value: values.count(value) for value in set(values)}
-    return sorted(counts, key=lambda value: (-counts[value], value))[0]
+    """Compatibility wrapper for callers that still need only one label."""
+
+    return str(select_reaction_family(rows)["value"])
 
 
 def _role_source_channel(role: Any) -> str:

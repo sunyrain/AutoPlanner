@@ -47,7 +47,8 @@ from cascade_planner.harness.reaction_step_verifier import (
 from cascade_planner.routes.consensus import (
     consensus_to_blackboard_proposals,
     fuse_route_candidates,
-    validate_retrosynthesis_report_payload,
+    normalize_route_candidate,
+    validate_retrosynthesis_report_envelope_payload,
 )
 from cascade_planner.routes.graph import (
     assemble_route_consensus_graph,
@@ -91,9 +92,9 @@ CODEX_RETROSYNTHESIS_CAMPAIGN_POLICY_SCHEMA = (
     "codex_retrosynthesis_campaign_policy.v1"
 )
 RETROSYNTHESIS_COORDINATOR_CONTRACT_VERSION = (
-    "autoplanner.retrosynthesis_coordinator.v3"
+    "autoplanner.retrosynthesis_coordinator.v4"
 )
-CHILD_ACCEPTANCE_CONTRACT_VERSION = "autoplanner.child_acceptance.v2"
+CHILD_ACCEPTANCE_CONTRACT_VERSION = "autoplanner.child_acceptance.v3"
 CODEX_RETROSYNTHESIS_BUDGET_EVENT_SCHEMA = (
     "codex_retrosynthesis_budget_event.v1"
 )
@@ -151,6 +152,19 @@ CHILD_CANDIDATE_KEYS = {
     "no_solved_claim",
     "not_parent_route_proof",
 }
+ISOLATABLE_CHILD_CANDIDATE_REASONS = frozenset(
+    {
+        "invalid_product_smiles",
+        "invalid_precursor_smiles",
+        "invalid_or_missing_material",
+        "identity_proposal",
+        "target_or_current_node_self_loop",
+        "candidate_product_does_not_match_requested_target",
+        "ancestor_or_target_cycle",
+        "element_inventory_not_conserved",
+        "large_atom_jump",
+    }
+)
 
 TeamRunner = Callable[[WorkerTask], WorkerRunRecord]
 
@@ -453,6 +467,15 @@ the JSON. A child with no defensible proposal must return candidates=[] rather
 than invent one:
 {json.dumps(child_report_contract, ensure_ascii=False, indent=2, sort_keys=True)}
 
+Every candidate is exactly one retrosynthetic hyperedge: its listed precursor
+multiset must jointly form candidate product_smiles in the single transformation
+named by reaction_family and transformation_rationale. An enzyme or operation
+that only prepares one precursor further upstream is not a target-forming edge;
+record that idea only as a limitation or required validation, never by pairing
+the upstream substrate with unrelated advanced fragments. Do not telescope
+unlisted acylation, coupling, protection, resolution, or dehydration operations
+into one candidate.
+
 Require
 the literature child to attach traceable DOI/URL/local source references; do
 not let a model-only agreement masquerade as independent evidence. Require the
@@ -641,12 +664,64 @@ def run_codex_retrosynthesis_team(
     consensus = fuse_route_candidates(child_candidates, case_id=case_id, target_smiles=target_smiles)
     if partial_fallback_used:
         consensus = _cap_partial_consensus_to_l0(consensus)
+    accepted_report_admissions = [
+        dict(row.get("candidate_admission") or {})
+        for row in child_reports
+        if row.get("accepted") is True
+    ]
+    raw_candidate_count = sum(
+        int((row.get("candidate_admission") or {}).get("raw_candidate_count") or 0)
+        for row in child_reports
+    )
+    admitted_candidate_count = sum(
+        int(row.get("admitted_candidate_count") or 0)
+        for row in accepted_report_admissions
+    )
+    quarantined_candidate_count = sum(
+        int(row.get("rejected_candidate_count") or 0)
+        for row in accepted_report_admissions
+    )
+    discarded_with_rejected_reports_count = sum(
+        int(
+            (row.get("candidate_admission") or {}).get(
+                "discarded_with_rejected_report_count"
+            )
+            or 0
+        )
+        for row in child_reports
+    )
+    filtered_child_roles = sorted(
+        str(row.get("role") or "")
+        for row in child_reports
+        if row.get("accepted") is True
+        and int(
+            (row.get("candidate_admission") or {}).get(
+                "rejected_candidate_count"
+            )
+            or 0
+        )
+        > 0
+    )
+    consensus_summary = dict(consensus.get("source_summary") or {})
+    candidate_admission_reconciliation_reasons: list[str] = []
+    if int(consensus_summary.get("candidate_count") or 0) != admitted_candidate_count:
+        candidate_admission_reconciliation_reasons.append(
+            "child_candidate_admitted_count_consensus_mismatch"
+        )
+    if (
+        int(consensus_summary.get("rejected_count") or 0)
+        != quarantined_candidate_count
+    ):
+        candidate_admission_reconciliation_reasons.append(
+            "child_candidate_rejected_count_consensus_mismatch"
+        )
     consensus_path = output_dir / "route_consensus.json"
     _write_json(consensus_path, consensus)
     proposals = consensus_to_blackboard_proposals(consensus)
 
     reasons: list[str] = []
     reasons.extend(partial_coordinator_safety_reasons)
+    reasons.extend(candidate_admission_reconciliation_reasons)
     if not partial_fallback_used:
         if record.status != "accepted_draft":
             reasons.append(f"coordinator_status:{record.status}")
@@ -713,6 +788,9 @@ def run_codex_retrosynthesis_team(
         "worker_artifact_validation": worker_artifact_validation,
         "child_acceptance": {
             "contract_version": CHILD_ACCEPTANCE_CONTRACT_VERSION,
+            "candidate_admission_contract_version": (
+                "autoplanner.child_candidate_admission.v1"
+            ),
             "mode": child_acceptance_mode,
             "acceptance_tier": acceptance_tier,
             "required_child_roles": list(task.child_roles),
@@ -731,6 +809,17 @@ def run_codex_retrosynthesis_team(
             ),
             "partial_fallback_used": partial_fallback_used,
             "strict_full_child_completion": strict_full_child_completion,
+            "raw_candidate_count": raw_candidate_count,
+            "admitted_candidate_count": admitted_candidate_count,
+            "quarantined_candidate_count": quarantined_candidate_count,
+            "discarded_with_rejected_reports_count": (
+                discarded_with_rejected_reports_count
+            ),
+            "filtered_child_roles": filtered_child_roles,
+            "candidate_admission_reconciliation_reasons": (
+                candidate_admission_reconciliation_reasons
+            ),
+            "candidate_quarantine_does_not_trigger_partial_fallback": True,
         },
         "route_consensus_ref": str(consensus_path),
         "route_consensus": consensus,
@@ -746,6 +835,7 @@ def run_codex_retrosynthesis_team(
             "child_acceptance_mode": child_acceptance_mode,
             "child_acceptance_tier": acceptance_tier,
             "partial_fallback_used": partial_fallback_used,
+            "candidate_quarantine_is_search_admission_only": True,
             "no_solved_claim": True,
         },
     }
@@ -5645,6 +5735,9 @@ def _validated_child_reports(
         message_sha256 = hashlib.sha256(message_text.encode("utf-8")).hexdigest() if message_text else ""
         parsed = _child_report_payload(message_text) if message_bytes <= MAX_CHILD_REPORT_BYTES else {}
         parsed, normalization_repairs = _conservative_child_report_shape_repair(parsed)
+        safe_role = role if role else f"unassigned-{index}"
+        report_path = report_dir / f"{index:02d}-{safe_role}-{message_sha256[:12] or 'empty'}.json"
+        report_ref = f"{report_path}#agent={agent_id}"
         validation_reasons: list[str] = []
         status = str(child.get("status") or "").strip().lower()
         if status not in {"completed", "succeeded", "success", "accepted"}:
@@ -5666,39 +5759,85 @@ def _validated_child_reports(
             validation_reasons.append("child_report_json_missing_or_invalid")
         else:
             validation_reasons.extend(_strict_child_report_shape_reasons(parsed))
-            validation_reasons.extend(validate_retrosynthesis_report_payload(parsed))
+            validation_reasons.extend(
+                validate_retrosynthesis_report_envelope_payload(parsed)
+            )
             if str(parsed.get("case_id") or "") != str(case_id):
                 validation_reasons.append("child_report_case_id_mismatch")
             if _normalize_role(parsed.get("agent_role")) != role:
                 validation_reasons.append("child_report_role_mismatch")
             if not _same_smiles(parsed.get("target_smiles"), target_smiles=target_smiles):
                 validation_reasons.append("child_report_target_mismatch")
+
+        raw_candidates = (
+            list(parsed.get("candidates") or [])
+            if isinstance(parsed.get("candidates"), list)
+            else []
+        )
+        candidate_audits: list[dict[str, Any]] = []
+        host_candidate_rows: list[dict[str, Any]] = []
+        candidate_pass_count = 0
+        candidate_rejected_count = 0
+        if not validation_reasons:
+            for candidate_index, raw_candidate in enumerate(raw_candidates):
+                host_candidate, audit, hard_reasons = _audit_child_candidate(
+                    raw_candidate,
+                    index=candidate_index,
+                    role=role,
+                    target_smiles=target_smiles,
+                    report_ref=report_ref,
+                )
+                candidate_audits.append(audit)
+                if audit.get("accepted") is True:
+                    candidate_pass_count += 1
+                else:
+                    candidate_rejected_count += 1
+                validation_reasons.extend(hard_reasons)
+                host_candidate_rows.append(host_candidate)
+            if raw_candidates and candidate_pass_count == 0:
+                validation_reasons.append("child_report_no_admissible_candidates")
+
         accepted = not validation_reasons
-        safe_role = role if role else f"unassigned-{index}"
-        report_path = report_dir / f"{index:02d}-{safe_role}-{message_sha256[:12] or 'empty'}.json"
-        report_ref = f"{report_path}#agent={agent_id}"
-        candidate_count = 0
+        candidate_count = candidate_pass_count if accepted else 0
         if accepted:
             seen_roles.add(role)
-            for raw_candidate in parsed.get("candidates") or []:
-                if not isinstance(raw_candidate, dict):
-                    continue
-                candidate = dict(raw_candidate)
-                # Source channels are assigned by the trusted orchestrator;
-                # child prose cannot impersonate another independent source.
-                candidate["source_channel"] = ROLE_SOURCE_CHANNELS.get(role, "other")
-                candidate["report_ref"] = report_ref
-                candidates.append(candidate)
-                candidate_count += 1
+            # Keep quarantined local rows in the fusion input so the canonical
+            # route_consensus rejection ledger remains complete. The same pure
+            # normalizer will reject them again; only admitted rows can form a
+            # proposal.
+            candidates.extend(host_candidate_rows)
+        report_disposition = (
+            "accepted_with_candidate_quarantine"
+            if accepted and candidate_rejected_count
+            else "accepted_clean"
+            if accepted
+            else "rejected"
+        )
+        candidate_admission = {
+            "schema_version": "codex_child_candidate_admission_summary.v1",
+            "policy": "local_structural_reasons_only.v1",
+            "raw_candidate_count": len(raw_candidates),
+            "candidate_pass_count": candidate_pass_count,
+            "admitted_candidate_count": candidate_count,
+            "rejected_candidate_count": candidate_rejected_count,
+            "discarded_with_rejected_report_count": (
+                len(raw_candidates) if not accepted else 0
+            ),
+            "audits": candidate_audits,
+            "report_accepted": accepted,
+            "candidate_quarantine_does_not_grant_evidence_authority": True,
+        }
         persisted = {
-            "schema_version": "codex_child_report_observation.v1",
+            "schema_version": "codex_child_report_observation.v2",
             "accepted": accepted,
+            "report_disposition": report_disposition,
             "case_id": case_id,
             "role": role,
             "agent_id": agent_id,
             "status": str(child.get("status") or ""),
             "payload": parsed,
             "candidate_count": candidate_count,
+            "candidate_admission": candidate_admission,
             "message_bytes": message_bytes,
             "message_sha256": message_sha256,
             "normalization_repairs": normalization_repairs,
@@ -5709,11 +5848,13 @@ def _validated_child_reports(
         reports.append(
             {
                 "accepted": accepted,
+                "report_disposition": report_disposition,
                 "role": role,
                 "agent_id": agent_id,
                 "status": str(child.get("status") or ""),
                 "report_ref": report_ref,
                 "candidate_count": candidate_count,
+                "candidate_admission": candidate_admission,
                 "message_bytes": message_bytes,
                 "message_sha256": message_sha256,
                 "normalization_repairs": normalization_repairs,
@@ -5721,6 +5862,74 @@ def _validated_child_reports(
             }
         )
     return reports, candidates
+
+
+def _audit_child_candidate(
+    raw_candidate: Any,
+    *,
+    index: int,
+    role: str,
+    target_smiles: str,
+    report_ref: str,
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    candidate = dict(raw_candidate) if isinstance(raw_candidate, dict) else {}
+    producer_digest = _safe_payload_digest(candidate)
+    # Source identity is a host capability. Child text cannot impersonate a
+    # deterministic provider or mint an independent evidence group.
+    candidate["source_channel"] = ROLE_SOURCE_CHANNELS.get(role, "other")
+    candidate["report_ref"] = report_ref
+    normalized, reasons = normalize_route_candidate(
+        candidate,
+        default_source_channel=ROLE_SOURCE_CHANNELS.get(role, "other"),
+        report_ref=report_ref,
+    )
+    candidate_reasons = list(reasons)
+    if normalized is not None and not _same_smiles(
+        normalized.get("product_smiles"),
+        target_smiles=target_smiles,
+    ):
+        candidate_reasons.append(
+            "candidate_product_does_not_match_requested_target"
+        )
+    authority_ceiling_valid = bool(
+        normalized is None
+        or (
+            normalized.get("authority_evidence_level") == "model_only"
+            and normalized.get("authority_confidence") == "low"
+            and normalized.get("authority_bound") is False
+        )
+    )
+    if not authority_ceiling_valid:
+        candidate_reasons.append("codex_candidate_authority_ceiling_violation")
+    candidate_reasons = sorted(set(candidate_reasons))
+    hard_reasons = sorted(
+        reason
+        for reason in candidate_reasons
+        if reason not in ISOLATABLE_CHILD_CANDIDATE_REASONS
+    )
+    accepted = bool(normalized is not None and not candidate_reasons)
+    audit = {
+        "schema_version": "codex_child_candidate_admission.v1",
+        "candidate_index": int(index),
+        "candidate_id": str(candidate.get("candidate_id") or ""),
+        "candidate_sha256": producer_digest,
+        "effective_candidate_sha256": _safe_payload_digest(candidate),
+        "accepted": accepted,
+        "reasons": candidate_reasons,
+        "authority_ceiling": "L0_model_only_low_unbound",
+        "canonical_product_smiles": str(
+            (normalized or {}).get("product_smiles") or ""
+        ),
+        "canonical_precursor_smiles": list(
+            (normalized or {}).get("precursor_smiles") or []
+        ),
+        "report_ref": report_ref,
+    }
+    return (
+        candidate,
+        audit,
+        [f"child_candidate:{index}:non_isolatable:{reason}" for reason in hard_reasons],
+    )
 
 
 def _child_report_payload(message: Any) -> dict[str, Any]:
@@ -5788,6 +5997,17 @@ def _conservative_child_report_shape_repair(
 
 
 def _strict_child_report_shape_reasons(payload: dict[str, Any]) -> list[str]:
+    reasons = _strict_child_report_envelope_shape_reasons(payload)
+    candidates = payload.get("candidates")
+    if isinstance(candidates, list):
+        for index, candidate in enumerate(candidates):
+            reasons.extend(_strict_child_candidate_shape_reasons(candidate, index=index))
+    return sorted(set(reasons))
+
+
+def _strict_child_report_envelope_shape_reasons(
+    payload: dict[str, Any],
+) -> list[str]:
     reasons: list[str] = []
     keys = set(payload)
     if not CHILD_REPORT_KEYS.issubset(keys) or not keys.issubset(
@@ -5801,9 +6021,6 @@ def _strict_child_report_shape_reasons(payload: dict[str, Any]) -> list[str]:
         reasons.append("child_report_parent_route_claim")
     if not isinstance(payload.get("candidates"), list):
         reasons.append("child_report_candidates_not_list")
-        candidates: list[Any] = []
-    else:
-        candidates = list(payload.get("candidates") or [])
     if not isinstance(payload.get("evidence_refs"), list) or not all(
         isinstance(item, str) for item in payload.get("evidence_refs") or []
     ):
@@ -5812,43 +6029,50 @@ def _strict_child_report_shape_reasons(payload: dict[str, Any]) -> list[str]:
         isinstance(item, str) for item in payload.get("limitations") or []
     ):
         reasons.append("child_report_limitations_not_string_list")
-    for index, candidate in enumerate(candidates):
-        prefix = f"child_candidate:{index}:"
-        if not isinstance(candidate, dict):
-            reasons.append(prefix + "not_object")
-            continue
-        if set(candidate) != CHILD_CANDIDATE_KEYS:
-            reasons.append(prefix + "fields_not_exact")
-        for key in (
-            "schema_version",
-            "candidate_id",
-            "product_smiles",
-            "reaction_family",
-            "transformation_rationale",
-            "source_channel",
-            "evidence_level",
-            "confidence",
-            "catalyst",
-            "enzyme",
+    return sorted(set(reasons))
+
+
+def _strict_child_candidate_shape_reasons(
+    candidate: Any,
+    *,
+    index: int,
+) -> list[str]:
+    prefix = f"child_candidate:{index}:"
+    if not isinstance(candidate, dict):
+        return [prefix + "not_object"]
+    reasons: list[str] = []
+    if set(candidate) != CHILD_CANDIDATE_KEYS:
+        reasons.append(prefix + "fields_not_exact")
+    for key in (
+        "schema_version",
+        "candidate_id",
+        "product_smiles",
+        "reaction_family",
+        "transformation_rationale",
+        "source_channel",
+        "evidence_level",
+        "confidence",
+        "catalyst",
+        "enzyme",
+    ):
+        if not isinstance(candidate.get(key), str):
+            reasons.append(prefix + f"{key}_not_string")
+    for key in (
+        "precursor_smiles",
+        "source_refs",
+        "evidence_refs",
+        "conditions",
+        "limitations",
+        "required_validation",
+    ):
+        if not isinstance(candidate.get(key), list) or not all(
+            isinstance(item, str) for item in candidate.get(key) or []
         ):
-            if not isinstance(candidate.get(key), str):
-                reasons.append(prefix + f"{key}_not_string")
-        for key in (
-            "precursor_smiles",
-            "source_refs",
-            "evidence_refs",
-            "conditions",
-            "limitations",
-            "required_validation",
-        ):
-            if not isinstance(candidate.get(key), list) or not all(
-                isinstance(item, str) for item in candidate.get(key) or []
-            ):
-                reasons.append(prefix + f"{key}_not_string_list")
-        if candidate.get("no_solved_claim") is not True:
-            reasons.append(prefix + "missing_no_solved_claim")
-        if candidate.get("not_parent_route_proof") is not True:
-            reasons.append(prefix + "missing_not_parent_route_proof")
+            reasons.append(prefix + f"{key}_not_string_list")
+    if candidate.get("no_solved_claim") is not True:
+        reasons.append(prefix + "missing_no_solved_claim")
+    if candidate.get("not_parent_route_proof") is not True:
+        reasons.append(prefix + "missing_not_parent_route_proof")
     return sorted(set(reasons))
 
 
@@ -5871,7 +6095,13 @@ def _annotate_child_report_validation(
         report = dict(by_agent_id.get(agent_id) or {})
         child.pop("message", None)
         child["report_accepted"] = report.get("accepted") is True
+        child["report_disposition"] = str(
+            report.get("report_disposition") or "rejected"
+        )
         child["report_ref"] = str(report.get("report_ref") or "")
+        child["report_candidate_admission"] = dict(
+            report.get("candidate_admission") or {}
+        )
         child["report_normalization_repairs"] = list(
             report.get("normalization_repairs") or []
         )
