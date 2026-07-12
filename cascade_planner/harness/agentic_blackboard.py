@@ -34,6 +34,9 @@ from cascade_planner.harness.route_verifier import (
     is_reaction_validated_route_verifier_report,
 )
 from cascade_planner.harness.schemas import write_json
+from cascade_planner.harness.source_capabilities import (
+    pdf_evidence_has_materialized_render,
+)
 from cascade_planner.harness.stitched_route import is_validated_source_detail_literature_step
 from cascade_planner.harness.target_side_strategy import build_target_side_disconnection_hypotheses
 from cascade_planner.agent.action_contracts import PLANNER_SOURCE_HINT_SCHEMA
@@ -757,7 +760,10 @@ def _build_source_lifecycle(evidence: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(pdf, dict):
             continue
         row = get_row(pdf)
-        row["stage_flags"]["pdf_rendered"] = bool(pdf.get("accepted", True)) or row["stage_flags"]["pdf_rendered"]
+        row["stage_flags"]["pdf_rendered"] = (
+            pdf_evidence_has_materialized_render(pdf)
+            or row["stage_flags"]["pdf_rendered"]
+        )
         if str(pdf.get("source_pdf_path") or pdf.get("pdf_path") or "").strip():
             row["stage_flags"]["local_pdf_available"] = True
         _append_unique(row["refs"], "pdf_evidence_ids", str(pdf.get("evidence_id") or pdf.get("source_ref") or ""))

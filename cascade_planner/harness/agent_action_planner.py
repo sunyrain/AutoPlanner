@@ -4,8 +4,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from rdkit import Chem, DataStructs
 
@@ -17,6 +18,15 @@ from cascade_planner.agent.action_contracts import (
 )
 from cascade_planner.agent.chem_enzy_policy import validate_chem_enzy_search_policy
 from cascade_planner.harness.parent_route_proof import is_solved_parent_route_proof
+from cascade_planner.harness.source_capabilities import (
+    SOURCE_SENSITIVE_ACTIONS,
+    action_resource_cost,
+    build_source_capability_queue,
+    eligible_source_capabilities,
+    pdf_evidence_has_materialized_render,
+    pdf_evidence_render_paths,
+    source_action_is_eligible,
+)
 from cascade_planner.source_locators import independent_source_group
 
 
@@ -625,6 +635,11 @@ def validate_action_batch(
     reasons: list[str] = []
     batch = dict(action_batch or {})
     board = dict(blackboard or {})
+    capability_queue = build_source_capability_queue(
+        board,
+        round_index=int(batch.get("round_index") or 0),
+        max_literature_sources_per_round=max_literature_sources_per_round,
+    )
     if batch.get("schema_version") != ACTION_BATCH_SCHEMA:
         reasons.append("invalid_action_batch_schema")
     semantics = batch.get("semantics") or {}
@@ -681,14 +696,52 @@ def validate_action_batch(
             reasons.extend(f"search_literature_payload:{idx}:{reason}" for reason in _search_literature_payload_reasons(payload))
         if action_type == "build_failure_critic_report" and not _failure_evidence_available(board):
             reasons.append(f"failure_critic_requires_failure_evidence:{idx}")
-        if action_type == "extract_pdf_literature_structures" and _pdf_extraction_binding_missing(payload, board):
-            reasons.append(f"extract_pdf_literature_structures_requires_pdf_binding:{idx}")
+        if action_type == "extract_pdf_literature_structures":
+            if _pdf_extraction_binding_missing(payload, board):
+                reasons.append(
+                    f"extract_pdf_literature_structures_requires_pdf_binding:{idx}"
+                )
+            elif eligible_source_capabilities(
+                capability_queue,
+                "extract_pdf_literature_structures",
+            ) and not source_action_is_eligible(
+                capability_queue,
+                action_type=action_type,
+                payload=payload,
+            ):
+                reasons.append(
+                    f"source_capability_not_eligible:{idx}:{action_type}"
+                )
         if action_type == "extract_visual_literature_chain":
             visual_action_count += 1
-            if not _visual_extraction_has_rendered_input(payload, board):
+            capability_eligible = source_action_is_eligible(
+                capability_queue,
+                action_type=action_type,
+                payload=payload,
+            )
+            if bool(payload.get("focused_gap_repair")):
+                capability_eligible = _visual_extraction_has_rendered_input(
+                    payload,
+                    board,
+                )
+            if not capability_eligible:
                 reasons.append(
                     f"extract_visual_literature_chain_requires_rendered_pdf_evidence:{idx}"
                 )
+        if (
+            action_type in SOURCE_SENSITIVE_ACTIONS
+            and str(
+                payload.get("source_capability_id")
+                or payload.get("capability_id")
+                or ""
+            ).strip()
+            and not source_action_is_eligible(
+                capability_queue,
+                action_type=action_type,
+                payload=payload,
+            )
+        ):
+            reasons.append(f"source_capability_not_current:{idx}:{action_type}")
         if action_type == "resolve_literature_structure_task" and bool(payload.get("run_visual", True)):
             visual_action_count += 1
         if action_type == "resolve_literature_structure_task":
@@ -722,7 +775,10 @@ def validate_action_batch(
             "resolve_literature_structure_task",
             "compile_exact_literature_rows",
         }:
-            source_count += max(1, int(payload.get("max_sources") or 1))
+            source_count += action_resource_cost(action).get(
+                "literature_source_units",
+                0,
+            )
             if _source_binding_required(board, action_type) and not _payload_has_source_binding(
                 payload,
                 blackboard=board,
@@ -758,13 +814,85 @@ def validate_action_batch(
         planned=template_action_count,
     ):
         reasons.append("template_application_total_budget_exceeded")
+    action_validations, batch_reasons = _partition_action_validation_reasons(
+        actions,
+        sorted(set(reasons)),
+    )
     return {
         "schema_version": "agent_action_batch_validation.v1",
         "accepted": not reasons,
         "reasons": sorted(set(reasons)),
+        "action_validations": action_validations,
+        "batch_reasons": batch_reasons,
+        "salvage_allowed": not _unsafe_batch_validation_reasons(batch_reasons),
+        "source_capability_queue_sha256": str(
+            capability_queue.get("content_sha256") or ""
+        ),
+        "literature_source_units_max_this_round": max_literature_sources_per_round,
         "case_id": str(batch.get("case_id") or ""),
         "action_count": len(actions),
     }
+
+
+_ACTION_LOCAL_REASON_PATTERNS = tuple(
+    re.compile(pattern)
+    for pattern in (
+        r"^action_not_object:(\d+)$",
+        r"^unknown_action:(\d+):",
+        r"^action_missing_[^:]+:(\d+)$",
+        r"^(?:guided_chemenzy_payload|child_expansion_payload|stitch_parent_route_payload|search_literature_payload):(\d+)(?::|$)",
+        r"^(?:failure_critic_requires_failure_evidence|extract_pdf_literature_structures_requires_pdf_binding|extract_visual_literature_chain_requires_rendered_pdf_evidence):(\d+)$",
+        r"^(?:resolve_literature_structure_task_payload|compile_exact_literature_rows_requires_uncompiled_visual_steps|analogical_template_payload):(\d+)(?::|$)",
+        r"^(?:source_sensitive_action_missing_source_binding|source_capability_not_eligible|source_capability_not_current|stale_action_repeated):(\d+)(?::|$)",
+    )
+)
+
+
+def _partition_action_validation_reasons(
+    actions: list[Any],
+    reasons: list[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    per_action: dict[int, list[str]] = {index: [] for index in range(len(actions))}
+    batch_reasons: list[str] = []
+    for reason in reasons:
+        index: int | None = None
+        for pattern in _ACTION_LOCAL_REASON_PATTERNS:
+            match = pattern.match(reason)
+            if match:
+                index = int(match.group(1))
+                break
+        if index is None or index not in per_action:
+            batch_reasons.append(reason)
+            continue
+        per_action[index].append(reason)
+    rows: list[dict[str, Any]] = []
+    for index, raw in enumerate(actions):
+        action = dict(raw) if isinstance(raw, dict) else {}
+        local_reasons = sorted(set(per_action.get(index) or []))
+        rows.append(
+            {
+                "index": index,
+                "action_id": str(action.get("action_id") or f"action:{index}"),
+                "action_type": str(action.get("action_type") or ""),
+                "accepted": not local_reasons,
+                "reasons": local_reasons,
+                "cost": action_resource_cost(action),
+            }
+        )
+    return rows, sorted(set(batch_reasons))
+
+
+def _unsafe_batch_validation_reasons(reasons: Iterable[Any]) -> bool:
+    values = {str(reason) for reason in reasons}
+    unsafe = {
+        "planner_direct_solved_claim",
+        "planner_semantics_allow_solved_claim",
+        "planner_semantics_allow_raw_reaction_output",
+        "raw_reaction_injection",
+    }
+    return bool(values & unsafe) or any(
+        "raw_reaction_injection" in reason for reason in values
+    )
 
 
 def _budget_exceeded(budget: dict[str, Any], *, used_key: str, max_key: str, planned: int) -> bool:
@@ -3041,26 +3169,39 @@ def _local_pdf_source_candidates(blackboard: dict[str, Any]) -> list[dict[str, A
 
 
 def _next_local_pdf_source_for_pdf_extraction(blackboard: dict[str, Any]) -> dict[str, Any]:
-    candidates = _local_pdf_source_candidates(blackboard)
-    rendered = _pdf_structure_source_keys(blackboard)
-    for row in _rank_local_pdf_sources_for_extraction(blackboard, candidates, rendered=rendered):
-        key = _source_key(row)
-        if key and key not in rendered:
-            return row
-    return {}
+    queue = build_source_capability_queue(
+        blackboard,
+        round_index=_source_capability_round_index(blackboard),
+    )
+    capabilities = eligible_source_capabilities(
+        queue,
+        "extract_pdf_literature_structures",
+    )
+    if not capabilities:
+        return {}
+    source = dict(capabilities[0].get("source") or {})
+    source["source_capability_id"] = str(
+        capabilities[0].get("capability_id") or ""
+    )
+    return source
 
 
 def _next_local_pdf_source_for_visual_extraction(blackboard: dict[str, Any]) -> dict[str, Any]:
-    candidates = _local_pdf_source_candidates(blackboard)
-    rendered = _pdf_structure_source_keys(blackboard)
-    visualized = _visual_chain_source_keys(blackboard)
-    for row in candidates:
-        key = _source_key(row)
-        if not key or key in visualized:
-            continue
-        if key in rendered:
-            return row
-    return {}
+    queue = build_source_capability_queue(
+        blackboard,
+        round_index=_source_capability_round_index(blackboard),
+    )
+    capabilities = eligible_source_capabilities(
+        queue,
+        "extract_visual_literature_chain",
+    )
+    if not capabilities:
+        return {}
+    source = dict(capabilities[0].get("source") or {})
+    source["source_capability_id"] = str(
+        capabilities[0].get("capability_id") or ""
+    )
+    return source
 
 
 def _pdf_structure_source_keys(blackboard: dict[str, Any]) -> set[str]:
@@ -3075,49 +3216,19 @@ def _pdf_structure_source_keys(blackboard: dict[str, Any]) -> set[str]:
 
 
 def _pdf_evidence_has_materialized_render(row: dict[str, Any]) -> bool:
-    summary = dict(row.get("summary") or {})
-    try:
-        rendered_count = int(
-            row.get("rendered_page_count")
-            or summary.get("rendered_page_count")
-            or 0
-        )
-    except (TypeError, ValueError):
-        return False
-    return bool(
-        row.get("accepted") is True
-        and rendered_count > 0
-        and not [str(item) for item in row.get("reasons") or [] if str(item or "").strip()]
-        and _pdf_evidence_render_paths(row)
-    )
+    return pdf_evidence_has_materialized_render(row)
 
 
 def _pdf_evidence_render_paths(row: dict[str, Any]) -> list[str]:
-    candidates: list[str] = []
-    for field in ("rendered_pages", "scheme_crops", "indexed_images"):
-        for item in row.get(field) or []:
-            if isinstance(item, dict):
-                candidates.extend(
-                    str(item.get(key) or "")
-                    for key in ("image_path", "source_image_path", "path")
-                )
-    candidates.extend(str(item or "") for item in row.get("image_paths") or [])
-    artifact_ref = str(row.get("artifact_ref") or "").strip()
-    if not candidates and artifact_ref:
-        path = Path(artifact_ref).expanduser()
-        if path.is_file() and path.suffix.lower() == ".json":
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                payload = {}
-            nested = dict(payload.get("result") or payload) if isinstance(payload, dict) else {}
-            if nested != row:
-                candidates.extend(_pdf_evidence_render_paths(nested))
-    return _dedupe(
-        str(Path(value).expanduser().resolve())
-        for value in candidates
-        if str(value or "").strip() and Path(str(value)).expanduser().is_file()
-    )
+    return pdf_evidence_render_paths(row)
+
+
+def _source_capability_round_index(blackboard: dict[str, Any]) -> int:
+    budget = dict((blackboard or {}).get("budget_state") or {})
+    try:
+        return max(1, int(budget.get("rounds_completed") or 0) + 1)
+    except (TypeError, ValueError):
+        return 1
 
 
 def _visual_chain_source_keys(blackboard: dict[str, Any]) -> set[str]:
@@ -3227,91 +3338,6 @@ def _logical_source_doi(value: str) -> str:
     return text.strip().strip(".,;:)]}'\"")
 
 
-def _rank_local_pdf_sources_for_extraction(
-    blackboard: dict[str, Any],
-    candidates: list[dict[str, Any]],
-    *,
-    rendered: set[str] | None = None,
-) -> list[dict[str, Any]]:
-    rendered = set(rendered or set())
-    target = dict(blackboard.get("target_profile") or {})
-    target_terms = _source_priority_terms(
-        [
-            str(target.get("target_name") or ""),
-            str(target.get("family_hint") or ""),
-            *[str(item) for item in target.get("functional_handles") or []],
-        ]
-    )
-
-    def score(row: dict[str, Any]) -> tuple[int, str]:
-        key = _source_key(row)
-        text = _source_priority_text(row)
-        value = 0
-        pdf_path = str(row.get("local_pdf") or row.get("pdf_path") or row.get("source_pdf_path") or "").strip()
-        if pdf_path and os.path.exists(pdf_path):
-            value += 60
-        if key and key not in rendered:
-            value += 80
-        if str(row.get("access_status") or "").lower() == "local_pdf_available":
-            value += 15
-        if str(row.get("source_role") or "").lower() == "local_pdf_proxy_download":
-            value += 10
-        if str(row.get("doi") or "").strip() or str(row.get("source_ref") or "").lower().startswith("doi:"):
-            value += 18
-            title = str(row.get("title") or row.get("source_title") or "").strip().lower()
-            if not title or title.startswith("pdfreq"):
-                value += 35
-        value += 10 * sum(1 for term in target_terms if term and term in text)
-        process_terms = (
-            "synthesis",
-            "preparation",
-            "process",
-            "route",
-            "scheme",
-            "intermediate",
-            "kilogram",
-            "kg",
-            "scale",
-        )
-        value += 8 * sum(1 for term in process_terms if term in text)
-        if "improved kilogram-scale preparation" in text:
-            value += 40
-        if "discovery" in text and not any(term in text for term in ("synthesis", "preparation", "process", "scheme")):
-            value -= 10
-        if key and key in rendered:
-            value -= 120
-        return value, key or str(
-            row.get("local_pdf") or row.get("source_pdf_path") or row.get("pdf_path") or ""
-        ).strip().lower()
-
-    return sorted(candidates, key=score, reverse=True)
-
-
-def _source_priority_text(row: dict[str, Any]) -> str:
-    return " ".join(
-        str(row.get(key) or "")
-        for key in (
-            "source_ref",
-            "title",
-            "source_title",
-            "doi",
-            "url",
-            "route_sequence_hint",
-            "relevance_rationale",
-        )
-    ).lower()
-
-
-def _source_priority_terms(values: list[str]) -> list[str]:
-    terms: list[str] = []
-    for value in values:
-        for token in str(value or "").lower().replace(";", " ").replace(",", " ").split():
-            token = token.strip("()[]{}:._-/")
-            if len(token) >= 5 and token not in {"online", "local", "cache", "source", "target"}:
-                terms.append(token)
-    return _dedupe(terms)[:10]
-
-
 def _source_key(row: dict[str, Any]) -> str:
     # One DOI can own several extractable documents (article, SI, corrections).
     # Prefer a concrete document identity so rendering one file does not mark
@@ -3337,6 +3363,10 @@ def _source_key(row: dict[str, Any]) -> str:
 
 def _source_candidate_payload(row: dict[str, Any]) -> dict[str, Any]:
     payload: dict[str, Any] = {}
+    if row.get("source_capability_id"):
+        payload["source_capability_id"] = str(
+            row.get("source_capability_id") or ""
+        )
     if row.get("source_ref"):
         payload["source_ref"] = str(row.get("source_ref") or "")
     if row.get("title"):

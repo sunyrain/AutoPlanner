@@ -82,6 +82,7 @@ from cascade_planner.harness.schemas import (
 from cascade_planner.harness.self_evo_memory import compile_self_evo_memory, write_self_evo_memory
 from cascade_planner.harness.self_evo_replay import run_self_evo_replay_gate as run_self_evo_replay_gate_report
 from cascade_planner.routes.domain import canonicalize_smiles
+from cascade_planner.source_locators import canonical_traceable_source_ref
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1737,6 +1738,8 @@ def _validate_local_pdf_source_binding(
         return {"accepted": True, "payload": payload, "matched_sources": []}
 
     requested_ref = _canonical_source_ref(payload.get("source_ref"))
+    if requested_ref:
+        payload["source_ref"] = requested_ref
     cache_refs = _dedupe_texts(
         [
             ref
@@ -1750,7 +1753,7 @@ def _validate_local_pdf_source_binding(
         pdf_path=pdf_path,
         cache_refs=cache_refs,
     )
-    if requested_ref and alias_binding:
+    if alias_binding:
         canonical_ref = str(alias_binding.get("canonical_source_ref") or "").strip()
         if canonical_ref:
             payload["source_ref"] = canonical_ref
@@ -1831,6 +1834,7 @@ def _local_pdf_source_alias_binding(
 def _payload_source_alias_keys(payload: dict[str, Any]) -> set[str]:
     keys = {
         _canonical_source_ref(payload.get("source_ref")),
+        _text_key(payload.get("source_ref")),
         _canonical_source_ref(payload.get("doi")),
         _canonical_source_ref(f"doi:{payload.get('doi')}") if str(payload.get("doi") or "").strip() else "",
         _text_key(payload.get("candidate_id")),
@@ -1842,6 +1846,7 @@ def _payload_source_alias_keys(payload: dict[str, Any]) -> set[str]:
 def _source_candidate_alias_keys(candidate: dict[str, Any]) -> set[str]:
     keys = {
         _canonical_source_ref(candidate.get("source_ref")),
+        _text_key(candidate.get("source_ref")),
         _canonical_source_ref(candidate.get("doi")),
         _canonical_source_ref(_doi_source_ref(candidate)),
         _text_key(candidate.get("candidate_id")),
@@ -2014,24 +2019,9 @@ def _specific_source_refs_for_local_pdf(source: dict[str, Any]) -> list[str]:
 
 
 def _canonical_source_ref(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    text = text.rstrip(".,;")
-    lower = text.lower()
-    doi_prefixes = ("doi:", "https://doi.org/", "http://doi.org/", "doi.org/")
-    for prefix in doi_prefixes:
-        if lower.startswith(prefix):
-            doi = _canonical_doi(text[len(prefix):])
-            return f"doi:{doi}" if doi else lower
-    match = re.search(r"10\.\d{4,9}/[^\s<>()\"'\]\[]+", text, flags=re.IGNORECASE)
-    if match:
-        doi = _canonical_doi(match.group(0))
-        if doi:
-            return f"doi:{doi}"
-    if lower.startswith("pii:"):
-        return "pii:" + lower[4:].strip()
-    return lower
+    """Compatibility wrapper around the repository-wide source canonicalizer."""
+
+    return canonical_traceable_source_ref(value)
 
 
 def _canonical_doi(value: Any) -> str:
@@ -3673,8 +3663,12 @@ def _pdf_evidence_candidates_from_artifacts(state: ToolExecutionState) -> list[d
 
 
 def _pdf_evidence_matches_payload(evidence: dict[str, Any], payload: dict[str, Any]) -> bool:
-    source_ref = _canonical_source_ref(payload.get("source_ref"))
-    evidence_ref = _canonical_source_ref(evidence.get("source_ref"))
+    source_ref = _canonical_source_ref(payload.get("source_ref")) or _text_key(
+        payload.get("source_ref")
+    )
+    evidence_ref = _canonical_source_ref(evidence.get("source_ref")) or _text_key(
+        evidence.get("source_ref")
+    )
     if source_ref and evidence_ref and source_ref != evidence_ref:
         return False
     if source_ref and source_ref == evidence_ref:

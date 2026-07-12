@@ -26,6 +26,11 @@ from cascade_planner.harness.agent_action_planner import (
 )
 from cascade_planner.harness.parent_route_proof import is_solved_parent_route_proof
 from cascade_planner.harness.schemas import write_json
+from cascade_planner.harness.source_capabilities import (
+    build_source_capability_queue,
+    eligible_source_capabilities,
+    pdf_evidence_has_materialized_render,
+)
 
 
 FallbackPlanner = Callable[..., dict[str, Any]]
@@ -452,7 +457,10 @@ def _locally_repair_invalid_codex_batch(
 ) -> dict[str, Any] | None:
     if _unsafe_validator_reasons(validation):
         return None
-    reasons = {str(item) for item in (validation or {}).get("reasons") or []}
+    initial_reasons = {
+        str(item) for item in (validation or {}).get("reasons") or []
+    }
+    reasons = set(initial_reasons)
     repaired = deepcopy(batch)
     actions = [dict(row) for row in repaired.get("actions") or [] if isinstance(row, dict)]
     if not actions:
@@ -479,6 +487,27 @@ def _locally_repair_invalid_codex_batch(
             # time; only discovery may intentionally return 2-3 independent
             # sources.
             payload["max_sources"] = 1
+
+    post_payload_repair = deepcopy(repaired)
+    post_payload_repair["actions"] = actions
+    post_validation = validate_action_batch(
+        post_payload_repair,
+        blackboard=blackboard,
+    )
+    if _unsafe_validator_reasons(post_validation):
+        return None
+    reasons = {
+        str(item) for item in (post_validation or {}).get("reasons") or []
+    }
+    invalid_indices = {
+        int(row.get("index") or 0)
+        for row in post_validation.get("action_validations") or []
+        if isinstance(row, dict) and row.get("accepted") is not True
+    }
+    if invalid_indices:
+        actions = [
+            row for index, row in enumerate(actions) if index not in invalid_indices
+        ]
 
     if "visual_total_budget_exceeded" in reasons:
         actions = _trim_visual_budget_actions(actions, blackboard=blackboard)
@@ -557,7 +586,7 @@ def _locally_repair_invalid_codex_batch(
     repaired["repair_audit"] = _local_repair_audit(
         original_actions,
         repaired["actions"],
-        trigger_reasons=sorted(reasons),
+        trigger_reasons=sorted(initial_reasons | reasons),
     )
     return repaired
 
@@ -834,6 +863,9 @@ def _codex_action_planner_task(
         "You may freely choose priorities and exploration direction, "
         "but you may only emit typed actions, not routes or solved verdicts. "
         "Select at most 3 actions. Prefer parallel actions only when they do not depend on each other. "
+        "For PDF, visual, structure-resolution, or exact-compilation work, select only an eligible entry from "
+        "evidence_board.source_capability_queue. Its cost.literature_source_units counts against the explicit "
+        "literature_source_units_max_this_round cap; never select a blocked or absent source capability. "
         "Before returning, internally check the action_payload_requirements and repair your own draft so it is valid. "
         "Do not rely on a deterministic fallback to make the scientific choice for you. "
         "Keep the JSON small: rationale under 45 words, expected_artifact under 12 words, success_condition under 20 words, "
@@ -1189,6 +1221,7 @@ def _repair_visual_literature_payload(payload: dict[str, Any], *, blackboard: di
         raw,
         {
             "schema_version",
+            "source_capability_id",
             "source_ref",
             "doi",
             "pii",
@@ -1245,6 +1278,7 @@ def _repair_pdf_literature_payload(payload: dict[str, Any], *, blackboard: dict[
         raw,
         {
             "schema_version",
+            "source_capability_id",
             "source_ref",
             "doi",
             "pii",
@@ -1316,89 +1350,6 @@ def _source_candidate_matches_payload(row: dict[str, Any], payload: dict[str, An
 
 def _source_candidate_pdf_path(row: dict[str, Any]) -> str:
     return str(row.get("local_pdf") or row.get("pdf_path") or row.get("source_pdf_path") or "").strip()
-
-
-def _rank_local_pdf_sources_for_extraction(
-    blackboard: dict[str, Any],
-    candidates: list[dict[str, Any]],
-    *,
-    rendered: set[str] | None = None,
-) -> list[dict[str, Any]]:
-    rendered = set(rendered or set())
-    target = dict(blackboard.get("target_profile") or {})
-    target_terms = _source_priority_terms(
-        [
-            str(target.get("target_name") or ""),
-            str(target.get("family_hint") or ""),
-            *[str(item) for item in target.get("functional_handles") or []],
-        ]
-    )
-
-    def score(row: dict[str, Any]) -> tuple[int, str]:
-        key = _source_key(row)
-        text = _source_priority_text(row)
-        value = 0
-        pdf_path = _source_candidate_pdf_path(row)
-        if pdf_path and Path(pdf_path).exists():
-            value += 60
-        if key and key not in rendered:
-            value += 80
-        if str(row.get("access_status") or "").lower() == "local_pdf_available":
-            value += 15
-        if str(row.get("source_role") or "").lower() == "local_pdf_proxy_download":
-            value += 10
-        if str(row.get("doi") or "").strip() or str(row.get("source_ref") or "").lower().startswith("doi:"):
-            value += 18
-            title = str(row.get("title") or row.get("source_title") or "").strip().lower()
-            if not title or title.startswith("pdfreq"):
-                value += 35
-        value += 10 * sum(1 for term in target_terms if term and term in text)
-        process_terms = (
-            "synthesis",
-            "preparation",
-            "process",
-            "route",
-            "scheme",
-            "intermediate",
-            "kilogram",
-            "kg",
-            "scale",
-        )
-        value += 8 * sum(1 for term in process_terms if term in text)
-        if "improved kilogram-scale preparation" in text:
-            value += 40
-        if "discovery" in text and not any(term in text for term in ("synthesis", "preparation", "process", "scheme")):
-            value -= 10
-        if key and key in rendered:
-            value -= 120
-        return value, key or pdf_path
-
-    return sorted(candidates, key=score, reverse=True)
-
-
-def _source_priority_text(row: dict[str, Any]) -> str:
-    return " ".join(
-        str(row.get(key) or "")
-        for key in (
-            "source_ref",
-            "title",
-            "source_title",
-            "doi",
-            "url",
-            "route_sequence_hint",
-            "relevance_rationale",
-        )
-    ).lower()
-
-
-def _source_priority_terms(values: list[str]) -> list[str]:
-    terms: list[str] = []
-    for value in values:
-        for token in str(value or "").lower().replace(";", " ").replace(",", " ").split():
-            token = token.strip("()[]{}:._-/")
-            if len(token) >= 5 and token not in {"online", "local", "cache", "source", "target"}:
-                terms.append(token)
-    return _dedupe_preserve_order(terms)[:10]
 
 
 def _source_candidate_for_compile_payload(blackboard: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -1553,6 +1504,7 @@ def _repair_structure_resolution_payload(payload: dict[str, Any], *, blackboard:
         raw,
         {
             "schema_version",
+            "source_capability_id",
             "task_id",
             "label",
             "compound_label",
@@ -1617,6 +1569,7 @@ def _repair_compile_exact_rows_payload(payload: dict[str, Any], *, blackboard: d
         raw,
         {
             "schema_version",
+            "source_capability_id",
             "compile_attempt",
             "source_ref",
             "doi",
@@ -2660,7 +2613,10 @@ def _normalize_mock_output(
 
 def _write_codex_blackboard_snapshot(blackboard: dict[str, Any], *, run_dir: Path, round_index: int) -> Path:
     path = run_dir / f"codex_action_planner_blackboard_round_{int(round_index)}.json"
-    planner_context = _planner_context_summary(blackboard)
+    planner_context = _planner_context_summary(
+        blackboard,
+        round_index=round_index,
+    )
     handoff = _planner_blackboard_handoff(
         blackboard,
         planner_context=planner_context,
@@ -2860,6 +2816,9 @@ def _minimum_planner_handoff(handoff: dict[str, Any]) -> dict[str, Any]:
             "source_acquisition": _planner_prompt_mapping(
                 evidence.get("source_acquisition")
             ),
+            "source_capability_queue": _planner_prompt_mapping(
+                evidence.get("source_capability_queue")
+            ),
             "pending_local_pdf_proxy_sources": _planner_prompt_prefix(
                 evidence.get("pending_local_pdf_proxy_sources"), 4
             ),
@@ -2973,6 +2932,9 @@ def _absolute_minimum_planner_handoff(handoff: dict[str, Any]) -> dict[str, Any]
             )
         },
         "evidence_board": {
+            "source_capability_queue": _fixed_prompt_source_capability_queue(
+                evidence.get("source_capability_queue")
+            ),
             "pending_source_counts": {
                 "local_pdf_proxy": _planner_prompt_list_count(
                     evidence.get("pending_local_pdf_proxy_sources")
@@ -3106,6 +3068,81 @@ def _fixed_prompt_text_list(
     ]
 
 
+def _fixed_prompt_source_capability_queue(value: Any) -> dict[str, Any]:
+    queue = _planner_prompt_mapping(value)
+    budget = _planner_prompt_mapping(queue.get("budget"))
+    capabilities: list[dict[str, Any]] = []
+    for raw in (
+        queue.get("capabilities")[:6]
+        if isinstance(queue.get("capabilities"), (list, tuple))
+        else []
+    ):
+        row = _planner_prompt_mapping(raw)
+        cost = _planner_prompt_mapping(row.get("cost"))
+        binding = _planner_prompt_mapping(row.get("payload_binding"))
+        capabilities.append(
+            {
+                "capability_id": _planner_prompt_text(
+                    row.get("capability_id"),
+                    180,
+                ),
+                "action_type": _planner_prompt_text(row.get("action_type"), 100),
+                "document_identity": _planner_prompt_text(
+                    row.get("document_identity"),
+                    240,
+                ),
+                "source_ref": _planner_prompt_text(row.get("source_ref"), 240),
+                "source_title": _planner_prompt_text(row.get("source_title"), 220),
+                "stage_from": _planner_prompt_text(row.get("stage_from"), 80),
+                "stage_to": _planner_prompt_text(row.get("stage_to"), 80),
+                "payload_binding": {
+                    key: _planner_prompt_text(binding.get(key), 360)
+                    for key in (
+                        "source_ref",
+                        "source_title",
+                        "pdf_path",
+                        "document_id",
+                        "task_id",
+                        "chain_id",
+                        "artifact_ref",
+                    )
+                    if str(binding.get(key) or "").strip()
+                },
+                "cost": {
+                    key: _planner_prompt_count(cost.get(key))
+                    for key in (
+                        "action_slots",
+                        "literature_source_units",
+                        "scout_calls",
+                        "visual_calls",
+                    )
+                },
+                "eligible": row.get("eligible") is True,
+                "no_solved_claim": True,
+            }
+        )
+    return {
+        "schema_version": _planner_prompt_text(queue.get("schema_version"), 80),
+        "content_sha256": _planner_prompt_text(queue.get("content_sha256"), 128),
+        "budget": {
+            "literature_source_units_max_this_round": _planner_prompt_count(
+                budget.get("literature_source_units_max_this_round")
+            ),
+            "literature_source_units_remaining_this_round": _planner_prompt_count(
+                budget.get("literature_source_units_remaining_this_round")
+            ),
+            "visual_calls_remaining": _planner_prompt_count(
+                budget.get("visual_calls_remaining")
+            ),
+            "scout_calls_remaining": _planner_prompt_count(
+                budget.get("scout_calls_remaining")
+            ),
+        },
+        "capabilities": capabilities,
+        "no_solved_claim": True,
+    }
+
+
 def _fixed_prompt_source_rows(value: Any, *, limit: int) -> list[dict[str, Any]]:
     if not isinstance(value, (list, tuple)):
         return []
@@ -3237,6 +3274,8 @@ def _fixed_prompt_budget_remaining(value: Any) -> dict[str, int]:
             "child_target_runs_remaining",
             "codex_research_runs_remaining",
             "template_application_actions_remaining",
+            "literature_source_units_max_this_round",
+            "literature_source_units_remaining_this_round",
         )
     }
 
@@ -3446,7 +3485,12 @@ def _planner_tool_policy_from_task(task: WorkerTask) -> dict[str, Any]:
     )
 
 
-def _planner_context_summary(blackboard: dict[str, Any]) -> dict[str, Any]:
+def _planner_context_summary(
+    blackboard: dict[str, Any],
+    *,
+    round_index: int = 0,
+    max_literature_sources_per_round: int = 3,
+) -> dict[str, Any]:
     evidence = dict(blackboard.get("literature_evidence") or {})
     belief = dict(blackboard.get("current_belief") or {})
     planner_allowed_tools = _planner_allowed_tools()
@@ -3456,20 +3500,24 @@ def _planner_context_summary(blackboard: dict[str, Any]) -> dict[str, Any]:
     lifecycle_stage_counts = _source_lifecycle_stage_counts(lifecycle)
     visual_chains = [dict(row) for row in evidence.get("visual_chains") or [] if isinstance(row, dict)]
     process_rows = [dict(row) for row in evidence.get("process_evidence_rows") or [] if isinstance(row, dict)]
-    pdf_done = _source_keys(evidence.get("pdf_structure_evidence") or [])
+    capability_queue = build_source_capability_queue(
+        blackboard,
+        round_index=round_index,
+        max_literature_sources_per_round=max_literature_sources_per_round,
+    )
+    pdf_done = _source_keys(
+        [
+            row
+            for row in evidence.get("pdf_structure_evidence") or []
+            if isinstance(row, dict) and pdf_evidence_has_materialized_render(row)
+        ]
+    )
     visual_done = _source_keys(visual_chains)
     local_pdf_candidates = [row for row in candidates if str(row.get("local_pdf") or "").strip()]
-    recommended_local_pdf_candidates = _rank_local_pdf_sources_for_extraction(
-        blackboard,
-        local_pdf_candidates,
-        rendered=pdf_done,
+    pending_pdf = list(capability_queue.get("pending_pdf_extraction_sources") or [])
+    pending_visual = list(
+        capability_queue.get("pending_visual_extraction_sources") or []
     )
-    pending_pdf = [row for row in recommended_local_pdf_candidates if _source_key(row) not in pdf_done]
-    pending_visual = [
-        row
-        for row in recommended_local_pdf_candidates
-        if _source_key(row) in pdf_done and _source_key(row) not in visual_done
-    ]
     pending_proxy = [row for row in lifecycle if str(row.get("stage") or "") == "local_pdf_proxy_requested"]
     history = [dict(row) for row in blackboard.get("action_history") or [] if isinstance(row, dict)]
     budget = dict(blackboard.get("budget_state") or {})
@@ -3499,6 +3547,9 @@ def _planner_context_summary(blackboard: dict[str, Any]) -> dict[str, Any]:
             ),
         },
         "literature_processing": {
+            "source_capability_queue": _compact_source_capability_queue(
+                capability_queue
+            ),
             "source_lifecycle": _compact_source_lifecycle(lifecycle),
             "pending_local_pdf_proxy_sources": _compact_source_lifecycle(pending_proxy),
             "pending_pdf_extraction_sources": _compact_sources(pending_pdf),
@@ -3533,8 +3584,8 @@ def _planner_context_summary(blackboard: dict[str, Any]) -> dict[str, Any]:
             blackboard=blackboard,
             source_candidates=candidates,
             local_pdf_candidates=local_pdf_candidates,
-            recommended_local_pdf_candidates=recommended_local_pdf_candidates,
             visual_chains=visual_chains,
+            capability_queue=capability_queue,
         ),
         "recent_blackboard_transitions": [
             {
@@ -3547,7 +3598,15 @@ def _planner_context_summary(blackboard: dict[str, Any]) -> dict[str, Any]:
             }
             for row in history[-5:]
         ],
-        "budget_remaining": _budget_remaining_summary(budget),
+        "budget_remaining": {
+            **_budget_remaining_summary(budget),
+            "literature_source_units_max_this_round": int(
+                max_literature_sources_per_round
+            ),
+            "literature_source_units_remaining_this_round": int(
+                max_literature_sources_per_round
+            ),
+        },
         "safety_boundaries": {
             "planner_can_emit_solved": False,
             "raw_reaction_output_allowed": False,
@@ -3597,6 +3656,10 @@ def _planner_blackboard_handoff(
         },
         "evidence_board": {
             "source_acquisition": dict(context.get("source_acquisition") or {}),
+            "source_capability_queue": (
+                context.get("literature_processing") or {}
+            ).get("source_capability_queue")
+            or {},
             "pending_local_pdf_proxy_sources": (context.get("literature_processing") or {}).get("pending_local_pdf_proxy_sources") or [],
             "pending_pdf_extraction_sources": (context.get("literature_processing") or {}).get("pending_pdf_extraction_sources") or [],
             "pending_visual_extraction_sources": (context.get("literature_processing") or {}).get("pending_visual_extraction_sources") or [],
@@ -3916,11 +3979,26 @@ def _action_payload_requirements(
     blackboard: dict[str, Any],
     source_candidates: list[dict[str, Any]],
     local_pdf_candidates: list[dict[str, Any]],
-    recommended_local_pdf_candidates: list[dict[str, Any]] | None = None,
     visual_chains: list[dict[str, Any]],
+    capability_queue: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    recommended_local_pdf_candidates = recommended_local_pdf_candidates or local_pdf_candidates
-    pdf_extraction_available = bool(local_pdf_candidates)
+    queue = dict(capability_queue or {})
+    pdf_capabilities = eligible_source_capabilities(
+        queue,
+        "extract_pdf_literature_structures",
+    )
+    visual_capabilities = eligible_source_capabilities(
+        queue,
+        "extract_visual_literature_chain",
+    )
+    pdf_binding_candidates = [
+        dict(row.get("source") or {}) for row in pdf_capabilities
+    ]
+    visual_binding_candidates = [
+        dict(row.get("source") or {}) for row in visual_capabilities
+    ]
+    pdf_extraction_available = bool(pdf_capabilities)
+    visual_extraction_available = bool(visual_capabilities)
     compile_binding_required = (
         len(_distinct_source_keys(visual_chains)) > 1
         or len(_distinct_source_keys(source_candidates)) > 1
@@ -3935,6 +4013,7 @@ def _action_payload_requirements(
         or len(structure_tasks) > 1
     )
     source_binding_fields = [
+        "source_capability_id",
         "source_ref",
         "doi",
         "pii",
@@ -3986,17 +4065,19 @@ def _action_payload_requirements(
                     else "no source-matched local PDF is available; resolve/download source material first"
                 ),
                 "accepted_payload_fields": source_binding_fields,
-                "binding_candidates": _compact_sources(local_pdf_candidates),
-                "recommended_binding_candidates": _compact_sources(recommended_local_pdf_candidates),
+                "binding_candidates": _compact_sources(pdf_binding_candidates),
+                "recommended_binding_candidates": _compact_sources(
+                    pdf_binding_candidates
+                ),
                 "requires_pdf_path": True,
                 "validator_rejection_prefix": "extract_pdf_literature_structures_requires_pdf_binding",
             },
             "extract_visual_literature_chain": {
-                "currently_required": pdf_extraction_available,
+                "currently_required": visual_extraction_available,
                 "reason": (
-                    "local PDF is available for visual extraction"
-                    if pdf_extraction_available
-                    else "no source-matched local PDF is available; resolve/download source material first"
+                    "accepted rendered PDF evidence is available for visual extraction"
+                    if visual_extraction_available
+                    else "no eligible accepted rendered PDF evidence is available"
                 ),
                 "accepted_payload_fields": [
                     *source_binding_fields,
@@ -4010,8 +4091,10 @@ def _action_payload_requirements(
                     "compound_labels",
                     "route_sequence_hint",
                 ],
-                "binding_candidates": _compact_sources(local_pdf_candidates),
-                "recommended_binding_candidates": _compact_sources(recommended_local_pdf_candidates),
+                "binding_candidates": _compact_sources(visual_binding_candidates),
+                "recommended_binding_candidates": _compact_sources(
+                    visual_binding_candidates
+                ),
                 "requires_pdf_path": True,
                 "recommended_defaults": {
                     "timeout_s": _planner_visual_timeout_s(None),
@@ -4359,6 +4442,10 @@ def _proposal_granularity_counts(blackboard: dict[str, Any]) -> dict[str, int]:
         granularity = str(row.get("proposal_granularity") or "unspecified")
         counts[granularity] = counts.get(granularity, 0) + 1
     return counts
+
+
+def _compact_source_capability_queue(queue: dict[str, Any]) -> dict[str, Any]:
+    return _fixed_prompt_source_capability_queue(queue)
 
 
 def _compact_source_lifecycle(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

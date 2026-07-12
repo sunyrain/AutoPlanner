@@ -3018,6 +3018,10 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
         self.assertIn("chain_id", requirements["compile_exact_literature_rows"]["accepted_payload_fields"])
         self.assertEqual(
             requirements["extract_pdf_literature_structures"]["binding_candidates"][0]["source_ref"],
+            "doi:second",
+        )
+        self.assertEqual(
+            requirements["extract_visual_literature_chain"]["binding_candidates"][0]["source_ref"],
             "doi:first",
         )
         guided_requirements = context["action_payload_requirements"]["guided_actions"]["run_guided_chemenzy"]
@@ -7023,7 +7027,12 @@ class AgenticBlackboardControllerTest(unittest.TestCase):
                 "result": {
                     "schema_version": "literature_pdf_structure_evidence.v1",
                     "accepted": True,
-                    "rendered_pages": [{"page_number": 1, "image_path": "/tmp/first-1.png"}],
+                    "rendered_pages": [
+                        {
+                            "page_number": 1,
+                            "image_path": str(_RENDERED_PAGE_FIXTURE),
+                        }
+                    ],
                     "summary": {"rendered_page_count": 1},
                 },
             },
