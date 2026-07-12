@@ -207,6 +207,7 @@ def _default_chemenzy_payload(*, preflight: dict[str, Any]) -> dict[str, Any]:
     heavy_atoms = int(profile.get("heavy_atoms") or 0)
     if heavy_atoms >= 25:
         return {
+            "budget_authority": "host_profile",
             "search_preset": "thorough",
             "max_steps": 20,
             "chem_enzy_iterations": 50,
@@ -214,6 +215,7 @@ def _default_chemenzy_payload(*, preflight: dict[str, Any]) -> dict[str, Any]:
             "stock_mode": "building-block",
         }
     return {
+        "budget_authority": "host_profile",
         "search_preset": "quick",
         "max_steps": 6,
         "chem_enzy_iterations": 10,

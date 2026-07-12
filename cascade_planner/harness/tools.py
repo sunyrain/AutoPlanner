@@ -20,6 +20,14 @@ from cascade_planner.baselines.chem_enzy_runtime import (
     chem_enzy_runtime_selection_from_request,
     diagnose_chem_enzy_runtime,
 )
+from cascade_planner.baselines.chem_enzy_budget import (
+    ChemEnzyBudgetResolution,
+    budgeted_chemenzy_payload,
+    budgeted_chemenzy_policy,
+    classify_chemenzy_attempt_outcome,
+    resolution_from_dict,
+    resolve_chemenzy_budget,
+)
 from cascade_planner.harness.downstream_compiler import (
     compile_downstream_consumables,
     write_compiled_downstream_artifacts,
@@ -73,6 +81,7 @@ from cascade_planner.harness.schemas import (
 )
 from cascade_planner.harness.self_evo_memory import compile_self_evo_memory, write_self_evo_memory
 from cascade_planner.harness.self_evo_replay import run_self_evo_replay_gate as run_self_evo_replay_gate_report
+from cascade_planner.routes.domain import canonicalize_smiles
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -353,6 +362,19 @@ def run_chemenzy(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str
 
     if state.chem_enzy_runs >= state.budget.max_chem_enzy_runs:
         return {"accepted": False, "reasons": ["chem_enzy_budget_exhausted"]}
+    target_smiles = str(payload.get("target_smiles") or state.target_input.get("target_smiles") or "")
+    prior_attempt = _last_chemenzy_attempt(state, action_kind="native", target_smiles=target_smiles)
+    resolution = resolve_chemenzy_budget(
+        target_smiles=target_smiles,
+        action_kind="native",
+        payload=payload,
+        policy={},
+        authority=_chemenzy_budget_authority(payload, action_kind="native", policy={}),
+        attempt_index=int(prior_attempt.get("attempt_index") or 0) + 1,
+        prior_attempt=prior_attempt,
+        timeout_cap_s=state.budget.chem_enzy_timeout_s,
+    )
+    payload = budgeted_chemenzy_payload(payload, resolution)
     state.chem_enzy_runs += 1
 
     request = _chemenzy_request_from_payload(state, payload)
@@ -363,10 +385,16 @@ def run_chemenzy(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str
         output_path=state.run_dir / "chemenzy_native_raw_result.json",
         timeout_s=_bounded_timeout_s(payload.get("timeout_s"), state.budget.chem_enzy_timeout_s),
     )
+    attempt_outcome = _attach_chemenzy_attempt_audit(state, result, resolution=resolution)
     _attach_native_route_verifier(state, result)
     state.artifacts["chemenzy"] = result
     write_json(state.run_dir / "chemenzy_native_raw_result.json", result)
-    return {"accepted": bool(result.get("ok") or result.get("accepted", result.get("exit_code") == 0)), "result": result}
+    return {
+        "accepted": bool(result.get("ok") or result.get("accepted", result.get("exit_code") == 0)),
+        "result": result,
+        "chem_enzy_budget_resolution": attempt_outcome["budget_resolution"],
+        "chem_enzy_attempt_outcome": attempt_outcome,
+    }
 
 
 def _attach_native_route_verifier(state: ToolExecutionState, result: dict[str, Any]) -> dict[str, Any]:
@@ -430,21 +458,30 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         state.artifacts["guided_chemenzy"] = result
         write_json(state.run_dir / "guided_chemenzy_result.json", result)
         return {"accepted": True, "result": result, "reasons": result["reasons"]}
-    policy = _sync_chemenzy_policy_budget_from_payload(policy, payload)
     policy = _merge_route_failure_feedback_policy(state, policy, payload)
     policy = _merge_analogical_retrosynthesis_policy(state, policy, payload)
+    target_smiles = str(state.target_input.get("target_smiles") or "")
+    prior_attempt = _last_chemenzy_attempt(state, action_kind="guided", target_smiles=target_smiles)
+    resolution = resolve_chemenzy_budget(
+        target_smiles=target_smiles,
+        action_kind="guided",
+        payload=payload,
+        policy=policy,
+        authority=_chemenzy_budget_authority(payload, action_kind="guided", policy=policy),
+        attempt_index=int(prior_attempt.get("attempt_index") or 0) + 1,
+        prior_attempt=prior_attempt,
+        timeout_cap_s=state.budget.guided_chemenzy_timeout_s,
+    )
+    policy = budgeted_chemenzy_policy(policy, resolution)
     state.guided_chemenzy_runs += 1
 
-    budget = dict(policy.get("budget") or {})
-    request_payload = {
+    request_payload = budgeted_chemenzy_payload({
+        **payload,
         "search_preset": payload.get("search_preset", "thorough"),
-        "max_steps": int(payload.get("max_steps") or budget.get("max_depth") or 15),
-        "chem_enzy_iterations": int(payload.get("chem_enzy_iterations") or budget.get("max_iterations") or 50),
-        "chem_enzy_expansion_topk": int(payload.get("chem_enzy_expansion_topk") or budget.get("expansion_topk") or 100),
         "stock_mode": payload.get("stock_mode", "building-block"),
         "device": payload.get("device", "cpu"),
         "chem_enzy_search_policy": policy,
-    }
+    }, resolution)
     plugin_flags = _literature_template_plugin_flags_from_artifacts(state)
     plugin_flags = _merge_self_evo_memory_plugin_flags(state, plugin_flags, payload)
     if plugin_flags:
@@ -457,6 +494,7 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         output_path=state.run_dir / "guided_chemenzy_raw_result.json",
         timeout_s=_codex_repaired_or_bounded_timeout_s(payload, state.budget.guided_chemenzy_timeout_s),
     )
+    attempt_outcome = _attach_chemenzy_attempt_audit(state, result, resolution=resolution)
     runtime_diagnostic = _guided_chemenzy_runtime_diagnostic(result)
     verifier = verify_chemenzy_raw_routes(
         result,
@@ -480,6 +518,8 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
         "guided_execution_confirmed": bool(guidance_runtime.get("guided_execution_confirmed")),
         "execution_mode": str(guidance_runtime.get("execution_mode") or "unguided_fallback"),
         "chemenzy_runtime_diagnostic": runtime_diagnostic,
+        "chem_enzy_budget_resolution": attempt_outcome["budget_resolution"],
+        "chem_enzy_attempt_outcome": attempt_outcome,
         "route_status": str(
             verifier_for_output.get("route_status")
             or ("solved" if (result.get("search_status") or {}).get("solved") and verifier_accepted else "unresolved")
@@ -526,55 +566,6 @@ def run_guided_chemenzy_rerun(state: ToolExecutionState, payload: dict[str, Any]
     # blackboard so the next round can change direction.
     tool_accepted = bool(out.get("accepted")) or bool(verifier) or bool(runtime_diagnostic)
     return {"accepted": tool_accepted, "result": out, "reasons": [str(item) for item in out.get("reasons") or []]}
-
-
-def _sync_chemenzy_policy_budget_from_payload(policy: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
-    synced = dict(policy or {})
-    budget = dict(synced.get("budget") or {})
-    for payload_key, budget_key in (
-        ("max_steps", "max_depth"),
-        ("chem_enzy_iterations", "max_iterations"),
-        ("chem_enzy_expansion_topk", "expansion_topk"),
-    ):
-        if payload.get(payload_key) is None:
-            continue
-        try:
-            value = int(payload.get(payload_key) or 0)
-        except (TypeError, ValueError):
-            continue
-        if value > 0:
-            budget[budget_key] = value
-    if payload.get("timeout_s") is not None:
-        try:
-            timeout_s = float(payload.get("timeout_s") or 0.0)
-        except (TypeError, ValueError):
-            timeout_s = 0.0
-        if timeout_s > 0:
-            budget["timeout_s"] = timeout_s
-    synced["budget"] = budget
-    search_mode = str(payload.get("search_mode") or payload.get("mode") or "").strip()
-    if search_mode:
-        synced["search_mode"] = search_mode
-    initial_probe = bool(payload.get("initial_probe")) or search_mode.lower() in {
-        "initial_probe",
-        "cheap_scan",
-        "baseline_probe",
-    }
-    if initial_probe:
-        source_budget = dict(synced.get("source_budget") or {})
-        compiler = dict(synced.get("compiler_metadata") or {})
-        source_budget["initial_scan_allowed"] = True
-        compiler["initial_scan_probe"] = True
-        if payload.get("max_candidates") is not None:
-            try:
-                max_candidates = int(payload.get("max_candidates") or 0)
-            except (TypeError, ValueError):
-                max_candidates = 0
-            if max_candidates > 0:
-                source_budget["max_candidates"] = max_candidates
-        synced["source_budget"] = source_budget
-        synced["compiler_metadata"] = compiler
-    return synced
 
 
 def _guided_route_proof_blockers(verifier: dict[str, Any], plugin_runtime: dict[str, Any]) -> list[str]:
@@ -738,7 +729,25 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
     if remaining_budget <= 0:
         return {"accepted": False, "reasons": ["route_expansion_subgoal_budget_exhausted"]}
     max_targets = min(max(1, int(payload.get("max_targets") or 2)), remaining_budget)
-    if payload.get("target_offset") is not None:
+    explicit_target_payload = bool(payload.get("child_targets") or payload.get("subgoal_targets"))
+    if explicit_target_payload:
+        targets = [dict(row) for row in targets if row.get("explicit_payload")]
+        try:
+            target_offset = max(0, int(payload.get("target_offset") or 0))
+        except (TypeError, ValueError):
+            target_offset = 0
+        attempted_keys = {
+            canonicalize_smiles((row.get("subgoal") or {}).get("smiles"))
+            for row in prior_rows
+            if isinstance(row.get("subgoal"), dict)
+        }
+        targets = [
+            row
+            for row in targets[target_offset:]
+            if canonicalize_smiles(row.get("smiles")) not in attempted_keys
+        ]
+        target_offset = 0
+    elif payload.get("target_offset") is not None:
         try:
             target_offset = max(0, int(payload.get("target_offset") or 0))
         except (TypeError, ValueError):
@@ -746,7 +755,6 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
     else:
         target_offset = len(prior_rows)
     selected_targets = targets[target_offset:target_offset + max_targets]
-    explicit_target_payload = bool(payload.get("child_targets") or payload.get("subgoal_targets"))
     result_offset = len(prior_rows) if explicit_target_payload else target_offset
     if not selected_targets:
         accepted_prior = [row for row in prior_rows if row.get("accepted") or row.get("solved")]
@@ -763,7 +771,11 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             "accepted_subgoal_count": len(accepted_prior),
             "rejected_subgoal_count": len(prior_rows) - len(accepted_prior),
             "subgoals": prior_rows,
-            "reasons": [] if accepted_prior else ["route_expansion_child_targets_exhausted"],
+            "reasons": [] if accepted_prior else [
+                "explicit_child_targets_already_attempted"
+                if explicit_target_payload
+                else "route_expansion_child_targets_exhausted"
+            ],
         }
         state.artifacts["route_expansion_subgoal_search"] = result
         write_json(state.run_dir / "route_expansion_subgoal_search_result.json", result)
@@ -773,23 +785,49 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
         absolute_idx = result_offset + local_idx
         sub_dir = state.run_dir / "route_expansion_subgoals"
         sub_dir.mkdir(parents=True, exist_ok=True)
-        request_payload = {
+        child_policy = _route_expansion_policy_for_child_target(
+            state=state,
+            payload=payload,
+            target=target,
+            index=absolute_idx + 1,
+        )
+        target_smiles = str(target.get("smiles") or "")
+        prior_attempt = _last_chemenzy_attempt(state, action_kind="child", target_smiles=target_smiles)
+        authority_payload = dict(payload)
+        if target.get("policy") and not target.get("policy_runtime_rebuild"):
+            authority_payload["chem_enzy_search_policy"] = dict(target.get("policy") or {})
+        budget_payload = dict(payload)
+        if target.get("max_depth") is not None:
+            budget_payload.setdefault("max_steps", target.get("max_depth"))
+        if target.get("max_iterations") is not None:
+            budget_payload.setdefault("chem_enzy_iterations", target.get("max_iterations"))
+        if target.get("expansion_topk") is not None:
+            budget_payload.setdefault("chem_enzy_expansion_topk", target.get("expansion_topk"))
+        resolution = resolve_chemenzy_budget(
+            target_smiles=target_smiles,
+            action_kind="child",
+            payload=budget_payload,
+            policy=child_policy,
+            authority=_chemenzy_budget_authority(
+                authority_payload,
+                action_kind="child",
+                policy=child_policy,
+            ),
+            attempt_index=int(prior_attempt.get("attempt_index") or 0) + 1,
+            prior_attempt=prior_attempt,
+            timeout_cap_s=state.budget.guided_chemenzy_timeout_s,
+        )
+        child_policy = budgeted_chemenzy_policy(child_policy, resolution)
+        request_payload = budgeted_chemenzy_payload({
+            **budget_payload,
             "target_smiles": target["smiles"],
             "target_name": target["name"],
             "family_hint": str(state.target_input.get("family_hint") or ""),
             "search_preset": payload.get("search_preset", "thorough"),
-            "max_steps": int(payload.get("max_steps") or target.get("max_depth") or 20),
-            "chem_enzy_iterations": int(payload.get("chem_enzy_iterations") or target.get("max_iterations") or 50),
-            "chem_enzy_expansion_topk": int(payload.get("chem_enzy_expansion_topk") or target.get("expansion_topk") or 100),
             "stock_mode": payload.get("stock_mode", "building-block"),
             "device": payload.get("device", "cpu"),
-            "chem_enzy_search_policy": _route_expansion_policy_for_child_target(
-                state=state,
-                payload=payload,
-                target=target,
-                index=absolute_idx + 1,
-            ),
-        }
+            "chem_enzy_search_policy": child_policy,
+        }, resolution)
         if _exact_target_audit_required(target):
             request_payload.update(
                 {
@@ -815,6 +853,7 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             output_path=raw_path,
             timeout_s=_codex_repaired_or_bounded_timeout_s(payload, state.budget.guided_chemenzy_timeout_s),
         )
+        attempt_outcome = _attach_chemenzy_attempt_audit(state, raw, resolution=resolution)
         verifier = verify_chemenzy_raw_routes(
             raw,
             target_smiles=target["smiles"],
@@ -851,6 +890,8 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             "reasons": row_reasons,
             "route_status": route_status,
             "solved": accepted,
+            "chem_enzy_budget_resolution": attempt_outcome["budget_resolution"],
+            "chem_enzy_attempt_outcome": attempt_outcome,
         }
         rows.append(row)
         write_json(sub_dir / f"{absolute_idx + 1:02d}_{safe_name}_verifier.json", verifier)
@@ -879,7 +920,10 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
 
 def _chemenzy_request_from_payload(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
     payload = _chemenzy_payload_with_harness_defaults(state, payload)
-    defaults = _chemenzy_default_search_defaults(state)
+    defaults = _chemenzy_default_search_defaults(
+        state,
+        target_smiles=str(payload.get("target_smiles") or state.target_input.get("target_smiles") or ""),
+    )
     request = {
         "target_smiles": payload.get("target_smiles") or state.target_input["target_smiles"],
         "target_name": payload.get("target_name") or state.target_input.get("target_name", ""),
@@ -914,6 +958,9 @@ def _chemenzy_request_from_payload(state: ToolExecutionState, payload: dict[str,
         "onmt_model_path",
         "chem_enzy_onmt_tokenizer",
         "onmt_tokenizer",
+        "chem_enzy_budget_resolution",
+        "chem_enzy_action_kind",
+        "chem_enzy_attempt_kind",
     ):
         if key in payload:
             request[key] = payload[key]
@@ -922,7 +969,9 @@ def _chemenzy_request_from_payload(state: ToolExecutionState, payload: dict[str,
 
 def _chemenzy_payload_with_harness_defaults(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
     out = dict(payload or {})
-    defaults = _chemenzy_default_search_defaults(state)
+    request_target = str(out.get("target_smiles") or state.target_input.get("target_smiles") or "")
+    target_heavy_atoms = _target_heavy_atoms(state, target_smiles=request_target)
+    defaults = _chemenzy_default_search_defaults(state, target_smiles=request_target)
     out.setdefault("search_preset", defaults["search_preset"])
     out.setdefault("max_steps", defaults["max_steps"])
     out.setdefault("chem_enzy_iterations", defaults["chem_enzy_iterations"])
@@ -953,8 +1002,13 @@ def _chemenzy_payload_with_harness_defaults(state: ToolExecutionState, payload: 
             "effective_stock_mode": str(out.get("stock_mode") or ""),
             "effective_stock_names": [str(item) for item in out.get("stock_names") or []]
             or (["PaRotes_n1-stock"] if str(out.get("stock_mode") or "").lower() in {"building-block", "building_block", "strict", "paroutes-n1", "n1"} else []),
-            "target_heavy_atoms": _target_heavy_atoms_from_state(state),
-            "complex_target_deep_defaults": _target_heavy_atoms_from_state(state) >= 25,
+            "target_heavy_atoms": target_heavy_atoms,
+            "complex_target_deep_defaults": target_heavy_atoms >= 25,
+            "defaults_applied": not bool(out.get("chem_enzy_budget_resolution")),
+            "budget_resolution_schema": str(
+                (out.get("chem_enzy_budget_resolution") or {}).get("schema_version") or ""
+            ),
+            "attempt_kind": str(out.get("chem_enzy_attempt_kind") or ""),
             "stock_policy_actions": actions,
         }
     )
@@ -962,8 +1016,12 @@ def _chemenzy_payload_with_harness_defaults(state: ToolExecutionState, payload: 
     return out
 
 
-def _chemenzy_default_search_defaults(state: ToolExecutionState) -> dict[str, Any]:
-    if _target_heavy_atoms_from_state(state) >= 25:
+def _chemenzy_default_search_defaults(
+    state: ToolExecutionState,
+    *,
+    target_smiles: str = "",
+) -> dict[str, Any]:
+    if _target_heavy_atoms(state, target_smiles=target_smiles) >= 25:
         return {
             "search_preset": "thorough",
             "max_steps": 20,
@@ -978,16 +1036,84 @@ def _chemenzy_default_search_defaults(state: ToolExecutionState) -> dict[str, An
     }
 
 
-def _target_heavy_atoms_from_state(state: ToolExecutionState) -> int:
+def _target_heavy_atoms(state: ToolExecutionState, *, target_smiles: str = "") -> int:
+    request_target = str(target_smiles or "").strip()
     profile = dict(state.preflight.get("target_profile") or {})
-    if profile.get("heavy_atoms"):
+    state_target = str(state.target_input.get("target_smiles") or "").strip()
+    if request_target and request_target == state_target and profile.get("heavy_atoms"):
         return int(profile.get("heavy_atoms") or 0)
     try:
         from rdkit import Chem
     except Exception:
         return 0
-    mol = Chem.MolFromSmiles(str(state.target_input.get("target_smiles") or ""))
+    mol = Chem.MolFromSmiles(request_target or state_target)
     return int(mol.GetNumHeavyAtoms()) if mol is not None else 0
+
+
+def _chemenzy_budget_authority(
+    payload: dict[str, Any],
+    *,
+    action_kind: str,
+    policy: dict[str, Any],
+) -> str:
+    if isinstance(payload.get("codex_payload_repair"), dict):
+        return "planner_advisory"
+    explicit = str(payload.get("budget_authority") or "").strip()
+    if explicit in {"planner_advisory", "host_profile", "operator_explicit"}:
+        return explicit
+    compiler = dict(policy.get("compiler_metadata") or {})
+    if compiler.get("input_operator_id") or compiler.get("budget_authority") == "operator_explicit":
+        return "operator_explicit"
+    if action_kind == "native":
+        return "operator_explicit"
+    if policy.get("budget") and not (
+        payload.get("guided_policy_runtime_rebuild") or payload.get("child_policy_runtime_rebuild")
+    ):
+        return "operator_explicit"
+    explicit_policy = payload.get("chem_enzy_search_policy") or payload.get("search_policy")
+    if isinstance(explicit_policy, dict) and explicit_policy and not (
+        payload.get("guided_policy_runtime_rebuild") or payload.get("child_policy_runtime_rebuild")
+    ):
+        return "operator_explicit"
+    return "host_profile"
+
+
+def _last_chemenzy_attempt(
+    state: ToolExecutionState,
+    *,
+    action_kind: str,
+    target_smiles: str,
+) -> dict[str, Any]:
+    target_key = canonicalize_smiles(target_smiles)
+    attempts = state.artifacts.get("chemenzy_attempts") or []
+    for row in reversed(attempts):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("action_kind") or "") != action_kind:
+            continue
+        if canonicalize_smiles(row.get("canonical_target_smiles") or row.get("target_smiles")) == target_key:
+            return dict(row)
+    return {}
+
+
+def _attach_chemenzy_attempt_audit(
+    state: ToolExecutionState,
+    result: dict[str, Any],
+    *,
+    resolution: ChemEnzyBudgetResolution,
+) -> dict[str, Any]:
+    embedded = result.get("chem_enzy_budget_resolution")
+    effective_resolution = resolution
+    if isinstance(embedded, dict):
+        try:
+            effective_resolution = resolution_from_dict(embedded)
+        except (TypeError, ValueError):
+            effective_resolution = resolution
+    outcome = classify_chemenzy_attempt_outcome(effective_resolution, result)
+    result["chem_enzy_budget_resolution"] = effective_resolution.to_dict()
+    result["chem_enzy_attempt_outcome"] = outcome
+    state.artifacts.setdefault("chemenzy_attempts", []).append(dict(outcome))
+    return outcome
 
 
 def _target_search_name(state: ToolExecutionState) -> str:
@@ -4390,7 +4516,7 @@ def _dedupe_child_targets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for row in rows:
-        key = str(row.get("smiles") or "")
+        key = canonicalize_smiles(row.get("smiles"))
         if not key or key in seen:
             continue
         seen.add(key)
@@ -4403,7 +4529,9 @@ def _dedupe_subgoal_results(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     for row in rows:
         subgoal = row.get("subgoal") if isinstance(row.get("subgoal"), dict) else {}
-        key = str(subgoal.get("smiles") or row.get("request_path") or row.get("subgoal_index") or "")
+        key = canonicalize_smiles(subgoal.get("smiles")) or str(
+            row.get("request_path") or row.get("subgoal_index") or ""
+        )
         if key and key in seen:
             continue
         if key:

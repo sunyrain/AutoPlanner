@@ -144,6 +144,17 @@ def compile_failure_critic_report(
             }
         )
 
+    if "guided_chemenzy_probe_exhausted" in source_reasons:
+        route_failures.append(
+            _failure(
+                "guided_chemenzy_probe_exhausted",
+                {"route_status": "unresolved", "search_exhaustive": False},
+                "bounded guided Chemenzy probe returned no route; a standard attempt remains pending",
+            )
+        )
+        next_action_bias.append("run_guided_chemenzy")
+        constraints["guided_standard_after_probe_pending"] = True
+
     if any(reason in source_reasons for reason in ("no_route_found", "guided_chemenzy_no_route_found", "guided_chemenzy_unresolved")):
         route_failures.append(_failure("no_route_found", {"route_status": "unresolved"}, "guided Chemenzy returned no route for the parent target"))
         bridge_tasks.append(

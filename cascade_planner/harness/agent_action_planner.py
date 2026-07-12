@@ -4864,6 +4864,9 @@ def _can_run_guided_chemenzy(blackboard: dict[str, Any]) -> bool:
         return False
     if _can_stitch_parent_route(blackboard):
         return False
+    pending = dict((blackboard.get("current_belief") or {}).get("pending_chemenzy_attempt") or {})
+    if str(pending.get("attempt_kind") or "") == "standard":
+        return _guided_policy_has_consumable_signal({}, blackboard)
     if _action_count(blackboard, "run_guided_chemenzy") > 0:
         if _guided_failure_requires_new_signal(blackboard) or not _simple_direct_chemenzy_target(blackboard):
             return _new_strong_guided_signal_since_last_run(blackboard)
@@ -5463,6 +5466,33 @@ def _guided_retry_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
         "rerun_attempt": attempt,
         "failure_mode_focus": failures[:6],
     })
+    pending = dict((blackboard.get("current_belief") or {}).get("pending_chemenzy_attempt") or {})
+    if str(pending.get("attempt_kind") or "") == "standard":
+        complex_target = _target_is_complex_for_frontier_bootstrap(blackboard)
+        max_steps = 20 if complex_target else 6
+        iterations = 50 if complex_target else 10
+        expansion_topk = 100 if complex_target else 50
+        timeout_s = _guided_retry_runtime_budget()["timeout_s"]
+        payload.update(
+            {
+                "attempt_kind": "standard",
+                "search_preset": "thorough" if complex_target else "quick",
+                "search_mode": "guided_standard_after_probe",
+                "max_steps": max_steps,
+                "chem_enzy_iterations": iterations,
+                "chem_enzy_expansion_topk": expansion_topk,
+                "timeout_s": timeout_s,
+            }
+        )
+        _sync_guided_policy_budget(
+            payload,
+            max_steps=max_steps,
+            iterations=iterations,
+            expansion_topk=expansion_topk,
+            timeout_s=timeout_s,
+            search_mode="guided_standard_after_probe",
+        )
+        return payload
     if attempt > 1:
         retry_budget = _guided_retry_runtime_budget()
         max_steps = retry_budget["max_steps"]

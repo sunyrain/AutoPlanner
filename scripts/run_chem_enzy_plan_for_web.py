@@ -21,6 +21,12 @@ from cascade_planner.baselines.chem_enzy_adapter import (
     DEFAULT_ONE_STEP_MODELS,
     DEFAULT_STOCKS,
 )
+from cascade_planner.baselines.chem_enzy_budget import (
+    budgeted_chemenzy_payload,
+    finalize_effective_chemenzy_budget,
+    resolution_from_dict,
+    resolve_chemenzy_budget,
+)
 from cascade_planner.baselines.chem_enzy_step_quality import evaluate_enzyme_step_quality
 from cascade_planner.baselines.route_contract import RouteCandidate, RouteSearchConfig, RouteStepCandidate
 from cascade_planner.baselines.template_relevance_runtime import missing_template_relevance_models
@@ -50,8 +56,33 @@ def main() -> None:
     args = ap.parse_args()
 
     payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
+    embedded_resolution = payload.get("chem_enzy_budget_resolution")
+    if isinstance(embedded_resolution, dict):
+        budget_resolution = resolution_from_dict(embedded_resolution)
+    else:
+        action_kind = str(payload.get("chem_enzy_action_kind") or "native")
+        if action_kind not in {"native", "guided", "child"}:
+            action_kind = "native"
+        policy_payload = payload.get("chem_enzy_search_policy") or payload.get("search_policy")
+        budget_resolution = resolve_chemenzy_budget(
+            target_smiles=str(payload.get("target_smiles") or ""),
+            action_kind=action_kind,
+            payload=payload,
+            policy=dict(policy_payload or {}) if isinstance(policy_payload, dict) else {},
+            authority="operator_explicit",
+            attempt_index=max(1, int(payload.get("chem_enzy_attempt_index") or 1)),
+            timeout_cap_s=payload.get("timeout_s"),
+        )
+    payload = budgeted_chemenzy_payload(payload, budget_resolution)
     started = time.monotonic()
     config = _route_config_from_payload(payload, args.gpu)
+    budget_resolution = finalize_effective_chemenzy_budget(
+        budget_resolution,
+        max_depth=config.max_depth,
+        max_iterations=config.max_iterations,
+        expansion_topk=config.expansion_topk,
+    )
+    payload["chem_enzy_budget_resolution"] = budget_resolution.to_dict()
     adapter = ChemEnzyBackendAdapter(
         vendor_root=Path(args.vendor_root),
         gpu=args.gpu,
@@ -61,6 +92,7 @@ def main() -> None:
     )
     result = adapter.run_target(config)
     output = _web_payload_from_result(result, payload, config, time.monotonic() - started, vendor_root=Path(args.vendor_root))
+    output["chem_enzy_budget_resolution"] = budget_resolution.to_dict()
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")

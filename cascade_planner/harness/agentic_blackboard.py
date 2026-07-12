@@ -121,6 +121,7 @@ def initialize_agent_blackboard(
         "proposal_failure_feedback": [],
         "route_proof_bundle": {},
         "chemenzy_route_proof_banks": [],
+        "chemenzy_attempts": [],
         "semisynthesis_anchors": [],
         "recursive_hypothesis_tasks": [],
         "route_expansion_subgoals": [],
@@ -1007,6 +1008,7 @@ def _blackboard_count_summary(blackboard: dict[str, Any]) -> dict[str, int]:
         "target_relevant_exact_rows": _target_relevant_exact_row_count(evidence.get("exact_rows") or []),
         "exact_chain_audits": len(evidence.get("exact_chain_audits") or []),
         "terminal_candidates": len(evidence.get("terminal_candidates") or []),
+        "chemenzy_attempts": len(blackboard.get("chemenzy_attempts") or []),
         "structure_resolution_tasks": len(evidence.get("structure_resolution_tasks") or []),
         "structure_resolution_attempts": len(evidence.get("structure_resolution_attempts") or []),
         "resolved_structures": len(evidence.get("resolved_structures") or []),
@@ -1669,6 +1671,17 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
         )
 
     if action_type == "expand_child_target":
+        result_payload = dict(payload.get("result") or payload)
+        _extend_unique(
+            board,
+            "chemenzy_attempts",
+            [
+                dict(row.get("chem_enzy_attempt_outcome") or {})
+                for row in result_payload.get("subgoals") or []
+                if isinstance(row, dict) and isinstance(row.get("chem_enzy_attempt_outcome"), dict)
+            ],
+            unique_key="attempt_id",
+        )
         board["route_expansion_subgoals"] = _route_expansion_subgoal_summaries(payload)
         task_status_changed = _mark_recursive_hypothesis_task_attempts(
             board,
@@ -2273,6 +2286,23 @@ def _safe_anchor_token(value: str) -> str:
 
 def _update_from_guided_chemenzy(board: dict[str, Any], payload: dict[str, Any], artifact_ref: str) -> None:
     guided_payload = _guided_chemenzy_result_payload(payload)
+    attempt_outcome = dict(
+        payload.get("chem_enzy_attempt_outcome")
+        or guided_payload.get("chem_enzy_attempt_outcome")
+        or {}
+    )
+    if attempt_outcome:
+        attempt_outcome["artifact_ref"] = artifact_ref
+        _extend_unique(
+            board,
+            "chemenzy_attempts",
+            [attempt_outcome],
+            unique_key="attempt_id",
+        )
+        if str(attempt_outcome.get("attempt_kind") or "") in {"standard", "retry"}:
+            belief = dict(board.get("current_belief") or {})
+            belief.pop("pending_chemenzy_attempt", None)
+            board["current_belief"] = belief
     verifier = dict(payload.get("raw_route_verifier") or {})
     if not verifier and guided_payload:
         verifier = dict(guided_payload.get("raw_route_verifier") or {})
@@ -2358,7 +2388,26 @@ def _update_from_guided_chemenzy(board: dict[str, Any], payload: dict[str, Any],
     if unresolved_failures:
         _extend_unique(board, "route_failures", unresolved_failures, unique_key="reason")
         belief = dict(board.get("current_belief") or {})
-        _extend_unique(belief, "next_action_bias", ["build_failure_critic_report", "search_literature"], unique_key=None)
+        probe_exhausted = any(
+            str(row.get("reason") or "") == "guided_chemenzy_probe_exhausted"
+            for row in unresolved_failures
+        )
+        if probe_exhausted:
+            _extend_unique(belief, "next_action_bias", ["run_guided_chemenzy"], unique_key=None)
+            belief["pending_chemenzy_attempt"] = {
+                "schema_version": "pending_chemenzy_attempt.v1",
+                "action_kind": "guided",
+                "attempt_kind": "standard",
+                "from_attempt_id": str(attempt_outcome.get("attempt_id") or ""),
+                "reason": "probe_exhausted",
+            }
+        else:
+            _extend_unique(
+                belief,
+                "next_action_bias",
+                ["build_failure_critic_report", "search_literature"],
+                unique_key=None,
+            )
         board["current_belief"] = belief
     feedback = dict(payload.get("route_failure_feedback") or {})
     if feedback and isinstance(feedback.get("path"), str):
@@ -2377,6 +2426,21 @@ def _guided_chemenzy_result_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def _guided_chemenzy_unresolved_failures(payload: dict[str, Any], *, artifact_ref: str) -> list[dict[str, Any]]:
     if not payload:
         return []
+    attempt_outcome = dict(payload.get("chem_enzy_attempt_outcome") or {})
+    if str(attempt_outcome.get("outcome") or "") == "probe_exhausted":
+        return [
+            {
+                "schema_version": "agent_route_failure.v1",
+                "reason": "guided_chemenzy_probe_exhausted",
+                "route_status": "unresolved",
+                "artifact_ref": artifact_ref,
+                "failure_class": "guided_chemenzy_probe_status",
+                "attempt_id": str(attempt_outcome.get("attempt_id") or ""),
+                "attempt_kind": "probe",
+                "next_attempt_kind": "standard",
+                "search_exhaustive": False,
+            }
+        ]
     raw = payload.get("result") if isinstance(payload.get("result"), dict) else {}
     search_status = raw.get("search_status") if isinstance(raw.get("search_status"), dict) else {}
     route_status = str(payload.get("route_status") or search_status.get("status") or "").strip().lower()
