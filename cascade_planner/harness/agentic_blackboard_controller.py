@@ -53,6 +53,7 @@ from cascade_planner.harness.hypothesis_execution_report import (
     compile_hypothesis_execution_report,
 )
 from cascade_planner.harness.codex_edge_verification import (
+    project_edge_evidence_binding_sets,
     verify_codex_consensus_graph,
 )
 from cascade_planner.harness.local_pdf_proxy import (
@@ -2081,6 +2082,16 @@ def _refresh_multisource_route_consensus(
     write_json(edge_verification_path, edge_verification)
     state.artifacts["codex_edge_verification"] = edge_verification
     refs["codex_edge_verification"] = str(edge_verification_path)
+    edge_evidence_binding_sets = project_edge_evidence_binding_sets(
+        edge_verification
+    )
+    edge_evidence_binding_sets_path = (
+        state.run_dir / "edge_evidence_binding_sets.json"
+    )
+    write_json(edge_evidence_binding_sets_path, edge_evidence_binding_sets)
+    state.artifacts["edge_evidence_binding_sets"] = edge_evidence_binding_sets
+    refs["edge_evidence_binding_sets"] = str(edge_evidence_binding_sets_path)
+    graph["edge_evidence_binding_sets"] = edge_evidence_binding_sets
     graph["codex_edge_verification_summary"] = {
         key: edge_verification.get(key)
         for key in (
@@ -2089,6 +2100,8 @@ def _refresh_multisource_route_consensus(
             "mapped_edge_count",
             "reaction_validated_edge_count",
             "proof_closed_edge_count",
+            "trusted_precedent_binding_count",
+            "corroborated_edge_count",
             "work_cache",
             "content_sha256",
         )

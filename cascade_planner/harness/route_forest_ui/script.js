@@ -148,7 +148,13 @@
       ? (stockEvidence.closure_scope === 'procurement' ? 700 : 500) : 0;
     const primaryScore = lane?.is_primary ? 120 : 0;
     const stepScore = Math.min(8, (lane?.step_ids || []).length) * 16;
-    const sourceScore = Math.min(8, (lane?.source_refs || []).length) * 16;
+    const routeTrust = branch.trust_vector || {};
+    const minimumTrustedSources = Math.max(0, Number(
+      routeTrust.min_trusted_source_group_count_across_steps || 0
+    ));
+    const corroboratedCoverage = Math.max(0, Number(routeTrust.corroborated_edge_count || 0));
+    const sourceScore = Math.min(4, minimumTrustedSources) * 48
+      + Math.min(8, corroboratedCoverage) * 20;
     const structureScore = Math.min(12, (lane?.graph_node_ids || []).filter(graphNodeId => {
       const graphNode = graphNodes.get(graphNodeId) || {};
       return Boolean(moleculeNodes.get(graphNode.molecule_node_id)?.structure_svg);
@@ -1249,14 +1255,20 @@
 
   function reactionOverview(step) {
     const trust = step.trust_vector || {};
-    const sources = (step.source_refs || []).map(ref => `<div class="trace-row">${esc(basename(ref))}</div>`).join('');
+    const bindingSet = step.edge_evidence_binding_set || trust.edge_evidence_binding_set || {};
+    const trustedBindings = (bindingSet.bindings || []).filter(row => row.trusted === true);
+    const trustedSources = trustedBindings.map(row => `<div class="trace-row"><strong>${esc(row.independent_source_group || row.source_ref || 'trusted source')}</strong><span>${esc(row.binding_id || '')}</span></div>`).join('');
+    const citations = (step.source_refs || []).map(ref => `<div class="trace-row">${esc(basename(ref))}</div>`).join('');
+    const sourceCount = Number(bindingSet.independent_trusted_source_group_count || 0);
+    const corroborated = bindingSet.corroborated === true;
     const conditions = (step.conditions || []).map(row => `<div class="condition-line"><span class="condition-label">${esc(row.label || '条件')}</span><span class="condition-value">${esc(row.value || '')}</span></div>`).join('');
     return `<article><header><p class="detail-kind">反应步骤 · ${esc(tierLabel(tierOfStep(step)))}</p><h3 class="detail-title">${esc(step.label || step.step_id)}</h3></header>
       ${state.activeReplacement ? `<div class="notice replacement-preview-notice"><strong>完整替换路线预览</strong><span>该分支已由后端 AND/OR 对 connectivity、stock 与 reaction proof 整路重验；预览不等于父路线证明。</span><button class="detail-action" type="button" data-replacement-reset>恢复原路线</button></div>` : ''}
       <section class="detail-section"><h3>反应连接</h3><p class="v">${esc(nodeNames(step.from_node_ids))} → ${esc(nodeNames(step.to_node_ids))}</p></section>
       <section class="detail-section"><h3>条件</h3><div class="condition-list">${conditions || `<div class="empty">${esc(step.condition_summary || '条件未记录')}</div>`}</div></section>
       <section class="detail-section"><h3>Trust vector</h3><div class="trust-grid">${['identity','connectivity','source_independence','stock','conditions','forward_feasibility'].map(key => `<div class="trust-cell ${tierClass(tierOfStep(step))}" style="--trust-value:${clamp(Number(trust[key] || 0), 0, 1)}"><strong>${esc(key)}</strong><span>${Number(trust[key] || 0).toFixed(2)}</span></div>`).join('')}</div></section>
-      <section class="detail-section"><h3>来源</h3><div class="trace-list">${sources || '<div class="empty">来源未记录</div>'}</div></section></article>`;
+      <section class="detail-section"><h3>逐边可信绑定</h3><div class="kv"><span class="k">可信独立来源</span><span class="v">${esc(sourceCount)}</span></div><div class="kv"><span class="k">多信源佐证</span><span class="v">${corroborated ? '是' : '否'}</span></div><div class="trace-list">${trustedSources || '<div class="empty">尚无可信精确绑定；引用不会自动升级证明。</div>'}</div></section>
+      <section class="detail-section"><h3>普通引用</h3><div class="trace-list">${citations || '<div class="empty">来源未记录</div>'}</div></section></article>`;
   }
   function moleculeOverview(node) {
     return `<article><header><p class="detail-kind">分子节点</p><h3 class="detail-title">${esc(node.label || node.node_id || '未命名分子')}</h3></header>

@@ -24,8 +24,13 @@ from rdkit import Chem, RDLogger
 
 from cascade_planner.harness.reaction_step_verifier import (
     REACTION_STEP_VERIFIER_VERSION,
+    canonical_reaction_digest,
     verify_reaction_route,
     verify_reaction_step,
+)
+from cascade_planner.source_locators import (
+    canonical_traceable_source_ref,
+    independent_source_group,
 )
 
 
@@ -33,6 +38,7 @@ RDLogger.DisableLog("rdApp.*")
 
 CODEX_EDGE_VERIFICATION_SCHEMA = "codex_edge_verification_report.v1"
 REACTION_CANDIDATE_SCHEMA = "materialized_reaction_candidate.v1"
+EDGE_EVIDENCE_BINDING_SET_SCHEMA = "edge_evidence_binding_set.v1"
 AtomMapper = Callable[[list[str]], list[str | None]]
 _RXNMAPPER_INFERENCE_LOCK = threading.RLock()
 _RXNMAPPER_RESULT_CACHE_MAXSIZE = 2048
@@ -235,6 +241,14 @@ def verify_codex_consensus_graph(
         ),
         "reaction_validated_edge_count": sum(row["reaction_validated"] for row in rows),
         "proof_closed_edge_count": sum(row["proof_closed"] for row in rows),
+        "trusted_precedent_binding_count": sum(
+            int((row.get("edge_evidence_binding_set") or {}).get("trusted_binding_count") or 0)
+            for row in rows
+        ),
+        "corroborated_edge_count": sum(
+            (row.get("edge_evidence_binding_set") or {}).get("corroborated") is True
+            for row in rows
+        ),
         "edge_verifications": rows,
         "reaction_validations": reaction_validations,
         "atom_mapper": mapper_status,
@@ -255,6 +269,66 @@ def verify_codex_consensus_graph(
             "agent_proposals_are_not_authority": True,
             "mapping_and_transform_reapply_required_for_l2": True,
             "stock_and_reaction_proof_are_separate": True,
+            "multisource_corroboration_is_edge_local": True,
+            "corroboration_does_not_upgrade_proof_tier": True,
+        },
+    }
+    payload["content_sha256"] = _digest(payload)
+    return payload
+
+
+def project_edge_evidence_binding_sets(
+    verification_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return a digest-checked sidecar keyed by chemistry and graph step.
+
+    The route hypergraph remains structurally content addressed.  Evidence
+    attachments are a separate, current-host-derived projection so adding a
+    second precedent cannot duplicate or mutate the chemical edge.
+    """
+
+    by_reaction_digest: dict[str, dict[str, Any]] = {}
+    by_step_id: dict[str, str] = {}
+    rejected: list[dict[str, Any]] = []
+    for raw in verification_report.get("edge_verifications") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        edge = dict(raw)
+        binding_set = dict(edge.get("edge_evidence_binding_set") or {})
+        supplied_digest = str(binding_set.get("content_sha256") or "")
+        digest_payload = {
+            key: value for key, value in binding_set.items() if key != "content_sha256"
+        }
+        reaction_digest = str(binding_set.get("reaction_digest") or "")
+        step_id = str(edge.get("step_id") or "")
+        reasons: list[str] = []
+        if binding_set.get("schema_version") != EDGE_EVIDENCE_BINDING_SET_SCHEMA:
+            reasons.append("invalid_edge_evidence_binding_set_schema")
+        if not reaction_digest:
+            reasons.append("edge_evidence_reaction_digest_missing")
+        if not supplied_digest or supplied_digest != _digest(digest_payload):
+            reasons.append("edge_evidence_binding_set_digest_invalid")
+        if reaction_digest in by_reaction_digest:
+            reasons.append("duplicate_edge_evidence_reaction_digest")
+        if reasons:
+            rejected.append({"step_id": step_id, "reasons": sorted(set(reasons))})
+            continue
+        by_reaction_digest[reaction_digest] = binding_set
+        if step_id:
+            by_step_id[step_id] = reaction_digest
+
+    payload: dict[str, Any] = {
+        "schema_version": "edge_evidence_binding_projection.v1",
+        "by_reaction_digest": dict(sorted(by_reaction_digest.items())),
+        "by_step_id": dict(sorted(by_step_id.items())),
+        "edge_count": len(by_reaction_digest),
+        "corroborated_edge_count": sum(
+            row.get("corroborated") is True for row in by_reaction_digest.values()
+        ),
+        "rejected": rejected,
+        "semantics": {
+            "sidecar_does_not_mutate_hypergraph_identity": True,
+            "current_host_projection": True,
         },
     }
     payload["content_sha256"] = _digest(payload)
@@ -402,6 +476,9 @@ def _verify_materialized_edge(
         "reaction_validated": proof.get("accepted") is True,
         "stock_closed": graph_and_stock_closed,
         "proof_closed": bool(proof.get("accepted") is True and graph_and_stock_closed),
+        "edge_evidence_binding_set": dict(
+            materialized.get("edge_evidence_binding_set") or {}
+        ),
         "required_tasks": tasks,
     }
     return edge, supplemental_validation
@@ -555,7 +632,9 @@ def _json_value(value: Any) -> Any:
 def _materialize_candidate(
     step: Mapping[str, Any],
     *,
-    exact_by_signature: Mapping[tuple[str, tuple[str, ...]], Mapping[str, Any]],
+    exact_by_signature: Mapping[
+        tuple[str, tuple[str, ...]], list[Mapping[str, Any]]
+    ],
 ) -> dict[str, Any]:
     product = _canonical_smiles(step.get("product_smiles"))
     reactants = sorted(
@@ -566,7 +645,25 @@ def _materialize_candidate(
         if value
     )
     signature = (product, tuple(reactants))
-    exact = dict(exact_by_signature.get(signature) or {})
+    exact_rows = [
+        dict(row)
+        for row in exact_by_signature.get(signature) or []
+        if isinstance(row, Mapping)
+    ]
+    binding_set = _edge_evidence_binding_set(
+        product=product,
+        reactants=reactants,
+        exact_rows=exact_rows,
+    )
+    primary_row_sha256 = str(binding_set.get("primary_row_sha256") or "")
+    exact = next(
+        (
+            row
+            for row in exact_rows
+            if _digest(_json_value(row)) == primary_row_sha256
+        ),
+        exact_rows[0] if exact_rows else {},
+    )
     candidate = {
         "schema_version": REACTION_CANDIDATE_SCHEMA,
         "step_id": str(step.get("step_id") or ""),
@@ -581,6 +678,7 @@ def _materialize_candidate(
         "no_solved_claim": True,
         "not_parent_route_proof": True,
         "advisory_input": True,
+        "edge_evidence_binding_set": binding_set,
     }
     if exact:
         candidate.update(
@@ -616,8 +714,8 @@ def _materialize_candidate(
 
 def _exact_rows_by_signature(
     values: Iterable[Mapping[str, Any]],
-) -> dict[tuple[str, tuple[str, ...]], dict[str, Any]]:
-    rows: dict[tuple[str, tuple[str, ...]], dict[str, Any]] = {}
+) -> dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]]:
+    rows: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
     for raw in values:
         if not isinstance(raw, Mapping):
             continue
@@ -630,8 +728,176 @@ def _exact_rows_by_signature(
         reactants = _row_reactants(row)
         signature = (product, tuple(sorted(reactants)))
         if product and reactants:
-            rows[signature] = row
+            rows.setdefault(signature, []).append(row)
+    for signature, matches in rows.items():
+        rows[signature] = sorted(matches, key=_exact_row_sort_key)
     return rows
+
+
+def _exact_row_sort_key(row: Mapping[str, Any]) -> tuple[str, str, str]:
+    source_ref = _canonical_source_ref_from_row(row)
+    row_id = str(row.get("row_id") or row.get("source_template_id") or "")
+    return source_ref, row_id, _digest(_json_value(dict(row)))
+
+
+def _edge_evidence_binding_set(
+    *,
+    product: str,
+    reactants: list[str],
+    exact_rows: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Revalidate every exact-row attachment without conflating it with proof.
+
+    One chemical edge may have several document bindings.  The set is derived
+    from current-host verifier results on every refresh; producer-authored
+    source counts and binding flags are never trusted.
+    """
+
+    reaction_digest = canonical_reaction_digest(product, reactants)
+    bindings: list[dict[str, Any]] = []
+    row_by_sha256: dict[str, dict[str, Any]] = {}
+    for raw in exact_rows:
+        if not isinstance(raw, Mapping):
+            continue
+        row = dict(raw)
+        row_sha256 = _digest(_json_value(row))
+        row_by_sha256[row_sha256] = row
+        verification_row = dict(row)
+        verification_row["product_smiles"] = product
+        verification_row["reactant_smiles"] = list(reactants)
+        proof = verify_reaction_step(
+            verification_row,
+            graph_and_stock_closed=False,
+        )
+        checks = dict(proof.get("checks") or {})
+        precedent = dict(proof.get("trusted_precedent_binding") or {})
+        trusted = bool(
+            checks.get("trusted_precedent_bound")
+            and precedent.get("accepted") is True
+            and str(precedent.get("reaction_digest") or "") == reaction_digest
+        )
+        source_ref = _canonical_source_ref_from_row(row)
+        source_group = (
+            independent_source_group({**row, "source_ref": source_ref})
+            if trusted and source_ref
+            else ""
+        )
+        evidence_rows = [
+            _compact_materialized_source_evidence(item)
+            for item in row.get("source_evidence") or []
+            if isinstance(item, Mapping)
+        ]
+        evidence_rows = [item for item in evidence_rows if item]
+        candidate_binding_id = "candidate:" + _digest(
+            {
+                "reaction_digest": reaction_digest,
+                "row_sha256": row_sha256,
+                "source_ref": source_ref,
+            }
+        )[:24]
+        bindings.append(
+            {
+                "schema_version": "edge_evidence_binding.v1",
+                "binding_id": str(precedent.get("binding_id") or candidate_binding_id),
+                "row_id": str(row.get("row_id") or row.get("source_template_id") or ""),
+                "row_sha256": row_sha256,
+                "source_ref": source_ref,
+                "independent_source_group": source_group,
+                "status": "trusted" if trusted else "candidate_untrusted",
+                "trusted": trusted,
+                "authority": str(precedent.get("authority") or ""),
+                "authority_id": str(precedent.get("authority_id") or ""),
+                "reaction_digest": reaction_digest,
+                "materialized_evidence": evidence_rows,
+                "materialized_evidence_sha256": _digest(evidence_rows),
+                "condition_sha256": _digest(row.get("conditions") or []),
+                "proof_level": str(proof.get("proof_level") or "L0_materialized"),
+                "reasons": [] if trusted else ["trusted_precedent_binding_not_revalidated"],
+            }
+        )
+
+    bindings.sort(
+        key=lambda row: (
+            0 if row.get("trusted") is True else 1,
+            str(row.get("independent_source_group") or ""),
+            str(row.get("source_ref") or ""),
+            str(row.get("binding_id") or ""),
+            str(row.get("row_sha256") or ""),
+        )
+    )
+    trusted_bindings = [row for row in bindings if row.get("trusted") is True]
+    groups = sorted(
+        {
+            str(row.get("independent_source_group") or "")
+            for row in trusted_bindings
+            if str(row.get("independent_source_group") or "")
+        }
+    )
+    trusted_condition_variants = sorted(
+        {
+            str(row.get("condition_sha256") or "")
+            for row in trusted_bindings
+            if str(row.get("condition_sha256") or "")
+        }
+    )
+    payload: dict[str, Any] = {
+        "schema_version": EDGE_EVIDENCE_BINDING_SET_SCHEMA,
+        "reaction_digest": reaction_digest,
+        "product_smiles": product,
+        "reactant_smiles": list(reactants),
+        "binding_count": len(bindings),
+        "trusted_binding_count": len(trusted_bindings),
+        "independent_trusted_source_groups": groups,
+        "independent_trusted_source_group_count": len(groups),
+        "corroborated": len(groups) >= 2,
+        "primary_binding_id": str(
+            (trusted_bindings or bindings or [{}])[0].get("binding_id") or ""
+        ),
+        "primary_row_sha256": str(
+            (trusted_bindings or bindings or [{}])[0].get("row_sha256") or ""
+        ),
+        "trusted_condition_variant_count": len(trusted_condition_variants),
+        "condition_variants_require_review": len(trusted_condition_variants) > 1,
+        "bindings": bindings,
+        "semantics": {
+            "proof_tier_is_orthogonal": True,
+            "corroboration_requires_two_independent_trusted_source_groups": True,
+            "article_and_supporting_information_are_one_source_group": True,
+            "current_host_revalidation_required": True,
+        },
+    }
+    payload["content_sha256"] = _digest(payload)
+    return payload
+
+
+def _canonical_source_ref_from_row(row: Mapping[str, Any]) -> str:
+    for value in (
+        row.get("source_ref"),
+        row.get("doi"),
+        f"doi:{row.get('doi')}" if str(row.get("doi") or "").strip() else "",
+        row.get("patent_publication"),
+        row.get("url"),
+    ):
+        canonical = canonical_traceable_source_ref(value)
+        if canonical:
+            return canonical
+    return ""
+
+
+def _compact_materialized_source_evidence(value: Mapping[str, Any]) -> dict[str, Any]:
+    row = dict(value)
+    return {
+        key: row.get(key)
+        for key in (
+            "source_ref",
+            "document_id",
+            "source_pdf_sha256",
+            "page_number",
+            "image_sha256",
+            "artifact_ref",
+        )
+        if row.get(key) not in (None, "", [])
+    }
 
 
 def _row_reactants(row: Mapping[str, Any]) -> list[str]:

@@ -203,7 +203,7 @@ __STYLES__
                 <label class="compact-select" for="edgeStyleSelect">
                   <span>连线</span>
                   <select id="edgeStyleSelect">
-                    <option value="trust">可信度编码</option>
+                    <option value="trust">证明等级编码</option>
                     <option value="simple">简洁</option>
                     <option value="contrast">高对比</option>
                   </select>
@@ -223,9 +223,9 @@ __STYLES__
           <details id="legendPopover" class="legend-popover">
             <summary>
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="18" cy="12" r="2"></circle></svg>
-              <span>可信度图例</span>
+              <span>证明等级图例</span>
             </summary>
-            <div class="legend-card" role="list" aria-label="L0 到 L4 可信度图例">
+            <div class="legend-card" role="list" aria-label="L0 到 L4 证明等级图例">
               <div class="legend-intro">
                 <strong>反应级证明</strong>
                 <span>颜色 = 级别，线宽 = 独立支持，纹理 = 不确定性。</span>
@@ -249,7 +249,7 @@ __STYLES__
           <div class="graph-loading" role="status">
             <span class="loading-spinner" aria-hidden="true"></span>
             <strong>正在布置分子–反应超图</strong>
-            <span>保留显式依赖、来源与可信度编码。</span>
+            <span>颜色与纹理仅表示 L0–L4 证明等级；线宽表示逐边可信独立来源数，不授予证明。</span>
           </div>
         </div>
         <div id="graphMinimap" class="graph-minimap" aria-label="路线图缩略图"></div>

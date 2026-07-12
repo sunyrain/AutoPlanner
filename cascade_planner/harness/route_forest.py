@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from cascade_planner.harness.parent_route_proof import is_solved_parent_route_proof
+from cascade_planner.harness.reaction_step_verifier import canonical_reaction_digest
 from cascade_planner.harness.route_forest_delivery import (
     render_route_forest_html as render_route_forest_workbench_html,
 )
@@ -1853,15 +1854,28 @@ class _RouteForestCompiler:
                 "proof_tier": weakest_tier,
                 "aggregation": "weakest_link",
             }
+            minimum_support_groups = min(
+                (int(row.get("support_group_count") or 0) for row in vectors),
+                default=0,
+            )
+            corroborated_edge_count = sum(
+                int(row.get("support_group_count") or 0) >= 2 for row in vectors
+            )
+            branch_vector.update(
+                {
+                    "min_trusted_source_group_count_across_steps": minimum_support_groups,
+                    "corroborated_edge_count": corroborated_edge_count,
+                    "all_edges_corroborated": bool(
+                        vectors and corroborated_edge_count == len(vectors)
+                    ),
+                }
+            )
             branch_vector["bottleneck_score"] = min(
                 float(branch_vector[field]) for field in numeric_fields
             )
             branch_vector["visual_encoding"] = self._trust_visual_encoding(
                 branch_vector,
-                support_group_count=max(
-                    (int(row.get("support_group_count") or 0) for row in vectors),
-                    default=0,
-                ),
+                support_group_count=minimum_support_groups,
             )
             branch["trust_vector"] = branch_vector
 
@@ -1909,13 +1923,29 @@ class _RouteForestCompiler:
             connectivity = 0.65
             connectivity_status = "explicit_interface_only"
 
-        support_groups = _dedupe([str(value) for value in step.get("independent_support_groups") or []])
-        if support_groups:
-            support_group_count = len(support_groups)
+        edge_binding_set = _validated_edge_evidence_binding_set(
+            step.get("edge_evidence_binding_set")
+        )
+        if edge_binding_set:
+            support_groups = _dedupe(
+                [
+                    str(value)
+                    for value in edge_binding_set.get(
+                        "independent_trusted_source_groups"
+                    )
+                    or []
+                    if str(value)
+                ]
+            )
         else:
-            support_group_count = 1 if any(
-                _external_source_ref(str(value)) for value in step.get("source_refs") or []
-            ) else 0
+            support_groups = _dedupe(
+                [
+                    str(value)
+                    for value in step.get("independent_support_groups") or []
+                    if _authoritative_support_group(value)
+                ]
+            )
+        support_group_count = len(support_groups)
         source_independence = min(1.0, 0.5 * support_group_count)
         if support_group_count == 0 and origin.startswith("direct_verified"):
             source_independence = 0.25
@@ -2034,6 +2064,7 @@ class _RouteForestCompiler:
             },
             "support_group_count": support_group_count,
             "independent_support_groups": support_groups,
+            "edge_evidence_binding_set": edge_binding_set,
             "reaction_step_proof": reaction_proof,
         }
         vector["visual_encoding"] = self._trust_visual_encoding(
@@ -3746,6 +3777,9 @@ class _RouteForestCompiler:
                 for row in overlay.get("candidate_envelopes") or []
                 if isinstance(row, dict) and str(row.get("envelope_id") or "")
             },
+            "edge_evidence_binding_sets": _validated_edge_evidence_projection(
+                graph
+            ),
         }
         source_routes = [
             dict(row) for row in portfolio.get("routes") or [] if isinstance(row, dict)
@@ -3919,6 +3953,9 @@ class _RouteForestCompiler:
         hyperedges = dict(context.get("hyperedges") or {})
         claims = dict(context.get("claims") or {})
         envelopes = dict(context.get("envelopes") or {})
+        edge_evidence_binding_sets = dict(
+            context.get("edge_evidence_binding_sets") or {}
+        )
         reasons: list[str] = []
         if route.get("schema_version") != "route_portfolio_item.v1":
             reasons.append("invalid_portfolio_route_schema")
@@ -4031,6 +4068,26 @@ class _RouteForestCompiler:
             )
             route_source_refs.extend(source_refs)
             precursor_ids = [str(value) for value in edge.get("precursor_molecule_ids") or []]
+            product_smiles = str(
+                (molecules.get(product_id) or {}).get("canonical_isomeric_smiles")
+                or ""
+            )
+            precursor_smiles = [
+                str(
+                    (molecules.get(molecule_id) or {}).get(
+                        "canonical_isomeric_smiles"
+                    )
+                    or ""
+                )
+                for molecule_id in precursor_ids
+            ]
+            reaction_digest = canonical_reaction_digest(
+                product_smiles,
+                precursor_smiles,
+            )
+            edge_evidence_binding_set = dict(
+                edge_evidence_binding_sets.get(reaction_digest) or {}
+            )
             interface_ids = [*precursor_ids, product_id]
             for molecule_id in interface_ids:
                 molecule = dict(molecules.get(molecule_id) or {})
@@ -4103,8 +4160,16 @@ class _RouteForestCompiler:
                     "portfolio_precursor_molecule_ids": precursor_ids,
                     "source_channels": [str(value) for value in edge.get("source_channels") or []],
                     "independent_support_groups": [
-                        str(value) for value in edge.get("independent_support_groups") or []
+                        str(value)
+                        for value in (
+                            edge_evidence_binding_set.get(
+                                "independent_trusted_source_groups"
+                            )
+                            or edge.get("independent_support_groups")
+                            or []
+                        )
                     ],
+                    "edge_evidence_binding_set": edge_evidence_binding_set,
                     "reaction_step_proof": {
                         "proof_source": "deterministic_reverified_route",
                         "proof_level": proof_tier,
@@ -4300,6 +4365,19 @@ class _RouteForestCompiler:
                     graph_step,
                     all_graph_support_records,
                 )
+                edge_evidence_binding_set = _edge_evidence_binding_for_graph_step(
+                    graph,
+                    graph_step,
+                )
+                if edge_evidence_binding_set:
+                    graph_support_groups = [
+                        str(value)
+                        for value in edge_evidence_binding_set.get(
+                            "independent_trusted_source_groups"
+                        )
+                        or []
+                        if str(value)
+                    ]
                 conditions = [
                     {"label": "candidate condition", "value": str(value)}
                     for value in graph_step.get("conditions") or []
@@ -4336,6 +4414,7 @@ class _RouteForestCompiler:
                         "support_records_truncated": len(all_graph_support_records)
                         > len(graph_support_records),
                         "independent_support_groups": graph_support_groups,
+                        "edge_evidence_binding_set": edge_evidence_binding_set,
                         "independent_source_count": len(graph_support_groups),
                         "consensus_scope": (
                             "multi_source"
@@ -6960,6 +7039,101 @@ def _consensus_independent_support_groups(
     ):
         return ["legacy_unverified_support"]
     return []
+
+
+def _authoritative_support_group(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return bool(
+        text.startswith("literature:")
+        or text.startswith("validated:")
+        or text.startswith("computational:")
+        or text.startswith("doi:")
+        or text.startswith("patent:")
+        or text.startswith("patent_family:")
+        or text.startswith("pmid:")
+        or text.startswith("pmc:")
+        or text.startswith("pii:")
+    )
+
+
+def _validated_edge_evidence_binding_set(value: Any) -> dict[str, Any]:
+    row = dict(value) if isinstance(value, Mapping) else {}
+    if row.get("schema_version") != "edge_evidence_binding_set.v1":
+        return {}
+    supplied_digest = str(row.get("content_sha256") or "")
+    digest_payload = {
+        key: item for key, item in row.items() if key != "content_sha256"
+    }
+    if not supplied_digest or supplied_digest != _canonical_json_sha256(
+        digest_payload
+    ):
+        return {}
+    groups = [
+        str(item)
+        for item in row.get("independent_trusted_source_groups") or []
+        if str(item)
+    ]
+    trusted_bindings = [
+        dict(item)
+        for item in row.get("bindings") or []
+        if isinstance(item, Mapping) and item.get("trusted") is True
+    ]
+    observed_groups = sorted(
+        {
+            str(item.get("independent_source_group") or "")
+            for item in trusted_bindings
+            if str(item.get("independent_source_group") or "")
+        }
+    )
+    if sorted(set(groups)) != observed_groups:
+        return {}
+    if int(row.get("trusted_binding_count") or 0) != len(trusted_bindings):
+        return {}
+    if bool(row.get("corroborated")) != (len(observed_groups) >= 2):
+        return {}
+    return row
+
+
+def _validated_edge_evidence_projection(
+    graph: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    projection = dict(graph.get("edge_evidence_binding_sets") or {})
+    if projection.get("schema_version") != "edge_evidence_binding_projection.v1":
+        return {}
+    supplied_digest = str(projection.get("content_sha256") or "")
+    digest_payload = {
+        key: item
+        for key, item in projection.items()
+        if key != "content_sha256"
+    }
+    if not supplied_digest or supplied_digest != _canonical_json_sha256(
+        digest_payload
+    ):
+        return {}
+    rows: dict[str, dict[str, Any]] = {}
+    for reaction_digest, raw in dict(
+        projection.get("by_reaction_digest") or {}
+    ).items():
+        row = _validated_edge_evidence_binding_set(raw)
+        if not row or str(row.get("reaction_digest") or "") != str(
+            reaction_digest
+        ):
+            continue
+        rows[str(reaction_digest)] = row
+    return rows
+
+
+def _edge_evidence_binding_for_graph_step(
+    graph: Mapping[str, Any],
+    step: Mapping[str, Any],
+) -> dict[str, Any]:
+    reaction_digest = canonical_reaction_digest(
+        str(step.get("product_smiles") or ""),
+        [str(item) for item in step.get("precursor_smiles") or []],
+    )
+    return dict(
+        _validated_edge_evidence_projection(graph).get(reaction_digest) or {}
+    )
 
 
 def _consensus_direct_source_refs(proposal: dict[str, Any]) -> list[str]:
