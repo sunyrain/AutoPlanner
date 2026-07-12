@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from rdkit import Chem
+
 from cascade_planner.baselines.literature_one_step_plugin import (
     LiteratureOneStepPlugin,
     LiteratureOneStepPluginConfig,
@@ -211,32 +213,66 @@ def build_trusted_precedent_curation_outbox(
     binding.  The outbox itself is never consumed as proof authority.
     """
 
-    candidates: list[dict[str, Any]] = []
+    candidates_by_id: dict[str, dict[str, Any]] = {}
+    rejected: list[dict[str, Any]] = []
     for index, raw in enumerate(chain_steps, start=1):
         if not isinstance(raw, dict):
+            rejected.append(
+                {"step_index": index, "step_id": "", "reasons": ["step_not_object"]}
+            )
             continue
         step = dict(raw)
-        product = canonical_smiles(str(step.get("product_smiles") or ""))
-        reactants = [
-            canonical_smiles(str(item))
-            for item in step.get("reactant_smiles") or []
-            if canonical_smiles(str(item))
-        ]
+        product = _strict_canonical_smiles(step.get("product_smiles"))
+        reactants = _strict_canonical_reactants(step.get("reactant_smiles"))
         source_ref = canonical_traceable_source_ref(step.get("source_ref"))
-        reaction_digest = canonical_reaction_digest(product, reactants)
+        reaction_digest = canonical_reaction_digest(product, reactants or [])
         evidence_rows = [
             dict(item)
             for item in step.get("source_evidence") or []
             if isinstance(item, dict)
         ]
+        evidence_rows.sort(key=_canonical_json_sha256)
         exact_validation = dict(step.get("exact_step_validation") or {})
-        if not product or not reactants or not source_ref or not reaction_digest:
+        source_identity = _curation_source_identity(step, source_ref=source_ref)
+        reasons: list[str] = []
+        if not product:
+            reasons.append("product_smiles_invalid")
+        if not reactants:
+            reasons.append("reactant_smiles_invalid")
+        if not source_ref:
+            reasons.append("source_ref_untraceable")
+        if not reaction_digest:
+            reasons.append("reaction_digest_missing")
+        if step.get("source_detail_exact_step") is not True:
+            reasons.append("source_detail_exact_step_required")
+        if str(step.get("relation_type") or "") != "exact":
+            reasons.append("exact_relation_type_required")
+        if exact_validation.get("accepted") is not True:
+            reasons.append("exact_step_validation_not_accepted")
+        if exact_validation.get("allowed_for_one_step_source") is not True:
+            reasons.append("exact_step_not_allowed_for_one_step_source")
+        if exact_validation.get("reasons"):
+            reasons.append("exact_step_validation_has_reasons")
+        if not evidence_rows or not all(
+            _curation_materialized_evidence_valid(item, source_ref=source_ref)
+            for item in evidence_rows
+        ):
+            reasons.append("materialized_source_evidence_invalid")
+        if reasons:
+            rejected.append(
+                {
+                    "step_index": int(step.get("step_index") or index),
+                    "step_id": str(step.get("step_id") or ""),
+                    "reasons": sorted(set(reasons)),
+                }
+            )
             continue
         candidate_id = "curation:" + hashlib.sha256(
             json.dumps(
                 {
                     "reaction_digest": reaction_digest,
                     "source_ref": source_ref,
+                    "source_identity": source_identity,
                     "evidence": evidence_rows,
                 },
                 ensure_ascii=False,
@@ -244,55 +280,59 @@ def build_trusted_precedent_curation_outbox(
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()[:24]
-        candidates.append(
-            {
-                "schema_version": "trusted_precedent_curation_candidate.v1",
-                "candidate_id": candidate_id,
-                "case_id": str(case_id),
-                "step_index": int(step.get("step_index") or index),
-                "step_id": str(step.get("step_id") or ""),
-                "reaction_digest": reaction_digest,
-                "product_smiles": product,
-                "reactant_smiles": sorted(reactants),
-                "source_ref": source_ref,
-                "independent_source_group": independent_source_group(
-                    {"source_ref": source_ref}
-                ),
-                "evidence_refs": [
-                    str(item) for item in step.get("evidence_refs") or []
-                ],
-                "materialized_source_evidence": evidence_rows,
-                "materialized_source_evidence_sha256": hashlib.sha256(
-                    json.dumps(
-                        evidence_rows,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ).encode("utf-8")
-                ).hexdigest(),
-                "exact_step_validation": exact_validation,
-                "status": "pending_curator_or_deterministic_parser",
-                "promotion_allowed": False,
-                "production_write_blocked": True,
-                "required_authority": [
-                    "human_curator",
-                    "deterministic_structure_parser",
-                ],
-                "required_registry_binding_fields": [
-                    "binding_id",
-                    "reaction_digest",
-                    "source_ref",
-                    "document_id",
-                    "source_pdf_sha256",
-                    "page_number",
-                    "image_sha256",
-                    "status=approved",
-                    "authority.type",
-                    "authority.id",
-                ],
-                "no_solved_claim": True,
-            }
-        )
+        candidate = {
+            "schema_version": "trusted_precedent_curation_candidate.v1",
+            "candidate_id": candidate_id,
+            "case_id": str(case_id),
+            "step_index": int(step.get("step_index") or index),
+            "step_id": str(step.get("step_id") or ""),
+            "reaction_digest": reaction_digest,
+            "product_smiles": product,
+            "reactant_smiles": sorted(reactants or []),
+            "source_ref": source_ref,
+            "source_identity": source_identity,
+            "patent_family": str(
+                source_identity.get("patent_family")
+                or source_identity.get("family_id")
+                or ""
+            ),
+            "independent_source_group": independent_source_group(source_identity),
+            "evidence_refs": [
+                str(item) for item in step.get("evidence_refs") or []
+            ],
+            "materialized_source_evidence": evidence_rows,
+            "materialized_source_evidence_sha256": hashlib.sha256(
+                json.dumps(
+                    evidence_rows,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest(),
+            "exact_step_validation": exact_validation,
+            "status": "pending_curator_or_deterministic_parser",
+            "promotion_allowed": False,
+            "production_write_blocked": True,
+            "required_authority": [
+                "human_curator",
+                "deterministic_structure_parser",
+            ],
+            "required_registry_binding_fields": [
+                "binding_id",
+                "reaction_digest",
+                "source_ref",
+                "document_id",
+                "source_pdf_sha256",
+                "page_number",
+                "image_sha256",
+                "status=approved",
+                "authority.type",
+                "authority.id",
+            ],
+            "no_solved_claim": True,
+        }
+        candidates_by_id[candidate_id] = candidate
+    candidates = list(candidates_by_id.values())
     candidates.sort(
         key=lambda row: (
             str(row.get("reaction_digest") or ""),
@@ -305,6 +345,14 @@ def build_trusted_precedent_curation_outbox(
         "case_id": str(case_id),
         "candidate_count": len(candidates),
         "candidates": candidates,
+        "rejected_count": len(rejected),
+        "rejected": sorted(
+            rejected,
+            key=lambda row: (
+                int(row.get("step_index") or 0),
+                str(row.get("step_id") or ""),
+            ),
+        ),
         "production_write_blocked": True,
         "auto_promotion_allowed": False,
         "consumer": "out_of_band_trusted_literature_step_registry_curator",
@@ -324,6 +372,98 @@ def build_trusted_precedent_curation_outbox(
         ).encode("utf-8")
     ).hexdigest()
     return payload
+
+
+def _strict_canonical_reactants(value: Any) -> list[str] | None:
+    if isinstance(value, str):
+        raw_values = value.split(".")
+    elif isinstance(value, (list, tuple)):
+        raw_values = list(value)
+    else:
+        return None
+    if not raw_values:
+        return None
+    canonical: list[str] = []
+    for raw in raw_values:
+        if not str(raw or "").strip():
+            return None
+        normalized = _strict_canonical_smiles(raw)
+        if not normalized:
+            return None
+        canonical.append(normalized)
+    return canonical
+
+
+def _strict_canonical_smiles(value: Any) -> str:
+    molecule = Chem.MolFromSmiles(str(value or "").strip())
+    if molecule is None:
+        return ""
+    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
+
+
+def _curation_source_identity(
+    step: dict[str, Any],
+    *,
+    source_ref: str,
+) -> dict[str, Any]:
+    identity = {
+        key: step.get(key)
+        for key in (
+            "patent_family",
+            "family_id",
+            "doi",
+            "patent_publication",
+            "patent",
+            "pii",
+            "pmid",
+            "pmc",
+            "url",
+            "title",
+            "source_title",
+        )
+        if step.get(key) not in (None, "", [])
+    }
+    identity["source_ref"] = source_ref
+    return identity
+
+
+def _curation_materialized_evidence_valid(
+    value: Any,
+    *,
+    source_ref: str,
+) -> bool:
+    if not isinstance(value, dict):
+        return False
+    row = dict(value)
+    try:
+        page_number = int(row.get("page_number") or 0)
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        row.get("schema_version") == "materialized_source_evidence.v1"
+        and canonical_traceable_source_ref(row.get("source_ref")) == source_ref
+        and str(row.get("document_id") or "").strip()
+        and _is_sha256(row.get("manifest_sha256"))
+        and _is_sha256(row.get("source_pdf_sha256"))
+        and page_number > 0
+        and _is_sha256(row.get("image_sha256"))
+    )
+
+
+def _canonical_json_sha256(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _is_sha256(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return len(text) == 64 and all(character in "0123456789abcdef" for character in text)
 
 
 def audit_source_detail_route_chain(
@@ -368,8 +508,25 @@ def audit_source_detail_route_chain(
                 "product_smiles": current,
                 "reactant_smiles": reactants,
                 "main_reactant_smiles": main,
-                "source_ref": str(trace.get("source_ref") or ""),
-                "evidence_refs": [str(item) for item in trace.get("evidence_refs") or []],
+                 "source_ref": str(trace.get("source_ref") or ""),
+                 **{
+                     key: trace.get(key) or row.get(key)
+                     for key in (
+                         "patent_family",
+                         "family_id",
+                         "doi",
+                         "patent_publication",
+                         "patent",
+                         "pii",
+                         "pmid",
+                         "pmc",
+                         "url",
+                         "title",
+                         "source_title",
+                     )
+                     if (trace.get(key) or row.get(key)) not in (None, "", [])
+                 },
+                 "evidence_refs": [str(item) for item in trace.get("evidence_refs") or []],
                 "condition_candidate": dict(trace.get("condition_candidate") or {}),
                 "relation_type": str(trace.get("relation_type") or ""),
                 "source_detail_exact_step": trace.get("source_detail_exact_step") is True,

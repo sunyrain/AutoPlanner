@@ -7,8 +7,16 @@ import re
 from pathlib import Path
 from typing import Any, Mapping
 
+from cascade_planner.harness.codex_edge_verification import (
+    CODEX_EDGE_VERIFICATION_SCHEMA,
+    EDGE_EVIDENCE_BINDING_PROJECTION_SCHEMA,
+    validate_edge_evidence_binding_set,
+)
 from cascade_planner.harness.parent_route_proof import is_solved_parent_route_proof
-from cascade_planner.harness.reaction_step_verifier import canonical_reaction_digest
+from cascade_planner.harness.reaction_step_verifier import (
+    REACTION_STEP_VERIFIER_VERSION,
+    canonical_reaction_digest,
+)
 from cascade_planner.harness.route_forest_delivery import (
     render_route_forest_html as render_route_forest_workbench_html,
 )
@@ -1855,11 +1863,12 @@ class _RouteForestCompiler:
                 "aggregation": "weakest_link",
             }
             minimum_support_groups = min(
-                (int(row.get("support_group_count") or 0) for row in vectors),
+                (int(row.get("trusted_source_group_count") or 0) for row in vectors),
                 default=0,
             )
             corroborated_edge_count = sum(
-                int(row.get("support_group_count") or 0) >= 2 for row in vectors
+                int(row.get("trusted_source_group_count") or 0) >= 2
+                for row in vectors
             )
             branch_vector.update(
                 {
@@ -1927,7 +1936,7 @@ class _RouteForestCompiler:
             step.get("edge_evidence_binding_set")
         )
         if edge_binding_set:
-            support_groups = _dedupe(
+            trusted_support_groups = _dedupe(
                 [
                     str(value)
                     for value in edge_binding_set.get(
@@ -1937,7 +1946,9 @@ class _RouteForestCompiler:
                     if str(value)
                 ]
             )
+            support_groups = list(trusted_support_groups)
         else:
+            trusted_support_groups = []
             support_groups = _dedupe(
                 [
                     str(value)
@@ -1946,6 +1957,7 @@ class _RouteForestCompiler:
                 ]
             )
         support_group_count = len(support_groups)
+        trusted_source_group_count = len(trusted_support_groups)
         source_independence = min(1.0, 0.5 * support_group_count)
         if support_group_count == 0 and origin.startswith("direct_verified"):
             source_independence = 0.25
@@ -2063,13 +2075,15 @@ class _RouteForestCompiler:
                 ),
             },
             "support_group_count": support_group_count,
+            "trusted_source_group_count": trusted_source_group_count,
             "independent_support_groups": support_groups,
+            "independent_trusted_source_groups": trusted_support_groups,
             "edge_evidence_binding_set": edge_binding_set,
             "reaction_step_proof": reaction_proof,
         }
         vector["visual_encoding"] = self._trust_visual_encoding(
             vector,
-            support_group_count=support_group_count,
+            support_group_count=trusted_source_group_count,
         )
         return vector
 
@@ -7058,47 +7072,18 @@ def _authoritative_support_group(value: Any) -> bool:
 
 def _validated_edge_evidence_binding_set(value: Any) -> dict[str, Any]:
     row = dict(value) if isinstance(value, Mapping) else {}
-    if row.get("schema_version") != "edge_evidence_binding_set.v1":
-        return {}
-    supplied_digest = str(row.get("content_sha256") or "")
-    digest_payload = {
-        key: item for key, item in row.items() if key != "content_sha256"
-    }
-    if not supplied_digest or supplied_digest != _canonical_json_sha256(
-        digest_payload
-    ):
-        return {}
-    groups = [
-        str(item)
-        for item in row.get("independent_trusted_source_groups") or []
-        if str(item)
-    ]
-    trusted_bindings = [
-        dict(item)
-        for item in row.get("bindings") or []
-        if isinstance(item, Mapping) and item.get("trusted") is True
-    ]
-    observed_groups = sorted(
-        {
-            str(item.get("independent_source_group") or "")
-            for item in trusted_bindings
-            if str(item.get("independent_source_group") or "")
-        }
+    validated, _ = validate_edge_evidence_binding_set(
+        row,
+        expected_reaction_digest=str(row.get("reaction_digest") or ""),
     )
-    if sorted(set(groups)) != observed_groups:
-        return {}
-    if int(row.get("trusted_binding_count") or 0) != len(trusted_bindings):
-        return {}
-    if bool(row.get("corroborated")) != (len(observed_groups) >= 2):
-        return {}
-    return row
+    return validated
 
 
 def _validated_edge_evidence_projection(
     graph: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
     projection = dict(graph.get("edge_evidence_binding_sets") or {})
-    if projection.get("schema_version") != "edge_evidence_binding_projection.v1":
+    if projection.get("schema_version") != EDGE_EVIDENCE_BINDING_PROJECTION_SCHEMA:
         return {}
     supplied_digest = str(projection.get("content_sha256") or "")
     digest_payload = {
@@ -7110,17 +7095,51 @@ def _validated_edge_evidence_projection(
         digest_payload
     ):
         return {}
+    summary = dict(graph.get("codex_edge_verification_summary") or {})
+    source_report_sha256 = str(
+        projection.get("source_verification_report_sha256") or ""
+    )
+    if (
+        projection.get("accepted") is not True
+        or source_report_sha256
+        != str(summary.get("content_sha256") or "")
+        or str(projection.get("source_verification_report_schema_version") or "")
+        != CODEX_EDGE_VERIFICATION_SCHEMA
+        or str(projection.get("source_reaction_step_verifier_version") or "")
+        != REACTION_STEP_VERIFIER_VERSION
+        or _evidence_int(projection.get("source_report_edge_count"), default=-1)
+        != _evidence_int(summary.get("edge_count"), default=-2)
+        or projection.get("rejected")
+    ):
+        return {}
     rows: dict[str, dict[str, Any]] = {}
     for reaction_digest, raw in dict(
         projection.get("by_reaction_digest") or {}
     ).items():
-        row = _validated_edge_evidence_binding_set(raw)
-        if not row or str(row.get("reaction_digest") or "") != str(
-            reaction_digest
-        ):
+        row, reasons = validate_edge_evidence_binding_set(
+            raw,
+            expected_reaction_digest=str(reaction_digest),
+        )
+        if reasons or not row:
             continue
         rows[str(reaction_digest)] = row
+    if _evidence_int(projection.get("edge_count"), default=-1) != len(rows):
+        return {}
+    if _evidence_int(projection.get("corroborated_edge_count"), default=-1) != sum(
+        row.get("corroborated") is True for row in rows.values()
+    ):
+        return {}
+    by_step_id = dict(projection.get("by_step_id") or {})
+    if any(str(reaction_digest) not in rows for reaction_digest in by_step_id.values()):
+        return {}
     return rows
+
+
+def _evidence_int(value: Any, *, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
 
 
 def _edge_evidence_binding_for_graph_step(

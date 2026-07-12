@@ -148,20 +148,33 @@
       ? (stockEvidence.closure_scope === 'procurement' ? 700 : 500) : 0;
     const primaryScore = lane?.is_primary ? 120 : 0;
     const stepScore = Math.min(8, (lane?.step_ids || []).length) * 16;
-    const routeTrust = branch.trust_vector || {};
-    const minimumTrustedSources = Math.max(0, Number(
-      routeTrust.min_trusted_source_group_count_across_steps || 0
-    ));
-    const corroboratedCoverage = Math.max(0, Number(routeTrust.corroborated_edge_count || 0));
-    const sourceScore = Math.min(4, minimumTrustedSources) * 48
-      + Math.min(8, corroboratedCoverage) * 20;
     const structureScore = Math.min(12, (lane?.graph_node_ids || []).filter(graphNodeId => {
       const graphNode = graphNodes.get(graphNodeId) || {};
       return Boolean(moleculeNodes.get(graphNode.molecule_node_id)?.structure_svg);
     }).length) * 28;
     const failedPenalty = /failed|diagnostic|rejected/i.test(`${lane?.title || ''} ${branch.summary || ''}`) ? 80 : 0;
     return kindScore + proofScore + stockScore + primaryScore + confidenceScore
-      + stepScore + sourceScore + structureScore - failedPenalty;
+      + stepScore + structureScore - failedPenalty;
+  }
+  function branchDisplayRank(lane) {
+    const branch = branches.get(lane?.branch_id) || {};
+    const routeTrust = branch.trust_vector || {};
+    return [
+      branch.solved === true && branch.executable === true && branch.advisory_only === false ? 1 : 0,
+      Math.max(-1, Number(lane?.proof_rank ?? -1)),
+      Math.max(0, Number(routeTrust.min_trusted_source_group_count_across_steps || 0)),
+      routeTrust.all_edges_corroborated === true ? 1 : 0,
+      Math.max(0, Number(routeTrust.corroborated_edge_count || 0)),
+      branchDisplayScore(lane)
+    ];
+  }
+  function compareBranchDisplay(left, right) {
+    const leftRank = branchDisplayRank(left);
+    const rightRank = branchDisplayRank(right);
+    for (let index = 0; index < leftRank.length; index += 1) {
+      if (leftRank[index] !== rightRank[index]) return rightRank[index] - leftRank[index];
+    }
+    return stableTextCompare(left?.branch_id, right?.branch_id);
   }
   function chooseDefaultBranchId() {
     const primaryId = String(forest.primary_branch_id
@@ -172,8 +185,7 @@
     const featured = (lanesProjection.lanes || [])
       .filter(row => row.listed !== false)
       .slice()
-      .sort((left, right) => branchDisplayScore(right) - branchDisplayScore(left)
-        || stableTextCompare(left.branch_id, right.branch_id))[0];
+      .sort(compareBranchDisplay)[0];
     return featured?.branch_id || primaryId || (lanesProjection.lanes || [])[0]?.branch_id || '';
   }
   function safeStructureSvg(value) {
