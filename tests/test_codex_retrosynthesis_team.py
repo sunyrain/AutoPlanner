@@ -22,6 +22,7 @@ from cascade_planner.orchestration.codex_retrosynthesis import (
     DEFAULT_CHILD_ROLES,
     RetrosynthesisTeamConfig,
     _assemble_canonical_route_consensus_graph,
+    _canonical_reconciliation_count_summary,
     _child_report_payload,
     _conservative_child_report_shape_repair,
     _strict_child_report_shape_reasons,
@@ -508,6 +509,56 @@ def test_canonical_graph_capacity_keeps_more_than_256_durable_edges() -> None:
     assert len(select_route_consensus_frontier(graph, limit=400)) == 300
 
 
+def test_canonical_counts_separate_duplicate_input_events_from_reaction_edges() -> None:
+    durable = {
+        "schema_version": "route_consensus_expansion.v1",
+        "expansion_id": "durable:1",
+        "requested_product_smiles": "CCO",
+        "depth": 0,
+        "route_consensus": {
+            "schema_version": "route_consensus.v1",
+            "target_smiles": "CCO",
+            "proposals": [
+                {
+                    "schema_version": "route_consensus_proposal.v1",
+                    "consensus_id": "durable-proposal",
+                    "product_smiles": "CCO",
+                    "precursor_smiles": ["CC=O"],
+                    "rank_score": 0.5,
+                    "no_solved_claim": True,
+                    "not_parent_route_proof": True,
+                }
+            ],
+        },
+    }
+    external = json.loads(json.dumps(durable))
+    external["expansion_id"] = "external:1"
+    external["route_consensus"]["proposals"][0][
+        "consensus_id"
+    ] = "external-proposal"
+    graph = _assemble_canonical_route_consensus_graph(
+        [durable, external],
+        case_id="duplicate-event-counts",
+        target_smiles="CCO",
+        max_depth=2,
+    )
+
+    counts = _canonical_reconciliation_count_summary(
+        committed_expansions=[durable],
+        admitted_external_expansions=[external],
+        canonical_graph=graph,
+    )
+
+    assert counts["durable_accepted_expansion_count"] == 1
+    assert counts["admitted_external_expansion_count"] == 1
+    assert counts["canonical_input_expansion_event_count"] == 2
+    assert counts["canonical_reaction_edge_count"] == 1
+    assert counts["canonical_expansion_count"] == 2
+    assert counts["canonical_expansion_count_semantics"].startswith(
+        "deprecated_alias_of_"
+    )
+
+
 def test_coordinator_task_requires_direct_child_roles(tmp_path) -> None:
     task = build_retrosynthesis_coordinator_task(
         case_id="case",
@@ -659,6 +710,39 @@ def test_partial_mode_accepts_three_of_four_only_as_l0(tmp_path) -> None:
     )
 
 
+def test_partial_enabled_mode_preserves_complete_child_set_without_partial_cap(
+    tmp_path,
+) -> None:
+    report = run_codex_retrosynthesis_team(
+        case_id="case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(
+            child_acceptance_mode="valid_subset_l0"
+        ),
+        runner=accepted_runner_record,
+    )
+
+    assert report["accepted"], report["reasons"]
+    acceptance = report["child_acceptance"]
+    assert acceptance["mode"] == "valid_subset_l0"
+    assert acceptance["acceptance_tier"] == "strict_all"
+    assert acceptance["strict_full_child_completion"] is True
+    assert acceptance["partial_fallback_used"] is False
+    assert acceptance["partial_proposals_forced_to_l0"] is False
+    proposal = report["route_consensus"]["proposals"][0]
+    assert "partial_child_quorum_l0_only" not in proposal.get(
+        "limitations", []
+    )
+    assert report["semantics"]["partial_fallback_used"] is False
+    assert proposal["producer_confidences"] == ["medium"]
+    assert proposal["source_records"][0]["producer_confidence"] == "medium"
+    assert "validation_tier" not in proposal
+    assert "achieved_proof_level" not in proposal
+
+
 def test_partial_mode_rejects_below_derived_valid_role_quorum(tmp_path) -> None:
     report = run_codex_retrosynthesis_team(
         case_id="case",
@@ -724,6 +808,40 @@ def test_partial_mode_keeps_nonzero_coordinator_exit_as_hard_failure(tmp_path) -
 
     assert report["accepted"] is False
     assert "coordinator_exit_code_nonzero" in report["reasons"]
+    assert report["child_acceptance"]["partial_fallback_used"] is False
+    assert report["child_acceptance"]["acceptance_tier"] == "strict_all"
+
+
+def test_partial_enabled_complete_team_cannot_mask_hard_coordinator_failure(
+    tmp_path,
+) -> None:
+    def runner(task):
+        record = accepted_runner_record(task)
+        record.exit_code = 9
+        return record
+
+    report = run_codex_retrosynthesis_team(
+        case_id="case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(
+            child_acceptance_mode="valid_subset_l0"
+        ),
+        runner=runner,
+    )
+
+    assert report["accepted"] is False
+    assert "coordinator_exit_code_nonzero" in report["reasons"]
+    acceptance = report["child_acceptance"]
+    assert acceptance["strict_full_child_completion"] is True
+    assert acceptance["partial_fallback_used"] is False
+    assert acceptance["acceptance_tier"] == "strict_all"
+    proposal = report["route_consensus"]["proposals"][0]
+    assert "partial_child_quorum_l0_only" not in proposal.get(
+        "limitations", []
+    )
 
 
 def test_team_rejects_unobserved_children(tmp_path) -> None:
@@ -1028,7 +1146,7 @@ def test_campaign_policy_binds_child_acceptance_mode_roles_and_quorum(
     assert proposal_policy["child_acceptance_mode"] == "strict_all"
     assert proposal_policy["child_roles"] == list(DEFAULT_CHILD_ROLES)
     assert proposal_policy["derived_valid_child_quorum"] == 2
-    assert proposal_policy["child_acceptance_contract_version"].endswith(".v1")
+    assert proposal_policy["child_acceptance_contract_version"].endswith(".v2")
     assert proposal_policy["coordinator_contract_version"].endswith(".v3")
 
     with pytest.raises(ValueError, match="campaign policy mismatch"):
@@ -1094,6 +1212,54 @@ def test_partial_campaign_commits_only_capped_l0_consensus(tmp_path) -> None:
         runner=lambda task: pytest.fail("durable capped commit must replay"),
     )
     assert restarted["campaign"]["accepted_expansion_count"] == 1
+
+
+def test_partial_enabled_complete_campaign_commits_and_replays_strict_tier(
+    tmp_path,
+) -> None:
+    config = RetrosynthesisTeamConfig(
+        max_depth=1,
+        max_expansions=1,
+        child_acceptance_mode="valid_subset_l0",
+    )
+    first = run_codex_retrosynthesis_campaign(
+        case_id="partial-enabled-strict-commit-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=config,
+        runner=accepted_runner_record,
+    )
+
+    assert first["campaign"]["accepted_expansion_count"] == 1
+    assert first["child_acceptance"]["mode"] == "valid_subset_l0"
+    assert first["child_acceptance"]["acceptance_tier"] == "strict_all"
+    assert first["child_acceptance"]["partial_fallback_used"] is False
+    proposal = first["route_consensus_expansions"][0]["route_consensus"][
+        "proposals"
+    ][0]
+    assert proposal["producer_confidences"] == ["medium"]
+    assert "validation_tier" not in proposal
+    assert "achieved_proof_level" not in proposal
+
+    restarted = run_codex_retrosynthesis_campaign(
+        case_id="partial-enabled-strict-commit-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=config,
+        runner=lambda task: pytest.fail("strict-tier commit must replay"),
+    )
+    assert restarted["campaign"]["accepted_expansion_count"] == 1
+    assert restarted["child_acceptance"]["acceptance_tier"] == "strict_all"
+    assert restarted["child_acceptance"]["partial_fallback_used"] is False
+    replayed = restarted["route_consensus_expansions"][0][
+        "route_consensus"
+    ]["proposals"][0]
+    assert replayed["producer_confidences"] == ["medium"]
+    assert "validation_tier" not in replayed
 
 
 def test_campaign_authority_lock_prevents_concurrent_accepted_budget_overspend(
@@ -1946,6 +2112,11 @@ def test_public_proof_reconciliation_closes_without_proposal_budget(tmp_path) ->
     assert refreshed["frontier_ledger_authoritative"] is True
     assert refreshed["proposal_runner_invoked"] is False
     assert refreshed["expansion_budget_consumed"] == 0
+    assert refreshed["durable_accepted_expansion_count"] == 1
+    assert refreshed["admitted_external_expansion_count"] == 0
+    assert refreshed["canonical_input_expansion_event_count"] == 1
+    assert refreshed["canonical_reaction_edge_count"] == 1
+    assert refreshed["canonical_expansion_count"] == 1
 
 
 def test_public_reconciliation_syncs_new_fused_graph_leaf_into_campaign_queue(
@@ -2023,6 +2194,11 @@ def test_public_reconciliation_syncs_new_fused_graph_leaf_into_campaign_queue(
     assert refreshed["frontier_sync"]["added_job_count"] == 1
     assert refreshed["proposal_runner_invoked"] is False
     assert refreshed["expansion_budget_consumed"] == 0
+    assert refreshed["durable_accepted_expansion_count"] == 1
+    assert refreshed["admitted_external_expansion_count"] == 1
+    assert refreshed["canonical_input_expansion_event_count"] == 2
+    assert refreshed["canonical_reaction_edge_count"] == 2
+    assert refreshed["canonical_expansion_count"] == 2
 
 
 def test_external_fused_edge_survives_campaign_restart(tmp_path) -> None:

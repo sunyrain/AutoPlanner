@@ -183,6 +183,31 @@ class CodexEntryHarnessContractTest(unittest.TestCase):
 
         self.assertEqual(overrides["AUTOPLANNER_CODEX_ACTION_PLANNER_TIMEOUT_S"], "300.0")
 
+    def test_agentic_blackboard_cli_explicit_chemenzy_prefix_overrides_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = Namespace(
+                chem_enzy_env_prefix=tmp,
+                codex_action_planner_tools=None,
+                codex_action_planner_max_tool_calls=None,
+                codex_action_planner_timeout_s=None,
+                codex_scout_timeout_s=None,
+                codex_scout_reasoning_effort=None,
+                timeout_s=300.0,
+                codex_worker_auth="auto",
+                codex_worker_sandbox=None,
+            )
+
+            overrides = _codex_action_planner_env_overrides(args)
+
+        self.assertEqual(
+            overrides["CHEMENZY_ENV_PREFIX"],
+            str(Path(tmp).resolve()),
+        )
+        self.assertEqual(
+            overrides["AUTOPLANNER_CHEMENZY_ENV_PREFIX_SOURCE"],
+            "cli",
+        )
+
     def test_agent_team_inherits_global_model_and_worker_auth(self):
         model, auth = _codex_agent_team_runtime_args(
             Namespace(

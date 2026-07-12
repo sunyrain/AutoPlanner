@@ -2214,6 +2214,37 @@ def _refresh_multisource_route_consensus(
             "expansion_budget_consumed": int(
                 proof_reconciliation.get("expansion_budget_consumed") or 0
             ),
+            "durable_accepted_expansion_count": int(
+                proof_reconciliation.get(
+                    "durable_accepted_expansion_count"
+                )
+                or 0
+            ),
+            "admitted_external_expansion_count": int(
+                proof_reconciliation.get(
+                    "admitted_external_expansion_count"
+                )
+                or 0
+            ),
+            "canonical_input_expansion_event_count": int(
+                proof_reconciliation.get(
+                    "canonical_input_expansion_event_count"
+                )
+                or 0
+            ),
+            "canonical_reaction_edge_count": int(
+                proof_reconciliation.get("canonical_reaction_edge_count")
+                or 0
+            ),
+            "canonical_expansion_count": int(
+                proof_reconciliation.get("canonical_expansion_count") or 0
+            ),
+            "canonical_expansion_count_semantics": str(
+                proof_reconciliation.get(
+                    "canonical_expansion_count_semantics"
+                )
+                or "deprecated_alias_of_canonical_input_expansion_event_count"
+            ),
             "trigger": reconciliation_trigger,
             "codex_team_present": bool(team_snapshot),
             "codex_team_accepted": codex_team_accepted,
@@ -2300,6 +2331,37 @@ def _refresh_multisource_route_consensus(
             ),
             "expansion_budget_consumed": int(
                 proof_reconciliation.get("expansion_budget_consumed") or 0
+            ),
+            "durable_accepted_expansion_count": int(
+                proof_reconciliation.get(
+                    "durable_accepted_expansion_count"
+                )
+                or 0
+            ),
+            "admitted_external_expansion_count": int(
+                proof_reconciliation.get(
+                    "admitted_external_expansion_count"
+                )
+                or 0
+            ),
+            "canonical_input_expansion_event_count": int(
+                proof_reconciliation.get(
+                    "canonical_input_expansion_event_count"
+                )
+                or 0
+            ),
+            "canonical_reaction_edge_count": int(
+                proof_reconciliation.get("canonical_reaction_edge_count")
+                or 0
+            ),
+            "canonical_expansion_count": int(
+                proof_reconciliation.get("canonical_expansion_count") or 0
+            ),
+            "canonical_expansion_count_semantics": str(
+                proof_reconciliation.get(
+                    "canonical_expansion_count_semantics"
+                )
+                or "deprecated_alias_of_canonical_input_expansion_event_count"
             ),
             "semantics": {
                 "projection_only": True,

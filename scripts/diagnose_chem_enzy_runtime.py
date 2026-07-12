@@ -1,4 +1,4 @@
-"""Print a filesystem-only ChemEnzy runtime preflight report."""
+"""Print a bounded ChemEnzy runtime capability preflight report."""
 from __future__ import annotations
 
 import argparse
@@ -21,11 +21,19 @@ def main() -> int:
     parser.add_argument("--env-prefix", default=None)
     parser.add_argument("--vendor-root", default=None)
     parser.add_argument("--launcher", default=None)
+    parser.add_argument(
+        "--filesystem-only",
+        action="store_true",
+        help="Only discover files; this mode never reports production ready.",
+    )
+    parser.add_argument("--capability-probe-timeout-s", type=float, default=60.0)
     args = parser.parse_args()
     report = diagnose_chem_enzy_runtime(
         env_prefix=args.env_prefix,
         vendor_root=args.vendor_root,
         launcher_path=args.launcher,
+        capability_probe=not bool(args.filesystem_only),
+        capability_probe_timeout_s=float(args.capability_probe_timeout_s),
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["accepted"] else 1

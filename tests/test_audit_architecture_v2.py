@@ -49,6 +49,7 @@ def frontier_ledger_fixture(
     any_route_closed: bool,
     all_explored_graph_closed: bool,
     inputs_valid: bool = True,
+    queue_override: dict | None = None,
 ) -> dict:
     graph = {
         "schema_version": "route_consensus_graph.v1",
@@ -57,7 +58,7 @@ def frontier_ledger_fixture(
         "nodes": [],
         "steps": [],
     }
-    queue = with_content_hash(
+    queue = dict(queue_override or {}) or with_content_hash(
         {
             "schema_version": "frontier_queue.v1",
             "run_id": "test",
@@ -1023,6 +1024,15 @@ def test_architecture_audit_prefers_cas_decision_and_forest_over_drifted_views(
     proof_snapshot_path = tmp_path / "parent_route_proof_snapshot.json"
     verdict_core_path = tmp_path / "final_verdict_core.json"
     frontier_ledger_path = tmp_path / "frontier_ledger.json"
+    reconciliation_path = tmp_path / "codex_campaign_proof_reconciliation.json"
+    reconciliation_queue = with_content_hash(
+        {
+            "schema_version": "frontier_queue.v1",
+            "run_id": "test",
+            "revision": 2,
+            "jobs": [],
+        }
+    )
     proof_snapshot = {
         "schema_version": "parent_route_proof_snapshot.v1",
         "case_id": "test",
@@ -1055,19 +1065,40 @@ def test_architecture_audit_prefers_cas_decision_and_forest_over_drifted_views(
         frontier_ledger_fixture(
             any_route_closed=False,
             all_explored_graph_closed=False,
+            queue_override=reconciliation_queue,
         ),
+    )
+    write(
+        reconciliation_path,
+        {
+            "schema_version": "codex_campaign_proof_reconciliation.v1",
+            "accepted": True,
+            "frontier_queue": reconciliation_queue,
+            "frontier_completeness": {
+                "complete": True,
+                "authority_marker": "cas-reconciliation",
+            },
+            "proposal_graph_exhausted": False,
+        },
     )
     publish_closeout_revision(
         tmp_path,
         artifacts={
             "route_consensus_graph": tmp_path / "route_consensus_graph_fused.json",
             "frontier_ledger": frontier_ledger_path,
+            "codex_campaign_proof_reconciliation": reconciliation_path,
             "parent_route_proof_snapshot": proof_snapshot_path,
             "final_verdict_core": verdict_core_path,
             "explored_route_forest": tmp_path / "explored_route_forest.json",
         },
         dependencies={
-            "frontier_ledger": ("route_consensus_graph",),
+            "codex_campaign_proof_reconciliation": (
+                "route_consensus_graph",
+            ),
+            "frontier_ledger": (
+                "route_consensus_graph",
+                "codex_campaign_proof_reconciliation",
+            ),
             "parent_route_proof_snapshot": ("route_consensus_graph",),
             "final_verdict_core": ("parent_route_proof_snapshot",),
             "explored_route_forest": (
@@ -1103,6 +1134,26 @@ def test_architecture_audit_prefers_cas_decision_and_forest_over_drifted_views(
             all_explored_graph_closed=True,
         ),
     )
+    write(
+        reconciliation_path,
+        {
+            "schema_version": "codex_campaign_proof_reconciliation.v1",
+            "accepted": True,
+            "frontier_queue": with_content_hash(
+                {
+                    "schema_version": "frontier_queue.v1",
+                    "run_id": "test",
+                    "revision": 99,
+                    "jobs": [],
+                }
+            ),
+            "frontier_completeness": {
+                "complete": False,
+                "authority_marker": "drifted-compatibility-view",
+            },
+            "proposal_graph_exhausted": True,
+        },
+    )
 
     report = audit_run(tmp_path)
 
@@ -1112,6 +1163,26 @@ def test_architecture_audit_prefers_cas_decision_and_forest_over_drifted_views(
     assert report["run_acceptance"]["gates"]["closeout_final_verdict_bound"] is True
     assert report["run_acceptance"]["gates"]["closeout_frontier_ledger_bound"] is True
     assert report["frontier_ledger"]["authority_source"] == "committed_cas_revision"
+    assert report["frontier_ledger"]["current_identities"][
+        "frontier_queue_revision"
+    ] == 2
+    assert not {
+        "frontier_ledger_queue_digest_binding_mismatch",
+        "frontier_ledger_queue_revision_binding_mismatch",
+    }.intersection(report["frontier_ledger"]["authority_blockers"])
+    assert report["frontier_scheduler"]["authority_source"] == (
+        "committed_cas_reconciliation"
+    )
+    assert report["frontier_scheduler"]["completeness"] == {
+        "complete": True,
+        "authority_marker": "cas-reconciliation",
+    }
+    assert report["frontier_scheduler"]["proposal_graph_exhausted"] is False
+    assert (
+        report["run_acceptance"]["gates"]
+        ["closeout_codex_campaign_proof_reconciliation_bound"]
+        is True
+    )
     assert report["completion_truth"]["any_route_closed"] is False
     assert report["final_verdict"]["verdict"] == "unresolved"
     assert report["final_verdict"]["solved"] is False
@@ -1121,3 +1192,115 @@ def test_architecture_audit_prefers_cas_decision_and_forest_over_drifted_views(
     assert report["compatibility_projection"]["forest_matches_cas"] is False
     assert report["compatibility_projection"]["frontier_ledger_matches_cas"] is False
     assert report["compatibility_projection"]["drift_is_diagnostic_only"] is True
+
+
+def test_architecture_audit_fails_closed_when_cas_reconciliation_is_missing(
+    tmp_path,
+) -> None:
+    _write_portfolio_run(tmp_path, routes=[], edges=[])
+    proof_snapshot_path = tmp_path / "parent_route_proof_snapshot.json"
+    verdict_core_path = tmp_path / "final_verdict_core.json"
+    frontier_ledger_path = tmp_path / "frontier_ledger.json"
+    compatibility_reconciliation_path = (
+        tmp_path / "codex_campaign_proof_reconciliation.json"
+    )
+    proof_snapshot = {
+        "schema_version": "parent_route_proof_snapshot.v1",
+        "case_id": "test",
+        "target_smiles": "CCO",
+        "proof_schema_version": "missing",
+        "solved": False,
+        "authority": "deterministic_parent_route_proof",
+        "proof": {},
+    }
+    verdict = {
+        "case_id": "test",
+        "verdict": "unresolved",
+        "route_status": "unresolved",
+        "solved": False,
+        "stock_audit_passed": False,
+        "reasons": ["no_deterministic_parent_route_proof"],
+    }
+    verdict_core = {
+        "schema_version": "final_verdict_core.v1",
+        "case_id": "test",
+        "authority": "deterministic_parent_route_proof",
+        "parent_route_proof_solved": False,
+        "validation": {"accepted": True, "reasons": []},
+        "verdict": verdict,
+    }
+    write(proof_snapshot_path, proof_snapshot)
+    write(verdict_core_path, verdict_core)
+    write(
+        frontier_ledger_path,
+        frontier_ledger_fixture(
+            any_route_closed=False,
+            all_explored_graph_closed=False,
+        ),
+    )
+    # This mutable compatibility artifact must never fill a hole in a
+    # committed CAS revision.
+    write(
+        compatibility_reconciliation_path,
+        {
+            "schema_version": "codex_campaign_proof_reconciliation.v1",
+            "accepted": True,
+            "frontier_queue": with_content_hash(
+                {
+                    "schema_version": "frontier_queue.v1",
+                    "run_id": "test",
+                    "revision": 77,
+                    "jobs": [],
+                }
+            ),
+            "frontier_completeness": {"complete": True},
+            "proposal_graph_exhausted": True,
+        },
+    )
+    publish_closeout_revision(
+        tmp_path,
+        artifacts={
+            "route_consensus_graph": tmp_path / "route_consensus_graph_fused.json",
+            "frontier_ledger": frontier_ledger_path,
+            "parent_route_proof_snapshot": proof_snapshot_path,
+            "final_verdict_core": verdict_core_path,
+            "explored_route_forest": tmp_path / "explored_route_forest.json",
+        },
+        dependencies={
+            "frontier_ledger": ("route_consensus_graph",),
+            "parent_route_proof_snapshot": ("route_consensus_graph",),
+            "final_verdict_core": ("parent_route_proof_snapshot",),
+            "explored_route_forest": (
+                "route_consensus_graph",
+                "parent_route_proof_snapshot",
+                "final_verdict_core",
+            ),
+        },
+        producer="architecture-audit-missing-reconciliation-test",
+        case_id="test",
+    )
+
+    report = audit_run(tmp_path)
+
+    blocker = "cas_codex_campaign_proof_reconciliation_missing"
+    assert report["closeout"]["accepted"] is True
+    assert report["closeout"][
+        "codex_campaign_proof_reconciliation_bound"
+    ] is False
+    assert blocker in report["closeout"][
+        "codex_campaign_proof_reconciliation_blockers"
+    ]
+    assert report["frontier_scheduler"]["authority_source"] == (
+        "invalid_or_missing_cas_reconciliation"
+    )
+    assert report["frontier_scheduler"]["job_count"] == 0
+    assert report["frontier_scheduler"]["completeness"] == {}
+    assert report["frontier_scheduler"]["proposal_graph_exhausted"] is False
+    assert report["executable_contract_evidence"]["contracts"][
+        "frontier_scheduler"
+    ]["contract_valid"] is False
+    assert report["run_acceptance"]["gates"][
+        "closeout_codex_campaign_proof_reconciliation_bound"
+    ] is False
+    assert report["frontier_ledger"]["authority_valid"] is False
+    assert blocker in report["frontier_ledger"]["authority_blockers"]

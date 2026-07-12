@@ -683,6 +683,12 @@ def test_rejected_codex_team_still_reconciles_valid_exact_receipt(
     )
     assert projection["codex_team_present"] is True
     assert projection["codex_team_accepted"] is False
+    assert projection["canonical_input_expansion_event_count"] == 1
+    assert projection["canonical_reaction_edge_count"] == 1
+    assert projection["canonical_expansion_count"] == 1
+    assert projection["canonical_expansion_count_semantics"].startswith(
+        "deprecated_alias_of_"
+    )
 
 
 def test_missing_codex_team_still_reconciles_current_host_chemenzy_bank(
@@ -733,6 +739,8 @@ def test_missing_codex_team_still_reconciles_current_host_chemenzy_bank(
     )
     assert projection["codex_team_present"] is False
     assert projection["codex_team_accepted"] is False
+    assert projection["canonical_input_expansion_event_count"] == 1
+    assert projection["canonical_reaction_edge_count"] == 1
     assert len(projection["campaign_identity_sha256"]) == 64
     assert len(projection["campaign_policy_sha256"]) == 64
     authority_root = tmp_path / "codex_retrosynthesis_team"

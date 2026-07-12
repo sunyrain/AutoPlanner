@@ -123,10 +123,16 @@ mode still requires the host to observe an explicit spawn for every required
 role, rejects coordinator/runtime/tool/identity failures, and requires a
 host-derived quorum of `max(2, ceil(required_roles / 2))` valid final reports.
 Only the valid child finals are fused; coordinator-restated candidates are
-ignored. Every recovered proposal is forcibly capped at
-`L0/model_only/low`, is not authority-bound, and cannot close a route or make a
-solved claim. This recovers useful hypotheses from one incomplete sibling
-without converting partial model agreement into scientific evidence.
+ignored. The mode grants permission to fall back; it does not pre-emptively
+downgrade a complete team. A 4/4 valid run records `acceptance_tier=strict_all`
+and follows the normal consensus path. Only when the valid-subset fallback is
+actually used is every recovered proposal forcibly capped at
+`L0/model_only/low`, made non-authority-bound, and prevented from closing a
+route or making a solved claim. `autoplanner.child_acceptance.v2` binds this
+tier distinction into immutable campaign policy, so a campaign created under
+the earlier v1 behavior must restart in a fresh run directory. This recovers
+useful hypotheses from one incomplete sibling without converting partial
+model agreement into scientific evidence.
 
 The same direct-team contract applies recursively to unresolved molecule
 frontiers. Depth, cumulative accepted expansions, per-invocation accepted
@@ -190,6 +196,22 @@ campaign commits and placed first in a monotonic union with evidence/ChemEnzy/
 legacy graph projections. A failed reconciliation may add a failure projection,
 but it cannot replace an earlier accepted team report, erase a committed
 expansion, or turn the fused graph into a second mutable campaign state.
+
+Proof-only reconciliation reports two kinds of accounting explicitly.
+`expansion_budget_consumed` is the delta for that reconciliation call and is
+therefore zero when no proposal worker ran. The cumulative fields
+`durable_accepted_expansion_count` and
+`admitted_external_expansion_count` describe the two event sources;
+`canonical_input_expansion_event_count` is their sum, while
+`canonical_reaction_edge_count` is the reaction-signature-deduplicated graph
+count. `canonical_expansion_count` is retained only as a deprecated alias of
+the input-event count. Audit and closeout consumers must not infer an empty
+campaign from a zero call delta or confuse duplicate input events with unique
+reaction edges. They also bind the frontier ledger and scheduler facts to the
+queue carried by the current content-addressed
+`codex_campaign_proof_reconciliation` artifact. In CAS mode, a missing or
+invalid reconciliation fails closed; the older queue projection inside
+`team_report.json` and mutable compatibility files cannot fill the gap.
 
 ### Controller recovery and canonical graph authority
 
@@ -672,6 +694,16 @@ input-validation results; merely re-hashing an invalid upstream record does
 not grant authority.
 
 ### Guided ChemEnzy feedback
+
+Production launch first requires an isolated-interpreter capability probe
+bound to the request-effective model, stock, stock-mode, and ONMT overrides.
+The probe imports the vendor API and checks concrete inputs but constructs no
+planner, loads no checkpoint/model, and performs no search. A short-lived cache
+is reusable only when the environment/interpreter, vendor/runtime files,
+configuration, launcher, timeout, and request-selection digests all match;
+concurrent identical probes coalesce. Filesystem discovery alone cannot grant
+launch authority. Windows keeps normal import/cwd paths and applies device
+prefixes only to concrete overlong I/O paths.
 
 Codex or evidence-derived precursor hints are compiled into a typed guidance
 contract and consumed by the native one-step model wrapper. They affect actual

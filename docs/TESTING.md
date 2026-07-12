@@ -98,11 +98,17 @@ The central P0 tests must cover these failure boundaries:
 - campaign attempts are counted from immutable started events across resumes,
   separately from accepted expansions, and global budgets cannot shrink;
 - strict child acceptance remains the default, while `valid_subset_l0` accepts
-  only a host-observed quorum after complete spawn coverage and caps every
-  recovered edge to non-authoritative L0; hard coordinator/runtime/tool
-  failures still reject;
+  only a host-observed quorum after complete spawn coverage; a 4/4 run retains
+  the strict tier, while an actually used subset fallback caps every recovered
+  edge to non-authoritative L0; hard coordinator/runtime/tool failures still
+  reject, and both tiers survive immutable commit/restart replay;
 - campaign execution and proof reconciliation share a whole-transaction OS
   lock, so concurrent callers cannot consume the final accepted slot twice;
+- proof-only reconciliation keeps its per-call expansion delta separate from
+  cumulative durable/external input-event and deduplicated canonical-edge
+  counts. Architecture audit binds all scheduler facts and the ledger to the
+  current CAS reconciliation queue, and a missing CAS reconciliation fails
+  closed rather than using a stale team-report or compatibility projection;
 - a valid prepared expansion commit can be adopted after an interruption only
   under the exact campaign/job/attempt/lease fence; malformed or terminally
   failed work cannot be adopted;
@@ -127,10 +133,22 @@ The central P0 tests must cover these failure boundaries:
   while tampering, input/version drift, and injected mappers fail closed or
   bypass persistence;
 - Codex self-reported evidence/confidence cannot raise authority ranking;
+- the action planner receives a digest-bound, directly embedded decision
+  snapshot and never needs shell/filesystem reads; its byte limit remains a
+  hard bound under arbitrarily many/long dictionary keys, and both main and
+  repair tasks fail closed on digest or declared-size drift;
 - ChemEnzy's bounded guidance batch is selected from digest-bound canonical
   frontier state before truncation, remains deterministic and structurally
   diverse, and audits selected/dropped IDs while ignoring model-authored
   confidence/evidence/validation flags;
+- ChemEnzy filesystem discovery alone is non-production; launch requires an
+  isolated-interpreter capability probe with verified vendor imports and
+  readable request-effective model/stock paths. CLI, controller, and Web
+  selection must agree; cache hits require the same runtime/config/request
+  identity, concurrent identical probes coalesce, and a failure is not probed
+  twice. Windows tests keep import roots normal, apply device prefixes only to
+  overlong concrete I/O paths, prune individual missing models, and fail closed
+  for unknown/incomplete model or stock configuration and all-missing models;
 - source group, logical document, and concrete representation counts remain
   distinct, and a source-local compound-label/structure conflict fails closed;
 - benchmark/search and procurement stock planes are replayed through trusted

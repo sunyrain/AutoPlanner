@@ -67,11 +67,15 @@ JSON, or completing without an accepted report does not satisfy this contract.
 `strict_all` remains the default child policy. For a fresh campaign,
 `--codex-agent-team-child-acceptance-mode valid_subset_l0` safely recovers a
 host-derived quorum when every role was explicitly spawned but one sibling did
-not return a valid final report. It never trusts coordinator-restated
-candidates: accepted sibling finals are revalidated and forcibly reduced to
-L0/model-only/low, with no authority or solved claim. Timeout, nonzero exit,
-tool/runtime/identity failure, missing spawn coverage, and sub-quorum output
-still reject the attempt.
+not return a valid final report. Enabling the policy does not downgrade a 4/4
+valid run: that attempt keeps `acceptance_tier=strict_all`. When fallback is
+actually required, it never trusts coordinator-restated candidates: accepted
+sibling finals are revalidated and forcibly reduced to L0/model-only/low, with
+no authority or solved claim. Timeout, nonzero exit, tool/runtime/identity
+failure, missing spawn coverage, and sub-quorum output still reject the
+attempt. This corrected tier behavior is bound as
+`autoplanner.child_acceptance.v2`; do not reuse a v1 campaign directory—start
+a fresh run so the immutable policy records the v2 contract.
 
 Codex can delegate, plan, search, rank, and draft typed artifacts. It cannot
 directly mark a case solved, inject raw reactions, write production KB entries,
@@ -238,6 +242,19 @@ not full downstream policies. Local repair/builders complete:
 - stitch/proof payload boundaries.
 
 This avoids structured-output truncation and keeps final authority deterministic.
+
+The action planner does not need filesystem tools to inspect the blackboard.
+Before each worker call, the host writes the immutable compact snapshot for
+audit and embeds one bounded decision payload directly in the worker objective.
+The embedded envelope binds the prompt payload, source blackboard, and snapshot
+input reference with SHA-256 digests. It includes pending source/PDF lifecycle
+work, open structure tasks, route/frontier ledger summary, remaining budgets,
+and typed action bindings. `input_refs` are audit-only locators; `shell`, terminal,
+and arbitrary filesystem reads remain forbidden and still fail worker validation
+with `tool_not_allowed`. Dictionary key count/length, nesting depth, strings,
+and list samples are bounded before embedding; a final fixed-schema projection
+is used when necessary, and any remaining byte-bound or digest mismatch fails
+closed for both the main and repair planner tasks.
 
 ## Route consensus and display
 
@@ -579,6 +596,27 @@ Simple targets may run immediate baseline Chemenzy. Complex steroid,
 polycyclic, or natural-product-like targets require blackboard signal before a
 full guided rerun. A first-round complex target probe is allowed only when
 explicitly bounded as an initial probe.
+
+Runtime discovery is not runtime authority. `--chem-enzy-env-prefix` selects a
+host-compatible isolated environment with precedence CLI >
+`CHEMENZY_ENV_PREFIX` > repository default. Before production launch, that
+interpreter runs a bounded capability probe which imports the vendor API and
+MolTree compatibility surface and checks the selected model and stock paths.
+It does not construct `RSPlanner`, deserialize a checkpoint, or execute search.
+Filesystem-only discovery remains `filesystem_ready_capability_unverified` and
+cannot launch ChemEnzy. On Windows, import roots and working directories remain
+normal absolute paths; a `\\?\` prefix is applied only to a concrete overlong
+model/data I/O path. Missing ensemble members are pruned with an audit record,
+while an entirely unavailable selection fails before vendor initialization.
+The probe mirrors each CLI/controller/Web request's effective model, stock,
+stock-mode, and ONMT override selection; malformed or missing configuration
+fails before launch. Successful and failed probes may be reused for 45 seconds
+only under an identity that binds the environment/interpreter, vendor/runtime
+files, configuration, launcher, timeout, exact request selection, and override
+digests. Concurrent identical probes are coalesced, and a failed launch path
+does not immediately probe twice. The selected interpreter, selection source,
+cache identity/hit, pruned models, readable inputs, and probe semantics are
+persisted in `chem_enzy_runtime_preflight.json` and attached to the run result.
 
 Guidance is executable, not decorative: policy precursor hints compile into a
 typed guidance contract consumed by the native one-step wrapper, which adjusts

@@ -256,6 +256,15 @@ def main() -> None:
         help="Sandbox mode passed to Codex CLI workers; use bypassed on hosts without user namespace support.",
     )
     parser.add_argument("--timeout-s", type=float, default=1800.0)
+    parser.add_argument(
+        "--chem-enzy-env-prefix",
+        default=None,
+        help=(
+            "Explicit host-compatible ChemEnzy environment prefix. This has "
+            "higher priority than CHEMENZY_ENV_PREFIX and is capability-probed "
+            "before a ChemEnzy action can launch."
+        ),
+    )
     parser.add_argument("--guided-chemenzy-timeout-s", type=float, default=None)
     parser.add_argument("--max-chem-enzy-runs", type=int, default=None)
     parser.add_argument("--max-guided-chemenzy-runs", type=int, default=None)
@@ -400,6 +409,12 @@ def _run_one(target: dict[str, str | Path], args: argparse.Namespace) -> dict:
 
 def _codex_action_planner_env_overrides(args: argparse.Namespace) -> dict[str, str]:
     overrides: dict[str, str] = {}
+    chem_enzy_prefix = getattr(args, "chem_enzy_env_prefix", None)
+    if chem_enzy_prefix is not None and str(chem_enzy_prefix).strip():
+        overrides["CHEMENZY_ENV_PREFIX"] = str(
+            Path(str(chem_enzy_prefix)).expanduser().resolve()
+        )
+        overrides["AUTOPLANNER_CHEMENZY_ENV_PREFIX_SOURCE"] = "cli"
     tools = getattr(args, "codex_action_planner_tools", None)
     if tools is not None:
         overrides["AUTOPLANNER_CODEX_ACTION_PLANNER_ALLOWED_TOOLS"] = str(tools)

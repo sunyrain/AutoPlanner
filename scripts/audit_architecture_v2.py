@@ -50,20 +50,26 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
     compatibility_authority_graph = _load(
         root / "route_consensus_graph_canonical.json"
     )
+    compatibility_reconciliation = _load(
+        root / "codex_campaign_proof_reconciliation.json"
+    )
     if not compatibility_authority_graph:
         compatibility_authority_graph = dict(
             compatibility_board.get("canonical_route_consensus_graph") or {}
         )
     if not compatibility_authority_graph:
-        reconciliation = _load(root / "codex_campaign_proof_reconciliation.json")
         compatibility_authority_graph = dict(
-            reconciliation.get("canonical_route_consensus_graph") or {}
+            compatibility_reconciliation.get(
+                "canonical_route_consensus_graph"
+            )
+            or {}
         )
     compatibility_ledger = _load(root / "frontier_ledger.json")
     compatibility_forest = _load(root / "explored_route_forest.json")
     compatibility_final = _load(root / "final_verdict.json")
     compatibility_proof = dict(compatibility_board.get("parent_route_proof") or {})
     closeout = validate_latest_closeout_revision(root)
+    cas_closeout_mode = closeout.get("present") is True
     closeout_manifest_path = str(closeout.get("manifest_path") or "").strip()
     closeout_manifest = _load(Path(closeout_manifest_path)) if closeout_manifest_path else {}
     closeout_artifact_ids = {
@@ -76,6 +82,7 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
     cas_authority_graph: dict[str, Any] = {}
     cas_forest: dict[str, Any] = {}
     cas_ledger: dict[str, Any] = {}
+    cas_reconciliation: dict[str, Any] = {}
     cas_load_errors: list[str] = []
     if closeout.get("accepted") is True:
         try:
@@ -92,6 +99,13 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
             )
         if "frontier_ledger" in closeout_artifact_ids:
             artifact_destinations.append(("frontier_ledger", "ledger"))
+        if "codex_campaign_proof_reconciliation" in closeout_artifact_ids:
+            artifact_destinations.append(
+                (
+                    "codex_campaign_proof_reconciliation",
+                    "reconciliation",
+                )
+            )
         for artifact_id, destination in artifact_destinations:
             try:
                 value = load_latest_closeout_artifact(root, artifact_id)
@@ -104,8 +118,47 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
                 cas_authority_graph = value
             elif destination == "ledger":
                 cas_ledger = value
+            elif destination == "reconciliation":
+                cas_reconciliation = value
             else:
                 cas_forest = value
+
+    cas_reconciliation_authority_blockers: list[str] = []
+    if cas_closeout_mode:
+        if closeout.get("accepted") is not True:
+            cas_reconciliation_authority_blockers.append(
+                "cas_closeout_revision_invalid"
+            )
+        elif "codex_campaign_proof_reconciliation" not in closeout_artifact_ids:
+            cas_reconciliation_authority_blockers.append(
+                "cas_codex_campaign_proof_reconciliation_missing"
+            )
+        elif not cas_reconciliation:
+            cas_reconciliation_authority_blockers.append(
+                "cas_codex_campaign_proof_reconciliation_load_failed"
+            )
+        else:
+            if (
+                cas_reconciliation.get("schema_version")
+                != "codex_campaign_proof_reconciliation.v1"
+            ):
+                cas_reconciliation_authority_blockers.append(
+                    "cas_codex_campaign_proof_reconciliation_schema_invalid"
+                )
+            if cas_reconciliation.get("accepted") is not True:
+                cas_reconciliation_authority_blockers.append(
+                    "cas_codex_campaign_proof_reconciliation_rejected"
+                )
+            if not isinstance(
+                cas_reconciliation.get("frontier_queue"), Mapping
+            ):
+                cas_reconciliation_authority_blockers.append(
+                    "cas_codex_campaign_proof_reconciliation_frontier_queue_missing"
+                )
+    cas_reconciliation_bound = bool(
+        cas_closeout_mode
+        and not cas_reconciliation_authority_blockers
+    )
 
     graph = cas_graph or compatibility_graph
     authority_graph = (
@@ -133,7 +186,25 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
         if isinstance(row, Mapping)
     ]
     campaign = dict(team.get("campaign") or {})
-    queue = dict(campaign.get("frontier_queue") or {})
+    if cas_closeout_mode:
+        reconciliation = (
+            cas_reconciliation if cas_reconciliation_bound else {}
+        )
+        scheduler_facts = reconciliation
+        scheduler_authority_source = (
+            "committed_cas_reconciliation"
+            if cas_reconciliation_bound
+            else "invalid_or_missing_cas_reconciliation"
+        )
+    elif compatibility_reconciliation:
+        reconciliation = compatibility_reconciliation
+        scheduler_facts = reconciliation
+        scheduler_authority_source = "compatibility_reconciliation"
+    else:
+        reconciliation = {}
+        scheduler_facts = campaign
+        scheduler_authority_source = "team_campaign_compatibility"
+    queue = dict(scheduler_facts.get("frontier_queue") or {})
     jobs = [dict(row) for row in queue.get("jobs") or [] if isinstance(row, Mapping)]
     portfolio = dict(graph.get("route_portfolio") or {})
     portfolio_bindings = dict(graph.get("route_portfolio_bindings") or {})
@@ -175,6 +246,23 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
     frontier_ledger_evidence["authority_source"] = (
         "committed_cas_revision" if cas_decision else "compatibility_projection"
     )
+    frontier_ledger_evidence[
+        "codex_campaign_proof_reconciliation_bound"
+    ] = cas_reconciliation_bound if cas_closeout_mode else None
+    if cas_reconciliation_authority_blockers:
+        frontier_ledger_evidence["authority_blockers"] = sorted(
+            set(
+                [
+                    *frontier_ledger_evidence.get("authority_blockers", []),
+                    *cas_reconciliation_authority_blockers,
+                ]
+            )
+        )
+        frontier_ledger_evidence["authority_valid"] = False
+        frontier_ledger_evidence["effective_any_route_closed"] = False
+        frontier_ledger_evidence[
+            "effective_all_explored_graph_closed"
+        ] = False
     cas_proof_snapshot = dict(cas_decision.get("proof_snapshot") or {})
     cas_verdict_core = dict(cas_decision.get("final_verdict_core") or {})
     cas_proof_solved = is_solved_parent_route_proof(
@@ -215,6 +303,11 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
         "canonical_authority_graph_matches_cas": (
             compatibility_authority_graph == authority_graph
             if cas_authority_graph
+            else None
+        ),
+        "proof_reconciliation_matches_cas": (
+            compatibility_reconciliation == cas_reconciliation
+            if cas_reconciliation
             else None
         ),
         "caller_graph_is_display_portfolio_projection_only": bool(
@@ -405,11 +498,21 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
             ),
         ),
         "frontier_scheduler": _contract_evidence(
-            artifact="team_report.json:campaign.frontier_queue",
+            artifact=f"{scheduler_authority_source}:frontier_queue",
             observed_schema=queue.get("schema_version"),
             expected_schema="frontier_queue.v1",
             required_shapes=(
-                campaign.get("schema_version") == "codex_retrosynthesis_campaign.v1",
+                (
+                    cas_reconciliation_bound
+                    if cas_closeout_mode
+                    else (
+                        reconciliation.get("schema_version")
+                        == "codex_campaign_proof_reconciliation.v1"
+                        if reconciliation
+                        else campaign.get("schema_version")
+                        == "codex_retrosynthesis_campaign.v1"
+                    )
+                ),
                 isinstance(queue.get("jobs"), list),
                 _content_sha256_valid(queue) is not False,
                 all(row.get("schema_version") == "frontier_job.v1" for row in jobs),
@@ -523,6 +626,9 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
         ),
         "global_projection_complete": projection.get("complete") is True,
         "closeout_revision_valid": closeout.get("accepted") is True,
+        "closeout_codex_campaign_proof_reconciliation_bound": bool(
+            cas_decision and cas_reconciliation_bound
+        ),
         "closeout_frontier_ledger_bound": bool(
             "frontier_ledger" in closeout_artifact_ids
             and cas_ledger
@@ -588,13 +694,18 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
             "validation": dict(overlay.get("validation") or {}),
         },
         "frontier_scheduler": {
+            "authority_source": scheduler_authority_source,
             "job_count": len(jobs),
             "states": dict(Counter(str(row.get("state") or "") for row in jobs)),
             "stock_closed_count": sum(
                 1 for row in jobs if row.get("closure_kind") == "stock_boundary"
             ),
-            "completeness": dict(campaign.get("frontier_completeness") or {}),
-            "proposal_graph_exhausted": campaign.get("proposal_graph_exhausted") is True,
+            "completeness": dict(
+                scheduler_facts.get("frontier_completeness") or {}
+            ),
+            "proposal_graph_exhausted": (
+                scheduler_facts.get("proposal_graph_exhausted") is True
+            ),
         },
         "frontier_ledger": frontier_ledger_evidence,
         "completion_truth": completion_truth,
@@ -643,6 +754,12 @@ def audit_run(run_dir: str | Path) -> dict[str, Any]:
             "final_verdict_bound": cas_final_binding_valid,
             "cas_decision_schema": str(cas_decision.get("schema_version") or ""),
             "cas_load_errors": cas_load_errors,
+            "codex_campaign_proof_reconciliation_bound": (
+                cas_reconciliation_bound
+            ),
+            "codex_campaign_proof_reconciliation_blockers": sorted(
+                set(cas_reconciliation_authority_blockers)
+            ),
         },
         "compatibility_projection": compatibility_projection,
         "final_verdict": {

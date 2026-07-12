@@ -93,7 +93,7 @@ CODEX_RETROSYNTHESIS_CAMPAIGN_POLICY_SCHEMA = (
 RETROSYNTHESIS_COORDINATOR_CONTRACT_VERSION = (
     "autoplanner.retrosynthesis_coordinator.v3"
 )
-CHILD_ACCEPTANCE_CONTRACT_VERSION = "autoplanner.child_acceptance.v1"
+CHILD_ACCEPTANCE_CONTRACT_VERSION = "autoplanner.child_acceptance.v2"
 CODEX_RETROSYNTHESIS_BUDGET_EVENT_SCHEMA = (
     "codex_retrosynthesis_budget_event.v1"
 )
@@ -583,7 +583,55 @@ def run_codex_retrosynthesis_team(
     worker_artifact_validation = validate_worker_output(task, artifact)
     payload = dict(artifact.get("payload") or {})
     coordinator_candidates = [dict(row) for row in payload.get("candidates") or [] if isinstance(row, dict)]
-    if child_acceptance_mode == "valid_subset_l0":
+    required_role_set = set(task.child_roles)
+    required_children = len(task.child_roles)
+    observed_children = len((record.metadata or {}).get("child_agents") or [])
+    valid_child_quorum = _derived_valid_child_quorum(task.child_roles)
+    valid_child_roles = {
+        str(row.get("role") or "")
+        for row in child_reports
+        if row.get("accepted") is True
+    }
+    runtime_children = [
+        dict(row)
+        for row in runtime_summary.get("children") or []
+        if isinstance(row, dict)
+    ]
+    spawn_audit = _audit_explicit_child_spawn_coverage(
+        record,
+        required_roles=task.child_roles,
+    )
+    strict_full_child_completion = bool(
+        spawn_audit.get("accepted") is True
+        and valid_child_roles == required_role_set
+        and all(row.get("accepted") is True for row in child_reports)
+        and len(runtime_children) >= required_children
+        and all(
+            str(row.get("state") or "") == "succeeded"
+            for row in runtime_children
+        )
+    )
+    partial_coordinator_safety_reasons = (
+        _partial_coordinator_safety_reasons(
+            record,
+            task=task,
+            artifact_validation=artifact_validation,
+            worker_artifact_validation=worker_artifact_validation,
+            runtime_summary=runtime_summary,
+        )
+        if child_acceptance_mode == "valid_subset_l0"
+        else []
+    )
+    # ``valid_subset_l0`` is permission to recover an actually degraded
+    # attempt. It must not downgrade a 4/4 (or otherwise complete) strict
+    # child set merely because the campaign enabled the recovery policy.
+    partial_fallback_used = bool(
+        child_acceptance_mode == "valid_subset_l0"
+        and not strict_full_child_completion
+        and spawn_audit.get("accepted") is True
+        and not partial_coordinator_safety_reasons
+    )
+    if partial_fallback_used:
         child_candidates = [
             _partial_l0_candidate(candidate) for candidate in child_candidates
         ]
@@ -591,33 +639,17 @@ def run_codex_retrosynthesis_team(
     # from the coordinator's restatement. The latter remains an audit-only
     # synthesis artifact and cannot invent a missing specialist.
     consensus = fuse_route_candidates(child_candidates, case_id=case_id, target_smiles=target_smiles)
-    if child_acceptance_mode == "valid_subset_l0":
+    if partial_fallback_used:
         consensus = _cap_partial_consensus_to_l0(consensus)
     consensus_path = output_dir / "route_consensus.json"
     _write_json(consensus_path, consensus)
     proposals = consensus_to_blackboard_proposals(consensus)
 
-    required_children = len(task.child_roles)
-    observed_children = len((record.metadata or {}).get("child_agents") or [])
-    valid_child_quorum = _derived_valid_child_quorum(task.child_roles)
-    spawn_audit = _audit_explicit_child_spawn_coverage(
-        record,
-        required_roles=task.child_roles,
-    )
     reasons: list[str] = []
-    if child_acceptance_mode == "strict_all":
+    reasons.extend(partial_coordinator_safety_reasons)
+    if not partial_fallback_used:
         if record.status != "accepted_draft":
             reasons.append(f"coordinator_status:{record.status}")
-    else:
-        reasons.extend(
-            _partial_coordinator_safety_reasons(
-                record,
-                task=task,
-                artifact_validation=artifact_validation,
-                worker_artifact_validation=worker_artifact_validation,
-                runtime_summary=runtime_summary,
-            )
-        )
     if not artifact_validation.get("accepted"):
         reasons.extend(str(item) for item in artifact_validation.get("reasons") or [])
     if not worker_artifact_validation.get("accepted"):
@@ -628,20 +660,14 @@ def run_codex_retrosynthesis_team(
     if observed_children != required_children:
         reasons.append("required_child_agents_not_observed")
     reasons.extend(str(item) for item in spawn_audit.get("hard_reasons") or [])
-    valid_child_roles = {
-        str(row.get("role") or "")
-        for row in child_reports
-        if row.get("accepted") is True
-    }
-    if child_acceptance_mode == "strict_all":
-        if valid_child_roles != set(task.child_roles):
+    if not partial_fallback_used:
+        if valid_child_roles != required_role_set:
             reasons.append("required_child_reports_not_valid")
         if any(row.get("accepted") is not True for row in child_reports):
             reasons.append("one_or_more_child_reports_rejected")
     elif len(valid_child_roles) < valid_child_quorum:
         reasons.append("valid_child_role_quorum_not_met")
-    runtime_children = [dict(row) for row in runtime_summary.get("children") or [] if isinstance(row, dict)]
-    if child_acceptance_mode == "strict_all" and (
+    if not partial_fallback_used and (
         len(runtime_children) < required_children
         or any(
             str(row.get("state") or "") != "succeeded"
@@ -655,10 +681,10 @@ def run_codex_retrosynthesis_team(
         reasons.append("child_agent_runtime_reconciliation_failed")
     accepted = not reasons
     accepted_child_roles = sorted(valid_child_roles)
-    degraded_child_roles = sorted(set(task.child_roles) - valid_child_roles)
+    degraded_child_roles = sorted(required_role_set - valid_child_roles)
     acceptance_tier = (
         "valid_subset_l0"
-        if child_acceptance_mode == "valid_subset_l0"
+        if partial_fallback_used
         else "strict_all"
     )
     report = {
@@ -701,8 +727,10 @@ def run_codex_retrosynthesis_team(
                 spawn_audit.get("accepted")
             ),
             "partial_proposals_forced_to_l0": (
-                child_acceptance_mode == "valid_subset_l0"
+                partial_fallback_used
             ),
+            "partial_fallback_used": partial_fallback_used,
+            "strict_full_child_completion": strict_full_child_completion,
         },
         "route_consensus_ref": str(consensus_path),
         "route_consensus": consensus,
@@ -717,6 +745,7 @@ def run_codex_retrosynthesis_team(
             "child_shape_repairs_are_conservative_defaults_only": True,
             "child_acceptance_mode": child_acceptance_mode,
             "child_acceptance_tier": acceptance_tier,
+            "partial_fallback_used": partial_fallback_used,
             "no_solved_claim": True,
         },
     }
@@ -2294,6 +2323,11 @@ def reconcile_codex_campaign_proof_state(
         graph,
         limit=max(1, len(graph.get("nodes") or [])),
     )
+    canonical_count_summary = _canonical_reconciliation_count_summary(
+        committed_expansions=committed_expansions,
+        admitted_external_expansions=admitted_hyperedge_expansions,
+        canonical_graph=graph,
+    )
     return {
         "schema_version": "codex_campaign_proof_reconciliation.v1",
         "accepted": True,
@@ -2326,7 +2360,44 @@ def reconcile_codex_campaign_proof_state(
         "frontier_ledger_authoritative": frontier_ledger_authoritative,
         "graph_complete": graph_complete,
         "proposal_runner_invoked": False,
+        **canonical_count_summary,
+        # Delta for this proof-only reconciliation call. The cumulative
+        # durable count above prevents consumers from mistaking this zero for
+        # an empty campaign.
         "expansion_budget_consumed": 0,
+    }
+
+
+def _canonical_reconciliation_count_summary(
+    *,
+    committed_expansions: Iterable[Mapping[str, Any]],
+    admitted_external_expansions: Iterable[Mapping[str, Any]],
+    canonical_graph: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Separate durable input events from unique canonical reaction edges."""
+
+    durable_rows = [
+        row for row in committed_expansions if isinstance(row, Mapping)
+    ]
+    external_rows = [
+        row
+        for row in admitted_external_expansions
+        if isinstance(row, Mapping)
+    ]
+    input_event_count = len(durable_rows) + len(external_rows)
+    return {
+        "durable_accepted_expansion_count": len(durable_rows),
+        "admitted_external_expansion_count": len(external_rows),
+        "canonical_input_expansion_event_count": input_event_count,
+        "canonical_reaction_edge_count": len(
+            graph_exact_edge_signatures(canonical_graph)
+        ),
+        # Transitional compatibility for artifacts/readers produced before
+        # the event-vs-edge distinction was named explicitly.
+        "canonical_expansion_count": input_event_count,
+        "canonical_expansion_count_semantics": (
+            "deprecated_alias_of_canonical_input_expansion_event_count"
+        ),
     }
 
 

@@ -16,6 +16,7 @@ import time
 import types
 import warnings
 import traceback
+from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -91,17 +92,50 @@ _RUNTIME_SEARCH_FLAGS = {
     "cascade_search_context",
 }
 
+_SUPPORTED_ONE_STEP_MODEL_TYPES = {
+    "graphfp_models",
+    "mlp_models",
+    "onmt_models",
+    "template_relevance",
+}
+_FATAL_ONE_STEP_MODEL_SELECTION_REASONS = {
+    "invalid_model_full_name",
+    "missing_model_config",
+    "model_config_incomplete",
+    "unknown_model_type",
+}
 
-def _windows_extended_path(path: Path) -> Path:
+
+_WINDOWS_EXTENDED_PATH_THRESHOLD = 248
+
+
+def _normal_absolute_path(path: Path | str) -> Path:
+    """Return an import-safe absolute path without a Windows device prefix."""
+
+    raw = str(Path(path).expanduser())
+    if os.name == "nt":
+        if raw.startswith("\\\\?\\UNC\\"):
+            raw = "\\\\" + raw[8:]
+        elif raw.startswith("\\\\?\\"):
+            raw = raw[4:]
+    return Path(raw).resolve()
+
+
+def _windows_extended_path(path: Path | str) -> Path:
+    """Return a long-path form only for a concrete Windows I/O path.
+
+    Device-prefixed paths are intentionally forbidden as import roots and
+    working directories.  Some legacy dependencies (notably pkg_resources)
+    append ``.`` while scanning sys.path and reject ``\\\\?\\...\\.`` even
+    though the underlying checkpoint can be opened through the device path.
+    """
+
+    absolute = _normal_absolute_path(path)
     if os.name != "nt":
-        return path
-    raw = str(path)
-    if raw.startswith("\\\\?\\") or raw.startswith("\\\\.\\"):
-        return path
-    absolute = path if path.is_absolute() else path.resolve()
+        return absolute
     text = str(absolute)
-    if text.startswith("\\\\?\\") or text.startswith("\\\\.\\"):
-        return Path(text)
+    if len(text) < _WINDOWS_EXTENDED_PATH_THRESHOLD:
+        return absolute
     if text.startswith("\\\\"):
         return Path("\\\\?\\UNC\\" + text.lstrip("\\"))
     return Path("\\\\?\\" + text)
@@ -121,11 +155,14 @@ class ChemEnzyBackendAdapter:
     onmt_model_path: Path | str | Iterable[Path | str] | None = None
 
     def __post_init__(self) -> None:
-        self.vendor_root = _windows_extended_path(Path(self.vendor_root))
+        # Import roots, cwd, logs and artifact references always use a normal
+        # absolute path.  Device prefixes are applied later to concrete model
+        # files only when their final path exceeds the Windows limit.
+        self.vendor_root = _normal_absolute_path(self.vendor_root)
         if self.config_path is None:
             self.config_path = self.vendor_root / DEFAULT_CONFIG_RELATIVE
         else:
-            self.config_path = _windows_extended_path(Path(self.config_path))
+            self.config_path = _normal_absolute_path(self.config_path)
 
     def preflight(self) -> list[BackendFailure]:
         """Return setup failures that would prevent a real backend run."""
@@ -430,6 +467,13 @@ class ChemEnzyBackendAdapter:
                 one_step_models=selected_one_step_models,
                 search_flags=flags,
             )
+        if not selected_one_step_models:
+            raise RuntimeError("all_selected_one_step_models_unavailable")
+        vendor_config = _materialize_selected_one_step_io_paths(
+            vendor_config,
+            selected_one_step_models,
+            vendor_root=self.vendor_root,
+        )
         with _vendor_pythonpath(self.vendor_root):
             _patch_numpy_legacy_aliases()
             _patch_torchdata_legacy_aliases()
@@ -705,45 +749,63 @@ def _prune_unavailable_one_step_models(
     vendor_config: dict[str, Any],
     vendor_root: Path | str,
 ) -> tuple[list[str], dict[str, Any] | None]:
-    """Skip selected ONMT models whose configured checkpoints are unavailable.
+    """Validate selected models and prune only missing checkpoint variants.
 
     ChemEnzy supports selecting an ensemble of one-step models. A locally
     trained ONMT checkpoint can be useful when present, but one missing
     checkpoint should not prevent an otherwise usable native ensemble from
-    running.
+    running.  Malformed names, unknown model types, and absent/incomplete
+    configuration are different: those are request/configuration defects and
+    fail the entire selection closed instead of being silently ignored.
     """
     selected = [str(name) for name in one_step_models or [] if str(name or "")]
     if not selected:
         return selected, None
     available: list[str] = []
     unavailable: list[dict[str, Any]] = []
+    fatal_configuration_error = False
     for full_name in selected:
-        missing_paths = _missing_one_step_checkpoint_paths(
+        issue = _one_step_model_availability_issue(
             full_name,
             vendor_config=vendor_config,
             vendor_root=vendor_root,
         )
-        if missing_paths:
+        if issue is not None:
+            reason = str(issue["reason"])
+            fatal_configuration_error = (
+                fatal_configuration_error
+                or reason in _FATAL_ONE_STEP_MODEL_SELECTION_REASONS
+            )
             unavailable.append(
                 {
                     "model": full_name,
-                    "missing_paths": missing_paths,
-                    "reason": "configured_checkpoint_missing",
+                    "missing_paths": list(issue.get("missing_paths") or []),
+                    "reason": reason,
                 }
             )
             continue
         available.append(full_name)
     if not unavailable:
         return selected, None
+    selected_after = [] if fatal_configuration_error else available
     report = {
         "schema_version": "chem_enzy_one_step_model_availability.v1",
         "selected_before": selected,
         "unavailable": unavailable,
-        "selected_after": available if available else selected,
-        "action": "pruned_unavailable_models" if available else "all_selected_models_unavailable_no_prune",
+        "selected_after": selected_after,
+        "configuration_error": fatal_configuration_error,
+        "action": (
+            "rejected_invalid_model_selection"
+            if fatal_configuration_error
+            else (
+                "pruned_unavailable_models"
+                if available
+                else "all_selected_models_unavailable"
+            )
+        ),
     }
-    if not available:
-        return selected, report
+    if fatal_configuration_error or not available:
+        return [], report
     return available, report
 
 
@@ -753,32 +815,163 @@ def _missing_one_step_checkpoint_paths(
     vendor_config: dict[str, Any],
     vendor_root: Path | str,
 ) -> list[str]:
-    try:
-        model_type, model_subname = str(full_name).split(".", 1)
-    except ValueError:
-        return []
-    if model_type != "onmt_models":
-        return []
+    issue = _one_step_model_availability_issue(
+        full_name,
+        vendor_config=vendor_config,
+        vendor_root=vendor_root,
+    )
+    return list(issue.get("missing_paths") or []) if issue is not None else []
+
+
+def _one_step_model_availability_issue(
+    full_name: str,
+    *,
+    vendor_config: dict[str, Any],
+    vendor_root: Path | str,
+) -> dict[str, Any] | None:
+    text = str(full_name or "")
+    parts = text.split(".")
+    if text != text.strip() or len(parts) != 2 or not all(parts):
+        return {
+            "reason": "invalid_model_full_name",
+            "missing_paths": [f"<invalid-model-full-name:{text}>"],
+        }
+    model_type, model_subname = parts
+    if model_type not in _SUPPORTED_ONE_STEP_MODEL_TYPES:
+        return {
+            "reason": "unknown_model_type",
+            "missing_paths": [f"<unknown-model-type:{model_type}>"],
+        }
     one_step_configs = vendor_config.get("one_step_model_configs") or {}
-    model_config = (one_step_configs.get(model_type) or {}).get(model_subname)
+    typed_configs = one_step_configs.get(model_type)
+    if not isinstance(typed_configs, dict):
+        return {
+            "reason": "missing_model_config",
+            "missing_paths": [f"<missing-model-type-config:{model_type}>"],
+        }
+    model_config = typed_configs.get(model_subname)
     if not isinstance(model_config, dict):
-        return []
-    raw_paths = model_config.get("model_path") or []
+        return {
+            "reason": "missing_model_config",
+            "missing_paths": [f"<missing-model-config:{text}>"],
+        }
+    if model_type == "onmt_models":
+        raw_paths = model_config.get("model_path") or []
+    elif model_type == "graphfp_models":
+        raw_paths = [
+            model_config.get("graph_model_dumb"),
+            model_config.get("graph_dataset_root"),
+        ]
+    elif model_type == "mlp_models":
+        raw_paths = [
+            model_config.get("mlp_templates"),
+            model_config.get("mlp_model_dump"),
+        ]
+    elif model_type == "template_relevance":
+        state_name = str(model_config.get("state_name") or "").strip()
+        raw_paths = [
+            (
+                _normal_absolute_path(vendor_root)
+                / "retro_planner"
+                / "packages"
+                / "template_relevance"
+                / "mars"
+                / f"{state_name}.mar"
+            )
+            if state_name
+            else None
+        ]
+    else:
+        # Kept as a defensive guard in case the supported-type set and this
+        # validation branch ever drift apart.
+        return {
+            "reason": "unknown_model_type",
+            "missing_paths": [f"<unknown-model-type:{model_type}>"],
+        }
     if isinstance(raw_paths, (str, os.PathLike)):
         raw_paths = [raw_paths]
     missing: list[str] = []
+    incomplete = False
     for raw in raw_paths:
+        if not raw:
+            missing.append(f"<missing-config-path:{full_name}>")
+            incomplete = True
+            continue
         path = _resolve_vendor_model_path(raw, vendor_root=vendor_root)
         if not path.exists():
-            missing.append(str(path))
-    return missing
+            missing.append(str(_normal_absolute_path(path)))
+    if incomplete:
+        return {"reason": "model_config_incomplete", "missing_paths": missing}
+    if missing:
+        return {"reason": "configured_checkpoint_missing", "missing_paths": missing}
+    return None
 
 
 def _resolve_vendor_model_path(raw_path: Any, *, vendor_root: Path | str) -> Path:
     path = Path(str(raw_path)).expanduser()
     if path.is_absolute():
-        return path
-    return (Path(vendor_root) / "retro_planner" / path).resolve()
+        return _windows_extended_path(path)
+    return _windows_extended_path(
+        _normal_absolute_path(vendor_root) / "retro_planner" / path
+    )
+
+
+def _materialize_selected_one_step_io_paths(
+    vendor_config: dict[str, Any],
+    selected_models: Iterable[str],
+    *,
+    vendor_root: Path | str,
+) -> dict[str, Any]:
+    """Bind selected vendor model paths to host-readable concrete paths."""
+
+    config = deepcopy(vendor_config)
+    all_configs = config.get("one_step_model_configs") or {}
+    for full_name in selected_models:
+        try:
+            model_type, model_subname = str(full_name).split(".", 1)
+        except ValueError:
+            continue
+        model_config = (all_configs.get(model_type) or {}).get(model_subname)
+        if not isinstance(model_config, dict):
+            continue
+        if model_type == "onmt_models":
+            values = model_config.get("model_path") or []
+            if isinstance(values, (str, os.PathLike)):
+                values = [values]
+            model_config["model_path"] = [
+                str(_resolve_vendor_model_path(value, vendor_root=vendor_root))
+                for value in values
+                if value
+            ]
+        elif model_type == "graphfp_models":
+            for key in ("graph_model_dumb", "graph_dataset_root"):
+                if model_config.get(key):
+                    model_config[key] = str(
+                        _resolve_vendor_model_path(
+                            model_config[key], vendor_root=vendor_root
+                        )
+                    )
+        elif model_type == "mlp_models":
+            for key in ("mlp_templates", "mlp_model_dump"):
+                if model_config.get(key):
+                    model_config[key] = str(
+                        _resolve_vendor_model_path(
+                            model_config[key], vendor_root=vendor_root
+                        )
+                    )
+        elif model_type == "template_relevance":
+            state_name = str(model_config.get("state_name") or "").strip()
+            if state_name:
+                model_config["archive_path"] = str(
+                    _resolve_vendor_model_path(
+                        Path("packages")
+                        / "template_relevance"
+                        / "mars"
+                        / f"{state_name}.mar",
+                        vendor_root=vendor_root,
+                    )
+                )
+    return config
 
 
 def _default_enzyme_strengthening_cost_weights() -> dict[str, float]:
@@ -1804,7 +1997,7 @@ def _set_legacy_vocab_freqs(vocab: Any, value: Any) -> None:
 
 @contextmanager
 def _vendor_pythonpath(vendor_root: Path):
-    root = _windows_extended_path(vendor_root)
+    root = _normal_absolute_path(vendor_root)
     retro_root = root / "retro_planner"
     package_roots = [
         retro_root / "packages" / "mlp_retrosyn",

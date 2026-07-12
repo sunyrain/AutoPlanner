@@ -45,6 +45,7 @@ from cascade_planner.baselines.proposal_gate import (
     summarize_route_gate_reports,
 )
 from cascade_planner.baselines.chem_enzy_runtime import (
+    chem_enzy_runtime_selection_from_request,
     diagnose_chem_enzy_runtime,
     format_chem_enzy_runtime_diagnostic,
 )
@@ -403,7 +404,10 @@ def _run_chem_enzy_native_plan(payload: dict[str, Any], *, job_id: str | None = 
         )
     if _plan_job_cancel_requested(job_id):
         raise _PlanJobCancelled("route search cancelled before ChemEnzy launch")
-    runtime_preflight = _chem_enzy_runtime_status()
+    runtime_preflight = _chem_enzy_runtime_status(
+        production=True,
+        request_payload=payload,
+    )
     if not runtime_preflight["accepted"]:
         abort(500, description=format_chem_enzy_runtime_diagnostic(runtime_preflight))
     python_bin = Path(runtime_preflight["python_executable"])
@@ -415,7 +419,7 @@ def _run_chem_enzy_native_plan(payload: dict[str, Any], *, job_id: str | None = 
     req_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     gpu = 0 if _resolve_device(str(payload.get("device") or "cpu")) == "cuda" else -1
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    env["PYTHONPATH"] = str(ROOT)
     env.setdefault("OMP_NUM_THREADS", "2")
     env.setdefault("MKL_NUM_THREADS", "2")
     cmd = [
@@ -2938,10 +2942,22 @@ def _template_relevance_status() -> dict[str, Any]:
         return {"available_count": 0, "models": [], "error": str(exc)}
 
 
-def _chem_enzy_runtime_status() -> dict[str, Any]:
+def _chem_enzy_runtime_status(
+    *,
+    production: bool = False,
+    request_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    one_step_models, stock_names, model_overrides = (
+        chem_enzy_runtime_selection_from_request(request_payload)
+    )
     return diagnose_chem_enzy_runtime(
         vendor_root=ROOT / "vendor" / "ChemEnzyRetroPlanner",
         launcher_path=ROOT / "scripts" / "run_chem_enzy_plan_for_web.py",
+        capability_probe=production,
+        capability_probe_timeout_s=60.0,
+        one_step_models=one_step_models,
+        stock_names=stock_names,
+        model_overrides=model_overrides,
     )
 
 

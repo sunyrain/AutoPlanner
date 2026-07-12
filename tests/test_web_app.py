@@ -35,6 +35,36 @@ class WebAppTest(unittest.TestCase):
         self.assertIn("template_relevance", payload)
         self.assertIn("available_model_names", payload["template_relevance"])
 
+    def test_production_runtime_status_binds_web_request_selection(self):
+        ready = {
+            "accepted": True,
+            "production_ready": True,
+            "python_executable": "python",
+            "issues": [],
+        }
+        with patch.object(
+            web_app,
+            "diagnose_chem_enzy_runtime",
+            return_value=ready,
+        ) as diagnose:
+            report = web_app._chem_enzy_runtime_status(
+                production=True,
+                request_payload={
+                    "one_step_models": ["template_relevance.reaxys"],
+                    "stock_names": ["PaRotes_n5-stock"],
+                    "chem_enzy_onmt_tokenizer": "token",
+                },
+            )
+
+        self.assertIs(report, ready)
+        kwargs = diagnose.call_args.kwargs
+        self.assertEqual(kwargs["one_step_models"], ["template_relevance.reaxys"])
+        self.assertEqual(kwargs["stock_names"], ["PaRotes_n5-stock"])
+        self.assertEqual(
+            kwargs["model_overrides"],
+            {"chem_enzy_onmt_tokenizer": "token"},
+        )
+
     def test_molecule_svg_endpoint(self):
         response = self.app.get("/api/mol.svg?smiles=CCO")
         self.assertEqual(response.status_code, 200)

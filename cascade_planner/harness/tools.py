@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -16,7 +17,7 @@ from cascade_planner.agent.chem_enzy_policy import chem_enzy_guidance_contract
 from cascade_planner.agent.route_auditor import audit_route_package, validate_route_audit_report
 from cascade_planner.agent.smiles_first import SmilesFirstWorkflowConfig, run_smiles_first_workflow
 from cascade_planner.baselines.chem_enzy_runtime import (
-    DEFAULT_CHEMENZY_ENV_PREFIX,
+    chem_enzy_runtime_selection_from_request,
     diagnose_chem_enzy_runtime,
 )
 from cascade_planner.harness.downstream_compiler import (
@@ -896,6 +897,8 @@ def _chemenzy_request_from_payload(state: ToolExecutionState, payload: dict[str,
     }
     if payload.get("stock_names"):
         request["stock_names"] = [str(item) for item in payload.get("stock_names") or [] if str(item or "").strip()]
+    if "one_step_models" in payload:
+        request["one_step_models"] = payload.get("one_step_models")
     if payload.get("harness_search_boundary"):
         request["harness_search_boundary"] = dict(payload.get("harness_search_boundary") or {})
     for key in (
@@ -907,6 +910,10 @@ def _chemenzy_request_from_payload(state: ToolExecutionState, payload: dict[str,
         "target_equivalence_audit_required",
         "requested_exact_target_smiles",
         "requested_exact_target_name",
+        "chem_enzy_onmt_model_path",
+        "onmt_model_path",
+        "chem_enzy_onmt_tokenizer",
+        "onmt_tokenizer",
     ):
         if key in payload:
             request[key] = payload[key]
@@ -1056,9 +1063,22 @@ def _execute_chemenzy_request(
 ) -> dict[str, Any]:
     write_json(request_path, request)
 
-    python_bin = _chem_enzy_python_bin()
+    python_bin = _chem_enzy_python_bin(request=request)
+    runtime_preflight = _runtime_preflight_for_python(python_bin)
     if python_bin is None:
-        runtime_preflight = _chem_enzy_runtime_preflight()
+        if not runtime_preflight:
+            runtime_preflight = {
+                "schema_version": "chemenzy_runtime_preflight.v2",
+                "accepted": False,
+                "production_ready": False,
+                "status": "runtime_unavailable",
+                "issues": ["chem_enzy_runtime_preflight_report_missing"],
+            }
+        state.artifacts["chem_enzy_runtime_preflight"] = runtime_preflight
+        write_json(
+            state.run_dir / "chem_enzy_runtime_preflight.json",
+            runtime_preflight,
+        )
         result = {
             "schema_version": "chemenzy_run_result.v1",
             "accepted": False,
@@ -1069,6 +1089,13 @@ def _execute_chemenzy_request(
         }
         write_json(output_path, result)
         return result
+
+    if runtime_preflight:
+        state.artifacts["chem_enzy_runtime_preflight"] = runtime_preflight
+        write_json(
+            state.run_dir / "chem_enzy_runtime_preflight.json",
+            runtime_preflight,
+        )
 
     cmd = [
         str(python_bin),
@@ -1083,7 +1110,8 @@ def _execute_chemenzy_request(
         "-1",
     ]
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    env["PYTHONPATH"] = str(ROOT)
+    _apply_chemenzy_request_runtime_overrides(env, request)
     stdout_path = output_path.with_suffix(output_path.suffix + ".stdout.log")
     stderr_path = output_path.with_suffix(output_path.suffix + ".stderr.log")
     timeout = max(1.0, float(timeout_s or 1.0))
@@ -1133,6 +1161,11 @@ def _execute_chemenzy_request(
             "exit_code": returncode,
             "stdout": stdout_path.read_text(encoding="utf-8", errors="replace") if stdout_path.exists() else "",
             "stderr": stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else "",
+            **(
+                {"runtime_preflight": runtime_preflight}
+                if runtime_preflight
+                else {}
+            ),
         }
         write_json(output_path, result)
         return result
@@ -1149,6 +1182,8 @@ def _execute_chemenzy_request(
     result.setdefault("stdout_path", str(stdout_path))
     result.setdefault("stderr_path", str(stderr_path))
     result.setdefault("exit_code", int(returncode))
+    if runtime_preflight:
+        result.setdefault("runtime_preflight", runtime_preflight)
     if returncode != 0:
         result.setdefault("accepted", False)
         result.setdefault("reasons", []).append("chemenzy_nonzero_exit")
@@ -4733,7 +4768,10 @@ def _guided_policy_runtime_diagnostics(
         reasons.append("guided_policy_adapter_not_invoked")
     if requested_hint_count > 0 and comparisons <= 0:
         reasons.append("preferred_precursor_hints_not_consumed")
-    if availability.get("action") == "all_selected_models_unavailable_no_prune":
+    if availability.get("action") in {
+        "all_selected_models_unavailable",
+        "all_selected_models_unavailable_no_prune",
+    }:
         reasons.append("all_selected_one_step_models_unavailable")
     elif availability.get("unavailable"):
         reasons.append("one_step_models_pruned_unavailable")
@@ -5350,18 +5388,81 @@ def _write_tool_record(state: ToolExecutionState, record: ToolCallRecord) -> Non
     append_jsonl(state.run_dir / "decision_trace.jsonl", {"stage": "tool_call", "tool_call": record.to_dict()})
 
 
-def _chem_enzy_python_bin() -> Path | None:
-    report = _chem_enzy_runtime_preflight()
+_LAST_CHEMENZY_RUNTIME_PREFLIGHT: dict[str, Any] = {}
+_CHEMENZY_RUNTIME_PREFLIGHT_CONTEXT: ContextVar[dict[str, Any] | None] = (
+    ContextVar("chem_enzy_runtime_preflight", default=None)
+)
+def _chem_enzy_python_bin(
+    request: dict[str, Any] | None = None,
+) -> Path | None:
+    report = _chem_enzy_runtime_preflight(request=request)
+    _CHEMENZY_RUNTIME_PREFLIGHT_CONTEXT.set(dict(report))
+    _LAST_CHEMENZY_RUNTIME_PREFLIGHT.clear()
+    _LAST_CHEMENZY_RUNTIME_PREFLIGHT.update(report)
     python_executable = str(report.get("python_executable") or "")
-    return Path(python_executable) if report.get("accepted") and python_executable else None
+    return (
+        Path(python_executable)
+        if report.get("production_ready") is True and python_executable
+        else None
+    )
 
 
-def _chem_enzy_runtime_preflight() -> dict[str, Any]:
+def _chem_enzy_runtime_preflight(
+    request: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    one_step_models, stock_names, model_overrides = (
+        chem_enzy_runtime_selection_from_request(request)
+    )
     return diagnose_chem_enzy_runtime(
-        env_prefix=os.environ.get("CHEMENZY_ENV_PREFIX", str(DEFAULT_CHEMENZY_ENV_PREFIX)),
         vendor_root=ROOT / "vendor" / "ChemEnzyRetroPlanner",
         launcher_path=ROOT / "scripts" / "run_chem_enzy_plan_for_web.py",
+        capability_probe=True,
+        capability_probe_timeout_s=60.0,
+        one_step_models=one_step_models,
+        stock_names=stock_names,
+        model_overrides=model_overrides,
     )
+
+
+def _runtime_preflight_for_python(python_bin: Path | None) -> dict[str, Any]:
+    contextual = _CHEMENZY_RUNTIME_PREFLIGHT_CONTEXT.get()
+    report = dict(contextual or _LAST_CHEMENZY_RUNTIME_PREFLIGHT)
+    if python_bin is None:
+        return report
+    observed = str(report.get("python_executable") or "")
+    if not observed:
+        return {}
+    try:
+        matches = os.path.normcase(str(Path(observed).resolve())) == os.path.normcase(
+            str(Path(python_bin).resolve())
+        )
+    except OSError:
+        matches = False
+    return report if matches else {}
+
+
+def _apply_chemenzy_request_runtime_overrides(
+    env: dict[str, str],
+    request: dict[str, Any],
+) -> None:
+    model_path = request.get("chem_enzy_onmt_model_path") or request.get(
+        "onmt_model_path"
+    )
+    if isinstance(model_path, (list, tuple)):
+        model_path_value = ",".join(
+            str(item).strip() for item in model_path if str(item).strip()
+        )
+    else:
+        model_path_value = str(model_path or "").strip()
+    if model_path_value:
+        env["AUTOPLANNER_CHEMENZY_ONMT_MODEL_PATH"] = model_path_value
+    tokenizer = str(
+        request.get("chem_enzy_onmt_tokenizer")
+        or request.get("onmt_tokenizer")
+        or ""
+    ).strip()
+    if tokenizer:
+        env["AUTOPLANNER_CHEMENZY_ONMT_TOKENIZER"] = tokenizer
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
 import re
@@ -150,6 +151,7 @@ def plan_action_batch_with_codex(
         "status": str(record.status or ""),
         "record_ref": str(run_dir / f"codex_action_planner_run_record_round_{int(round_index)}.json"),
         "blackboard_snapshot_ref": str(snapshot_path),
+        "embedded_prompt_snapshot": _planner_prompt_snapshot_audit(snapshot_path),
         "validation": validation,
         "fallback_used": False,
         "tool_policy": tool_policy,
@@ -324,8 +326,7 @@ def _codex_action_planner_repair_task(
     initial_validation: dict[str, Any],
 ) -> WorkerTask:
     case_id = str(blackboard.get("case_id") or "case")
-    planner_context = _planner_context_summary(blackboard)
-    handoff = _planner_blackboard_handoff(blackboard, planner_context=planner_context)
+    embedded_snapshot = _embedded_planner_prompt_snapshot(snapshot_path)
     allowed_tools = _planner_allowed_tools()
     max_tool_calls = _planner_max_tool_calls(allowed_tools)
     tool_policy = _planner_tool_policy(allowed_tools=allowed_tools, max_tool_calls=max_tool_calls)
@@ -333,6 +334,9 @@ def _codex_action_planner_repair_task(
         "You are the Codex validator-replanner for an autonomous retrosynthesis blackboard. "
         "The previous Codex action batch was rejected by the local safety/budget gate. "
         "Repair or replan it into a valid AgentActionBatch instead of handing control to a deterministic fallback. "
+        "All decision state needed for this replan is already embedded below. Do not call shell, exec, terminal, "
+        "PowerShell, Python, cat, or any filesystem tool to read input_refs. Input refs are immutable audit locators only; "
+        "they do not need to be opened. Shell remains forbidden even when a path is present. "
         "Treat validation reasons as hard blockers. Preserve the useful scientific intent when possible, but drop, "
         "replace, or defer invalid actions. If a visual budget is exhausted, prefer non-visual PDF/source processing, "
         "template extraction/ranking, search/source acquisition, guided policy preparation, or stop_unresolved. "
@@ -355,17 +359,15 @@ def _codex_action_planner_repair_task(
         f"{json.dumps(initial_validation, ensure_ascii=False, sort_keys=True)}. "
         "Rejected action batch: "
         f"{json.dumps(invalid_batch, ensure_ascii=False, sort_keys=True)}. "
-        "Planner context: "
-        f"{json.dumps(planner_context, ensure_ascii=False, sort_keys=True)}. "
-        "Current blackboard decision handoff: "
-        f"{json.dumps(handoff, ensure_ascii=False, sort_keys=True)}"
+        "Embedded immutable planner snapshot: "
+        f"{json.dumps(embedded_snapshot, ensure_ascii=False, sort_keys=True)}"
     )
     return WorkerTask(
         task_id=f"{case_id}:codex_action_planner_repair:r{int(round_index)}",
         case_id=case_id,
         task_type="strategic_disconnection_mining",
         required_artifact_type="AgentActionBatch",
-        input_refs=[str(snapshot_path), str(run_dir / "agent_blackboard.json")],
+        input_refs=[str(snapshot_path)],
         allowed_tools=allowed_tools,
         budget=WorkerBudget(
             timeout_s=_planner_repair_timeout_s(),
@@ -410,6 +412,9 @@ def _accepted_repaired_codex_batch(
         "status": str((repair_record or initial_record or {}).get("status") or ""),
         "record_ref": str((initial_record or {}).get("record_ref") or ""),
         "blackboard_snapshot_ref": str(blackboard_snapshot_ref or ""),
+        "embedded_prompt_snapshot": _planner_prompt_snapshot_audit(
+            Path(blackboard_snapshot_ref)
+        ),
         "validation": validation,
         "initial_validation": dict(initial_validation or {}),
         "repair_used": True,
@@ -815,14 +820,18 @@ def _codex_action_planner_task(
     snapshot_path: Path,
 ) -> WorkerTask:
     case_id = str(blackboard.get("case_id") or "case")
-    planner_context = _planner_context_summary(blackboard)
-    handoff = _planner_blackboard_handoff(blackboard, planner_context=planner_context)
+    embedded_snapshot = _embedded_planner_prompt_snapshot(snapshot_path)
     allowed_tools = _planner_allowed_tools()
     max_tool_calls = _planner_max_tool_calls(allowed_tools)
     tool_policy = _planner_tool_policy(allowed_tools=allowed_tools, max_tool_calls=max_tool_calls)
     objective = (
         "You are the central blackboard action planner for an autonomous retrosynthesis workflow. "
-        "Read the current blackboard and choose the next action batch. You may freely choose priorities and exploration direction, "
+        "Use the embedded immutable planner snapshot below and choose the next action batch. "
+        "It already contains the bounded decision state needed for planning, including pending sources, local PDFs, open tasks, "
+        "budgets, route/frontier summaries, and action bindings. Do not call shell, exec, terminal, PowerShell, Python, cat, "
+        "or any filesystem tool to read input_refs. Input refs are audit locators only and do not need to be opened. "
+        "Shell remains forbidden even when a file path is present. "
+        "You may freely choose priorities and exploration direction, "
         "but you may only emit typed actions, not routes or solved verdicts. "
         "Select at most 3 actions. Prefer parallel actions only when they do not depend on each other. "
         "Before returning, internally check the action_payload_requirements and repair your own draft so it is valid. "
@@ -886,17 +895,15 @@ def _codex_action_planner_task(
         "Planner tool policy: "
         f"{json.dumps(tool_policy, ensure_ascii=False, sort_keys=True)}. "
         "Return only the required AgentActionBatch artifact payload. "
-        "Derived planner context, for quick orientation but not as a hardcoded script: "
-        f"{json.dumps(planner_context, ensure_ascii=False, sort_keys=True)}. "
-        "Current blackboard decision handoff: "
-        f"{json.dumps(handoff, ensure_ascii=False, sort_keys=True)}"
+        "Embedded immutable planner snapshot: "
+        f"{json.dumps(embedded_snapshot, ensure_ascii=False, sort_keys=True)}"
     )
     return WorkerTask(
         task_id=f"{case_id}:codex_action_planner:r{int(round_index)}",
         case_id=case_id,
         task_type="strategic_disconnection_mining",
         required_artifact_type="AgentActionBatch",
-        input_refs=[str(snapshot_path), str(run_dir / "agent_blackboard.json")],
+        input_refs=[str(snapshot_path)],
         allowed_tools=allowed_tools,
         budget=WorkerBudget(
             timeout_s=_planner_timeout_s(),
@@ -2654,14 +2661,732 @@ def _normalize_mock_output(
 def _write_codex_blackboard_snapshot(blackboard: dict[str, Any], *, run_dir: Path, round_index: int) -> Path:
     path = run_dir / f"codex_action_planner_blackboard_round_{int(round_index)}.json"
     planner_context = _planner_context_summary(blackboard)
+    handoff = _planner_blackboard_handoff(
+        blackboard,
+        planner_context=planner_context,
+    )
+    prompt_payload, prompt_bounds = _bounded_planner_prompt_payload(
+        handoff,
+        round_index=round_index,
+    )
     snapshot = {
         "schema_version": "codex_action_planner_blackboard_snapshot.v1",
+        "case_id": str(blackboard.get("case_id") or ""),
         "round_index": int(round_index),
         "planner_context": planner_context,
-        "blackboard": _planner_blackboard_handoff(blackboard, planner_context=planner_context),
+        "blackboard": handoff,
+        "prompt_payload": prompt_payload,
+        "prompt_payload_sha256": _planner_json_sha256(prompt_payload),
+        "prompt_payload_bounds": prompt_bounds,
+        "source_blackboard_sha256": _planner_json_sha256(blackboard),
+        "input_ref_audit": {
+            "schema_version": "codex_action_planner_input_ref_audit.v1",
+            "prompt_snapshot_ref": str(path),
+            "source_blackboard_ref": str(run_dir / "agent_blackboard.json"),
+            "input_refs_are_audit_only": True,
+            "model_file_read_required": False,
+            "shell_read_allowed": False,
+        },
     }
+    snapshot["content_sha256"] = _planner_json_sha256(snapshot)
     write_json(path, snapshot)
     return path
+
+
+def _embedded_planner_prompt_snapshot(snapshot_path: Path) -> dict[str, Any]:
+    """Load and verify the host-written compact snapshot for prompt embedding."""
+
+    try:
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("codex action planner snapshot is unreadable") from exc
+    if not isinstance(snapshot, dict):
+        raise ValueError("codex action planner snapshot is not an object")
+    supplied_content_digest = str(snapshot.get("content_sha256") or "")
+    content_payload = dict(snapshot)
+    content_payload.pop("content_sha256", None)
+    if (
+        not supplied_content_digest
+        or supplied_content_digest != _planner_json_sha256(content_payload)
+    ):
+        raise ValueError("codex action planner snapshot digest mismatch")
+    prompt_payload = snapshot.get("prompt_payload")
+    if not isinstance(prompt_payload, dict):
+        raise ValueError("codex action planner prompt payload missing")
+    supplied_prompt_digest = str(snapshot.get("prompt_payload_sha256") or "")
+    if (
+        not supplied_prompt_digest
+        or supplied_prompt_digest != _planner_json_sha256(prompt_payload)
+    ):
+        raise ValueError("codex action planner prompt payload digest mismatch")
+    raw_bounds = snapshot.get("prompt_payload_bounds")
+    if not isinstance(raw_bounds, dict):
+        raise ValueError("codex action planner prompt payload bounds missing")
+    try:
+        max_bytes = int(raw_bounds.get("max_bytes"))
+        declared_bytes = int(raw_bounds.get("embedded_bytes"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("codex action planner prompt payload bounds invalid") from exc
+    actual_bytes = len(_planner_json_bytes(prompt_payload))
+    if (
+        max_bytes <= 0
+        or raw_bounds.get("within_bound") is not True
+        or declared_bytes != actual_bytes
+        or actual_bytes > max_bytes
+    ):
+        raise ValueError("codex action planner prompt payload exceeds hard bound")
+    verified_bounds = {
+        "schema_version": "codex_action_planner_prompt_bounds.v1",
+        "max_bytes": max_bytes,
+        "original_bytes": _planner_prompt_count(raw_bounds.get("original_bytes")),
+        "embedded_bytes": actual_bytes,
+        "within_bound": True,
+        "compaction": _planner_prompt_text(raw_bounds.get("compaction"), 80),
+        "full_blackboard_omitted": True,
+    }
+    return {
+        "schema_version": "codex_action_planner_embedded_snapshot.v1",
+        "input_ref": str(snapshot_path),
+        "input_ref_content_sha256": supplied_content_digest,
+        "source_blackboard_sha256": str(
+            snapshot.get("source_blackboard_sha256") or ""
+        ),
+        "prompt_payload_sha256": supplied_prompt_digest,
+        "prompt_payload_bounds": verified_bounds,
+        "input_ref_role": "audit_only_no_model_file_read_required",
+        "shell_read_allowed": False,
+        "prompt_payload": dict(prompt_payload),
+    }
+
+
+def _planner_prompt_snapshot_audit(snapshot_path: Path) -> dict[str, Any]:
+    embedded = _embedded_planner_prompt_snapshot(snapshot_path)
+    embedded.pop("prompt_payload", None)
+    return embedded
+
+
+def _bounded_planner_prompt_payload(
+    handoff: dict[str, Any],
+    *,
+    round_index: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    max_bytes = _planner_prompt_snapshot_max_bytes()
+    embedded_handoff = _truncate_planner_prompt_value(
+        handoff,
+        list_limit=12,
+        string_limit=1_600,
+        dict_limit=48,
+        key_limit=80,
+        max_depth=8,
+    )
+    # The persisted snapshot retains this locator for humans/auditors.  The
+    # model already has every bounded decision field below and should not be
+    # tempted to open the multi-megabyte source blackboard.
+    embedded_handoff.pop("full_audit_ref", None)
+    payload = {
+        "schema_version": "codex_action_planner_prompt_payload.v1",
+        "round_index": int(round_index),
+        "blackboard_handoff": embedded_handoff,
+        "no_file_read_required": True,
+        "input_refs_are_audit_only": True,
+        "shell_read_allowed": False,
+    }
+    original_bytes = len(_planner_json_bytes(payload))
+    compaction = "bounded_handoff"
+    if original_bytes > max_bytes:
+        payload["blackboard_handoff"] = _truncate_planner_prompt_value(
+            _minimum_planner_handoff(handoff),
+            list_limit=6,
+            string_limit=700,
+            dict_limit=32,
+            key_limit=80,
+            max_depth=7,
+        )
+        compaction = "essential_decision_surface"
+    actual_bytes = len(_planner_json_bytes(payload))
+    if actual_bytes > max_bytes:
+        payload["blackboard_handoff"] = _truncate_planner_prompt_value(
+            payload["blackboard_handoff"],
+            list_limit=3,
+            string_limit=240,
+            dict_limit=24,
+            key_limit=72,
+            max_depth=6,
+        )
+        compaction = "essential_decision_surface_truncated"
+        actual_bytes = len(_planner_json_bytes(payload))
+    if actual_bytes > max_bytes:
+        payload["blackboard_handoff"] = _truncate_planner_prompt_value(
+            payload["blackboard_handoff"],
+            list_limit=1,
+            string_limit=120,
+            dict_limit=16,
+            key_limit=64,
+            max_depth=5,
+        )
+        compaction = "minimum_fail_soft_projection"
+        actual_bytes = len(_planner_json_bytes(payload))
+    if actual_bytes > max_bytes:
+        payload["blackboard_handoff"] = _absolute_minimum_planner_handoff(
+            handoff
+        )
+        compaction = "absolute_minimum_decision_projection"
+        actual_bytes = len(_planner_json_bytes(payload))
+    if actual_bytes > max_bytes:
+        raise ValueError(
+            "codex action planner prompt payload cannot satisfy hard byte bound"
+        )
+    return payload, {
+        "schema_version": "codex_action_planner_prompt_bounds.v1",
+        "max_bytes": max_bytes,
+        "original_bytes": original_bytes,
+        "embedded_bytes": actual_bytes,
+        "within_bound": True,
+        "compaction": compaction,
+        "full_blackboard_omitted": True,
+    }
+
+
+def _minimum_planner_handoff(handoff: dict[str, Any]) -> dict[str, Any]:
+    evidence = _planner_prompt_mapping(handoff.get("evidence_board"))
+    route = _planner_prompt_mapping(handoff.get("route_board"))
+    decision = _planner_prompt_mapping(handoff.get("decision_board"))
+    return {
+        "schema_version": "codex_action_planner_blackboard_handoff.v1",
+        "case_id": str(handoff.get("case_id") or ""),
+        "target_profile": _planner_prompt_mapping(handoff.get("target_profile")),
+        "state_counts": _planner_prompt_mapping(handoff.get("state_counts")),
+        "evidence_board": {
+            "source_acquisition": _planner_prompt_mapping(
+                evidence.get("source_acquisition")
+            ),
+            "pending_local_pdf_proxy_sources": _planner_prompt_prefix(
+                evidence.get("pending_local_pdf_proxy_sources"), 4
+            ),
+            "pending_pdf_extraction_sources": _planner_prompt_prefix(
+                evidence.get("pending_pdf_extraction_sources"), 4
+            ),
+            "pending_visual_extraction_sources": _planner_prompt_prefix(
+                evidence.get("pending_visual_extraction_sources"), 4
+            ),
+            "source_candidates": _planner_prompt_prefix(
+                evidence.get("source_candidates"), 6
+            ),
+            "structure_resolution_tasks": _planner_prompt_prefix(
+                evidence.get("structure_resolution_tasks"), 6
+            ),
+            "process_evidence_rows": _planner_prompt_prefix(
+                evidence.get("process_evidence_rows"), 4
+            ),
+            "exact_row_samples": _planner_prompt_prefix(
+                evidence.get("exact_row_samples"), 4
+            ),
+        },
+        "route_board": {
+            "bridge_tasks": _planner_prompt_prefix(route.get("bridge_tasks"), 4),
+            "retrosynthetic_proposals": _planner_prompt_prefix(
+                route.get("retrosynthetic_proposals"), 6
+            ),
+            "recursive_hypothesis_tasks": _planner_prompt_prefix(
+                route.get("recursive_hypothesis_tasks"), 6
+            ),
+            "parent_route_proof": _planner_prompt_mapping(
+                route.get("parent_route_proof")
+            ),
+            "route_anchor_opportunities": _planner_prompt_mapping(
+                route.get("route_anchor_opportunities")
+            ),
+            "route_closure_pressure": _planner_prompt_mapping(
+                route.get("route_closure_pressure")
+            ),
+            "frontier_ledger": _planner_prompt_mapping(
+                route.get("frontier_ledger")
+            ),
+        },
+        "decision_board": {
+            "next_action_bias": _planner_prompt_prefix(
+                decision.get("next_action_bias"), 6
+            ),
+            "blocked_directions": _planner_prompt_prefix(
+                decision.get("blocked_directions"), 4
+            ),
+            "route_failures": _planner_prompt_prefix(
+                decision.get("route_failures"), 4
+            ),
+            "proposal_failure_feedback": _planner_prompt_prefix(
+                decision.get("proposal_failure_feedback"), 4
+            ),
+            "recent_actions": _planner_prompt_prefix(
+                decision.get("recent_actions"), 5
+            ),
+            "budget_remaining": _planner_prompt_mapping(
+                decision.get("budget_remaining")
+            ),
+        },
+        "action_requirements": _planner_prompt_mapping(
+            handoff.get("action_requirements")
+        ),
+        "safety_boundaries": _planner_prompt_mapping(
+            handoff.get("safety_boundaries")
+        ),
+        "no_solved_claim": True,
+    }
+
+
+def _absolute_minimum_planner_handoff(handoff: dict[str, Any]) -> dict[str, Any]:
+    """Return a fixed-schema projection that cannot inherit arbitrary keys."""
+
+    evidence = _planner_prompt_mapping(handoff.get("evidence_board"))
+    route = _planner_prompt_mapping(handoff.get("route_board"))
+    decision = _planner_prompt_mapping(handoff.get("decision_board"))
+    target = _planner_prompt_mapping(handoff.get("target_profile"))
+    state_counts = _planner_prompt_mapping(handoff.get("state_counts"))
+    parent_proof = _planner_prompt_mapping(route.get("parent_route_proof"))
+    return {
+        "schema_version": "codex_action_planner_blackboard_handoff.v1",
+        "case_id": _planner_prompt_text(handoff.get("case_id"), 160),
+        "target_profile": {
+            "target_name": _planner_prompt_text(target.get("target_name"), 160),
+            "target_smiles": _planner_prompt_text(target.get("target_smiles"), 520),
+            "canonical_smiles": _planner_prompt_text(
+                target.get("canonical_smiles"), 520
+            ),
+            "family_hint": _planner_prompt_text(target.get("family_hint"), 160),
+            "heavy_atoms": _planner_prompt_count(target.get("heavy_atoms")),
+            "rings": _planner_prompt_count(target.get("rings")),
+            "stereocenters": _planner_prompt_count(target.get("stereocenters")),
+            "valid": target.get("valid") is True,
+        },
+        "state_counts": {
+            key: _planner_prompt_count(state_counts.get(key))
+            for key in (
+                "source_candidates",
+                "pdf_structure_evidence",
+                "visual_chains",
+                "exact_rows",
+                "structure_resolution_tasks_open",
+                "resolved_structures",
+                "retrosynthetic_proposals",
+                "recursive_hypothesis_tasks",
+                "bridge_tasks",
+                "route_failures",
+            )
+        },
+        "evidence_board": {
+            "pending_source_counts": {
+                "local_pdf_proxy": _planner_prompt_list_count(
+                    evidence.get("pending_local_pdf_proxy_sources")
+                ),
+                "pdf_extraction": _planner_prompt_list_count(
+                    evidence.get("pending_pdf_extraction_sources")
+                ),
+                "visual_extraction": _planner_prompt_list_count(
+                    evidence.get("pending_visual_extraction_sources")
+                ),
+                "source_candidates": _planner_prompt_list_count(
+                    evidence.get("source_candidates")
+                ),
+                "structure_resolution_tasks": _planner_prompt_list_count(
+                    evidence.get("structure_resolution_tasks")
+                ),
+            },
+            "pending_local_pdf_proxy_sources": _fixed_prompt_source_rows(
+                evidence.get("pending_local_pdf_proxy_sources"), limit=1
+            ),
+            "pending_pdf_extraction_sources": _fixed_prompt_source_rows(
+                evidence.get("pending_pdf_extraction_sources"), limit=2
+            ),
+            "pending_visual_extraction_sources": _fixed_prompt_source_rows(
+                evidence.get("pending_visual_extraction_sources"), limit=2
+            ),
+            "source_candidates": _fixed_prompt_source_rows(
+                evidence.get("source_candidates"), limit=2
+            ),
+            "structure_resolution_tasks": _fixed_prompt_structure_tasks(
+                evidence.get("structure_resolution_tasks"), limit=2
+            ),
+        },
+        "route_board": {
+            "route_counts": {
+                "bridge_tasks": _planner_prompt_list_count(route.get("bridge_tasks")),
+                "retrosynthetic_proposals": _planner_prompt_list_count(
+                    route.get("retrosynthetic_proposals")
+                ),
+                "recursive_hypothesis_tasks": _planner_prompt_list_count(
+                    route.get("recursive_hypothesis_tasks")
+                ),
+            },
+            "parent_route_proof": {
+                "accepted": parent_proof.get("accepted") is True,
+                "proof_mode": _planner_prompt_text(
+                    parent_proof.get("proof_mode"), 100
+                ),
+                "status": _planner_prompt_text(parent_proof.get("status"), 100),
+                "reasons": _fixed_prompt_text_list(
+                    parent_proof.get("reasons"), limit=4, string_limit=180
+                ),
+            },
+            "frontier_ledger": _fixed_prompt_frontier_ledger(
+                route.get("frontier_ledger")
+            ),
+        },
+        "decision_board": {
+            "next_action_bias": _fixed_prompt_text_list(
+                decision.get("next_action_bias"), limit=4, string_limit=120
+            ),
+            "blocked_direction_count": _planner_prompt_list_count(
+                decision.get("blocked_directions")
+            ),
+            "route_failure_count": _planner_prompt_list_count(
+                decision.get("route_failures")
+            ),
+            "recent_action_types": [
+                _planner_prompt_text(row.get("action_type"), 100)
+                for row in (
+                    _planner_prompt_mapping(raw)
+                    for raw in (
+                        decision.get("recent_actions")[-2:]
+                        if isinstance(decision.get("recent_actions"), (list, tuple))
+                        else []
+                    )
+                )
+                if row
+            ],
+            "budget_remaining": _fixed_prompt_budget_remaining(
+                decision.get("budget_remaining")
+            ),
+        },
+        "action_requirements": _fixed_prompt_action_requirements(
+            handoff.get("action_requirements")
+        ),
+        "safety_boundaries": _fixed_prompt_safety_boundaries(
+            handoff.get("safety_boundaries")
+        ),
+        "no_solved_claim": True,
+    }
+
+
+def _planner_prompt_mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _planner_prompt_prefix(value: Any, limit: int) -> list[Any]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return list(value[: max(0, int(limit))])
+
+
+def _planner_prompt_text(value: Any, limit: int) -> str:
+    return str(value or "")[: max(0, int(limit))]
+
+
+def _planner_prompt_count(value: Any) -> int:
+    try:
+        number = int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    return max(-1_000_000_000, min(1_000_000_000, number))
+
+
+def _planner_prompt_list_count(value: Any) -> int:
+    return min(1_000_000_000, len(value)) if isinstance(value, (list, tuple)) else 0
+
+
+def _fixed_prompt_text_list(
+    value: Any,
+    *,
+    limit: int,
+    string_limit: int,
+) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [
+        _planner_prompt_text(item, string_limit)
+        for item in value[: max(0, int(limit))]
+    ]
+
+
+def _fixed_prompt_source_rows(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in value[: max(0, int(limit))]:
+        row = _planner_prompt_mapping(raw)
+        if not row:
+            continue
+        rows.append(
+            {
+                "source_key": _planner_prompt_text(row.get("source_key"), 180),
+                "candidate_id": _planner_prompt_text(row.get("candidate_id"), 180),
+                "source_ref": _planner_prompt_text(row.get("source_ref"), 240),
+                "doi": _planner_prompt_text(row.get("doi"), 120),
+                "pii": _planner_prompt_text(row.get("pii"), 100),
+                "title": _planner_prompt_text(
+                    row.get("title") or row.get("source_title"), 220
+                ),
+                "local_pdf": _planner_prompt_text(
+                    row.get("local_pdf")
+                    or row.get("pdf_path")
+                    or row.get("source_pdf_path"),
+                    360,
+                ),
+                "stage": _planner_prompt_text(
+                    row.get("stage") or row.get("access_status"), 80
+                ),
+            }
+        )
+    return rows
+
+
+def _fixed_prompt_structure_tasks(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in value[: max(0, int(limit))]:
+        row = _planner_prompt_mapping(raw)
+        if not row:
+            continue
+        rows.append(
+            {
+                "task_id": _planner_prompt_text(row.get("task_id"), 180),
+                "label": _planner_prompt_text(row.get("label"), 140),
+                "source_ref": _planner_prompt_text(row.get("source_ref"), 240),
+                "source_locator": _planner_prompt_text(
+                    row.get("source_locator"), 220
+                ),
+                "artifact_ref": _planner_prompt_text(row.get("artifact_ref"), 240),
+                "status": _planner_prompt_text(row.get("status"), 80),
+                "no_solved_claim": True,
+            }
+        )
+    return rows
+
+
+def _fixed_prompt_frontier_ledger(value: Any) -> dict[str, Any]:
+    ledger = _planner_prompt_mapping(value)
+    pending = _planner_prompt_mapping(ledger.get("pending_counts"))
+    root = _planner_prompt_mapping(ledger.get("root"))
+    return {
+        "ledger_schema_version": _planner_prompt_text(
+            ledger.get("ledger_schema_version"), 80
+        ),
+        "frontier_ledger_content_sha256": _planner_prompt_text(
+            ledger.get("frontier_ledger_content_sha256"), 128
+        ),
+        "input_valid": ledger.get("input_valid") is True,
+        "ledger_validation_accepted": ledger.get("ledger_validation_accepted")
+        is True,
+        "root_canonical_smiles": _planner_prompt_text(
+            root.get("canonical_smiles"), 320
+        ),
+        "pending_counts": {
+            key: _planner_prompt_count(pending.get(key))
+            for key in (
+                "proposal_pending_molecule_count",
+                "proposal_expansion_eligible_molecule_count",
+                "work_pending_molecule_count",
+                "stock_pending_leaf_count",
+                "reaction_proof_pending_edge_count",
+                "dependency_pending_edge_count",
+            )
+        },
+        "open_frontier_molecule_count": _planner_prompt_count(
+            ledger.get("open_frontier_molecule_count")
+        ),
+        "open_frontier_rows_truncated": ledger.get(
+            "open_frontier_rows_truncated"
+        )
+        is True,
+        "open_frontier_molecules": [
+            {
+                "canonical_smiles": _planner_prompt_text(
+                    row.get("canonical_smiles"), 320
+                ),
+                "proposal_state": _planner_prompt_text(
+                    row.get("proposal_state"), 80
+                ),
+                "work_open": row.get("work_open") is True,
+                "proposal_expansion_allowed": row.get(
+                    "proposal_expansion_allowed"
+                )
+                is True,
+                "stock_closed": row.get("stock_closed") is True,
+            }
+            for row in (
+                _planner_prompt_mapping(raw)
+                for raw in (
+                    ledger.get("open_frontier_molecules")[:2]
+                    if isinstance(ledger.get("open_frontier_molecules"), (list, tuple))
+                    else []
+                )
+            )
+            if row
+        ],
+    }
+
+
+def _fixed_prompt_budget_remaining(value: Any) -> dict[str, int]:
+    budget = _planner_prompt_mapping(value)
+    return {
+        key: _planner_prompt_count(budget.get(key))
+        for key in (
+            "rounds_remaining",
+            "scout_calls_remaining",
+            "visual_calls_remaining",
+            "chemenzy_runs_remaining",
+            "child_target_runs_remaining",
+            "codex_research_runs_remaining",
+            "template_application_actions_remaining",
+        )
+    }
+
+
+def _fixed_prompt_action_requirements(value: Any) -> dict[str, Any]:
+    requirements = _planner_prompt_mapping(value)
+    source_sensitive = _planner_prompt_mapping(
+        requirements.get("source_sensitive_actions")
+    )
+    source_rows: dict[str, Any] = {}
+    for action_type in (
+        "extract_pdf_literature_structures",
+        "extract_visual_literature_chain",
+        "resolve_literature_structure_task",
+        "compile_exact_literature_rows",
+    ):
+        row = _planner_prompt_mapping(source_sensitive.get(action_type))
+        source_rows[action_type] = {
+            "currently_required": row.get("currently_required") is True,
+            "requires_pdf_path": row.get("requires_pdf_path") is True,
+            "requires_uncompiled_visual_steps": row.get(
+                "requires_uncompiled_visual_steps"
+            )
+            is True,
+            "accepted_payload_fields": _fixed_prompt_text_list(
+                row.get("accepted_payload_fields"), limit=10, string_limit=64
+            ),
+        }
+    search = _planner_prompt_mapping(requirements.get("search_literature"))
+    guided = _planner_prompt_mapping(requirements.get("run_guided_chemenzy"))
+    return {
+        "source_sensitive_actions": source_rows,
+        "search_literature": {
+            "currently_required_when_selected": search.get(
+                "currently_required_when_selected"
+            )
+            is True,
+            "accepted_payload_fields": _fixed_prompt_text_list(
+                search.get("accepted_payload_fields"), limit=10, string_limit=64
+            ),
+        },
+        "run_guided_chemenzy": {
+            "currently_required_when_selected": guided.get(
+                "currently_required_when_selected"
+            )
+            is True,
+            "accepted_payload_fields": _fixed_prompt_text_list(
+                guided.get("accepted_payload_fields"), limit=10, string_limit=64
+            ),
+        },
+    }
+
+
+def _fixed_prompt_safety_boundaries(value: Any) -> dict[str, Any]:
+    safety = _planner_prompt_mapping(value)
+    return {
+        "planner_can_emit_solved": False,
+        "raw_reaction_output_allowed": False,
+        "child_route_cannot_promote_parent": True,
+        "final_verdict_authority": _planner_prompt_text(
+            safety.get("final_verdict_authority")
+            or "deterministic_parent_route_proof",
+            100,
+        ),
+    }
+
+
+def _truncate_planner_prompt_value(
+    value: Any,
+    *,
+    list_limit: int,
+    string_limit: int,
+    dict_limit: int = 32,
+    key_limit: int = 80,
+    max_depth: int = 6,
+) -> Any:
+    if max_depth <= 0:
+        if isinstance(value, dict):
+            return {"summary_type": "dict", "item_count": len(value)}
+        if isinstance(value, (list, tuple)):
+            return {"summary_type": "list", "item_count": len(value)}
+        return _planner_prompt_text(value, min(string_limit, 80))
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        retained = 0
+        inspected = 0
+        for key, item in value.items():
+            if inspected >= max(0, int(dict_limit)):
+                break
+            inspected += 1
+            bounded_key = _planner_prompt_text(key, key_limit)
+            if not bounded_key or bounded_key in out:
+                continue
+            out[bounded_key] = _truncate_planner_prompt_value(
+                item,
+                list_limit=list_limit,
+                string_limit=string_limit,
+                dict_limit=dict_limit,
+                key_limit=key_limit,
+                max_depth=max_depth - 1,
+            )
+            retained += 1
+        if len(value) > retained:
+            out["__omitted_key_count"] = len(value) - retained
+        return out
+    if isinstance(value, (list, tuple)):
+        rows = [
+            _truncate_planner_prompt_value(
+                item,
+                list_limit=list_limit,
+                string_limit=string_limit,
+                dict_limit=dict_limit,
+                key_limit=key_limit,
+                max_depth=max_depth - 1,
+            )
+            for item in value[: max(0, int(list_limit))]
+        ]
+        if len(value) > max(0, int(list_limit)):
+            rows.append({"__omitted_item_count": len(value) - int(list_limit)})
+        return rows
+    if isinstance(value, str):
+        return value[: max(0, int(string_limit))]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return str(value)[: max(0, int(string_limit))]
+
+
+def _planner_prompt_snapshot_max_bytes() -> int:
+    raw = os.environ.get(
+        "AUTOPLANNER_CODEX_ACTION_PLANNER_PROMPT_SNAPSHOT_MAX_BYTES",
+        "48000",
+    )
+    try:
+        return max(12_000, min(96_000, int(raw)))
+    except (TypeError, ValueError):
+        return 48_000
+
+
+def _planner_json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def _planner_json_sha256(value: Any) -> str:
+    return hashlib.sha256(_planner_json_bytes(value)).hexdigest()
 
 
 def _planner_allowed_tools() -> list[str]:
@@ -2704,6 +3429,10 @@ def _planner_tool_policy(*, allowed_tools: list[str], max_tool_calls: int) -> di
         "allowed_tools": tools,
         "max_tool_calls": int(max_tool_calls or 0),
         "cli_search_enabled": bool(int(max_tool_calls or 0) > 0 and {"web_search", "browser", "literature_search"} & set(tools)),
+        "shell_allowed": False,
+        "filesystem_read_tools_allowed": False,
+        "input_refs_are_audit_only": True,
+        "embedded_snapshot_supplies_decision_state": True,
         "outputs_remain_typed_action_batch_only": True,
         "raw_reaction_output_allowed": False,
         "final_verdict_authority": "deterministic_parent_route_proof",
@@ -2868,6 +3597,7 @@ def _planner_blackboard_handoff(
         },
         "evidence_board": {
             "source_acquisition": dict(context.get("source_acquisition") or {}),
+            "pending_local_pdf_proxy_sources": (context.get("literature_processing") or {}).get("pending_local_pdf_proxy_sources") or [],
             "pending_pdf_extraction_sources": (context.get("literature_processing") or {}).get("pending_pdf_extraction_sources") or [],
             "pending_visual_extraction_sources": (context.get("literature_processing") or {}).get("pending_visual_extraction_sources") or [],
             "source_candidates": _compact_sources(source_candidates),
@@ -2884,6 +3614,7 @@ def _planner_blackboard_handoff(
             "parent_route_proof": _compact_parent_route_proof(blackboard.get("parent_route_proof") or {}),
             "route_anchor_opportunities": dict(context.get("route_anchor_opportunities") or {}),
             "route_closure_pressure": _route_closure_pressure_summary(blackboard),
+            "frontier_ledger": _compact_planner_frontier_ledger(blackboard),
         },
         "decision_board": {
             "next_action_bias": [str(item) for item in belief.get("next_action_bias") or [] if str(item or "").strip()][:8],
@@ -2905,6 +3636,92 @@ def _planner_blackboard_handoff(
         ],
         "no_solved_claim": True,
 }
+
+
+def _compact_planner_frontier_ledger(blackboard: dict[str, Any]) -> dict[str, Any]:
+    ledger = (
+        dict(blackboard.get("frontier_ledger") or {})
+        if isinstance(blackboard.get("frontier_ledger"), dict)
+        else {}
+    )
+    envelope = (
+        dict(blackboard.get("frontier_ledger_summary") or {})
+        if isinstance(blackboard.get("frontier_ledger_summary"), dict)
+        else {}
+    )
+    molecules = (
+        dict(ledger.get("molecules") or {})
+        if isinstance(ledger.get("molecules"), dict)
+        else {}
+    )
+    open_rows: list[dict[str, Any]] = []
+    open_row_count = 0
+    for smiles in sorted(str(key) for key in molecules):
+        raw = molecules.get(smiles)
+        if not isinstance(raw, dict):
+            continue
+        proposal = dict(raw.get("proposal") or {})
+        work = dict(raw.get("work") or {})
+        stock = dict(raw.get("stock") or {})
+        if not (
+            str(proposal.get("state") or "") == "frontier"
+            or work.get("open") is True
+            or stock.get("closed") is not True
+        ):
+            continue
+        open_row_count += 1
+        if len(open_rows) < 8:
+            open_rows.append(
+                {
+                    "canonical_smiles": smiles,
+                    "proposal_state": str(proposal.get("state") or ""),
+                    "work_open": work.get("open") is True,
+                    "proposal_expansion_allowed": (
+                        work.get("proposal_expansion_allowed") is True
+                    ),
+                    "stock_closed": stock.get("closed") is True,
+                    "work_states": [
+                        str(item) for item in work.get("states") or []
+                    ][:4],
+                }
+            )
+    ledger_summary = (
+        dict(ledger.get("summary") or {})
+        if isinstance(ledger.get("summary"), dict)
+        else {}
+    )
+    return {
+        "schema_version": "codex_action_planner_frontier_ledger_summary.v1",
+        "ledger_schema_version": str(ledger.get("schema_version") or ""),
+        "frontier_ledger_content_sha256": str(
+            ledger.get("content_sha256")
+            or envelope.get("frontier_ledger_content_sha256")
+            or ""
+        ),
+        "input_valid": envelope.get("input_valid") is True,
+        "ledger_validation_accepted": (
+            envelope.get("ledger_validation_accepted") is True
+        ),
+        "root": dict(ledger.get("root") or {}) if isinstance(ledger.get("root"), dict) else {},
+        "pending_counts": {
+            key: ledger_summary.get(key)
+            for key in (
+                "proposal_pending_molecule_count",
+                "proposal_expansion_eligible_molecule_count",
+                "work_pending_molecule_count",
+                "stock_pending_leaf_count",
+                "reaction_proof_pending_edge_count",
+                "dependency_pending_edge_count",
+            )
+            if key in ledger_summary
+        },
+        "open_frontier_molecules": open_rows,
+        "open_frontier_molecule_count": open_row_count,
+        "open_frontier_rows_truncated": len(open_rows) < open_row_count,
+        "authority_note": (
+            "decision_summary_only; closure authority remains the host-validated full ledger"
+        ),
+    }
 
 
 def _brief_action_requirements(requirements: Any) -> dict[str, Any]:
