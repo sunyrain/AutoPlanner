@@ -11,7 +11,10 @@ from typing import Any
 
 from rdkit import Chem, RDLogger
 
-from cascade_planner.routes.consensus import select_reaction_family
+from cascade_planner.routes.consensus import (
+    EVIDENCE_LEVEL_WEIGHT,
+    select_reaction_family,
+)
 from cascade_planner.routes.overlay import build_route_hypergraph_v2_overlay
 
 
@@ -76,7 +79,63 @@ def validate_route_consensus_expansion(payload: Any) -> list[str]:
             reasons.append(f"expansion_proposal:{index}:invalid_precursors")
         if proposal.get("no_solved_claim") is not True or proposal.get("not_parent_route_proof") is not True:
             reasons.append(f"expansion_proposal:{index}:unsafe_semantics")
+        reasons.extend(
+            _reaction_family_consistency_reasons(proposal, index=index)
+        )
     return sorted(set(reasons))
+
+
+def _reaction_family_consistency_reasons(
+    proposal: Mapping[str, Any],
+    *,
+    index: int,
+) -> list[str]:
+    prefix = f"expansion_proposal:{index}:"
+    reasons: list[str] = []
+    raw_records = proposal.get("source_records")
+    if raw_records is None:
+        source_records: list[dict[str, Any]] = []
+    elif not isinstance(raw_records, list):
+        reasons.append(prefix + "source_records_not_list")
+        source_records = []
+    else:
+        source_records = [
+            dict(record) for record in raw_records if isinstance(record, Mapping)
+        ]
+        if len(source_records) != len(raw_records):
+            reasons.append(prefix + "source_record_not_object")
+
+    family_rows = [
+        record
+        for record in source_records
+        if str(record.get("reaction_family") or "").strip()
+        not in {"", "unspecified"}
+    ]
+    raw_selection = proposal.get("reaction_family_selection")
+    selection = (
+        dict(raw_selection) if isinstance(raw_selection, Mapping) else None
+    )
+    if raw_selection is not None and selection is None:
+        reasons.append(prefix + "reaction_family_selection_not_object")
+
+    if family_rows:
+        expected = select_reaction_family(family_rows)
+        if selection is None:
+            reasons.append(prefix + "reaction_family_selection_missing")
+        elif selection != expected:
+            reasons.append(prefix + "reaction_family_selection_source_mismatch")
+        if str(proposal.get("reaction_family") or "unspecified") != str(
+            expected["value"]
+        ):
+            reasons.append(prefix + "reaction_family_value_source_mismatch")
+    elif selection is not None and (
+        selection.get("authority_bound") is True
+        or str(selection.get("authority_evidence_level") or "model_only")
+        != "model_only"
+        or str(selection.get("status") or "") == "selected_authority_bound"
+    ):
+        reasons.append(prefix + "legacy_reaction_family_authority_not_unbound")
+    return reasons
 
 
 def assemble_route_consensus_graph(
@@ -377,6 +436,60 @@ def _cyclic_step_ids(
     return cyclic
 
 
+def _select_edge_authority(
+    source_records: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    bound_rows = [
+        dict(row)
+        for row in source_records
+        if isinstance(row, Mapping)
+        and row.get("authority_bound") is True
+        and str(row.get("authority_evidence_level") or "")
+        in EVIDENCE_LEVEL_WEIGHT
+    ]
+    if not bound_rows:
+        return {
+            "schema_version": "route_consensus_edge_authority_selection.v1",
+            "authority_bound": False,
+            "authority_evidence_level": "model_only",
+            "authority_basis": "no_host_bound_edge_source",
+            "authority_bases": [],
+            "support_groups": [],
+            "candidate_ids": [],
+        }
+    evidence_level = max(
+        (
+            str(row.get("authority_evidence_level") or "model_only")
+            for row in bound_rows
+        ),
+        key=lambda value: EVIDENCE_LEVEL_WEIGHT.get(value, 0.0),
+    )
+    authority_bases = _dedupe_text(
+        str(row.get("authority_basis") or "") for row in bound_rows
+    )
+    return {
+        "schema_version": "route_consensus_edge_authority_selection.v1",
+        "authority_bound": True,
+        "authority_evidence_level": evidence_level,
+        "authority_basis": (
+            authority_bases[0]
+            if len(authority_bases) == 1
+            else (
+                "multiple_host_authority_bindings"
+                if authority_bases
+                else "host_bound_edge_source"
+            )
+        ),
+        "authority_bases": authority_bases,
+        "support_groups": _dedupe_text(
+            str(row.get("support_group") or "") for row in bound_rows
+        ),
+        "candidate_ids": _dedupe_text(
+            str(row.get("candidate_id") or "") for row in bound_rows
+        ),
+    }
+
+
 def _merge_step(signature: str, rows: list[tuple[dict[str, Any], dict[str, Any]]]) -> dict[str, Any]:
     proposals = [row[0] for row in rows]
     expansions = [row[1] for row in rows]
@@ -403,17 +516,12 @@ def _merge_step(signature: str, rows: list[tuple[dict[str, Any], dict[str, Any]]
         record
         for record in source_records
         if str(record.get("reaction_family") or "").strip()
+        not in {"", "unspecified"}
     ]
     if not reaction_family_rows:
         # Compatibility for route_consensus.v1 objects written before
         # source-level reaction-family provenance was retained.
         for proposal in proposals:
-            selection = dict(proposal.get("reaction_family_selection") or {})
-            support_groups = list(
-                selection.get("support_groups")
-                or proposal.get("independent_support_groups")
-                or []
-            )
             reaction_family_rows.append(
                 {
                     "candidate_id": str(proposal.get("consensus_id") or ""),
@@ -421,24 +529,14 @@ def _merge_step(signature: str, rows: list[tuple[dict[str, Any], dict[str, Any]]
                         proposal.get("reaction_family") or "unspecified"
                     ),
                     "source_channel": "other",
-                    "support_group": (
-                        str(support_groups[0])
-                        if len(support_groups) == 1
-                        else "legacy_unverified_support"
-                    ),
-                    "authority_bound": selection.get("authority_bound") is True,
-                    "authority_evidence_level": str(
-                        selection.get("authority_evidence_level")
-                        or proposal.get("authority_evidence_level")
-                        or "model_only"
-                    ),
-                    "authority_basis": str(
-                        selection.get("authority_basis")
-                        or "legacy_consensus_family_fallback"
-                    ),
+                    "support_group": "legacy_unverified_support",
+                    "authority_bound": False,
+                    "authority_evidence_level": "model_only",
+                    "authority_basis": "legacy_consensus_family_fallback_unbound",
                 }
             )
     reaction_family_selection = select_reaction_family(reaction_family_rows)
+    edge_authority_selection = _select_edge_authority(source_records)
     conditions = _dedupe_text(value for proposal in proposals for value in proposal.get("conditions") or [])
     catalysts = _dedupe_text(value for proposal in proposals for value in proposal.get("catalysts") or [])
     enzymes = _dedupe_text(value for proposal in proposals for value in proposal.get("enzymes") or [])
@@ -467,6 +565,16 @@ def _merge_step(signature: str, rows: list[tuple[dict[str, Any], dict[str, Any]]
         "reaction_family": str(reaction_family_selection["value"]),
         "reaction_families": _dedupe_text(value for row in proposals for value in row.get("reaction_families") or []),
         "reaction_family_selection": reaction_family_selection,
+        "reaction_family_authority_bound": bool(
+            reaction_family_selection.get("authority_bound") is True
+        ),
+        "reaction_family_authority_evidence_level": str(
+            reaction_family_selection.get("authority_evidence_level")
+            or "model_only"
+        ),
+        "reaction_family_authority_basis": str(
+            reaction_family_selection.get("authority_basis") or "none"
+        ),
         "rationales": _dedupe_text(value for row in proposals for value in row.get("rationales") or []),
         "source_channels": _dedupe_text(value for row in proposals for value in row.get("source_channels") or []),
         "source_records": source_records,
@@ -482,12 +590,11 @@ def _merge_step(signature: str, rows: list[tuple[dict[str, Any], dict[str, Any]]
         "rank_score": round(max(float(row.get("rank_score") or 0.0) for row in proposals), 4),
         "confidence": str(max(proposals, key=lambda row: float(row.get("rank_score") or 0.0)).get("confidence") or "low"),
         "authority_evidence_level": str(
-            max(
-                proposals,
-                key=lambda row: float(row.get("rank_score") or 0.0),
-            ).get("authority_evidence_level")
-            or "model_only"
+            edge_authority_selection["authority_evidence_level"]
         ),
+        "authority_bound": bool(edge_authority_selection["authority_bound"]),
+        "authority_basis": str(edge_authority_selection["authority_basis"]),
+        "edge_authority_selection": edge_authority_selection,
         "authority_policy": "host_derived",
         "producer_evidence_levels": _dedupe_text(
             value

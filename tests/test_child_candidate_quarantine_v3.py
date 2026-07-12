@@ -149,6 +149,8 @@ def test_mixed_candidate_report_quarantines_only_bad_edge_and_stays_strict(
     assert acceptance["partial_fallback_used"] is False
     assert acceptance["admitted_candidate_count"] == 2
     assert acceptance["quarantined_candidate_count"] == 1
+    assert acceptance["candidate_partition_count"] == 3
+    assert acceptance["raw_candidate_partition_reconciled"] is True
     assert acceptance["filtered_child_roles"] == [
         "chemoenzymatic_route_specialist"
     ]
@@ -197,6 +199,64 @@ def test_mixed_candidate_report_quarantines_only_bad_edge_and_stays_strict(
     assert all(row["candidate_count"] == 0 for row in empty_reports)
 
 
+def test_candidate_local_shape_failures_quarantine_without_poisoning_sibling(
+    tmp_path,
+) -> None:
+    missing_product = _candidate("missing-product", precursor="CC=O")
+    missing_product.pop("product_smiles")
+    extra_field = _candidate("extra-field", precursor="CC=O")
+    extra_field["innocuous_note"] = "candidate-local extension"
+
+    report = run_codex_retrosynthesis_team(
+        case_id="case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(child_acceptance_mode="strict_all"),
+        runner=lambda task: _runner(
+            task,
+            chemo_candidates=[
+                _candidate("valid-sibling", precursor="CC=O"),
+                missing_product,
+                extra_field,
+            ],
+        ),
+    )
+
+    assert report["accepted"] is True, report["reasons"]
+    chemo = next(
+        row
+        for row in report["child_reports"]
+        if row["role"] == "chemoenzymatic_route_specialist"
+    )
+    assert chemo["accepted"] is True
+    assert chemo["report_disposition"] == "accepted_with_candidate_quarantine"
+    admission = chemo["candidate_admission"]
+    assert admission["raw_candidate_count"] == 3
+    assert admission["candidate_pass_count"] == 1
+    assert admission["rejected_candidate_count"] == 2
+    rejected = {
+        row["candidate_id"]: set(row["reasons"])
+        for row in admission["audits"]
+        if row["accepted"] is not True
+    }
+    assert {
+        "fields_not_exact",
+        "product_smiles_not_string",
+        "invalid_product_smiles",
+    }.issubset(rejected["missing-product"])
+    assert rejected["extra-field"] == {"fields_not_exact"}
+    acceptance = report["child_acceptance"]
+    assert acceptance["raw_candidate_count"] == 4
+    assert acceptance["admitted_candidate_count"] == 2
+    assert acceptance["quarantined_candidate_count"] == 2
+    assert acceptance["discarded_with_rejected_reports_count"] == 0
+    assert acceptance["candidate_partition_count"] == 4
+    assert acceptance["raw_candidate_partition_reconciled"] is True
+    assert report["route_consensus"]["source_summary"]["rejected_count"] == 2
+
+
 def test_nonempty_all_quarantined_report_fails_but_original_empty_is_valid(
     tmp_path,
 ) -> None:
@@ -223,6 +283,13 @@ def test_nonempty_all_quarantined_report_fails_but_original_empty_is_valid(
     assert "child_report_no_admissible_candidates" in chemo["validation_reasons"]
     assert chemo["candidate_admission"]["candidate_pass_count"] == 0
     assert chemo["candidate_admission"]["rejected_candidate_count"] == 1
+    acceptance = report["child_acceptance"]
+    assert acceptance["raw_candidate_count"] == 2
+    assert acceptance["admitted_candidate_count"] == 1
+    assert acceptance["quarantined_candidate_count"] == 0
+    assert acceptance["discarded_with_rejected_reports_count"] == 1
+    assert acceptance["candidate_partition_count"] == 2
+    assert acceptance["raw_candidate_partition_reconciled"] is True
     critic = next(
         row
         for row in report["child_reports"]

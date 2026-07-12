@@ -48,6 +48,7 @@ from cascade_planner.routes.consensus import (
     consensus_to_blackboard_proposals,
     fuse_route_candidates,
     normalize_route_candidate,
+    select_reaction_family,
     validate_retrosynthesis_report_envelope_payload,
 )
 from cascade_planner.routes.graph import (
@@ -154,6 +155,8 @@ CHILD_CANDIDATE_KEYS = {
 }
 ISOLATABLE_CHILD_CANDIDATE_REASONS = frozenset(
     {
+        "candidate_not_object",
+        "invalid_candidate_schema",
         "invalid_product_smiles",
         "invalid_precursor_smiles",
         "invalid_or_missing_material",
@@ -163,6 +166,48 @@ ISOLATABLE_CHILD_CANDIDATE_REASONS = frozenset(
         "ancestor_or_target_cycle",
         "element_inventory_not_conserved",
         "large_atom_jump",
+        "surplus_advanced_precursor_fragment",
+        "host_candidate_quarantined",
+    }
+)
+ISOLATABLE_CHILD_CANDIDATE_SHAPE_REASONS = frozenset(
+    {
+        "not_object",
+        "fields_not_exact",
+        *{
+            f"{key}_not_string"
+            for key in (
+                "schema_version",
+                "candidate_id",
+                "product_smiles",
+                "reaction_family",
+                "transformation_rationale",
+                "source_channel",
+                "evidence_level",
+                "confidence",
+                "catalyst",
+                "enzyme",
+            )
+        },
+        *{
+            f"{key}_not_string_list"
+            for key in (
+                "precursor_smiles",
+                "source_refs",
+                "evidence_refs",
+                "conditions",
+                "limitations",
+                "required_validation",
+            )
+        },
+    }
+)
+FATAL_CHILD_CANDIDATE_SAFETY_REASONS = frozenset(
+    {
+        "missing_no_solved_claim",
+        "missing_not_parent_route_proof",
+        "direct_solved_claim",
+        "raw_reaction_payload",
     }
 )
 
@@ -704,6 +749,18 @@ def run_codex_retrosynthesis_team(
     )
     consensus_summary = dict(consensus.get("source_summary") or {})
     candidate_admission_reconciliation_reasons: list[str] = []
+    candidate_partition_count = (
+        admitted_candidate_count
+        + quarantined_candidate_count
+        + discarded_with_rejected_reports_count
+    )
+    candidate_raw_partition_reconciled = bool(
+        raw_candidate_count == candidate_partition_count
+    )
+    if not candidate_raw_partition_reconciled:
+        candidate_admission_reconciliation_reasons.append(
+            "child_candidate_raw_partition_mismatch"
+        )
     if int(consensus_summary.get("candidate_count") or 0) != admitted_candidate_count:
         candidate_admission_reconciliation_reasons.append(
             "child_candidate_admitted_count_consensus_mismatch"
@@ -814,6 +871,10 @@ def run_codex_retrosynthesis_team(
             "quarantined_candidate_count": quarantined_candidate_count,
             "discarded_with_rejected_reports_count": (
                 discarded_with_rejected_reports_count
+            ),
+            "candidate_partition_count": candidate_partition_count,
+            "raw_candidate_partition_reconciled": (
+                candidate_raw_partition_reconciled
             ),
             "filtered_child_roles": filtered_child_roles,
             "candidate_admission_reconciliation_reasons": (
@@ -5692,6 +5753,9 @@ def _cap_partial_consensus_to_l0(consensus: dict[str, Any]) -> dict[str, Any]:
             )
             source_records.append(source)
         proposal["source_records"] = source_records
+        reaction_family_selection = select_reaction_family(source_records)
+        proposal["reaction_family"] = str(reaction_family_selection["value"])
+        proposal["reaction_family_selection"] = reaction_family_selection
         proposals.append(proposal)
     capped["proposals"] = proposals
     source_summary = dict(capped.get("source_summary") or {})
@@ -5758,7 +5822,9 @@ def _validated_child_reports(
         if not parsed:
             validation_reasons.append("child_report_json_missing_or_invalid")
         else:
-            validation_reasons.extend(_strict_child_report_shape_reasons(parsed))
+            validation_reasons.extend(
+                _strict_child_report_envelope_shape_reasons(parsed)
+            )
             validation_reasons.extend(
                 validate_retrosynthesis_report_envelope_payload(parsed)
             )
@@ -5874,16 +5940,31 @@ def _audit_child_candidate(
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     candidate = dict(raw_candidate) if isinstance(raw_candidate, dict) else {}
     producer_digest = _safe_payload_digest(candidate)
+    shape_prefix = f"child_candidate:{index}:"
+    shape_reasons = [
+        reason.removeprefix(shape_prefix)
+        for reason in _strict_child_candidate_shape_reasons(
+            raw_candidate,
+            index=index,
+        )
+    ]
+    shape_reasons = [
+        "candidate_not_object" if reason == "not_object" else reason
+        for reason in shape_reasons
+    ]
     # Source identity is a host capability. Child text cannot impersonate a
     # deterministic provider or mint an independent evidence group.
     candidate["source_channel"] = ROLE_SOURCE_CHANNELS.get(role, "other")
     candidate["report_ref"] = report_ref
-    normalized, reasons = normalize_route_candidate(
-        candidate,
-        default_source_channel=ROLE_SOURCE_CHANNELS.get(role, "other"),
-        report_ref=report_ref,
-    )
-    candidate_reasons = list(reasons)
+    if isinstance(raw_candidate, dict):
+        normalized, reasons = normalize_route_candidate(
+            candidate,
+            default_source_channel=ROLE_SOURCE_CHANNELS.get(role, "other"),
+            report_ref=report_ref,
+        )
+    else:
+        normalized, reasons = None, []
+    candidate_reasons = [*shape_reasons, *reasons]
     if normalized is not None and not _same_smiles(
         normalized.get("product_smiles"),
         target_smiles=target_smiles,
@@ -5905,9 +5986,15 @@ def _audit_child_candidate(
     hard_reasons = sorted(
         reason
         for reason in candidate_reasons
-        if reason not in ISOLATABLE_CHILD_CANDIDATE_REASONS
+        if not _isolatable_child_candidate_reason(reason)
     )
     accepted = bool(normalized is not None and not candidate_reasons)
+    if not accepted:
+        # Fusion intentionally sees quarantined rows so its rejection ledger
+        # reconciles with the child-admission ledger.  A host-only marker keeps
+        # a shape-only failure (for example an unknown additive field) from
+        # being accepted by the more permissive public normalizer on replay.
+        candidate["_host_candidate_quarantined"] = True
     audit = {
         "schema_version": "codex_child_candidate_admission.v1",
         "candidate_index": int(index),
@@ -5928,7 +6015,21 @@ def _audit_child_candidate(
     return (
         candidate,
         audit,
-        [f"child_candidate:{index}:non_isolatable:{reason}" for reason in hard_reasons],
+        [
+            (
+                f"child_candidate:{index}:{reason}"
+                if reason in FATAL_CHILD_CANDIDATE_SAFETY_REASONS
+                else f"child_candidate:{index}:non_isolatable:{reason}"
+            )
+            for reason in hard_reasons
+        ],
+    )
+
+
+def _isolatable_child_candidate_reason(reason: str) -> bool:
+    return bool(
+        reason in ISOLATABLE_CHILD_CANDIDATE_REASONS
+        or reason in ISOLATABLE_CHILD_CANDIDATE_SHAPE_REASONS
     )
 
 
@@ -6001,7 +6102,9 @@ def _strict_child_report_shape_reasons(payload: dict[str, Any]) -> list[str]:
     candidates = payload.get("candidates")
     if isinstance(candidates, list):
         for index, candidate in enumerate(candidates):
-            reasons.extend(_strict_child_candidate_shape_reasons(candidate, index=index))
+            reasons.extend(
+                _strict_child_candidate_shape_reasons(candidate, index=index)
+            )
     return sorted(set(reasons))
 
 

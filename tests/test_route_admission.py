@@ -34,3 +34,29 @@ def test_complex_product_keeps_narrow_omitted_transfer_reagent_allowance() -> No
     assert audit["accepted"] is True
     assert audit["element_deficits"] == {"O": 1}
     assert audit["missing_product_heavy_atom_count"] == 1
+
+
+def test_admission_rejects_redundant_advanced_precursor_fragment() -> None:
+    audit = audit_retrosynthetic_candidate(
+        "CCO",
+        ["CC=O", "CCCCCCCCCC"],
+    )
+
+    assert audit["accepted"] is False
+    assert audit["reasons"] == ["surplus_advanced_precursor_fragment"]
+    assert audit["surplus_advanced_precursor_fragments"] == ["CCCCCCCCCC"]
+
+
+def test_surplus_gate_exempts_small_salts_and_single_precursor_deprotection() -> None:
+    salted = audit_retrosynthetic_candidate(
+        "CCO",
+        ["CC=O", "[Na+]", "[Cl-]"],
+    )
+    deprotection = audit_retrosynthetic_candidate(
+        "N",
+        ["CC(C)(C)OC(=O)N"],
+    )
+
+    assert salted["accepted"] is True
+    assert salted["surplus_advanced_precursor_fragments"] == []
+    assert deprotection["accepted"] is True

@@ -67,6 +67,8 @@ def normalize_route_candidate(
         return None, ["candidate_not_object"]
 
     reasons: list[str] = []
+    if raw.get("_host_candidate_quarantined") is True:
+        reasons.append("host_candidate_quarantined")
     schema = str(raw.get("schema_version") or RETROSYNTHESIS_CANDIDATE_SCHEMA)
     if schema != RETROSYNTHESIS_CANDIDATE_SCHEMA:
         reasons.append("invalid_candidate_schema")

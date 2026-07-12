@@ -5,6 +5,7 @@ from cascade_planner.routes.consensus import fuse_route_candidates
 from cascade_planner.routes.graph import (
     assemble_route_consensus_graph,
     make_route_consensus_expansion,
+    validate_route_consensus_expansion,
 )
 
 
@@ -151,3 +152,86 @@ def test_graph_family_selection_ignores_proposal_rank_as_authority() -> None:
         "selected_authority_bound"
     )
     assert step["reaction_family_selection"]["candidate_ids"] == ["trusted"]
+    assert step["reaction_family_authority_bound"] is True
+    assert step["reaction_family_authority_evidence_level"] == "literature_exact"
+    assert step["authority_bound"] is True
+    assert step["authority_evidence_level"] == "literature_exact"
+    assert step["edge_authority_selection"]["candidate_ids"] == ["trusted"]
+
+
+def test_graph_rejects_family_selection_that_disagrees_with_source_records() -> None:
+    consensus = fuse_route_candidates(
+        [_candidate("model", family="host-derived family")],
+        target_smiles="CCO",
+    )
+    consensus["proposals"][0]["reaction_family_selection"]["value"] = (
+        "forged family"
+    )
+    expansion = make_route_consensus_expansion(
+        consensus,
+        requested_product_smiles="CCO",
+    )
+
+    assert (
+        "expansion_proposal:0:reaction_family_selection_source_mismatch"
+        in validate_route_consensus_expansion(expansion)
+    )
+
+
+def test_legacy_family_fallback_cannot_replay_serialized_authority() -> None:
+    trusted = fuse_route_candidates(
+        [
+            _candidate(
+                "trusted",
+                family="trusted family",
+                channel="literature_exact",
+                evidence_level="literature_exact",
+                host_binding="validated_source_detail_literature_step",
+            )
+        ],
+        target_smiles="CCO",
+    )
+    legacy_proposal = dict(trusted["proposals"][0])
+    legacy_proposal.pop("source_records")
+    legacy_proposal.pop("reaction_family_selection")
+    legacy = {**trusted, "proposals": [legacy_proposal]}
+    expansion = make_route_consensus_expansion(
+        legacy,
+        requested_product_smiles="CCO",
+    )
+
+    assert validate_route_consensus_expansion(expansion) == []
+    graph = assemble_route_consensus_graph(
+        [expansion],
+        case_id="case",
+        target_smiles="CCO",
+    )
+    step = graph["steps"][0]
+    assert step["reaction_family"] == "trusted family"
+    assert step["reaction_family_selection"]["status"] == "selected_advisory"
+    assert step["reaction_family_authority_bound"] is False
+    assert step["reaction_family_authority_evidence_level"] == "model_only"
+    assert step["authority_bound"] is False
+    assert step["authority_evidence_level"] == "model_only"
+
+    forged_proposal = dict(legacy_proposal)
+    forged_proposal["reaction_family_selection"] = {
+        "schema_version": "reaction_family_selection.v1",
+        "status": "selected_authority_bound",
+        "value": "trusted family",
+        "authority_basis": "forged",
+        "authority_bound": True,
+        "authority_evidence_level": "validated",
+        "support_groups": ["forged:group"],
+        "candidate_ids": ["forged"],
+        "alternatives": [],
+    }
+    forged = {**trusted, "proposals": [forged_proposal]}
+    forged_expansion = make_route_consensus_expansion(
+        forged,
+        requested_product_smiles="CCO",
+    )
+    assert (
+        "expansion_proposal:0:legacy_reaction_family_authority_not_unbound"
+        in validate_route_consensus_expansion(forged_expansion)
+    )
