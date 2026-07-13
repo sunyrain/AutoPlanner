@@ -114,6 +114,13 @@ class RetrosynthesisProposalReport(ArtifactBase):
     schema_version = "retrosynthesis_proposal_report_artifact.v1"
 
 
+class GlobalCampaignPlan(ArtifactBase):
+    """Draft whole-campaign strategy emitted by the global director."""
+
+    artifact_type = "GlobalCampaignPlan"
+    schema_version = "global_campaign_plan_artifact.v1"
+
+
 class LiteratureScoutReport(ArtifactBase):
     artifact_type = "LiteratureScoutReport"
     schema_version = "literature_scout_report_artifact.v1"
@@ -295,6 +302,7 @@ ARTIFACT_CLASSES: dict[str, type[ArtifactBase]] = {
         HypothesisExecutionReport,
         ResearchReport,
         RetrosynthesisProposalReport,
+        GlobalCampaignPlan,
         LiteratureScoutReport,
         EvidenceCard,
         StrategicDisconnectionCard,

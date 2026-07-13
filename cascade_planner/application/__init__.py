@@ -1,5 +1,15 @@
 """Trusted application services built above provider and runtime contracts."""
 
+from cascade_planner.application.campaign_context import (
+    CAMPAIGN_CONTEXT_DELTA_SCHEMA,
+    CAMPAIGN_CONTEXT_SCHEMA,
+    CampaignContext,
+    CampaignContextCompiler,
+    CampaignContextDelta,
+    CampaignContextError,
+    CampaignContextTooLargeError,
+)
+
 from cascade_planner.application.frontier_scheduler import (
     FrontierCompletenessReport,
     FrontierExecutor,
@@ -56,6 +66,13 @@ from cascade_planner.application.run_kernel import (
 )
 
 __all__ = [
+    "CAMPAIGN_CONTEXT_DELTA_SCHEMA",
+    "CAMPAIGN_CONTEXT_SCHEMA",
+    "CampaignContext",
+    "CampaignContextCompiler",
+    "CampaignContextDelta",
+    "CampaignContextError",
+    "CampaignContextTooLargeError",
     "FrontierCompletenessReport",
     "FrontierExecutor",
     "FrontierJob",

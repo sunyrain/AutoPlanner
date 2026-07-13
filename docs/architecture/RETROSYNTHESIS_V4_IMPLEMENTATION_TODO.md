@@ -177,28 +177,28 @@ strangler adapters are complete; they are not treated as V4 authority.
 
 Purpose: preserve Codex's distinctive global reasoning while bounding cost.
 
-- [ ] Define a versioned `GlobalCampaignPlan` schema containing route families,
+- [x] Define a versioned `GlobalCampaignPlan` schema containing route families,
   multi-step skeletons, strategic disconnections, shared intermediates,
   critical unknowns, source plan, fallback strategies, frontier priorities,
   pivot conditions, and portfolio rationale.
-- [ ] Implement the `CampaignContextCompiler` from canonical revisions.
-- [ ] Include complete campaign topology but compress raw documents, duplicate
+- [x] Implement the `CampaignContextCompiler` from canonical revisions.
+- [x] Include complete campaign topology but compress raw documents, duplicate
   routes, old failures, and unchanged evidence.
-- [ ] Emit a context digest and delta from the previous director revision.
-- [ ] Implement `GlobalCampaignDirector` as a direct Codex child-agent boundary.
-- [ ] Support three bounded modes: initial architecture, event-driven replan,
+- [x] Emit a context digest and delta from the previous director revision.
+- [x] Implement `GlobalCampaignDirector` as a direct Codex child-agent boundary.
+- [x] Support three bounded modes: initial architecture, event-driven replan,
   and final portfolio synthesis.
-- [ ] Trigger replanning only for material evidence, critical edge rejection,
+- [x] Trigger replanning only for material evidence, critical edge rejection,
   portfolio stagnation, new route family, shared bottleneck, or stock-boundary
   changes.
-- [ ] Prevent identical context/config revisions from invoking Codex twice.
-- [ ] Enforce structured output, route-family count, context bytes, calls,
+- [x] Prevent identical context/config revisions from invoking Codex twice.
+- [x] Enforce structured output, route-family count, context bytes, calls,
   tokens, and wall-time at the host boundary.
-- [ ] Validate every proposed molecule/reaction identity before frontier entry.
-- [ ] Record accepted, rejected, superseded, and ignored director proposals.
-- [ ] Ensure the director may prioritize and hypothesize globally but may not
+- [x] Validate every proposed molecule/reaction identity before frontier entry.
+- [x] Record accepted, rejected, superseded, and ignored director proposals.
+- [x] Ensure the director may prioritize and hypothesize globally but may not
   grant proof or completion authority.
-- [ ] Provide a deterministic fake/replay director for tests and golden cases.
+- [x] Provide a deterministic fake/replay director for tests and golden cases.
 
 Exit gate:
 
@@ -207,6 +207,24 @@ Exit gate:
 - A verifier rejection causes a targeted global replan rather than blind local
   repetition.
 - Default complex campaigns use a small bounded number of director calls.
+
+Observed P3 host-boundary acceptance:
+
+- one structured response coordinated 2 strategically distinct route families,
+  2 multi-step skeletons, 3 concrete step hypotheses, a shared intermediate,
+  source acquisition, fallback, pivot, stop, and portfolio rationale;
+- identical context/config requests, including concurrent requests, invoked the
+  runner exactly once and reused the immutable cached plan thereafter;
+- a critical-edge rejection triggered an event replan, while unchanged context
+  caused no invocation;
+- invalid molecular identities were rejected as frontier candidates, and any
+  attempted solved/proof/stock-closure authority invalidated the whole plan;
+- deterministic replay runs with a zero model-call budget and the same plan
+  schema, while real child calls remain bounded by the single RunKernel ledger;
+- accepted/rejected/superseded/ignored dispositions are immutable audit
+  artifacts and never count as accepted chemistry expansions;
+- focused runtime/direct-child tests passed, followed by the full local suite:
+  1435 tests passed, 3 skipped, and 2 subtests passed.
 
 ### P4 — Evidence, materialization, validation, and stock workers
 

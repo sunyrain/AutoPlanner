@@ -42,11 +42,13 @@ ALLOWED_WORKER_TASK_TYPES = {
     "route_audit_research",
     "condition_research",
     "evolution_candidate_research",
+    "global_campaign_direction",
 }
 ALLOWED_WORKER_ARTIFACT_TYPES = {
     "AgentActionBatch",
     "ResearchReport",
     "RetrosynthesisProposalReport",
+    "GlobalCampaignPlan",
     "EvidenceCard",
     "LiteratureScoutReport",
     "AnalogicalReactionTemplateReport",
@@ -1189,6 +1191,11 @@ def _codex_worker_prompt(task: WorkerTask) -> str:
             "- Wait for every child, preserve disagreements and source provenance, then synthesize the final artifact.",
             "- Do not replace a failed child with an invented answer; record the failure in limitations.",
         ]
+    reaction_rule = (
+        "- This task may emit product_smiles and precursor_smiles only inside typed, hypothesis-only campaign steps. Never emit reaction SMILES/SMARTS or any string containing '>>'."
+        if task.required_artifact_type == "GlobalCampaignPlan"
+        else "- Do not inject raw reaction candidates or reaction SMILES. Avoid strings containing '>>' unless the task explicitly asks for audit of an existing input reference."
+    )
     return "\n".join([
         "You are a bounded Codex Research Worker inside AutoPlanner.",
         "Your job is to produce one structured draft artifact for the supplied WorkerTask.",
@@ -1199,7 +1206,7 @@ def _codex_worker_prompt(task: WorkerTask) -> str:
         "- The artifact is draft-only. Use validation_status \"draft\" or \"draft_only\".",
         "- Do not mark any route or case solved.",
         "- Do not mutate route trees, write production knowledge-base entries, or claim production promotion.",
-        "- Do not inject raw reaction candidates or reaction SMILES. Avoid strings containing '>>' unless the task explicitly asks for audit of an existing input reference.",
+        reaction_rule,
         "- Prefer traceable sources. For literature evidence, include DOI, URL, or local_ref in payload/source metadata.",
         "- Use only the task context, repository files, and allowed tools implied by the task.",
         *coordinator_rules,
@@ -1284,6 +1291,13 @@ def _artifact_payload_instruction(artifact_type: str) -> str:
             "typed hypotheses, and product_retron_type is an advisory product-side classification only; never emit "
             "a reaction SMILES string, reaction SMARTS, or a key named reaction_smiles/rxn/raw_reaction."
         )
+    if artifact_type == "GlobalCampaignPlan":
+        return (
+            "For payload, return schema_version=global_campaign_plan.v1 and a whole-campaign plan bound to the run_id, mode, context_sha256, and graph_revision in the objective. "
+            "Include route_families, multi_step_skeletons, strategic_disconnections, shared_intermediates, critical_unknowns, source_plan, fallback_strategies, frontier_priorities, pivot_conditions, stop_conditions, portfolio_rationale, and limitations. "
+            "Every skeleton step must contain parseable product_smiles and precursor_smiles, transformation_hypothesis, required_validation, and hypothesis_only=true. "
+            "Coordinate alternatives and shared intermediates globally. Never claim validation, proof, stock closure, completion, or solved status, and never emit reaction SMILES/SMARTS or '>>'."
+        )
     if artifact_type == "LiteratureRouteSegmentCard":
         return (
             "For payload, include schema_version, segment_id, case_id, target_smiles, evidence_refs, source_title, "
@@ -1360,6 +1374,8 @@ def _worker_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
         return _analogical_template_report_payload_json_schema(task)
     if artifact_type == "RetrosynthesisProposalReport":
         return _retrosynthesis_proposal_report_payload_json_schema(task)
+    if artifact_type == "GlobalCampaignPlan":
+        return _global_campaign_plan_payload_json_schema(task)
     if artifact_type == "LiteratureRouteSegmentCard":
         return _literature_route_segment_payload_json_schema(task)
     if artifact_type == "SegmentStepCandidate":
@@ -1452,6 +1468,105 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
     })
 
 
+def _global_campaign_plan_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
+    route_family = _strict_object_schema({
+        "route_family_id": {"type": "string"},
+        "title": {"type": "string"},
+        "strategy": {"type": "string"},
+        "target_smiles": {"type": "string"},
+        "advantages": _string_array_schema(),
+        "risks": _string_array_schema(),
+        "diversity_basis": {"type": "string"},
+    })
+    step = _strict_object_schema({
+        "step_id": {"type": "string"},
+        "product_smiles": {"type": "string"},
+        "precursor_smiles": _string_array_schema(),
+        "transformation_hypothesis": {"type": "string"},
+        "strategic_role": {"type": "string"},
+        "source_hints": _string_array_schema(),
+        "required_validation": _string_array_schema(),
+        "hypothesis_only": {"type": "boolean", "enum": [True]},
+    })
+    skeleton = _strict_object_schema({
+        "skeleton_id": {"type": "string"},
+        "route_family_id": {"type": "string"},
+        "summary": {"type": "string"},
+        "steps": {"type": "array", "items": step, "maxItems": 12},
+    })
+    disconnection = _strict_object_schema({
+        "disconnection_id": {"type": "string"},
+        "target_smiles": {"type": "string"},
+        "bond_or_retron": {"type": "string"},
+        "rationale": {"type": "string"},
+        "route_family_ids": _string_array_schema(),
+        "required_validation": _string_array_schema(),
+    })
+    shared = _strict_object_schema({
+        "intermediate_id": {"type": "string"},
+        "smiles": {"type": "string"},
+        "route_family_ids": _string_array_schema(),
+        "strategic_role": {"type": "string"},
+        "risk": {"type": "string"},
+    })
+    unknown = _strict_object_schema({
+        "unknown_id": {"type": "string"},
+        "description": {"type": "string"},
+        "affected_proposal_ids": _string_array_schema(),
+        "resolution_task": {"type": "string"},
+        "priority": {"type": "number"},
+    })
+    source_task = _strict_object_schema({
+        "source_task_id": {"type": "string"},
+        "query": {"type": "string"},
+        "source_types": _string_array_schema(),
+        "target_claims": _string_array_schema(),
+        "affected_proposal_ids": _string_array_schema(),
+        "priority": {"type": "number"},
+    })
+    fallback = _strict_object_schema({
+        "fallback_id": {"type": "string"},
+        "trigger": {"type": "string"},
+        "action": {"type": "string"},
+        "route_family_ids": _string_array_schema(),
+    })
+    frontier = _strict_object_schema({
+        "priority_id": {"type": "string"},
+        "proposal_id": {"type": "string"},
+        "priority": {"type": "number"},
+        "rationale": {"type": "string"},
+        "expected_portfolio_gain": {"type": "string"},
+    })
+    pivot = _strict_object_schema({
+        "pivot_id": {"type": "string"},
+        "condition": {"type": "string"},
+        "action": {"type": "string"},
+    })
+    stop = _strict_object_schema({
+        "stop_id": {"type": "string"},
+        "condition": {"type": "string"},
+        "disposition": {"type": "string", "enum": ["continue", "unresolved", "budget_exhausted", "request_acceptance_evaluation"]},
+    })
+    return _strict_object_schema({
+        "schema_version": {"type": "string", "enum": ["global_campaign_plan.v1"]},
+        "plan_id": {"type": "string"},
+        "run_id": {"type": "string", "enum": [task.case_id]},
+        "mode": {"type": "string", "enum": ["initial_architecture", "event_replan", "final_portfolio_synthesis"]},
+        "context_sha256": {"type": "string"},
+        "graph_revision": {"type": "integer"},
+        "route_families": {"type": "array", "items": route_family, "maxItems": 6},
+        "multi_step_skeletons": {"type": "array", "items": skeleton, "maxItems": 8},
+        "strategic_disconnections": {"type": "array", "items": disconnection},
+        "shared_intermediates": {"type": "array", "items": shared},
+        "critical_unknowns": {"type": "array", "items": unknown},
+        "source_plan": {"type": "array", "items": source_task},
+        "fallback_strategies": {"type": "array", "items": fallback},
+        "frontier_priorities": {"type": "array", "items": frontier},
+        "pivot_conditions": {"type": "array", "items": pivot},
+        "stop_conditions": {"type": "array", "items": stop},
+        "portfolio_rationale": {"type": "string"},
+        "limitations": _string_array_schema(),
+    })
 def _agent_action_batch_payload_json_schema(task: WorkerTask) -> dict[str, Any]:
     hint_schema = _strict_object_schema(
         {
@@ -1767,6 +1882,7 @@ def _typed_artifact_schema_version(artifact_type: str) -> str:
         "AgentActionBatch": "agent_action_batch_artifact.v1",
         "ResearchReport": "research_report.v1",
         "RetrosynthesisProposalReport": "retrosynthesis_proposal_report_artifact.v1",
+        "GlobalCampaignPlan": "global_campaign_plan_artifact.v1",
         "EvidenceCard": "evidence_card_artifact.v1",
         "LiteratureScoutReport": "literature_scout_report_artifact.v1",
         "StrategicDisconnectionCard": "strategic_disconnection_card.v1",
