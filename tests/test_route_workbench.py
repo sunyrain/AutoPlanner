@@ -175,6 +175,40 @@ def test_workbench_is_bounded_proof_aware_and_keeps_hypotheses_separate() -> Non
     assert projection["semantics"]["canonical_graph_is_authority"] is True
 
 
+def test_workbench_projects_independent_campaign_gates_without_granting_proof() -> None:
+    projection = compile_route_workbench(
+        _graph(),
+        _portfolio(),
+        campaign_summary={
+            "gates": {
+                "B0_blind_input": True,
+                "B1_global_multi_route": True,
+                "B2_host_validated_routes": True,
+                "B3_exact_multi_source": False,
+                "B4_stock_boundary": True,
+                "B5_configured_portfolio_acceptance": True,
+            },
+            "highest_contiguous_gate": "B2",
+            "resource_envelope": {"within_budget": True},
+            "model_cost": {"model_invocations": 1},
+            "stop_decision": {"decision": "completed"},
+            "claim": {"exact_multi_source_grade": False},
+        },
+    )
+
+    summary = projection["campaign_summary"]
+    assert summary["available"] is True
+    assert summary["highest_contiguous_gate"] == "B2"
+    assert summary["gates"]["B3_exact_multi_source"] is False
+    assert summary["gates"]["B4_stock_boundary"] is True
+    assert summary["semantics"]["measurement_only"] is True
+
+    forest = compile_v4_route_forest(projection)
+    payload = build_route_forest_delivery_payload(forest)
+    assert payload["campaign_summary"] == summary
+    assert route_forest_delivery_integrity_reasons(payload, source_forest=forest) == []
+
+
 def test_workbench_inspectors_expose_proof_sources_stock_rejections_and_conflicts() -> None:
     projection = compile_route_workbench(_graph(), _portfolio())
 

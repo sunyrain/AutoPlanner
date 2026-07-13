@@ -33,6 +33,8 @@ class RouteWorkbenchProjectionError(ValueError):
 def compile_route_workbench(
     graph: Mapping[str, Any],
     portfolio: Mapping[str, Any],
+    *,
+    campaign_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Project a canonical graph and proof portfolio into a bounded read model."""
 
@@ -137,6 +139,7 @@ def compile_route_workbench(
             "metrics": _copy_json(portfolio.get("metrics") or {}),
             "display_limit": MAX_VISIBLE_ROUTES,
         },
+        "campaign_summary": _campaign_summary(campaign_summary),
         "views": views,
         "routes": route_rows,
         "molecules": molecule_rows,
@@ -173,6 +176,7 @@ def compile_route_workbench(
             "shared_intermediates_are_not_duplicated": True,
             "hypotheses_are_not_routes": True,
             "aggregate_counts_never_grant_completion": True,
+            "campaign_gates_are_measurements_only": True,
         },
     }
     payload["content_sha256"] = _digest(payload)
@@ -215,6 +219,7 @@ def compile_route_workbench_delta(
             "target",
             "revision",
             "portfolio",
+            "campaign_summary",
             "views",
             "shared_intermediates",
             "layout",
@@ -239,6 +244,7 @@ def compile_route_workbench_delta(
                     "target",
                     "revision",
                     "portfolio",
+                    "campaign_summary",
                     "views",
                     "shared_intermediates",
                     "layout",
@@ -257,6 +263,35 @@ def compile_route_workbench_delta(
     }
     payload["content_sha256"] = _digest(payload)
     return payload
+
+
+def _campaign_summary(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Bound reporting metadata without letting the UI infer scientific state."""
+
+    source = dict(value or {})
+    gates = {
+        str(key): item is True
+        for key, item in dict(source.get("gates") or {}).items()
+        if str(key).startswith("B")
+    }
+    return {
+        "schema_version": "retrosynthesis_campaign_summary.v1",
+        "available": bool(source),
+        "gates": gates,
+        "highest_contiguous_gate": str(
+            source.get("highest_contiguous_gate") or "none"
+        ),
+        "counts": _copy_json(source.get("counts") or {}),
+        "resource_envelope": _copy_json(source.get("resource_envelope") or {}),
+        "model_cost": _copy_json(source.get("model_cost") or {}),
+        "stop_decision": _copy_json(source.get("stop_decision") or {}),
+        "claim": _copy_json(source.get("claim") or {}),
+        "semantics": {
+            "measurement_only": True,
+            "independent_gates_may_pass_after_a_contiguous_gap": True,
+            "branch_counts_never_grant_completion": True,
+        },
+    }
 
 
 def _validate_bindings(graph: Mapping[str, Any], portfolio: Mapping[str, Any]) -> None:

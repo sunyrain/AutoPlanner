@@ -111,6 +111,14 @@ class CampaignGateway:
             )
         return self._result(service, operation="run", operations=operations)
 
+    def solve_target(self, **kwargs: Any) -> dict[str, Any]:
+        from cascade_planner.interfaces.target_solver import solve_target
+        return solve_target(self, **kwargs)
+
+    def import_evidence(self, **kwargs: Any) -> dict[str, Any]:
+        from cascade_planner.interfaces.evidence_import import import_structured_evidence
+        return import_structured_evidence(self, **kwargs)
+
     def resume(
         self,
         run_id: str,
@@ -291,6 +299,8 @@ class CampaignGateway:
         run_id: str,
         *,
         run_dir: str | Path | None = None,
+        director_runner: Any = None,
+        director_config: Any = None,
     ) -> RetrosynthesisCampaignService:
         identity = self._normalize_run_id(run_id)
         directory = self._run_dir(identity, explicit=run_dir, require=True)
@@ -299,6 +309,8 @@ class CampaignGateway:
             directory,
             artifact_store_root=self.paths.artifact_store_root,
             run_index_path=self.paths.run_index_path,
+            director_runner=director_runner,
+            director_config=director_config,
         )
         if service.kernel.spec.run_id != identity:
             raise CampaignGatewayError("run_directory_identity_mismatch")

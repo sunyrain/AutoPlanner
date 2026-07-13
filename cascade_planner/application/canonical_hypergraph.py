@@ -46,6 +46,7 @@ _ORIGIN_KINDS = {
     "template",
     "literature",
     "manual",
+    "host_product_grounded_repair",
 }
 
 
@@ -189,7 +190,15 @@ class CanonicalHypergraphStore:
     def frontier_materialization_commands(self) -> tuple[Any, ...]:
         graph = self.load()
         proposals: list[dict[str, Any]] = []
-        for hypothesis in graph["hypotheses"].values():
+        hypotheses = sorted(
+            graph["hypotheses"].values(),
+            key=lambda row: (
+                -float(row.get("frontier_priority") or 0.0),
+                str(row.get("product_smiles") or ""),
+                str(row.get("hypothesis_id") or ""),
+            ),
+        )
+        for hypothesis in hypotheses:
             if hypothesis.get("status") != "frontier_candidate":
                 continue
             origins = list(hypothesis.get("origin_records") or [{}])
@@ -440,6 +449,17 @@ def _ingest_global_plan(
     dirty: set[str],
     rejected: list[dict[str, Any]],
 ) -> None:
+    admitted_marker = plan.get("_host_admitted_proposal_ids")
+    admitted_ids = (
+        {str(value) for value in admitted_marker if str(value)}
+        if isinstance(admitted_marker, list)
+        else None
+    )
+    priorities = {
+        str(row.get("proposal_id") or ""): float(row.get("priority") or 0.0)
+        for row in plan.get("frontier_priorities") or []
+        if isinstance(row, Mapping) and str(row.get("proposal_id") or "")
+    }
     family_details = {
         str(row.get("route_family_id") or row.get("family_id") or ""): dict(row)
         for row in plan.get("route_families") or []
@@ -447,6 +467,17 @@ def _ingest_global_plan(
     }
     for skeleton in plan.get("multi_step_skeletons") or []:
         if not isinstance(skeleton, Mapping):
+            continue
+        steps = [
+            dict(step)
+            for step in skeleton.get("steps") or []
+            if isinstance(step, Mapping)
+            and (
+                admitted_ids is None
+                or str(step.get("step_id") or "") in admitted_ids
+            )
+        ]
+        if not steps:
             continue
         alias = str(skeleton.get("route_family_id") or skeleton.get("skeleton_id") or "")
         route = {
@@ -461,9 +492,7 @@ def _ingest_global_plan(
             route_aliases=route_aliases,
             dirty=dirty,
         )
-        for step in skeleton.get("steps") or []:
-            if not isinstance(step, Mapping):
-                continue
+        for step in steps:
             _ingest_hypothesis(
                 graph,
                 {
@@ -472,6 +501,10 @@ def _ingest_global_plan(
                     "canonical_route_family_id": route_id,
                     "skeleton_id": str(skeleton.get("skeleton_id") or ""),
                     "origin_kind": "codex_global_director",
+                    "frontier_priority": priorities.get(
+                        str(step.get("step_id") or ""),
+                        0.0,
+                    ),
                 },
                 route_aliases=route_aliases,
                 dirty=dirty,
@@ -565,6 +598,10 @@ def _ingest_hypothesis(
             {*(existing.get("route_family_ids") or []), route_id} - {""}
         ),
         "route_diversity_gain": float(row.get("route_diversity_gain") or 0.0),
+        "frontier_priority": max(
+            float(existing.get("frontier_priority") or 0.0),
+            float(row.get("frontier_priority") or 0.0),
+        ),
         "admission_audit_sha256": _digest(audit),
     }
     graph["hypotheses"][hypothesis_id] = _with_digest(record)
@@ -749,7 +786,7 @@ def _ingest_worker_result(
         for conflict in payload.get("conflicts") or []:
             _ingest_conflict(graph, conflict, dirty=dirty, rejected=rejected)
         return bool(payload.get("conflicts"))
-    if result.worker_type == "audit_deep_leaf_stock":
+    if result.worker_type in {"audit_deep_leaf_stock", "audit_benchmark_leaf_stock"}:
         for audit in payload.get("leaf_audits") or []:
             _ingest_stock_observation(graph, audit, dirty=dirty, rejected=rejected)
         return bool(payload.get("leaf_audits"))

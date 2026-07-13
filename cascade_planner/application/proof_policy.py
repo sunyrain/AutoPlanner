@@ -207,6 +207,8 @@ def stitch_leaf_stock_proof(
         reasons.append("stock_observation_molecule_mismatch")
     elif observation.get("accepted") is not True:
         reasons.append("active_stock_observation_not_accepted")
+    elif not stock_boundary_matches(observation, required=policy.stock_boundary):
+        reasons.append("active_stock_observation_boundary_mismatch")
     accepted = not reasons and observation.get("accepted") is True
     row = {
         "schema_version": LEAF_PROOF_STITCH_SCHEMA,
@@ -228,6 +230,23 @@ def stitch_leaf_stock_proof(
     }
     row["content_sha256"] = _digest(row)
     return row
+
+
+def stock_boundary_matches(observation: Mapping[str, Any], *, required: str) -> bool:
+    provider_result = dict(observation.get("provider_result") or {})
+    payload = dict(provider_result.get("payload") or {})
+    boundary = str(payload.get("boundary_type") or "")
+    accepted = {
+        "benchmark_search": {
+            "benchmark_stock",
+            "common_commodity",
+            "commercially_orderable",
+            "in_house_available",
+        },
+        "procurement": {"commercially_orderable", "in_house_available"},
+        "in_house": {"in_house_available"},
+    }
+    return boundary in accepted.get(str(required), set())
 
 
 def validate_canonical_graph_entities(graph: Mapping[str, Any]) -> list[str]:

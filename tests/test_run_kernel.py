@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,7 @@ def _spec(
     attempts: int = 12,
     accepted_expansions: int = 8,
     model_invocations: int = 3,
+    output_tokens: int = 200_000,
     total_tasks: int = 256,
 ) -> RunSpec:
     return RunSpec(
@@ -38,6 +40,7 @@ def _spec(
         limits=RunLimits(
             model=RetrosynthesisRunBudget(
                 max_model_invocations=model_invocations,
+                max_total_output_tokens=output_tokens,
                 max_accepted_expansions=accepted_expansions,
                 max_attempt_runs=attempts,
             ),
@@ -52,6 +55,30 @@ def _kernel(tmp_path: Path, **kwargs) -> RunKernel:
         tmp_path / "run",
         spec=_spec(**kwargs),
     )
+
+
+def test_kernel_retries_transient_windows_atomic_replace_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_replace = os.replace
+    attempts = 0
+
+    def flaky_replace(source: str | Path, destination: str | Path) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 2:
+            raise PermissionError("transient reader lock")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(
+        "cascade_planner.application.run_kernel.os.replace",
+        flaky_replace,
+    )
+    kernel = _kernel(tmp_path)
+
+    assert kernel.state.run_id == "run-1"
+    assert attempts >= 3
 
 
 def test_kernel_creates_one_event_chain_snapshot_and_index(tmp_path: Path) -> None:
@@ -206,6 +233,33 @@ def test_stop_decision_requires_bound_acceptance_report(tmp_path: Path) -> None:
     assert decision.to_dict()["semantics"][
         "only_acceptance_can_decide_completed"
     ] is True
+
+
+def test_acceptance_cannot_hide_observed_model_budget_overrun(tmp_path: Path) -> None:
+    kernel = _kernel(tmp_path, model_invocations=1, output_tokens=5)
+    kernel.start()
+    kernel.reserve_task(
+        task_id="model-overrun",
+        kind="model",
+        idempotency_key="reserve-model-overrun",
+        input_revision=0,
+        uses_model=True,
+    )
+    kernel.settle_task(
+        task_id="model-overrun",
+        idempotency_key="settle-model-overrun",
+        status="completed",
+        model_usage={"model_invocations": 1, "output_tokens": 6},
+    )
+    kernel.record_acceptance(
+        {"accepted": True, "graph_revision": 0},
+        idempotency_key="accepted-despite-overrun",
+    )
+
+    decision = kernel.decide_stop()
+
+    assert decision.decision == "budget_exhausted"
+    assert decision.reasons == ("run_output_token_budget_violated",)
 
 
 def test_graph_revision_invalidates_stale_acceptance(tmp_path: Path) -> None:

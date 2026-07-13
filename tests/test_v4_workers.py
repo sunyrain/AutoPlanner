@@ -10,6 +10,7 @@ from cascade_planner.application.retrosynthesis_workers import (
     build_retrosynthesis_worker_handlers,
     detect_source_conflicts,
     materialization_commands_for_global_plan,
+    materialization_commands_for_proposals,
     normalize_source_binding,
 )
 from cascade_planner.application.run_kernel import RunKernel, RunLimits, RunSpec
@@ -76,6 +77,28 @@ def _command(
         },
         artifact_refs=artifact_refs,
     )
+
+
+def test_proposal_compiler_skips_an_already_materialized_edge_before_reserve() -> None:
+    proposal = {
+        "product_smiles": "CCOC(C)=O",
+        "precursor_smiles": ["CCO", "CC(=O)O"],
+        "origin_kind": "host_product_grounded_repair",
+        "origin_ref": "edge:original",
+    }
+    digest = audit_retrosynthetic_candidate(
+        proposal["product_smiles"],
+        proposal["precursor_smiles"],
+    )["edge_digest"]
+
+    commands = materialization_commands_for_proposals(
+        [proposal],
+        run_id="resume-safe",
+        input_revision=7,
+        existing_edge_digests=[digest],
+    )
+
+    assert commands == ()
 
 
 def _extraction_artifact(

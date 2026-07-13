@@ -24,7 +24,13 @@ from cascade_planner.application.worker_runtime import (
     WorkerRuntimeError,
 )
 from cascade_planner.harness.reaction_step_verifier import verify_reaction_step
-from cascade_planner.providers import ProviderContext, SnapshotStockProvider
+from cascade_planner.providers import (
+    BenchmarkCatalogStockProvider,
+    ProviderContext,
+    ProviderResultEnvelope,
+    SnapshotStockProvider,
+    StockBoundary,
+)
 from cascade_planner.providers.stock import (
     canonicalize_stock_snapshot,
     stock_snapshot_sha256,
@@ -45,6 +51,7 @@ EXACT_SOURCE_RECORD_SCHEMA = "exact_source_reaction_record.v1"
 SOURCE_CONFLICT_SCHEMA = "source_evidence_conflict.v1"
 INVENTORY_SNAPSHOT_SET_SCHEMA = "inventory_snapshot_set.v1"
 VERSIONED_INVENTORY_ARTIFACT_SCHEMA = "versioned_inventory_snapshot.v1"
+VERSIONED_BENCHMARK_CATALOG_SCHEMA = "versioned_benchmark_stock_catalog.v1"
 DEEP_LEAF_AUDIT_SCHEMA = "deep_leaf_stock_audit.v1"
 STRUCTURED_EXTRACTION_SCHEMA = "structured_exact_row_extraction.v1"
 _SOURCE_KINDS = {
@@ -111,6 +118,12 @@ def build_retrosynthesis_worker_handlers() -> dict[str, WorkerHandlerSpec]:
             WORKER_SET_VERSION,
             "stock",
             audit_deep_leaf_stock_worker,
+        ),
+        WorkerHandlerSpec(
+            "audit_benchmark_leaf_stock",
+            WORKER_SET_VERSION,
+            "stock",
+            audit_benchmark_leaf_stock_worker,
         ),
     )
     return {spec.worker_type: spec for spec in specs}
@@ -208,7 +221,8 @@ def materialization_commands_for_proposals(
 ) -> tuple[WorkerCommand, ...]:
     """Compile ChemEnzy/template/literature/manual proposals through one gate."""
     grouped: dict[str, dict[str, Any]] = {}
-    existing = sorted({str(value) for value in existing_edge_digests if str(value)})
+    existing_set = {str(value) for value in existing_edge_digests if str(value)}
+    existing = sorted(existing_set)
     for raw in proposals:
         if not isinstance(raw, Mapping):
             continue
@@ -223,6 +237,9 @@ def materialization_commands_for_proposals(
                 "precursor_smiles_multiset": sorted(precursors),
             }
         )
+        candidate_audit = audit_retrosynthetic_candidate(product, precursors)
+        if str(candidate_audit.get("edge_digest") or "") in existing_set:
+            continue
         payload = grouped.setdefault(
             identity,
             {
@@ -1127,6 +1144,176 @@ def audit_deep_leaf_stock_worker(
             "inventory_reasons": sorted(set(reasons)),
         },
         "failure_reasons": unresolved_reasons if not all_closed else [],
+        "material_events": (
+            ["stock_records_added", "stock_boundary_changed"] if audits else []
+        ),
+    }
+
+
+def audit_benchmark_leaf_stock_worker(
+    command: WorkerCommand,
+    artifacts: WorkerArtifactReader,
+) -> dict[str, Any]:
+    """Audit leaves against a frozen generic benchmark vendor catalog.
+
+    This boundary establishes benchmark-search membership only.  It must never
+    be interpreted as a real-time supplier inventory or procurement claim.
+    """
+
+    payload = dict(command.payload)
+    catalog_sha256 = str(payload.get("catalog_artifact_sha256") or "").lower()
+    try:
+        raw_catalog = artifacts.read_json(
+            catalog_sha256,
+            required_authority_scope="benchmark_stock_catalog",
+        )
+    except WorkerRuntimeError as exc:
+        return {"status": "rejected", "payload": {}, "failure_reasons": [str(exc)]}
+    if not isinstance(raw_catalog, Mapping):
+        return {
+            "status": "rejected",
+            "payload": {},
+            "failure_reasons": ["benchmark_catalog_artifact_not_object"],
+        }
+    catalog = dict(raw_catalog)
+    if catalog.get("schema_version") != VERSIONED_BENCHMARK_CATALOG_SCHEMA:
+        return {
+            "status": "rejected",
+            "payload": {},
+            "failure_reasons": ["benchmark_catalog_artifact_schema_invalid"],
+        }
+    reasons: list[str] = []
+    try:
+        retrieved_at = _timestamp(catalog.get("retrieved_at"))
+        as_of = _timestamp(payload.get("as_of"))
+    except ValueError as exc:
+        return {"status": "rejected", "payload": {}, "failure_reasons": [str(exc)]}
+    max_age_days = _finite_nonnegative(payload.get("max_age_days"), default=30.0)
+    if as_of < retrieved_at:
+        reasons.append("benchmark_catalog_from_future")
+    elif (as_of - retrieved_at).total_seconds() / 86_400.0 > max_age_days:
+        reasons.append("benchmark_catalog_stale")
+    adapter_version = str(catalog.get("adapter_version") or "")
+    catalog_version = str(catalog.get("catalog_version") or "")
+    if not adapter_version:
+        reasons.append("benchmark_catalog_adapter_version_missing")
+    if not catalog_version:
+        reasons.append("benchmark_catalog_version_missing")
+    members: dict[str, dict[str, Any]] = {}
+    for index, raw in enumerate(catalog.get("members") or []):
+        if not isinstance(raw, Mapping):
+            reasons.append(f"benchmark_catalog_member_invalid:{index}")
+            continue
+        row = dict(raw)
+        canonical = _canonical_smiles(row.get("canonical_smiles"))
+        response_sha256 = str(row.get("response_sha256") or "").lower()
+        if (
+            not canonical
+            or int(row.get("vendor_count") or 0) <= 0
+            or not re.fullmatch(r"[0-9a-f]{64}", response_sha256)
+        ):
+            reasons.append(f"benchmark_catalog_member_invalid:{index}")
+            continue
+        members[canonical] = {**row, "canonical_smiles": canonical}
+
+    catalog_identity = {
+        "schema_version": "benchmark_catalog_snapshot_set.v1",
+        "adapter_version": adapter_version,
+        "catalog_version": catalog_version,
+        "retrieved_at": _iso(retrieved_at),
+        "source_artifact_sha256": catalog_sha256,
+        "member_count": len(members),
+    }
+    catalog_identity["content_sha256"] = _digest(catalog_identity)
+    snapshot_set_id = f"benchmark-catalog:{catalog_identity['content_sha256'][:24]}"
+    invalid_authority = bool(reasons)
+    audits: list[dict[str, Any]] = []
+    selected = list(payload.get("selected_deep_leaves") or [])
+    for index, raw_leaf in enumerate(selected):
+        leaf = dict(raw_leaf) if isinstance(raw_leaf, Mapping) else {"smiles": raw_leaf}
+        leaf_id = str(leaf.get("leaf_id") or f"leaf:{index}")
+        canonical = _canonical_smiles(leaf.get("smiles") or leaf.get("canonical_smiles"))
+        member = members.get(canonical, {})
+        accepted = bool(canonical and member and not invalid_authority)
+        boundary = StockBoundary(
+            canonical_smiles=canonical,
+            boundary_type="benchmark_stock" if canonical else "unavailable",
+            accepted=accepted,
+            catalog_bindings=(
+                {
+                    "catalog_name": str(catalog.get("catalog_name") or "pubchem-vendors"),
+                    "catalog_sha256": catalog_sha256,
+                    "catalog_version": catalog_version,
+                    "canonical_smiles": canonical,
+                    "cid": int(member.get("cid") or 0),
+                    "vendor_count": int(member.get("vendor_count") or 0),
+                    "response_sha256": str(member.get("response_sha256") or ""),
+                    "artifact_hash_verified": True,
+                    "commercial_orderability_claimed": False,
+                },
+            )
+            if accepted
+            else (),
+            reasons=() if accepted else ("molecule_not_in_frozen_benchmark_catalog",),
+        )
+        descriptor = BenchmarkCatalogStockProvider.descriptor
+        provider_result = ProviderResultEnvelope(
+            provider_id=descriptor.provider_id,
+            provider_version=descriptor.version,
+            provider_kind=descriptor.kind,
+            correlation_group=descriptor.correlation_group,
+            output_schema=StockBoundary.schema_version,
+            accepted=accepted,
+            payload=boundary.to_dict(),
+            reasons=boundary.reasons,
+            source_refs=(str(member.get("source_url") or ""),) if member else (),
+        ).to_dict()
+        audit = {
+            "schema_version": DEEP_LEAF_AUDIT_SCHEMA,
+            "leaf_id": leaf_id,
+            "canonical_smiles": canonical,
+            "accepted": accepted,
+            "inventory_snapshot_set_id": snapshot_set_id,
+            "inventory_artifact_authority_scope": "benchmark_stock_catalog",
+            "audited_as_of": _iso(as_of),
+            "inventory_retrieved_at": _iso(retrieved_at),
+            "provider_result": provider_result,
+            "reasons": [] if accepted else list(boundary.reasons),
+            "semantics": {
+                "benchmark_membership_only": True,
+                "commercial_orderability_claimed": False,
+                "every_selected_leaf_has_a_record": True,
+            },
+        }
+        audit["content_sha256"] = _digest(audit)
+        audits.append(audit)
+
+    if not selected:
+        reasons.append("selected_deep_leaves_missing")
+    all_closed = bool(audits) and all(row["accepted"] for row in audits)
+    failures = sorted(
+        {
+            *reasons,
+            *(
+                f"deep_leaf_not_benchmark_closed:{row['leaf_id']}"
+                for row in audits
+                if row["accepted"] is not True
+            ),
+        }
+    )
+    return {
+        "status": "completed" if all_closed and not failures else "partial",
+        "payload": {
+            "schema_version": "benchmark_leaf_stock_audit_result.v1",
+            "inventory_snapshot_set": {**catalog_identity, "snapshot_set_id": snapshot_set_id},
+            "leaf_audits": audits,
+            "selected_leaf_count": len(selected),
+            "audited_leaf_count": len(audits),
+            "stock_closed_leaf_count": sum(row["accepted"] for row in audits),
+            "all_selected_leaves_stock_closed": all_closed,
+            "inventory_reasons": sorted(set(reasons)),
+        },
+        "failure_reasons": failures if not all_closed else [],
         "material_events": (
             ["stock_records_added", "stock_boundary_changed"] if audits else []
         ),

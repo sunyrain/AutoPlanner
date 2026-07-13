@@ -3505,6 +3505,23 @@ def test_codex_jsonl_parser_does_not_treat_spawn_completion_as_child_success() -
     assert audit["child_agents"][0]["status"] == "pending_init"
 
 
+def test_codex_jsonl_parser_preserves_final_provider_error() -> None:
+    audit = _parse_codex_jsonl_events(
+        "\n".join(
+            [
+                '{"type":"error","message":"Reconnecting... 5/5"}',
+                '{"type":"turn.failed","error":{"message":"model requires newer CLI"}}',
+            ]
+        )
+    )
+
+    assert audit["summary"]["errors"] == [
+        "Reconnecting... 5/5",
+        "model requires newer CLI",
+    ]
+    assert audit["summary"]["fatal_error"] == "model requires newer CLI"
+
+
 def test_codex_jsonl_parser_ignores_wait_only_and_nested_children() -> None:
     text = "\n".join(
         [

@@ -1,0 +1,303 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from cascade_planner.application.retrosynthesis_run_contract import (
+    RetrosynthesisAcceptanceSpec,
+    RetrosynthesisRunBudget,
+)
+from cascade_planner.interfaces.campaign_gateway import CampaignGateway
+from cascade_planner.interfaces.target_solver import TargetSolveConfig
+from cascade_planner.runtime import AgentResult, AgentSpec, AgentState
+from cascade_planner.runtime.paths import RuntimePaths
+
+
+TARGET = "CCOC(C)=O"
+
+
+def _paths(tmp_path: Path) -> RuntimePaths:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    return RuntimePaths.discover(
+        repository_root=repository,
+        environ={
+            "AUTOPLANNER_RUNTIME_ROOT": str(tmp_path / "runtime"),
+            "AUTOPLANNER_RUNS_ROOT": str(tmp_path / "runs"),
+            "AUTOPLANNER_ARTIFACT_STORE_ROOT": str(tmp_path / "cas"),
+            "AUTOPLANNER_RUN_INDEX_PATH": str(tmp_path / "index" / "runs.sqlite3"),
+            "AUTOPLANNER_EXTERNAL_DATA_ROOT": str(tmp_path / "external"),
+            "AUTOPLANNER_MODEL_ROOT": str(tmp_path / "models"),
+            "AUTOPLANNER_VENDOR_ROOT": str(tmp_path / "vendor"),
+        },
+    )
+
+
+def _plan(context: Any, mode: str) -> dict[str, Any]:
+    families = [
+        ("family:chloride", "CC(=O)Cl", "acyl chloride substitution"),
+        ("family:acid", "CC(=O)O", "direct esterification"),
+        ("family:bromide", "CC(=O)Br", "acyl bromide substitution"),
+    ]
+    return {
+        "schema_version": "global_campaign_plan.v1",
+        "plan_id": f"blind-plan:{mode}",
+        "run_id": context.run_id,
+        "mode": mode,
+        "context_sha256": context.content_sha256,
+        "graph_revision": context.revision.graph_revision,
+        "route_families": [
+            {
+                "route_family_id": family_id,
+                "title": hypothesis,
+                "strategy": hypothesis,
+                "target_smiles": TARGET,
+                "advantages": ["short"],
+                "risks": ["selectivity"],
+                "diversity_basis": precursor,
+            }
+            for family_id, precursor, hypothesis in families
+        ],
+        "multi_step_skeletons": [
+            {
+                "skeleton_id": f"skeleton:{index}",
+                "route_family_id": family_id,
+                "summary": hypothesis,
+                "steps": [
+                    {
+                        "step_id": f"step:{index}",
+                        "product_smiles": TARGET,
+                        "precursor_smiles": ["CCO", precursor],
+                        "transformation_hypothesis": hypothesis,
+                        "strategic_role": "target convergence",
+                        "source_hints": [],
+                        "required_validation": ["atom mapping", "stock audit"],
+                        "hypothesis_only": True,
+                    }
+                ],
+            }
+            for index, (family_id, precursor, hypothesis) in enumerate(families, start=1)
+        ],
+        "strategic_disconnections": [],
+        "shared_intermediates": [],
+        "critical_unknowns": [],
+        "source_plan": [],
+        "fallback_strategies": [],
+        "frontier_priorities": [
+            {
+                "priority_id": f"priority:{index}",
+                "proposal_id": f"step:{index}",
+                "priority": 10 - index,
+                "rationale": "close complete route",
+                "expected_portfolio_gain": "one distinct family",
+            }
+            for index in (1, 2)
+        ],
+        "pivot_conditions": [],
+        "stop_conditions": [],
+        "portfolio_rationale": "Two different target-level acyl donors.",
+        "limitations": ["requires host validation"],
+    }
+
+
+def _runner(spec: AgentSpec, context: Any, mode: str, _config: Any) -> AgentResult:
+    return AgentResult(
+        run_id=spec.run_id,
+        agent_id=spec.agent_id,
+        parent_agent_id=spec.parent_agent_id,
+        attempt=spec.attempt,
+        idempotency_key=f"{spec.idempotency_key}:result",
+        context_hash=spec.context_hash,
+        capabilities=spec.capabilities,
+        write_scope=spec.write_scope,
+        budget=spec.budget,
+        state=AgentState.SUCCEEDED,
+        output=_plan(context, mode),
+        usage={
+            "model_invocations": 1,
+            "input_tokens": 1000,
+            "output_tokens": 700,
+            "wall_time_s": 1.0,
+        },
+    )
+
+
+def _failed_runner(
+    spec: AgentSpec,
+    _context: Any,
+    _mode: str,
+    _config: Any,
+) -> AgentResult:
+    return AgentResult(
+        run_id=spec.run_id,
+        agent_id=spec.agent_id,
+        parent_agent_id=spec.parent_agent_id,
+        attempt=spec.attempt,
+        idempotency_key=f"{spec.idempotency_key}:result",
+        context_hash=spec.context_hash,
+        capabilities=spec.capabilities,
+        write_scope=spec.write_scope,
+        budget=spec.budget,
+        state=AgentState.FAILED,
+        error="provider_unavailable",
+        usage={"model_invocations": 1, "wall_time_s": 0.1},
+    )
+
+
+def _mapper(reactions: list[str]) -> list[str]:
+    values = []
+    for reaction in reactions:
+        if "Br" in reaction:
+            values.append(
+                "[CH3:1][C:2](=[O:3])[Br:4].[CH3:5][CH2:6][OH:7]>>"
+                "[CH3:1][C:2](=[O:3])[O:7][CH2:6][CH3:5]"
+            )
+        elif "Cl" in reaction:
+            values.append(
+                "[CH3:1][C:2](=[O:3])[Cl:4].[CH3:5][CH2:6][OH:7]>>"
+                "[CH3:1][C:2](=[O:3])[O:7][CH2:6][CH3:5]"
+            )
+        else:
+            values.append(
+                "[CH3:1][C:2](=[O:3])[OH:4].[CH3:5][CH2:6][OH:7]>>"
+                "[CH3:1][C:2](=[O:3])[O:7][CH2:6][CH3:5]"
+            )
+    return values
+
+
+def _catalog(smiles: list[str], **_: Any) -> dict[str, Any]:
+    return {
+        "schema_version": "versioned_benchmark_stock_catalog.v1",
+        "adapter_version": "tests.generic-catalog.v1",
+        "catalog_name": "test-generic-catalog",
+        "catalog_version": "2026-07-14",
+        "retrieved_at": "2026-07-14T00:00:00Z",
+        "members": [
+            {
+                "canonical_smiles": value,
+                "cid": index,
+                "vendor_count": 1,
+                "vendors": [],
+                "source_url": f"https://catalog.invalid/{index}",
+                "response_sha256": f"{index:064x}",
+            }
+            for index, value in enumerate(sorted(set(smiles)), start=1)
+        ],
+        "misses": [],
+    }
+
+
+def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    acceptance = RetrosynthesisAcceptanceSpec(
+        minimum_complete_routes=2,
+        minimum_edge_proof_level=2,
+        stock_boundary="benchmark_search",
+        minimum_independent_source_groups=2,
+    )
+    budget = RetrosynthesisRunBudget(
+        max_model_invocations=2,
+        max_total_input_tokens=10_000,
+        max_total_output_tokens=5_000,
+        max_total_wall_time_s=60,
+        max_visual_invocations=0,
+        max_accepted_expansions=8,
+        max_attempt_runs=16,
+    )
+    result = gateway.solve_target(
+        target_name="opaque blind molecule",
+        target_smiles=TARGET,
+        run_id="blind-target-e2e",
+        acceptance=acceptance,
+        budget=budget,
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=True,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+    )
+
+    assert result["preflight"]["accepted"] is True
+    assert result["model_cost"]["model_invocations"] == 1
+    assert result["accepted_expansion_count"] == 3
+    assert result["gates"]["gates"] == {
+        "B0_blind_input": True,
+        "B1_global_multi_route": True,
+        "B2_host_validated_routes": True,
+        "B3_exact_multi_source": False,
+        "B4_stock_boundary": True,
+        "B5_configured_portfolio_acceptance": True,
+    }
+    assert result["claim"]["generated_route_portfolio"] is True
+    assert result["claim"]["exact_multi_source_grade"] is False
+    assert result["claim"]["procurement_ready"] is False
+    assert Path(result["report_path"]).is_file()
+
+    resumed = gateway.solve_target(
+        target_name="opaque blind molecule",
+        target_smiles=TARGET,
+        run_id="blind-target-e2e",
+        acceptance=acceptance,
+        budget=budget,
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+        ),
+        resume=True,
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+    )
+    assert resumed["model_cost"]["model_invocations"] == 1
+    assert resumed["gates"]["gates"]["B5_configured_portfolio_acceptance"] is True
+
+
+def test_target_solver_reports_provider_failure_without_replan_or_false_closure(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    result = gateway.solve_target(
+        target_name="unknown failed provider target",
+        target_smiles=TARGET,
+        run_id="blind-provider-failure",
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=True,
+            enable_live_benchmark_stock=False,
+        ),
+        director_runner=_failed_runner,
+    )
+
+    assert result["director_outcomes"] == [
+        {
+            "schema_version": "global_campaign_director_outcome.v1",
+            "status": "failed",
+            "invoked": True,
+            "cache_hit": False,
+            "mode": "initial_architecture",
+            "context_sha256": "",
+            "plan": None,
+            "proposal_audits": [],
+            "reasons": [
+                "GlobalCampaignDirectorError",
+                "director_child_failed:provider_unavailable",
+            ],
+            "artifact_sha256": "",
+            "task_id": "",
+        }
+    ]
+    assert result["model_cost"]["model_invocations"] == 1
+    assert result["gates"]["gates"]["B0_blind_input"] is True
+    assert all(
+        value is False
+        for key, value in result["gates"]["gates"].items()
+        if key != "B0_blind_input"
+    )
+    assert result["claim"]["accepted_under_configured_policy"] is False
+    assert Path(result["report_path"]).is_file()

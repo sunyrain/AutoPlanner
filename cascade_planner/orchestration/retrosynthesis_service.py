@@ -28,7 +28,7 @@ from cascade_planner.application.proof_portfolio import (
 from cascade_planner.application.retrosynthesis_workers import (
     build_retrosynthesis_worker_handlers,
 )
-from cascade_planner.application.run_kernel import RunKernel, RunSpec
+from cascade_planner.application.run_kernel import RunKernel, RunKernelError, RunSpec
 from cascade_planner.application.route_workbench import (
     compile_route_workbench,
     compile_route_workbench_delta,
@@ -159,26 +159,36 @@ class RetrosynthesisCampaignService:
         force: bool = False,
         idempotency_key: str,
     ) -> DirectorOutcome:
+        context = self.compile_global_context(material_events=material_events)
+        outcome = self.director.run(context, mode=mode, force=force)
+        self._previous_context = context
+        if outcome.plan is not None and outcome.status == "accepted":
+            admitted_ids = sorted(
+                str(row.get("proposal_id") or "")
+                for row in outcome.proposal_audits
+                if row.get("accepted") is True and str(row.get("proposal_id") or "")
+            )
+            self.apply_global_plan(
+                {**outcome.plan.to_dict(), "_host_admitted_proposal_ids": admitted_ids},
+                idempotency_key=f"{idempotency_key}:plan",
+            )
+        return outcome
+
+    def compile_global_context(
+        self, *, material_events: Iterable[str] = ()
+    ) -> CampaignContext:
         graph = self.graph_store.load()
         portfolio = compile_proof_portfolio(
             graph,
             acceptance_spec=self.kernel.spec.acceptance,
         )
-        context = self.context_compiler.compile(
+        return self.context_compiler.compile(
             kernel=self.kernel,
             hypergraph=graph,
             route_portfolio=portfolio,
             material_events=material_events,
             previous=self._previous_context,
         )
-        outcome = self.director.run(context, mode=mode, force=force)
-        self._previous_context = context
-        if outcome.plan is not None and outcome.status == "accepted":
-            self.apply_global_plan(
-                outcome.plan.to_dict(),
-                idempotency_key=f"{idempotency_key}:plan",
-            )
-        return outcome
 
     def execute_frontier_materialization(
         self,
@@ -186,18 +196,35 @@ class RetrosynthesisCampaignService:
         idempotency_key: str,
     ) -> dict[str, Any]:
         commands = self.graph_store.frontier_materialization_commands()
-        results = tuple(self.workers.execute(command) for command in commands)
+        results: list[WorkerResult] = []
+        stopped_reasons: list[str] = []
+        for command in commands:
+            try:
+                results.append(self.workers.execute(command))
+            except RunKernelError as exc:
+                reason = str(exc)
+                if "budget_exhausted" not in reason:
+                    raise
+                stopped_reasons.append(reason)
+                break
         if not results:
             return {
                 "changed": False,
                 "executed_command_count": 0,
+                "skipped_command_count": len(commands),
+                "stopped_reasons": sorted(set(stopped_reasons)),
                 "graph": self.graph_store.load(),
             }
         applied = self.apply_worker_results(
-            results,
+            tuple(results),
             idempotency_key=idempotency_key,
         )
-        return {**applied, "executed_command_count": len(results)}
+        return {
+            **applied,
+            "executed_command_count": len(results),
+            "skipped_command_count": max(0, len(commands) - len(results)),
+            "stopped_reasons": sorted(set(stopped_reasons)),
+        }
 
     def execute_commands(
         self,
@@ -302,15 +329,16 @@ class RetrosynthesisCampaignService:
         self,
         *,
         previous: Mapping[str, Any] | None = None,
+        campaign_summary: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Build a bounded UI snapshot and an optional revision delta."""
-
         graph = self.graph_store.load()
         portfolio = compile_proof_portfolio(
             graph,
             acceptance_spec=self.kernel.spec.acceptance,
         )
-        snapshot = compile_route_workbench(graph, portfolio)
+        snapshot = compile_route_workbench(
+            graph, portfolio, campaign_summary=campaign_summary
+        )
         return {
             "snapshot": snapshot,
             "delta": compile_route_workbench_delta(previous, snapshot),
@@ -320,10 +348,11 @@ class RetrosynthesisCampaignService:
         self,
         *,
         previous: Mapping[str, Any] | None = None,
+        campaign_summary: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Publish the display projection without changing scientific state."""
 
-        result = self.workbench(previous=previous)
+        result = self.workbench(previous=previous, campaign_summary=campaign_summary)
         snapshot = result["snapshot"]
         ref = self.kernel.artifacts.put_json(
             snapshot,

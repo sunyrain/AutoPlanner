@@ -60,6 +60,7 @@
   const lanesProjection = forest.branch_lanes || {};
   const frontierLedger = forest.frontier_ledger || forest.semantic_summary?.frontier_ledger || {};
   const retrosynthesisControl = forest.retrosynthesis_control || {};
+  const campaignSummary = forest.campaign_summary || {};
   const graphNodes = new Map((graph.nodes || []).map(row => [row.graph_node_id, row]));
   const moleculeNodes = new Map((forest.nodes || []).map(row => [row.node_id, row]));
   const steps = new Map((forest.steps || []).map(row => [row.step_id, row]));
@@ -472,7 +473,20 @@
     const costTotals = controlAuthoritative ? (control.cost_totals || {}) : {};
     const costBudget = controlAuthoritative ? (control.cost_budget || {}) : {};
     const nextDeficit = controlAuthoritative ? (control.next_deficit || {}) : {};
-    const controlRows = [
+    const campaignAvailable = deliveryBytesVerified
+      && campaignSummary.available === true;
+    const gateLabels = {
+      B0_blind_input: 'B0 Blind',
+      B1_global_multi_route: 'B1 Global',
+      B2_host_validated_routes: 'B2 Host',
+      B3_exact_multi_source: 'B3 Evidence',
+      B4_stock_boundary: 'B4 Stock',
+      B5_configured_portfolio_acceptance: 'B5 Policy'
+    };
+    const campaignGates = campaignSummary.gates || {};
+    const campaignCost = campaignSummary.model_cost || {};
+    const campaignResource = campaignSummary.resource_envelope || {};
+    const legacyControlRows = [
       [
         '硬验收',
         controlAuthoritative
@@ -502,8 +516,26 @@
         'neutral'
       ]
     ];
+    const controlRows = campaignAvailable
+      ? Object.entries(gateLabels).map(([key, label]) => [
+          label,
+          campaignGates[key] === true ? '通过' : '未通过',
+          campaignGates[key] === true ? 'closed' : 'open'
+        ]).concat([
+          [
+            '资源预算',
+            campaignResource.within_budget === true ? '合规' : '超限',
+            campaignResource.within_budget === true ? 'closed' : 'open'
+          ],
+          [
+            '模型调用',
+            Number(campaignCost.model_invocations || 0),
+            'neutral'
+          ]
+        ])
+      : legacyControlRows;
     element('runControlMetrics').innerHTML = controlRows.map(([label, value, state]) => `
-      <span class="run-control-chip" data-state="${esc(controlAuthoritative ? state : 'unknown')}">
+      <span class="run-control-chip" data-state="${esc(campaignAvailable || controlAuthoritative ? state : 'unknown')}">
         <span>${esc(label)}</span><strong>${esc(value)}</strong>
       </span>`).join('');
 

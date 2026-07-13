@@ -1,0 +1,68 @@
+{
+  "schema_version": "blind_retrosynthesis_manifest.v1",
+  "cases": [
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "blind-enzalutamide-01",
+      "target_name": "enzalutamide",
+      "target_smiles": "CNC(=O)c1ccc(N2C(=S)N(c3ccc(C#N)c(C(F)(F)F)c3)C(=O)C2(C)C)cc1F",
+      "acceptance": {
+        "minimum_complete_routes": 2,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 2,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_model_invocations": 2,
+        "max_total_input_tokens": 50000,
+        "max_total_output_tokens": 14000,
+        "max_total_wall_time_s": 720,
+        "max_accepted_expansions": 32,
+        "max_attempt_runs": 72,
+        "max_prompt_context_bytes": 96000
+      }
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "blind-ibrutinib-01",
+      "target_name": "ibrutinib",
+      "target_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
+      "acceptance": {
+        "minimum_complete_routes": 2,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 2,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_model_invocations": 2,
+        "max_total_input_tokens": 50000,
+        "max_total_output_tokens": 14000,
+        "max_total_wall_time_s": 720,
+        "max_accepted_expansions": 32,
+        "max_attempt_runs": 72,
+        "max_prompt_context_bytes": 96000
+      }
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "blind-linagliptin-01",
+      "target_name": "linagliptin",
+      "target_smiles": "CC#CCn1c(N2CCC[C@@H](N)C2)nc2c1c(=O)n(Cc1nc(C)c3ccccc3n1)c(=O)n2C",
+      "acceptance": {
+        "minimum_complete_routes": 2,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 2,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_model_invocations": 2,
+        "max_total_input_tokens": 50000,
+        "max_total_output_tokens": 14000,
+        "max_total_wall_time_s": 720,
+        "max_accepted_expansions": 32,
+        "max_attempt_runs": 72,
+        "max_prompt_context_bytes": 96000
+      }
+    }
+  ]
+}

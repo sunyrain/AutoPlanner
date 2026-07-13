@@ -191,6 +191,7 @@ class GlobalCampaignPlan:
 
 @dataclass(frozen=True, slots=True)
 class DirectorConfig:
+    minimum_route_families: int = 2
     max_route_families: int = 6
     max_skeletons: int = 8
     max_steps_per_skeleton: int = 12
@@ -203,10 +204,18 @@ class DirectorConfig:
     max_final_portfolio_synthesis_calls: int = 1
     model: str = ""
     reasoning_effort: str = "low"
+    enable_web_search: bool = False
+    use_coordinator: bool = False
+    child_roles: tuple[str, ...] = (
+        "global_route_architect",
+        "independent_evidence_scout",
+        "route_chemistry_critic",
+    )
     schema_version: str = GLOBAL_CAMPAIGN_DIRECTOR_CONFIG_SCHEMA
 
     def __post_init__(self) -> None:
         for value in (
+            self.minimum_route_families,
             self.max_route_families,
             self.max_skeletons,
             self.max_steps_per_skeleton,
@@ -221,6 +230,13 @@ class DirectorConfig:
                 raise ValueError("director integer limits must be positive")
         if not math.isfinite(self.max_wall_time_s) or self.max_wall_time_s <= 0:
             raise ValueError("director max_wall_time_s must be finite and positive")
+        if self.minimum_route_families > self.max_route_families:
+            raise ValueError("director minimum route families exceeds maximum")
+        roles = tuple(str(value).strip() for value in self.child_roles)
+        if self.use_coordinator and len(set(roles)) < 2:
+            raise ValueError("director coordinator requires distinct child roles")
+        if any(not value for value in roles) or len(roles) > 8:
+            raise ValueError("director child roles are invalid")
 
     def to_dict(self) -> dict[str, Any]:
         row = asdict(self)
@@ -468,7 +484,9 @@ class GlobalCampaignDirector:
                 max_tool_calls=self.config.max_tool_calls,
                 max_tokens=self.config.max_output_tokens,
                 max_output_bytes=self.config.max_output_bytes,
-                max_children=0,
+                max_children=(
+                    len(self.config.child_roles) if self.config.use_coordinator else 0
+                ),
             ),
             context_refs=(context.content_sha256,),
             metadata={
@@ -476,6 +494,9 @@ class GlobalCampaignDirector:
                 "model": self.config.model,
                 "reasoning_effort": self.config.reasoning_effort,
                 "no_scientific_authority": True,
+                "allowed_workdir": str(
+                    self.kernel.run_dir / ".autoplanner" / "director-workspace"
+                ),
             },
         )
         started = time.monotonic()
@@ -702,7 +723,7 @@ def validate_global_campaign_plan(
         reasons.append("plan_context_sha256_mismatch")
     if plan.graph_revision != context.revision.graph_revision:
         reasons.append("plan_graph_revision_mismatch")
-    if not 1 <= len(plan.route_families) <= limits.max_route_families:
+    if not limits.minimum_route_families <= len(plan.route_families) <= limits.max_route_families:
         reasons.append("route_family_count_out_of_bounds")
     if len(plan.multi_step_skeletons) > limits.max_skeletons:
         reasons.append("skeleton_count_out_of_bounds")
@@ -712,6 +733,15 @@ def validate_global_campaign_plan(
     if authority_paths:
         reasons.append("director_claimed_scientific_authority")
     family_ids = _unique_ids(plan.route_families, "route_family_id", reasons)
+    target = _canonical_smiles(context.target.get("canonical_smiles"))
+    if not target:
+        reasons.append("campaign_target_identity_invalid")
+    for family in plan.route_families:
+        family_id = str(family.get("route_family_id") or "")
+        if _canonical_smiles(family.get("target_smiles")) != target:
+            reasons.append(f"route_family_target_mismatch:{family_id}")
+        if not str(family.get("diversity_basis") or "").strip():
+            reasons.append(f"route_family_diversity_basis_missing:{family_id}")
     _unique_ids(plan.strategic_disconnections, "disconnection_id", reasons)
     _unique_ids(plan.shared_intermediates, "intermediate_id", reasons)
     _unique_ids(plan.critical_unknowns, "unknown_id", reasons)
@@ -721,14 +751,19 @@ def validate_global_campaign_plan(
     _unique_ids(plan.pivot_conditions, "pivot_id", reasons)
     _unique_ids(plan.stop_conditions, "stop_id", reasons)
     audits: list[dict[str, Any]] = []
+    audits_by_skeleton: dict[str, list[dict[str, Any]]] = {}
+    root_edge_by_family: dict[str, tuple[str, ...]] = {}
+    skeleton_family_ids: set[str] = set()
     skeleton_ids: set[str] = set()
     for skeleton in plan.multi_step_skeletons:
         skeleton_id = str(skeleton.get("skeleton_id") or "")
         if not skeleton_id or skeleton_id in skeleton_ids:
             reasons.append("skeleton_identity_invalid_or_duplicate")
         skeleton_ids.add(skeleton_id)
-        if str(skeleton.get("route_family_id") or "") not in family_ids:
+        route_family_id = str(skeleton.get("route_family_id") or "")
+        if route_family_id not in family_ids:
             reasons.append(f"skeleton_route_family_unknown:{skeleton_id}")
+        skeleton_family_ids.add(route_family_id)
         steps = skeleton.get("steps")
         if not isinstance(steps, list) or not steps:
             reasons.append(f"skeleton_steps_missing:{skeleton_id}")
@@ -746,6 +781,42 @@ def validate_global_campaign_plan(
                 )
             seen_steps.add(step_id)
             audits.append(audit)
+            audits_by_skeleton.setdefault(skeleton_id, []).append(audit)
+        topology_reasons, root_precursors = _skeleton_topology_reasons(
+            steps,
+            target_smiles=target,
+        )
+        if topology_reasons:
+            for audit in audits_by_skeleton.get(skeleton_id, []):
+                audit["accepted"] = False
+                audit["reasons"] = sorted(
+                    {*audit.get("reasons", []), *topology_reasons}
+                )
+        elif route_family_id and route_family_id not in root_edge_by_family:
+            root_edge_by_family[route_family_id] = root_precursors
+    missing_skeleton_families = sorted(family_ids - skeleton_family_ids)
+    if missing_skeleton_families:
+        reasons.append(
+            "route_families_without_skeletons:" + ",".join(missing_skeleton_families)
+        )
+    duplicate_root_families: dict[tuple[str, ...], list[str]] = {}
+    for family_id, root_precursors in root_edge_by_family.items():
+        duplicate_root_families.setdefault(root_precursors, []).append(family_id)
+    duplicate_family_ids = {
+        family_id
+        for values in duplicate_root_families.values()
+        if len(values) > 1
+        for family_id in sorted(values)[1:]
+    }
+    if duplicate_family_ids:
+        for skeleton in plan.multi_step_skeletons:
+            if str(skeleton.get("route_family_id") or "") not in duplicate_family_ids:
+                continue
+            for audit in audits_by_skeleton.get(str(skeleton.get("skeleton_id") or ""), []):
+                audit["accepted"] = False
+                audit["reasons"] = sorted(
+                    {*audit.get("reasons", []), "route_family_root_not_distinct"}
+                )
     if reasons:
         raise GlobalCampaignPlanValidationError(";".join(sorted(set(reasons))))
     return audits
@@ -791,6 +862,59 @@ def _validate_step(value: Any, *, skeleton_id: str) -> dict[str, Any]:
     }
 
 
+def _skeleton_topology_reasons(
+    raw_steps: Any,
+    *,
+    target_smiles: str,
+) -> tuple[list[str], tuple[str, ...]]:
+    """Require one target-rooted, connected, acyclic retrosynthetic DAG."""
+
+    steps = [dict(value) for value in raw_steps if isinstance(value, Mapping)]
+    products = [_canonical_smiles(step.get("product_smiles")) for step in steps]
+    precursor_rows = [
+        tuple(
+            sorted(
+                _canonical_smiles(value)
+                for value in step.get("precursor_smiles") or []
+                if _canonical_smiles(value)
+            )
+        )
+        for step in steps
+    ]
+    reasons: list[str] = []
+    root_indices = [index for index, product in enumerate(products) if product == target_smiles]
+    if len(root_indices) != 1:
+        reasons.append("skeleton_requires_exactly_one_target_root")
+    if len(products) != len(set(products)):
+        reasons.append("skeleton_product_expanded_more_than_once")
+    adjacency = {
+        product: precursors
+        for product, precursors in zip(products, precursor_rows, strict=True)
+        if product
+    }
+    state: dict[str, int] = {}
+
+    def visit(product: str) -> None:
+        if state.get(product) == 1:
+            reasons.append("skeleton_ancestor_cycle")
+            return
+        if state.get(product) == 2:
+            return
+        state[product] = 1
+        for precursor in adjacency.get(product, ()):
+            if precursor in adjacency:
+                visit(precursor)
+        state[product] = 2
+
+    if target_smiles:
+        visit(target_smiles)
+    unreachable = sorted(set(adjacency) - set(state))
+    if unreachable:
+        reasons.append("skeleton_contains_disconnected_steps")
+    root_precursors = precursor_rows[root_indices[0]] if len(root_indices) == 1 else ()
+    return sorted(set(reasons)), root_precursors
+
+
 def director_trigger_reasons(context: CampaignContext, *, mode: str) -> list[str]:
     if mode == "initial_architecture":
         return ["initial_architecture_requested"]
@@ -815,6 +939,8 @@ def director_prompt(
     mode: str,
     config: DirectorConfig,
 ) -> str:
+    target = str(context.target.get("canonical_smiles") or "")
+    context_payload = _director_prompt_context(context, mode=mode)
     return "\n".join(
         [
             "You are AutoPlanner's GlobalCampaignDirector direct child agent.",
@@ -823,13 +949,243 @@ def director_prompt(
             "All molecules and reactions are hypothesis-only and must request host validation.",
             "Never claim proof, validation, stock closure, route completion, or solved status.",
             "Coordinate route families, multi-step skeletons, shared intermediates, evidence acquisition, fallbacks, pivots, and portfolio tradeoffs together.",
+            f"Exact campaign target: {target}",
+            "Every skeleton must be a connected retrosynthetic DAG with exactly one root product equal to the exact campaign target. Every non-root product must appear as a precursor of an upstream step in that same skeleton.",
+            f"Return at least {config.minimum_route_families} strategically distinct route families with different target-level precursor sets; superficial renaming is not diversity.",
+            "Extend each family to plausible purchasable or benchmark-stock leaves. Include all atom-contributing reactants as precursors, but omit catalysts, solvents, counterions, and non-incorporated reagents.",
+            "Use valid canonical isomeric SMILES, preserve stereochemistry, avoid ancestor cycles, and do not expand the same product twice inside one skeleton.",
+            "Be compact: use no more than two short entries in descriptive lists, avoid repeating rationale across sections, and keep ordinary prose fields below 180 characters.",
+            "Source hints are acquisition hints only. Prefer real DOI, patent publication, or primary-source URL identifiers and explicitly expose uncertainty.",
+            (
+                "This is a deficit-driven replan. Replace rejected shared bottlenecks and missing-stock leaves using the host failure, evidence, stock, and deficit records in CampaignContext; do not merely rename or repeat the failed precursors. Preserve any already host-validated modules when chemically coherent."
+                if mode == "event_replan"
+                else "This is the initial global architecture pass; prioritize structurally coherent complete families over a large number of speculative variants."
+            ),
+            "Do not consult local dossiers, replay packs, showcase answers, target fixtures, or prior run artifacts; the CampaignContext and permitted live search are the only target inputs.",
             f"Mode: {mode}",
             f"Limits: at most {config.max_route_families} route families, {config.max_skeletons} skeletons, and {config.max_steps_per_skeleton} steps per skeleton.",
             "Each skeleton step requires step_id, product_smiles, precursor_smiles, transformation_hypothesis, required_validation, and hypothesis_only=true.",
             "CampaignContext:",
-            json.dumps(context.to_dict(), ensure_ascii=False, sort_keys=True),
+            json.dumps(context_payload, ensure_ascii=False, sort_keys=True),
         ]
     )
+
+
+def _director_prompt_context(
+    context: CampaignContext,
+    *,
+    mode: str,
+) -> dict[str, Any]:
+    if mode != "event_replan":
+        return context.to_dict()
+    topology = dict(context.topology or {})
+    portfolio = dict(context.route_portfolio or {})
+    payload = {
+        "schema_version": "autoplanner_campaign_context_prompt_view.v1",
+        "run_id": context.run_id,
+        "target": dict(context.target),
+        "revision": context.revision.to_dict(),
+        "context_sha256": context.content_sha256,
+        "topology": {
+            "target_molecule_id": topology.get("target_molecule_id"),
+            "molecules": {
+                str(key): _selected_fields(
+                    value,
+                    (
+                        "canonical_smiles",
+                        "incoming_edge_ids",
+                        "is_leaf",
+                        "outgoing_edge_ids",
+                        "stock_closed",
+                    ),
+                )
+                for key, value in dict(topology.get("molecules") or {}).items()
+            },
+            "edges": {
+                str(key): {
+                    **_selected_fields(
+                        value,
+                        (
+                            "edge_digest",
+                            "precursor_molecule_ids",
+                            "precursor_smiles",
+                            "product_molecule_id",
+                            "product_smiles",
+                            "route_family_ids",
+                            "status",
+                        ),
+                    ),
+                    "reaction_validation": _reaction_proof_summary(value),
+                }
+                for key, value in dict(topology.get("edges") or {}).items()
+            },
+            "unmaterialized_hypotheses": {
+                str(key): _selected_fields(
+                    value,
+                    (
+                        "frontier_priority",
+                        "precursor_smiles",
+                        "product_smiles",
+                        "route_family_ids",
+                        "status",
+                    ),
+                )
+                for key, value in dict(topology.get("hypotheses") or {}).items()
+                if dict(value or {}).get("status") != "materialized"
+            },
+            "route_families": {
+                str(key): _selected_fields(
+                    value,
+                    (
+                        "blocking_deficit_ids",
+                        "closed",
+                        "edge_ids",
+                        "leaf_molecule_ids",
+                        "minimum_proof_level",
+                        "selected",
+                        "skeleton_ids",
+                        "status",
+                        "stock_closure_rate",
+                        "strategy",
+                    ),
+                )
+                for key, value in dict(topology.get("route_families") or {}).items()
+            },
+            "stock_observations": {
+                str(key): _selected_fields(
+                    value,
+                    ("accepted", "canonical_smiles", "reasons"),
+                )
+                for key, value in dict(topology.get("stock_observations") or {}).items()
+            },
+            "source_bindings": {
+                str(key): _selected_fields(
+                    value,
+                    ("source_group", "source_kind", "source_ref", "title"),
+                )
+                for key, value in dict(topology.get("source_bindings") or {}).items()
+            },
+            "deficit_frontier": {
+                "summary": dict(
+                    dict(topology.get("deficit_frontier") or {}).get("summary") or {}
+                ),
+                "items": _deficit_rows(
+                    dict(topology.get("deficit_frontier") or {}).get("items") or [],
+                    48,
+                ),
+            },
+            "conflicts": _bounded_rows(topology.get("conflicts"), 24),
+        },
+        "route_portfolio": {
+            "accepted": portfolio.get("accepted"),
+            "closeout": portfolio.get("closeout"),
+            "metrics": portfolio.get("metrics"),
+            "selected_routes": [
+                _selected_fields(
+                    value,
+                    (
+                        "all_edges_proven",
+                        "complete",
+                        "edge_ids",
+                        "independent_source_groups",
+                        "leaf_molecule_ids",
+                        "minimum_edge_proof_level",
+                        "reasons",
+                        "route_family_id",
+                        "route_id",
+                        "stock_closure_rate",
+                    ),
+                )
+                for value in portfolio.get("selected_routes") or []
+                if isinstance(value, Mapping)
+            ],
+            "deficit_ids": [
+                str(value.get("deficit_id") or "")
+                for value in portfolio.get("deficits") or []
+                if isinstance(value, Mapping) and value.get("deficit_id")
+            ][:48],
+        },
+        "evidence": context.evidence,
+        "stock": context.stock,
+        "deficits": _deficit_rows(context.deficits, 48),
+        "failure_history": [dict(value) for value in context.failure_history[-24:]],
+        "budget_state": dict(context.budget_state),
+        "acceptance_state": dict(context.acceptance_state),
+        "delta": context.delta.to_dict(),
+        "semantics": {
+            "read_only_projection": True,
+            "complete_topology_relationships_preserved": True,
+            "verbose_provenance_and_worker_payloads_omitted": True,
+            "full_context_bound_by_context_sha256": True,
+        },
+    }
+    return payload
+
+
+def _selected_fields(value: Any, names: tuple[str, ...]) -> dict[str, Any]:
+    row = dict(value or {}) if isinstance(value, Mapping) else {}
+    return {name: row[name] for name in names if name in row}
+
+
+def _reaction_proof_summary(value: Any) -> list[dict[str, Any]]:
+    row = dict(value or {}) if isinstance(value, Mapping) else {}
+    return [
+        {
+            **_selected_fields(proof, ("accepted", "proof_level", "reasons")),
+            "transform_family": str(
+                dict(proof.get("deterministic_transform_audit") or {}).get(
+                    "transform_family"
+                )
+                or ""
+            ),
+        }
+        for proof in (row.get("reaction_proofs") or [])[-2:]
+        if isinstance(proof, Mapping)
+    ]
+
+
+def _bounded_rows(value: Any, limit: int) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): item
+            for key, item in list(sorted(value.items(), key=lambda pair: str(pair[0])))[:limit]
+        }
+    if isinstance(value, (list, tuple)):
+        return list(value[:limit])
+    return value
+
+
+def _deficit_rows(value: Any, limit: int) -> list[dict[str, Any]]:
+    rows = (
+        list(value.values())
+        if isinstance(value, Mapping)
+        else list(value or [])
+        if isinstance(value, (list, tuple))
+        else []
+    )
+    return [
+        {
+            **_selected_fields(
+                row,
+                (
+                    "deficit_id",
+                    "deterministic",
+                    "entity_ids",
+                    "entity_refs",
+                    "kind",
+                    "model_allowed",
+                    "object_id",
+                    "priority",
+                    "reason",
+                    "reasons",
+                    "route_family_ids",
+                ),
+            ),
+            "route_ids": list(dict(row.get("metadata") or {}).get("route_ids") or []),
+        }
+        for row in rows[:limit]
+        if isinstance(row, Mapping)
+    ]
 
 
 def run_codex_cli_director_child(
@@ -846,7 +1202,18 @@ def run_codex_cli_director_child(
         task_type="global_campaign_direction",
         required_artifact_type="GlobalCampaignPlan",
         input_refs=[context.content_sha256],
-        allowed_tools=[],
+        allowed_tools=(
+            [
+                "web_search",
+                "browser",
+                "literature_search",
+                "spawn_agent",
+                "wait",
+                "send_message",
+            ]
+            if config.enable_web_search or config.use_coordinator
+            else []
+        ),
         budget=WorkerBudget(
             timeout_s=config.max_wall_time_s,
             max_output_bytes=config.max_output_bytes,
@@ -855,8 +1222,9 @@ def run_codex_cli_director_child(
             reasoning_effort=config.reasoning_effort,
         ),
         objective=spec.objective,
-        allowed_workdir=str(Path.cwd()),
-        agent_mode="single",
+        allowed_workdir=str(spec.metadata.get("allowed_workdir") or Path.cwd()),
+        agent_mode="coordinator" if config.use_coordinator else "single",
+        child_roles=list(config.child_roles) if config.use_coordinator else [],
         codex_auth_mode="ambient_codex_cli",
         model=config.model,
     )
@@ -870,13 +1238,21 @@ def run_codex_cli_director_child(
         else None
     )
     usage = dict(record.usage or {})
+    usage["wall_time_s"] = max(
+        float(usage.get("wall_time_s") or 0.0),
+        float(record.elapsed_s or 0.0),
+    )
     if normalize_director_usage(usage)["model_invocations"] == 0:
         usage["model_invocations"] = 1
     return AgentResult(
         run_id=spec.run_id,
         agent_id=spec.agent_id,
         parent_agent_id=spec.parent_agent_id,
-        child_agent_ids=(),
+        child_agent_ids=tuple(
+            str(row.get("thread_id") or row.get("agent_id") or "")
+            for row in record.metadata.get("child_agents") or []
+            if str(row.get("thread_id") or row.get("agent_id") or "")
+        ),
         attempt=spec.attempt,
         idempotency_key=f"{spec.idempotency_key}:result",
         context_hash=spec.context_hash,
@@ -885,15 +1261,24 @@ def run_codex_cli_director_child(
         budget=spec.budget,
         state=AgentState.SUCCEEDED if succeeded else AgentState.FAILED,
         output=output,
-        error="" if succeeded else (record.stderr or record.status),
+        error="" if succeeded else _director_worker_error(record),
         usage=usage,
         metadata={
             "backend": record.backend,
             "worker_status": record.status,
             "mode": mode,
             "direct_child": True,
+            "child_agents": list(record.metadata.get("child_agents") or []),
         },
     )
+
+
+def _director_worker_error(record: Any) -> str:
+    summary = dict(record.metadata.get("event_summary") or {})
+    fatal = str(summary.get("fatal_error") or "").strip()
+    if fatal:
+        return fatal[:4_000]
+    return str(record.stderr or record.status)[:4_000]
 
 
 def normalize_director_usage(value: Mapping[str, Any] | None) -> dict[str, int | float]:

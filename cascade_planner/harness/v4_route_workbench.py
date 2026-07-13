@@ -238,6 +238,7 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             "molecules": len(nodes_by_id),
             "reactions": len(steps),
         },
+        "campaign_summary": dict(source.get("campaign_summary") or {}),
         "primary_branch_id": primary_id,
         "primary_selection": {
             "schema_version": "route_forest_primary_selection.v1",

@@ -498,6 +498,62 @@ def test_invalid_molecule_is_rejected_as_candidate_not_promoted_to_fact(
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize(
+    ("mutate", "reason"),
+    [
+        (
+            lambda plan: plan["multi_step_skeletons"][0]["steps"][0].update(
+                product_smiles="CCO"
+            ),
+            "skeleton_requires_exactly_one_target_root",
+        ),
+        (
+            lambda plan: plan["multi_step_skeletons"][0]["steps"][1].update(
+                product_smiles="CCC"
+            ),
+            "skeleton_contains_disconnected_steps",
+        ),
+        (
+            lambda plan: plan["multi_step_skeletons"][0]["steps"][1].update(
+                product_smiles="CCOC(=O)O",
+                precursor_smiles=["CCOC(=O)N"],
+            ),
+            "skeleton_ancestor_cycle",
+        ),
+    ],
+)
+def test_director_rejects_non_target_rooted_disconnected_or_cyclic_skeletons(
+    tmp_path: Path,
+    mutate: Any,
+    reason: str,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    mutate(raw)
+    audits = validate_global_campaign_plan(GlobalCampaignPlan.from_dict(raw), context)
+    affected = [row for row in audits if row["skeleton_id"] == "skeleton:amide"]
+    assert affected
+    assert all(row["accepted"] is False for row in affected)
+    assert all(reason in row["reasons"] for row in affected)
+
+
+def test_director_rejects_duplicate_target_level_route_family_chemistry(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    raw["multi_step_skeletons"][1]["steps"][0]["precursor_smiles"] = [
+        "CCOC(=O)O",
+        "N",
+    ]
+    audits = validate_global_campaign_plan(GlobalCampaignPlan.from_dict(raw), context)
+    duplicate = [row for row in audits if row["skeleton_id"] == "skeleton:ester"]
+    assert duplicate
+    assert all("route_family_root_not_distinct" in row["reasons"] for row in duplicate)
+
+
 def test_director_output_cannot_grant_scientific_authority(tmp_path: Path) -> None:
     kernel = _kernel(tmp_path)
     context = _context(kernel)

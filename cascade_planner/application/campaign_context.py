@@ -161,8 +161,20 @@ class CampaignContextCompiler:
         previous: CampaignContext | Mapping[str, Any] | None = None,
     ) -> CampaignContext:
         state = kernel.state
-        graph = _compact(hypergraph or {})
-        portfolio = _deduplicate_routes(_compact(route_portfolio or {}))
+        graph_input = dict(hypergraph or {})
+        graph = (
+            _compact_canonical_hypergraph(graph_input)
+            if graph_input.get("schema_version")
+            == "canonical_retrosynthesis_hypergraph.v1"
+            else _compact(graph_input)
+        )
+        portfolio_input = dict(route_portfolio or {})
+        portfolio = _deduplicate_routes(
+            _compact_proof_portfolio(portfolio_input)
+            if portfolio_input.get("schema_version")
+            == "proof_stitched_route_portfolio.v1"
+            else _compact(portfolio_input)
+        )
         evidence = _compact_ledger(evidence_ledger)
         stock = _compact_ledger(stock_ledger)
         proposals = tuple(
@@ -173,7 +185,7 @@ class CampaignContextCompiler:
             for row in list(failure_history)[-_FAILURE_LIMIT:]
             if isinstance(row, Mapping)
         )
-        deficits = tuple(_compact(row) for row in state.deficits)
+        deficits = tuple(_compact_deficit(row) for row in state.deficits)
         sections = {
             "topology": graph,
             "route_portfolio": portfolio,
@@ -315,6 +327,302 @@ def _compact_ledger(
     if isinstance(value, Mapping):
         return _compact(value)
     return {"records": [_compact(row) for row in value if isinstance(row, Mapping)]}
+
+
+def _compact_canonical_hypergraph(graph: Mapping[str, Any]) -> dict[str, Any]:
+    """Preserve complete identities/connectivity while dropping verbose proofs."""
+
+    return {
+        "schema_version": str(graph.get("schema_version") or ""),
+        "revision": int(graph.get("revision") or 0),
+        "scientific_sha256": str(graph.get("scientific_sha256") or ""),
+        "topology_sha256": str(graph.get("topology_sha256") or ""),
+        "target_molecule_id": str(graph.get("target_molecule_id") or ""),
+        "molecules": {
+            str(key): _fields(
+                value,
+                (
+                    "canonical_smiles",
+                    "incoming_edge_ids",
+                    "is_leaf",
+                    "outgoing_edge_ids",
+                    "stock_closed",
+                    "active_stock_observation_id",
+                ),
+            )
+            for key, value in dict(graph.get("molecules") or {}).items()
+        },
+        "edges": {
+            str(key): {
+                **_fields(
+                    value,
+                    (
+                        "edge_digest",
+                        "exact_record_ids",
+                        "independent_source_groups",
+                        "precursor_molecule_ids",
+                        "precursor_smiles",
+                        "product_molecule_id",
+                        "product_smiles",
+                        "route_family_ids",
+                        "source_binding_ids",
+                        "status",
+                    ),
+                ),
+                "reaction_proofs": [
+                    {
+                        **_fields(
+                            proof,
+                            ("accepted", "proof_level", "reasons"),
+                        ),
+                        "transform_family": str(
+                            dict(
+                                dict(proof).get("deterministic_transform_audit")
+                                or {}
+                            ).get("transform_family")
+                            or ""
+                        ),
+                    }
+                    for proof in list(dict(value).get("reaction_proofs") or [])[-2:]
+                    if isinstance(proof, Mapping)
+                ],
+                "origins": [
+                    _fields(
+                        origin,
+                        (
+                            "origin_kind",
+                            "origin_ref",
+                            "route_family_id",
+                            "skeleton_id",
+                            "step_id",
+                            "transformation_hypothesis",
+                        ),
+                    )
+                    for origin in list(dict(value).get("origin_records") or [])[-4:]
+                    if isinstance(origin, Mapping)
+                ],
+            }
+            for key, value in dict(graph.get("edges") or {}).items()
+            if isinstance(value, Mapping)
+        },
+        "hypotheses": {
+            str(key): _fields(
+                value,
+                (
+                    "frontier_priority",
+                    "precursor_smiles",
+                    "product_smiles",
+                    "route_family_ids",
+                    "status",
+                ),
+            )
+            for key, value in dict(graph.get("hypotheses") or {}).items()
+        },
+        "route_families": {
+            str(key): _fields(
+                value,
+                (
+                    "aliases",
+                    "blocking_deficit_ids",
+                    "closed",
+                    "edge_ids",
+                    "hypothesis_ids",
+                    "leaf_molecule_ids",
+                    "minimum_proof_level",
+                    "selected",
+                    "skeleton_ids",
+                    "status",
+                    "stock_closure_rate",
+                    "strategy",
+                    "unmaterialized_hypothesis_ids",
+                ),
+            )
+            for key, value in dict(graph.get("route_families") or {}).items()
+        },
+        "source_bindings": {
+            str(key): _fields(
+                value,
+                (
+                    "source_group",
+                    "source_kind",
+                    "source_ref",
+                    "title",
+                ),
+            )
+            for key, value in dict(graph.get("source_bindings") or {}).items()
+        },
+        "exact_records": {
+            str(key): _fields(
+                value,
+                (
+                    "edge_digest",
+                    "independence_group",
+                    "source_binding_id",
+                    "source_location",
+                ),
+            )
+            for key, value in dict(graph.get("exact_records") or {}).items()
+        },
+        "stock_observations": {
+            str(key): _fields(
+                value,
+                ("accepted", "canonical_smiles", "reasons"),
+            )
+            for key, value in dict(graph.get("stock_observations") or {}).items()
+        },
+        "conflicts": _compact(graph.get("conflicts") or {}),
+        "deficit_frontier": _compact_deficit_frontier(
+            graph.get("deficit_frontier") or {}
+        ),
+        "portfolio_ranking": _compact(graph.get("portfolio_ranking") or []),
+        "delta": _fields(
+            graph.get("delta") or {},
+            ("dirty_entity_ids", "rejected", "revision"),
+        ),
+        "semantics": {
+            "complete_entity_identity_and_connectivity_preserved": True,
+            "verbose_proof_and_provider_payloads_omitted": True,
+        },
+    }
+
+
+def _compact_proof_portfolio(portfolio: Mapping[str, Any]) -> dict[str, Any]:
+    route_fields = (
+        "all_edges_proven",
+        "all_leaves_stock_closed",
+        "complete",
+        "edge_ids",
+        "independent_source_groups",
+        "leaf_molecule_ids",
+        "minimum_edge_proof_level",
+        "open_leaf_molecule_ids",
+        "reasons",
+        "root_edge_ids",
+        "route_family_id",
+        "route_id",
+        "selected",
+        "stock_closure_rate",
+        "unproven_edge_ids",
+    )
+    return {
+        "schema_version": str(portfolio.get("schema_version") or ""),
+        "graph_revision": int(portfolio.get("graph_revision") or 0),
+        "graph_scientific_sha256": str(
+            portfolio.get("graph_scientific_sha256") or ""
+        ),
+        "accepted": portfolio.get("accepted") is True,
+        "proof_policy": _compact(portfolio.get("proof_policy") or {}),
+        "edge_proofs": {
+            str(key): _fields(
+                value,
+                (
+                    "accepted",
+                    "achieved_level",
+                    "conflict_ids",
+                    "edge_id",
+                    "exact_source_bound",
+                    "independent_source_groups",
+                    "reaction_validated",
+                    "reasons",
+                    "required_level",
+                ),
+            )
+            for key, value in dict(portfolio.get("edge_proofs") or {}).items()
+        },
+        "leaf_proofs": {
+            str(key): _fields(
+                value,
+                ("accepted", "molecule_id", "reasons", "stock_boundary"),
+            )
+            for key, value in dict(portfolio.get("leaf_proofs") or {}).items()
+        },
+        "route_candidates": [
+            _fields(value, route_fields)
+            for value in portfolio.get("route_candidates") or []
+            if isinstance(value, Mapping)
+        ],
+        "selected_routes": [
+            _fields(value, route_fields)
+            for value in portfolio.get("selected_routes") or []
+            if isinstance(value, Mapping)
+        ],
+        "route_modules": [
+            _fields(
+                value,
+                (
+                    "alternatives",
+                    "module_id",
+                    "product_molecule_id",
+                    "route_family_id",
+                ),
+            )
+            for value in portfolio.get("route_modules") or []
+            if isinstance(value, Mapping)
+        ],
+        "deficits": [
+            _compact_deficit(value)
+            for value in portfolio.get("deficits") or []
+            if isinstance(value, Mapping)
+        ],
+        "metrics": _compact(portfolio.get("metrics") or {}),
+        "closeout": _compact(portfolio.get("closeout") or {}),
+        "semantics": {
+            "all_route_edge_sets_preserved": True,
+            "verbose_proof_payloads_omitted": True,
+        },
+    }
+
+
+def _fields(value: Any, names: tuple[str, ...]) -> dict[str, Any]:
+    row = dict(value or {}) if isinstance(value, Mapping) else {}
+    return {name: _compact(row[name], key=name) for name in names if name in row}
+
+
+def _compact_deficit_frontier(value: Any) -> dict[str, Any]:
+    row = dict(value or {}) if isinstance(value, Mapping) else {}
+    raw_items = row.get("items") or []
+    items = (
+        list(raw_items.values())
+        if isinstance(raw_items, Mapping)
+        else list(raw_items)
+        if isinstance(raw_items, (list, tuple))
+        else []
+    )
+    return {
+        "schema_version": str(row.get("schema_version") or ""),
+        "summary": _compact(row.get("summary") or {}),
+        "items": [
+            _compact_deficit(item)
+            for item in items
+            if isinstance(item, Mapping)
+        ],
+    }
+
+
+def _compact_deficit(value: Any) -> dict[str, Any]:
+    row = dict(value or {}) if isinstance(value, Mapping) else {}
+    metadata = dict(row.get("metadata") or {})
+    return {
+        **_fields(
+            row,
+            (
+                "deficit_id",
+                "dependency_ids",
+                "deterministic",
+                "entity_ids",
+                "entity_refs",
+                "kind",
+                "model_allowed",
+                "object_id",
+                "priority",
+                "reason",
+                "reasons",
+                "route_family_ids",
+                "score",
+            ),
+        ),
+        "route_ids": _compact(metadata.get("route_ids") or []),
+    }
 
 
 def _compact(value: Any, *, key: str = "") -> Any:

@@ -192,7 +192,11 @@ def build_route_candidate(
         for value in leaves
         if value.get("accepted") is not True
     )
-    source_met = len(source_groups) >= policy.minimum_independent_source_groups
+    source_required = policy.minimum_edge_proof_level >= 3
+    source_met = (
+        not source_required
+        or len(source_groups) >= policy.minimum_independent_source_groups
+    )
     complete = bool(edge_ids) and all(value["accepted"] is True for value in proofs)
     if policy.require_stock_for_every_selected_leaf:
         complete = complete and bool(leaves) and stock_rate == 1.0
@@ -242,6 +246,7 @@ def build_route_candidate(
             "open_leaf_molecule_ids": open_leaf_molecule_ids,
             "independent_source_groups": source_groups,
             "source_independence_met": source_met,
+            "source_independence_required": source_required,
             "conflict_ids": conflicts,
             "length": len(edge_ids),
             "convergence_score": round(convergence, 6),

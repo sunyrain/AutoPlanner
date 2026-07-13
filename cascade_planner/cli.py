@@ -1,7 +1,7 @@
 """Canonical AutoPlanner command-line interface.
 
-All campaign commands call the same gateway used by the V4 HTTP adapter.  No
-command invokes a model or network service implicitly.
+All campaign commands call the same gateway used by the V4 HTTP adapter.
+Model-free ``run`` remains separate from explicit model-backed ``solve-target``.
 """
 from __future__ import annotations
 
@@ -24,6 +24,11 @@ from cascade_planner.interfaces.case_cli import (
     CASE_COMMANDS,
     add_case_commands,
     dispatch_case_command,
+)
+from cascade_planner.interfaces.target_cli import (
+    TARGET_COMMANDS,
+    add_target_commands,
+    dispatch_target_command,
 )
 from cascade_planner.runtime.paths import RuntimePaths
 
@@ -98,6 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--output", type=Path)
 
     add_case_commands(sub)
+    add_target_commands(sub)
 
     serve = sub.add_parser("serve", help="serve the Web UI and V4 API")
     serve.add_argument("--host", default="127.0.0.1")
@@ -136,6 +142,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _dispatch(gateway: CampaignGateway, args: argparse.Namespace) -> dict[str, Any]:
     if args.command in CASE_COMMANDS:
         return dispatch_case_command(args, paths=gateway.paths)
+    if args.command in TARGET_COMMANDS:
+        return dispatch_target_command(gateway, args)
     if args.command == "run":
         plan = _read_object(args.plan) if args.plan else None
         return gateway.create_run(

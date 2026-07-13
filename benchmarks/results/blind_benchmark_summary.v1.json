@@ -1,0 +1,177 @@
+{
+  "schema_version": "blind_retrosynthesis_benchmark_summary.v1",
+  "generated_at": "2026-07-14",
+  "manifest_file_sha256": "a2a486abc24b89871f3aa57420eee03d8297b5b4c966edfbb0a6a6831fbe10c9",
+  "model_policy": {
+    "model": "gpt-5.5",
+    "reasoning_effort": "low",
+    "global_campaign_calls_per_target": 1,
+    "event_replan_calls_executed": 0,
+    "per_edge_model_loop": false
+  },
+  "acceptance_profile": {
+    "minimum_complete_routes": 2,
+    "minimum_edge_proof_level": 2,
+    "minimum_independent_source_groups": 2,
+    "stock_boundary": "benchmark_search",
+    "release_threshold": {
+      "all_cases_pass_B0_and_B1": true,
+      "at_least_two_cases_pass_B2": false,
+      "zero_false_evidence_or_procurement_claims": true,
+      "all_cases_within_their_actual_resource_contract": true
+    },
+    "accepted": false
+  },
+  "aggregate": {
+    "case_count": 3,
+    "gate_pass_counts": {
+      "B0_blind_input": 3,
+      "B1_global_multi_route": 3,
+      "B2_host_validated_routes": 1,
+      "B3_exact_multi_source": 0,
+      "B4_stock_boundary": 2,
+      "B5_configured_portfolio_acceptance": 1
+    },
+    "qualified_policy_acceptance_count": 1,
+    "within_resource_budget_count": 3,
+    "model_cost": {
+      "model_invocations": 3,
+      "input_tokens": 54081,
+      "output_tokens": 19299,
+      "reported_model_wall_time_s": 692.626,
+      "wall_time_missing_case_count": 0
+    },
+    "attempt_count": 109,
+    "accepted_expansion_count": 33,
+    "false_closure_claim_count": 0
+  },
+  "results": [
+    {
+      "case_id": "blind-enzalutamide-01",
+      "run_id": "blind-enzalutamide-live-04",
+      "report_sha256": "97c97164a6e4d4f5d2f446e7c9bbc5d9c484c1592a15fc3f67cd807bffd92e91",
+      "highest_contiguous_gate": "B1",
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": false,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": true,
+        "B5_configured_portfolio_acceptance": false
+      },
+      "counts": {
+        "target_rooted_distinct_skeletons": 2,
+        "materialized_skeletons": 2,
+        "reaction_validated_skeletons": 0,
+        "canonical_evidence_closed_routes": 0,
+        "canonical_stock_closed_routes": 4
+      },
+      "model_cost": {
+        "model_invocations": 1,
+        "input_tokens": 17969,
+        "output_tokens": 4020,
+        "reported_model_wall_time_s": 188.157
+      },
+      "attempt_count": 42,
+      "accepted_expansion_count": 9,
+      "resource_envelope": {
+        "within_budget": true,
+        "violations": []
+      },
+      "qualified_policy_acceptance": false,
+      "outcome_codes": [
+        "global_routes_share_unvalidated_transform_edges",
+        "exact_source_rows_unavailable",
+        "benchmark_stock_boundary_closed",
+        "campaign_left_unresolved_without_extra_model_call"
+      ]
+    },
+    {
+      "case_id": "blind-ibrutinib-01",
+      "run_id": "blind-ibrutinib-live-01",
+      "report_sha256": "01179caffc299b70e82842f688d6acf39239891d81970a84d370e2010b6cceef",
+      "highest_contiguous_gate": "B1",
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": false,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": false,
+        "B5_configured_portfolio_acceptance": false
+      },
+      "counts": {
+        "target_rooted_distinct_skeletons": 3,
+        "materialized_skeletons": 3,
+        "reaction_validated_skeletons": 0,
+        "canonical_evidence_closed_routes": 0,
+        "canonical_stock_closed_routes": 0
+      },
+      "model_cost": {
+        "model_invocations": 1,
+        "input_tokens": 18121,
+        "output_tokens": 10069,
+        "reported_model_wall_time_s": 296.547
+      },
+      "attempt_count": 32,
+      "accepted_expansion_count": 12,
+      "resource_envelope": {
+        "within_budget": true,
+        "violations": []
+      },
+      "qualified_policy_acceptance": false,
+      "outcome_codes": [
+        "shared_critical_connection_rejected",
+        "three_selected_leaf_stock_misses",
+        "exact_source_rows_unavailable",
+        "campaign_left_unresolved_without_extra_model_call"
+      ]
+    },
+    {
+      "case_id": "blind-linagliptin-01",
+      "run_id": "blind-linagliptin-live-02",
+      "report_sha256": "ee9b90a72abb4d9d1a9173bc5850ae649080d217fc43339b0f3692c2d69c8071",
+      "highest_contiguous_gate": "B2",
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": true,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": true,
+        "B5_configured_portfolio_acceptance": true
+      },
+      "counts": {
+        "target_rooted_distinct_skeletons": 3,
+        "materialized_skeletons": 3,
+        "reaction_validated_skeletons": 2,
+        "canonical_evidence_closed_routes": 0,
+        "canonical_stock_closed_routes": 2
+      },
+      "model_cost": {
+        "model_invocations": 1,
+        "input_tokens": 17991,
+        "output_tokens": 5210,
+        "reported_model_wall_time_s": 207.922
+      },
+      "attempt_count": 35,
+      "accepted_expansion_count": 12,
+      "resource_envelope": {
+        "within_budget": true,
+        "violations": []
+      },
+      "qualified_policy_acceptance": true,
+      "outcome_codes": [
+        "host_validated_multi_route_portfolio",
+        "generic_product_grounded_repair_revalidated",
+        "benchmark_stock_boundary_closed",
+        "exact_source_rows_unavailable"
+      ]
+    }
+  ],
+  "semantics": {
+    "contains_no_generated_routes_precursors_or_exact_reaction_answers": true,
+    "B5_is_configured_policy_acceptance_not_automatic_evidence_grade": true,
+    "benchmark_search_stock_is_not_procurement": true,
+    "failed_cases_are_retained": true,
+    "resource_overrun_blocks_qualified_acceptance": true
+  }
+}

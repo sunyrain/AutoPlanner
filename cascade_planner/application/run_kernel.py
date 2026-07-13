@@ -747,10 +747,17 @@ class RunKernel:
                 terminal=False,
                 reasons=("operator_paused",),
             )
-        if state.acceptance_report.get("accepted") is True:
-            return StopDecision(decision="completed", terminal=True)
         if state.in_flight_tasks:
             return StopDecision(decision="continue", terminal=False)
+        violation_reasons = self._budget_violation_reasons(state)
+        if violation_reasons:
+            return StopDecision(
+                decision="budget_exhausted",
+                terminal=True,
+                reasons=tuple(violation_reasons),
+            )
+        if state.acceptance_report.get("accepted") is True:
+            return StopDecision(decision="completed", terminal=True)
         if not state.deficits:
             return StopDecision(
                 decision="unresolved",
@@ -1056,6 +1063,56 @@ class RunKernel:
             if float(totals.get("wall_time_s") or 0.0) >= budget.max_total_wall_time_s:
                 reasons.append("run_model_wall_time_budget_exhausted")
         return reasons
+
+    def _budget_violation_reasons(self, state: RunState) -> list[str]:
+        """Report observed overrun; reaching an allowed cap is still compliant."""
+
+        budget = self.spec.limits.model
+        totals = state.model_totals
+        checks = (
+            (state.attempt_count, budget.max_attempt_runs, "run_attempt_budget_violated"),
+            (
+                state.settled_task_count,
+                self.spec.limits.max_total_tasks,
+                "run_total_task_budget_violated",
+            ),
+            (
+                state.task_wall_time_s,
+                self.spec.limits.max_run_wall_time_s,
+                "run_wall_time_budget_violated",
+            ),
+            (
+                state.accepted_expansion_count,
+                budget.max_accepted_expansions,
+                "run_accepted_expansion_budget_violated",
+            ),
+            (
+                int(totals.get("model_invocations") or 0),
+                budget.max_model_invocations,
+                "run_model_invocation_budget_violated",
+            ),
+            (
+                int(totals.get("input_tokens") or 0),
+                budget.max_total_input_tokens,
+                "run_input_token_budget_violated",
+            ),
+            (
+                int(totals.get("output_tokens") or 0),
+                budget.max_total_output_tokens,
+                "run_output_token_budget_violated",
+            ),
+            (
+                float(totals.get("wall_time_s") or 0.0),
+                budget.max_total_wall_time_s,
+                "run_model_wall_time_budget_violated",
+            ),
+            (
+                int(totals.get("visual_invocations") or 0),
+                budget.max_visual_invocations,
+                "run_visual_invocation_budget_violated",
+            ),
+        )
+        return sorted(reason for observed, limit, reason in checks if observed > limit)
 
     def _persist_state(self, state: RunState) -> ArtifactRef:
         payload = state.to_dict()
@@ -1464,9 +1521,22 @@ def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        _replace_with_bounded_retry(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _replace_with_bounded_retry(source: Path, destination: Path) -> None:
+    """Survive short Windows reader/AV locks without weakening atomicity."""
+
+    for attempt in range(8):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(min(0.4, 0.025 * (2**attempt)))
 
 
 def _utc_now() -> str:

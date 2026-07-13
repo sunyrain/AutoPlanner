@@ -1556,14 +1556,16 @@ def _global_campaign_plan_payload_json_schema(task: WorkerTask) -> dict[str, Any
         "graph_revision": {"type": "integer"},
         "route_families": {"type": "array", "items": route_family, "maxItems": 6},
         "multi_step_skeletons": {"type": "array", "items": skeleton, "maxItems": 8},
-        "strategic_disconnections": {"type": "array", "items": disconnection},
-        "shared_intermediates": {"type": "array", "items": shared},
-        "critical_unknowns": {"type": "array", "items": unknown},
-        "source_plan": {"type": "array", "items": source_task},
-        "fallback_strategies": {"type": "array", "items": fallback},
-        "frontier_priorities": {"type": "array", "items": frontier},
-        "pivot_conditions": {"type": "array", "items": pivot},
-        "stop_conditions": {"type": "array", "items": stop},
+        "strategic_disconnections": {
+            "type": "array", "items": disconnection, "maxItems": 8
+        },
+        "shared_intermediates": {"type": "array", "items": shared, "maxItems": 8},
+        "critical_unknowns": {"type": "array", "items": unknown, "maxItems": 8},
+        "source_plan": {"type": "array", "items": source_task, "maxItems": 8},
+        "fallback_strategies": {"type": "array", "items": fallback, "maxItems": 8},
+        "frontier_priorities": {"type": "array", "items": frontier, "maxItems": 8},
+        "pivot_conditions": {"type": "array", "items": pivot, "maxItems": 8},
+        "stop_conditions": {"type": "array", "items": stop, "maxItems": 8},
         "portfolio_rationale": {"type": "string"},
         "limitations": _string_array_schema(),
     })
@@ -1953,10 +1955,15 @@ def _parse_codex_jsonl_events(stdout: str) -> dict[str, Any]:
     child_agents_by_id: dict[str, dict[str, Any]] = {}
     orphan_wait_state_count = 0
     turn_completed = False
+    errors: list[str] = []
     for index, event in enumerate(events):
         event_type = str(event.get("type") or event.get("event") or "")
         if event_type == "turn.completed":
             turn_completed = True
+        if event_type in {"error", "turn.failed"}:
+            message = _find_first_key(event, {"message", "detail"})
+            if message and message not in errors:
+                errors.append(message)
         if not session_id:
             session_id = _find_first_key(event, {"thread_id", "session_id", "conversation_id"})
         event_usage = event.get("usage")
@@ -2049,6 +2056,8 @@ def _parse_codex_jsonl_events(stdout: str) -> dict[str, Any]:
             "child_agent_spawn_count": len(child_agents),
             "child_agent_completed_count": len(completed_children),
             "orphan_wait_state_count": orphan_wait_state_count,
+            "errors": errors[-16:],
+            "fatal_error": errors[-1] if errors else "",
         },
     }
 

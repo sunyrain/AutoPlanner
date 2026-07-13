@@ -1186,7 +1186,7 @@ body.is-resizing * {
 .run-control-metrics {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
   gap: var(--space-2);
 }
 

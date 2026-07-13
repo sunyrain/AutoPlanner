@@ -719,6 +719,7 @@ def _deterministic_transform_reapply_audit(
         reactant_atoms=reactant_atoms,
         product_atoms=product_atoms,
         reactant_components=reactant_components,
+        reactant_bonds=reactant_bonds,
         product_bonds=product_bonds,
         departing_unmapped_bonds=departing_unmapped_bonds,
         unmapped_heavy_neighbors_by_mapped_center=(
@@ -750,7 +751,7 @@ def _deterministic_transform_reapply_audit(
                 departing_unmapped_bonds
             )
         ],
-        "registry_policy": "host_derived_local_reaction_centre_allowlist.v3",
+        "registry_policy": "host_derived_local_reaction_centre_allowlist.v4",
         "model_reaction_family_ignored": True,
         "reasons": reasons,
     }
@@ -763,6 +764,7 @@ def _recognized_transform_family(
     reactant_atoms: Mapping[int, int],
     product_atoms: Mapping[int, int],
     reactant_components: Mapping[int, int],
+    reactant_bonds: set[tuple[int, int, str]],
     product_bonds: set[tuple[int, int, str]],
     departing_unmapped_bonds: tuple[tuple[int, int, str], ...],
     unmapped_heavy_neighbors_by_mapped_center: Mapping[int, tuple[int, ...]],
@@ -770,9 +772,20 @@ def _recognized_transform_family(
     bond_audit: Mapping[str, Any],
     source_supported_multicentre: bool,
 ) -> str:
+    # RXNMapper can permute symmetry-equivalent aromatic atom maps, producing
+    # paired aromatic delete/add noise even though both unmapped structures
+    # were already proven identical.  Local transform recognition therefore
+    # uses only non-aromatic edits; reconstruction still checks the complete
+    # mapped bond graph above.
+    formed = {row for row in formed if row[2] != "AROMATIC"}
+    broken = {row for row in broken if row[2] != "AROMATIC"}
     edit_count = len(formed) + len(broken) + len(departing_unmapped_bonds)
     if edit_count <= 0:
         return ""
+
+    formed_by_pair = {(left, right): order for left, right, order in formed}
+    broken_by_pair = {(left, right): order for left, right, order in broken}
+    changed_pairs = set(formed_by_pair) & set(broken_by_pair)
 
     # A source-bound one-pot oxidative cascade may legitimately create several
     # peroxide/acetal rings.  It is recognized from the mapped structures, not
@@ -809,12 +822,269 @@ def _recognized_transform_family(
         if oxygen_only_transfer and oxygen_centred_formation:
             return "source_supported_tandem_oxidative_cyclization"
 
+    # A diaryl thiourea and an alpha-halo acyl halide can be identified from a
+    # strict two-centre signature: the two thiourea nitrogens close one ring
+    # onto the adjacent carbonyl/alpha carbon pair while exactly two halides
+    # depart.  This is a dedicated host template, not a generic annulation
+    # exemption.
+    if (
+        edit_count == 4
+        and int(atom_audit.get("net_ring_increase") or 0) == 1
+        and len(formed) == 2
+        and not broken
+        and len(departing_unmapped_bonds) == 2
+        and all(row[2] == "SINGLE" for row in formed)
+        and all(row[1] in {9, 17, 35, 53} for row in departing_unmapped_bonds)
+    ):
+        formed_cn = [
+            _ordered_element_pair(row[:2], product_atoms, first_atomic_number=6)
+            for row in formed
+        ]
+        formed_cn = [row for row in formed_cn if row[0] and product_atoms.get(row[1]) == 7]
+        carbon_centres = {row[0] for row in formed_cn}
+        nitrogen_centres = {row[1] for row in formed_cn}
+        departing_centres = {row[0] for row in departing_unmapped_bonds}
+        carbonyl_centres = {
+            carbon
+            for carbon in carbon_centres
+            if any(
+                carbon in bond[:2]
+                and bond[2] == "DOUBLE"
+                and product_atoms.get(bond[0] if bond[1] == carbon else bond[1]) == 8
+                for bond in product_bonds
+            )
+        }
+        thiocarbonyl_centres = [
+            carbon
+            for carbon, element in product_atoms.items()
+            if element == 6
+            and all(
+                (min(carbon, nitrogen), max(carbon, nitrogen), "SINGLE")
+                in product_bonds
+                for nitrogen in nitrogen_centres
+            )
+            and any(
+                carbon in bond[:2]
+                and bond[2] == "DOUBLE"
+                and product_atoms.get(bond[0] if bond[1] == carbon else bond[1]) == 16
+                for bond in product_bonds
+            )
+        ]
+        component_pairs = {
+            (reactant_components.get(carbon), reactant_components.get(nitrogen))
+            for carbon, nitrogen in formed_cn
+        }
+        if (
+            len(formed_cn) == 2
+            and len(carbon_centres) == len(nitrogen_centres) == 2
+            and carbon_centres == departing_centres
+            and len(carbonyl_centres) == 1
+            and len(thiocarbonyl_centres) == 1
+            and len(component_pairs) == 1
+            and all(left is not None and right is not None and left != right for left, right in component_pairs)
+        ):
+            return "thiourea_alpha_haloacyl_thiohydantoin_annulation"
+
+    # RXNMapper may permute the two ring nitrogens of an unsymmetrical
+    # imide/thiohydantoin during an otherwise ordinary aryl-halide
+    # substitution.  Accept only the strict net signature: one cross-component
+    # C--hetero bond at the exact halide-bearing carbon, with all residual
+    # single-bond edits forming a balanced intracomponent map permutation.
+    cross_component_formed = [
+        row
+        for row in formed
+        if reactant_components.get(row[0]) is not None
+        and reactant_components.get(row[1]) is not None
+        and reactant_components.get(row[0]) != reactant_components.get(row[1])
+    ]
+    if len(cross_component_formed) == 1 and len(departing_unmapped_bonds) == 1:
+        cross_bond = cross_component_formed[0]
+        carbon, hetero = _ordered_hetero_bond(cross_bond[:2], product_atoms)
+        departure = departing_unmapped_bonds[0]
+        residual_formed = formed - {cross_bond}
+        residual_edges = residual_formed | broken
+        residual_components = {
+            reactant_components.get(left)
+            for left, right, _order in residual_edges
+            if reactant_components.get(left) == reactant_components.get(right)
+        }
+        residual_is_balanced_permutation = bool(residual_edges) and (
+            len(residual_formed) == len(broken) <= 2
+            and len(residual_components) == 1
+            and all(
+                order == "SINGLE"
+                and reactant_components.get(left) is not None
+                and reactant_components.get(left) == reactant_components.get(right)
+                for left, right, order in residual_edges
+            )
+        )
+        if (
+            carbon
+            and product_atoms.get(hetero) in {7, 8, 16}
+            and cross_bond[2] == "SINGLE"
+            and departure[0] == carbon
+            and departure[1] in {9, 17, 35, 53}
+            and residual_is_balanced_permutation
+        ):
+            return "symmetry_tolerant_heteroatom_nucleophilic_substitution"
+
+    # Direct amino-acid/isothiocyanate thiohydantoin formation is a bounded
+    # two-component annulation.  Identify the complete product-side five-member
+    # ring (carbonyl C, alpha C, two nitrogens, thiocarbonyl C), require its two
+    # nitrogens to originate from different components, and require exactly one
+    # departing hydroxyl oxygen at the carbonyl centre.
+    if (
+        edit_count <= 7
+        and int(atom_audit.get("net_ring_increase") or 0) == 1
+        and len(departing_unmapped_bonds) == 1
+        and departing_unmapped_bonds[0][1] == 8
+    ):
+        carbonyl = departing_unmapped_bonds[0][0]
+
+        def bonded(left: int, right: int, order: str) -> bool:
+            return (min(left, right), max(left, right), order) in product_bonds
+
+        carbonyl_ok = product_atoms.get(carbonyl) == 6 and any(
+            carbonyl in row[:2]
+            and row[2] == "DOUBLE"
+            and product_atoms.get(row[0] if row[1] == carbonyl else row[1]) == 8
+            for row in product_bonds
+        )
+        alpha_carbons = {
+            row[0] if row[1] == carbonyl else row[1]
+            for row in product_bonds
+            if carbonyl in row[:2]
+            and row[2] == "SINGLE"
+            and product_atoms.get(row[0] if row[1] == carbonyl else row[1]) == 6
+        }
+        thiocarbonyls = {
+            carbon
+            for carbon, element in product_atoms.items()
+            if element == 6
+            and any(
+                carbon in row[:2]
+                and row[2] == "DOUBLE"
+                and product_atoms.get(row[0] if row[1] == carbon else row[1]) == 16
+                for row in product_bonds
+            )
+        }
+        for alpha in alpha_carbons:
+            for thiocarbonyl in thiocarbonyls:
+                nitrogens = {
+                    row[0] if row[1] == thiocarbonyl else row[1]
+                    for row in product_bonds
+                    if thiocarbonyl in row[:2]
+                    and row[2] == "SINGLE"
+                    and product_atoms.get(
+                        row[0] if row[1] == thiocarbonyl else row[1]
+                    )
+                    == 7
+                }
+                if len(nitrogens) != 2:
+                    continue
+                first, second = sorted(nitrogens)
+                ring_orders = ((first, second), (second, first))
+                ring_closed = any(
+                    bonded(carbonyl, alpha, "SINGLE")
+                    and bonded(alpha, alpha_n, "SINGLE")
+                    and bonded(alpha_n, thiocarbonyl, "SINGLE")
+                    and bonded(thiocarbonyl, carbonyl_n, "SINGLE")
+                    and bonded(carbonyl_n, carbonyl, "SINGLE")
+                    for alpha_n, carbonyl_n in ring_orders
+                )
+                nitrogen_components = {
+                    reactant_components.get(value) for value in nitrogens
+                }
+                reactant_isothiocyanate_nitrogens = {
+                    nitrogen
+                    for nitrogen in nitrogens
+                    if bonded(thiocarbonyl, nitrogen, "SINGLE")
+                    and (
+                        min(thiocarbonyl, nitrogen),
+                        max(thiocarbonyl, nitrogen),
+                        "DOUBLE",
+                    )
+                    in reactant_bonds
+                    and any(
+                        nitrogen in row[:2]
+                        and row[2] == "SINGLE"
+                        and reactant_atoms.get(
+                            row[0] if row[1] == nitrogen else row[1]
+                        )
+                        == 6
+                        for row in reactant_bonds
+                    )
+                }
+                if (
+                    carbonyl_ok
+                    and ring_closed
+                    and len(reactant_isothiocyanate_nitrogens) == 1
+                    and None not in nitrogen_components
+                    and len(nitrogen_components) == 2
+                    and reactant_components.get(carbonyl)
+                    == reactant_components.get(alpha)
+                ):
+                    return "amino_acid_isothiocyanate_thiohydantoin_annulation"
+
     if edit_count > 3:
         return ""
 
-    formed_by_pair = {(left, right): order for left, right, order in formed}
-    broken_by_pair = {(left, right): order for left, right, order in broken}
-    changed_pairs = set(formed_by_pair) & set(broken_by_pair)
+    # Transfer of O=C=X or S=C=X onto an amine: one new C=N bond, an existing
+    # C=O/C=S bond, and one or two departing halides on the same carbon.
+    if len(formed) == 1 and not broken:
+        new_bond = next(iter(formed))
+        carbon, nitrogen = _ordered_element_pair(
+            new_bond[:2], product_atoms, first_atomic_number=6
+        )
+        heterocumulene = bool(
+            carbon
+            and product_atoms.get(nitrogen) == 7
+            and new_bond[2] == "DOUBLE"
+            and any(
+                carbon in row[:2]
+                and row[2] == "DOUBLE"
+                and product_atoms.get(row[0] if row[1] == carbon else row[1])
+                in {8, 16}
+                for row in product_bonds
+            )
+        )
+        halides_depart = bool(
+            departing_unmapped_bonds
+            and all(
+                retained == carbon and element in {9, 17, 35, 53}
+                for retained, element, _order in departing_unmapped_bonds
+            )
+        )
+        different_components = (
+            reactant_components.get(carbon) is not None
+            and reactant_components.get(nitrogen) is not None
+            and reactant_components.get(carbon) != reactant_components.get(nitrogen)
+        )
+        if heterocumulene and halides_depart and different_components:
+            return "amine_to_isocyanate_or_isothiocyanate"
+        left, right, order = new_bond
+        if (
+            order == "SINGLE"
+            and product_atoms.get(left) == product_atoms.get(right) == 6
+            and reactant_components.get(left) is not None
+            and reactant_components.get(right) is not None
+            and reactant_components.get(left) != reactant_components.get(right)
+        ):
+            leaving_by_centre = {
+                centre: {
+                    element
+                    for retained, element, _bond_order in departing_unmapped_bonds
+                    if retained == centre
+                }
+                for centre in (left, right)
+            }
+            has_boron_partner = any(5 in values for values in leaving_by_centre.values())
+            has_halide_partner = any(
+                values & {9, 17, 35, 53}
+                for values in leaving_by_centre.values()
+            )
+            if has_boron_partner and has_halide_partner:
+                return "carbon_carbon_cross_coupling"
     if len(formed) == len(broken) == len(changed_pairs) == 1:
         pair = next(iter(changed_pairs))
         elements = tuple(sorted(reactant_atoms.get(value, 0) for value in pair))
@@ -856,6 +1126,37 @@ def _recognized_transform_family(
 
     formed_only_pairs = [row for row in formed if row[:2] not in changed_pairs]
     broken_only_pairs = [row for row in broken if row[:2] not in changed_pairs]
+    # Nucleophile addition to an isocyanate/isothiocyanate converts one C=N
+    # double bond to single and forms one new C-N bond from another component.
+    if len(formed_only_pairs) == 1 and len(changed_pairs) == 1:
+        new_bond = formed_only_pairs[0]
+        carbon, nitrogen = _ordered_element_pair(
+            new_bond[:2], product_atoms, first_atomic_number=6
+        )
+        changed = next(iter(changed_pairs))
+        changed_elements = tuple(
+            sorted(product_atoms.get(value, 0) for value in changed)
+        )
+        if (
+            carbon
+            and product_atoms.get(nitrogen) == 7
+            and new_bond[2] == "SINGLE"
+            and changed_elements == (6, 7)
+            and broken_by_pair[changed] == "DOUBLE"
+            and formed_by_pair[changed] == "SINGLE"
+            and carbon in changed
+            and reactant_components.get(carbon) is not None
+            and reactant_components.get(nitrogen) is not None
+            and reactant_components.get(carbon) != reactant_components.get(nitrogen)
+            and any(
+                carbon in row[:2]
+                and row[2] == "DOUBLE"
+                and product_atoms.get(row[0] if row[1] == carbon else row[1])
+                in {8, 16}
+                for row in product_bonds
+            )
+        ):
+            return "heterocumulene_nucleophile_addition"
     if len(formed_only_pairs) == 1 and len(broken_only_pairs) <= 1:
         new_bond = formed_only_pairs[0]
         if new_bond[2] != "SINGLE":
@@ -873,16 +1174,29 @@ def _recognized_transform_family(
                 and product_atoms.get(row[0] if row[1] == carbon else row[1]) == 8
                 for row in product_bonds
             )
-            leaving_group_ok = not broken_only_pairs or all(
+            departing_at_carbon = [
+                row for row in departing_unmapped_bonds if row[0] == carbon
+            ]
+            leaving_group_ok = (
+                not broken_only_pairs
+                or all(
                 carbon in row[:2]
                 and (row[0] not in product_atoms or row[1] not in product_atoms)
                 and reactant_atoms.get(row[0] if row[1] == carbon else row[1])
                 in {7, 8, 9, 16, 17, 35, 53}
                 for row in broken_only_pairs
+                )
             )
             if different_components and leaving_group_ok and carbonyl_present:
                 return "acyl_substitution_coupling"
-            if different_components and leaving_group_ok and broken_only_pairs:
+            substitution_leaving_group = bool(
+                broken_only_pairs
+                or (
+                    departing_at_carbon
+                    and all(row[1] in {9, 17, 35, 53} for row in departing_at_carbon)
+                )
+            )
+            if different_components and leaving_group_ok and substitution_leaving_group:
                 return "heteroatom_nucleophilic_substitution"
 
     if not formed and len(broken) == 1:

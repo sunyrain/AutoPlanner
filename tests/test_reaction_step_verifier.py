@@ -144,6 +144,192 @@ def test_host_reapplied_acyl_substitution_reaches_l2_reaction_validated() -> Non
     )
 
 
+def test_host_reapplied_amine_to_isothiocyanate_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "product_smiles": "S=C=Nc1ccccc1",
+            "reactant_smiles": ["Nc1ccccc1", "S=C(Cl)Cl"],
+            "atom_mapped_reaction_smiles": (
+                "[NH2:1][c:2]1[cH:3][cH:4][cH:5][cH:6][cH:7]1."
+                "Cl[C:8](Cl)=[S:9]>>"
+                "[N:1](=[C:8]=[S:9])[c:2]1[cH:3][cH:4][cH:5][cH:6][cH:7]1"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "amine_to_isocyanate_or_isothiocyanate"
+    )
+
+
+def test_host_reapplied_isothiocyanate_amine_addition_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "product_smiles": "NC(=S)Nc1ccccc1",
+            "reactant_smiles": ["N", "S=C=Nc1ccccc1"],
+            "atom_mapped_reaction_smiles": (
+                "[NH3:1].[C:2](=[S:3])=[N:4][c:5]1[cH:6][cH:7]"
+                "[cH:8][cH:9][cH:10]1>>[NH2:1][C:2](=[S:3])[NH:4]"
+                "[c:5]1[cH:6][cH:7][cH:8][cH:9][cH:10]1"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "heterocumulene_nucleophile_addition"
+    )
+
+
+def test_symmetry_tolerant_thiohydantoin_n_arylation_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "product_smiles": (
+                "CNC(=O)c1ccc(N2C(=S)N(c3ccc(C#N)c(C(F)(F)F)c3)"
+                "C(=O)C2(C)C)cc1F"
+            ),
+            "reactant_smiles": [
+                "CC1(C)C(=O)NC(=S)N1c1ccc(C#N)c(C(F)(F)F)c1",
+                "CNC(=O)c1ccc(Br)cc1F",
+            ],
+            "atom_mapped_reaction_smiles": (
+                "[NH:9]1[C:10](=[S:11])[N:12]([c:13]2[cH:14][cH:15]"
+                "[c:16]([C:17]#[N:18])[c:19]([C:20]([F:21])([F:22])"
+                "[F:23])[cH:24]2)[C:27]([CH3:28])([CH3:29])[C:25]1=[O:26]."
+                "Br[c:8]1[cH:7][cH:6][c:5]([C:3]([NH:2][CH3:1])=[O:4])"
+                "[c:31]([F:32])[cH:30]1>>[CH3:1][NH:2][C:3](=[O:4])"
+                "[c:5]1[cH:6][cH:7][c:8]([N:9]2[C:10](=[S:11])[N:12]"
+                "([c:13]3[cH:14][cH:15][c:16]([C:17]#[N:18])[c:19]"
+                "([C:20]([F:21])([F:22])[F:23])[cH:24]3)[C:25](=[O:26])"
+                "[C:27]2([CH3:28])[CH3:29])[cH:30][c:31]1[F:32]"
+            ),
+        }
+    )
+
+    assert proof["accepted"] is True
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "symmetry_tolerant_heteroatom_nucleophilic_substitution"
+    )
+
+
+def test_amino_acid_isothiocyanate_thiohydantoin_annulation_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "product_smiles": (
+                "CC1(C)C(=O)NC(=S)N1c1ccc(C#N)c(C(F)(F)F)c1"
+            ),
+            "reactant_smiles": [
+                "CC(C)(N)C(=O)O",
+                "N#Cc1ccc(N=C=S)cc1C(F)(F)F",
+            ],
+            "atom_mapped_reaction_smiles": (
+                "O[C:4]([C:2]([CH3:1])([CH3:3])[NH2:6])=[O:5]."
+                "[C:7](=[S:8])=[N:9][c:10]1[cH:11][cH:12][c:13]"
+                "([C:14]#[N:15])[c:16]([C:17]([F:18])([F:19])[F:20])"
+                "[cH:21]1>>[CH3:1][C:2]1([CH3:3])[C:4](=[O:5])[NH:6]"
+                "[C:7](=[S:8])[N:9]1[c:10]1[cH:11][cH:12][c:13]"
+                "([C:14]#[N:15])[c:16]([C:17]([F:18])([F:19])[F:20])"
+                "[cH:21]1"
+            ),
+        }
+    )
+
+    assert proof["accepted"] is True
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "amino_acid_isothiocyanate_thiohydantoin_annulation"
+    )
+
+
+def test_aryl_thioisocyanate_connectivity_typo_cannot_gain_annulation_proof() -> None:
+    proof = verify_reaction_step(
+        {
+            "product_smiles": (
+                "CC1(C)C(=O)NC(=S)N1c1ccc(C#N)c(C(F)(F)F)c1"
+            ),
+            "reactant_smiles": [
+                "CC(C)(N)C(=O)O",
+                "N#Cc1ccc([SH]=C=N)cc1C(F)(F)F",
+            ],
+            "atom_mapped_reaction_smiles": (
+                "O[C:4]([C:2]([CH3:1])([CH3:3])[NH2:9])=[O:5]."
+                "[NH:6]=[C:7]=[SH:8][c:10]1[cH:11][cH:12][c:13]"
+                "([C:14]#[N:15])[c:16]([C:17]([F:18])([F:19])[F:20])"
+                "[cH:21]1>>[CH3:1][C:2]1([CH3:3])[C:4](=[O:5])[NH:6]"
+                "[C:7](=[S:8])[N:9]1[c:10]1[cH:11][cH:12][c:13]"
+                "([C:14]#[N:15])[c:16]([C:17]([F:18])([F:19])[F:20])"
+                "[cH:21]1"
+            ),
+        }
+    )
+
+    assert proof["accepted"] is False
+    assert proof["deterministic_transform_audit"]["transform_family"] == ""
+
+
+def test_host_reapplied_aryl_halide_n_coupling_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "product_smiles": "Nc1ccccc1",
+            "reactant_smiles": ["N", "Brc1ccccc1"],
+            "atom_mapped_reaction_smiles": (
+                "[NH3:1].Br[c:2]1[cH:3][cH:4][cH:5][cH:6][cH:7]1>>"
+                "[NH2:1][c:2]1[cH:3][cH:4][cH:5][cH:6][cH:7]1"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "heteroatom_nucleophilic_substitution"
+    )
+
+
+def test_host_reapplied_aryl_halide_boron_cross_coupling_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "product_smiles": "c1ccc(-c2ccccc2)cc1",
+            "reactant_smiles": ["Brc1ccccc1", "OB(O)c1ccccc1"],
+            "atom_mapped_reaction_smiles": (
+                "Br[c:1]1[cH:2][cH:3][cH:4][cH:5][cH:6]1."
+                "OB(O)[c:7]1[cH:8][cH:9][cH:10][cH:11][cH:12]1>>"
+                "[c:1]1(-[c:7]2[cH:8][cH:9][cH:10][cH:11][cH:12]2)"
+                "[cH:2][cH:3][cH:4][cH:5][cH:6]1"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "carbon_carbon_cross_coupling"
+    )
+
+
+def test_host_reapplied_thiourea_alpha_haloacyl_annulation_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "product_smiles": "CC1(C)C(=O)N(C)C(=S)N1C",
+            "reactant_smiles": ["CC(C)(Cl)C(=O)Cl", "CNC(=S)NC"],
+            "atom_mapped_reaction_smiles": (
+                "Cl[C:1](=[O:2])[C:3](Cl)([CH3:4])[CH3:5]."
+                "[CH3:6][NH:7][C:8](=[S:9])[NH:10][CH3:11]>>"
+                "[CH3:6][N:7]1[C:8](=[S:9])[N:10]([CH3:11])"
+                "[C:1](=[O:2])[C:3]1([CH3:4])[CH3:5]"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "thiourea_alpha_haloacyl_thiohydantoin_annulation"
+    )
+
+
 def test_unmapped_departing_oxygen_in_dehydration_reaches_l2() -> None:
     proof = verify_reaction_step(
         {
