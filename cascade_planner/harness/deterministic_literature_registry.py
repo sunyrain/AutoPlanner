@@ -26,6 +26,9 @@ from rdkit.Chem.MolStandardize import rdMolStandardize
 from cascade_planner.harness.reaction_step_verifier import (
     canonical_reaction_digest,
 )
+from cascade_planner.harness.deterministic_resolver_cache import (
+    DeterministicResolverCache,
+)
 from cascade_planner.harness.stitched_route import (
     _materialized_source_evidence_valid,
 )
@@ -56,6 +59,7 @@ def build_deterministic_literature_resolvers(
     opsin_base_url: str = DEFAULT_OPSIN_BASE_URL,
     pubchem_base_url: str = DEFAULT_PUBCHEM_BASE_URL,
     timeout_s: float = 30.0,
+    persistent_cache: DeterministicResolverCache | None = None,
 ) -> tuple[StructureResolver, CandidateNameResolver]:
     """Build one run-scoped resolver pair with shared in-memory caches."""
 
@@ -64,10 +68,12 @@ def build_deterministic_literature_resolvers(
             base_url=opsin_base_url,
             pubchem_base_url=pubchem_base_url,
             timeout_s=timeout_s,
+            persistent_cache=persistent_cache,
         ),
         _pubchem_name_resolver(
             base_url=pubchem_base_url,
             timeout_s=timeout_s,
+            persistent_cache=persistent_cache,
         ),
     )
 
@@ -1193,6 +1199,7 @@ def _opsin_resolver(
     base_url: str,
     pubchem_base_url: str = DEFAULT_PUBCHEM_BASE_URL,
     timeout_s: float,
+    persistent_cache: DeterministicResolverCache | None = None,
 ) -> StructureResolver:
     cache: dict[str, str] = {}
 
@@ -1201,6 +1208,19 @@ def _opsin_resolver(
         if key in cache:
             _increment_metric("resolver.structure.cache_hit")
             return cache[key]
+        if persistent_cache is not None:
+            persistent_hit, persistent_value = persistent_cache.get(
+                "structure",
+                key,
+            )
+            if persistent_hit:
+                _increment_metric("resolver.structure.persistent_cache_hit")
+                value = str(persistent_value or "")
+                if not _canonical_smiles(value):
+                    raise RuntimeError("source_name_structure_resolution_failed")
+                cache[key] = value
+                return value
+            _increment_metric("resolver.structure.persistent_cache_miss")
         _increment_metric("resolver.structure.cache_miss")
         url = f"{base_url.rstrip('/')}/{urllib.parse.quote(key, safe='')}.smi"
         request = urllib.request.Request(
@@ -1228,8 +1248,12 @@ def _opsin_resolver(
                 timeout_s=timeout_s,
             )
         if not _canonical_smiles(value):
+            if persistent_cache is not None:
+                persistent_cache.put("structure", key, "", success=False)
             raise RuntimeError("source_name_structure_resolution_failed")
         cache[key] = value
+        if persistent_cache is not None:
+            persistent_cache.put("structure", key, value, success=True)
         return value
 
     return resolve
@@ -1278,6 +1302,7 @@ def _pubchem_name_resolver(
     *,
     base_url: str,
     timeout_s: float,
+    persistent_cache: DeterministicResolverCache | None = None,
 ) -> CandidateNameResolver:
     cache: dict[str, list[str]] = {}
 
@@ -1286,6 +1311,17 @@ def _pubchem_name_resolver(
         if canonical in cache:
             _increment_metric("resolver.candidate_names.cache_hit")
             return list(cache[canonical])
+        if persistent_cache is not None:
+            persistent_hit, persistent_value = persistent_cache.get(
+                "candidate_names",
+                canonical,
+            )
+            if persistent_hit:
+                _increment_metric("resolver.candidate_names.persistent_cache_hit")
+                names = [str(item) for item in persistent_value or []]
+                cache[canonical] = names
+                return list(names)
+            _increment_metric("resolver.candidate_names.persistent_cache_miss")
         _increment_metric("resolver.candidate_names.cache_miss")
         encoded = urllib.parse.quote(canonical, safe="")
         url = (
@@ -1316,6 +1352,13 @@ def _pubchem_name_resolver(
         ):
             _increment_metric("resolver.pubchem_names.failure")
             cache[canonical] = []
+            if persistent_cache is not None:
+                persistent_cache.put(
+                    "candidate_names",
+                    canonical,
+                    [],
+                    success=False,
+                )
             return []
         _increment_metric("resolver.pubchem_names.success")
         properties = ((payload.get("PropertyTable") or {}).get("Properties") or [])
@@ -1328,6 +1371,13 @@ def _pubchem_name_resolver(
                 if value and value not in names:
                     names.append(value)
         cache[canonical] = names
+        if persistent_cache is not None:
+            persistent_cache.put(
+                "candidate_names",
+                canonical,
+                names,
+                success=True,
+            )
         return list(names)
 
     return resolve

@@ -17,6 +17,9 @@ from cascade_planner.harness.deterministic_literature_registry import (  # noqa:
     build_deterministic_literature_resolvers,
     compile_deterministic_literature_step_registry,
 )
+from cascade_planner.harness.deterministic_resolver_cache import (  # noqa: E402
+    DeterministicResolverCache,
+)
 from cascade_planner.runtime.run_metrics import (  # noqa: E402
     current_run_metrics,
     record_run_metrics,
@@ -61,6 +64,7 @@ def run_golden_case(
     golden_path: Path = DEFAULT_GOLDEN,
     output_dir: Path,
     timeout_s: float = 30.0,
+    resolver_cache_root: Path | None = None,
 ) -> dict[str, Any]:
     """Reconstruct both sources, replay stock, and enforce expected metrics."""
 
@@ -82,8 +86,15 @@ def run_golden_case(
         metrics.bind_case_id(str(golden.get("case_id") or ""))
         metrics.gauge("golden.source_count", len(manifest.get("sources") or []))
         metrics.gauge("model_invocations", 0)
-    structure_resolver, candidate_name_resolver = (
-        build_deterministic_literature_resolvers(timeout_s=timeout_s)
+    persistent_cache = DeterministicResolverCache(
+        resolver_cache_root or output / ".autoplanner" / "artifacts",
+        authority_id="autoplanner.opsin_pubchem_source_text.v8",
+        opsin_base_url="https://opsin.ch.cam.ac.uk/opsin",
+        pubchem_base_url="https://pubchem.ncbi.nlm.nih.gov/rest/pug",
+    )
+    structure_resolver, candidate_name_resolver = build_deterministic_literature_resolvers(
+        timeout_s=timeout_s,
+        persistent_cache=persistent_cache,
     )
     for index, raw_source in enumerate(manifest.get("sources") or []):
         if not isinstance(raw_source, dict):
@@ -141,6 +152,12 @@ def run_golden_case(
                     audit.get("rejected_step_count") or 0
                 ),
             }
+        )
+    cache_flush = persistent_cache.flush()
+    if metrics is not None:
+        metrics.gauge(
+            "resolver.persistent_cache_entry_count",
+            int(cache_flush.get("entry_count") or 0),
         )
 
     with run_metric_stage("golden.compile_portfolio", category="portfolio"):

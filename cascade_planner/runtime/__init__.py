@@ -50,6 +50,32 @@ from .run_metrics import (
     run_metric_stage,
     validate_run_metrics,
 )
+from .artifact_store import (
+    ARTIFACT_GC_PLAN_SCHEMA,
+    ARTIFACT_POINTER_SCHEMA,
+    ARTIFACT_REF_SCHEMA,
+    ArtifactCorruptionError,
+    ArtifactRef,
+    ArtifactReferenceError,
+    ArtifactStore,
+    ArtifactStoreError,
+)
+from .run_index import (
+    RUN_INDEX_SCHEMA,
+    RUN_MANIFEST_SCHEMA,
+    RunIndex,
+    RunIndexError,
+)
+from .run_storage import (
+    RUN_STORAGE_PUBLISH_SCHEMA,
+    RUN_STORAGE_REBUILD_SCHEMA,
+    publish_run_projection,
+    rebuild_run_index,
+    run_storage_object_stats,
+    write_run_manifest_compatibility,
+)
+from .credentials import Credential, resolve_codex_credential
+from .paths import RuntimePaths
 
 
 __all__ = [
@@ -63,9 +89,18 @@ __all__ = [
     "AgentResult",
     "AgentSpec",
     "AgentState",
+    "ARTIFACT_GC_PLAN_SCHEMA",
+    "ARTIFACT_POINTER_SCHEMA",
+    "ARTIFACT_REF_SCHEMA",
+    "ArtifactCorruptionError",
+    "ArtifactRef",
+    "ArtifactReferenceError",
     "ArtifactRevisionError",
+    "ArtifactStore",
+    "ArtifactStoreError",
     "Budget",
     "CodexTeamRuntimeTracker",
+    "Credential",
     "EventStore",
     "EventStoreCorruptionError",
     "EventStoreError",
@@ -76,7 +111,14 @@ __all__ = [
     "JsonlEventStore",
     "RUN_METRICS_SCHEMA",
     "RUN_STAGE_METRIC_SCHEMA",
+    "RUN_INDEX_SCHEMA",
+    "RUN_MANIFEST_SCHEMA",
+    "RUN_STORAGE_PUBLISH_SCHEMA",
+    "RUN_STORAGE_REBUILD_SCHEMA",
+    "RunIndex",
+    "RunIndexError",
     "RunMetricsRecorder",
+    "RuntimePaths",
     "SnapshotConflictError",
     "coerce_agent_state",
     "context_hash",
@@ -85,14 +127,19 @@ __all__ = [
     "load_latest_closeout_artifact",
     "load_latest_closeout_decision",
     "publish_closeout_revision",
+    "publish_run_projection",
+    "rebuild_run_index",
     "measure_current_stage",
     "record_run_metrics",
     "require_agent_state_transition",
+    "resolve_codex_credential",
     "run_metric_checkpoint",
     "run_metric_stage",
+    "run_storage_object_stats",
     "sha256_file",
     "utc_now",
     "validate_closeout_manifest",
     "validate_latest_closeout_revision",
     "validate_run_metrics",
+    "write_run_manifest_compatibility",
 ]

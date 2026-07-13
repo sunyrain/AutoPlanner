@@ -23,6 +23,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from cascade_planner.runtime.run_metrics import validate_run_metrics  # noqa: E402
+from cascade_planner.runtime.run_index import RUN_MANIFEST_SCHEMA  # noqa: E402
+from cascade_planner.runtime.run_storage import (  # noqa: E402
+    publish_run_projection,
+    rebuild_run_index,
+    run_storage_object_stats,
+    write_run_manifest_compatibility,
+)
 from scripts.run_nirmatrelvir_v3_golden import (  # noqa: E402
     DEFAULT_GOLDEN,
     run_golden_case,
@@ -72,6 +79,7 @@ def benchmark_nirmatrelvir_v3(
         raise ValueError("unsupported retrosynthesis performance contract")
     output = output_dir.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
+    runtime_root = output / "runtime"
     rows: list[dict[str, Any]] = []
     reasons: list[str] = []
     for index in range(max(1, int(iterations))):
@@ -83,6 +91,7 @@ def benchmark_nirmatrelvir_v3(
             golden_path=golden_path,
             output_dir=iteration_dir,
             timeout_s=timeout_s,
+            resolver_cache_root=runtime_root / "artifacts",
         )
         wall_time_s = round(max(0.0, time.perf_counter() - wall_started), 6)
         cpu_time_s = round(max(0.0, time.process_time() - cpu_started), 6)
@@ -132,6 +141,80 @@ def benchmark_nirmatrelvir_v3(
                     if str(key).endswith(".cache_miss")
                 )
             ),
+            "persistent_resolver_cache_hits": int(
+                sum(
+                    float(value or 0)
+                    for key, value in counters.items()
+                    if str(key).endswith(".persistent_cache_hit")
+                )
+            ),
+        }
+        run_id = f"{contract.get('case_id') or 'nirmatrelvir'}:{label}"
+        artifact_paths = {
+            path.relative_to(iteration_dir).as_posix(): path
+            for path in iteration_dir.rglob("*")
+            if path.is_file() and path.name != "run_manifest.json"
+        }
+        storage = publish_run_projection(
+            runtime_root,
+            manifest={
+                "schema_version": RUN_MANIFEST_SCHEMA,
+                "run_id": run_id,
+                "case_id": str(contract.get("case_id") or ""),
+                "target_name": "nirmatrelvir",
+                "producer": "scripts.benchmark_nirmatrelvir_v3",
+                "status": "completed" if result.get("accepted") else "failed",
+                "revision": 1,
+                "updated_at": str(metrics.get("observed_at") or ""),
+                "run_dir": str(iteration_dir),
+                "state_sha256": _digest(result),
+                "accepted": result.get("accepted") is True,
+                "cost_totals": {
+                    "model_invocations": int(
+                        result.get("model_invocations") or 0
+                    ),
+                    "attempt_runs": 0,
+                    "accepted_expansions": 0,
+                },
+                "graph": {
+                    "molecule_count": int(
+                        portfolio.get("molecule_node_count") or 0
+                    ),
+                    "hyperedge_count": int(
+                        portfolio.get("hyperedge_count") or 0
+                    ),
+                    "complete_route_count": int(
+                        portfolio.get("complete_route_count") or 0
+                    ),
+                },
+                "deficits": {
+                    "proof": 0 if result.get("accepted") else 1,
+                    "stock": 0 if result.get("accepted") else 1,
+                },
+                "metrics": {
+                    "sha256": str(metrics.get("content_sha256") or ""),
+                },
+            },
+            artifacts=artifact_paths,
+            authority_scopes={
+                artifact_id: _artifact_authority_scope(path)
+                for artifact_id, path in artifact_paths.items()
+            },
+        )
+        write_run_manifest_compatibility(
+            iteration_dir / "run_manifest.json",
+            storage["manifest"],
+        )
+        row["runtime_storage"] = {
+            key: storage[key]
+            for key in (
+                "run_id",
+                "revision",
+                "manifest_ref",
+                "artifact_count",
+                "index_health",
+                "semantics",
+            )
         }
         row_reasons = _iteration_reasons(row, contract)
         if metric_reasons:
@@ -143,6 +226,8 @@ def benchmark_nirmatrelvir_v3(
 
     cold_wall = float(rows[0]["wall_time_s"])
     last_wall = float(rows[-1]["wall_time_s"])
+    rebuilt_index_path = runtime_root / "run_index.rebuilt.sqlite3"
+    rebuild = rebuild_run_index(runtime_root, index_path=rebuilt_index_path)
     summary: dict[str, Any] = {
         "schema_version": BENCHMARK_SCHEMA,
         "case_id": str(contract.get("case_id") or ""),
@@ -155,6 +240,10 @@ def benchmark_nirmatrelvir_v3(
         "cold_to_last_speedup": (
             round(cold_wall / last_wall, 4) if last_wall > 0.0 else None
         ),
+        "runtime_storage": {
+            "stats": run_storage_object_stats(runtime_root),
+            "rebuild": rebuild,
+        },
         "semantics": {
             "model_calls_are_forbidden": True,
             "metrics_are_observability_only": True,
@@ -199,6 +288,15 @@ def _directory_bytes(path: Path) -> int:
         for item in path.rglob("*")
         if item.is_file()
     )
+
+
+def _artifact_authority_scope(path: Path) -> str:
+    name = path.name.casefold()
+    if "trusted_literature_step_registry" in name:
+        return "scientific_artifact_reference"
+    if "audit" in name or "portfolio" in path.as_posix().casefold():
+        return "scientific_validation_projection"
+    return "operational_projection"
 
 
 def _read_object(path: Path) -> dict[str, Any]:

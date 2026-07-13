@@ -99,18 +99,19 @@ Observed P0 baseline on Windows/Python 3.12:
 
 Purpose: stop copying large mutable JSON state and make runs cheaply queryable.
 
-- [ ] Implement a SHA-256 content-addressed `ArtifactStore` with atomic writes.
-- [ ] Store small compatibility links/manifests in each run directory.
-- [ ] Implement a rebuildable SQLite `RunIndex` in WAL mode.
-- [ ] Index run identity, revisions, artifact digests, task status, graph counts,
+- [x] Implement a SHA-256 content-addressed `ArtifactStore` with atomic writes.
+- [x] Store small compatibility links/manifests in each run directory.
+- [x] Implement a rebuildable SQLite `RunIndex` in WAL mode.
+- [x] Index run identity, revisions, artifact digests, task status, graph counts,
   proof deficits, stock deficits, and performance metrics.
-- [ ] Define artifact retention, pinning, garbage-collection dry run, and safe
+- [x] Define artifact retention, pinning, garbage-collection dry run, and safe
   deletion rules.
-- [ ] Add corruption, concurrent writer, recovery, and index-rebuild tests.
-- [ ] Classify repository/runtime/external data and document their locations.
-- [ ] Move generated outputs, caches, vendor corpora, models, and source PDFs
-  behind configuration rather than Git paths.
-- [ ] Keep credential files out of repository and migrate runtime access to
+- [x] Add corruption, concurrent writer, recovery, and index-rebuild tests.
+- [x] Classify repository/runtime/external data and document their locations.
+- [x] Put V4 outputs, caches, vendor corpora, models, and source PDFs behind
+  configured paths rather than new Git dependencies; legacy fallbacks remain
+  isolated for P7/P9 removal.
+- [x] Keep credential files out of repository and make V4 runtime access use
   environment variables or the OS credential store.
 
 Exit gate:
@@ -118,6 +119,16 @@ Exit gate:
 - Repeated identical artifacts deduplicate by digest.
 - Removing the index and rebuilding it changes no scientific artifact.
 - Interrupted writes leave the previous revision readable.
+
+Observed P1 cold/warm acceptance:
+
+- cold deterministic replay: 123.772 s;
+- warm replay from versioned resolver CAS: 0.854 s (144.9x speedup);
+- warm resolver state: 46 persistent hits and 0 misses;
+- both iterations retained exactly 2 complete routes, 12 hyperedges, 7 stock
+  terminals, 2 independent source groups, and 0 model invocations;
+- 26 indexed artifact references rebuilt from 2 immutable run manifests with
+  SQLite integrity `ok` and no scientific artifact mutation.
 
 ### P2 — One RunKernel and durable event state
 
