@@ -46,6 +46,11 @@ from cascade_planner.source_locators import (
     source_document_identity,
     source_record_representations,
 )
+from cascade_planner.application.retrosynthesis_run_contract import (
+    RetrosynthesisAcceptanceSpec,
+    RetrosynthesisCostLedger,
+    RetrosynthesisRunBudget,
+)
 
 
 AGENT_BLACKBOARD_SCHEMA = "agent_blackboard.v1"
@@ -58,6 +63,8 @@ def initialize_agent_blackboard(
     max_rounds: int = 3,
     budget_limits: dict[str, Any] | None = None,
     prior_artifacts: dict[str, Any] | None = None,
+    acceptance_spec: RetrosynthesisAcceptanceSpec | None = None,
+    run_budget: RetrosynthesisRunBudget | None = None,
 ) -> dict[str, Any]:
     profile = dict(preflight.get("target_profile") or {})
     limits = dict(budget_limits or {})
@@ -73,6 +80,8 @@ def initialize_agent_blackboard(
     )
     max_codex_research_runs = _nonnegative_int(limits.get("max_codex_research_runs"), 1)
     max_template_applications_per_round = _positive_int(limits.get("max_template_applications_per_round"), 5)
+    acceptance = acceptance_spec or RetrosynthesisAcceptanceSpec()
+    cost_budget = run_budget or RetrosynthesisRunBudget()
     board = {
         "schema_version": AGENT_BLACKBOARD_SCHEMA,
         "case_id": str(preflight.get("case_id") or target_input.get("case_id") or "target"),
@@ -173,6 +182,19 @@ def initialize_agent_blackboard(
         },
         "artifact_refs": dict((prior_artifacts or {}).get("artifact_refs") or {}),
         "parent_route_proof": {},
+        "retrosynthesis_run_contract": {
+            "schema_version": "retrosynthesis_run_contract.v1",
+            "acceptance_spec": acceptance.to_dict(),
+            "cost_ledger": RetrosynthesisCostLedger(
+                budget=cost_budget
+            ).to_dict(),
+            "semantics": {
+                "one_acceptance_definition_for_search_and_closeout": True,
+                "run_wide_model_cost_gate": True,
+                "blackboard_is_coordination_not_chemistry_authority": True,
+            },
+        },
+        "route_deficit_queue": {},
     }
     _seed_target_literature_sources(board, target_input=target_input)
     return board
@@ -969,8 +991,58 @@ def update_blackboard_from_action(
         "changed_blackboard_fields": [str(key) for key, value in delta.items() if value],
         "resource_cost": dict(action.get("_host_resource_cost") or {}),
     }
+    if action_type == "compile_exact_literature_rows":
+        history.update(_compile_replay_history_fields(enriched_result))
     board.setdefault("action_history", []).append(history)
     return board
+
+
+def _compile_replay_history_fields(
+    action_result: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist whether the current host parser actually completed its replay.
+
+    Generic usefulness is intentionally insufficient here: a rejected compile
+    can still add diagnostic terminals or an audit artifact.  Only a complete,
+    authority-labelled per-step parser record may suppress a later retry.
+    """
+
+    payload = (
+        dict(action_result.get("result") or {})
+        if isinstance(action_result.get("result"), dict)
+        else dict(action_result)
+    )
+    audit = dict(payload.get("deterministic_literature_registry") or {})
+    authority = dict(audit.get("authority") or {})
+    records = audit.get("records")
+    try:
+        input_step_count = int(audit.get("input_step_count") or 0)
+    except (TypeError, ValueError):
+        input_step_count = 0
+    replay_completed = bool(
+        audit.get("schema_version")
+        == "deterministic_literature_registry_audit.v1"
+        and authority.get("type") == "deterministic_structure_parser"
+        and str(authority.get("id") or "").strip()
+        and input_step_count > 0
+        and isinstance(records, list)
+        and len(records) == input_step_count
+        and str(audit.get("registry_sha256") or "").strip()
+    )
+    return {
+        "compile_replay_completed": replay_completed,
+        "compile_parser_authority_id": str(authority.get("id") or ""),
+        "compile_input_step_count": input_step_count,
+        "compile_approved_binding_count": _nonnegative_int(
+            audit.get("approved_binding_count"), 0
+        ),
+        "compile_rejected_step_count": _nonnegative_int(
+            audit.get("rejected_step_count"), 0
+        ),
+        "compile_replay_reasons": [
+            str(item) for item in audit.get("reasons") or []
+        ],
+    }
 
 
 def update_budget_for_action(
@@ -1604,13 +1676,17 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
 
     if action_type == "compile_exact_literature_rows":
         evidence = dict(board.get("literature_evidence") or {})
-        existing_row_ids = {
-            str(row.get("row_id") or "")
+        existing_rows = [
+            dict(row)
             for row in evidence.get("exact_rows") or []
             if isinstance(row, dict)
-        }
+        ]
         rows = _annotate_exact_rows_with_target_relevance(_exact_rows_from_payload(payload), board)
-        _extend_unique(evidence, "exact_rows", rows, unique_key="row_id")
+        merged_rows, exact_rows_changed = _merge_versioned_exact_rows(
+            existing_rows,
+            rows,
+        )
+        evidence["exact_rows"] = merged_rows
         evidence["exact_row_target_relevance_summary"] = _exact_row_target_relevance_summary(evidence.get("exact_rows") or [])
         audit = _exact_chain_audit_summary(payload, artifact_ref=artifact_ref)
         if audit:
@@ -1626,8 +1702,7 @@ def _normalize_action_output(board: dict[str, Any], *, action_type: str, result:
             )
         evidence["confidence"] = "exact_rows" if evidence.get("exact_rows") else evidence.get("confidence", "none")
         board["literature_evidence"] = evidence
-        new_row_count = sum(1 for row in rows if str(row.get("row_id") or "") not in existing_row_ids)
-        return bool(new_row_count or terminals)
+        return bool(exact_rows_changed or terminals)
 
     if action_type == "rank_analogical_hypotheses":
         board["analogical_hypothesis_ranking"] = payload
@@ -2622,6 +2697,89 @@ def _exact_rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _merge_versioned_exact_rows(
+    existing_rows: list[dict[str, Any]],
+    incoming_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Upsert current parser rows while preserving independent human curation."""
+
+    incoming_by_id = {
+        str(row.get("row_id") or ""): dict(row)
+        for row in incoming_rows
+        if str(row.get("row_id") or "")
+    }
+    current_parser_rows = [
+        row
+        for row in incoming_rows
+        if row.get("accepted") is True
+        and str(row.get("deterministic_parser_authority_id") or "").strip()
+    ]
+    current_parser_ids = {
+        str(row.get("deterministic_parser_authority_id") or "").strip()
+        for row in current_parser_rows
+    }
+    current_sources = {
+        str(row.get("source_ref") or "").strip().casefold()
+        for row in current_parser_rows
+        if str(row.get("source_ref") or "").strip()
+    }
+
+    merged: list[dict[str, Any]] = []
+    for existing in existing_rows:
+        row_id = str(existing.get("row_id") or "")
+        replacement = incoming_by_id.get(row_id)
+        if replacement and replacement.get("accepted") is True:
+            continue
+        source_ref = str(existing.get("source_ref") or "").strip().casefold()
+        parser_id = str(
+            existing.get("deterministic_parser_authority_id") or ""
+        ).strip()
+        is_source_detail = row_id.startswith("source_detail_exact_step:")
+        has_replayable_binding_shape = bool(
+            existing.get("source_evidence")
+            and existing.get("exact_step_validation")
+        )
+        obsolete_machine_row = bool(
+            is_source_detail
+            and source_ref in current_sources
+            and (
+                (parser_id and parser_id not in current_parser_ids)
+                or (not parser_id and not has_replayable_binding_shape)
+            )
+        )
+        if obsolete_machine_row:
+            continue
+        merged.append(existing)
+
+    existing_ids = {str(row.get("row_id") or "") for row in merged}
+    for incoming in incoming_rows:
+        row_id = str(incoming.get("row_id") or "")
+        if row_id in existing_ids and incoming.get("accepted") is not True:
+            continue
+        if row_id in existing_ids:
+            merged = [
+                row
+                for row in merged
+                if str(row.get("row_id") or "") != row_id
+            ]
+        merged.append(dict(incoming))
+        existing_ids.add(row_id)
+
+    before = json.dumps(
+        existing_rows,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    after = json.dumps(
+        merged,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    return merged, before != after
+
+
 def _literature_terminal_candidates_from_payload(
     payload: dict[str, Any],
     *,
@@ -2894,6 +3052,14 @@ def _row_summary(
         and row.get("accepted", True) is not False
         and row.get("validated", True) is not False
     )
+    condition_candidate = dict(
+        trace.get("condition_candidate")
+        or row.get("condition_candidate")
+        or {}
+    )
+    condition_text = string_list(trace.get("conditions") or row.get("conditions"))
+    if not condition_text:
+        condition_text = _condition_candidate_text_values(condition_candidate)
     return {
         "schema_version": "agent_exact_literature_row_summary.v1",
         "row_id": str(row.get("row_id") or trace.get("source_template_id") or f"exact_row_{idx}"),
@@ -2917,9 +3083,8 @@ def _row_summary(
         "reaction_family": str(
             trace.get("reaction_family") or row.get("reaction_family") or ""
         ),
-        "conditions": string_list(
-            trace.get("conditions") or row.get("conditions")
-        ),
+        "conditions": condition_text,
+        "condition_candidate": _drop_large_fields(condition_candidate),
         "source_locator": str(trace.get("source_locator") or row.get("source_locator") or ""),
         "evidence_refs": string_list(
             trace.get("evidence_refs") or row.get("evidence_refs")
@@ -2939,12 +3104,61 @@ def _row_summary(
         "source_evidence": _drop_large_fields(
             trace.get("source_evidence") or row.get("source_evidence") or {}
         ),
+        "curator_record_id": str(
+            trace.get("curator_record_id")
+            or row.get("curator_record_id")
+            or ""
+        ),
+        "deterministic_parser_authority_id": str(
+            trace.get("deterministic_parser_authority_id")
+            or row.get("deterministic_parser_authority_id")
+            or ""
+        ),
+        "source_binding_reaction_digest": str(
+            trace.get("source_binding_reaction_digest")
+            or row.get("source_binding_reaction_digest")
+            or ""
+        ),
+        "source_formulation": _drop_large_fields(
+            trace.get("source_formulation")
+            or row.get("source_formulation")
+            or {}
+        ),
         "accepted": accepted,
         "validated": accepted,
         "validation_status": "accepted_by_compiler" if accepted else "unvalidated",
         "confidence": str(row.get("confidence") or "source_detail_exact"),
         "no_solved_claim": True,
     }
+
+
+def _condition_candidate_text_values(value: dict[str, Any]) -> list[str]:
+    """Project structured source conditions without dropping the source row."""
+    rows: list[str] = []
+    raw_conditions = value.get("conditions")
+    if isinstance(raw_conditions, str):
+        rows.append(raw_conditions)
+    elif isinstance(raw_conditions, (list, tuple)):
+        rows.extend(str(item) for item in raw_conditions if str(item or "").strip())
+    for key in (
+        "reagent",
+        "reagents",
+        "catalyst",
+        "enzyme",
+        "solvent",
+        "temperature",
+        "time",
+        "ph",
+        "buffer",
+        "atmosphere",
+        "workup",
+    ):
+        raw = value.get(key)
+        values = raw if isinstance(raw, (list, tuple)) else [raw]
+        text = ", ".join(str(item).strip() for item in values if str(item or "").strip())
+        if text:
+            rows.append(f"{key}={text}")
+    return _dedupe_strings(rows)
 
 
 def _annotate_exact_rows_with_target_relevance(rows: list[dict[str, Any]], board: dict[str, Any]) -> list[dict[str, Any]]:
@@ -3195,6 +3409,9 @@ def _compact_artifact(payload: dict[str, Any], *, artifact_ref: str) -> dict[str
         "structure_resolution_task_count": len(structure_tasks_preview),
         "structure_resolution_tasks": structure_tasks_preview,
         "reasons": [str(item) for item in payload.get("reasons") or []],
+        "page_focus_refresh_audit": _drop_large_fields(
+            dict(payload.get("page_focus_refresh_audit") or {})
+        ),
     }
 
 
@@ -3402,7 +3619,49 @@ def _pdf_structure_summary(payload: dict[str, Any], *, artifact_ref: str) -> dic
         "source_pdf_path": str(payload.get("source_pdf_path") or payload.get("pdf_path") or ""),
         "artifact_ref": artifact_ref,
         "summary": summary,
+        "focus": _compact_pdf_focus(payload),
         "reasons": [str(item) for item in payload.get("reasons") or []],
+        "no_solved_claim": True,
+    }
+
+
+def _compact_pdf_focus(payload: dict[str, Any]) -> dict[str, Any]:
+    audit = dict(payload.get("focus_audit") or {})
+    relevance = [
+        dict(row)
+        for row in payload.get("page_relevance") or []
+        if isinstance(row, dict) and _nonnegative_int(row.get("score"), 0) > 0
+    ]
+    return {
+        "schema_version": "agent_pdf_page_focus_summary.v1",
+        "focus_terms": [
+            str(item)[:96]
+            for item in payload.get("focus_terms") or []
+            if str(item or "").strip()
+        ][:24],
+        "focus_page_numbers": [
+            _nonnegative_int(item, 0)
+            for item in payload.get("focus_page_numbers") or []
+            if _nonnegative_int(item, 0) > 0
+        ][:16],
+        "page_relevance": [
+            {
+                "page_number": _nonnegative_int(row.get("page_number"), 0),
+                "score": _nonnegative_int(row.get("score"), 0),
+                "matched_terms": [
+                    str(match.get("term") or "")[:96]
+                    for match in row.get("matched_terms") or []
+                    if isinstance(match, dict) and str(match.get("term") or "").strip()
+                ][:8],
+            }
+            for row in relevance[:16]
+        ],
+        "selection_strategy": str(audit.get("selection_strategy") or "")[:80],
+        "algorithm_version": str(audit.get("algorithm_version") or "")[:80],
+        "relevance_available": audit.get("relevance_available") is True,
+        "text_page_count": _nonnegative_int(audit.get("text_page_count"), 0),
+        "scan_truncated": audit.get("scan_truncated") is True,
+        "no_ocr_or_relevance_fabrication": audit.get("no_ocr_or_relevance_fabrication") is True,
         "no_solved_claim": True,
     }
 
@@ -3678,6 +3937,11 @@ def _compact_action_signature_payload(payload: dict[str, Any]) -> dict[str, Any]
         "search_mode",
         "focused_gap_repair",
         "focused_structure_resolution",
+        "task_id",
+        "compound_label",
+        "source_capability_id",
+        "deterministic_parser_authority_id",
+        "compile_attempt",
         "expansion_attempt",
         "timeout_s",
         "max_steps",

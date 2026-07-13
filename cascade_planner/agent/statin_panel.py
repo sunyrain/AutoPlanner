@@ -1611,12 +1611,12 @@ def _closure_curation_result(task: dict[str, Any]) -> dict[str, Any]:
     ]
     local_field_evidence = _local_curator_route_field_evidence(task, required_fields)
     route_field_audit = []
-    for field in required_fields:
-        field_evidence = local_field_evidence.get(field) or {}
+    for field_name in required_fields:
+        field_evidence = local_field_evidence.get(field_name) or {}
         if field_evidence:
             field_status = field_evidence.get("status") or "validated_local_curator_record"
             route_field_audit.append({
-                "field": field,
+                "field": field_name,
                 "status": field_status,
                 "evidence_refs": list(field_evidence.get("evidence_refs") or []),
                 "curator_record_refs": list(field_evidence.get("curator_record_refs") or []),
@@ -1627,7 +1627,7 @@ def _closure_curation_result(task: dict[str, Any]) -> dict[str, Any]:
             })
         else:
             route_field_audit.append({
-                "field": field,
+                "field": field_name,
                 "status": "missing_full_text_or_curator_record",
                 "evidence_refs": [],
                 "curator_record_refs": [],

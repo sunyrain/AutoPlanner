@@ -9,6 +9,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from cascade_planner.agent.target_profile import build_target_profile  # noqa: E402
+from cascade_planner.application.retrosynthesis_run_contract import (  # noqa: E402
+    RetrosynthesisAcceptanceSpec,
+    RetrosynthesisRunBudget,
+)
 from cascade_planner.harness.agentic_blackboard_controller import run_agentic_blackboard_controller  # noqa: E402
 from cascade_planner.harness.tools import HarnessBudget  # noqa: E402
 from cascade_planner.providers.stock import (  # noqa: E402
@@ -47,6 +52,16 @@ def main() -> None:
         help="Repeatable local PDF cache entry as PATH or PATH::DOI/SOURCE_REF or JSON object; used only after agent-discovered DOI/title matches it.",
     )
     parser.add_argument(
+        "--literature-sources-file",
+        action="append",
+        default=[],
+        help=(
+            "Repeatable UTF-8 JSON manifest containing a source object, a list "
+            "of source objects, or {'literature_sources': [...]}. This avoids "
+            "lossy native-shell quoting of structured source metadata."
+        ),
+    )
+    parser.add_argument(
         "--local-pdf-search-dir",
         action="append",
         default=[],
@@ -64,8 +79,8 @@ def main() -> None:
     parser.add_argument(
         "--max-rounds",
         type=int,
-        default=6,
-        help="Blackboard action rounds (standard profile: 6).",
+        default=4,
+        help="Deterministic evidence/action rounds (bounded default: 4).",
     )
     parser.add_argument("--exhaust-round-budget", action="store_true", help="Continue with non-stale alternative actions until max rounds are consumed.")
     parser.add_argument(
@@ -81,10 +96,10 @@ def main() -> None:
     parser.add_argument(
         "--codex-action-planner",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help=(
-            "Use Codex as the blackboard action planner. When --codex-agent-team is enabled, "
-            "Codex failures stop unresolved instead of invoking a deterministic scientific planner."
+            "Use a separate Codex call as the blackboard action planner. Disabled by default; "
+            "the deterministic route-deficit scheduler is the normal control plane."
         ),
     )
     parser.add_argument(
@@ -96,21 +111,21 @@ def main() -> None:
     parser.add_argument(
         "--codex-agent-team-max-depth",
         type=int,
-        default=6,
-        help="Maximum recursive molecule-frontier depth (standard profile: 6).",
+        default=2,
+        help="Maximum recursive molecule-frontier depth per bounded campaign (default: 2).",
     )
     parser.add_argument(
         "--codex-agent-team-max-expansions",
         type=int,
-        default=24,
-        help="Cumulative accepted frontier expansions for the campaign (standard profile: 24).",
+        default=8,
+        help="Hard cumulative accepted-expansion cap shared with the run contract (default: 8).",
     )
     parser.add_argument(
         "--codex-agent-team-max-attempt-runs",
         type=int,
-        default=72,
+        default=12,
         help=(
-            "Cumulative Agent attempts for the campaign (standard profile: 72). "
+            "Hard cumulative Agent attempt cap for the campaign (default: 12). "
             "This is independent of accepted frontier expansions."
         ),
     )
@@ -123,16 +138,34 @@ def main() -> None:
     parser.add_argument(
         "--codex-agent-team-max-expansions-per-invocation",
         type=int,
-        default=2,
-        help="Accepted expansions allowed on each campaign resume (standard profile: 2).",
+        default=1,
+        help="Accepted expansions allowed in one model-backed invocation (default: 1).",
     )
     parser.add_argument(
         "--codex-agent-team-max-attempt-runs-per-invocation",
         type=int,
-        default=4,
-        help="Total child execution attempts allowed on each invocation; failed attempts do not consume accepted-expansion budget.",
+        default=1,
+        help="Total child execution attempts allowed in one invocation (default: 1).",
     )
-    parser.add_argument("--codex-agent-team-frontier-batch-size", type=int, default=2)
+    parser.add_argument("--codex-agent-team-frontier-batch-size", type=int, default=1)
+    parser.add_argument(
+        "--codex-agent-team-auto-resume",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Permit later model-backed campaign invocations after deterministic work is drained. "
+            "Disabled by default; enabling it never bypasses the run-wide cost ledger."
+        ),
+    )
+    parser.add_argument(
+        "--codex-agent-team-child-roles",
+        default="target_structure_strategist,route_evidence_critic",
+        help=(
+            "Comma-separated directly spawned specialist roles. The bounded default uses one "
+            "proposal role and one independent critic; add literature/chemoenzymatic roles only "
+            "when their capabilities are required."
+        ),
+    )
     parser.add_argument(
         "--codex-agent-team-closure-objective",
         choices=("benchmark_search", "procurement", "in_house"),
@@ -206,6 +239,12 @@ def main() -> None:
         help="Coordinator/child model; empty inherits --model.",
     )
     parser.add_argument(
+        "--codex-agent-team-reasoning-effort",
+        choices=("minimal", "low", "medium", "high", "xhigh"),
+        default="low",
+        help="Coordinator/child reasoning effort (bounded default: low).",
+    )
+    parser.add_argument(
         "--codex-agent-team-auth-mode",
         choices=("ambient_codex_cli", "auto", "api_key"),
         default=None,
@@ -255,7 +294,7 @@ def main() -> None:
         default=None,
         help="Sandbox mode passed to Codex CLI workers; use bypassed on hosts without user namespace support.",
     )
-    parser.add_argument("--timeout-s", type=float, default=1800.0)
+    parser.add_argument("--timeout-s", type=float, default=600.0)
     parser.add_argument(
         "--chem-enzy-env-prefix",
         default=None,
@@ -271,11 +310,39 @@ def main() -> None:
     parser.add_argument("--max-route-expansion-subgoal-runs", type=int, default=None)
     parser.add_argument("--max-codex-research-runs", type=int, default=None)
     parser.add_argument("--max-scout-calls", type=int, default=None)
-    parser.add_argument("--max-visual-calls", type=int, default=None)
+    parser.add_argument("--max-visual-calls", type=int, default=1)
+    parser.add_argument("--minimum-complete-routes", type=int, default=2)
+    parser.add_argument("--minimum-edge-proof-level", type=int, choices=(2, 3, 4), default=3)
+    parser.add_argument("--minimum-independent-source-groups", type=int, default=2)
+    parser.add_argument("--max-model-invocations", type=int, default=3)
+    parser.add_argument("--max-total-input-tokens", type=int, default=60_000)
+    parser.add_argument("--max-total-output-tokens", type=int, default=12_000)
+    parser.add_argument("--max-model-wall-time-s", type=float, default=1_800.0)
+    parser.add_argument("--max-prompt-context-bytes", type=int, default=96_000)
     parser.add_argument("--enable-analogical-templates", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--max-template-applications-per-round", type=int, default=5)
     parser.add_argument("--template-radius-policy", choices=["auto", "local", "broad"], default="auto")
     parser.add_argument("--analog-template-confidence-threshold", choices=["low", "medium", "medium_high", "high"], default="medium")
+    parser.add_argument(
+        "--deterministic-literature-parser",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Reconstruct source headings with OPSIN and resolve every proposed "
+            "reactant in the exact experimental paragraph before emitting an "
+            "out-of-band trusted precedent binding."
+        ),
+    )
+    parser.add_argument(
+        "--opsin-base-url",
+        default="https://opsin.ch.cam.ac.uk/opsin",
+        help="OPSIN name-to-structure endpoint used by the deterministic parser.",
+    )
+    parser.add_argument(
+        "--deterministic-literature-parser-timeout-s",
+        type=float,
+        default=30.0,
+    )
     parser.add_argument("--key-path", default=str(DEFAULT_KEY_PATH))
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--model", default=DEFAULT_MODEL)
@@ -310,6 +377,13 @@ def _resolve_targets(args: argparse.Namespace) -> list[dict[str, str | Path]]:
 
 def _run_one(target: dict[str, str | Path], args: argparse.Namespace) -> dict:
     overrides = _codex_action_planner_env_overrides(args)
+    if bool(args.deterministic_literature_parser):
+        overrides["AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY"] = str(
+            (
+                Path(target["output_dir"])
+                / "trusted_literature_step_registry.generated.json"
+            ).resolve()
+        )
     team_model, team_auth_mode = _codex_agent_team_runtime_args(args)
     benchmark_stock = (
         _benchmark_stock_catalog_from_args(args)
@@ -355,6 +429,17 @@ def _run_one(target: dict[str, str | Path], args: argparse.Namespace) -> dict:
             max_template_applications_per_round=int(args.max_template_applications_per_round or 5),
             template_radius_policy=str(args.template_radius_policy or "auto"),
             analog_template_confidence_threshold=str(args.analog_template_confidence_threshold or "medium"),
+            enable_deterministic_literature_parser=bool(
+                args.deterministic_literature_parser
+            ),
+            deterministic_literature_parser_opsin_base_url=str(
+                args.opsin_base_url
+                or "https://opsin.ch.cam.ac.uk/opsin"
+            ),
+            deterministic_literature_parser_timeout_s=max(
+                1.0,
+                float(args.deterministic_literature_parser_timeout_s or 30.0),
+            ),
             use_codex_action_planner=bool(args.codex_action_planner),
             use_codex_agent_team=bool(args.codex_agent_team),
             codex_agent_team_max_depth=max(1, int(args.codex_agent_team_max_depth or 1)),
@@ -390,11 +475,18 @@ def _run_one(target: dict[str, str | Path], args: argparse.Namespace) -> dict:
                 float(args.codex_agent_team_authority_lock_timeout_s or 3600.0),
             ),
             codex_agent_team_model=team_model,
+            codex_agent_team_reasoning_effort=str(
+                args.codex_agent_team_reasoning_effort or "low"
+            ),
             codex_agent_team_auth_mode=team_auth_mode,
             codex_agent_team_stock_snapshots=trusted_stock_snapshots,
             codex_agent_team_benchmark_stock_catalog_artifact=benchmark_stock.get("artifact", ""),
             codex_agent_team_benchmark_stock_catalog_sha256=benchmark_stock.get("sha256", ""),
             codex_agent_team_benchmark_stock_catalog_name=benchmark_stock.get("name", ""),
+            codex_agent_team_auto_resume=bool(args.codex_agent_team_auto_resume),
+            codex_agent_team_child_roles=_child_roles_from_args(args),
+            retrosynthesis_acceptance_spec=_acceptance_spec_from_args(args),
+            retrosynthesis_run_budget=_run_budget_from_args(args),
             stop_on_problem=bool(args.stop_on_problem),
             budget=_budget_from_args(args),
             emit_blackboard_steps=bool(args.emit_blackboard_steps),
@@ -441,6 +533,7 @@ def _codex_action_planner_env_overrides(args: argparse.Namespace) -> dict[str, s
     local_pdf_seeded = bool(
         getattr(args, "literature_pdf_path", None)
         or getattr(args, "literature_source", None)
+        or getattr(args, "literature_sources_file", None)
         or (getattr(args, "auto_local_pdf_discovery", False) and getattr(args, "local_pdf_search_dir", None))
     )
     overrides["AUTOPLANNER_CODEX_ACTION_PLANNER_LOCAL_PDF_FALLBACK_ALLOWED"] = "1" if local_pdf_seeded else "0"
@@ -635,8 +728,74 @@ def _budget_from_args(args: argparse.Namespace) -> HarnessBudget:
     return budget
 
 
-def _literature_sources_from_args(args: argparse.Namespace) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
+def _child_roles_from_args(args: argparse.Namespace) -> list[str]:
+    roles = [
+        item.strip()
+        for item in str(args.codex_agent_team_child_roles or "").split(",")
+        if item.strip()
+    ]
+    if len(set(roles)) < 2:
+        raise SystemExit("--codex-agent-team-child-roles requires at least two distinct roles")
+    return list(dict.fromkeys(roles))
+
+
+def _acceptance_spec_from_args(
+    args: argparse.Namespace,
+) -> RetrosynthesisAcceptanceSpec:
+    return RetrosynthesisAcceptanceSpec(
+        minimum_complete_routes=max(1, int(args.minimum_complete_routes)),
+        minimum_edge_proof_level=int(args.minimum_edge_proof_level),
+        require_all_selected_leaves_stock_closed=True,
+        stock_boundary=str(args.codex_agent_team_closure_objective),
+        minimum_independent_source_groups=max(
+            1, int(args.minimum_independent_source_groups)
+        ),
+        require_distinct_edge_sets=True,
+    )
+
+
+def _run_budget_from_args(args: argparse.Namespace) -> RetrosynthesisRunBudget:
+    return RetrosynthesisRunBudget(
+        max_model_invocations=max(0, int(args.max_model_invocations)),
+        max_total_input_tokens=max(0, int(args.max_total_input_tokens)),
+        max_total_output_tokens=max(0, int(args.max_total_output_tokens)),
+        max_total_wall_time_s=max(0.0, float(args.max_model_wall_time_s)),
+        max_visual_invocations=max(0, int(args.max_visual_calls)),
+        max_accepted_expansions=max(
+            0, int(args.codex_agent_team_max_expansions)
+        ),
+        max_attempt_runs=max(0, int(args.codex_agent_team_max_attempt_runs)),
+        max_prompt_context_bytes=max(0, int(args.max_prompt_context_bytes)),
+        automatic_budget_extension=False,
+    )
+
+
+def _literature_sources_from_args(args: argparse.Namespace) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for raw_path in getattr(args, "literature_sources_file", None) or []:
+        path = Path(str(raw_path or "")).expanduser()
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise SystemExit(
+                f"Unable to read --literature-sources-file {path}: {exc}"
+            ) from exc
+        except json.JSONDecodeError as exc:
+            raise SystemExit(
+                f"Invalid --literature-sources-file JSON {path}: {exc}"
+            ) from exc
+        if isinstance(data, dict) and "literature_sources" in data:
+            data = data["literature_sources"]
+        manifest_rows = data if isinstance(data, list) else [data]
+        if not manifest_rows or any(not isinstance(item, dict) for item in manifest_rows):
+            raise SystemExit(
+                "--literature-sources-file must contain a source object or a "
+                "non-empty list of source objects."
+            )
+        rows.extend(
+            {str(key): value for key, value in item.items() if value is not None}
+            for item in manifest_rows
+        )
     for raw in args.literature_source or []:
         text = str(raw or "").strip()
         if not text:
@@ -648,7 +807,7 @@ def _literature_sources_from_args(args: argparse.Namespace) -> list[dict[str, st
                 raise SystemExit(f"Invalid --literature-source JSON: {exc}") from exc
             if not isinstance(data, dict):
                 raise SystemExit("--literature-source JSON must be an object.")
-            rows.append({str(k): str(v) for k, v in data.items() if v is not None})
+            rows.append({str(k): v for k, v in data.items() if v is not None})
             continue
         if "::" in text:
             path, source_ref = text.split("::", 1)

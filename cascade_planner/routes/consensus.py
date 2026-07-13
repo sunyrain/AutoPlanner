@@ -306,6 +306,11 @@ def normalize_route_candidate(
         )
     source_refs = _dedupe(_texts(raw.get("source_refs")))
     evidence_refs = _dedupe(_texts(raw.get("evidence_refs")))
+    product_retron_type = _advisory_label(
+        raw.get("product_retron_type")
+        or raw.get("derived_from_retron")
+        or raw.get("retron_type")
+    )
     source_aliases = _literature_source_aliases([*source_refs, *evidence_refs])
     if authority_evidence_level == "literature_exact" and not any(
         _traceable_literature_ref(ref) for ref in [*source_refs, *evidence_refs]
@@ -325,6 +330,10 @@ def normalize_route_candidate(
         "precursor_smiles": precursors,
         "precursor_set_smiles": ".".join(precursors),
         "reaction_family": str(raw.get("reaction_family") or "unspecified").strip() or "unspecified",
+        # A producer may classify the product-side retron, but this remains a
+        # bounded search prior.  It never grants reaction or proof authority.
+        "product_retron_type": product_retron_type,
+        "retron_authority": "producer_advisory_only" if product_retron_type else "not_supplied",
         "transformation_rationale": str(raw.get("transformation_rationale") or "").strip(),
         "source_channel": source_channel,
         "source_refs": source_refs,
@@ -484,6 +493,12 @@ def consensus_to_blackboard_proposals(consensus: dict[str, Any]) -> list[dict[st
             "source_channels": list(proposal.get("source_channels") or []),
             "source_support": list(proposal.get("source_records") or []),
             "proposal_label": str(proposal.get("reaction_family") or "consensus proposal"),
+            "reaction_family": str(proposal.get("reaction_family") or "unspecified"),
+            "reaction_families": list(proposal.get("reaction_families") or []),
+            "product_retron_type": str(proposal.get("product_retron_type") or ""),
+            "product_retron_types": list(proposal.get("product_retron_types") or []),
+            "derived_from_retron": str(proposal.get("product_retron_type") or ""),
+            "retron_authority": "producer_advisory_only",
             "target_smiles": str(proposal.get("product_smiles") or ""),
             "precursor_smiles": str(proposal.get("precursor_set_smiles") or ""),
             "precursor_component_count": len(proposal.get("precursor_smiles") or []),
@@ -613,6 +628,8 @@ def _fuse_group(signature: str, rows: list[dict[str, Any]], *, target: str) -> d
         {
             "candidate_id": row["candidate_id"],
             "reaction_family": row["reaction_family"],
+            "product_retron_type": row["product_retron_type"],
+            "retron_authority": row["retron_authority"],
             "transformation_rationale": row["transformation_rationale"],
             "source_channel": row["source_channel"],
             "evidence_level": row["authority_evidence_level"],
@@ -636,6 +653,9 @@ def _fuse_group(signature: str, rows: list[dict[str, Any]], *, target: str) -> d
         for row in rows
     ]
     confidence_score = _combined_confidence(rows)
+    product_retron_types = _dedupe(
+        row["product_retron_type"] for row in rows if row["product_retron_type"]
+    )
     diversity = len(support_groups)
     cross_source_bonus = min(0.12, max(0, diversity - 1) * 0.045)
     target_bonus = 0.03 if target and first["product_smiles"] == target else 0.0
@@ -664,6 +684,11 @@ def _fuse_group(signature: str, rows: list[dict[str, Any]], *, target: str) -> d
         "reaction_family": reaction_family_selection["value"],
         "reaction_families": _dedupe(row["reaction_family"] for row in rows),
         "reaction_family_selection": reaction_family_selection,
+        "product_retron_type": (
+            product_retron_types[0] if len(product_retron_types) == 1 else ""
+        ),
+        "product_retron_types": product_retron_types,
+        "retron_authority": "producer_advisory_only",
         "rationales": _dedupe(row["transformation_rationale"] for row in rows if row["transformation_rationale"]),
         "source_channels": channels,
         "source_channel_count": len(channels),
@@ -1141,6 +1166,13 @@ def _enum_input_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _advisory_label(value: Any, *, max_length: int = 160) -> str:
+    """Normalize a producer classification without treating it as authority."""
+    if isinstance(value, (dict, list, tuple, set)):
+        return ""
+    return " ".join(str(value or "").strip().split())[:max_length]
 
 
 def _confidence_label(score: float) -> str:

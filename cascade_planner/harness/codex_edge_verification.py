@@ -931,6 +931,7 @@ def _materialize_candidate(
                     "source_ref",
                     "exact_step_validation",
                     "source_evidence",
+                    "condition_candidate",
                 )
                 if key in exact
             }
@@ -941,7 +942,11 @@ def _materialize_candidate(
             candidate["mapping_source"] = "exact_literature_row"
         exact_conditions = exact.get("conditions")
         if exact_conditions:
-            candidate["conditions"] = exact_conditions
+            candidate["conditions"] = list(exact_conditions)
+        elif isinstance(exact.get("condition_candidate"), Mapping):
+            candidate["conditions"] = _condition_candidate_text_values(
+                exact["condition_candidate"]
+            )
         candidate["exact_row_id"] = str(
             exact.get("row_id") or exact.get("source_template_id") or ""
         )
@@ -950,6 +955,34 @@ def _materialize_candidate(
         candidate["atom_mapped_reaction_smiles"] = mapped_step
         candidate["mapping_source"] = "consensus_graph_step"
     return candidate
+
+
+def _condition_candidate_text_values(value: Mapping[str, Any]) -> list[str]:
+    rows: list[str] = []
+    raw_conditions = value.get("conditions")
+    if isinstance(raw_conditions, str):
+        rows.append(raw_conditions)
+    elif isinstance(raw_conditions, (list, tuple)):
+        rows.extend(str(item) for item in raw_conditions if str(item or "").strip())
+    for key in (
+        "reagent",
+        "reagents",
+        "catalyst",
+        "enzyme",
+        "solvent",
+        "temperature",
+        "time",
+        "ph",
+        "buffer",
+        "atmosphere",
+        "workup",
+    ):
+        raw = value.get(key)
+        values = raw if isinstance(raw, (list, tuple)) else [raw]
+        text = ", ".join(str(item).strip() for item in values if str(item or "").strip())
+        if text:
+            rows.append(f"{key}={text}")
+    return list(dict.fromkeys(rows))
 
 
 def _exact_rows_by_signature(

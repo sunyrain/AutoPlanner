@@ -1,0 +1,157 @@
+{
+  "schema_version": "trusted_stock_snapshots.v1",
+  "snapshots": [
+    {
+      "schema_version": "stock_offer_snapshot.v1",
+      "supplier": "Thermo Fisher Scientific / Alfa Aesar",
+      "catalog_number": "AAH5113614",
+      "canonical_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)O)C(C)(C)C",
+      "checked_at": "2026-07-12T12:00:00+08:00",
+      "available": true,
+      "purity": "98%",
+      "pack_size": "25 g",
+      "price": 351.0,
+      "currency": "USD",
+      "region": "US",
+      "lead_time_days": null,
+      "source_url": "https://www.fishersci.com/shop/products/n-boc-l-tert-leucine-98-thermo-scientific-1/AAH5113614",
+      "metadata": {
+        "observation_kind": "operator_verified_supplier_page",
+        "supplier_product_name": "N-Boc-L-tert-leucine, 98%"
+      },
+      "snapshot_sha256": "5c2b8bc9c8bfd09579aa0531ca4d7f279c68a23eb74a8213e84d4154afe54f1e"
+    },
+    {
+      "schema_version": "stock_offer_snapshot.v1",
+      "supplier": "Sigma-Aldrich / BLDpharm",
+      "catalog_number": "BL3H160BEAAD-250MG",
+      "canonical_smiles": "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C",
+      "checked_at": "2026-07-12T12:00:00+08:00",
+      "available": true,
+      "purity": "96%",
+      "pack_size": "250 mg",
+      "price": 40.0,
+      "currency": "EUR",
+      "region": "TR/EU storefront",
+      "lead_time_days": 60,
+      "source_url": "https://www.sigmaaldrich.com/TR/en/product/bldpharmatech/bl3h160beaad",
+      "metadata": {
+        "observation_kind": "operator_verified_supplier_page",
+        "supplier_product_name": "Methyl (1R,2S,5S)-6,6-dimethyl-3-azabicyclo[3.1.0]hexane-2-carboxylate hydrochloride",
+        "supplier_cas": "565456-77-1",
+        "inventory_formulation": {
+          "schema_version": "stock_inventory_formulation_projection.v1",
+          "source_formulation_smiles": "[Cl-].COC(=O)[C@H]1[NH2+]C[C@H]2[C@@H]1C2(C)C",
+          "projected_parent_smiles": "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C",
+          "projection_policy": "largest_covalent_fragment_and_counterion_neutralization"
+        }
+      },
+      "snapshot_sha256": "4e9a0eb2f09952481eed3cc35f7a133fcc672ea243e5064b318db0327fdaffb2"
+    },
+    {
+      "schema_version": "stock_offer_snapshot.v1",
+      "supplier": "Tokyo Chemical Industry",
+      "catalog_number": "M3533",
+      "canonical_smiles": "COC(=O)[C@H](C[C@@H]1CCNC1=O)NC(=O)OC(C)(C)C",
+      "checked_at": "2026-07-12T12:00:00+08:00",
+      "available": true,
+      "purity": ">98%",
+      "pack_size": "5 g",
+      "price": 65.0,
+      "currency": "GBP",
+      "region": "GB/Belgium warehouse",
+      "lead_time_days": 0,
+      "source_url": "https://www.tcichemicals.com/GB/en/p/M3533",
+      "metadata": {
+        "observation_kind": "operator_verified_supplier_page",
+        "supplier_product_name": "Methyl (2S)-2-[(tert-Butoxycarbonyl)amino]-3-[(3S)-2-oxopyrrolidin-3-yl]propanoate",
+        "supplier_cas": "328086-60-8"
+      },
+      "snapshot_sha256": "6bbcbd8c4a470f97865e2b22ece540a12691a4b2e3044391ade93ab499eee3db"
+    },
+    {
+      "schema_version": "stock_offer_snapshot.v1",
+      "supplier": "MilliporeSigma / Sigma-Aldrich",
+      "catalog_number": "499145-100ML",
+      "canonical_smiles": "N",
+      "checked_at": "2026-07-13T14:46:43+08:00",
+      "available": true,
+      "purity": "7 N in methanol (6.5-7.5 M)",
+      "pack_size": "100 mL",
+      "price": 110.0,
+      "currency": "USD",
+      "region": "US / Milwaukee",
+      "lead_time_days": 0,
+      "source_url": "https://www.sigmaaldrich.com/US/en/product/sigald/499145",
+      "metadata": {
+        "observation_kind": "operator_verified_supplier_page",
+        "supplier_product_name": "Ammonia solution, 7 N in methanol",
+        "supplier_availability_text": "Available to ship TODAY from MILWAUKEE"
+      },
+      "snapshot_sha256": "d654770070ecec2c70c62dbc3c2d5096127b4a016b715e30ce277c4ab369b74e"
+    },
+    {
+      "schema_version": "stock_offer_snapshot.v1",
+      "supplier": "TCI America",
+      "catalog_number": "M0093-25G",
+      "canonical_smiles": "CS(=O)(=O)O",
+      "checked_at": "2026-07-13T14:46:43+08:00",
+      "available": true,
+      "purity": ">99.0% (neutralization titration)",
+      "pack_size": "25 g",
+      "price": 19.0,
+      "currency": "USD",
+      "region": "US / Philadelphia",
+      "lead_time_days": 0,
+      "source_url": "https://www.tcichemicals.com/US/en/p/M0093",
+      "metadata": {
+        "observation_kind": "operator_verified_supplier_page",
+        "supplier_product_name": "Methanesulfonic Acid",
+        "supplier_availability_text": "10 units in Philadelphia, PA"
+      },
+      "snapshot_sha256": "27d8e654f4f5c69f2046ab5b7808782deb6aacc2e90bb7c664d5835e61b4dae7"
+    },
+    {
+      "schema_version": "stock_offer_snapshot.v1",
+      "supplier": "MilliporeSigma / Sigma-Aldrich",
+      "catalog_number": "E50000-25G",
+      "canonical_smiles": "CCOC(=O)C(F)(F)F",
+      "checked_at": "2026-07-13T14:46:43+08:00",
+      "available": true,
+      "purity": "99%",
+      "pack_size": "25 g",
+      "price": 37.1,
+      "currency": "USD",
+      "region": "US / Milwaukee",
+      "lead_time_days": 0,
+      "source_url": "https://www.sigmaaldrich.com/US/en/product/aldrich/e50000",
+      "metadata": {
+        "observation_kind": "operator_verified_supplier_page",
+        "supplier_product_name": "Ethyl trifluoroacetate",
+        "supplier_availability_text": "Available to ship TODAY from MILWAUKEE"
+      },
+      "snapshot_sha256": "4adee1b0dd7be87772afe1a80080dc464a994da32239f87bf99e72cade360ead"
+    },
+    {
+      "schema_version": "stock_offer_snapshot.v1",
+      "supplier": "TCI America",
+      "catalog_number": "T0433-20ML",
+      "canonical_smiles": "O=C(OC(=O)C(F)(F)F)C(F)(F)F",
+      "checked_at": "2026-07-13T14:46:43+08:00",
+      "available": true,
+      "purity": ">98.0% (GC)",
+      "pack_size": "20 mL",
+      "price": 32.0,
+      "currency": "USD",
+      "region": "US / Philadelphia",
+      "lead_time_days": 0,
+      "source_url": "https://www.tcichemicals.com/US/en/p/T0433",
+      "metadata": {
+        "observation_kind": "operator_verified_supplier_page",
+        "supplier_product_name": "Trifluoroacetic Anhydride",
+        "supplier_availability_text": ">=40 units in Philadelphia, PA"
+      },
+      "snapshot_sha256": "0882a14cac7767203e59e3aafe7aaa8d4a1e286cd6d32f7d9905242b6a8085a0"
+    }
+  ]
+}

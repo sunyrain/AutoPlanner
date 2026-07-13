@@ -38,6 +38,8 @@ _SUPPLEMENTARY_TOKENS = (
     "-si-",
     "_esm.",
     "_esm_",
+    "_sm.",
+    "_sm_",
     "mmc1",
     "moesm",
 )

@@ -1138,7 +1138,7 @@ body.is-resizing * {
 .closure-status-content {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 6px;
 }
 
@@ -1179,6 +1179,55 @@ body.is-resizing * {
 }
 
 .ledger-progress-chip[data-authoritative="false"] {
+  border-style: dashed;
+  color: var(--text-faint);
+}
+
+.run-control-metrics {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: var(--space-2);
+}
+
+.run-control-chip {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--surface-raised) 86%, transparent);
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.run-control-chip span,
+.run-control-chip strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-control-chip strong {
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.run-control-chip[data-state="closed"] {
+  border-color: color-mix(in srgb, var(--success) 28%, var(--border));
+  background: color-mix(in srgb, var(--success-soft) 58%, var(--surface-raised));
+}
+
+.run-control-chip[data-state="open"] {
+  border-color: color-mix(in srgb, var(--warning) 26%, var(--border));
+  background: color-mix(in srgb, var(--warning-soft) 50%, var(--surface-raised));
+}
+
+.run-control-chip[data-state="unknown"] {
   border-style: dashed;
   color: var(--text-faint);
 }
@@ -2894,6 +2943,22 @@ body.embedded-route.inspector-collapsed .workbench-grid {
 
   .ledger-progress-chip {
     flex: 0 0 116px;
+  }
+
+  .run-control-metrics {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .run-control-metrics::-webkit-scrollbar {
+    display: none;
+  }
+
+  .run-control-chip {
+    flex: 0 0 132px;
   }
 
   .closure-status-grid {

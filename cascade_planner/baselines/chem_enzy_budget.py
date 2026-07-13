@@ -267,7 +267,12 @@ def classify_chemenzy_attempt_outcome(
         route_count = max(len(routes), int(raw_result.get("n_results") or 0))
     except (TypeError, ValueError):
         route_count = len(routes)
-    raw_solved = bool(raw_result.get("solved") or search_status.get("solved"))
+    raw_solved = bool(
+        raw_result.get("raw_solved")
+        or search_status.get("raw_solved")
+        or raw_result.get("solved")
+        or search_status.get("solved")
+    )
     status = str(search_status.get("status") or raw_result.get("status") or "").strip().lower()
     diagnoses = [
         str(item).strip().lower()

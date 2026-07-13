@@ -56,6 +56,7 @@
   const layout = forest.dependency_layout || {};
   const lanesProjection = forest.branch_lanes || {};
   const frontierLedger = forest.frontier_ledger || forest.semantic_summary?.frontier_ledger || {};
+  const retrosynthesisControl = forest.retrosynthesis_control || {};
   const graphNodes = new Map((graph.nodes || []).map(row => [row.graph_node_id, row]));
   const moleculeNodes = new Map((forest.nodes || []).map(row => [row.node_id, row]));
   const steps = new Map((forest.steps || []).map(row => [row.step_id, row]));
@@ -313,17 +314,28 @@
     const anyRouteClosed = ledgerAuthoritative && closure.any_benchmark_route_closed === true;
     const allGraphClosed = ledgerAuthoritative && closure.all_explored_benchmark_closed === true;
     const anyProcurementClosed = ledgerAuthoritative && closure.any_procurement_route_closed === true;
-    const parentL3Solved = deliveryBytesVerified && verified && closure.l3_parent_solved === true;
-    const procurementL4Ready = parentL3Solved
-      && anyProcurementClosed
-      && closure.l4_procurement_ready === true;
+    const selectedRouteProof = forest.selected_route_parent_proof || {};
+    const selectedProofRequired = selectedRouteProof.available === true;
+    const selectedProofAuthoritative = deliveryBytesVerified
+      && selectedRouteProof.accepted === true;
+    const controlAuthoritative = deliveryBytesVerified
+      && retrosynthesisControl.authoritative === true;
+    const hardAcceptance = controlAuthoritative
+      && retrosynthesisControl.acceptance?.accepted === true;
+    const parentL3Solved = selectedProofRequired
+      ? selectedProofAuthoritative && selectedRouteProof.benchmark_solved === true
+      : deliveryBytesVerified && verified && closure.l3_parent_solved === true;
+    const procurementL4Ready = selectedProofRequired
+      ? parentL3Solved && selectedRouteProof.procurement_ready === true
+      : parentL3Solved && anyProcurementClosed && closure.l4_procurement_ready === true;
     element('pageTitle').textContent = `${targetName()} · 路线工作台`;
     const verdict = element('verdictBadge');
-    verdict.textContent = procurementL4Ready ? 'L4 采购就绪'
-      : parentL3Solved ? 'L3 父路线已解'
+    verdict.textContent = hardAcceptance ? 'V3 双路线硬验收通过'
+      : procurementL4Ready ? 'L4 双路线采购就绪'
+      : parentL3Solved ? `${Number(selectedRouteProof.distinct_complete_route_count || 1)} 条 L3 替代路线闭合`
         : allGraphClosed ? 'Benchmark 全探索闭合'
           : anyRouteClosed ? '存在 Benchmark 闭合路线' : '父路线未闭合';
-    const verdictState = procurementL4Ready || parentL3Solved
+    const verdictState = hardAcceptance || procurementL4Ready || parentL3Solved
       ? 'verified' : anyRouteClosed || allGraphClosed ? 'partial' : 'unresolved';
     verdict.dataset.status = verdictState;
     verdict.classList.toggle('status-badge--verified', verdictState === 'verified');
@@ -338,8 +350,20 @@
       ['已展开 work', ledgerValue('expanded_work_molecules')],
       ['L2 反应边', ledgerValue('l2_reaction_edges')],
       ['L3 先例边', ledgerValue('l3_precedent_edges')],
-      ['库存边界叶', ledgerValue('stock_closed_leaves')]
+      ['库存边界叶', ledgerValue('stock_closed_leaves')],
+      ['L3 完整路线', selectedProofAuthoritative
+        ? Number(selectedRouteProof.benchmark_route_count || 0) : '—'],
+      ['L4 采购路线', selectedProofAuthoritative
+        ? Number(selectedRouteProof.procurement_route_count || 0) : '—']
     ];
+    if (retrosynthesisControl.available === true) {
+      overviewRows.unshift([
+        '硬验收',
+        controlAuthoritative
+          ? (hardAcceptance ? '通过' : '未通过')
+          : '—'
+      ]);
+    }
     if (primary.display_tiebreak_only && Number(primary.tied_candidate_count || 0) > 1) {
       overviewRows.push(['同分候选', Number(primary.tied_candidate_count)]);
     }
@@ -367,6 +391,10 @@
     const authoritative = ledgerAuthoritative === true;
     const closure = frontierLedger.closure || {};
     const counts = frontierLedger.counts || {};
+    const selectedRouteProof = forest.selected_route_parent_proof || {};
+    const control = retrosynthesisControl;
+    const controlAuthoritative = deliveryBytesVerified
+      && control.authoritative === true;
     const badge = element('ledgerAuthorityBadge');
     const digest = String(frontierLedger.content_sha256 || '');
     const reasons = (frontierLedger.validation_reasons || []).map(String);
@@ -403,6 +431,46 @@
         <span>${esc(label)}</span><strong>${esc(value)}</strong>
       </span>`).join('');
 
+    const acceptance = controlAuthoritative ? (control.acceptance || {}) : {};
+    const acceptanceSpec = acceptance.acceptance_spec || {};
+    const costTotals = controlAuthoritative ? (control.cost_totals || {}) : {};
+    const costBudget = controlAuthoritative ? (control.cost_budget || {}) : {};
+    const nextDeficit = controlAuthoritative ? (control.next_deficit || {}) : {};
+    const controlRows = [
+      [
+        '硬验收',
+        controlAuthoritative
+          ? `${Number(acceptance.selected_route_count || 0)}/${Number(acceptanceSpec.minimum_complete_routes || 0)} 路线 · ${acceptance.accepted === true ? '通过' : '未通过'}`
+          : '—',
+        acceptance.accepted === true ? 'closed' : 'open'
+      ],
+      [
+        '下一缺口',
+        controlAuthoritative
+          ? (nextDeficit.kind ? String(nextDeficit.kind).replaceAll('_', ' ') : '无待办')
+          : '—',
+        controlAuthoritative && !nextDeficit.kind ? 'closed' : 'open'
+      ],
+      [
+        '模型调用',
+        controlAuthoritative
+          ? `${Number(costTotals.model_invocations || 0)}/${Number(costBudget.max_model_invocations || 0)}`
+          : '—',
+        'neutral'
+      ],
+      [
+        '模型 Token',
+        controlAuthoritative
+          ? `${Number(costTotals.input_tokens || 0) + Number(costTotals.output_tokens || 0)}/${Number(costBudget.max_total_input_tokens || 0) + Number(costBudget.max_total_output_tokens || 0)}`
+          : '—',
+        'neutral'
+      ]
+    ];
+    element('runControlMetrics').innerHTML = controlRows.map(([label, value, state]) => `
+      <span class="run-control-chip" data-state="${esc(controlAuthoritative ? state : 'unknown')}">
+        <span>${esc(label)}</span><strong>${esc(value)}</strong>
+      </span>`).join('');
+
     const ledgerState = value => authoritative ? (value === true ? 'closed' : 'open') : 'unknown';
     const ledgerValue = (value, positive, negative) => authoritative
       ? (value === true ? positive : negative) : '账本缺失';
@@ -432,17 +500,22 @@
         detail: '全部已探索路径通过独立采购固定点；benchmark membership 不参与此判定'
       },
       {
-        label: 'L3 PARENT SOLVED',
+        label: 'L3 SELECTED ROUTES',
         value: !deliveryBytesVerified ? '交付字节未验证'
-          : parentL3Solved ? '父路线已解' : verified ? '证明层级不足' : '未证明',
+          : parentL3Solved
+            ? `${Number(selectedRouteProof.distinct_complete_route_count || 1)} 条不同 edge-set 已闭合`
+            : `${Number(selectedRouteProof.distinct_complete_route_count || 0)}/${Number(selectedRouteProof.minimum_complete_routes || 2)} 条`,
         state: !deliveryBytesVerified ? 'unknown' : parentL3Solved ? 'closed' : 'open',
-        detail: '完整父路线的最弱反应达到精确文献先例；独立于搜索账本闭合'
+        detail: '至少两条完整替代路线；每条反应边均达到 L3 精确先例，且所有叶节点逐一库存闭合'
       },
       {
         label: 'L4 PROCUREMENT',
-        value: !deliveryBytesVerified ? '交付字节未验证' : procurementL4Ready ? '采购就绪' : '未证明',
+        value: !deliveryBytesVerified ? '交付字节未验证'
+          : procurementL4Ready
+            ? `${Number(selectedRouteProof.procurement_route_count || 0)} 条采购就绪`
+            : '未证明',
         state: !deliveryBytesVerified ? 'unknown' : procurementL4Ready ? 'closed' : 'open',
-        detail: `${authoritative ? Number(counts.procurement_boundary_leaves || 0) : '—'} 个采购边界 · ${authoritative ? Number(counts.l4_procurement_edges || 0) : '—'} 条 L4 边；必须同时满足父路线证明与采购固定点`
+        detail: `${authoritative ? Number(counts.procurement_boundary_leaves || 0) : '—'} 个采购边界 · ${authoritative ? Number(counts.l4_procurement_edges || 0) : '—'} 条 L4 边；benchmark 命中绝不冒充商业采购`
       }
     ];
     element('closureStatusGrid').innerHTML = cards.map(card => `

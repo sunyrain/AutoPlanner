@@ -382,7 +382,15 @@ def load_external_hyperedge_events(
     campaign_identity_sha256: str,
     campaign_policy_sha256: str,
 ) -> list[dict[str, Any]]:
-    """Load and current-host validate every immutable journal event."""
+    """Load every immutable event still admissible on the current host.
+
+    Integrity or campaign-binding failures abort replay.  A previously valid
+    search-only event whose source adapter or structural admission policy has
+    since changed is instead made inactive and audited.  Such an event carries
+    no reaction-proof, stock, or completion authority, so dropping it from the
+    active projection is the fail-closed behavior; aborting the entire durable
+    campaign would incorrectly couple parser upgrades to search identity.
+    """
 
     canonical_target = _canonical_smiles(target_smiles)
     _validate_campaign_binding(
@@ -399,6 +407,7 @@ def load_external_hyperedge_events(
             "external hyperedge journal event root is not a directory"
         )
     events: list[dict[str, Any]] = []
+    inactive_events: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     seen_exact_edges: set[str] = set()
     for path in sorted(event_root.glob("*/*.json")):
@@ -415,6 +424,26 @@ def load_external_hyperedge_events(
                 "external hyperedge journal contains a duplicate event id"
             )
         seen_ids.add(event_id)
+        authority_drift_reasons = list(
+            event.pop("_current_host_authority_drift_reasons", []) or []
+        )
+        if authority_drift_reasons:
+            inactive_events.append(
+                {
+                    "event_id": event_id,
+                    "event_ref": str(event.get("event_ref") or path),
+                    "exact_edge_signature": str(
+                        event.get("exact_edge_signature") or ""
+                    ),
+                    "reasons": authority_drift_reasons,
+                    "semantics": {
+                        "immutable_event_preserved": True,
+                        "excluded_from_current_search_projection": True,
+                        "cannot_mutate_queue_proof_stock_or_completion": True,
+                    },
+                }
+            )
+            continue
         edge_signature = str(event.get("exact_edge_signature") or "")
         if edge_signature in seen_exact_edges:
             raise AdmittedHyperedgeJournalError(
@@ -422,6 +451,11 @@ def load_external_hyperedge_events(
             )
         seen_exact_edges.add(edge_signature)
         events.append(event)
+    _write_event_replay_report(
+        Path(journal_root),
+        active_events=events,
+        inactive_events=inactive_events,
+    )
     return sorted(events, key=lambda row: str(row["event_id"]))
 
 
@@ -747,13 +781,80 @@ def _load_event(
         campaign_identity_sha256=campaign_identity_sha256,
         campaign_policy_sha256=campaign_policy_sha256,
     )
-    if reasons:
+    authority_drift_reasons = sorted(
+        reason for reason in reasons if _current_host_authority_drift_reason(reason)
+    )
+    integrity_reasons = sorted(
+        reason for reason in reasons if reason not in authority_drift_reasons
+    )
+    if integrity_reasons:
         raise AdmittedHyperedgeJournalError(
             "invalid external hyperedge journal event:"
-            + ",".join(sorted(set(reasons)))
+            + ",".join(sorted(set(integrity_reasons)))
         )
     event["event_ref"] = str(path)
+    if authority_drift_reasons:
+        event["_current_host_authority_drift_reasons"] = authority_drift_reasons
     return event
+
+
+def _current_host_authority_drift_reason(reason: str) -> bool:
+    return bool(
+        str(reason).startswith("event_provenance_material_")
+        or str(reason) == "event_host_admission_replay_failed"
+    )
+
+
+def _write_event_replay_report(
+    journal_root: Path,
+    *,
+    active_events: Iterable[Mapping[str, Any]],
+    inactive_events: Iterable[Mapping[str, Any]],
+) -> None:
+    active = [dict(row) for row in active_events]
+    inactive = [dict(row) for row in inactive_events]
+    payload = {
+        "schema_version": "admitted_external_hyperedge_replay_report.v1",
+        "active_event_count": len(active),
+        "inactive_event_count": len(inactive),
+        "active_event_ids": sorted(str(row.get("event_id") or "") for row in active),
+        "inactive_events": sorted(
+            inactive,
+            key=lambda row: str(row.get("event_id") or ""),
+        ),
+        "semantics": {
+            "integrity_or_campaign_binding_failure_aborts": True,
+            "authority_drift_excludes_search_only_event": True,
+            "immutable_event_objects_are_never_rewritten": True,
+            "current_source_material_can_publish_a_replacement_event": True,
+        },
+    }
+    payload["content_sha256"] = _digest(payload)
+    root = journal_root.expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / "replay_report.json"
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        dir=root,
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(
+                payload,
+                handle,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+                allow_nan=False,
+            )
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, target)
+    finally:
+        if os.path.exists(temporary_name):
+            os.unlink(temporary_name)
 
 
 def _event_replay_reasons(

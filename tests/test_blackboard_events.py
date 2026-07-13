@@ -63,6 +63,7 @@ def _team_artifact(case_id: str, *, target_smiles: str) -> dict:
                     "product_smiles": target_smiles,
                     "precursor_smiles": ["CC=O"],
                     "reaction_family": "carbonyl reduction",
+                    "product_retron_type": "carbonyl interconversion",
                     "transformation_rationale": "Recovery-only proposal fixture.",
                     "source_channel": "codex_strategy",
                     "source_refs": ["child:target_structure_strategist"],
@@ -352,16 +353,18 @@ def test_controller_blackboard_rehydrates_after_process_restart(
     assert second_board["route_expansion_subgoals"] == late_board[
         "route_expansion_subgoals"
     ]
-    assert "codex_agent_team" not in second_board
-    assert "codex_precursor_frontier_injection" not in second_board
-    assert "route_consensus" not in second_board
-    assert all(
-        str(row.get("source_channel") or "") != "codex_strategy"
-        for row in (second_board.get("route_consensus_graph") or {}).get(
-            "expansions"
-        )
-        or []
+    # Scientific projections are not restored from the blackboard journal.
+    # The already-created durable campaign is instead reconstructed from its
+    # immutable campaign authority, even when this invocation does not request
+    # another Agent expansion.
+    assert second_board["codex_agent_team"]["accepted"] is True
+    campaign_authority = second_board["codex_campaign_authority_projection"]
+    assert campaign_authority["accepted"] is True
+    assert campaign_authority["reconciliation_trigger"] == (
+        "durable_campaign_recovery"
     )
+    assert campaign_authority["proposal_runner_invoked"] is False
+    assert campaign_authority["durable_accepted_expansion_count"] == 1
     assert len(second_board["action_history"]) == 2
     assert len(second_board["controller_action_batches"]) == 1
     assert len(second_board["controller_action_batch_validations"]) == 1
@@ -460,6 +463,49 @@ def test_checkpoint_cas_and_tombstone_prevent_stale_field_resurrection(
     assert "analogical_hypotheses" not in recovered
     assert "analogical_hypotheses" in report["tombstoned_fields"]
     assert current["blackboard_event_journal"]["event_count"] == 2
+
+
+def test_large_checkpoint_uses_immutable_content_addressed_object(
+    tmp_path: Path,
+) -> None:
+    board = _fresh_board()
+    board["route_failures"] = [
+        {
+            "failure_id": "large-checkpoint-fixture",
+            "diagnostic": "x" * (256 * 1024),
+        }
+    ]
+
+    board, event = append_blackboard_checkpoint(
+        tmp_path,
+        board,
+        stage="large_checkpoint",
+    )
+
+    assert "checkpoint" not in event
+    checkpoint_ref = event["checkpoint_ref"]
+    assert checkpoint_ref["storage"] == "immutable_content_addressed_json"
+    object_path = (
+        blackboard_event_journal_path(tmp_path).parent
+        / checkpoint_ref["relative_path"]
+    )
+    assert object_path.is_file()
+    assert object_path.stat().st_size == checkpoint_ref["byte_count"]
+    assert blackboard_event_journal_path(tmp_path).stat().st_size < 16 * 1024
+
+    recovered, report = rehydrate_blackboard_from_events(
+        _fresh_board(),
+        run_dir=tmp_path,
+    )
+    assert recovered["route_failures"] == board["route_failures"]
+    assert report["event_count"] == 1
+
+    object_path.write_bytes(object_path.read_bytes() + b" ")
+    with pytest.raises(
+        BlackboardJournalError,
+        match="checkpoint_object_digest_mismatch",
+    ):
+        rehydrate_blackboard_from_events(_fresh_board(), run_dir=tmp_path)
 
 
 def test_rehashed_journal_cannot_restore_scientific_authority(
@@ -681,6 +727,56 @@ def test_started_without_prepared_is_charged_and_never_auto_retried(
     assert failure["charged_attempt_count"] == 1
 
 
+def test_explicit_idempotent_recovery_retry_reuses_original_reservation(
+    tmp_path: Path,
+) -> None:
+    board = _fresh_board(max_rounds=1)
+    action = {
+        "schema_version": "agent_action.v1",
+        "action_id": "r1:extract_visual_literature_chain",
+        "action_type": "extract_visual_literature_chain",
+        "rationale": "retry a local evidence extraction",
+        "expected_artifact": "visual_literature_chain_extraction_result.v1",
+        "success_condition": "source-bound visual result is recorded",
+        "payload": {"source_ref": "doi:10.example/retry"},
+    }
+    reserved = deepcopy(board["budget_state"])
+    reserved["visual_calls"] = 1
+    _, first = begin_blackboard_action(
+        tmp_path,
+        board,
+        action=action,
+        round_index=1,
+        reserved_budget_state=reserved,
+    )
+    recovered, _ = rehydrate_blackboard_from_events(
+        board,
+        run_dir=tmp_path,
+    )
+    incorrectly_double_charged = deepcopy(recovered["budget_state"])
+    incorrectly_double_charged["visual_calls"] = 2
+
+    retried_board, retry = begin_blackboard_action(
+        tmp_path,
+        recovered,
+        action=action,
+        round_index=1,
+        reserved_budget_state=incorrectly_double_charged,
+        allow_idempotent_retry=True,
+    )
+
+    execution = retry["started_event"]["action_execution"]
+    assert retry["status"] == "started"
+    assert retry["attempt_index"] == 2
+    assert retry["charged_retry"] is False
+    assert retry["idempotent_recovery_retry"] is True
+    assert execution["retry_of_event_id"] == first["started_event"]["event_id"]
+    assert execution["retry_reason"] == "idempotent_local_action_recovery"
+    assert execution["budget_pre_state"]["visual_calls"] == 1
+    assert execution["budget_after_reservation"]["visual_calls"] == 1
+    assert retried_board["budget_state"]["visual_calls"] == 1
+
+
 def test_raw_journal_binding_survives_host_capability_payload_normalization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -772,10 +868,28 @@ def test_raw_journal_binding_survives_host_capability_payload_normalization(
         use_codex_action_planner=False,
     )
 
-    assert len(execute_payloads) == 1
-    assert any(
+    assert len(execute_payloads) == 2
+    assert execute_payloads[1]["source_capability_id"] == (
+        execute_payloads[0]["source_capability_id"]
+    )
+    events = [
+        json.loads(line)
+        for line in blackboard_event_journal_path(run_dir)
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    retries = [
+        event
+        for event in events
+        if event.get("stage") == "agent_action_idempotent_retry_started"
+    ]
+    assert len(retries) == 1
+    assert retries[0]["action_execution"]["retry_reason"] == (
+        "idempotent_local_action_recovery"
+    )
+    assert not any(
         "blackboard_action_recovery_blocked" in str(flag)
-        for flag in resumed["agent_blackboard"]["safety_flags"]
+        for flag in resumed["agent_blackboard"].get("safety_flags") or []
     )
 
 

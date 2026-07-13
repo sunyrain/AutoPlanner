@@ -1,15 +1,19 @@
 # AutoPlanner
 
-AutoPlanner is being refocused around a policy-driven Codex + blackboard route
-controller for chemoenzymatic retrosynthesis.
+AutoPlanner uses an evidence-first retrosynthesis core with a bounded Codex
+control plane. The blackboard coordinates durable work and recovery; chemistry
+truth lives in a provenance-preserving reaction hypergraph, current-host proof
+bindings, stock observations, and a deterministic AND/OR solver.
 
 The active architecture is:
 
 ```text
 target input
 -> deterministic preflight
--> agentic blackboard state
--> Codex coordinator directly spawns independent specialist child agents
+-> immutable acceptance contract + run-wide cost ledger
+-> hash-bound source discovery and deterministic exact-step reconstruction
+-> one route-deficit queue prioritizes evidence, reaction, and stock gaps
+-> Codex coordinator directly spawns a small specialist team only for a remaining proposal gap
 -> each child report is independently parsed, role-bound, and validated
 -> typed Provider SPI envelopes bind schema/version/hash; host policy binds correlation and authority
 -> stock-first durable frontiers launch additional direct child-agent teams
@@ -20,7 +24,8 @@ target input
 -> local tools execute approved actions
 -> deterministic route verifiers preserve every accepted route in a replayable proof bank
 -> exact edge/stock bindings gate AND/OR closure and a diverse valid portfolio
--> deterministic parent proof decides final verdict
+-> deterministic acceptance requires distinct complete routes, L3+ edges,
+   independent sources, and the requested stock boundary
 -> immutable closeout binds the trust-coloured full route graph and alternatives
 ```
 
@@ -28,8 +33,10 @@ Codex is allowed to delegate, plan, search, classify sources, and draft route
 candidates. Multiple Codex roles are one correlated model source, not multiple
 independent evidence sources. Codex cannot directly mark a route solved, inject
 raw reaction SMILES into production, or promote artifacts to the production KB.
-When the multi-agent mainline fails, the run stops unresolved instead of
-silently replacing it with a deterministic scientific planner.
+When deterministic work can close the route, no model call is made. When a
+proposal gap remains, every model-backed worker shares one small fail-closed
+invocation/token/wall-time budget; a missing usage report blocks automatic
+continuation.
 
 The proof boundary is fail-closed. `route_proof_bank.v1` retains every
 accepted, materialized verifier route instead of only the best route; a bundle
@@ -58,7 +65,22 @@ re-solved route; rejected candidates remain visible, and no UI single-step
 splice can establish truth. Portfolio eligibility remains advisory and is not
 equivalent to `parent solved`.
 
-The current paclitaxel Architecture V2 replay demonstrates the engineering
+The committed Nirmatrelvir V3 golden contract demonstrates the acceptance
+path on two real sources. A fresh current-parser replay reconstructs 8/8
+Science steps and 7/7 WO2021250648A1 steps, merges them into 12 unique reaction
+hyperedges, replays 7 supplier stock snapshots through a host-owned provider,
+and accepts 2 distinct complete procurement-closed routes with 0 model calls.
+Run it with:
+
+```powershell
+python scripts/run_nirmatrelvir_v3_golden.py
+```
+
+The source PDFs remain local and ignored; their expected SHA-256 values and
+the hard acceptance metrics are committed in
+`config/examples/nirmatrelvir_v3_golden_acceptance.json`.
+
+The older paclitaxel Architecture V2 replay demonstrates the engineering
 path without claiming a scientific solve: the four-child Codex team completed,
 the fused overlay contains 85 molecules and 82 reaction hyperedges (including
 five independently supported multi-source edges), and a validated CAS revision
@@ -149,6 +171,13 @@ Remove-Item Env:AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY
 The fixture registry is test-only; never use it as production literature
 curation. See [AutoPlanner mainline](docs/MAINLINE.md) for the proof contracts
 and the honest paclitaxel end-to-end result.
+
+The main Codex-entry CLI creates a run-local, out-of-band literature registry
+with its deterministic OPSIN/PubChem source parser by default. Model-extracted
+SMILES remain advisory unless the parser can reconstruct the source heading,
+locate every reactant in the same procedure, and replay the bound PDF/page
+image. Use `--no-deterministic-literature-parser` when operating with a
+separately curated registry.
 
 ## Local-Only
 

@@ -14,6 +14,9 @@ import re
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from cascade_planner.harness.literature_pdf_extraction import (
+    PAGE_FOCUS_ALGORITHM_VERSION,
+)
 from cascade_planner.source_locators import (
     canonical_traceable_source_ref,
     canonical_traceable_source_refs,
@@ -34,6 +37,42 @@ SOURCE_SENSITIVE_ACTIONS = frozenset(
     }
 )
 LITERATURE_ACTIONS = SOURCE_SENSITIVE_ACTIONS | {"search_literature"}
+
+_NON_COMPOUND_LABEL_SENTINELS = frozenset(
+    {
+        "",
+        "n/a",
+        "na",
+        "none",
+        "not specified",
+        "tbd",
+        "unk",
+        "unknown",
+        "unresolved",
+        "unspecified",
+    }
+)
+
+
+def meaningful_compound_labels(values: Iterable[Any]) -> list[str]:
+    """Return stable, user-facing labels while dropping planner sentinels.
+
+    Campaign proposal records may use values such as ``unspecified`` when they
+    cite a source without naming a compound.  Those values are provenance
+    metadata, not extraction obligations, and must never make an otherwise
+    exact visual chain fail its completeness gate.
+    """
+
+    labels: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        label = " ".join(str(value or "").strip().split())
+        key = label.casefold().replace("_", " ")
+        if key in _NON_COMPOUND_LABEL_SENTINELS or key in seen:
+            continue
+        seen.add(key)
+        labels.append(label)
+    return labels
 
 
 def pdf_evidence_has_materialized_render(row: Mapping[str, Any]) -> bool:
@@ -175,6 +214,7 @@ def build_source_capability_queue(
         )
         if identity and pdf_evidence_has_materialized_render(row):
             documents[identity]["rendered"] = True
+            documents[identity]["pdf_focus_stale"] = _pdf_focus_is_stale(row)
             documents[identity]["render_evidence_refs"].extend(
                 _evidence_refs(row, extra=pdf_evidence_render_paths(row))
             )
@@ -191,8 +231,22 @@ def build_source_capability_queue(
             role="visual_chain",
         )
         if identity and _visual_chain_is_materialized(row):
-            documents[identity]["visualized"] = True
-            documents[identity]["visual_chain_ids"].extend(_visual_chain_ids(row))
+            refreshed_current = _visual_focus_refresh_is_current(row)
+            has_materialized_steps = _visual_step_count(row) > 0
+            if (
+                has_materialized_steps
+                or not documents[identity].get("pdf_focus_stale")
+                or refreshed_current
+            ):
+                documents[identity]["visualized"] = True
+                documents[identity]["visual_chain_ids"].extend(
+                    _visual_chain_ids(row)
+                )
+            else:
+                # A zero-step judgment made from a superseded page selector is
+                # not terminal.  The visual tool can text-reindex the existing
+                # PDF and replace the stale page list without rerendering it.
+                documents[identity]["stale_visual_focus"] = True
 
     target = dict(board.get("target_profile") or {})
     target_terms = _priority_terms(
@@ -252,7 +306,10 @@ def build_source_capability_queue(
             # A concrete structure-resolution task is the next stage for this
             # document.  Do not reissue the broader visual call while that
             # narrower current-host capability remains open.
-            if identity in open_task_document_identities:
+            if (
+                identity in open_task_document_identities
+                and not document.get("stale_visual_focus")
+            ):
                 continue
             capability = _source_capability(
                 action_type="extract_visual_literature_chain",
@@ -635,6 +692,8 @@ def _register_document(
             "aliases": set(),
             "rendered": False,
             "visualized": False,
+            "pdf_focus_stale": False,
+            "stale_visual_focus": False,
             "render_evidence_refs": [],
             "visual_chain_ids": [],
         },
@@ -833,12 +892,12 @@ def _merged_source_record(
         if values:
             merged[field] = values[0]
     labels = sorted(
-        {
-            str(label)
+        meaningful_compound_labels(
+            label
             for row in ordered
             for label in row.get("expected_scheme_or_compound_labels") or []
-            if str(label or "").strip()
-        }
+        ),
+        key=str.casefold,
     )
     if labels:
         merged["expected_scheme_or_compound_labels"] = labels
@@ -1222,6 +1281,42 @@ def _visual_chain_is_materialized(row: Mapping[str, Any]) -> bool:
             or value.get("condition_gap_labels")
             or value.get("missing_expected_labels")
         )
+    )
+
+
+def _pdf_focus_is_stale(row: Mapping[str, Any]) -> bool:
+    value = dict(row or {})
+    focus = dict(value.get("focus") or {})
+    version = str(focus.get("algorithm_version") or "").strip()
+    focus_contract_seen = bool(version)
+    artifact_ref = str(value.get("artifact_ref") or "").strip()
+    if artifact_ref:
+        path = Path(artifact_ref).expanduser()
+        if path.is_file() and path.suffix.lower() == ".json":
+            try:
+                artifact = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                artifact = {}
+            if isinstance(artifact, Mapping):
+                artifact = dict(artifact)
+                result = artifact.get("result")
+                if isinstance(result, Mapping):
+                    artifact = dict(result)
+                audit = artifact.get("focus_audit")
+                if isinstance(audit, Mapping):
+                    focus_contract_seen = True
+                    version = str(audit.get("algorithm_version") or "").strip()
+    return bool(
+        focus_contract_seen and version != PAGE_FOCUS_ALGORITHM_VERSION
+    )
+
+
+def _visual_focus_refresh_is_current(row: Mapping[str, Any]) -> bool:
+    refresh = dict(row.get("page_focus_refresh_audit") or {})
+    return bool(
+        refresh.get("accepted") is True
+        and str(refresh.get("current_algorithm_version") or "")
+        == PAGE_FOCUS_ALGORITHM_VERSION
     )
 
 

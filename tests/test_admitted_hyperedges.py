@@ -351,17 +351,30 @@ def test_validated_exact_literature_receipt_replays_source_material_on_load(
         "AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY",
         str(tmp_path / "missing-registry.json"),
     )
-    with pytest.raises(
-        AdmittedHyperedgeJournalError,
-        match="exact_literature_source_row_host_replay_failed",
-    ):
-        load_external_hyperedge_events(
-            tmp_path / "admitted_hyperedges",
-            case_id="journal-case",
-            target_smiles="CCO",
-            campaign_identity_sha256="a" * 64,
-            campaign_policy_sha256="b" * 64,
-        )
+    events = load_external_hyperedge_events(
+        tmp_path / "admitted_hyperedges",
+        case_id="journal-case",
+        target_smiles="CCO",
+        campaign_identity_sha256="a" * 64,
+        campaign_policy_sha256="b" * 64,
+    )
+    assert events == []
+    replay_report = json.loads(
+        (
+            tmp_path
+            / "admitted_hyperedges"
+            / "replay_report.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert replay_report["inactive_event_count"] == 1
+    assert replay_report["active_event_count"] == 0
+    assert any(
+        "exact_literature_source_row_host_replay_failed" in reason
+        for reason in replay_report["inactive_events"][0]["reasons"]
+    )
+    assert replay_report["inactive_events"][0]["semantics"][
+        "cannot_mutate_queue_proof_stock_or_completion"
+    ] is True
 
 
 def test_source_bound_literature_without_registry_enters_only_l0_search(

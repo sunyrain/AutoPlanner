@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from cascade_planner.baselines.chem_enzy_step_quality import evaluate_enzyme_step_quality
 from cascade_planner.baselines.route_contract import RouteStepCandidate

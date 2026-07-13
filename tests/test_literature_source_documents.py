@@ -108,6 +108,7 @@ class LiteratureSourceDocumentTests(unittest.TestCase):
                 Path(tmp) / "oc3c00145_si_002.pdf",
                 Path(tmp) / "jo3c01274_si_001.pdf",
                 Path(tmp) / "42004_2022_758_MOESM1_ESM.pdf",
+                Path(tmp) / "science.abl4784_sm.pdf",
             ]
             sources = self._normalize(
                 [
@@ -122,13 +123,95 @@ class LiteratureSourceDocumentTests(unittest.TestCase):
                 ]
             )
 
-        self.assertEqual(len(sources), 4)
+        self.assertEqual(len(sources), 5)
         self.assertEqual(
             {row["content_scope"] for row in sources},
             {"supplementary_information"},
         )
         self.assertTrue(
             all(row.get("content_scope_normalization") for row in sources)
+        )
+
+    def test_normalize_preserves_explicit_pages_and_resolves_text_companion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "patent.pdf"
+            html = Path(tmp) / "patent.html"
+            source = self._normalize(
+                [
+                    {
+                        "source_ref": "patent:WO2021250648A1",
+                        "local_pdf": str(pdf),
+                        "pdf_page_numbers": [85, 121, 122, 123],
+                        "source_text_companion": {
+                            "schema_version": "trusted_source_text_companion.v1",
+                            "artifact_path": str(html),
+                        },
+                    }
+                ]
+            )[0]
+
+        self.assertEqual(source["pdf_page_numbers"], [85, 121, 122, 123])
+        companions = source["source_text_companions"]
+        self.assertEqual(len(companions), 1)
+        self.assertEqual(
+            companions[0]["artifact_path"],
+            str(html.resolve()),
+        )
+        self.assertNotIn("source_text_companion", source)
+
+    def test_science_sm_pdf_does_not_split_campaign_metadata_from_si_document(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "science.abl4784_sm.pdf"
+            pdf.write_bytes(b"%PDF-1.4\nsupplementary material\n%%EOF\n")
+            rendered_page = Path(tmp) / "page_013.png"
+            rendered_page.write_bytes(b"rendered-page")
+            source_ref = "doi:10.1126/science.abl4784"
+            board = self._board(
+                self._normalize(
+                    [
+                        {
+                            "candidate_id": "operator_science_si",
+                            "doi": "10.1126/science.abl4784",
+                            "source_ref": source_ref,
+                            "local_pdf": str(pdf),
+                            "content_scope": "supplementary_information",
+                            "expected_scheme_or_compound_labels": ["T18", "PF-07321332"],
+                        }
+                    ]
+                )
+            )
+            board["literature_evidence"]["source_candidates"].append(
+                {
+                    "candidate_id": "campaign_metadata_pointer",
+                    "doi": "10.1126/science.abl4784",
+                    "source_ref": source_ref,
+                    "content_scope": "article",
+                    "expected_scheme_or_compound_labels": ["unspecified"],
+                }
+            )
+            board["literature_evidence"]["pdf_structure_evidence"] = [
+                {
+                    "accepted": True,
+                    "source_ref": source_ref,
+                    "source_pdf_path": str(pdf),
+                    "rendered_pages": [
+                        {"page_number": 13, "image_path": str(rendered_page)}
+                    ],
+                    "summary": {"rendered_page_count": 1},
+                }
+            ]
+
+            batch = plan_action_batch(board, round_index=1, max_actions=1)
+
+        action = batch["actions"][0]
+        self.assertEqual(action["action_type"], "extract_visual_literature_chain")
+        self.assertEqual(
+            action["payload"]["expected_labels"],
+            ["PF-07321332", "T18"],
+        )
+        self.assertEqual(
+            action["payload"]["content_scope"],
+            "supplementary_information",
         )
 
     def test_blackboard_and_planner_process_each_document_independently(self) -> None:

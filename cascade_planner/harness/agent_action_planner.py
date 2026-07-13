@@ -18,12 +18,16 @@ from cascade_planner.agent.action_contracts import (
 )
 from cascade_planner.agent.chem_enzy_policy import validate_chem_enzy_search_policy
 from cascade_planner.harness.parent_route_proof import is_solved_parent_route_proof
+from cascade_planner.harness.deterministic_literature_registry import (
+    PARSER_AUTHORITY_ID,
+)
 from cascade_planner.harness.source_capabilities import (
     SOURCE_SENSITIVE_ACTIONS,
     action_resource_cost,
     build_source_capability_queue,
     eligible_source_capabilities,
     matching_source_capabilities,
+    meaningful_compound_labels,
     pdf_evidence_has_materialized_render,
     pdf_evidence_render_paths,
     source_capability_effective_payload,
@@ -107,13 +111,21 @@ def plan_action_batch(
         _action_count(blackboard, "run_guided_chemenzy") > 0
         and _can_run_guided_chemenzy(blackboard)
     )
+    pending_exact_compile = bool(
+        _visual_chain_available(blackboard)
+        and _uncompiled_visual_steps_available(blackboard)
+        and not _compile_exact_rows_exhausted_to_advisory(blackboard)
+        and not _stale_compile_requires_structure_resolution(blackboard)
+    )
     if (
-        not _deterministic_route_action_ready(blackboard)
-        and not guided_retry_ready
-        # Structured process evidence carries an explicit route-first bias:
-        # compile its objective/anchor work before spending the reserved slot
-        # on another document render.
-        and not _process_evidence_available(blackboard)
+        pending_exact_compile
+        or (
+            not _deterministic_route_action_ready(blackboard)
+            and not guided_retry_ready
+            # Structured process evidence carries an explicit route-first bias
+            # only when no already-materialized exact candidate is waiting.
+            and not _process_evidence_available(blackboard)
+        )
     ):
         actions.extend(
             plan_literature_evidence_followup_actions(
@@ -260,7 +272,6 @@ def plan_action_batch(
     if (
         not actions
         and _visual_chain_available(blackboard)
-        and (not _exact_rows_available(blackboard) or _exact_rows_incomplete(blackboard))
         and _uncompiled_visual_steps_available(blackboard)
         and not _compile_exact_rows_exhausted_to_advisory(blackboard)
         and not _stale_compile_requires_structure_resolution(blackboard)
@@ -1674,6 +1685,29 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
         ],
         limit=12,
     )
+    proposal_reaction_classes = _dedupe(
+        [
+            str(item)
+            for row in proposal_rows
+            for item in [
+                str(row.get("reaction_family") or ""),
+                *[str(value) for value in row.get("reaction_families") or []],
+            ]
+            if str(item or "").strip()
+        ]
+    )
+    proposal_retrons = _dedupe(
+        [
+            str(item)
+            for row in proposal_rows
+            for item in [
+                str(row.get("product_retron_type") or ""),
+                str(row.get("derived_from_retron") or ""),
+                *[str(value) for value in row.get("product_retron_types") or []],
+            ]
+            if str(item or "").strip()
+        ]
+    )
     proposal_precursor_targets = _precursor_targets_from_retrosynthetic_proposals(proposal_rows, limit=12)
     hypothetical_precursor_smiles = [str(row.get("smiles") or "") for row in hypothetical_precursor_targets]
     visual_precursor_smiles = [str(row.get("smiles") or "") for row in visual_precursor_targets]
@@ -1784,8 +1818,11 @@ def build_guided_chemenzy_payload_from_blackboard(blackboard: dict[str, Any]) ->
                             for row in hypothetical_route_hints
                             if str(row.get("product_retron_type") or "").strip()
                         ],
+                        *proposal_reaction_classes,
                     ]
                 ),
+                "preferred_retrons": proposal_retrons,
+                "reaction_and_retron_priors_are_advisory_only": True,
                 "hypothetical_route_hints_are_not_proof": True,
                 "hypothesis_precursor_hints_are_not_proof": True,
                 "visual_connectivity_hints_are_not_proof": bool(visual_exploratory_hints),
@@ -2559,6 +2596,24 @@ def _retrosynthetic_proposal_precursor_target(
         "route_objective_type": str(proposal.get("route_objective_type") or ""),
         "failure_response_policy": dict(proposal.get("failure_response_policy") or {}),
         "transformation_idea": str(proposal.get("transformation_idea") or ""),
+        "reaction_family": str(proposal.get("reaction_family") or ""),
+        "reaction_families": [
+            str(item)
+            for item in proposal.get("reaction_families") or []
+            if str(item or "").strip()
+        ],
+        "product_retron_type": str(proposal.get("product_retron_type") or ""),
+        "product_retron_types": [
+            str(item)
+            for item in proposal.get("product_retron_types") or []
+            if str(item or "").strip()
+        ],
+        "derived_from_retron": str(
+            proposal.get("derived_from_retron")
+            or proposal.get("product_retron_type")
+            or ""
+        ),
+        "retron_authority": "advisory_search_prior_only",
         "precursor_set_smiles": precursor_set_smiles,
         "precursor_component_index": int(component_index or 0),
         "precursor_component_count": int(component_count or 1),
@@ -2875,7 +2930,6 @@ def _biased_action_candidate(
     if action_type == "compile_exact_literature_rows":
         if not (
             _visual_chain_available(blackboard)
-            and (not _exact_rows_available(blackboard) or _exact_rows_incomplete(blackboard))
             and _uncompiled_visual_steps_available(blackboard)
             and not _compile_exact_rows_exhausted_to_advisory(blackboard)
             and not _stale_compile_requires_structure_resolution(blackboard)
@@ -3252,7 +3306,9 @@ def _compact_source_candidate_for_policy(row: dict[str, Any]) -> dict[str, Any]:
     }
     if str(row.get("local_pdf") or "").strip():
         out["local_pdf"] = str(row.get("local_pdf") or "")
-    labels = [str(item) for item in row.get("expected_scheme_or_compound_labels") or [] if str(item or "").strip()]
+    labels = meaningful_compound_labels(
+        row.get("expected_scheme_or_compound_labels") or []
+    )
     if labels:
         out["expected_scheme_or_compound_labels"] = labels[:12]
     route_hint = str(row.get("route_sequence_hint") or "").strip()
@@ -3490,9 +3546,15 @@ def _source_candidate_payload(row: dict[str, Any]) -> dict[str, Any]:
         payload["document_id"] = str(row.get("document_id") or "")
     if row.get("content_scope"):
         payload["content_scope"] = str(row.get("content_scope") or "")
+    if row.get("chain_id"):
+        payload["chain_id"] = str(row.get("chain_id") or "")
+    if row.get("artifact_ref"):
+        payload["artifact_ref"] = str(row.get("artifact_ref") or "")
     if row.get("route_sequence_hint"):
         payload["route_sequence_hint"] = str(row.get("route_sequence_hint") or "")
-    labels = [str(item) for item in row.get("expected_scheme_or_compound_labels") or [] if str(item or "").strip()]
+    labels = meaningful_compound_labels(
+        row.get("expected_scheme_or_compound_labels") or []
+    )
     if labels:
         payload["expected_labels"] = labels
         payload["compound_labels"] = labels
@@ -3696,6 +3758,27 @@ def plan_literature_evidence_followup_actions(
     if limit <= 0:
         return []
 
+    # Finish the proof-bearing transition already in hand before opening a new
+    # document lifecycle.  Compilation remains fail-closed and cannot itself
+    # promote a row; it only gives the deterministic verifier/registry a
+    # bounded candidate to accept or reject.
+    if (
+        _visual_chain_available(blackboard)
+        and _uncompiled_visual_steps_available(blackboard)
+        and not _compile_exact_rows_exhausted_to_advisory(blackboard)
+        and not _stale_compile_requires_structure_resolution(blackboard)
+    ):
+        return [
+            _action(
+                round_index,
+                "compile_exact_literature_rows",
+                "finish the materialized source candidate before opening another document lifecycle",
+                "compiled exact literature rows",
+                "exact rows are accepted or rejected with an auditable source-detail reason",
+                _compile_exact_rows_payload(blackboard),
+            )
+        ]
+
     source = _next_local_pdf_source_for_pdf_extraction(blackboard)
     if source and not _source_has_pdf_evidence_record(blackboard, source):
         return [
@@ -3768,24 +3851,6 @@ def plan_literature_evidence_followup_actions(
                 "structure_resolution_source_scout_report.v1",
                 "a new source-bound structure-resolution lead or an explicit unresolved record is produced",
                 _structure_resolution_scout_payload(blackboard),
-            )
-        ]
-
-    if (
-        _visual_chain_available(blackboard)
-        and (not _exact_rows_available(blackboard) or _exact_rows_incomplete(blackboard))
-        and _uncompiled_visual_steps_available(blackboard)
-        and not _compile_exact_rows_exhausted_to_advisory(blackboard)
-        and not _stale_compile_requires_structure_resolution(blackboard)
-    ):
-        return [
-            _action(
-                round_index,
-                "compile_exact_literature_rows",
-                "continue the source lifecycle by compiling source-bound visual steps into exact-row candidates",
-                "compiled exact literature rows",
-                "exact rows are accepted or rejected with an auditable source-detail reason",
-                _compile_exact_rows_payload(blackboard),
             )
         ]
 
@@ -3976,6 +4041,10 @@ def _stale_compile_requires_structure_resolution(blackboard: dict[str, Any]) -> 
         return False
     if not _open_structure_resolution_tasks(blackboard):
         return False
+    if _next_uncompiled_compile_capability(blackboard):
+        return False
+    if _fresh_uncompiled_visual_steps_after_latest_compile(blackboard):
+        return False
     compile_attempt_count = _action_count(blackboard, "compile_exact_literature_rows")
     stale_compile_history = sum(
         1
@@ -3992,6 +4061,59 @@ def _stale_compile_requires_structure_resolution(blackboard: dict[str, Any]) -> 
         if reasons & {"no_chain_unrolled", "missing_one_step_row_for_product"}:
             stale_audits += 1
     return bool(compile_attempt_count >= 2 or stale_compile_history >= 1 or stale_audits >= 1)
+
+
+def _fresh_uncompiled_visual_steps_after_latest_compile(
+    blackboard: dict[str, Any],
+) -> bool:
+    """Allow a compile retry only when a later visual artifact changed input.
+
+    Structure-resolution tasks and failed compile audits are source-local.  A
+    stale compile for one document must not globally block a newly extracted,
+    exact-capable chain from another document (or a repaired chain from the
+    same document).  Artifact refs bind the history row to the materialized
+    chain, so merely repeating a planner action cannot bypass the stale gate.
+    """
+
+    history = [
+        dict(row)
+        for row in blackboard.get("action_history") or []
+        if isinstance(row, dict)
+    ]
+    compile_rounds = [
+        int(row.get("round_index") or 0)
+        for row in history
+        if str(row.get("action_type") or "") == "compile_exact_literature_rows"
+    ]
+    if not compile_rounds:
+        return False
+    latest_compile_round = max(compile_rounds)
+    fresh_artifact_refs = {
+        str(row.get("artifact_ref") or "").strip().casefold()
+        for row in history
+        if str(row.get("action_type") or "")
+        == "extract_visual_literature_chain"
+        and int(row.get("round_index") or 0) > latest_compile_round
+        and row.get("useful_artifact") is not False
+        and str(row.get("artifact_ref") or "").strip()
+    }
+    if not fresh_artifact_refs:
+        return False
+    for row in (blackboard.get("literature_evidence") or {}).get(
+        "visual_chains"
+    ) or []:
+        if not isinstance(row, dict):
+            continue
+        refs = {
+            str(row.get(field) or "").strip().casefold()
+            for field in ("artifact_ref", "chain_id")
+            if str(row.get(field) or "").strip()
+        }
+        if refs & fresh_artifact_refs and _visual_chain_uncompiled_step_count(
+            blackboard, row
+        ) > 0:
+            return True
+    return False
 
 
 def _compile_exact_rows_exhausted_to_advisory(blackboard: dict[str, Any]) -> bool:
@@ -4018,11 +4140,67 @@ def _compile_exact_rows_exhausted_to_advisory(blackboard: dict[str, Any]) -> boo
 
 
 def _compile_exact_rows_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
-    payload: dict[str, Any] = {"compile_attempt": _action_count(blackboard, "compile_exact_literature_rows") + 1}
+    payload: dict[str, Any] = {
+        "compile_attempt": _action_count(
+            blackboard, "compile_exact_literature_rows"
+        )
+        + 1,
+        "deterministic_parser_authority_id": PARSER_AUTHORITY_ID,
+    }
+    capability = _next_uncompiled_compile_capability(blackboard)
+    if capability:
+        return source_capability_effective_payload(payload, capability)
     source = _next_uncompiled_visual_source(blackboard) or _latest_visual_source(blackboard)
     if source:
         payload.update(_source_candidate_payload(source))
     return payload
+
+
+def _next_uncompiled_compile_capability(
+    blackboard: dict[str, Any],
+) -> dict[str, Any]:
+    """Select the queue-authoritative compile binding for an exact-capable chain."""
+
+    queue = build_source_capability_queue(
+        blackboard,
+        round_index=_source_capability_round_index(blackboard),
+    )
+    capabilities = eligible_source_capabilities(
+        queue,
+        "compile_exact_literature_rows",
+    )
+    visual_rows = [
+        dict(row)
+        for row in (blackboard.get("literature_evidence") or {}).get(
+            "visual_chains"
+        )
+        or []
+        if isinstance(row, dict)
+    ]
+    for capability in capabilities:
+        binding = dict(capability.get("payload_binding") or {})
+        refs = {
+            str(binding.get(field) or "").strip().casefold()
+            for field in ("chain_id", "visual_chain_id", "artifact_ref")
+            if str(binding.get(field) or "").strip()
+        }
+        if not refs:
+            continue
+        for visual in visual_rows:
+            if not any(
+                isinstance(step, dict) for step in visual.get("steps") or []
+            ):
+                continue
+            visual_refs = {
+                str(visual.get(field) or "").strip().casefold()
+                for field in ("chain_id", "artifact_ref")
+                if str(visual.get(field) or "").strip()
+            }
+            if refs & visual_refs and _visual_chain_uncompiled_step_count(
+                blackboard, visual
+            ) > 0:
+                return dict(capability)
+    return {}
 
 
 def _next_uncompiled_visual_source(blackboard: dict[str, Any]) -> dict[str, Any]:
@@ -4035,7 +4213,15 @@ def _next_uncompiled_visual_source(blackboard: dict[str, Any]) -> dict[str, Any]
         key = _source_key(visual)
         for candidate in _local_pdf_source_candidates(blackboard):
             if key and _source_key(candidate) == key:
-                return candidate
+                return {
+                    **dict(candidate),
+                    "chain_id": str(
+                        visual.get("chain_id")
+                        or visual.get("artifact_ref")
+                        or ""
+                    ),
+                    "artifact_ref": str(visual.get("artifact_ref") or ""),
+                }
         return {
             "source_ref": str(visual.get("source_ref") or ""),
             "title": str(visual.get("source_title") or ""),
@@ -4049,6 +4235,8 @@ def _visual_chain_uncompiled_step_count(blackboard: dict[str, Any], visual_chain
     candidate_count = _visual_chain_compilable_step_count(visual_chain)
     if candidate_count <= 0:
         return 0
+    if _compile_attempted_for_visual_chain(blackboard, visual_chain):
+        return 0
     source_key = _source_key(visual_chain)
     if not source_key:
         if _failed_action_seen(blackboard, "compile_exact_literature_rows"):
@@ -4060,12 +4248,104 @@ def _visual_chain_uncompiled_step_count(blackboard: dict[str, Any], visual_chain
         if ordinal and _useful_action_count(blackboard, "compile_exact_literature_rows") >= ordinal:
             return 0
         return candidate_count
-    compiled_for_source = _compiled_exact_row_count_by_source(blackboard).get(source_key, 0)
-    if compiled_for_source <= 0:
+    legacy_compile_count = _useful_unbound_legacy_compile_count(blackboard)
+    if legacy_compile_count:
         ordinal = _visual_candidate_chain_ordinal(blackboard, visual_chain)
-        if ordinal and _useful_action_count(blackboard, "compile_exact_literature_rows") >= ordinal:
+        if ordinal and legacy_compile_count >= ordinal:
             return 0
-    return max(0, candidate_count - compiled_for_source)
+    # Compilation authority is bound to a concrete visual artifact and parser
+    # version.  Rows previously compiled for the same DOI cannot prove that
+    # this chain was processed by the current parser: doing a source-wide row
+    # count here caused v1/v2 rows to suppress mandatory v3 replay.  The
+    # artifact-bound action-history check above is the sole completion gate.
+    return candidate_count
+
+
+def _useful_unbound_legacy_compile_count(
+    blackboard: dict[str, Any],
+) -> int:
+    """Count pre-binding compile rows without treating versioned rows as current."""
+
+    count = 0
+    for row in blackboard.get("action_history") or []:
+        if not isinstance(row, dict) or str(row.get("action_type") or "") != (
+            "compile_exact_literature_rows"
+        ):
+            continue
+        if row.get("useful_artifact") is False or row.get("stale") is True:
+            continue
+        try:
+            signature = json.loads(str(row.get("action_signature") or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            signature = {}
+        payload = dict(signature.get("payload") or {})
+        if any(
+            str(payload.get(field) or "").strip()
+            for field in ("chain_id", "visual_chain_id", "artifact_ref")
+        ):
+            continue
+        count += 1
+    return count
+
+
+def _compile_attempted_for_visual_chain(
+    blackboard: dict[str, Any],
+    visual_chain: dict[str, Any],
+) -> bool:
+    refs = {
+        str(visual_chain.get(field) or "").strip().casefold()
+        for field in ("chain_id", "artifact_ref")
+        if str(visual_chain.get(field) or "").strip()
+    }
+    if not refs:
+        return False
+    materialized_rounds = [
+        int(row.get("round_index") or 0)
+        for row in blackboard.get("action_history") or []
+        if isinstance(row, dict)
+        and str(row.get("action_type") or "")
+        == "extract_visual_literature_chain"
+        and str(row.get("artifact_ref") or "").strip().casefold() in refs
+        and row.get("useful_artifact") is not False
+    ]
+    latest_materialized_round = max(materialized_rounds, default=0)
+    for row in blackboard.get("action_history") or []:
+        if not isinstance(row, dict) or str(row.get("action_type") or "") != (
+            "compile_exact_literature_rows"
+        ):
+            continue
+        try:
+            signature = json.loads(str(row.get("action_signature") or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        payload = dict(signature.get("payload") or {})
+        attempted_authority = str(
+            payload.get("deterministic_parser_authority_id")
+            or "autoplanner.opsin_pubchem_source_text.v1"
+        )
+        if attempted_authority != PARSER_AUTHORITY_ID:
+            continue
+        attempted_refs = {
+            str(payload.get(field) or "").strip().casefold()
+            for field in ("chain_id", "visual_chain_id", "artifact_ref")
+            if str(payload.get(field) or "").strip()
+        }
+        if not refs & attempted_refs:
+            continue
+        compile_round = int(row.get("round_index") or 0)
+        # A failed, stale, or completed replay consumes only the concrete
+        # visual artifact it was bound to.  It must not be selected forever
+        # merely because the compiler produced no exact row.  A later
+        # materialization of the same artifact ref deliberately reopens it.
+        if latest_materialized_round > compile_round:
+            continue
+        if row.get("compile_replay_completed") is True and str(
+            row.get("compile_parser_authority_id") or ""
+        ) == PARSER_AUTHORITY_ID:
+            return True
+        if row.get("useful_artifact") is False or row.get("stale") is True:
+            return True
+    return False
 
 
 def _visual_chain_candidate_step_count(visual_chain: dict[str, Any]) -> int:
@@ -4083,6 +4363,36 @@ def _visual_chain_candidate_step_count(visual_chain: dict[str, Any]) -> int:
 
 
 def _visual_chain_compilable_step_count(visual_chain: dict[str, Any]) -> int:
+    steps = [
+        dict(step)
+        for step in visual_chain.get("steps") or []
+        if isinstance(step, dict)
+    ]
+    if steps:
+        # ``exact_ready`` is a whole-chain completeness flag.  A source can
+        # contain independently exact, host-checkable steps while other
+        # expected labels remain unresolved.  Do not discard those steps just
+        # because the aggregate chain is retained as exploratory; the exact
+        # compiler and deterministic registry are the promotion boundary.
+        compilable_steps = [
+            step for step in steps if not _visual_step_is_exploratory_only(step)
+        ]
+        condition_gap_labels = {
+            str(label).strip().casefold()
+            for label in visual_chain.get("condition_gap_labels") or []
+            if str(label).strip()
+        }
+        if condition_gap_labels:
+            compilable_steps = [
+                step
+                for step in compilable_steps
+                if not {
+                    str(step.get("step_id") or "").strip().casefold(),
+                    str(step.get("product_label") or "").strip().casefold(),
+                }
+                & condition_gap_labels
+            ]
+        return len(compilable_steps)
     if _visual_chain_is_exploratory_only(visual_chain):
         return 0
     candidate_count = _visual_chain_candidate_step_count(visual_chain)
@@ -4117,16 +4427,18 @@ def _visual_chain_is_exploratory_only(visual_chain: dict[str, Any]) -> bool:
     return False
 
 
-def _compiled_exact_row_count_by_source(blackboard: dict[str, Any]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for row in (blackboard.get("literature_evidence") or {}).get("exact_rows") or []:
-        if not isinstance(row, dict):
-            continue
-        key = _source_key(row)
-        if not key:
-            continue
-        counts[key] = counts.get(key, 0) + 1
-    return counts
+def _visual_step_is_exploratory_only(step: dict[str, Any]) -> bool:
+    derivation = dict(step.get("structure_derivation") or {})
+    allowed_use = str(
+        step.get("allowed_use") or derivation.get("allowed_use") or ""
+    ).strip().lower()
+    return bool(
+        step.get("not_exact_literature_segment")
+        or derivation.get("not_exact_literature_segment")
+        or derivation.get("approximate_structure")
+        or "exploratory" in allowed_use
+        or allowed_use == "exploratory_template_and_guided_hint_only"
+    )
 
 
 def _compiled_source_detail_step_ids(blackboard: dict[str, Any]) -> set[str]:
@@ -4216,7 +4528,6 @@ def _literature_extraction_pending(blackboard: dict[str, Any], actions: list[dic
         return True
     if (
         _visual_chain_available(blackboard)
-        and (not _exact_rows_available(blackboard) or _exact_rows_incomplete(blackboard))
         and _uncompiled_visual_steps_available(blackboard)
         and _budget_remaining(blackboard, "visual_calls")
     ):
@@ -4304,8 +4615,12 @@ def _expected_labels_from_source_candidates(blackboard: dict[str, Any], *, sourc
             continue
         if source_ref and _source_key(row) != _source_key({"source_ref": source_ref}):
             continue
-        labels.extend(str(item) for item in row.get("expected_scheme_or_compound_labels") or [] if str(item or "").strip())
-    return _dedupe(labels)
+        labels.extend(
+            meaningful_compound_labels(
+                row.get("expected_scheme_or_compound_labels") or []
+            )
+        )
+    return meaningful_compound_labels(labels)
 
 
 def _structure_resolution_scout_needed(blackboard: dict[str, Any]) -> bool:
@@ -4326,11 +4641,20 @@ def _structure_resolution_scout_needed(blackboard: dict[str, Any]) -> bool:
 
 
 def _open_structure_resolution_tasks(blackboard: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        dict(row)
-        for row in (blackboard.get("literature_evidence") or {}).get("structure_resolution_tasks") or []
-        if isinstance(row, dict) and str(row.get("status") or "open") == "open"
-    ]
+    tasks: list[dict[str, Any]] = []
+    for row in (blackboard.get("literature_evidence") or {}).get(
+        "structure_resolution_tasks"
+    ) or []:
+        if not isinstance(row, dict) or str(row.get("status") or "open") != "open":
+            continue
+        label = str(row.get("label") or "").strip()
+        # Missing labels remain compatible with old task records, but an
+        # explicit planner sentinel is provenance metadata rather than a
+        # resolvable compound and must never consume another Agent call.
+        if label and not meaningful_compound_labels([label]):
+            continue
+        tasks.append(dict(row))
+    return tasks
 
 
 def _next_structure_resolution_task_for_local_resolve(blackboard: dict[str, Any]) -> dict[str, Any]:
@@ -5328,6 +5652,20 @@ def _hypothetical_precursor_candidates(blackboard: dict[str, Any]) -> list[dict[
                 "recursive_depth": int(task.get("recursive_depth") or 1),
                 "operation_idea": str(task.get("operation_idea") or ""),
                 "variant_type": str(task.get("variant_type") or ""),
+                "reaction_family": str(task.get("reaction_family") or ""),
+                "reaction_families": [
+                    str(item)
+                    for item in task.get("reaction_families") or []
+                    if str(item or "").strip()
+                ],
+                "product_retron_type": str(task.get("product_retron_type") or ""),
+                "product_retron_types": [
+                    str(item)
+                    for item in task.get("product_retron_types") or []
+                    if str(item or "").strip()
+                ],
+                "derived_from_retron": str(task.get("derived_from_retron") or ""),
+                "retron_authority": "advisory_search_prior_only",
                 "proposal_granularity": str(task.get("proposal_granularity") or ""),
                 "proposal_score": int(task.get("proposal_score") or 0),
                 "route_objective_type": str(task.get("route_objective_type") or ""),
@@ -5867,6 +6205,12 @@ def _child_expansion_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
                     "recursive_depth": int(row.get("recursive_depth") or 0),
                     "parent_smiles": str(row.get("parent_smiles") or ""),
                     "parent_candidate_id": str(row.get("parent_candidate_id") or ""),
+                    "reaction_family": str(row.get("reaction_family") or ""),
+                    "reaction_families": list(row.get("reaction_families") or []),
+                    "product_retron_type": str(row.get("product_retron_type") or ""),
+                    "product_retron_types": list(row.get("product_retron_types") or []),
+                    "derived_from_retron": str(row.get("derived_from_retron") or ""),
+                    "retron_authority": "advisory_search_prior_only",
                     "proposal_granularity": str(row.get("proposal_granularity") or ""),
                     "proposal_score": int(row.get("proposal_score") or 0),
                     "route_objective_type": str(row.get("route_objective_type") or ""),
@@ -5927,12 +6271,22 @@ def _child_expansion_payload(blackboard: dict[str, Any]) -> dict[str, Any]:
                                         if str(row.get("source") or "") == "recursive_hypothesis_task"
                                         else "same_core_redox_or_protection_state_precursor_search"
                                     ),
+                                    str(row.get("reaction_family") or ""),
+                                    *[str(item) for item in row.get("reaction_families") or []],
                                     str(row.get("derived_from_retron") or ""),
                                     str(row.get("variant_type") or ""),
                                     str(row.get("proposal_granularity") or ""),
                                     str(row.get("route_objective_type") or ""),
                                 ]
                             ),
+                            "preferred_retrons": _dedupe(
+                                [
+                                    str(row.get("product_retron_type") or ""),
+                                    str(row.get("derived_from_retron") or ""),
+                                    *[str(item) for item in row.get("product_retron_types") or []],
+                                ]
+                            ),
+                            "reaction_and_retron_priors_are_advisory_only": True,
                             "hypothesis_precursor_hint": True,
                             "hypothesis_precursor_hints_are_not_proof": True,
                             "semisynthesis_anchor_hint": str(row.get("source") or "") == "semisynthesis_anchor",
@@ -5983,6 +6337,12 @@ def _compact_child_policy_row(row: dict[str, Any]) -> dict[str, Any]:
         "recursive_hypothesis_task_id": str(row.get("recursive_hypothesis_task_id") or row.get("task_id") or ""),
         "parent_candidate_id": str(row.get("parent_candidate_id") or ""),
         "parent_smiles": str(row.get("parent_smiles") or ""),
+        "reaction_family": str(row.get("reaction_family") or ""),
+        "reaction_families": list(row.get("reaction_families") or []),
+        "product_retron_type": str(row.get("product_retron_type") or ""),
+        "product_retron_types": list(row.get("product_retron_types") or []),
+        "derived_from_retron": str(row.get("derived_from_retron") or ""),
+        "retron_authority": str(row.get("retron_authority") or ""),
         "template_id": str(row.get("template_id") or ""),
         "application_id": str(row.get("application_id") or ""),
         "anchor_id": str(row.get("anchor_id") or ""),
@@ -6399,6 +6759,11 @@ def _compact_action_signature_payload(payload: dict[str, Any]) -> dict[str, Any]
         "search_mode",
         "focused_gap_repair",
         "focused_structure_resolution",
+        "task_id",
+        "compound_label",
+        "source_capability_id",
+        "deterministic_parser_authority_id",
+        "compile_attempt",
         "expansion_attempt",
         "timeout_s",
         "max_steps",

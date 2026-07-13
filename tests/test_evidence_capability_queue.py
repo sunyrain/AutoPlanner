@@ -20,6 +20,9 @@ from cascade_planner.harness.codex_action_planner import (
     _planner_context_summary,
     _write_codex_blackboard_snapshot,
 )
+from cascade_planner.harness.literature_pdf_extraction import (
+    PAGE_FOCUS_ALGORITHM_VERSION,
+)
 from cascade_planner.harness.source_capabilities import (
     build_source_capability_queue,
     eligible_source_capabilities,
@@ -383,6 +386,76 @@ def test_zero_step_structure_gap_hands_off_to_resolution_capability(
     assert [row["payload_binding"]["task_id"] for row in resolution] == [
         "resolve:C42"
     ]
+
+
+def test_stale_focus_zero_step_chain_retries_visual_before_resolution(
+    tmp_path: Path,
+) -> None:
+    board = _source_board(tmp_path)
+    evidence = board["literature_evidence"]
+    science = evidence["source_candidates"][0]
+    pdf_row = evidence["pdf_structure_evidence"][0]
+    artifact = tmp_path / "legacy_pdf_evidence.json"
+    artifact.write_text(
+        json.dumps(
+            {
+                "accepted": True,
+                "result": {
+                    "focus_audit": {
+                        "schema_version": "literature_pdf_page_focus_audit.v1",
+                        "algorithm_version": "literature_pdf_page_focus.v1",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    pdf_row["artifact_ref"] = str(artifact)
+    evidence["visual_chains"] = [
+        {
+            "schema_version": "agent_visual_chain_summary.v1",
+            "accepted": False,
+            "source_ref": SCIENCE_REF,
+            "source_pdf_path": science["local_pdf"],
+            "candidate_step_count": 0,
+            "structure_resolution_task_count": 1,
+            "extraction_gaps": [
+                {"label": "C42", "gap_type": "structure_gap"}
+            ],
+        }
+    ]
+    evidence["structure_resolution_tasks"] = [
+        {
+            "task_id": "resolve:C42",
+            "label": "C42",
+            "source_ref": SCIENCE_REF,
+            "status": "open",
+        }
+    ]
+
+    stale_queue = build_source_capability_queue(board, round_index=3)
+    visual = eligible_source_capabilities(
+        stale_queue, "extract_visual_literature_chain"
+    )
+    assert [row["source_ref"] for row in visual] == [SCIENCE_REF]
+
+    refreshed = deepcopy(board)
+    refreshed["literature_evidence"]["visual_chains"][0][
+        "page_focus_refresh_audit"
+    ] = {
+        "accepted": True,
+        "current_algorithm_version": PAGE_FOCUS_ALGORITHM_VERSION,
+    }
+    current_queue = build_source_capability_queue(refreshed, round_index=3)
+    assert eligible_source_capabilities(
+        current_queue, "extract_visual_literature_chain"
+    ) == []
+    assert [
+        row["payload_binding"]["task_id"]
+        for row in eligible_source_capabilities(
+            current_queue, "resolve_literature_structure_task"
+        )
+    ] == ["resolve:C42"]
 
 
 def test_queue_is_order_invariant_and_drives_codex_and_deterministic_views(

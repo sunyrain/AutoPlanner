@@ -32,6 +32,11 @@ from cascade_planner.harness.downstream_compiler import (
     compile_downstream_consumables,
     write_compiled_downstream_artifacts,
 )
+from cascade_planner.harness.deterministic_literature_registry import (
+    DEFAULT_OPSIN_BASE_URL,
+    compile_deterministic_literature_step_registry,
+    synthesis_projection_smiles,
+)
 from cascade_planner.harness.analogical_retrosynthesis import build_analogical_retrosynthesis_hypotheses
 from cascade_planner.harness.open_research_contract import (
     REQUIRED_OPEN_RESEARCH_ARTIFACTS,
@@ -43,7 +48,11 @@ from cascade_planner.harness.open_research_experience import (
     extract_open_research_experience,
 )
 from cascade_planner.harness.open_research_retrieval import validate_retrieval_prefetch_consumption
-from cascade_planner.harness.literature_pdf_extraction import extract_literature_pdf_assets
+from cascade_planner.harness.literature_pdf_extraction import (
+    PAGE_FOCUS_ALGORITHM_VERSION,
+    extract_literature_pdf_assets,
+    rebuild_literature_pdf_page_focus,
+)
 from cascade_planner.harness.process_evidence import (
     process_evidence_rows_from_pdf_result,
     process_evidence_rows_from_visual_result,
@@ -54,6 +63,7 @@ from cascade_planner.harness.source_detail_chain_builder import (
     build_source_detail_curator_records_from_chain,
     compile_hybrid_route_set as compile_hybrid_route_set_artifact,
     compile_source_detail_chain_route as compile_source_detail_chain_route_artifact,
+    materialize_source_detail_step_evidence,
     probe_literature_plugin_chain,
     resolve_curator_records_to_source_detail_steps,
 )
@@ -70,6 +80,9 @@ from cascade_planner.harness.route_failure_feedback import (
 from cascade_planner.harness.route_verifier import (
     is_accepted_route_verifier_report,
     verify_chemenzy_raw_routes,
+)
+from cascade_planner.harness.reaction_step_verifier import (
+    canonical_reaction_digest,
 )
 from cascade_planner.harness.schemas import (
     ArtifactBundle,
@@ -922,7 +935,11 @@ def run_route_expansion_subgoal_search(state: ToolExecutionState, payload: dict[
             "request_path": str(req_path),
             "raw_result_path": str(raw_path),
             "raw_ok": bool(raw.get("ok") or raw.get("accepted", raw.get("exit_code") == 0)),
-            "raw_solved": bool((raw.get("search_status") or {}).get("solved")),
+            "raw_solved": bool(
+                raw.get("raw_solved")
+                or (raw.get("search_status") or {}).get("raw_solved")
+                or (raw.get("search_status") or {}).get("solved")
+            ),
             "verified_solved": bool(attempt_outcome.get("verified_solved")),
             "route_count": len(raw.get("routes") or []),
             "verifier": verifier,
@@ -1768,6 +1785,7 @@ def extract_pdf_literature_structures_tool(state: ToolExecutionState, payload: d
             "indexed_images": [],
             "scheme_crops": [],
             "compound_text_snippets": [],
+            **_empty_literature_pdf_focus_fields(),
             "summary": {
                 "rendered_page_count": 0,
                 "indexed_image_count": 0,
@@ -1793,7 +1811,33 @@ def extract_pdf_literature_structures_tool(state: ToolExecutionState, payload: d
         render_zoom=float(payload.get("render_zoom") or 2.0),
         image_paths=image_paths,
         scheme_crops=scheme_crops,
-        compound_labels=[str(item) for item in payload.get("compound_labels") or [] if str(item).strip()],
+        compound_labels=[
+            str(item)
+            for item in _literature_text_values(payload.get("compound_labels"))
+            if str(item).strip()
+        ],
+        target_name=str(
+            state.target_input.get("target_name")
+            or state.preflight.get("case_id")
+            or ""
+        ),
+        target_aliases=_literature_target_aliases(state.target_input),
+        expected_labels=_literature_focus_expected_labels(
+            payload,
+            matched_sources=[
+                dict(item)
+                for item in binding.get("matched_sources") or []
+                if isinstance(item, dict)
+            ],
+        ),
+        route_sequence_hint=_literature_focus_route_hint(
+            payload,
+            matched_sources=[
+                dict(item)
+                for item in binding.get("matched_sources") or []
+                if isinstance(item, dict)
+            ],
+        ),
     )
     _attach_literature_source_metadata(result, payload)
     result["source_binding_audit"] = {
@@ -1835,6 +1879,72 @@ def _attach_literature_source_metadata(result: dict[str, Any], payload: dict[str
         result["source_title"] = str(payload.get("source_title") or "").strip()
     if str(payload.get("pdf_path") or "").strip() and not str(result.get("source_pdf_path") or "").strip():
         result["source_pdf_path"] = str(payload.get("pdf_path") or "").strip()
+
+
+def _empty_literature_pdf_focus_fields() -> dict[str, Any]:
+    return {
+        "focus_terms": [],
+        "focus_page_numbers": [],
+        "page_relevance": [],
+        "focus_hit_audit": [],
+        "focus_audit": {
+            "schema_version": "literature_pdf_page_focus_audit.v1",
+            "selection_strategy": "input_unavailable_fail_soft",
+            "relevance_available": False,
+            "text_page_count": 0,
+            "scanned_page_count": 0,
+            "hit_page_count": 0,
+            "no_ocr_or_relevance_fabrication": True,
+        },
+    }
+
+
+def _literature_target_aliases(target_input: dict[str, Any]) -> list[str]:
+    raw = target_input.get("target_aliases") or target_input.get("aliases") or []
+    values = [raw] if isinstance(raw, str) else list(raw) if isinstance(raw, (list, tuple)) else []
+    return _dedupe_texts([str(item) for item in values if str(item or "").strip()])[:16]
+
+
+def _literature_focus_expected_labels(
+    payload: dict[str, Any],
+    *,
+    matched_sources: list[dict[str, Any]],
+) -> list[str]:
+    labels = [
+        str(item)
+        for key in ("expected_labels", "compound_labels")
+        for item in _literature_text_values(payload.get(key))
+        if str(item or "").strip()
+    ]
+    for source in matched_sources:
+        labels.extend(
+            str(item)
+            for item in _literature_text_values(
+                source.get("expected_scheme_or_compound_labels")
+                or source.get("expected_labels")
+            )
+            if str(item or "").strip()
+        )
+    return _dedupe_texts(labels)[:32]
+
+
+def _literature_text_values(value: Any) -> list[Any]:
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value] if value not in (None, "") else []
+
+
+def _literature_focus_route_hint(
+    payload: dict[str, Any],
+    *,
+    matched_sources: list[dict[str, Any]],
+) -> str:
+    hints = [str(payload.get("route_sequence_hint") or "").strip()]
+    hints.extend(
+        str(source.get("route_sequence_hint") or "").strip()
+        for source in matched_sources
+    )
+    return " ".join(_dedupe_texts([hint for hint in hints if hint]))[:2_000]
 
 
 def _validate_local_pdf_source_binding(
@@ -2044,6 +2154,7 @@ def _local_pdf_source_binding_rejection_result(
                 "indexed_images": [],
                 "scheme_crops": [],
                 "compound_text_snippets": [],
+                **_empty_literature_pdf_focus_fields(),
                 "summary": {
                     "rendered_page_count": 0,
                     "indexed_image_count": 0,
@@ -2164,6 +2275,10 @@ def _attach_process_evidence_rows_to_pdf_result(
 
 
 def _record_pdf_structure_evidence(state: ToolExecutionState, result: dict[str, Any], *, output_dir: Path | None = None) -> None:
+    if output_dir is not None:
+        result["artifact_ref"] = str(
+            (output_dir / "literature_pdf_structure_evidence.json").resolve()
+        )
     state.artifacts["literature_pdf_structure_evidence"] = result
     if output_dir is not None:
         state.artifacts["literature_pdf_structure_evidence_dir"] = str(output_dir)
@@ -2229,6 +2344,16 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
             "reasons": result["reasons"],
         }
     pdf_evidence = _pdf_evidence_from_payload_or_artifacts(state, payload)
+    pdf_evidence, payload, focus_refresh = _refresh_stale_pdf_focus_for_visual(
+        state,
+        payload=payload,
+        pdf_evidence=pdf_evidence,
+        matched_sources=[
+            dict(item)
+            for item in binding.get("matched_sources") or []
+            if isinstance(item, dict)
+        ],
+    )
     image_paths = _visual_chain_image_paths(state, payload, pdf_evidence)
     if not image_paths:
         result = {
@@ -2293,6 +2418,8 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
         result["source_title"] = str(payload.get("source_title") or "").strip()
     if str(payload.get("pdf_path") or "").strip():
         result["source_pdf_path"] = str(payload.get("pdf_path") or "").strip()
+    if focus_refresh:
+        result["page_focus_refresh_audit"] = focus_refresh
     candidate_path_value = str(result.get("candidate_chain_path") or "").strip()
     candidate_path = Path(candidate_path_value) if candidate_path_value else None
     if candidate_path is not None and candidate_path.is_file():
@@ -2322,6 +2449,89 @@ def extract_visual_literature_chain_tool(state: ToolExecutionState, payload: dic
         },
         "reasons": [str(item) for item in result.get("reasons") or []],
     }
+
+
+def _refresh_stale_pdf_focus_for_visual(
+    state: ToolExecutionState,
+    *,
+    payload: dict[str, Any],
+    pdf_evidence: dict[str, Any],
+    matched_sources: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    evidence = dict(pdf_evidence)
+    repaired_payload = dict(payload)
+    prior_audit = dict(evidence.get("focus_audit") or {})
+    prior_version = str(prior_audit.get("algorithm_version") or "")
+    if prior_version == PAGE_FOCUS_ALGORITHM_VERSION:
+        return evidence, repaired_payload, {}
+    pdf_path = Path(
+        str(
+            repaired_payload.get("pdf_path")
+            or evidence.get("source_pdf_path")
+            or ""
+        )
+    ).expanduser()
+    if not pdf_path.is_file():
+        return evidence, repaired_payload, {
+            "schema_version": "literature_pdf_page_focus_refresh.v1",
+            "accepted": False,
+            "prior_algorithm_version": prior_version,
+            "current_algorithm_version": PAGE_FOCUS_ALGORITHM_VERSION,
+            "reasons": ["source_pdf_missing_for_focus_refresh"],
+        }
+    refreshed = rebuild_literature_pdf_page_focus(
+        pdf_path,
+        target_name=str(
+            state.target_input.get("target_name")
+            or state.preflight.get("case_id")
+            or ""
+        ),
+        target_aliases=_literature_target_aliases(state.target_input),
+        expected_labels=_literature_focus_expected_labels(
+            repaired_payload,
+            matched_sources=matched_sources,
+        ),
+        route_sequence_hint=_literature_focus_route_hint(
+            repaired_payload,
+            matched_sources=matched_sources,
+        ),
+    )
+    focus_pages = [
+        int(item)
+        for item in refreshed.get("focus_page_numbers") or []
+        if int(item) > 0
+    ]
+    if not focus_pages:
+        return evidence, repaired_payload, {
+            "schema_version": "literature_pdf_page_focus_refresh.v1",
+            "accepted": False,
+            "prior_algorithm_version": prior_version,
+            "current_algorithm_version": PAGE_FOCUS_ALGORITHM_VERSION,
+            "reasons": ["refreshed_focus_has_no_pages"],
+        }
+    for key in (
+        "focus_terms",
+        "focus_page_numbers",
+        "page_relevance",
+        "focus_hit_audit",
+        "focus_audit",
+    ):
+        evidence[key] = refreshed.get(key)
+    prior_pages = _visual_page_numbers(repaired_payload)
+    repaired_payload["page_numbers"] = focus_pages
+    refresh = {
+        "schema_version": "literature_pdf_page_focus_refresh.v1",
+        "accepted": True,
+        "prior_algorithm_version": prior_version,
+        "current_algorithm_version": PAGE_FOCUS_ALGORITHM_VERSION,
+        "prior_page_numbers": prior_pages,
+        "refreshed_page_numbers": focus_pages,
+        "stale_advisory_page_numbers_replaced": True,
+        "source_pdf_sha256": str(evidence.get("source_pdf_sha256") or ""),
+        "reasons": [],
+    }
+    repaired_payload["page_focus_refresh_audit"] = refresh
+    return evidence, repaired_payload, refresh
 
 
 def _visual_failure_is_auditable(result: dict[str, Any]) -> bool:
@@ -2452,7 +2662,7 @@ def _visual_literature_repair_enabled(payload: dict[str, Any]) -> bool:
     if raw is None:
         raw = os.environ.get("AUTOPLANNER_VISUAL_ALLOW_REPAIR")
     if raw is None:
-        return True
+        return False
     if isinstance(raw, str):
         return raw.strip().lower() not in {"0", "false", "off", "no", "disabled"}
     return bool(raw)
@@ -3246,6 +3456,205 @@ def build_analogical_retrosynthesis_hypotheses_tool(state: ToolExecutionState, p
     return {"accepted": bool(result.get("accepted")), "result": result, "reasons": [str(item) for item in result.get("reasons") or []]}
 
 
+def _deterministically_validate_source_detail_steps(
+    state: ToolExecutionState,
+    steps: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    parser_policy = dict(
+        state.target_input.get("deterministic_literature_parser_policy") or {}
+    )
+    if parser_policy.get("enabled") is not True:
+        return [dict(step) for step in steps], {}
+
+    registry_path = Path(
+        str(parser_policy.get("registry_path") or "")
+    ).expanduser()
+    configured_registry_raw = str(
+        os.environ.get("AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY") or ""
+    ).strip()
+    configured_registry = Path(configured_registry_raw).expanduser()
+    parser_reasons: list[str] = []
+    if not registry_path.is_absolute():
+        parser_reasons.append("deterministic_registry_path_not_absolute")
+    if not configured_registry_raw:
+        parser_reasons.append("trusted_registry_environment_not_configured")
+    elif configured_registry.resolve() != registry_path.resolve():
+        parser_reasons.append("trusted_registry_environment_path_mismatch")
+    if parser_reasons:
+        return [dict(step) for step in steps], {
+            "schema_version": "deterministic_literature_registry_audit.v1",
+            "accepted": False,
+            "approved_binding_count": 0,
+            "reasons": parser_reasons,
+        }
+
+    parser_steps: list[dict[str, Any]] = []
+    for step in steps:
+        candidate = dict(step)
+        candidate["source_evidence"] = (
+            materialize_source_detail_step_evidence(candidate)
+        )
+        candidate["source_text_companions"] = (
+            _configured_source_text_companions(
+                state,
+                source_ref=str(candidate.get("source_ref") or ""),
+            )
+        )
+        parser_steps.append(candidate)
+    parser_audit = compile_deterministic_literature_step_registry(
+        parser_steps,
+        registry_path=registry_path,
+        audit_path=state.run_dir / "deterministic_literature_registry_audit.json",
+        opsin_base_url=str(
+            parser_policy.get("opsin_base_url") or DEFAULT_OPSIN_BASE_URL
+        ),
+        timeout_s=float(parser_policy.get("timeout_s") or 30.0),
+    )
+    approved: dict[tuple[str, str], dict[str, Any]] = {}
+    for record in parser_audit.get("records") or []:
+        if not isinstance(record, dict) or record.get("accepted") is not True:
+            continue
+        binding = dict(record.get("binding") or {})
+        digest = str(
+            binding.get("source_candidate_reaction_digest")
+            or binding.get("source_formulation_reaction_digest")
+            or binding.get("reaction_digest")
+            or ""
+        ).lower()
+        source_ref = str(binding.get("source_ref") or "").strip().lower()
+        authority = dict(binding.get("authority") or {})
+        if (
+            digest
+            and source_ref
+            and binding.get("status") == "approved"
+            and authority.get("type") == "deterministic_structure_parser"
+            and str(authority.get("id") or "").strip()
+        ):
+            approved[(digest, source_ref)] = binding
+
+    promoted: list[dict[str, Any]] = []
+    for step_index, step in enumerate(steps):
+        row = dict(step)
+        row["source_evidence"] = [
+            dict(item)
+            for item in parser_steps[step_index].get("source_evidence") or []
+            if isinstance(item, dict)
+        ]
+        raw_reactants = row.get("reactant_smiles") or []
+        reactants = (
+            [str(item) for item in raw_reactants]
+            if isinstance(raw_reactants, (list, tuple))
+            else [str(raw_reactants)]
+            if str(raw_reactants or "").strip()
+            else []
+        )
+        key = (
+            canonical_reaction_digest(row.get("product_smiles"), reactants),
+            str(row.get("source_ref") or "").strip().lower(),
+        )
+        binding = approved.get(key)
+        if binding:
+            bound_formulation = dict(binding.get("source_formulation") or {})
+            source_formulation_product = str(
+                bound_formulation.get("product_smiles")
+                or row.get("product_smiles")
+                or ""
+            )
+            source_formulation_reactants = [
+                str(item)
+                for item in bound_formulation.get("reactant_smiles") or []
+                if str(item or "").strip()
+            ] or list(reactants)
+            projection = dict(binding.get("synthesis_projection") or {})
+            projected_product = str(
+                projection.get("product_smiles")
+                or synthesis_projection_smiles(source_formulation_product)
+            )
+            projected_reactants = [
+                str(item)
+                for item in projection.get("reactant_smiles") or []
+                if str(item or "").strip()
+            ] or [
+                synthesis_projection_smiles(item)
+                for item in source_formulation_reactants
+            ]
+            row["source_formulation"] = {
+                "schema_version": "source_formulation_projection.v1",
+                "product_smiles": source_formulation_product,
+                "reactant_smiles": source_formulation_reactants,
+                "source_formulation_reaction_digest": str(
+                    binding.get("source_formulation_reaction_digest") or ""
+                ),
+                "source_candidate_reaction_digest": str(
+                    binding.get("source_candidate_reaction_digest") or ""
+                ),
+                "normalization_policy": str(
+                    projection.get("normalization_policy") or ""
+                ),
+                "normalization_applied": bool(
+                    projection.get("normalization_applied")
+                ),
+            }
+            row["product_smiles"] = projected_product
+            row["reactant_smiles"] = projected_reactants
+            if str(row.get("main_reactant_smiles") or "").strip():
+                row["main_reactant_smiles"] = synthesis_projection_smiles(
+                    str(row.get("main_reactant_smiles") or "")
+                )
+            applicability = dict(row.get("applicability") or {})
+            applicability["reconstructed_product_smiles"] = projected_product
+            row["applicability"] = applicability
+            row["source_binding_reaction_digest"] = str(
+                binding.get("reaction_digest") or ""
+            )
+            row["validation_status"] = "deterministically_validated"
+            row["curation_status"] = "deterministically_validated"
+            row["curator_record_id"] = str(
+                binding.get("binding_id") or ""
+            )
+            row["deterministic_parser_authority_id"] = str(
+                (binding.get("authority") or {}).get("id") or ""
+            )
+        promoted.append(row)
+    return promoted, parser_audit
+
+
+def _configured_source_text_companions(
+    state: ToolExecutionState,
+    *,
+    source_ref: str,
+) -> list[dict[str, Any]]:
+    expected = str(source_ref or "").strip().lower()
+    if not expected:
+        return []
+    companions: list[dict[str, Any]] = []
+    for key in ("literature_sources", "local_literature_cache"):
+        for raw_source in state.target_input.get(key) or []:
+            if not isinstance(raw_source, dict):
+                continue
+            row = dict(raw_source)
+            if str(row.get("source_ref") or "").strip().lower() != expected:
+                continue
+            raw_values = row.get("source_text_companions")
+            values = raw_values if isinstance(raw_values, list) else []
+            single = row.get("source_text_companion")
+            if isinstance(single, dict):
+                values = [*values, single]
+            companions.extend(
+                dict(item) for item in values if isinstance(item, dict)
+            )
+    unique: dict[str, dict[str, Any]] = {}
+    for companion in companions:
+        key = json.dumps(
+            companion,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        unique.setdefault(key, companion)
+    return list(unique.values())
+
+
 def compile_source_detail_chain_route_tool(state: ToolExecutionState, payload: dict[str, Any]) -> dict[str, Any]:
     mock = _mock_result(state, "compile_source_detail_chain_route", payload)
     if mock is not None:
@@ -3257,6 +3666,10 @@ def compile_source_detail_chain_route_tool(state: ToolExecutionState, payload: d
     out = _tool_output_dir(state, payload, default_name="source_detail_chain_route")
     compiled = _compiled_payload_from_payload_or_artifacts(state, payload)
     steps = _source_detail_steps_from_payload_or_artifacts(state, payload)
+    steps, parser_audit = _deterministically_validate_source_detail_steps(
+        state,
+        steps,
+    )
     result = compile_source_detail_chain_route_artifact(
         source_detail_steps=steps,
         compiled_downstream=compiled,
@@ -3273,6 +3686,13 @@ def compile_source_detail_chain_route_tool(state: ToolExecutionState, payload: d
             plugin_payload=plugin_payload,
             validation=validation,
             output_dir=out,
+        )
+    if parser_audit:
+        result["deterministic_literature_registry"] = parser_audit
+        state.artifacts["deterministic_literature_registry"] = parser_audit
+        write_json(
+            state.run_dir / "deterministic_literature_registry_audit.json",
+            parser_audit,
         )
     state.artifacts["source_detail_chain_route"] = result
     compiled_downstream = result.get("compiled_downstream")
@@ -3837,16 +4257,11 @@ def _text_key(value: Any) -> str:
 def _visual_chain_image_paths(state: ToolExecutionState, payload: dict[str, Any], pdf_evidence: dict[str, Any]) -> list[Path]:
     raw_paths = [str(item) for item in payload.get("image_paths") or [] if str(item).strip()]
     if not raw_paths:
-        page_filter = _visual_page_filter(payload)
-        for row in pdf_evidence.get("scheme_crops") or []:
-            if isinstance(row, dict) and row.get("image_path"):
-                raw_paths.append(str(row["image_path"]))
-        for row in pdf_evidence.get("rendered_pages") or []:
-            if not isinstance(row, dict) or not row.get("image_path"):
-                continue
-            if page_filter and int(row.get("page_number") or 0) not in page_filter:
-                continue
-            raw_paths.append(str(row["image_path"]))
+        raw_paths = _ranked_pdf_visual_paths(
+            pdf_evidence,
+            explicit_page_numbers=_visual_page_numbers(payload),
+            max_images=_visual_max_images(payload),
+        )
     paths: list[Path] = []
     seen: set[str] = set()
     for raw in raw_paths:
@@ -3862,17 +4277,191 @@ def _visual_chain_image_paths(state: ToolExecutionState, payload: dict[str, Any]
     return _prepared_visual_image_paths(state, paths, payload)
 
 
-def _visual_page_filter(payload: dict[str, Any]) -> set[int]:
+def _visual_page_numbers(payload: dict[str, Any]) -> list[int]:
     values = payload.get("page_numbers") or payload.get("visual_page_numbers") or []
-    out: set[int] = set()
+    out: list[int] = []
     for value in values:
         try:
             number = int(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
-        if number > 0:
-            out.add(number)
+        if number > 0 and number not in out:
+            out.append(number)
     return out
+
+
+def _visual_page_filter(payload: dict[str, Any]) -> set[int]:
+    """Compatibility wrapper for callers that only need membership."""
+
+    return set(_visual_page_numbers(payload))
+
+
+def _ranked_pdf_visual_paths(
+    pdf_evidence: dict[str, Any],
+    *,
+    explicit_page_numbers: list[int],
+    max_images: int,
+) -> list[str]:
+    """Select page assets by explicit intent, text focus, then spread coverage."""
+
+    rendered = [
+        dict(row)
+        for row in pdf_evidence.get("rendered_pages") or []
+        if isinstance(row, dict) and str(row.get("image_path") or "").strip()
+    ]
+    crops = [
+        dict(row)
+        for row in pdf_evidence.get("scheme_crops") or []
+        if isinstance(row, dict) and str(row.get("image_path") or "").strip()
+    ]
+    rendered.sort(key=lambda row: (_pdf_asset_page_number(row), str(row.get("image_path") or "")))
+    crops.sort(key=lambda row: (_pdf_asset_page_number(row), str(row.get("image_path") or "")))
+    rendered_by_page: dict[int, list[dict[str, Any]]] = {}
+    crops_by_page: dict[int, list[dict[str, Any]]] = {}
+    for row in rendered:
+        rendered_by_page.setdefault(_pdf_asset_page_number(row), []).append(row)
+    for row in crops:
+        crops_by_page.setdefault(_pdf_asset_page_number(row), []).append(row)
+
+    selected: list[str] = []
+    seen: set[str] = set()
+
+    def full() -> bool:
+        return max_images > 0 and len(selected) >= max_images
+
+    def append(row: dict[str, Any]) -> None:
+        path = str(row.get("image_path") or "").strip()
+        if not path or path in seen or full():
+            return
+        seen.add(path)
+        selected.append(path)
+
+    def append_page_primary(page_number: int) -> None:
+        page_crops = crops_by_page.get(page_number) or []
+        page_renders = rendered_by_page.get(page_number) or []
+        if page_crops:
+            append(page_crops[0])
+        elif page_renders:
+            append(page_renders[0])
+
+    def append_page_remainder(page_number: int) -> None:
+        for row in crops_by_page.get(page_number) or []:
+            append(row)
+        for row in rendered_by_page.get(page_number) or []:
+            append(row)
+
+    if explicit_page_numbers:
+        for page_number in explicit_page_numbers:
+            append_page_primary(page_number)
+        for page_number in explicit_page_numbers:
+            append_page_remainder(page_number)
+        return selected
+
+    priority_pages = _pdf_focus_page_numbers(pdf_evidence)
+    if max_images > 2 and len(priority_pages) > max_images:
+        priority_head_count = max(1, max_images - 2)
+    else:
+        priority_head_count = len(priority_pages)
+    priority_head = priority_pages[:priority_head_count]
+    for page_number in priority_head:
+        append_page_primary(page_number)
+    route_context_pages: list[int] = []
+    for row in pdf_evidence.get("page_relevance") or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            page_number = int(row.get("page_number") or 0)
+            context_score = int(row.get("route_context_score") or 0)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if (
+            page_number > 0
+            and context_score > 0
+            and page_number not in priority_head
+            and page_number not in route_context_pages
+        ):
+            route_context_pages.append(page_number)
+    for page_number in route_context_pages:
+        append_page_primary(page_number)
+    remaining_focus_rows: list[dict[str, Any]] = []
+    for page_number in sorted(priority_pages[priority_head_count:]):
+        page_crops = crops_by_page.get(page_number) or []
+        page_renders = rendered_by_page.get(page_number) or []
+        if page_crops:
+            remaining_focus_rows.append(page_crops[0])
+        elif page_renders:
+            remaining_focus_rows.append(page_renders[0])
+    for row in _evenly_spread_rows(
+        remaining_focus_rows,
+        max(0, max_images - len(selected)) if max_images > 0 else len(remaining_focus_rows),
+    ):
+        append(row)
+    for page_number in priority_head:
+        append_page_remainder(page_number)
+
+    for row in crops_by_page.get(0) or []:
+        append(row)
+
+    remaining_pages = [
+        row
+        for row in rendered
+        if str(row.get("image_path") or "").strip() not in seen
+    ]
+    if max_images <= 0:
+        spread = remaining_pages
+    else:
+        spread = _evenly_spread_rows(remaining_pages, max_images - len(selected))
+    for row in spread:
+        append(row)
+
+    for row in crops:
+        append(row)
+    return selected
+
+
+def _pdf_focus_page_numbers(pdf_evidence: dict[str, Any]) -> list[int]:
+    values: list[Any] = list(pdf_evidence.get("focus_page_numbers") or [])
+    if not values:
+        for row in pdf_evidence.get("page_relevance") or []:
+            if not isinstance(row, dict):
+                continue
+            try:
+                score = int(row.get("score") or 0)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if score > 0:
+                values.append(row.get("page_number"))
+    values.extend(
+        row.get("page_number")
+        for row in pdf_evidence.get("compound_text_snippets") or []
+        if isinstance(row, dict)
+    )
+    out: list[int] = []
+    for value in values:
+        try:
+            number = int(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if number > 0 and number not in out:
+            out.append(number)
+    return out[:32]
+
+
+def _pdf_asset_page_number(row: dict[str, Any]) -> int:
+    try:
+        return max(0, int(row.get("page_number") or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _evenly_spread_rows(rows: list[dict[str, Any]], slots: int) -> list[dict[str, Any]]:
+    slots = max(0, int(slots))
+    if slots <= 0 or not rows:
+        return []
+    if slots >= len(rows):
+        return list(rows)
+    indices = [min(len(rows) - 1, ((2 * index + 1) * len(rows)) // (2 * slots)) for index in range(slots)]
+    return [rows[index] for index in indices]
 
 
 def _visual_max_images(payload: dict[str, Any]) -> int:
@@ -4001,11 +4590,19 @@ def _candidate_chain_payload_from_payload_or_artifacts(state: ToolExecutionState
     explicit = payload.get("candidate_chain")
     if isinstance(explicit, dict):
         return dict(explicit)
-    path_value = payload.get("candidate_chain_path")
-    if path_value:
+    for selector_field in (
+        "candidate_chain_path",
+        "artifact_ref",
+        "chain_id",
+        "visual_chain_id",
+    ):
+        path_value = payload.get(selector_field)
+        if not path_value:
+            continue
         data = _json_payload_or_path(state, path_value)
-        if data:
-            return data
+        candidate = _candidate_chain_from_artifact_payload(state, data)
+        if candidate and _visual_candidate_matches_payload(candidate, payload):
+            return candidate
     candidates: list[dict[str, Any]] = []
     candidates.extend(
         dict(item)
@@ -4020,10 +4617,46 @@ def _candidate_chain_payload_from_payload_or_artifacts(state: ToolExecutionState
         data = _json_payload_or_path(state, path_value)
         if data:
             candidates.append(data)
+    candidates = [
+        candidate
+        for candidate in candidates
+        if _visual_candidate_matches_payload(candidate, payload)
+    ]
     if candidates:
         candidates.sort(key=_visual_candidate_quality_score, reverse=True)
         return dict(candidates[0])
     return {}
+
+
+def _candidate_chain_from_artifact_payload(
+    state: ToolExecutionState,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    if not payload:
+        return {}
+    value = dict(payload)
+    result = value.get("result")
+    if isinstance(result, dict):
+        value = dict(result)
+    candidate = _candidate_chain_from_visual_result(state, value)
+    if candidate:
+        return candidate
+    if value.get("schema_version") == "visual_structure_candidate_chain.v1":
+        return value
+    return {}
+
+
+def _visual_candidate_matches_payload(
+    candidate: dict[str, Any],
+    payload: dict[str, Any],
+) -> bool:
+    expected = canonical_traceable_source_ref(payload.get("source_ref"))
+    if not expected:
+        return True
+    actual = canonical_traceable_source_ref(
+        candidate.get("source_ref") or _doi_source_ref(candidate)
+    )
+    return bool(actual and actual == expected)
 
 
 def _record_visual_chain_result(state: ToolExecutionState, result: dict[str, Any]) -> None:
@@ -4228,6 +4861,13 @@ def _source_detail_steps_from_visual_candidate(state: ToolExecutionState, payloa
         or ""
     )
     source_title = str(payload.get("source_title") or candidate.get("source_title") or visual_artifact.get("source_title") or "")
+    pdf_manifest_refs = _visual_candidate_pdf_manifest_refs(
+        state,
+        payload=payload,
+        candidate=candidate,
+        visual_artifact=visual_artifact,
+        source_ref=source_ref,
+    )
     global_evidence = _dedupe_texts(
         [
             *[
@@ -4242,6 +4882,7 @@ def _source_detail_steps_from_visual_candidate(state: ToolExecutionState, payloa
             ],
             str(candidate.get("source_locator") or ""),
             str(visual_artifact.get("candidate_chain_path") or ""),
+            *pdf_manifest_refs,
         ]
     )
     out: list[dict[str, Any]] = []
@@ -4296,6 +4937,26 @@ def _source_detail_steps_from_visual_candidate(state: ToolExecutionState, payloa
             checks.append("visual candidate promoted to draft source-detail step")
         derivation["tool_checks"] = checks
         not_exact_visual = _visual_step_is_exploratory(step, derivation)
+        source_label_materialization_path = bool(
+            not_exact_visual
+            and _visual_step_has_source_label_materialization_path(
+                state,
+                step=step,
+                source_ref=step_ref,
+                reactant_count=len(reactants),
+            )
+        )
+        if not_exact_visual and not source_label_materialization_path:
+            # Exact-row compilation is a promotion boundary, not another
+            # place to carry analogy rows.  Exploratory connectivity remains
+            # available on the blackboard for template/guided search only.
+            continue
+        if source_label_materialization_path:
+            derivation["deterministic_source_label_materialization_required"] = True
+            derivation["model_smiles_remain_advisory"] = True
+            derivation["tool_checks"].append(
+                "exact source labels require independent heading-to-structure replay"
+            )
         out.append(
             {
                 "schema_version": "source_detail_route_step.v1",
@@ -4308,26 +4969,202 @@ def _source_detail_steps_from_visual_candidate(state: ToolExecutionState, payloa
                 "reactant_names": [str(item) for item in step.get("reactant_labels") or [] if str(item or "").strip()],
                 "product_smiles": product,
                 "reactant_smiles": reactants,
-                "relation_type": "visual_connectivity_approximation" if not_exact_visual else "exact",
+                "relation_type": "exact",
                 "condition_candidate": condition,
                 "applicability": {
-                    "status": "hypothesis_only" if not_exact_visual else "passed",
-                    "product_reconstruction_passed": not not_exact_visual,
+                    "status": "passed",
+                    "product_reconstruction_passed": True,
                     "reconstructed_product_smiles": product,
                 },
                 "provenance": "visual_candidate_chain_current_pdf",
                 "source_excerpt": str(step.get("source_excerpt") or step.get("source_locator") or ""),
                 "structure_derivation": derivation,
-                "validation_status": "draft_rdkit_valid_visual_approximation" if not_exact_visual else "draft_validated_by_rdkit_chain",
-                "curation_status": "visual_candidate_for_exploratory_template_hint" if not_exact_visual else "visual_candidate_promoted_for_exact_row_compile",
-                "not_exact_literature_segment": bool(not_exact_visual),
-                "allowed_use": "exploratory_template_and_guided_hint_only" if not_exact_visual else "exact_candidate",
+                "validation_status": "draft_validated_by_rdkit_chain",
+                "curation_status": (
+                    "pending_deterministic_source_label_materialization"
+                    if source_label_materialization_path
+                    else "visual_candidate_promoted_for_exact_row_compile"
+                ),
+                "not_exact_literature_segment": False,
+                "allowed_use": (
+                    "deterministic_source_label_materialization_candidate"
+                    if source_label_materialization_path
+                    else "exact_candidate"
+                ),
                 "full_text_content_stored": False,
                 "procedure_text_stored": False,
                 "no_solved_claim": True,
                 "production_write_blocked": True,
             }
         )
+    return out
+
+
+def _visual_step_has_source_label_materialization_path(
+    state: ToolExecutionState,
+    *,
+    step: dict[str, Any],
+    source_ref: str,
+    reactant_count: int,
+) -> bool:
+    parser_policy = dict(
+        state.target_input.get("deterministic_literature_parser_policy") or {}
+    )
+    product_label = str(step.get("product_label") or "").strip().upper()
+    reactant_labels = [
+        str(item).strip().upper()
+        for item in step.get("reactant_labels") or []
+        if str(item or "").strip()
+    ]
+    label_pattern = re.compile(r"[TC]?\d+", flags=re.IGNORECASE)
+    return bool(
+        parser_policy.get("enabled") is True
+        and _configured_source_text_companions(
+            state,
+            source_ref=source_ref,
+        )
+        and label_pattern.fullmatch(product_label)
+        and reactant_count > 0
+        and len(reactant_labels) == reactant_count
+        and len(reactant_labels) == len(set(reactant_labels))
+        and all(label_pattern.fullmatch(item) for item in reactant_labels)
+    )
+
+
+def _visual_candidate_pdf_manifest_refs(
+    state: ToolExecutionState,
+    *,
+    payload: dict[str, Any],
+    candidate: dict[str, Any],
+    visual_artifact: dict[str, Any],
+    source_ref: str,
+) -> list[str]:
+    selector = {
+        "source_ref": source_ref,
+        "pdf_path": str(
+            payload.get("pdf_path")
+            or visual_artifact.get("source_pdf_path")
+            or candidate.get("source_pdf_path")
+            or ""
+        ),
+    }
+    evidence = _pdf_evidence_from_payload_or_artifacts(state, selector)
+    manifest = _pdf_evidence_manifest_path(
+        state,
+        evidence=evidence,
+        source_ref=source_ref,
+        pdf_path=str(selector.get("pdf_path") or ""),
+    )
+    if not manifest:
+        return []
+    page_numbers = _visual_candidate_source_page_numbers(
+        candidate,
+        visual_artifact=visual_artifact,
+    )
+    rendered_pages = {
+        int(row.get("page_number") or 0)
+        for row in evidence.get("rendered_pages") or []
+        if isinstance(row, dict)
+    }
+    selected = [page for page in page_numbers if page in rendered_pages]
+    if selected:
+        return [f"{manifest}#page={page}" for page in selected]
+    return [manifest]
+
+
+def _pdf_evidence_manifest_path(
+    state: ToolExecutionState,
+    *,
+    evidence: dict[str, Any],
+    source_ref: str,
+    pdf_path: str,
+) -> str:
+    candidates: list[Path] = []
+    for value in (
+        evidence.get("artifact_ref"),
+        evidence.get("manifest_path"),
+    ):
+        if str(value or "").strip():
+            candidates.append(Path(str(value)).expanduser())
+    latest_dir = str(
+        state.artifacts.get("literature_pdf_structure_evidence_dir") or ""
+    ).strip()
+    if latest_dir:
+        candidates.append(
+            Path(latest_dir) / "literature_pdf_structure_evidence.json"
+        )
+    for candidate_path in candidates:
+        if candidate_path.is_file() and _pdf_manifest_matches_source(
+            candidate_path,
+            source_ref=source_ref,
+            pdf_path=pdf_path,
+        ):
+            return str(candidate_path.resolve())
+    for candidate_path in list(
+        state.run_dir.glob(
+            "**/literature_pdf_structure_evidence.json"
+        )
+    )[:64]:
+        if _pdf_manifest_matches_source(
+            candidate_path,
+            source_ref=source_ref,
+            pdf_path=pdf_path,
+        ):
+            return str(candidate_path.resolve())
+    return ""
+
+
+def _pdf_manifest_matches_source(
+    path: Path,
+    *,
+    source_ref: str,
+    pdf_path: str,
+) -> bool:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict) or payload.get("schema_version") != (
+        "literature_pdf_structure_evidence.v1"
+    ):
+        return False
+    expected_ref = _canonical_source_ref(source_ref) or _text_key(source_ref)
+    observed_ref = _canonical_source_ref(payload.get("source_ref")) or _text_key(
+        payload.get("source_ref")
+    )
+    if expected_ref and observed_ref and expected_ref != observed_ref:
+        return False
+    expected_pdf = _normalized_path_key(pdf_path)
+    observed_pdf = _normalized_path_key(payload.get("source_pdf_path"))
+    return bool(
+        (expected_ref and expected_ref == observed_ref)
+        or (expected_pdf and expected_pdf == observed_pdf)
+    )
+
+
+def _visual_candidate_source_page_numbers(
+    candidate: dict[str, Any],
+    *,
+    visual_artifact: dict[str, Any],
+) -> list[int]:
+    values: list[str] = [
+        str(candidate.get("source_locator") or ""),
+        *[str(item) for item in candidate.get("evidence_refs") or []],
+    ]
+    for step in _visual_candidate_steps(candidate):
+        values.append(str(step.get("source_locator") or ""))
+        values.extend(str(item) for item in step.get("evidence_refs") or [])
+    values.extend(str(item) for item in visual_artifact.get("evidence_refs") or [])
+    out: list[int] = []
+    for value in values:
+        for match in re.finditer(
+            r"(?:current_image:)?(?:pages?|p\.?)[\s:#_-]*(\d+)",
+            value,
+            flags=re.IGNORECASE,
+        ):
+            page = int(match.group(1))
+            if page > 0 and page not in out:
+                out.append(page)
     return out
 
 

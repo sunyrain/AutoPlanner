@@ -22,7 +22,7 @@ import uuid
 from collections import Counter, deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from rdkit import Chem, RDLogger
@@ -93,16 +93,24 @@ CHEMENZY_NATIVE_BACKENDS = {"chem_enzy", "chem_enzy_native", "chemenzy", "chemen
 CODEX_FULLFLOW_BACKENDS = {"codex", "codex_fullflow", "codex_search", "bufotalin_codex_fullflow"}
 CODEX_RUN_PROFILES: dict[str, dict[str, int]] = {
     "smoke": {
-        "rounds": 1, "depth": 2, "accepted_expansions": 4,
-        "attempt_runs": 12, "per_invocation": 1, "attempts_per_invocation": 2,
+        "rounds": 1, "depth": 1, "accepted_expansions": 2,
+        "attempt_runs": 3, "per_invocation": 1, "attempts_per_invocation": 1,
+        "chem_enzy_runs": 1, "child_target_runs": 1,
+        "codex_research_runs": 0, "scout_calls": 1, "visual_calls": 0,
     },
     "standard": {
-        "rounds": 6, "depth": 6, "accepted_expansions": 24,
-        "attempt_runs": 72, "per_invocation": 2, "attempts_per_invocation": 4,
+        "rounds": 4, "depth": 2, "accepted_expansions": 8,
+        "attempt_runs": 12, "per_invocation": 1, "attempts_per_invocation": 1,
+        "chem_enzy_runs": 1, "child_target_runs": 2,
+        "codex_research_runs": 1, "scout_calls": 1, "visual_calls": 1,
     },
     "deep": {
-        "rounds": 10, "depth": 10, "accepted_expansions": 80,
-        "attempt_runs": 240, "per_invocation": 4, "attempts_per_invocation": 8,
+        # Deep broadens deterministic search and tool work, but deliberately
+        # keeps the same default model-backed campaign envelope as standard.
+        "rounds": 6, "depth": 4, "accepted_expansions": 8,
+        "attempt_runs": 12, "per_invocation": 1, "attempts_per_invocation": 1,
+        "chem_enzy_runs": 2, "child_target_runs": 3,
+        "codex_research_runs": 1, "scout_calls": 2, "visual_calls": 1,
     },
 }
 
@@ -620,7 +628,7 @@ def _run_codex_fullflow_plan(payload: dict[str, Any], *, job_id: str | None = No
             max_template_applications_per_round=_as_int(payload.get("max_template_applications_per_round"), 5, lo=0, hi=50),
             template_radius_policy=str(payload.get("template_radius_policy") or "auto"),
             analog_template_confidence_threshold=str(payload.get("analog_template_confidence_threshold") or "medium"),
-            use_codex_action_planner=_as_bool(payload.get("codex_action_planner"), True),
+            use_codex_action_planner=_as_bool(payload.get("codex_action_planner"), False),
             use_codex_agent_team=_as_bool(payload.get("codex_agent_team"), True),
             codex_agent_team_max_depth=_as_int(payload.get("codex_agent_team_max_depth"), profile["depth"], lo=1, hi=12),
             codex_agent_team_max_expansions=_as_int(payload.get("codex_agent_team_max_expansions"), profile["accepted_expansions"], lo=1, hi=96),
@@ -648,7 +656,11 @@ def _run_codex_fullflow_plan(payload: dict[str, Any], *, job_id: str | None = No
             codex_agent_team_benchmark_stock_catalog_sha256=benchmark_stock.get("sha256", ""),
             codex_agent_team_benchmark_stock_catalog_name=benchmark_stock.get("name", ""),
             stop_on_problem=_as_bool(payload.get("stop_on_problem"), False),
-            budget=_codex_fullflow_budget(payload, timeout_s=timeout_s),
+            budget=_codex_fullflow_budget(
+                payload,
+                timeout_s=timeout_s,
+                profile=profile,
+            ),
             emit_blackboard_steps=True,
         )
     finally:
@@ -736,20 +748,56 @@ def _codex_fullflow_run_dir(payload: dict[str, Any]) -> Path:
     return SHARED_RESULTS_DIR / "ui_agent_runs" / f"{prefix}_{label}_{_utc_stamp()}_{uuid.uuid4().hex[:6]}"
 
 
-def _codex_fullflow_budget(payload: dict[str, Any], *, timeout_s: float) -> HarnessBudget:
+def _codex_fullflow_budget(
+    payload: dict[str, Any],
+    *,
+    timeout_s: float,
+    profile: Mapping[str, int] | None = None,
+) -> HarnessBudget:
+    selected = dict(profile or CODEX_RUN_PROFILES["standard"])
     budget = HarnessBudget(timeout_s=float(timeout_s))
-    budget.max_chem_enzy_runs = _as_int(payload.get("max_chem_enzy_runs"), 1, lo=0, hi=20)
-    budget.max_guided_chemenzy_runs = _as_int(payload.get("max_guided_chemenzy_runs"), budget.max_chem_enzy_runs, lo=0, hi=20)
+    budget.max_chem_enzy_runs = _as_int(
+        payload.get("max_chem_enzy_runs"),
+        selected["chem_enzy_runs"],
+        lo=0,
+        hi=20,
+    )
+    budget.max_guided_chemenzy_runs = _as_int(
+        payload.get("max_guided_chemenzy_runs"),
+        budget.max_chem_enzy_runs,
+        lo=0,
+        hi=20,
+    )
     budget.guided_chemenzy_timeout_s = _as_float(
         payload.get("guided_chemenzy_timeout_s"),
         min(max(timeout_s / 2, 300.0), timeout_s),
         lo=30.0,
         hi=24 * 3600.0,
     )
-    budget.max_route_expansion_subgoal_runs = _as_int(payload.get("max_route_expansion_subgoal_runs"), 1, lo=0, hi=20)
-    budget.max_codex_research_runs = _as_int(payload.get("max_codex_research_runs"), 1, lo=0, hi=20)
-    budget.max_scout_calls = _as_int(payload.get("max_scout_calls"), 1, lo=0, hi=50)
-    budget.max_visual_calls = _as_int(payload.get("max_visual_calls"), 1, lo=0, hi=50)
+    budget.max_route_expansion_subgoal_runs = _as_int(
+        payload.get("max_route_expansion_subgoal_runs"),
+        selected["child_target_runs"],
+        lo=0,
+        hi=20,
+    )
+    budget.max_codex_research_runs = _as_int(
+        payload.get("max_codex_research_runs"),
+        selected["codex_research_runs"],
+        lo=0,
+        hi=20,
+    )
+    budget.max_scout_calls = _as_int(
+        payload.get("max_scout_calls"),
+        selected["scout_calls"],
+        lo=0,
+        hi=50,
+    )
+    budget.max_visual_calls = _as_int(
+        payload.get("max_visual_calls"),
+        selected["visual_calls"],
+        lo=0,
+        hi=50,
+    )
     budget.max_template_applications_per_round = _as_int(payload.get("max_template_applications_per_round"), 5, lo=0, hi=50)
     return budget
 
@@ -2400,7 +2448,8 @@ def _plan_output_summary(output: dict[str, Any]) -> dict[str, Any]:
         counts = dict(output.get("forest_counts") or {})
         ui_metadata = dict(output.get("ui_metadata") or {})
         complete_routes = int(
-            counts.get("verified_parent_routes")
+            counts.get("selected_route_benchmark_routes")
+            or counts.get("verified_parent_routes")
             or counts.get("complete_portfolio_routes")
             or 0
         )
@@ -2413,6 +2462,12 @@ def _plan_output_summary(output: dict[str, Any]) -> dict[str, Any]:
             "l0_advisory": int(counts.get("l0_advisory_branches") or 0),
             "reaction_validated": int(counts.get("reaction_validated_branches") or 0),
             "stock_closed": int(counts.get("stock_closed_branches") or 0),
+            "l3_selected_routes": int(
+                counts.get("selected_route_benchmark_routes") or 0
+            ),
+            "l4_procurement_routes": int(
+                counts.get("selected_route_procurement_routes") or 0
+            ),
             "agent_tasks_completed": int(counts.get("agent_tasks_completed") or 0),
             "agent_tasks_total": int(counts.get("agent_tasks_total") or 0),
             "steps": int(counts.get("steps") or 0),

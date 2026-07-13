@@ -1,17 +1,22 @@
 # AutoPlanner Mainline
 
-Last update: 2026-07-12.
+Last update: 2026-07-13.
 
-The active mainline is the policy-driven agentic blackboard controller. The
-normative component boundaries, V1-to-V2 migration rules, proof ladder, and
-paclitaxel acceptance contract are in
-[Architecture V2](ARCHITECTURE_V2.md).
+The active mainline is a V3 strangler architecture around the existing
+agentic blackboard controller. Blackboard events remain the durable
+coordination and recovery shell; the reaction hypergraph, evidence bindings,
+stock observations, route solver, acceptance contract, deficit queue, and
+run-wide cost ledger are the scientific control plane. The V2 contracts remain
+the compatibility boundary during migration.
 
 ```text
 target input
 -> deterministic preflight
--> blackboard state
--> Codex coordinator calls spawn_agent for each specialist role
+-> immutable acceptance spec and global cost envelope
+-> blackboard coordination state
+-> current evidence is replayed before any proposal call
+-> one route-deficit queue selects the weakest deterministic closure gap
+-> Codex coordinator calls spawn_agent only when a proposal gap remains
 -> child reports return typed RetrosynthesisProposalReport artifacts
 -> the host quarantines invalid candidate siblings without trusting report-level claims
 -> provider envelopes bind schemas, versions, hashes, and correlation groups
@@ -36,9 +41,35 @@ target input
 -> deterministic verifiers build replayable proof banks for all accepted routes
 -> exact edge/stock bindings gate a diverse proof-eligible Top-K portfolio
 -> deterministic parent proof emits the final verdict
+-> deterministic V3 acceptance audits distinct route sets, L3 edges,
+   independent sources, and the requested stock boundary
 -> one immutable CAS revision binds consensus, graph/portfolio, frontier ledger,
    parent proof, validated verdict core, forest, HTML, and global dependency view
 ```
+
+## Why the blackboard is now only the outer shell
+
+A blackboard is useful for crash recovery, leases, append-only events, artifact
+references, and operator-visible budgets. It is not a suitable chemical truth
+model: copying expansion status, proof state, and stock state into independent
+blackboard keys allowed two subsystems to disagree about whether the same route
+was open or closed.
+
+V3 therefore treats the blackboard as a coordination projection. Canonical
+molecule identity and reactions live in an AND/OR hypergraph; evidence and
+stock are separately replayed bindings; route completion is solved from that
+graph; and `retrosynthesis_acceptance_spec.v1` is the single definition of
+done. `route_deficit_queue.v1` folds evidence extraction, reaction validation,
+stock audit, structure materialization, proposal expansion, and route diversity
+into one ordered view. Deterministic deficits always precede proposal-model
+work. `retrosynthesis_cost_ledger.v1` is shared by every model-backed worker
+and can stop work but can never grant chemistry authority.
+
+The migration is deliberately a strangler rather than a repository-wide flag
+day. Existing durable campaign leases and artifact schemas remain available,
+but new scheduling and closeout read the V3 contracts. RouteForest displays
+acceptance, the next deficit, and global model cost as orthogonal digest-checked
+states; branch count is never a completion metric.
 
 ## Why stronger models did not make old runs succeed
 
@@ -61,9 +92,10 @@ derived from the same queue/proof/stock bindings. Completion is the fixed point
 of all selected edges and leaves under the requested objective, never an Agent
 return code or a branch count.
 
-The default specialist roles cover target structure, literature, chemoenzymatic
-options, and evidence criticism. The coordinator must produce observed
-root-thread `spawn_agent` events for every required role. Each spawn prompt has
+The bounded default specialist set is target structure strategy plus route
+evidence criticism. Literature and chemoenzymatic roles are added only when the
+current deficit requires their capability. The coordinator must produce
+observed root-thread `spawn_agent` events for every configured role. Each spawn prompt has
 an explicit role marker; a matching `wait` terminal event and strict child JSON
 report are both required. Merely writing role-shaped prose, returning ambiguous
 JSON, or completing without an accepted report does not satisfy this contract.
@@ -77,7 +109,8 @@ inventory) quarantines only that candidate. A mixed valid/invalid report may
 therefore remain a strict 4/4 result; its raw, admitted, and rejected candidate
 counts and per-candidate digests must reconcile exactly. A report that originally
 contained candidates but has all of them quarantined fails; an intentionally
-empty, otherwise valid specialist report remains legal.
+empty, otherwise valid specialist report remains legal. A mixed valid/invalid
+configured team remains strict `N/N`; the size is no longer assumed to be four.
 
 For a fresh campaign,
 `--codex-agent-team-child-acceptance-mode valid_subset_l0` safely recovers a
@@ -116,39 +149,69 @@ adapter creates the corresponding private binding.
 python scripts/run_codex_entry_agentic_blackboard.py \
   --target-name NAME \
   --target-smiles SMILES \
-  --codex-agent-team \
-  --max-rounds 6 \
-  --codex-agent-team-max-depth 6 \
-  --codex-agent-team-max-expansions 24 \
-  --codex-agent-team-bootstrap-expansions 1 \
-  --codex-agent-team-max-expansions-per-invocation 2 \
-  --codex-agent-team-max-attempt-runs-per-invocation 4 \
-  --codex-agent-team-child-acceptance-mode valid_subset_l0 \
-  --codex-action-planner
+  --max-rounds 4 \
+  --codex-agent-team-max-depth 2 \
+  --codex-agent-team-max-expansions 8 \
+  --codex-agent-team-max-attempt-runs 12 \
+  --max-model-invocations 3 \
+  --max-total-input-tokens 60000 \
+  --max-total-output-tokens 12000
 ```
 
-Both Codex switches default to enabled in this launcher. With the agent team
-enabled, a rejected Codex action batch fails closed as `stop_unresolved`; no
-deterministic scientific planner silently takes ownership. Deterministic code
-still performs identity checks, schema validation, stock audit, route
-connectivity proof, and final verdict compilation.
+The agent team remains available by default, but automatic campaign resume and
+the separate Codex action planner are disabled by default. Deterministic
+evidence, validation, and stock work drains first. One model-backed invocation
+may accept at most one expansion and one child attempt; later invocations need
+explicit `--codex-agent-team-auto-resume` and still cannot bypass the global
+cost ledger. A rejected model result fails closed as unresolved.
 
-Those values are the standard production profile and are now launcher
-defaults. `max-expansions=24` is the cumulative count of accepted frontier
-expansions; the bootstrap and per-invocation caps prevent the campaign from
-running far ahead of evidence, and failed attempts consume the separate
-four-attempt cap instead of spending accepted-expansion budget. A later
-invocation resumes pending jobs from the same run directory.
+The accepted-expansion ceiling and attempt ceiling are independent. They are
+also enforced at run scope across the campaign, action planner, literature
+scout, and visual repair. Token usage that cannot be observed is recorded and
+blocks any later automatic model work instead of being treated as zero cost.
 
-Attempts are also bounded across the whole campaign. In the standard profile,
-the Python campaign configuration derives `max_attempt_runs=72` from three
-times the 24 accepted-expansion ceiling; the four-attempt CLI value remains an
-invocation cap. Each Agent call writes an immutable started event before model
+Attempts are also bounded across the whole campaign. The current default is 12
+attempts and 8 accepted expansions, while a single invocation may consume at
+most one of each. Each Agent call writes an immutable started event before model
 work and an immutable terminal event afterward under
 `codex_retrosynthesis_team/campaign_attempts/`. Started events count even if a
 process exits before writing a terminal event. Accepted-expansion budgets and
 attempt budgets live in a monotonic append-only budget-event chain, while
 `campaign_state.json` is only a rebuildable compatibility projection.
+
+## Nirmatrelvir V3 golden acceptance (2026-07-13)
+
+The golden command is intentionally model-free:
+
+```powershell
+python scripts/run_nirmatrelvir_v3_golden.py
+```
+
+It verifies local Science supporting information and WO2021250648A1 artifacts
+against committed SHA-256 values, then reconstructs every experimental step
+with the current deterministic parser. Historical blackboard rows and visual
+structures only nominate candidates; they do not carry their old acceptance
+forward. The supplier observations are likewise replayed through a current
+host-owned `SnapshotStockProvider`, not trusted because a JSON row says
+`available=true`.
+
+The 2026-07-13 replay produced:
+
+- Science: 8 candidates, 8 current-parser L3 bindings, 0 rejected;
+- WO2021250648A1: 7 candidates, 7 current-parser L3 bindings, 0 rejected;
+- 15 source steps merged into 12 unique reaction hyperedges;
+- 7 synthesis leaves closed at the procurement boundary;
+- 2 complete routes with distinct reaction-edge sets and two independent
+  source groups; and
+- 0 model invocations.
+
+The committed contract is
+`config/examples/nirmatrelvir_v3_golden_acceptance.json`. Source PDFs and run
+outputs remain ignored local artifacts; a missing file, digest mismatch,
+parser regression, stock replay failure, route-count change, or acceptance
+failure stops the command nonzero.
+
+## Campaign recovery and compatibility
 
 The campaign runner and proof reconciler hold the same run-directory OS lock
 for their complete transaction. This serializes the final accepted-budget
@@ -452,6 +515,34 @@ payload cannot select its own registry. The packaged registry is intentionally
 empty, so a PDF manifest or a Codex claim cannot approve arbitrary chemistry.
 The populated registry under `tests/fixtures/` is test data and is not a
 production trust source.
+
+The Codex-entry CLI now enables a host-owned deterministic parser worker by
+default (`--deterministic-literature-parser`). Its registry path is derived
+from the run directory before any model action and exported through the same
+out-of-band environment variable. Codex and the visual model only nominate an
+edge. The worker independently:
+
+1. replays the materialized PDF/page/image digests;
+2. reads the exact product heading from the local PDF text;
+3. reconstructs that heading with OPSIN;
+4. resolves every proposed reactant as a source compound label or as a
+   PubChem structure name present in the same experimental procedure; and
+5. emits an approved `deterministic_structure_parser` binding only when all
+   checks agree.
+
+The audit and generated registry remain inside the ignored run directory.
+Network failure, an unparseable heading, a missing reactant mention, stale page
+evidence, or any structure mismatch fails closed. The worker never promotes a
+visual SMILES merely because RDKit accepts it. Disable the worker with
+`--no-deterministic-literature-parser` when an operator-managed external
+registry is supplied instead.
+
+PDF focus manifests carry an algorithm version. A resumed run with an older
+focus cache rebuilds only the bounded text index and replaces stale advisory
+page numbers before a visual call; it does not rerender the whole document or
+rewrite proof evidence. Target-bound route headings seed a contiguous
+procedure window, so assay pages with repeated target mentions cannot consume
+the synthesis-image budget.
 
 A strict literature reaction can have several reactant frontiers. The
 blackboard promotes all terminal frontiers, and a stitch is attempted only
@@ -799,6 +890,11 @@ python scripts\audit_architecture_v2.py `
 
 ## Nirmatrelvir recovery status (2026-07-12)
 
+Historical diagnostic only. These v5-v8 failed-run notes are superseded by the
+2026-07-13 V3 golden acceptance above and remain here to document why the old
+campaign architecture consumed large budgets without closing a route. They are
+not the current operating profile.
+
 `results/shared/nirmatrelvir_codex_closure_20260712_v5` completed four evidence
 rounds and eight Agent attempts. A controller projection bug then overwrote the
 fixed-name team report with a failed reconciliation view, making the final
@@ -831,7 +927,7 @@ therefore precise rather than “use a larger model”: compile the patent and
 article/SI endpoint reactions as reaction-complete exact rows, let those rows
 unlock only their matching L2 child frontiers, audit every new leaf against a
 real procurement snapshot as well as the benchmark catalog, and continue until
-the ledger fixed point closes or the explicit 24-expansion/72-attempt limits are
+the ledger fixed point closes or its historical 24-expansion/72-attempt limits are
 reached. The v5 recovery is strong evidence that durability and control flow now
 work; it is deliberately not reported as a solved Nirmatrelvir synthesis.
 

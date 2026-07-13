@@ -30,6 +30,7 @@ from cascade_planner.harness.schemas import write_json
 from cascade_planner.harness.source_capabilities import (
     build_source_capability_queue,
     eligible_source_capabilities,
+    meaningful_compound_labels,
     pdf_evidence_has_materialized_render,
 )
 
@@ -318,7 +319,7 @@ def _unsafe_validator_reasons(validation: dict[str, Any]) -> bool:
 def _codex_action_planner_repair_enabled() -> bool:
     raw = os.environ.get("AUTOPLANNER_CODEX_ACTION_PLANNER_REPAIR")
     if raw is None:
-        return True
+        return False
     return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
 
 
@@ -1618,11 +1619,7 @@ def _structure_resolution_task_for_payload(blackboard: dict[str, Any], payload: 
             "search_intent",
         )
     ).lower()
-    tasks = [
-        dict(row)
-        for row in (blackboard.get("literature_evidence") or {}).get("structure_resolution_tasks") or []
-        if isinstance(row, dict) and str(row.get("status") or "open") == "open"
-    ]
+    tasks = _meaningful_open_structure_resolution_tasks(blackboard)
     source_scoped_tasks = [
         task for task in tasks if _source_task_matches_request(task, requested_source_key)
     ] if requested_source_key else tasks
@@ -2832,6 +2829,9 @@ def _minimum_planner_handoff(handoff: dict[str, Any]) -> dict[str, Any]:
             "source_candidates": _planner_prompt_prefix(
                 evidence.get("source_candidates"), 6
             ),
+            "pdf_focus": _planner_prompt_prefix(
+                evidence.get("pdf_focus"), 4
+            ),
             "structure_resolution_tasks": _planner_prompt_prefix(
                 evidence.get("structure_resolution_tasks"), 6
             ),
@@ -2951,6 +2951,9 @@ def _absolute_minimum_planner_handoff(handoff: dict[str, Any]) -> dict[str, Any]
             },
             "pending_pdf_extraction_sources": _minimum_prompt_pending_pdf_rows(
                 evidence
+            ),
+            "pdf_focus": _minimum_prompt_pdf_focus(
+                evidence.get("pdf_focus")
             ),
             "structure_resolution_tasks": _minimum_prompt_structure_tasks(
                 evidence.get("structure_resolution_tasks")
@@ -3242,6 +3245,47 @@ def _minimum_prompt_structure_tasks(value: Any) -> list[dict[str, Any]]:
                 "label": _planner_prompt_text(row.get("label"), 96),
                 "source_ref": _planner_prompt_text(row.get("source_ref"), 180),
                 "status": _planner_prompt_text(row.get("status"), 48),
+                "no_solved_claim": True,
+            }
+        ]
+    return []
+
+
+def _minimum_prompt_pdf_focus(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    for raw in value[:8]:
+        row = _planner_prompt_mapping(raw)
+        focus = _planner_prompt_mapping(row.get("focus"))
+        if not row or not focus:
+            continue
+        return [
+            {
+                "source_ref": _planner_prompt_text(row.get("source_ref"), 180),
+                "artifact_ref": _planner_prompt_text(row.get("artifact_ref"), 240),
+                "focus": {
+                    "focus_terms": _fixed_prompt_text_list(
+                        focus.get("focus_terms"), limit=8, string_limit=80
+                    ),
+                    "focus_page_numbers": [
+                        _planner_prompt_count(item)
+                        for item in (
+                            focus.get("focus_page_numbers")[:12]
+                            if isinstance(focus.get("focus_page_numbers"), (list, tuple))
+                            else []
+                        )
+                        if _planner_prompt_count(item) > 0
+                    ],
+                    "selection_strategy": _planner_prompt_text(
+                        focus.get("selection_strategy"), 72
+                    ),
+                    "relevance_available": focus.get("relevance_available") is True,
+                    "no_ocr_or_relevance_fabrication": focus.get(
+                        "no_ocr_or_relevance_fabrication"
+                    )
+                    is True,
+                    "no_solved_claim": True,
+                },
                 "no_solved_claim": True,
             }
         ]
@@ -3866,13 +3910,16 @@ def _planner_blackboard_handoff(
     evidence = dict(blackboard.get("literature_evidence") or {})
     belief = dict(blackboard.get("current_belief") or {})
     source_candidates = [dict(row) for row in evidence.get("source_candidates") or [] if isinstance(row, dict)]
+    pdf_focus = _compact_pdf_focus_summaries(
+        [
+            dict(row)
+            for row in evidence.get("pdf_structure_evidence") or []
+            if isinstance(row, dict)
+        ]
+    )
     visual_chains = [dict(row) for row in evidence.get("visual_chains") or [] if isinstance(row, dict)]
     exact_rows = [dict(row) for row in evidence.get("exact_rows") or [] if isinstance(row, dict)]
-    structure_tasks = [
-        dict(row)
-        for row in evidence.get("structure_resolution_tasks") or []
-        if isinstance(row, dict) and str(row.get("status") or "open").lower() in {"", "open", "pending", "ready"}
-    ]
+    structure_tasks = _meaningful_open_structure_resolution_tasks(blackboard)
     resolved_structures = [
         dict(row)
         for row in evidence.get("resolved_structures") or []
@@ -3904,6 +3951,7 @@ def _planner_blackboard_handoff(
             "pending_pdf_extraction_sources": (context.get("literature_processing") or {}).get("pending_pdf_extraction_sources") or [],
             "pending_visual_extraction_sources": (context.get("literature_processing") or {}).get("pending_visual_extraction_sources") or [],
             "source_candidates": _compact_sources(source_candidates),
+            "pdf_focus": pdf_focus,
             "visual_chains": _compact_visual_chains(visual_chains),
             "exact_row_samples": _compact_exact_rows(exact_rows),
             "structure_resolution_tasks": _compact_structure_resolution_tasks(structure_tasks),
@@ -4243,11 +4291,7 @@ def _action_payload_requirements(
         len(_distinct_source_keys(visual_chains)) > 1
         or len(_distinct_source_keys(source_candidates)) > 1
     )
-    structure_tasks = [
-        dict(row)
-        for row in (blackboard.get("literature_evidence") or {}).get("structure_resolution_tasks") or []
-        if isinstance(row, dict) and str(row.get("status") or "open") == "open"
-    ]
+    structure_tasks = _meaningful_open_structure_resolution_tasks(blackboard)
     structure_binding_required = (
         len(_distinct_source_keys(local_pdf_candidates or source_candidates or structure_tasks)) > 1
         or len(structure_tasks) > 1
@@ -4720,6 +4764,57 @@ def _compact_visual_chains(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def _compact_pdf_focus_summaries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    for row in rows[:8]:
+        focus = dict(row.get("focus") or {})
+        if not focus:
+            continue
+        compact.append(
+            {
+                "evidence_id": str(row.get("evidence_id") or ""),
+                "source_ref": str(row.get("source_ref") or ""),
+                "artifact_ref": str(row.get("artifact_ref") or ""),
+                "focus": {
+                    "focus_terms": [
+                        str(item)[:96]
+                        for item in focus.get("focus_terms") or []
+                        if str(item or "").strip()
+                    ][:24],
+                    "focus_page_numbers": [
+                        _planner_prompt_count(item)
+                        for item in focus.get("focus_page_numbers") or []
+                        if _planner_prompt_count(item) > 0
+                    ][:16],
+                    "page_relevance": [
+                        {
+                            "page_number": _planner_prompt_count(
+                                relevance.get("page_number")
+                            ),
+                            "score": _planner_prompt_count(relevance.get("score")),
+                            "matched_terms": [
+                                str(item)[:96]
+                                for item in relevance.get("matched_terms") or []
+                                if str(item or "").strip()
+                            ][:8],
+                        }
+                        for relevance in focus.get("page_relevance") or []
+                        if isinstance(relevance, dict)
+                    ][:16],
+                    "selection_strategy": str(focus.get("selection_strategy") or "")[:80],
+                    "relevance_available": focus.get("relevance_available") is True,
+                    "no_ocr_or_relevance_fabrication": focus.get(
+                        "no_ocr_or_relevance_fabrication"
+                    )
+                    is True,
+                    "no_solved_claim": True,
+                },
+                "no_solved_claim": True,
+            }
+        )
+    return compact
+
+
 def _compact_structure_resolution_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
@@ -4736,6 +4831,27 @@ def _compact_structure_resolution_tasks(rows: list[dict[str, Any]]) -> list[dict
         }
         for row in rows[:8]
     ]
+
+
+def _meaningful_open_structure_resolution_tasks(
+    blackboard: dict[str, Any],
+) -> list[dict[str, Any]]:
+    tasks: list[dict[str, Any]] = []
+    for row in (blackboard.get("literature_evidence") or {}).get(
+        "structure_resolution_tasks"
+    ) or []:
+        if not isinstance(row, dict) or str(row.get("status") or "open").lower() not in {
+            "",
+            "open",
+            "pending",
+            "ready",
+        }:
+            continue
+        label = str(row.get("label") or "").strip()
+        if label and not meaningful_compound_labels([label]):
+            continue
+        tasks.append(dict(row))
+    return tasks
 
 
 def _compact_process_evidence_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -4774,11 +4890,7 @@ def _route_anchor_opportunities(blackboard: dict[str, Any]) -> dict[str, Any]:
         for row in evidence.get("visual_chains") or []
         if isinstance(row, dict) and str(row.get("source_ref") or "").strip()
     }
-    structure_tasks = [
-        dict(row)
-        for row in evidence.get("structure_resolution_tasks") or []
-        if isinstance(row, dict) and str(row.get("status") or "open").lower() in {"", "open", "pending", "ready"}
-    ]
+    structure_tasks = _meaningful_open_structure_resolution_tasks(blackboard)
     tasks_by_source: dict[str, list[dict[str, Any]]] = {}
     for task in structure_tasks:
         source_ref = str(task.get("source_ref") or "").strip()
@@ -4935,11 +5047,7 @@ def _route_closure_pressure_summary(blackboard: dict[str, Any]) -> dict[str, Any
     parent_proof = dict((blackboard or {}).get("parent_route_proof") or {})
     proof_bundle = dict((blackboard or {}).get("route_proof_bundle") or {})
     process_rows = [dict(row) for row in evidence.get("process_evidence_rows") or [] if isinstance(row, dict)]
-    structure_tasks = [
-        dict(row)
-        for row in evidence.get("structure_resolution_tasks") or []
-        if isinstance(row, dict) and str(row.get("status") or "open").lower() in {"", "open", "pending", "ready"}
-    ]
+    structure_tasks = _meaningful_open_structure_resolution_tasks(blackboard)
     resolved_structures = [
         dict(row)
         for row in evidence.get("resolved_structures") or []

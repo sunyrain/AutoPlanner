@@ -244,6 +244,8 @@ def apply_chem_enzy_search_policy(
         "preferred_smiles": list(guidance["preferred_smiles"]),
         "preferred_precursor_sets": list(guidance["preferred_precursor_sets"]),
         "terminal_blacklist": list(guidance["terminal_blacklist"]),
+        "preferred_reaction_classes": list(guidance["preferred_reaction_classes"]),
+        "preferred_retrons": list(guidance["preferred_retrons"]),
         "raw_reaction_injection": False,
     }
     if policy.source_budget.get("preferred_reaction_domains"):
@@ -259,8 +261,8 @@ def apply_chem_enzy_search_policy(
     source_policy["enabled"] = True
     source_policy["chem_enzy_policy_id"] = policy.policy_id
     for key, value in dict(policy.source_budget or {}).items():
-        if key not in {"preferred_reaction_classes", "preferred_anchor_roles"}:
-            source_policy[key] = value
+        source_policy[key] = value
+    source_policy["reaction_and_retron_priors_are_advisory_only"] = True
     flags["cascade_source_policy"] = source_policy
     flags["use_cascade_source_policy"] = True
     flags[POLICY_SEARCH_FLAG] = policy.to_dict()
@@ -500,6 +502,10 @@ def chem_enzy_policy_trace_from_search_flags(search_flags: dict[str, Any] | None
             "preferred_smiles_count": len(guidance.get("preferred_smiles") or []),
             "preferred_precursor_set_count": len(guidance.get("preferred_precursor_sets") or []),
             "terminal_blacklist_count": len(guidance.get("terminal_blacklist") or []),
+            "preferred_reaction_class_count": len(
+                guidance.get("preferred_reaction_classes") or []
+            ),
+            "preferred_retron_count": len(guidance.get("preferred_retrons") or []),
             "ranking_signal": str(guidance.get("ranking_signal") or ""),
             "hard_filters": list(guidance.get("hard_filters") or []),
             "raw_reaction_injection": False,
@@ -516,14 +522,35 @@ def chem_enzy_guidance_contract(
     anchors = sorted({value for value in (_canonical_smiles(item) for item in policy.anchor_whitelist) if value})
     blacklist = sorted({value for value in (_canonical_smiles(item) for item in policy.terminal_blacklist) if value})
     preferred = sorted(set(preferred) | set(anchors))
+    reaction_classes = _classification_hints(
+        policy.source_budget.get("preferred_reaction_classes")
+        or policy.preferred_subgoal.get("preferred_reaction_classes")
+        or []
+    )
+    preferred_retrons = _classification_hints(
+        policy.source_budget.get("preferred_retrons")
+        or policy.source_budget.get("derived_retrons")
+        or policy.source_budget.get("retron_hints")
+        or policy.preferred_subgoal.get("preferred_retrons")
+        or []
+    )
     return {
         "schema_version": "chem_enzy_guidance.v1",
-        "enabled": bool(preferred or precursor_sets or blacklist),
+        "enabled": bool(
+            preferred
+            or precursor_sets
+            or blacklist
+            or reaction_classes
+            or preferred_retrons
+        ),
         "policy_id": policy.policy_id,
         "preferred_smiles": preferred,
         "preferred_precursor_sets": [list(item) for item in precursor_sets],
         "anchor_smiles": anchors,
         "terminal_blacklist": blacklist,
+        "preferred_reaction_classes": reaction_classes,
+        "preferred_retrons": preferred_retrons,
+        "reaction_and_retron_priors_are_advisory_only": True,
         "ranking_signal": "precursor_exact_set_component_and_similarity_cost",
         "exact_set_cost_reward": 2.4,
         "exact_component_cost_reward": 1.25,
@@ -544,6 +571,24 @@ def chem_enzy_guidance_contract(
         "not_raw_reaction_injection": True,
         "raw_reaction_injection": False,
     }
+
+
+def _classification_hints(value: Any, *, limit: int = 32) -> list[str]:
+    values = value if isinstance(value, (list, tuple, set)) else [value]
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        if isinstance(item, (dict, list, tuple, set)):
+            continue
+        text = " ".join(str(item or "").strip().split())[:160]
+        key = text.casefold()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+        if len(out) >= max(1, int(limit or 1)):
+            break
+    return out
 
 
 def _operator_from_payload(payload: StrategicOperator | dict[str, Any]) -> StrategicOperator:

@@ -18,6 +18,7 @@ from rdkit.Chem import rdFingerprintGenerator
 from cascade_planner.routes.admission import (
     RetrosyntheticAdmissionPolicy,
     audit_retrosynthetic_candidate,
+    retrosynthetic_admission_record,
 )
 
 GUIDANCE_SCHEMA = "chem_enzy_guidance.v1"
@@ -37,6 +38,10 @@ class ChemEnzyGuidanceConfig:
     similarity_cost_reward: float = 0.65
     similarity_threshold: float = 0.55
     terminal_blacklist_cost_penalty: float = 3.0
+    preferred_reaction_classes: tuple[str, ...] = ()
+    preferred_retrons: tuple[str, ...] = ()
+    reaction_class_cost_reward: float = 0.20
+    retron_cost_reward: float = 0.15
     hard_filter_element_inventory: bool = True
     max_tolerated_missing_heavy_atoms: int = 3
     hard_filter_large_atom_jump: bool = True
@@ -65,6 +70,27 @@ class ChemEnzyGuidanceConfig:
             terminal_blacklist_cost_penalty=_float(
                 raw.get("terminal_blacklist_cost_penalty"), cls.terminal_blacklist_cost_penalty, lo=0.0
             ),
+            preferred_reaction_classes=_bounded_hint_tuple(
+                raw.get("preferred_reaction_classes") or []
+            ),
+            preferred_retrons=_bounded_hint_tuple(
+                raw.get("preferred_retrons")
+                or raw.get("derived_retrons")
+                or raw.get("retron_hints")
+                or []
+            ),
+            reaction_class_cost_reward=_float(
+                raw.get("reaction_class_cost_reward"),
+                cls.reaction_class_cost_reward,
+                lo=0.0,
+                hi=0.5,
+            ),
+            retron_cost_reward=_float(
+                raw.get("retron_cost_reward"),
+                cls.retron_cost_reward,
+                lo=0.0,
+                hi=0.5,
+            ),
             hard_filter_element_inventory=bool(raw.get("hard_filter_element_inventory", True)),
             max_tolerated_missing_heavy_atoms=_int(
                 raw.get("max_tolerated_missing_heavy_atoms"), cls.max_tolerated_missing_heavy_atoms, lo=0
@@ -88,6 +114,10 @@ class ChemEnzyGuidanceConfig:
             "similarity_cost_reward": self.similarity_cost_reward,
             "similarity_threshold": self.similarity_threshold,
             "terminal_blacklist_cost_penalty": self.terminal_blacklist_cost_penalty,
+            "preferred_reaction_classes": list(self.preferred_reaction_classes),
+            "preferred_retrons": list(self.preferred_retrons),
+            "reaction_class_cost_reward": self.reaction_class_cost_reward,
+            "retron_cost_reward": self.retron_cost_reward,
             "hard_filter_element_inventory": self.hard_filter_element_inventory,
             "max_tolerated_missing_heavy_atoms": self.max_tolerated_missing_heavy_atoms,
             "hard_filter_large_atom_jump": self.hard_filter_large_atom_jump,
@@ -116,6 +146,15 @@ class ChemEnzyGuidanceState:
     reranked_calls: int = 0
     rejected_by_reason: Counter[str] = field(default_factory=Counter)
     matched_hint_smiles: set[str] = field(default_factory=set)
+    reaction_prior_candidates_with_metadata: int = 0
+    reaction_class_comparisons: int = 0
+    retron_comparisons: int = 0
+    reaction_class_matches: int = 0
+    retron_matches: int = 0
+    reaction_prior_score_adjusted: int = 0
+    matched_reaction_classes: set[str] = field(default_factory=set)
+    matched_retrons: set[str] = field(default_factory=set)
+    rejected_candidate_audits: list[dict[str, Any]] = field(default_factory=list)
 
     def reset_for_target(self, target_smiles: str) -> None:
         config = self.config
@@ -128,6 +167,9 @@ class ChemEnzyGuidanceState:
 
     def to_dict(self) -> dict[str, Any]:
         requested_hint_count = len(set(self.config.preferred_smiles) | set(self.config.anchor_smiles))
+        requested_reaction_prior_count = len(self.config.preferred_reaction_classes) + len(
+            self.config.preferred_retrons
+        )
         return {
             "schema_version": GUIDANCE_STATS_SCHEMA,
             "enabled": bool(self.config.enabled),
@@ -150,6 +192,26 @@ class ChemEnzyGuidanceState:
             "reranked_calls": self.reranked_calls,
             "rejected_by_reason": dict(sorted(self.rejected_by_reason.items())),
             "matched_hint_smiles": sorted(self.matched_hint_smiles),
+            "requested_reaction_prior_count": requested_reaction_prior_count,
+            "preferred_reaction_classes": list(self.config.preferred_reaction_classes),
+            "preferred_retrons": list(self.config.preferred_retrons),
+            "reaction_prior_candidates_with_metadata": self.reaction_prior_candidates_with_metadata,
+            "reaction_class_comparisons": self.reaction_class_comparisons,
+            "retron_comparisons": self.retron_comparisons,
+            "reaction_class_matches": self.reaction_class_matches,
+            "retron_matches": self.retron_matches,
+            "reaction_prior_score_adjusted": self.reaction_prior_score_adjusted,
+            "matched_reaction_classes": sorted(self.matched_reaction_classes),
+            "matched_retrons": sorted(self.matched_retrons),
+            "reaction_prior_metadata_observed": bool(
+                self.reaction_prior_candidates_with_metadata
+            ),
+            "reaction_prior_applied": bool(self.reaction_prior_score_adjusted),
+            "rejected_candidate_audit_count": self.candidates_rejected,
+            "rejected_candidate_audits": list(self.rejected_candidate_audits),
+            "rejected_candidate_audits_truncated": max(
+                0, self.candidates_rejected - len(self.rejected_candidate_audits)
+            ),
             "hint_comparison_executed": bool(requested_hint_count and self.hint_comparisons),
             "ranking_signal_applied": bool(self.score_adjusted),
             "hard_filter_executed": bool(self.candidates_seen),
@@ -187,12 +249,29 @@ class ChemEnzyGuidedOneStepWrapper:
         rows: list[dict[str, Any]] = []
         for index, raw_reactants in enumerate(reactants):
             components = _canonical_components(raw_reactants)
-            reasons = _hard_filter_reasons(target_key, components, self.config)
+            admission = _host_admission_audit(target_key, components, self.config)
+            reasons = [str(item) for item in admission.get("reasons") or []]
             if reasons:
                 self.state.candidates_rejected += 1
                 self.state.rejected_by_reason.update(reasons)
+                provenance = _candidate_provenance(result, index)
+                rejection = retrosynthetic_admission_record(
+                    admission,
+                    stage="pre_moltree_one_step",
+                    source=provenance["source"],
+                    model=provenance["model"],
+                    template=provenance["template"],
+                    candidate_index=index,
+                )
+                if len(self.state.rejected_candidate_audits) < 100:
+                    self.state.rejected_candidate_audits.append(rejection)
                 continue
-            row = self._scored_row(result, index=index, components=components)
+            row = self._scored_row(
+                result,
+                index=index,
+                components=components,
+                admission=admission,
+            )
             rows.append(row)
 
         self.state.candidates_kept += len(rows)
@@ -203,7 +282,14 @@ class ChemEnzyGuidedOneStepWrapper:
                 self.state.reranked_calls += 1
         return _project_result(result, rows, candidate_count=candidate_count)
 
-    def _scored_row(self, result: dict[str, Any], *, index: int, components: tuple[str, ...]) -> dict[str, Any]:
+    def _scored_row(
+        self,
+        result: dict[str, Any],
+        *,
+        index: int,
+        components: tuple[str, ...],
+        admission: dict[str, Any],
+    ) -> dict[str, Any]:
         hints = set(self.config.preferred_smiles) | set(self.config.anchor_smiles)
         self.state.hint_comparisons += len(hints)
         component_set = set(components)
@@ -229,14 +315,43 @@ class ChemEnzyGuidedOneStepWrapper:
         if blacklist_matches:
             self.state.terminal_blacklist_matches += 1
 
+        prior = _candidate_reaction_prior_matches(
+            result,
+            index=index,
+            preferred_reaction_classes=self.config.preferred_reaction_classes,
+            preferred_retrons=self.config.preferred_retrons,
+        )
+        if prior["metadata_observed"]:
+            self.state.reaction_prior_candidates_with_metadata += 1
+            self.state.reaction_class_comparisons += len(
+                self.config.preferred_reaction_classes
+            )
+            self.state.retron_comparisons += len(self.config.preferred_retrons)
+        reaction_class_matches = list(prior["reaction_class_matches"])
+        retron_matches = list(prior["retron_matches"])
+        prior_reward = 0.0
+        if reaction_class_matches:
+            prior_reward += self.config.reaction_class_cost_reward
+            self.state.reaction_class_matches += 1
+            self.state.matched_reaction_classes.update(reaction_class_matches)
+        if retron_matches:
+            prior_reward += self.config.retron_cost_reward
+            self.state.retron_matches += 1
+            self.state.matched_retrons.update(retron_matches)
+        # This prior is intentionally bounded and can only reorder reactions
+        # already returned by ChemEnzy.  It never creates a precursor edge.
+        prior_reward = min(0.5, prior_reward)
+
         scores = _as_list(result.get("scores"))
         costs = _as_list(result.get("costs"))
         score = _safe_score(scores[index] if index < len(scores) else None)
         base_cost = _safe_cost(costs[index] if index < len(costs) else None, score=score)
-        guided_cost = max(1e-6, base_cost - reward + penalty)
+        guided_cost = max(1e-6, base_cost - reward - prior_reward + penalty)
         guided_score = max(1e-9, min(1.0, math.exp(-guided_cost)))
         if abs(guided_cost - base_cost) > 1e-9:
             self.state.score_adjusted += 1
+        if prior_reward > 0.0:
+            self.state.reaction_prior_score_adjusted += 1
         return {
             "index": index,
             "guided_cost": guided_cost,
@@ -254,6 +369,17 @@ class ChemEnzyGuidedOneStepWrapper:
                 "best_hint_similarity": round(similarity, 6),
                 "best_similarity_hint": similarity_hint,
                 "terminal_blacklist_matches": blacklist_matches,
+                "host_admission_edge_digest": admission.get("edge_digest"),
+                "host_admission_accepted": admission.get("accepted") is True,
+                "reaction_prior": {
+                    "metadata_observed": prior["metadata_observed"],
+                    "reaction_class_matches": reaction_class_matches,
+                    "retron_matches": retron_matches,
+                    "cost_reward": prior_reward,
+                    "applied": prior_reward > 0.0,
+                    "native_candidates_only": True,
+                    "raw_reaction_injection": False,
+                },
                 "raw_reaction_injection": False,
             },
         }
@@ -277,38 +403,86 @@ def guided_policy_stats(planner: Any) -> dict[str, Any] | None:
 
 
 def install_canonical_ancestor_cycle_filter(mol_tree_module: Any) -> None:
-    """Strengthen vendor ancestor filtering to compare canonical structures."""
+    """Install the host admission gate immediately before MolTree insertion.
+
+    The one-step wrapper normally filters the same candidates earlier.  This
+    second gate is deliberately independent: cached trees, alternate vendor
+    adapters, or a wrapper regression cannot insert a structurally rejected
+    edge into search state.
+    """
     tree_class = getattr(mol_tree_module, "MolTree", None)
     if tree_class is None:
         return
+    original_prepare = getattr(
+        tree_class, "_autoplanner_original_prepare_expansion", None
+    )
+    if original_prepare is None:
+        original_prepare = getattr(tree_class, "prepare_expansion", None)
+        if callable(original_prepare):
+            tree_class._autoplanner_original_prepare_expansion = original_prepare
+    if callable(original_prepare):
+
+        def prepare_with_exact_multisets(
+            self: Any, *args: Any, **kwargs: Any
+        ) -> Any:
+            prepared = original_prepare(self, *args, **kwargs)
+            if not isinstance(prepared, tuple) or len(prepared) != 4:
+                return prepared
+            result = args[1] if len(args) > 1 else kwargs.get("result")
+            if not isinstance(result, dict):
+                return prepared
+            raw_candidates = _as_list(result.get("reactants"))
+            exact_reactants = [
+                _raw_precursor_components(candidate) for candidate in raw_candidates
+            ]
+            current_reactants, costs, templates, annotations = prepared
+            if (
+                len(exact_reactants) != len(current_reactants)
+                or any(not components for components in exact_reactants)
+            ):
+                return prepared
+            # The vendor implementation historically used ``set`` here,
+            # silently changing C.C into C.  Preserve the exact multiset so
+            # both the insertion audit and the resulting tree describe the
+            # same reaction candidate emitted by the model.
+            return exact_reactants, costs, templates, annotations
+
+        tree_class.prepare_expansion = prepare_with_exact_multisets
     original = getattr(tree_class, "_autoplanner_original_add_reaction_and_mol_nodes", None)
     if original is None:
         original = tree_class._add_reaction_and_mol_nodes
         tree_class._autoplanner_original_add_reaction_and_mol_nodes = original
 
     def guarded(self: Any, cost: Any, mols: Any, parent: Any, template: Any, ancestors: Any, cascade_annotation: Any = None):
-        canonical_ancestors = {
-            canonical
-            for canonical in (_canonical_smiles(item) for item in ancestors or [])
-            if canonical
-        }
-        cycle_molecules = sorted(
-            {
-                canonical
-                for canonical in (_canonical_smiles(item) for item in mols or [])
-                if canonical and canonical in canonical_ancestors
-            }
+        product = str(getattr(parent, "mol", "") or "")
+        admission = audit_retrosynthetic_candidate(
+            product,
+            list(mols or []),
+            forbidden_return_smiles=list(ancestors or []),
         )
-        if cycle_molecules:
+        if admission.get("accepted") is not True:
+            provenance = _template_provenance(template, cascade_annotation)
+            rejection = retrosynthetic_admission_record(
+                admission,
+                stage="pre_moltree_insert",
+                source=provenance["source"],
+                model=provenance["model"],
+                template=template,
+            )
             trace = getattr(self, "cascade_expansion_trace", None)
             if isinstance(trace, list):
                 trace.append(
                     {
                         "event": "cascade_expansion_hard_filtered",
-                        "parent_mol": getattr(parent, "mol", ""),
+                        "stage": "pre_moltree_insert",
+                        "parent_mol": product,
                         "reactants": list(mols or []),
-                        "reasons": ["ancestor_or_target_cycle"],
-                        "cycle_molecules": cycle_molecules,
+                        "reasons": list(admission.get("reasons") or []),
+                        "edge_digest": admission.get("edge_digest"),
+                        "source": provenance["source"],
+                        "model": provenance["model"],
+                        "admission_record": rejection,
+                        "host_audit_authority": True,
                         "raw_reaction_injection": False,
                     }
                 )
@@ -364,12 +538,12 @@ def _project_result(result: dict[str, Any], rows: list[dict[str, Any]], *, candi
     return out
 
 
-def _hard_filter_reasons(
+def _host_admission_audit(
     product_smiles: str,
     reactants: tuple[str, ...],
     config: ChemEnzyGuidanceConfig,
-) -> list[str]:
-    audit = audit_retrosynthetic_candidate(
+) -> dict[str, Any]:
+    return audit_retrosynthetic_candidate(
         product_smiles,
         reactants,
         policy=RetrosyntheticAdmissionPolicy(
@@ -382,7 +556,163 @@ def _hard_filter_reasons(
             hard_filter_self_loop=config.hard_filter_self_loop,
         ),
     )
-    return [str(item) for item in audit.get("reasons") or []]
+
+
+def _candidate_provenance(result: dict[str, Any], index: int) -> dict[str, Any]:
+    template = _candidate_field(result, "template", index)
+    model = next(
+        (
+            str(value)
+            for key in ("model_full_name", "model_name", "source_model")
+            if (value := _candidate_field(result, key, index)) not in (None, "")
+        ),
+        "",
+    )
+    source = next(
+        (
+            str(value)
+            for key in ("source", "reaction_source")
+            if (value := _candidate_field(result, key, index)) not in (None, "")
+        ),
+        "",
+    )
+    if isinstance(template, dict):
+        model = model or str(
+            template.get("model_full_name") or template.get("model_name") or ""
+        )
+        source = source or str(
+            template.get("source_model") or template.get("source") or ""
+        )
+    return {"source": source, "model": model, "template": template}
+
+
+def _template_provenance(template: Any, annotation: Any) -> dict[str, str]:
+    template_row = template if isinstance(template, dict) else {}
+    annotation_row = annotation if isinstance(annotation, dict) else {}
+    return {
+        "source": str(
+            annotation_row.get("source")
+            or annotation_row.get("source_model")
+            or template_row.get("source")
+            or template_row.get("source_model")
+            or ""
+        ),
+        "model": str(
+            annotation_row.get("model_full_name")
+            or annotation_row.get("model_name")
+            or template_row.get("model_full_name")
+            or template_row.get("model_name")
+            or ""
+        ),
+    }
+
+
+def _candidate_reaction_prior_matches(
+    result: dict[str, Any],
+    *,
+    index: int,
+    preferred_reaction_classes: tuple[str, ...],
+    preferred_retrons: tuple[str, ...],
+) -> dict[str, Any]:
+    values = [
+        _candidate_field(result, key, index)
+        for key in (
+            "template",
+            "model_full_name",
+            "model_name",
+            "source_model",
+            "source",
+            "reaction_class",
+            "reaction_type",
+            "reaction_family",
+            "retron",
+            "product_retron",
+            "derived_from_retron",
+        )
+    ]
+    texts: list[str] = []
+    for value in values:
+        texts.extend(_prior_metadata_texts(value))
+    normalized_texts = tuple(
+        dict.fromkeys(
+            normalized
+            for text in texts
+            if (normalized := _normalize_prior_text(text))
+        )
+    )
+    return {
+        "metadata_observed": bool(normalized_texts),
+        "reaction_class_matches": _matching_prior_hints(
+            preferred_reaction_classes, normalized_texts
+        ),
+        "retron_matches": _matching_prior_hints(preferred_retrons, normalized_texts),
+    }
+
+
+def _candidate_field(result: dict[str, Any], key: str, index: int) -> Any:
+    value = result.get(key)
+    if isinstance(value, (list, tuple)) or hasattr(value, "tolist"):
+        rows = _as_list(value)
+        return rows[index] if index < len(rows) else None
+    return value
+
+
+def _prior_metadata_texts(value: Any, *, depth: int = 0) -> list[str]:
+    if value is None or depth > 2:
+        return []
+    if isinstance(value, dict):
+        texts: list[str] = []
+        for key in (
+            "template_id",
+            "name",
+            "model_full_name",
+            "model_name",
+            "source_model",
+            "source",
+            "reaction_class",
+            "reaction_type",
+            "reaction_family",
+            "retron_type",
+            "retron",
+            "product_retron",
+            "derived_from_retron",
+        ):
+            if key in value:
+                texts.extend(_prior_metadata_texts(value.get(key), depth=depth + 1))
+        return texts
+    if isinstance(value, (list, tuple, set)):
+        return [
+            text
+            for item in list(value)[:32]
+            for text in _prior_metadata_texts(item, depth=depth + 1)
+        ]
+    text = str(value or "").strip()
+    return [text[:512]] if text else []
+
+
+def _matching_prior_hints(
+    hints: tuple[str, ...], metadata_texts: tuple[str, ...]
+) -> list[str]:
+    matches: list[str] = []
+    for hint in hints:
+        normalized = _normalize_prior_text(hint)
+        if not normalized:
+            continue
+        if any(
+            normalized == text
+            or (len(normalized) >= 4 and normalized in text)
+            or (len(text) >= 4 and text in normalized)
+            for text in metadata_texts
+        ):
+            matches.append(hint)
+    return matches
+
+
+def _normalize_prior_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    for token in ("_", "-", "/", ":"):
+        text = text.replace(token, " ")
+    return " ".join(text.split())
 
 
 def _best_similarity(
@@ -439,6 +769,16 @@ def _canonical_components(value: Any) -> tuple[str, ...]:
     return tuple(sorted(canonical))
 
 
+def _raw_precursor_components(value: Any) -> list[str]:
+    values = value if isinstance(value, (list, tuple)) else [value]
+    return [
+        fragment.strip()
+        for item in values
+        for fragment in str(item or "").split(".")
+        if fragment.strip()
+    ]
+
+
 def _canonical_smiles_tuple(values: Any) -> tuple[str, ...]:
     out: set[str] = set()
     for value in values if isinstance(values, (list, tuple, set)) else [values]:
@@ -454,6 +794,16 @@ def _canonical_precursor_sets(values: Any) -> tuple[tuple[str, ...], ...]:
         if components:
             rows.add(components)
     return tuple(sorted(rows))
+
+
+def _bounded_hint_tuple(values: Any) -> tuple[str, ...]:
+    raw_values = values if isinstance(values, (list, tuple, set)) else [values]
+    hints = {
+        str(value or "").strip()[:128]
+        for value in list(raw_values)[:64]
+        if str(value or "").strip()
+    }
+    return tuple(sorted(hints)[:32])
 
 
 def _element_counts(smiles: str) -> Counter[str]:

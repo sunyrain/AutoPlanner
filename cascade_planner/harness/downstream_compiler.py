@@ -1069,6 +1069,11 @@ def _segments_from_source_detail_steps(
             "relation_type": str(raw.get("relation_type") or "exact"),
             "applicability": applicability,
             "condition_candidate": condition,
+            "source_evidence": [
+                dict(item)
+                for item in raw.get("source_evidence") or []
+                if isinstance(item, dict)
+            ],
             "scope_gap": str(raw.get("scope_gap") or ""),
             "source_detail": {
                 "schema_version": str(raw.get("schema_version") or ""),
@@ -1083,6 +1088,15 @@ def _segments_from_source_detail_steps(
                 "curator_record_id": str(raw.get("curator_record_id") or ""),
                 "curation_status": str(raw.get("curation_status") or ""),
                 "validation_status": str(raw.get("validation_status") or ""),
+                "deterministic_parser_authority_id": str(
+                    raw.get("deterministic_parser_authority_id") or ""
+                ),
+                "source_binding_reaction_digest": str(
+                    raw.get("source_binding_reaction_digest") or ""
+                ),
+                "source_formulation": dict(raw.get("source_formulation") or {})
+                if isinstance(raw.get("source_formulation"), dict)
+                else {},
             },
         }
         row_result = _source_detail_exact_step_one_step_row(step_payload)
@@ -1210,9 +1224,23 @@ def _source_detail_exact_step_one_step_row(step: dict[str, Any]) -> dict[str, An
         "structured_segment_step": True,
         "source_detail_exact_step": True,
         "condition_candidate": condition,
+        "source_evidence": [
+            dict(item)
+            for item in step.get("source_evidence") or []
+            if isinstance(item, dict)
+        ],
         "atom_accounting_policy": "source_detail_exact_step_allows_reagent_or_byproduct_atoms_outside_precursor_list",
     }
-    for key in ("source_title", "product_name", "reactant_names", "provenance", "curator_record_id"):
+    for key in (
+        "source_title",
+        "product_name",
+        "reactant_names",
+        "provenance",
+        "curator_record_id",
+        "deterministic_parser_authority_id",
+        "source_binding_reaction_digest",
+        "source_formulation",
+    ):
         value = source_detail.get(key)
         if value:
             trace[key] = value
@@ -1249,6 +1277,7 @@ def _source_detail_exact_step_one_step_row(step: dict[str, Any]) -> dict[str, An
         "audit_required": True,
         "no_solved_claim": True,
     }
+    trace["exact_step_validation"] = validation_report
     template_payload = {
         "model_full_name": "autoplanner.literature_template_plugin",
         "source": "literature_template_plugin",

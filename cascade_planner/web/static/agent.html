@@ -88,46 +88,50 @@
             <label for="run-profile">运行配置</label>
             <select id="run-profile" aria-describedby="run-profile-hint">
               <option value="smoke">Smoke · 接线检查（低成本，不用于路线结论）</option>
-              <option value="standard" selected>Standard · 生产默认（约 6 轮 / 深度 6 / 24 次有效扩展）</option>
-              <option value="deep">Deep · 复杂目标（高成本，最高深度 10 / 80 次有效扩展）</option>
+              <option value="standard" selected>Standard · 证据优先（4 轮 / 深度 2 / 最多 8 次有效扩展）</option>
+              <option value="deep">Deep · 扩大确定性搜索（模型额度不增加）</option>
             </select>
             <p id="run-profile-hint" class="field-hint">扩展数只统计接受的唯一 frontier；失败重试使用独立 attempt 额度。默认库存为 PaRoutes n1 benchmark membership，不代表商业可采购。</p>
             <div class="two-col">
               <div>
                 <label for="max-rounds">黑板轮数</label>
-                <input id="max-rounds" type="number" min="1" max="30" value="6">
+                <input id="max-rounds" type="number" min="1" max="30" value="4">
               </div>
               <div>
                 <label for="codex-team-depth">Codex 路线深度</label>
-                <input id="codex-team-depth" type="number" min="1" max="12" value="6">
+                <input id="codex-team-depth" type="number" min="1" max="12" value="2">
               </div>
               <div>
                 <label for="codex-team-expansions">有效 frontier 扩展</label>
-                <input id="codex-team-expansions" type="number" min="1" max="96" value="24">
+                <input id="codex-team-expansions" type="number" min="1" max="96" value="8">
               </div>
               <div>
                 <label for="codex-team-attempts">Agent 尝试额度</label>
-                <input id="codex-team-attempts" type="number" min="1" max="288" value="72">
+                <input id="codex-team-attempts" type="number" min="1" max="288" value="12">
               </div>
               <div>
                 <label for="timeout-s">总超时秒</label>
-                <input id="timeout-s" type="number" min="60" max="86400" value="7200">
+                <input id="timeout-s" type="number" min="60" max="86400" value="1800">
               </div>
               <div>
                 <label for="chemenzy-runs">ChemEnzy</label>
-                <input id="chemenzy-runs" type="number" min="0" max="20" value="2">
+                <input id="chemenzy-runs" type="number" min="0" max="20" value="1">
               </div>
               <div>
                 <label for="subgoal-runs">子目标展开</label>
-                <input id="subgoal-runs" type="number" min="0" max="20" value="3">
+                <input id="subgoal-runs" type="number" min="0" max="20" value="2">
+              </div>
+              <div>
+                <label for="research-runs">Codex 来源研究</label>
+                <input id="research-runs" type="number" min="0" max="20" value="1">
               </div>
               <div>
                 <label for="scout-calls">文献检索</label>
-                <input id="scout-calls" type="number" min="0" max="50" value="3">
+                <input id="scout-calls" type="number" min="0" max="50" value="1">
               </div>
               <div>
                 <label for="visual-calls">PDF/视觉</label>
-                <input id="visual-calls" type="number" min="0" max="50" value="3">
+                <input id="visual-calls" type="number" min="0" max="50" value="1">
               </div>
             </div>
           </fieldset>
@@ -175,7 +179,7 @@
 
           <fieldset class="check-row">
             <legend>执行策略</legend>
-            <label><input id="codex-action-planner" type="checkbox" checked> Codex action planner</label>
+            <label><input id="codex-action-planner" type="checkbox"> Codex action planner（可选额外调用）</label>
             <label><input id="codex-agent-team" type="checkbox" checked> Codex direct sub-agent team</label>
             <label><input id="exhaust-round-budget" type="checkbox"> 穷尽本轮可用动作</label>
             <label><input id="auto-local-pdf" type="checkbox"> 允许本地 PDF 自动匹配</label>

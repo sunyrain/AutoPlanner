@@ -1147,12 +1147,13 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
         "ALL BENCHMARK GRAPH",
         "ANY PROCUREMENT ROUTE",
         "ALL PROCUREMENT GRAPH",
-        "L3 PARENT SOLVED",
+        "L3 SELECTED ROUTES",
         "L4 PROCUREMENT",
         "结论 fail-closed",
         "搜索库存叶",
         "benchmark 不等于可采购",
         "交付字节完整性未验证",
+        "benchmark 命中绝不冒充商业采购",
     ):
         assert phrase in script
     assert "deliveryIntegrityStatus === 'verified'" in script

@@ -75,6 +75,8 @@ def project_frontier_ledger(
     required_reaction_proof_level: int = 2,
     trusted_stock_provider_instances: Mapping[str, Any] | None = None,
     campaign_policy_sha256: str = "",
+    campaign_revision: int | None = None,
+    campaign_revision_sha256: str = "",
 ) -> dict[str, Any]:
     """Project graph, queue, and proof records into ``frontier_ledger.v1``.
 
@@ -121,6 +123,19 @@ def project_frontier_ledger(
         "frontier_queue_revision": queue_revision,
         "campaign_policy_sha256": resolved_campaign_policy_sha256,
     }
+    if campaign_revision is not None or campaign_revision_sha256:
+        if (
+            type(campaign_revision) is not int
+            or campaign_revision < 0
+            or not _valid_sha256(campaign_revision_sha256)
+        ):
+            raise ValueError("campaign projection revision binding is invalid")
+        input_bindings.update(
+            {
+                "campaign_revision": campaign_revision,
+                "campaign_revision_sha256": str(campaign_revision_sha256),
+            }
+        )
 
     root = str(graph.get("target_smiles") or "")
     reachable_molecules, reachable_edges = _reachable_hypergraph(graph)
@@ -613,6 +628,20 @@ def _frontier_ledger_input_binding_reasons(
         reasons.append(
             "frontier_ledger_input_binding_invalid:frontier_queue_revision"
         )
+    campaign_revision_present = "campaign_revision" in row
+    campaign_digest_present = "campaign_revision_sha256" in row
+    if campaign_revision_present != campaign_digest_present:
+        reasons.append("frontier_ledger_campaign_revision_binding_incomplete")
+    elif campaign_revision_present:
+        campaign_revision = row.get("campaign_revision")
+        if type(campaign_revision) is not int or campaign_revision < 0:
+            reasons.append(
+                "frontier_ledger_input_binding_invalid:campaign_revision"
+            )
+        if not _valid_sha256(row.get("campaign_revision_sha256")):
+            reasons.append(
+                "frontier_ledger_input_binding_invalid:campaign_revision_sha256"
+            )
     if expected is not None:
         expected_row = dict(expected)
         for field in (
@@ -620,8 +649,12 @@ def _frontier_ledger_input_binding_reasons(
             "frontier_queue_content_sha256",
             "frontier_queue_revision",
             "campaign_policy_sha256",
+            "campaign_revision",
+            "campaign_revision_sha256",
         ):
-            if row.get(field) != expected_row.get(field):
+            if field in row or field in expected_row:
+                if row.get(field) == expected_row.get(field):
+                    continue
                 reasons.append(
                     f"frontier_ledger_input_binding_mismatch:{field}"
                 )

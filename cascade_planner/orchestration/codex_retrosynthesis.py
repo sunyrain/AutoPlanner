@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from collections.abc import Iterable, Mapping
+from copy import deepcopy
 import errno
 from functools import wraps
 import json
 import hashlib
 import os
+import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +30,7 @@ from cascade_planner.application.frontier_scheduler import (
     assess_frontier_completeness,
 )
 from cascade_planner.application.frontier_ledger import (
+    exact_edge_signature,
     project_frontier_ledger,
     validate_frontier_ledger,
 )
@@ -57,6 +60,15 @@ from cascade_planner.routes.graph import (
     route_consensus_frontier_records,
     select_route_consensus_frontier,
     validate_route_consensus_expansion,
+)
+from cascade_planner.application.route_portfolio import (
+    derive_portfolio_bindings,
+    solve_diverse_routes,
+    validate_portfolio_replacements,
+)
+from cascade_planner.application.selected_route_parent_proof import (
+    compile_selected_route_parent_proof,
+    validate_selected_route_parent_proof,
 )
 from cascade_planner.providers.contracts import StockProvider, validate_provider_result
 from cascade_planner.providers.stock import (
@@ -92,12 +104,30 @@ CODEX_RETROSYNTHESIS_ATTEMPT_EVENT_SCHEMA = (
 CODEX_RETROSYNTHESIS_CAMPAIGN_POLICY_SCHEMA = (
     "codex_retrosynthesis_campaign_policy.v1"
 )
+CODEX_RETROSYNTHESIS_STOCK_AUTHORITY_MATERIAL_SCHEMA = (
+    "codex_retrosynthesis_stock_authority_material.v1"
+)
+CODEX_RETROSYNTHESIS_VERIFIER_AUTHORITY_EVENT_SCHEMA = (
+    "codex_retrosynthesis_verifier_authority_event.v1"
+)
+CODEX_RETROSYNTHESIS_VERIFIER_AUTHORITY_SCHEMA = (
+    "codex_retrosynthesis_verifier_authority.v1"
+)
 RETROSYNTHESIS_COORDINATOR_CONTRACT_VERSION = (
     "autoplanner.retrosynthesis_coordinator.v4"
 )
 CHILD_ACCEPTANCE_CONTRACT_VERSION = "autoplanner.child_acceptance.v3"
 CODEX_RETROSYNTHESIS_BUDGET_EVENT_SCHEMA = (
     "codex_retrosynthesis_budget_event.v1"
+)
+CODEX_RETROSYNTHESIS_PROJECTION_BINDING_SCHEMA = (
+    "codex_retrosynthesis_campaign_projection_binding.v1"
+)
+CODEX_RETROSYNTHESIS_PROJECTION_BUNDLE_SCHEMA = (
+    "codex_retrosynthesis_campaign_projection_bundle.v1"
+)
+CODEX_RETROSYNTHESIS_SELECTED_ROUTE_PROJECTION_SCHEMA = (
+    "codex_retrosynthesis_selected_route_parent_proof_projection.v1"
 )
 DEFAULT_CHILD_ROLES = (
     "target_structure_strategist",
@@ -138,6 +168,7 @@ CHILD_CANDIDATE_KEYS = {
     "candidate_id",
     "product_smiles",
     "precursor_smiles",
+    "product_retron_type",
     "reaction_family",
     "transformation_rationale",
     "source_channel",
@@ -220,7 +251,7 @@ class RetrosynthesisTeamConfig:
     timeout_s: float = 900.0
     max_output_bytes: int = 600_000
     max_tool_calls: int = 32
-    reasoning_effort: str = "high"
+    reasoning_effort: str = "low"
     web_search: bool = True
     auth_mode: str = "auto"
     model: str = ""
@@ -543,7 +574,7 @@ precursor_smiles as a list of individual components.
             max_output_bytes=max(20_000, int(config.max_output_bytes)),
             max_tool_calls=max(len(roles) * 3, int(config.max_tool_calls)),
             max_worker_runs=1,
-            reasoning_effort=str(config.reasoning_effort or "high"),
+            reasoning_effort=str(config.reasoning_effort or "low"),
         ),
         objective=objective,
         allowed_workdir=str(Path(allowed_workdir).resolve()),
@@ -648,6 +679,24 @@ def run_codex_retrosynthesis_team(
         "accepted": False,
         "reasons": ["missing_coordinator_output_artifact"],
     }
+    coordinator_artifact_validation_reasons = [
+        str(item) for item in artifact_validation.get("reasons") or []
+    ]
+    coordinator_artifact_advisory_reasons = [
+        reason
+        for reason in coordinator_artifact_validation_reasons
+        if _coordinator_candidate_restatement_reason(reason)
+    ]
+    coordinator_artifact_hard_reasons = [
+        reason
+        for reason in coordinator_artifact_validation_reasons
+        if reason not in coordinator_artifact_advisory_reasons
+    ]
+    team_authority_artifact_validation = {
+        **artifact_validation,
+        "accepted": not coordinator_artifact_hard_reasons,
+        "reasons": coordinator_artifact_hard_reasons,
+    }
     worker_artifact_validation = validate_worker_output(task, artifact)
     payload = dict(artifact.get("payload") or {})
     coordinator_candidates = [dict(row) for row in payload.get("candidates") or [] if isinstance(row, dict)]
@@ -683,7 +732,7 @@ def run_codex_retrosynthesis_team(
         _partial_coordinator_safety_reasons(
             record,
             task=task,
-            artifact_validation=artifact_validation,
+            artifact_validation=team_authority_artifact_validation,
             worker_artifact_validation=worker_artifact_validation,
             runtime_summary=runtime_summary,
         )
@@ -782,8 +831,13 @@ def run_codex_retrosynthesis_team(
     if not partial_fallback_used:
         if record.status != "accepted_draft":
             reasons.append(f"coordinator_status:{record.status}")
-    if not artifact_validation.get("accepted"):
-        reasons.extend(str(item) for item in artifact_validation.get("reasons") or [])
+    reasons.extend(coordinator_artifact_hard_reasons)
+    if not consensus.get("accepted"):
+        # When no independently admitted child consensus survives, retain the
+        # coordinator's candidate-local diagnostics as ordinary failure
+        # reasons.  They become non-authoritative warnings only when there is
+        # a valid child-derived replacement for the audit copy.
+        reasons.extend(coordinator_artifact_advisory_reasons)
     if not worker_artifact_validation.get("accepted"):
         reasons.extend(
             str(item)
@@ -842,6 +896,9 @@ def run_codex_retrosynthesis_team(
         },
         "child_reports": child_reports,
         "artifact_validation": artifact_validation,
+        "coordinator_artifact_advisory_reasons": (
+            coordinator_artifact_advisory_reasons
+        ),
         "worker_artifact_validation": worker_artifact_validation,
         "child_acceptance": {
             "contract_version": CHILD_ACCEPTANCE_CONTRACT_VERSION,
@@ -897,6 +954,7 @@ def run_codex_retrosynthesis_team(
             "child_acceptance_tier": acceptance_tier,
             "partial_fallback_used": partial_fallback_used,
             "candidate_quarantine_is_search_admission_only": True,
+            "coordinator_candidate_restatement_is_audit_only": True,
             "no_solved_claim": True,
         },
     }
@@ -1156,6 +1214,12 @@ def run_codex_retrosynthesis_campaign(
     )
     campaign_identity_sha256 = str(campaign_identity["content_sha256"])
     queue_store = PersistentFrontierQueue(root_output_dir / "frontier_queue")
+    recovered_expired_jobs = queue_store.recover_expired(
+        case_id,
+        retry_base_seconds=max(
+            0.0, float(config.frontier_retry_base_seconds or 0.0)
+        ),
+    )
     queue_store.migrate_legacy_benchmark_stock_authority(case_id)
     _validate_campaign_queue_identity(
         queue_store.list_jobs(case_id),
@@ -1285,6 +1349,7 @@ def run_codex_retrosynthesis_campaign(
         root_output_dir=root_output_dir,
         runs=run_summaries,
         attempt_records=attempt_records,
+        lease_recovered_jobs=recovered_expired_jobs,
     ):
         attempt_records = _load_campaign_attempt_ledger(
             root_output_dir=root_output_dir,
@@ -1925,17 +1990,42 @@ def run_codex_retrosynthesis_campaign(
     }
     terminal_smiles = _campaign_terminal_smiles(graph) or [root_smiles]
     reaction_proof_state_path = root_output_dir / "reaction_proof_state.json"
+    trusted_stock_providers = {
+        provider.descriptor.provider_id: provider
+        for provider in resolved_stock_provider
+    }
+    queue_snapshot = queue_store.snapshot(case_id)
+    campaign_projection_binding = _campaign_projection_binding(
+        root_output_dir=root_output_dir,
+        case_id=case_id,
+        campaign_identity_sha256=campaign_identity_sha256,
+        campaign_policy_sha256=campaign_policy_sha256,
+        campaign_target_smiles=root_smiles,
+        queue_snapshot=queue_snapshot,
+        committed_expansions=expansions,
+        admitted_hyperedge_events=admitted_hyperedge_events,
+    )
+    graph = _bind_campaign_projection(
+        graph,
+        campaign_projection_binding,
+        refresh_content_digest=False,
+    )
+    graph = _project_campaign_portfolio(
+        graph,
+        binding=campaign_projection_binding,
+        reaction_proof_state=reaction_proof_state,
+        edge_verification_reports=config.reaction_proof_reports,
+        stock_provider_results=_queue_stock_provider_results(queue_snapshot),
+        trusted_stock_provider_instances=trusted_stock_providers,
+    )
     reaction_proof_state = _reconcile_reaction_proof_state(
         graph,
         path=reaction_proof_state_path,
         configured_proofs=config.reaction_proofs,
         configured_reports=config.reaction_proof_reports,
+        campaign_projection_binding=campaign_projection_binding,
     )
     open_reaction_proofs = _open_reaction_proof_frontiers(reaction_proof_state)
-    trusted_stock_providers = {
-        provider.descriptor.provider_id: provider
-        for provider in resolved_stock_provider
-    }
     completeness = assess_frontier_completeness(
         terminal_smiles,
         queue_jobs,
@@ -1943,7 +2033,6 @@ def run_codex_retrosynthesis_campaign(
         required_proof_level=2,
         trusted_stock_provider_instances=trusted_stock_providers,
     )
-    queue_snapshot = queue_store.snapshot(case_id)
     frontier_ledger = project_frontier_ledger(
         graph,
         queue_snapshot,
@@ -1951,6 +2040,10 @@ def run_codex_retrosynthesis_campaign(
         required_reaction_proof_level=2,
         trusted_stock_provider_instances=trusted_stock_providers,
         campaign_policy_sha256=campaign_policy_sha256,
+        campaign_revision=int(campaign_projection_binding["campaign_revision"]),
+        campaign_revision_sha256=str(
+            campaign_projection_binding["campaign_revision_sha256"]
+        ),
     )
     frontier_ledger_validation = validate_frontier_ledger(
         frontier_ledger,
@@ -1974,6 +2067,24 @@ def run_codex_retrosynthesis_campaign(
     graph_complete = closure_status["campaign_search_complete"] is True
     frontier_ledger_path = root_output_dir / "frontier_ledger.json"
     _write_json(frontier_ledger_path, frontier_ledger)
+    stock_replay = _project_campaign_stock_replay(
+        queue_snapshot,
+        campaign_projection_binding,
+    )
+    stock_replay_path = root_output_dir / "stock_replay.json"
+    _write_json(stock_replay_path, stock_replay)
+    (
+        campaign_projection_bundle,
+        campaign_projection_bundle_path,
+        campaign_projection_pointer_path,
+    ) = _write_campaign_projection_bundle(
+        root_output_dir=root_output_dir,
+        binding=campaign_projection_binding,
+        graph=graph,
+        proof_state=reaction_proof_state,
+        stock_replay=stock_replay,
+        frontier_ledger=frontier_ledger,
+    )
     if graph_complete:
         stop_reason = "graph_proof_complete"
     graph_path = root_output_dir / "route_consensus_graph.json"
@@ -1987,6 +2098,12 @@ def run_codex_retrosynthesis_campaign(
         "campaign_policy": campaign_policy,
         "campaign_policy_ref": str(campaign_policy_path),
         "campaign_policy_sha256": campaign_policy_sha256,
+        "campaign_projection_binding": campaign_projection_binding,
+        "campaign_projection_bundle": campaign_projection_bundle,
+        "campaign_projection_bundle_ref": str(campaign_projection_bundle_path),
+        "campaign_projection_pointer_ref": str(
+            campaign_projection_pointer_path
+        ),
         "admitted_hyperedge_journal_ref": str(
             admitted_hyperedge_journal_root
         ),
@@ -2030,6 +2147,22 @@ def run_codex_retrosynthesis_campaign(
         "invocation_attempt_run_count": invocation_attempt_run_count,
         "invocation_accepted_expansion_count": invocation_accepted_expansion_count,
         "queue_maintenance_count": queue_maintenance_count,
+        "lease_recovery": {
+            "schema_version": "codex_retrosynthesis_campaign_lease_recovery.v1",
+            "recovered_job_count": len(recovered_expired_jobs),
+            "recovered_jobs": [
+                {
+                    "job_id": row.job_id,
+                    "attempt": row.attempt,
+                    "state": row.state.value,
+                    "failure_reasons": list(row.failure_reasons),
+                    "accepted_expansion_count_delta": 0,
+                }
+                for row in recovered_expired_jobs
+            ],
+            "attempt_numbers_preserved": True,
+            "accepted_expansion_budget_unchanged": True,
+        },
         "unique_frontier_run_count": len(
             {str(row.get("frontier_job_id") or "") for row in run_summaries}
         ),
@@ -2070,6 +2203,8 @@ def run_codex_retrosynthesis_campaign(
         "stock_authority": stock_authority,
         "reaction_proof_state": reaction_proof_state,
         "reaction_proof_state_ref": str(reaction_proof_state_path),
+        "stock_replay": stock_replay,
+        "stock_replay_ref": str(stock_replay_path),
         "runs": run_summaries,
         "recovery_errors": recovery_errors,
         "resumable_at": _next_retry_available_at(queue_jobs),
@@ -2108,6 +2243,10 @@ def run_codex_retrosynthesis_campaign(
     root_report["campaign_identity_ref"] = str(identity_path)
     root_report["campaign_policy_sha256"] = campaign_policy_sha256
     root_report["campaign_policy_ref"] = str(campaign_policy_path)
+    root_report["campaign_projection_binding"] = campaign_projection_binding
+    root_report["campaign_projection_bundle_ref"] = str(
+        campaign_projection_bundle_path
+    )
     root_report["proposal_accepted"] = root_report.get("accepted") is True
     root_report["proof_closed"] = graph_complete
     root_report.update(
@@ -2190,7 +2329,7 @@ def reconcile_codex_campaign_proof_state(
     sync_child_acceptance_mode = _normalize_child_acceptance_mode(
         sync_config.child_acceptance_mode
     )
-    sync_max_depth = max(
+    caller_graph_max_depth = max(
         1,
         int(
             (graph.get("limits") or {}).get("max_depth")
@@ -2202,6 +2341,7 @@ def reconcile_codex_campaign_proof_state(
     resolved_provider: tuple[StockProvider, ...] | None = None
     stock_authority: dict[str, Any] = {}
     if campaign_config is not None or stock_provider is not None or not policy_path.exists():
+        sync_max_depth = caller_graph_max_depth
         resolved_provider, stock_authority = _campaign_stock_provider(
             sync_config,
             stock_provider=stock_provider,
@@ -2229,15 +2369,19 @@ def reconcile_codex_campaign_proof_state(
             target_smiles=target_smiles,
             campaign_identity_sha256=identity_sha256,
         )
-        if int(campaign_policy.get("max_depth") or 0) != sync_max_depth:
-            raise ValueError("proof reconciliation graph depth violates campaign policy")
-        resolved_provider, stock_authority = (
-            _rehydrate_stock_providers_from_campaign_policy(campaign_policy)
+        _ensure_reaction_verifier_authority(
+            root_output_dir,
+            campaign_policy=campaign_policy,
+            current_verifier_version=REACTION_STEP_VERIFIER_VERSION,
         )
-        if (
-            stock_authority.get("rehydration_required") is True
-            and stock_authority.get("available") is not True
-        ):
+        sync_max_depth = max(1, int(campaign_policy.get("max_depth") or 1))
+        resolved_provider, stock_authority = (
+            _rehydrate_stock_providers_from_campaign_policy(
+                campaign_policy,
+                root_output_dir=root_output_dir,
+            )
+        )
+        if stock_authority.get("reasons"):
             raise ValueError(
                 "campaign policy stock provider rehydration failed:"
                 + ",".join(str(item) for item in stock_authority.get("reasons") or [])
@@ -2250,6 +2394,12 @@ def reconcile_codex_campaign_proof_state(
     )
     campaign_policy_sha256 = str(campaign_policy["content_sha256"])
     queue = PersistentFrontierQueue(root_output_dir / "frontier_queue")
+    recovered_expired_jobs = queue.recover_expired(
+        resolved_case_id,
+        retry_base_seconds=max(
+            0.0, float(sync_config.frontier_retry_base_seconds or 0.0)
+        ),
+    )
     queue.migrate_legacy_benchmark_stock_authority(resolved_case_id)
     jobs = queue.list_jobs(resolved_case_id)
     _validate_campaign_queue_identity(
@@ -2276,6 +2426,19 @@ def reconcile_codex_campaign_proof_state(
         expansions=committed_expansions,
         runs=committed_runs,
     )
+    reconciliation_attempt_records = _load_campaign_attempt_ledger(
+        root_output_dir=root_output_dir,
+        case_id=resolved_case_id,
+        campaign_identity_sha256=identity_sha256,
+        campaign_target_smiles=target_smiles,
+        jobs=queue.list_jobs(resolved_case_id),
+    )
+    _close_recovered_campaign_attempts(
+        root_output_dir=root_output_dir,
+        runs=committed_runs,
+        attempt_records=reconciliation_attempt_records,
+        lease_recovered_jobs=recovered_expired_jobs,
+    )
     admitted_hyperedge_journal_root = root_output_dir / "admitted_hyperedges"
     admitted_hyperedge_events = load_external_hyperedge_events(
         admitted_hyperedge_journal_root,
@@ -2296,7 +2459,10 @@ def reconcile_codex_campaign_proof_state(
     )
     admitted_hyperedge_journal = record_external_hyperedges(
         admitted_hyperedge_journal_root,
-        graph,
+        _campaign_depth_bounded_external_graph(
+            graph,
+            max_depth=sync_max_depth,
+        ),
         case_id=resolved_case_id,
         target_smiles=target_smiles,
         campaign_identity_sha256=identity_sha256,
@@ -2324,6 +2490,9 @@ def reconcile_codex_campaign_proof_state(
         *admitted_hyperedge_expansions,
     ]
     caller_graph_summary = _caller_advisory_graph_summary(graph)
+    caller_graph_summary["declared_max_depth"] = caller_graph_max_depth
+    caller_graph_summary["campaign_max_depth"] = sync_max_depth
+    caller_graph_summary["depth_policy_source"] = "immutable_campaign_policy"
     graph = _assemble_canonical_route_consensus_graph(
         canonical_expansions,
         case_id=resolved_case_id,
@@ -2401,6 +2570,7 @@ def reconcile_codex_campaign_proof_state(
             campaign_policy_sha256=campaign_policy_sha256,
             campaign_target_smiles=target_smiles,
             validated_parent_step_ids=validated_parent_step_ids,
+            refresh_existing_stock=False,
         )
         jobs = queue.list_jobs(resolved_case_id)
         _validate_campaign_queue_identity(
@@ -2415,9 +2585,7 @@ def reconcile_codex_campaign_proof_state(
             "after_job_count": len(jobs),
             "added_job_count": added,
         }
-    open_proofs = _open_reaction_proof_frontiers(proof_state)
-    terminals = _campaign_terminal_smiles(graph) or [target_smiles]
-    stock_replay = _audit_supplemental_stock_evidence(
+    supplemental_stock_replay = _audit_supplemental_stock_evidence(
         list(stock_evidence or []),
         jobs=jobs,
     )
@@ -2425,6 +2593,42 @@ def reconcile_codex_campaign_proof_state(
         provider.descriptor.provider_id: provider
         for provider in (resolved_provider or ())
     }
+    queue_snapshot = queue.snapshot(resolved_case_id)
+    campaign_projection_binding = _campaign_projection_binding(
+        root_output_dir=root_output_dir,
+        case_id=resolved_case_id,
+        campaign_identity_sha256=identity_sha256,
+        campaign_policy_sha256=campaign_policy_sha256,
+        campaign_target_smiles=target_smiles,
+        queue_snapshot=queue_snapshot,
+        committed_expansions=committed_expansions,
+        admitted_hyperedge_events=admitted_hyperedge_events,
+    )
+    graph = _bind_campaign_projection(
+        graph,
+        campaign_projection_binding,
+        refresh_content_digest=False,
+    )
+    graph = _project_campaign_portfolio(
+        graph,
+        binding=campaign_projection_binding,
+        reaction_proof_state=proof_state,
+        edge_verification_reports=list(reaction_proof_reports or []),
+        stock_provider_results=_queue_stock_provider_results(
+            queue_snapshot,
+            list(stock_evidence or []),
+        ),
+        trusted_stock_provider_instances=trusted_stock_providers,
+    )
+    proof_state = _reconcile_reaction_proof_state(
+        graph,
+        path=proof_state_path,
+        configured_proofs=dict(reaction_proofs or {}),
+        configured_reports=list(reaction_proof_reports or []),
+        campaign_projection_binding=campaign_projection_binding,
+    )
+    open_proofs = _open_reaction_proof_frontiers(proof_state)
+    terminals = _campaign_terminal_smiles(graph) or [target_smiles]
     completeness = assess_frontier_completeness(
         terminals,
         jobs,
@@ -2432,7 +2636,6 @@ def reconcile_codex_campaign_proof_state(
         required_proof_level=max(0, min(4, int(required_proof_level))),
         trusted_stock_provider_instances=trusted_stock_providers,
     )
-    queue_snapshot = queue.snapshot(resolved_case_id)
     frontier_ledger = project_frontier_ledger(
         graph,
         queue_snapshot,
@@ -2443,6 +2646,10 @@ def reconcile_codex_campaign_proof_state(
         ),
         trusted_stock_provider_instances=trusted_stock_providers,
         campaign_policy_sha256=campaign_policy_sha256,
+        campaign_revision=int(campaign_projection_binding["campaign_revision"]),
+        campaign_revision_sha256=str(
+            campaign_projection_binding["campaign_revision_sha256"]
+        ),
     )
     frontier_ledger_validation = validate_frontier_ledger(
         frontier_ledger,
@@ -2466,6 +2673,25 @@ def reconcile_codex_campaign_proof_state(
     graph_complete = closure_status["campaign_search_complete"] is True
     frontier_ledger_path = root_output_dir / "frontier_ledger.json"
     _write_json(frontier_ledger_path, frontier_ledger)
+    campaign_stock_replay = _project_campaign_stock_replay(
+        queue_snapshot,
+        campaign_projection_binding,
+    )
+    campaign_stock_replay_path = root_output_dir / "stock_replay.json"
+    _write_json(campaign_stock_replay_path, campaign_stock_replay)
+    (
+        campaign_projection_bundle,
+        campaign_projection_bundle_path,
+        campaign_projection_pointer_path,
+    ) = _write_campaign_projection_bundle(
+        root_output_dir=root_output_dir,
+        binding=campaign_projection_binding,
+        graph=graph,
+        proof_state=proof_state,
+        stock_replay=campaign_stock_replay,
+        frontier_ledger=frontier_ledger,
+    )
+    _write_json(root_output_dir / "route_consensus_graph.json", graph)
     queue_state_counts = {
         state.value: sum(1 for row in jobs if row.state == state)
         for state in FrontierJobState
@@ -2487,6 +2713,12 @@ def reconcile_codex_campaign_proof_state(
         "campaign_identity_sha256": identity_sha256,
         "campaign_policy_sha256": campaign_policy_sha256,
         "campaign_policy_ref": str(policy_path),
+        "campaign_projection_binding": campaign_projection_binding,
+        "campaign_projection_bundle": campaign_projection_bundle,
+        "campaign_projection_bundle_ref": str(campaign_projection_bundle_path),
+        "campaign_projection_pointer_ref": str(
+            campaign_projection_pointer_path
+        ),
         "admitted_hyperedge_journal": admitted_hyperedge_journal,
         "admitted_hyperedge_journal_ref": str(
             admitted_hyperedge_journal_root
@@ -2494,11 +2726,29 @@ def reconcile_codex_campaign_proof_state(
         "canonical_route_consensus_graph": graph,
         "caller_advisory_graph": caller_graph_summary,
         "journal_commit_recovery_errors": journal_commit_recovery_errors,
+        "lease_recovery": {
+            "schema_version": "codex_retrosynthesis_campaign_lease_recovery.v1",
+            "recovered_job_count": len(recovered_expired_jobs),
+            "recovered_jobs": [
+                {
+                    "job_id": row.job_id,
+                    "attempt": row.attempt,
+                    "state": row.state.value,
+                    "failure_reasons": list(row.failure_reasons),
+                    "accepted_expansion_count_delta": 0,
+                }
+                for row in recovered_expired_jobs
+            ],
+            "attempt_numbers_preserved": True,
+            "accepted_expansion_budget_unchanged": True,
+        },
         **closure_status,
         "reaction_proof_state": proof_state,
         "reaction_proof_state_ref": str(proof_state_path),
         "open_reaction_proofs": open_proofs,
-        "stock_evidence_replay": stock_replay,
+        "stock_evidence_replay": supplemental_stock_replay,
+        "campaign_stock_replay": campaign_stock_replay,
+        "campaign_stock_replay_ref": str(campaign_stock_replay_path),
         "frontier_sync": frontier_sync,
         "frontier_queue": queue_snapshot,
         "queue_state_counts": queue_state_counts,
@@ -2552,6 +2802,52 @@ def _canonical_reconciliation_count_summary(
     }
 
 
+def _campaign_depth_bounded_external_graph(
+    graph: Mapping[str, Any],
+    *,
+    max_depth: int,
+) -> dict[str, Any]:
+    """Project caller edges to the immutable campaign depth boundary."""
+
+    bounded = deepcopy(dict(graph))
+    node_depths = {
+        str(row.get("node_id") or ""): max(0, int(row.get("min_depth") or 0))
+        for row in graph.get("nodes") or []
+        if isinstance(row, Mapping) and str(row.get("node_id") or "")
+    }
+    retained_steps: list[dict[str, Any]] = []
+    omitted_signatures: list[str] = []
+    for raw in graph.get("steps") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        step = dict(raw)
+        product_node_id = str(step.get("product_node_id") or "")
+        product_depth = node_depths.get(product_node_id)
+        if product_depth is None or product_depth >= max(1, int(max_depth)):
+            signature = exact_edge_signature(
+                step.get("product_smiles"),
+                step.get("precursor_smiles") or [],
+            )
+            if signature:
+                omitted_signatures.append(signature)
+            continue
+        retained_steps.append(step)
+    bounded["steps"] = retained_steps
+    bounded["limits"] = {
+        **dict(bounded.get("limits") or {}),
+        "max_depth": max(1, int(max_depth)),
+    }
+    bounded["external_admission_depth_filter"] = {
+        "schema_version": "campaign_external_admission_depth_filter.v1",
+        "campaign_max_depth": max(1, int(max_depth)),
+        "retained_step_count": len(retained_steps),
+        "omitted_step_count": len(omitted_signatures),
+        "omitted_exact_edge_signatures": sorted(omitted_signatures),
+        "caller_graph_remains_advisory": True,
+    }
+    return bounded
+
+
 def _caller_advisory_graph_summary(graph: Mapping[str, Any]) -> dict[str, Any]:
     exact_signatures = sorted(graph_exact_edge_signatures(graph))
     payload = {
@@ -2571,6 +2867,627 @@ def _caller_advisory_graph_summary(graph: Mapping[str, Any]) -> dict[str, Any]:
     }
     payload["content_sha256"] = _payload_digest(payload)
     return payload
+
+
+def _campaign_projection_binding(
+    *,
+    root_output_dir: Path,
+    case_id: str,
+    campaign_identity_sha256: str,
+    campaign_policy_sha256: str,
+    campaign_target_smiles: str,
+    queue_snapshot: Mapping[str, Any],
+    committed_expansions: Iterable[Mapping[str, Any]],
+    admitted_hyperedge_events: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Bind every derived campaign view to one queue/commit revision.
+
+    The queue revision is the monotonic campaign revision.  Its digest alone
+    does not identify accepted chemistry, so the revision digest also commits
+    to every queue-fenced expansion commit and externally admitted hyperedge.
+    Mutable compatibility projections are deliberately excluded.
+    """
+
+    try:
+        queue_revision = int(queue_snapshot.get("revision"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("campaign projection queue revision is invalid") from exc
+    queue_sha256 = str(queue_snapshot.get("content_sha256") or "")
+    if queue_revision < 0 or not _valid_sha256(queue_sha256):
+        raise ValueError("campaign projection queue binding is invalid")
+    expansion_ids = sorted(
+        {
+            str(row.get("expansion_id") or "")
+            for row in committed_expansions
+            if isinstance(row, Mapping) and str(row.get("expansion_id") or "")
+        }
+    )
+    commit_rows: list[dict[str, Any]] = []
+    for raw_job in queue_snapshot.get("jobs") or []:
+        if not isinstance(raw_job, Mapping):
+            continue
+        job = dict(raw_job)
+        if (
+            job.get("state") != FrontierJobState.SUCCEEDED.value
+            or job.get("closure_kind") != "proposal_expansion"
+        ):
+            continue
+        result_ref = str(job.get("result_ref") or "")
+        commit_path = Path(result_ref).expanduser()
+        commit_path = (
+            commit_path.resolve()
+            if commit_path.is_absolute()
+            else (root_output_dir / commit_path).resolve()
+        )
+        try:
+            commit_path.relative_to((root_output_dir / "campaign_commits").resolve())
+        except ValueError as exc:
+            raise ValueError("campaign projection commit is outside authority root") from exc
+        commit = _read_json_strict(commit_path, label="campaign projection commit")
+        digest_payload = dict(commit)
+        commit_sha256 = str(digest_payload.pop("content_sha256", ""))
+        if (
+            commit.get("schema_version")
+            != CODEX_RETROSYNTHESIS_EXPANSION_COMMIT_SCHEMA
+            or not _valid_sha256(commit_sha256)
+            or commit_sha256 != _payload_digest(digest_payload)
+        ):
+            raise ValueError("campaign projection commit digest is invalid")
+        commit_rows.append(
+            {
+                "job_id": str(job.get("job_id") or ""),
+                "attempt": int(job.get("attempt") or 0),
+                "commit_sha256": commit_sha256,
+            }
+        )
+    commit_rows.sort(key=lambda row: (row["job_id"], row["attempt"], row["commit_sha256"]))
+    event_rows = sorted(
+        (
+            {
+                "event_id": str(row.get("event_id") or ""),
+                "content_sha256": str(row.get("content_sha256") or ""),
+            }
+            for row in admitted_hyperedge_events
+            if isinstance(row, Mapping)
+        ),
+        key=lambda row: (row["event_id"], row["content_sha256"]),
+    )
+    if any(
+        not row["event_id"] or not _valid_sha256(row["content_sha256"])
+        for row in event_rows
+    ):
+        raise ValueError("campaign projection external event binding is invalid")
+    source = {
+        "schema_version": "codex_retrosynthesis_campaign_revision_source.v1",
+        "case_id": str(case_id),
+        "canonical_target_smiles": _canonical_target_smiles(campaign_target_smiles),
+        "campaign_identity_sha256": str(campaign_identity_sha256),
+        "campaign_policy_sha256": str(campaign_policy_sha256),
+        "frontier_queue_revision": queue_revision,
+        "frontier_queue_content_sha256": queue_sha256,
+        "accepted_commit_count": len(commit_rows),
+        "accepted_commits": commit_rows,
+        "accepted_expansion_ids": expansion_ids,
+        "admitted_hyperedge_events": event_rows,
+    }
+    revision_sha256 = _payload_digest(source)
+    return {
+        "schema_version": CODEX_RETROSYNTHESIS_PROJECTION_BINDING_SCHEMA,
+        "campaign_revision": queue_revision,
+        "campaign_revision_sha256": revision_sha256,
+        "campaign_identity_sha256": str(campaign_identity_sha256),
+        "campaign_policy_sha256": str(campaign_policy_sha256),
+        "frontier_queue_revision": queue_revision,
+        "frontier_queue_content_sha256": queue_sha256,
+        "accepted_commit_count": len(commit_rows),
+        "accepted_expansion_count": len(expansion_ids),
+        "admitted_hyperedge_event_count": len(event_rows),
+        "revision_source": source,
+    }
+
+
+def _bind_campaign_projection(
+    value: Mapping[str, Any],
+    binding: Mapping[str, Any],
+    *,
+    refresh_content_digest: bool,
+) -> dict[str, Any]:
+    row = json.loads(json.dumps(dict(value), ensure_ascii=False, allow_nan=False))
+    row["campaign_projection_binding"] = dict(binding)
+    if refresh_content_digest:
+        row.pop("content_sha256", None)
+        row["content_sha256"] = _payload_digest(row)
+    return row
+
+
+def _queue_stock_provider_results(
+    queue_snapshot: Mapping[str, Any],
+    supplemental: Iterable[Mapping[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    candidates: list[Mapping[str, Any]] = [
+        row for row in supplemental if isinstance(row, Mapping)
+    ]
+    for raw_job in queue_snapshot.get("jobs") or []:
+        if not isinstance(raw_job, Mapping):
+            continue
+        observations = dict(
+            dict(raw_job.get("metadata") or {}).get("stock_observations") or {}
+        )
+        for raw_observation in observations.get("current") or []:
+            if not isinstance(raw_observation, Mapping):
+                continue
+            provider_result = raw_observation.get("provider_result")
+            if isinstance(provider_result, Mapping):
+                candidates.append(provider_result)
+    for raw in candidates:
+        row = dict(raw)
+        rows.setdefault(_payload_digest(row), row)
+    return [rows[key] for key in sorted(rows)]
+
+
+def _project_campaign_stock_replay(
+    queue_snapshot: Mapping[str, Any],
+    binding: Mapping[str, Any],
+) -> dict[str, Any]:
+    observations: list[dict[str, Any]] = []
+    for raw_job in queue_snapshot.get("jobs") or []:
+        if not isinstance(raw_job, Mapping):
+            continue
+        metadata = dict(raw_job.get("metadata") or {})
+        state = metadata.get("stock_observations")
+        if not isinstance(state, Mapping):
+            continue
+        observations.append(
+            {
+                "job_id": str(raw_job.get("job_id") or ""),
+                "frontier_smiles": str(raw_job.get("frontier_smiles") or ""),
+                "stock_observations": dict(state),
+            }
+        )
+    observations.sort(key=lambda row: (row["frontier_smiles"], row["job_id"]))
+    payload = {
+        "schema_version": "codex_retrosynthesis_campaign_stock_replay.v1",
+        "campaign_projection_binding": dict(binding),
+        "frontier_queue_revision": int(queue_snapshot.get("revision") or 0),
+        "frontier_queue_content_sha256": str(
+            queue_snapshot.get("content_sha256") or ""
+        ),
+        "observations": observations,
+        "observation_job_count": len(observations),
+        "semantics": {
+            "queue_observations_are_replayed_by_current_host_ledger": True,
+            "stock_projection_cannot_outlive_queue_revision": True,
+        },
+    }
+    payload["content_sha256"] = _payload_digest(payload)
+    return payload
+
+
+def _project_campaign_portfolio(
+    graph: Mapping[str, Any],
+    *,
+    binding: Mapping[str, Any],
+    reaction_proof_state: Mapping[str, Any],
+    edge_verification_reports: Iterable[Mapping[str, Any]],
+    stock_provider_results: Iterable[Mapping[str, Any]],
+    trusted_stock_provider_instances: Mapping[str, Any],
+) -> dict[str, Any]:
+    projected_graph = dict(graph)
+    overlay = dict(projected_graph.get("v2_overlay") or {})
+    reports = [
+        dict(row) for row in edge_verification_reports if isinstance(row, Mapping)
+    ]
+    stock_results = [
+        dict(row) for row in stock_provider_results if isinstance(row, Mapping)
+    ]
+    bindings = derive_portfolio_bindings(
+        overlay,
+        {},
+        supplemental_edge_verification_reports=reports,
+        supplemental_reaction_validations=(
+            _supplemental_reaction_validations_from_proof_state(
+                reaction_proof_state
+            )
+        ),
+        supplemental_stock_provider_results=stock_results,
+        trusted_stock_provider_instances=trusted_stock_provider_instances,
+    )
+    portfolio = solve_diverse_routes(
+        overlay,
+        stock_molecule_ids=bindings["stock_molecule_ids"],
+        edge_proof_levels=bindings["edge_proof_levels"],
+        stock_bindings=bindings["stock_bindings"],
+        top_k=5,
+    ).to_dict()
+    projected_graph["route_portfolio"] = portfolio
+    projected_graph["route_portfolio_bindings"] = bindings
+    projected_graph["route_replacement_catalog"] = validate_portfolio_replacements(
+        overlay,
+        portfolio=portfolio,
+        stock_molecule_ids=bindings["stock_molecule_ids"],
+        edge_proof_levels=bindings["edge_proof_levels"],
+        stock_bindings=bindings["stock_bindings"],
+    )
+    projected_graph["route_portfolio_campaign_projection_binding"] = dict(binding)
+    return projected_graph
+
+
+def _supplemental_reaction_validations_from_proof_state(
+    proof_state: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Convert the campaign proof cache into independently replayable inputs.
+
+    Record status, achieved level, and producer proof are ignored.  Each
+    materialized candidate is re-run by the current verifier, wrapped in the
+    same strict protocol used by the edge verifier, and replayed once more by
+    ``derive_portfolio_bindings`` before it can bind a hyperedge.
+    """
+
+    state = dict(proof_state or {})
+    digest_payload = dict(state)
+    recorded_digest = str(digest_payload.pop("content_sha256", ""))
+    if (
+        state.get("schema_version")
+        != CODEX_RETROSYNTHESIS_REACTION_PROOF_STATE_SCHEMA
+        or not recorded_digest
+        or recorded_digest != _payload_digest(digest_payload)
+    ):
+        return []
+    wrappers_by_digest: dict[str, dict[str, Any]] = {}
+    for raw_record in state.get("records") or []:
+        if not isinstance(raw_record, Mapping):
+            continue
+        candidate_raw = raw_record.get("materialized_candidate")
+        if not isinstance(candidate_raw, Mapping):
+            continue
+        candidate = dict(candidate_raw)
+        reaction_smiles = str(candidate.get("reaction_smiles") or "")
+        mapped_reaction = str(
+            candidate.get("atom_mapped_reaction_smiles")
+            or candidate.get("mapped_reaction_smiles")
+            or ""
+        )
+        mapping_source = str(candidate.get("mapping_source") or "")
+        if not reaction_smiles or not mapped_reaction or not mapping_source:
+            continue
+        step_proof = verify_reaction_step(
+            candidate,
+            graph_and_stock_closed=False,
+        )
+        route_validation = verify_reaction_route(
+            [candidate],
+            graph_and_stock_closed=False,
+        )
+        if step_proof.get("accepted") is not True or route_validation.get(
+            "accepted"
+        ) is not True:
+            continue
+        wrapper = {
+            "schema_version": "supplemental_reaction_validation.v2",
+            "materialized_candidate": candidate,
+            "mapper_output": {
+                "schema_version": "atom_mapper_output.v1",
+                "input_reaction_smiles": reaction_smiles,
+                "mapped_reaction_smiles": mapped_reaction,
+                "mapping_source": mapping_source,
+            },
+            "claimed_step_proof": step_proof,
+            "claimed_route_validation": route_validation,
+            "stock_authority_disabled_for_replay": True,
+            "no_solved_claim": True,
+        }
+        wrapper["content_sha256"] = _payload_digest(wrapper)
+        wrappers_by_digest.setdefault(
+            str(wrapper["content_sha256"]),
+            wrapper,
+        )
+    return [wrappers_by_digest[key] for key in sorted(wrappers_by_digest)]
+
+
+def validate_codex_campaign_projection_bundle(value: Any) -> list[str]:
+    if not isinstance(value, Mapping):
+        return ["campaign_projection_bundle_not_object"]
+    row = dict(value)
+    reasons: list[str] = []
+    digest_payload = dict(row)
+    supplied_digest = str(digest_payload.pop("content_sha256", ""))
+    if (
+        row.get("schema_version") != CODEX_RETROSYNTHESIS_PROJECTION_BUNDLE_SCHEMA
+    ):
+        reasons.append("invalid_campaign_projection_bundle_schema")
+    if not supplied_digest or supplied_digest != _payload_digest(digest_payload):
+        reasons.append("campaign_projection_bundle_content_digest_invalid")
+    binding = dict(row.get("campaign_projection_binding") or {})
+    revision_source = binding.get("revision_source")
+    if (
+        binding.get("schema_version")
+        != CODEX_RETROSYNTHESIS_PROJECTION_BINDING_SCHEMA
+        or type(binding.get("campaign_revision")) is not int
+        or int(binding.get("campaign_revision") or 0) < 0
+        or not _valid_sha256(binding.get("campaign_revision_sha256"))
+    ):
+        reasons.append("campaign_projection_binding_invalid")
+    if (
+        not isinstance(revision_source, Mapping)
+        or _payload_digest(dict(revision_source))
+        != binding.get("campaign_revision_sha256")
+    ):
+        reasons.append("campaign_projection_revision_source_digest_invalid")
+    elif (
+        binding.get("campaign_revision")
+        != binding.get("frontier_queue_revision")
+        or
+        revision_source.get("frontier_queue_revision")
+        != binding.get("frontier_queue_revision")
+        or revision_source.get("frontier_queue_content_sha256")
+        != binding.get("frontier_queue_content_sha256")
+        or revision_source.get("campaign_identity_sha256")
+        != binding.get("campaign_identity_sha256")
+        or revision_source.get("campaign_policy_sha256")
+        != binding.get("campaign_policy_sha256")
+        or int(revision_source.get("accepted_commit_count") or 0)
+        != int(binding.get("accepted_commit_count") or 0)
+        or len(revision_source.get("accepted_expansion_ids") or [])
+        != int(binding.get("accepted_expansion_count") or 0)
+    ):
+        reasons.append("campaign_projection_revision_source_binding_mismatch")
+    components = dict(row.get("components") or {})
+    component_digests = dict(row.get("component_sha256") or {})
+    required = {
+        "canonical_route_consensus_graph",
+        "edge_verification",
+        "stock_replay",
+        "frontier_ledger",
+        "route_portfolio",
+    }
+    checked_components = set(required)
+    if "selected_route_parent_proof" in components:
+        checked_components.add("selected_route_parent_proof")
+    for key in sorted(checked_components):
+        component = components.get(key)
+        if not isinstance(component, Mapping):
+            reasons.append(f"campaign_projection_component_missing:{key}")
+            continue
+        if component_digests.get(key) != _payload_digest(dict(component)):
+            reasons.append(f"campaign_projection_component_digest_mismatch:{key}")
+    for key in (
+        "canonical_route_consensus_graph",
+        "edge_verification",
+        "stock_replay",
+    ):
+        component = components.get(key)
+        if isinstance(component, Mapping) and dict(
+            component.get("campaign_projection_binding") or {}
+        ) != binding:
+            reasons.append(f"campaign_projection_component_revision_mismatch:{key}")
+    portfolio = components.get("route_portfolio")
+    if isinstance(portfolio, Mapping) and dict(
+        portfolio.get("campaign_projection_binding") or {}
+    ) != binding:
+        reasons.append("campaign_projection_component_revision_mismatch:route_portfolio")
+    ledger = components.get("frontier_ledger")
+    if isinstance(ledger, Mapping):
+        ledger_bindings = dict(ledger.get("input_bindings") or {})
+        if (
+            ledger_bindings.get("campaign_revision")
+            != binding.get("campaign_revision")
+            or ledger_bindings.get("campaign_revision_sha256")
+            != binding.get("campaign_revision_sha256")
+            or ledger_bindings.get("frontier_queue_revision")
+            != binding.get("frontier_queue_revision")
+            or ledger_bindings.get("frontier_queue_content_sha256")
+            != binding.get("frontier_queue_content_sha256")
+        ):
+            reasons.append("campaign_projection_component_revision_mismatch:frontier_ledger")
+        reasons.extend(validate_frontier_ledger(ledger))
+    selected_route_projection = components.get("selected_route_parent_proof")
+    if isinstance(selected_route_projection, Mapping):
+        selected_projection = dict(selected_route_projection)
+        if (
+            selected_projection.get("schema_version")
+            != CODEX_RETROSYNTHESIS_SELECTED_ROUTE_PROJECTION_SCHEMA
+        ):
+            reasons.append("invalid_selected_route_parent_proof_projection_schema")
+        if dict(selected_projection.get("campaign_projection_binding") or {}) != binding:
+            reasons.append(
+                "campaign_projection_component_revision_mismatch:selected_route_parent_proof"
+            )
+        graph_component = components.get("canonical_route_consensus_graph")
+        portfolio_component = components.get("route_portfolio")
+        if (
+            isinstance(graph_component, Mapping)
+            and isinstance(portfolio_component, Mapping)
+            and isinstance(ledger, Mapping)
+        ):
+            try:
+                expected_selected_projection = (
+                    _build_selected_route_parent_proof_projection(
+                        graph=graph_component,
+                        binding=binding,
+                        frontier_ledger=ledger,
+                    )
+                )
+            except (TypeError, ValueError) as exc:
+                reasons.append(
+                    "selected_route_parent_proof_projection_recompile_failed:"
+                    f"{type(exc).__name__}:{exc}"
+                )
+            else:
+                if selected_projection != expected_selected_projection:
+                    reasons.append(
+                        "selected_route_parent_proof_projection_full_recompile_mismatch"
+                    )
+    return sorted(set(reasons))
+
+
+def _verified_artifact_content_sha256(
+    value: Mapping[str, Any],
+    *,
+    label: str,
+    require_supplied: bool,
+) -> str:
+    row = dict(value or {})
+    supplied = str(row.pop("content_sha256", ""))
+    computed = _payload_digest(row)
+    if supplied and (not _valid_sha256(supplied) or supplied != computed):
+        raise ValueError(f"{label} content digest is invalid")
+    if require_supplied and not supplied:
+        raise ValueError(f"{label} content digest is missing")
+    return supplied or computed
+
+
+def _build_selected_route_parent_proof_projection(
+    *,
+    graph: Mapping[str, Any],
+    binding: Mapping[str, Any],
+    frontier_ledger: Mapping[str, Any],
+) -> dict[str, Any]:
+    overlay = dict(graph.get("v2_overlay") or {})
+    portfolio_bindings = dict(graph.get("route_portfolio_bindings") or {})
+    overlay_sha256 = _verified_artifact_content_sha256(
+        overlay,
+        label="route hypergraph overlay",
+        require_supplied=False,
+    )
+    bindings_sha256 = _verified_artifact_content_sha256(
+        portfolio_bindings,
+        label="route portfolio bindings",
+        require_supplied=True,
+    )
+    ledger_sha256 = _verified_artifact_content_sha256(
+        frontier_ledger,
+        label="frontier ledger",
+        require_supplied=True,
+    )
+    revision = binding.get("campaign_revision")
+    if type(revision) is not int or revision < 0:
+        raise ValueError("campaign revision is invalid for selected-route proof")
+    revision_source = dict(binding.get("revision_source") or {})
+    compiler_campaign_binding = {
+        "schema_version": "selected_route_campaign_binding.v1",
+        "campaign_id": str(
+            revision_source.get("case_id")
+            or graph.get("case_id")
+            or ""
+        ),
+        "revision": revision,
+        "campaign_revision_sha256": str(
+            binding.get("campaign_revision_sha256") or ""
+        ),
+        "route_hypergraph_overlay_sha256": overlay_sha256,
+        "route_portfolio_bindings_sha256": bindings_sha256,
+        "frontier_ledger_content_sha256": ledger_sha256,
+    }
+    compiler_campaign_binding["content_sha256"] = _payload_digest(
+        compiler_campaign_binding
+    )
+    compile_options = {
+        "expected_overlay_sha256": overlay_sha256,
+        "expected_bindings_sha256": bindings_sha256,
+        "campaign_binding": compiler_campaign_binding,
+        "frontier_ledger": dict(frontier_ledger),
+        "expected_campaign_revision": revision,
+    }
+    proof = compile_selected_route_parent_proof(
+        overlay,
+        portfolio_bindings,
+        **compile_options,
+    )
+    proof_reasons = validate_selected_route_parent_proof(
+        proof,
+        overlay,
+        portfolio_bindings,
+        **compile_options,
+    )
+    if proof_reasons:
+        raise ValueError(
+            "selected-route parent proof failed deterministic validation:"
+            + ",".join(proof_reasons)
+        )
+    projection = {
+        "schema_version": CODEX_RETROSYNTHESIS_SELECTED_ROUTE_PROJECTION_SCHEMA,
+        "campaign_projection_binding": dict(binding),
+        "selected_route_campaign_binding": compiler_campaign_binding,
+        "proof": proof,
+        "semantics": {
+            "minimum_distinct_complete_routes": 2,
+            "minimum_edge_proof_level": "L3_precedent_supported",
+            "benchmark_and_procurement_are_separate": True,
+            "producer_completion_flags_are_ignored": True,
+        },
+    }
+    projection["content_sha256"] = _payload_digest(projection)
+    return projection
+
+
+def _write_campaign_projection_bundle(
+    *,
+    root_output_dir: Path,
+    binding: Mapping[str, Any],
+    graph: Mapping[str, Any],
+    proof_state: Mapping[str, Any],
+    stock_replay: Mapping[str, Any],
+    frontier_ledger: Mapping[str, Any],
+) -> tuple[dict[str, Any], Path, Path]:
+    portfolio_component = {
+        "schema_version": "codex_retrosynthesis_campaign_portfolio_projection.v1",
+        "campaign_projection_binding": dict(binding),
+        "route_portfolio": dict(graph.get("route_portfolio") or {}),
+        "route_portfolio_bindings": dict(
+            graph.get("route_portfolio_bindings") or {}
+        ),
+        "route_replacement_catalog": dict(
+            graph.get("route_replacement_catalog") or {}
+        ),
+    }
+    portfolio_component["content_sha256"] = _payload_digest(portfolio_component)
+    selected_route_projection = _build_selected_route_parent_proof_projection(
+        graph=graph,
+        binding=binding,
+        frontier_ledger=frontier_ledger,
+    )
+    components = {
+        "canonical_route_consensus_graph": dict(graph),
+        "edge_verification": dict(proof_state),
+        "stock_replay": dict(stock_replay),
+        "frontier_ledger": dict(frontier_ledger),
+        "route_portfolio": portfolio_component,
+        "selected_route_parent_proof": selected_route_projection,
+    }
+    payload = {
+        "schema_version": CODEX_RETROSYNTHESIS_PROJECTION_BUNDLE_SCHEMA,
+        "accepted": True,
+        "campaign_projection_binding": dict(binding),
+        "components": components,
+        "component_sha256": {
+            key: _payload_digest(value) for key, value in components.items()
+        },
+        "semantics": {
+            "single_campaign_revision_for_all_authority_components": True,
+            "fixed_name_views_are_compatibility_projections": True,
+            "revision_mismatch_fails_closed": True,
+            "selected_route_parent_proof_is_full_recompile": True,
+            "benchmark_and_procurement_closure_are_separate": True,
+        },
+    }
+    payload["content_sha256"] = _payload_digest(payload)
+    reasons = validate_codex_campaign_projection_bundle(payload)
+    if reasons:
+        raise ValueError("campaign projection bundle validation failed:" + ",".join(reasons))
+    projection_root = root_output_dir / "campaign_projections"
+    object_path = projection_root / "objects" / f"{payload['content_sha256']}.json"
+    _write_immutable_json(object_path, payload)
+    pointer_path = projection_root / "latest.json"
+    pointer = {
+        "schema_version": "codex_retrosynthesis_campaign_projection_pointer.v1",
+        "campaign_projection_binding": dict(binding),
+        "bundle_content_sha256": str(payload["content_sha256"]),
+        "bundle_ref": str(object_path),
+    }
+    pointer["content_sha256"] = _payload_digest(pointer)
+    _write_json(pointer_path, pointer)
+    return payload, object_path, pointer_path
 
 
 def _assemble_canonical_route_consensus_graph(
@@ -2744,19 +3661,14 @@ def migrate_legacy_campaign_commits(
 
 
 def _stock_request(config: RetrosynthesisTeamConfig, canonical_smiles: str) -> dict[str, Any]:
-    raw: dict[str, Any] = {}
-    for key, value in (config.stock_snapshots or {}).items():
-        if _canonical_target_smiles(key) == canonical_smiles and isinstance(value, dict):
-            raw = dict(value)
-            break
-    if not raw:
+    offers = [
+        row
+        for row in _configured_stock_snapshot_rows(config)[0]
+        if _canonical_target_smiles(str(row.get("canonical_smiles") or ""))
+        == canonical_smiles
+    ]
+    if not offers:
         return {}
-    if raw.get("schema_version") == "stock_offer_snapshot.v1" or (
-        "supplier" in raw and "catalog_number" in raw and "available" in raw
-    ):
-        offers = [raw]
-    else:
-        offers = [dict(row) for row in raw.get("offers") or [] if isinstance(row, dict)]
     normalized_offers: list[dict[str, Any]] = []
     for offer in offers:
         row = dict(offer)
@@ -2770,6 +3682,65 @@ def _stock_request(config: RetrosynthesisTeamConfig, canonical_smiles: str) -> d
         "schema_version": "stock_lookup_request.v1",
         "offers": normalized_offers,
     }
+
+
+def _configured_stock_snapshot_rows(
+    config: RetrosynthesisTeamConfig,
+) -> tuple[list[dict[str, Any]], int]:
+    """Normalize both molecule-keyed and digest-keyed snapshot maps.
+
+    The Python campaign API historically accepted ``{SMILES: snapshot}``,
+    while the CLI integrity loader returns ``{snapshot_sha256: snapshot}`` so
+    two offers for the same molecule cannot overwrite one another.  Campaign
+    authority must derive molecular identity from the signed row in either
+    form; a valid SMILES key remains an additional consistency check.
+    """
+
+    rows: list[dict[str, Any]] = []
+    invalid_count = 0
+    observed_digests: set[str] = set()
+    for key, value in (config.stock_snapshots or {}).items():
+        if not isinstance(value, dict):
+            invalid_count += 1
+            continue
+        raw = dict(value)
+        if raw.get("schema_version") == "stock_offer_snapshot.v1" or (
+            "supplier" in raw and "catalog_number" in raw and "available" in raw
+        ):
+            candidates = [raw]
+        else:
+            candidates = [
+                dict(row)
+                for row in raw.get("offers") or []
+                if isinstance(row, dict)
+            ]
+            if not candidates:
+                invalid_count += 1
+                continue
+        key_canonical = _canonical_target_smiles(str(key or ""))
+        for candidate in candidates:
+            row_canonical = _canonical_target_smiles(
+                str(candidate.get("canonical_smiles") or "")
+            )
+            if not row_canonical:
+                if not key_canonical:
+                    invalid_count += 1
+                    continue
+                candidate["canonical_smiles"] = key_canonical
+                row_canonical = key_canonical
+            elif key_canonical and key_canonical != row_canonical:
+                invalid_count += 1
+                continue
+            try:
+                digest = stock_snapshot_sha256(candidate)
+            except (TypeError, ValueError):
+                invalid_count += 1
+                continue
+            if digest in observed_digests:
+                continue
+            observed_digests.add(digest)
+            rows.append(candidate)
+    return rows, invalid_count
 
 
 def _campaign_stock_provider(
@@ -2814,26 +3785,7 @@ def _campaign_stock_provider(
             "catalog_name": benchmark_provider.catalog_name,
         }
 
-    trusted: list[dict[str, Any]] = []
-    invalid_count = 0
-    for key in (config.stock_snapshots or {}):
-        canonical = _canonical_target_smiles(key)
-        if not canonical:
-            invalid_count += 1
-            continue
-        request = _stock_request(config, canonical)
-        for row in request.get("offers") or []:
-            if not isinstance(row, dict):
-                invalid_count += 1
-                continue
-            try:
-                # Construction-time loading is the authority boundary; the
-                # provider recomputes and verifies the digest again.
-                stock_snapshot_sha256(row)
-            except (TypeError, ValueError):
-                invalid_count += 1
-                continue
-            trusted.append(dict(row))
+    trusted, invalid_count = _configured_stock_snapshot_rows(config)
     snapshot_provider = SnapshotStockProvider(trusted_snapshots=trusted)
     if trusted or not providers:
         providers.append(snapshot_provider)
@@ -2869,43 +3821,63 @@ def _campaign_stock_provider(
 
 def _rehydrate_stock_providers_from_campaign_policy(
     campaign_policy: dict[str, Any],
+    *,
+    root_output_dir: Path,
 ) -> tuple[tuple[StockProvider, ...], dict[str, Any]]:
-    """Recreate only self-contained providers bound by immutable policy.
+    """Recreate every policy-bound provider from immutable campaign inputs.
 
-    A hashed benchmark catalog carries every input needed for current-host
-    replay: an artifact path, its digest, and its meaning. Commercial snapshot
-    policies intentionally retain only digests, not supplier payloads, so they
-    remain unavailable unless the caller supplies the original campaign config.
+    Benchmark catalogs are rebound to their construction-time file digest.
+    Commercial observations are restored from the run-local immutable stock
+    authority material package, whose file digest, semantic digest, individual
+    snapshot digests, descriptors, and provider-set binding are all fenced by
+    the campaign policy.  Missing or modified material therefore fails before
+    queue or proof reconciliation can mutate durable state.
     """
 
     policy_sha256 = str(campaign_policy.get("content_sha256") or "")
     binding = dict(campaign_policy.get("stock_authority_binding") or {})
-    descriptor = dict(binding.get("provider_descriptor") or {})
+    primary_descriptor = dict(binding.get("provider_descriptor") or {})
     descriptor_rows = [
         dict(row)
         for row in binding.get("provider_descriptors") or []
         if isinstance(row, dict)
     ]
-    reasons: list[str] = []
-    provider_id = str(descriptor.get("provider_id") or "")
-    rehydration_required = bool(
-        str(binding.get("authority_source") or "") == "hashed_benchmark_catalog"
-        and not descriptor_rows
-        and not binding.get("trusted_snapshot_sha256")
+    expected_descriptors = descriptor_rows or ([primary_descriptor] if primary_descriptor else [])
+    expected_provider_ids = [
+        str(row.get("provider_id") or "") for row in expected_descriptors
+    ]
+    trusted_snapshot_digests = sorted(
+        str(item)
+        for item in binding.get("trusted_snapshot_sha256") or []
+        if _valid_sha256(item)
     )
-    if descriptor_rows:
-        reasons.append("campaign_policy_provider_set_requires_original_inputs")
-    elif provider_id != BenchmarkCatalogStockProvider.descriptor.provider_id:
+    has_snapshot_provider = (
+        SnapshotStockProvider.descriptor.provider_id in expected_provider_ids
+    )
+    has_benchmark_provider = (
+        BenchmarkCatalogStockProvider.descriptor.provider_id in expected_provider_ids
+    )
+    rehydration_required = bool(
+        trusted_snapshot_digests
+        or has_benchmark_provider
+        or len(expected_descriptors) > 1
+    )
+    reasons: list[str] = []
+    if not expected_descriptors or any(not item for item in expected_provider_ids):
+        reasons.append("campaign_policy_stock_provider_descriptor_missing")
+    if len(expected_provider_ids) != len(set(expected_provider_ids)):
+        reasons.append("campaign_policy_stock_provider_ids_not_unique")
+    recognized_ids = {
+        SnapshotStockProvider.descriptor.provider_id,
+        BenchmarkCatalogStockProvider.descriptor.provider_id,
+    }
+    if any(item not in recognized_ids for item in expected_provider_ids):
         reasons.append("campaign_policy_stock_provider_not_self_contained")
-    elif str(binding.get("authority_source") or "") != "hashed_benchmark_catalog":
-        reasons.append("campaign_policy_benchmark_authority_source_invalid")
-    elif binding.get("trusted_snapshot_sha256"):
-        reasons.append("campaign_policy_mixes_non_rehydratable_snapshot_authority")
 
-    provider: BenchmarkCatalogStockProvider | None = None
-    if not reasons:
+    provider_by_id: dict[str, StockProvider] = {}
+    if has_benchmark_provider:
         try:
-            provider = BenchmarkCatalogStockProvider(
+            benchmark_provider = BenchmarkCatalogStockProvider(
                 catalog_artifact=str(binding.get("catalog_artifact") or ""),
                 catalog_sha256=str(binding.get("catalog_sha256") or ""),
                 catalog_name=str(binding.get("catalog_name") or "benchmark-stock"),
@@ -2914,26 +3886,184 @@ def _rehydrate_stock_providers_from_campaign_policy(
             reasons.append(
                 f"campaign_policy_benchmark_rehydration_error:{type(exc).__name__}:{exc}"
             )
-    if provider is not None and _payload_digest(
-        provider.descriptor.to_dict()
-    ) != _payload_digest(descriptor):
-        reasons.append("campaign_policy_benchmark_descriptor_mismatch")
-        provider = None
+        else:
+            provider_by_id[benchmark_provider.descriptor.provider_id] = benchmark_provider
 
-    providers: tuple[StockProvider, ...] = (provider,) if provider is not None else ()
+    if has_snapshot_provider:
+        snapshots: list[dict[str, Any]] = []
+        if trusted_snapshot_digests:
+            material_ref = str(binding.get("snapshot_material_artifact") or "").strip()
+            material_path = (root_output_dir / material_ref).resolve()
+            expected_root = root_output_dir.resolve()
+            if (
+                not material_ref
+                or Path(material_ref).name != material_ref
+                or material_path.parent != expected_root
+                or not material_path.is_file()
+            ):
+                reasons.append("campaign_policy_stock_material_missing")
+            else:
+                expected_file_sha256 = str(
+                    binding.get("snapshot_material_artifact_sha256") or ""
+                )
+                if (
+                    not _valid_sha256(expected_file_sha256)
+                    or _sha256_file(material_path) != expected_file_sha256
+                ):
+                    reasons.append("campaign_policy_stock_material_file_digest_mismatch")
+                else:
+                    try:
+                        material = _read_json_strict(
+                            material_path,
+                            label="campaign stock authority material",
+                        )
+                    except ValueError as exc:
+                        reasons.append(
+                            f"campaign_policy_stock_material_invalid:{type(exc).__name__}"
+                        )
+                    else:
+                        material_digest_payload = dict(material)
+                        recorded_material_digest = str(
+                            material_digest_payload.pop("content_sha256", "")
+                        )
+                        expected_material_digest = str(
+                            binding.get("snapshot_material_content_sha256") or ""
+                        )
+                        offers = material.get("offers")
+                        if (
+                            material.get("schema_version")
+                            != CODEX_RETROSYNTHESIS_STOCK_AUTHORITY_MATERIAL_SCHEMA
+                            or not isinstance(offers, list)
+                            or recorded_material_digest
+                            != _payload_digest(material_digest_payload)
+                            or recorded_material_digest != expected_material_digest
+                            or int(material.get("snapshot_count") or -1) != len(offers)
+                        ):
+                            reasons.append("campaign_policy_stock_material_content_invalid")
+                        else:
+                            snapshots = [
+                                dict(row) for row in offers if isinstance(row, dict)
+                            ]
+                            if len(snapshots) != len(offers):
+                                reasons.append(
+                                    "campaign_policy_stock_material_offer_not_object"
+                                )
+        if not reasons or not trusted_snapshot_digests:
+            try:
+                snapshot_provider = SnapshotStockProvider(
+                    trusted_snapshots=snapshots,
+                )
+            except (OSError, TypeError, ValueError) as exc:
+                reasons.append(
+                    f"campaign_policy_snapshot_rehydration_error:{type(exc).__name__}:{exc}"
+                )
+            else:
+                actual_snapshot_digests = sorted(
+                    str(item)
+                    for item in getattr(snapshot_provider, "_trusted_snapshots", {})
+                    if _valid_sha256(item)
+                )
+                if actual_snapshot_digests != trusted_snapshot_digests:
+                    reasons.append("campaign_policy_stock_snapshot_digest_set_mismatch")
+                else:
+                    provider_by_id[
+                        snapshot_provider.descriptor.provider_id
+                    ] = snapshot_provider
+
+    providers = tuple(
+        provider_by_id[provider_id]
+        for provider_id in expected_provider_ids
+        if provider_id in provider_by_id
+    )
+    if len(providers) != len(expected_descriptors):
+        reasons.append("campaign_policy_stock_provider_rehydration_incomplete")
+    if not reasons:
+        for expected_descriptor, provider in zip(expected_descriptors, providers):
+            if _payload_digest(provider.descriptor.to_dict()) != _payload_digest(
+                expected_descriptor
+            ):
+                reasons.append("campaign_policy_stock_provider_descriptor_mismatch")
+                break
+    if not reasons and len(providers) > 1:
+        expected_set_binding = dict(binding.get("provider_set_binding") or {})
+        if stock_provider_set_authority_binding(providers) != expected_set_binding:
+            reasons.append("campaign_policy_stock_provider_set_binding_mismatch")
+    if reasons:
+        providers = ()
+
+    authority_available = bool(
+        providers
+        and (
+            trusted_snapshot_digests
+            or has_benchmark_provider
+        )
+    )
     return providers, {
         "schema_version": "campaign_policy_stock_rehydration.v1",
         "source": "immutable_campaign_policy_rehydration",
         "campaign_policy_sha256": policy_sha256,
         "rehydration_required": rehydration_required,
-        "available": bool(providers),
+        "available": authority_available,
         "provider_ids": [row.descriptor.provider_id for row in providers],
         "catalog_artifact": str(binding.get("catalog_artifact") or ""),
         "catalog_sha256": str(binding.get("catalog_sha256") or ""),
         "catalog_name": str(binding.get("catalog_name") or ""),
+        "trusted_snapshot_sha256": trusted_snapshot_digests,
+        "snapshot_material_artifact": str(
+            binding.get("snapshot_material_artifact") or ""
+        ),
+        "snapshot_material_artifact_sha256": str(
+            binding.get("snapshot_material_artifact_sha256") or ""
+        ),
         "commercial_orderability_claimed": False,
-        "reasons": reasons,
+        "reasons": sorted(set(reasons)),
     }
+
+
+def rehydrate_campaign_stock_provider_instances(
+    run_dir: str | Path,
+) -> tuple[dict[str, StockProvider], dict[str, Any]]:
+    """Load the exact current-host stock trust set for a durable campaign.
+
+    This read-only entry point is shared by the controller, portfolio compiler,
+    and route-forest renderer.  It deliberately validates campaign identity and
+    policy before exposing provider instances, so UI recovery cannot silently
+    use weaker stock authority than proof reconciliation.
+    """
+
+    root_output_dir = Path(run_dir).resolve() / "codex_retrosynthesis_team"
+    identity_path = root_output_dir / "campaign_identity.json"
+    policy_path = root_output_dir / "campaign_policy.json"
+    identity = _read_json_strict(identity_path, label="campaign identity manifest")
+    identity_digest_payload = dict(identity)
+    recorded_identity_sha256 = str(
+        identity_digest_payload.pop("content_sha256", "")
+    )
+    if (
+        identity.get("schema_version")
+        != CODEX_RETROSYNTHESIS_CAMPAIGN_IDENTITY_SCHEMA
+        or not recorded_identity_sha256
+        or recorded_identity_sha256 != _payload_digest(identity_digest_payload)
+    ):
+        raise ValueError("campaign identity manifest identity or digest is invalid")
+    campaign_policy = _load_campaign_policy(
+        policy_path,
+        case_id=str(identity.get("case_id") or ""),
+        target_smiles=str(identity.get("canonical_target_smiles") or ""),
+        campaign_identity_sha256=recorded_identity_sha256,
+    )
+    providers, authority = _rehydrate_stock_providers_from_campaign_policy(
+        campaign_policy,
+        root_output_dir=root_output_dir,
+    )
+    if authority.get("reasons"):
+        raise ValueError(
+            "campaign policy stock provider rehydration failed:"
+            + ",".join(str(item) for item in authority.get("reasons") or [])
+        )
+    return {
+        provider.descriptor.provider_id: provider for provider in providers
+    }, authority
 
 
 def _submit_graph_frontiers(
@@ -2949,6 +4079,7 @@ def _submit_graph_frontiers(
     campaign_policy_sha256: str,
     campaign_target_smiles: str,
     validated_parent_step_ids: set[str],
+    refresh_existing_stock: bool = True,
 ) -> int:
     del frontier_batch_size  # publishing audits is intentionally not throttled
     added = 0
@@ -2996,11 +4127,12 @@ def _submit_graph_frontiers(
                     campaign_policy_sha256=campaign_policy_sha256,
                     campaign_root_smiles=campaign_target_smiles,
                 )
-            existing = scheduler.refresh(
-                existing,
-                case_id=case_id,
-                stock_request=_stock_request(config, next_smiles),
-            )
+            if refresh_existing_stock:
+                existing = scheduler.refresh(
+                    existing,
+                    case_id=case_id,
+                    stock_request=_stock_request(config, next_smiles),
+                )
             existing_by_smiles[next_smiles] = existing
             if (
                 proposal_expansion_allowed
@@ -3404,6 +4536,7 @@ def _reconcile_reaction_proof_state(
     path: Path,
     configured_proofs: dict[str, dict[str, Any]],
     configured_reports: list[dict[str, Any]],
+    campaign_projection_binding: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Replay materialized candidates into durable edge proof requests.
 
@@ -3538,6 +4671,11 @@ def _reconcile_reaction_proof_state(
         materialized_candidate = selected_option.get("materialized_candidate")
         has_supplied_input = bool(replay_options)
         validated = bool(replayed_proof and not validation_reasons)
+        achieved_proof_level = (
+            _reaction_proof_level_number(replayed_proof.get("proof_level"))
+            if validated
+            else 0
+        )
         status = "validated" if validated else ("rejected" if has_supplied_input else "pending")
         records.append(
             {
@@ -3549,7 +4687,7 @@ def _reconcile_reaction_proof_state(
                 "precursor_smiles": list(step.get("precursor_smiles") or []),
                 "required_proof_level": 2,
                 "status": status,
-                "achieved_proof_level": 2 if validated else 0,
+                "achieved_proof_level": achieved_proof_level,
                 "open_reason": (
                     ""
                     if validated
@@ -3597,9 +4735,24 @@ def _reconcile_reaction_proof_state(
             "status_is_not_authority": True,
         },
     }
+    if campaign_projection_binding is not None:
+        payload["campaign_projection_binding"] = dict(
+            campaign_projection_binding
+        )
     payload["content_sha256"] = _payload_digest(payload)
     _write_json(path, payload)
     return payload
+
+
+def _reaction_proof_level_number(value: Any) -> int:
+    return {
+        "L0_materialized": 0,
+        "L1_graph_and_stock_closed": 1,
+        "L2_mapping_consistent": 1,
+        "L2_reaction_validated": 2,
+        "L3_precedent_supported": 3,
+        "L4_procurement_ready": 4,
+    }.get(str(value or ""), 0)
 
 
 def _configured_reaction_replay_option(
@@ -4055,6 +5208,44 @@ def _ensure_campaign_identity(
     return payload
 
 
+def _ensure_stock_authority_material(
+    root_output_dir: Path,
+    *,
+    snapshot_provider: SnapshotStockProvider,
+) -> dict[str, Any]:
+    """Persist the complete commercial authority needed for deterministic replay."""
+
+    offers: list[dict[str, Any]] = []
+    for snapshot_sha256, snapshot in sorted(
+        getattr(snapshot_provider, "_trusted_snapshots", {}).items()
+    ):
+        if not _valid_sha256(snapshot_sha256) or not isinstance(snapshot, dict):
+            raise ValueError("snapshot stock provider authority is malformed")
+        if stock_snapshot_sha256(snapshot) != snapshot_sha256:
+            raise ValueError("snapshot stock provider authority digest mismatch")
+        offers.append({**dict(snapshot), "snapshot_sha256": snapshot_sha256})
+    if not offers:
+        return {}
+    payload: dict[str, Any] = {
+        "schema_version": CODEX_RETROSYNTHESIS_STOCK_AUTHORITY_MATERIAL_SCHEMA,
+        "snapshot_count": len(offers),
+        "snapshot_sha256": [row["snapshot_sha256"] for row in offers],
+        "offers": offers,
+    }
+    payload["content_sha256"] = _payload_digest(payload)
+    material_path = root_output_dir / "stock_authority_material.json"
+    _write_immutable_json(material_path, payload)
+    return {
+        "snapshot_material_artifact": material_path.name,
+        "snapshot_material_artifact_sha256": _sha256_file(material_path),
+        "snapshot_material_content_sha256": payload["content_sha256"],
+        "snapshot_material_schema_version": (
+            CODEX_RETROSYNTHESIS_STOCK_AUTHORITY_MATERIAL_SCHEMA
+        ),
+        "snapshot_material_count": len(offers),
+    }
+
+
 def _ensure_campaign_policy(
     path: Path,
     *,
@@ -4072,7 +5263,16 @@ def _ensure_campaign_policy(
     exploration_mode: str,
     child_acceptance_mode: str,
 ) -> dict[str, Any]:
-    """Create or replay the immutable scientific/authority policy fence."""
+    """Create or replay the immutable search/scientific policy fence.
+
+    ``reaction_verifier_version`` is retained in the v1 payload for backward
+    compatibility, but it records the verifier present when the search
+    campaign was created.  A verifier implementation upgrade changes proof
+    authority, not the target, search policy, accepted expansions, or stock
+    authority.  Such upgrades are therefore recorded by the independent
+    verifier-authority chain instead of rebinding every durable campaign
+    object to a new policy digest.
+    """
 
     providers = tuple(stock_provider)
     if not providers:
@@ -4080,6 +5280,19 @@ def _ensure_campaign_policy(
     descriptor = getattr(providers[0], "descriptor", None)
     if descriptor is None or not callable(getattr(descriptor, "to_dict", None)):
         raise ValueError("campaign stock provider descriptor is required")
+    existing_policy = (
+        _load_campaign_policy(
+            path,
+            case_id=case_id,
+            target_smiles=target_smiles,
+            campaign_identity_sha256=campaign_identity_sha256,
+        )
+        if path.exists()
+        else {}
+    )
+    existing_stock_binding = dict(
+        existing_policy.get("stock_authority_binding") or {}
+    )
     stock_binding: dict[str, Any] = {
         "provider_descriptor": descriptor.to_dict(),
         "authority_source": str(stock_authority.get("source") or ""),
@@ -4122,6 +5335,19 @@ def _ensure_campaign_policy(
             for item in getattr(snapshot_provider, "_trusted_snapshots", {}).keys()
             if _valid_sha256(item)
         )
+        # New campaigns persist the full canonical supplier observations.
+        # Legacy campaigns without this field remain byte-compatible when an
+        # explicit config is supplied, but cannot pretend to be self-contained
+        # during config-free resume.
+        if not path.exists() or existing_stock_binding.get(
+            "snapshot_material_artifact"
+        ):
+            stock_binding.update(
+                _ensure_stock_authority_material(
+                    path.parent,
+                    snapshot_provider=snapshot_provider,
+                )
+            )
     if len(providers) > 1:
         stock_binding.update(
             {
@@ -4177,14 +5403,29 @@ def _ensure_campaign_policy(
     )
     payload["content_sha256"] = _payload_digest(payload)
     if path.exists():
-        existing = _read_json_strict(path, label="campaign policy manifest")
-        if existing != payload:
+        existing = existing_policy
+        existing_search_policy = dict(existing)
+        requested_search_policy = dict(payload)
+        for row in (existing_search_policy, requested_search_policy):
+            row.pop("content_sha256", None)
+            row.pop("reaction_verifier_version", None)
+        if existing_search_policy != requested_search_policy:
             raise ValueError(
                 "campaign policy mismatch: depth, closure objective, exploration mode, "
-                "proof floor, or stock authority changed"
+                "proof floor, proposal policy, or stock authority changed"
             )
+        _ensure_reaction_verifier_authority(
+            path.parent,
+            campaign_policy=existing,
+            current_verifier_version=REACTION_STEP_VERIFIER_VERSION,
+        )
         return existing
     _write_immutable_json(path, payload)
+    _ensure_reaction_verifier_authority(
+        path.parent,
+        campaign_policy=payload,
+        current_verifier_version=REACTION_STEP_VERIFIER_VERSION,
+    )
     return payload
 
 
@@ -4209,6 +5450,118 @@ def _load_campaign_policy(
     ):
         raise ValueError("campaign policy manifest identity or digest is invalid")
     return row
+
+
+def _ensure_reaction_verifier_authority(
+    root_output_dir: Path,
+    *,
+    campaign_policy: Mapping[str, Any],
+    current_verifier_version: str,
+) -> dict[str, Any]:
+    """Replay an append-only proof-authority chain without resetting search.
+
+    Search artifacts remain bound to the immutable campaign policy digest.
+    Each verifier change appends a separately hashed event, making proof-cache
+    invalidation and replay explicit while preserving queue and expansion
+    state.  Invalid or tampered history fails closed before a new event is
+    appended.
+    """
+
+    policy = dict(campaign_policy)
+    policy_digest_payload = dict(policy)
+    policy_sha256 = str(policy_digest_payload.pop("content_sha256", ""))
+    if not policy_sha256 or policy_sha256 != _payload_digest(policy_digest_payload):
+        raise ValueError("campaign policy manifest identity or digest is invalid")
+    declared_version = str(policy.get("reaction_verifier_version") or "").strip()
+    current_version = str(current_verifier_version or "").strip()
+    if not declared_version or not current_version:
+        raise ValueError("reaction verifier authority version is required")
+
+    event_root = root_output_dir / "reaction_verifier_authority_events"
+    projection_path = root_output_dir / "reaction_verifier_authority.json"
+    with _exclusive_campaign_file_lock(event_root / ".verifier-authority.lock"):
+        event_root.mkdir(parents=True, exist_ok=True)
+        events: list[dict[str, Any]] = []
+        previous_digest = ""
+        active_version = declared_version
+        for sequence, event_path in enumerate(sorted(event_root.glob("*.json"))):
+            event = _read_json_strict(
+                event_path,
+                label="reaction verifier authority event",
+            )
+            digest_payload = dict(event)
+            recorded_digest = str(digest_payload.pop("content_sha256", ""))
+            try:
+                recorded_sequence = int(event.get("sequence"))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("reaction verifier authority event is invalid") from exc
+            if (
+                event.get("schema_version")
+                != CODEX_RETROSYNTHESIS_VERIFIER_AUTHORITY_EVENT_SCHEMA
+                or recorded_sequence != sequence
+                or event_path.name != f"{sequence:06d}.json"
+                or event.get("campaign_policy_sha256") != policy_sha256
+                or event.get("campaign_identity_sha256")
+                != policy.get("campaign_identity_sha256")
+                or event.get("previous_event_sha256") != previous_digest
+                or event.get("from_verifier_version") != active_version
+                or not str(event.get("to_verifier_version") or "").strip()
+                or not recorded_digest
+                or recorded_digest != _payload_digest(digest_payload)
+            ):
+                raise ValueError("reaction verifier authority event chain is invalid")
+            active_version = str(event["to_verifier_version"])
+            previous_digest = recorded_digest
+            events.append(event)
+
+        if active_version != current_version:
+            sequence = len(events)
+            event = {
+                "schema_version": CODEX_RETROSYNTHESIS_VERIFIER_AUTHORITY_EVENT_SCHEMA,
+                "sequence": sequence,
+                "campaign_policy_sha256": policy_sha256,
+                "campaign_identity_sha256": str(
+                    policy.get("campaign_identity_sha256") or ""
+                ),
+                "previous_event_sha256": previous_digest,
+                "from_verifier_version": active_version,
+                "to_verifier_version": current_version,
+                "event_kind": "proof_authority_upgrade",
+                "recorded_at": _utc_now(),
+                "search_state_preserved": True,
+                "proof_cache_replay_required": True,
+            }
+            event["content_sha256"] = _payload_digest(event)
+            _write_immutable_json(event_root / f"{sequence:06d}.json", event)
+            events.append(event)
+            previous_digest = str(event["content_sha256"])
+            active_version = current_version
+
+        projection = {
+            "schema_version": CODEX_RETROSYNTHESIS_VERIFIER_AUTHORITY_SCHEMA,
+            "campaign_policy_sha256": policy_sha256,
+            "campaign_identity_sha256": str(
+                policy.get("campaign_identity_sha256") or ""
+            ),
+            "policy_declared_verifier_version": declared_version,
+            "active_verifier_version": active_version,
+            "event_count": len(events),
+            "latest_event_sha256": previous_digest,
+            "event_refs": [
+                str(event_root / f"{index:06d}.json")
+                for index in range(len(events))
+            ],
+            "search_state_preserved": True,
+            "proofs_require_current_host_replay": True,
+            "policy_semantics": {
+                "verifier_upgrade_does_not_change_search_identity": True,
+                "verifier_upgrade_invalidates_proof_cache_only": True,
+                "stock_and_search_policy_changes_still_require_new_campaign": True,
+            },
+        }
+        projection["content_sha256"] = _payload_digest(projection)
+        _write_json(projection_path, projection)
+        return projection
 
 
 def _ensure_campaign_budget_envelope(
@@ -4850,6 +6203,7 @@ def _close_recovered_campaign_attempts(
     root_output_dir: Path,
     runs: list[dict[str, Any]],
     attempt_records: list[dict[str, Any]],
+    lease_recovered_jobs: Iterable[FrontierJob] = (),
 ) -> bool:
     """Append a terminal event when a prepared commit proves crash recovery."""
 
@@ -4857,6 +6211,9 @@ def _close_recovered_campaign_attempts(
         (str(row.get("frontier_job_id") or ""), int(row.get("job_attempt") or 0)): row
         for row in runs
         if row.get("recovered_from_expansion_commit") is True
+    }
+    lease_recovered_by_attempt = {
+        (row.job_id, int(row.attempt)): row for row in lease_recovered_jobs
     }
     changed = False
     for record in attempt_records:
@@ -4866,12 +6223,33 @@ def _close_recovered_campaign_attempts(
         summary = recovered_by_attempt.get(
             (str(started.get("job_id") or ""), int(started.get("job_attempt") or 0))
         )
+        terminal_status = "prepared_commit_recovered_after_interruption"
+        if summary is None:
+            recovered_job = lease_recovered_by_attempt.get(
+                (
+                    str(started.get("job_id") or ""),
+                    int(started.get("job_attempt") or 0),
+                )
+            )
+            if recovered_job is not None:
+                summary = {
+                    "schema_version": "codex_retrosynthesis_recovered_attempt.v1",
+                    "frontier_job_id": recovered_job.job_id,
+                    "job_attempt": int(recovered_job.attempt),
+                    "frontier_job_state": recovered_job.state.value,
+                    "accepted": False,
+                    "proposal_expansion_recorded": False,
+                    "reasons": ["lease_expired"],
+                    "accepted_expansion_count_delta": 0,
+                    "attempt_audit_preserved": True,
+                }
+                terminal_status = "lease_expired_recovered_after_interruption"
         if summary is None:
             continue
         _write_campaign_attempt_terminal(
             root_output_dir=root_output_dir,
             started_event=started,
-            terminal_status="prepared_commit_recovered_after_interruption",
+            terminal_status=terminal_status,
             summary=summary,
         )
         changed = True
@@ -5670,6 +7048,20 @@ def _partial_coordinator_safety_reasons(
     return sorted(set(reasons))
 
 
+def _coordinator_candidate_restatement_reason(reason: str) -> bool:
+    """Identify candidate-local failures in the coordinator's audit copy.
+
+    Search chemistry is rebuilt exclusively from independently observed and
+    host-admitted child reports.  A malformed candidate in the coordinator's
+    redundant restatement remains visible in ``artifact_validation``, but it
+    cannot veto otherwise valid child consensus or consume another Agent
+    attempt.  Envelope, identity, tool, runtime, and non-candidate validation
+    failures remain hard failures.
+    """
+
+    return re.fullmatch(r"proposal_report_candidate:\d+:.+", str(reason or "")) is not None
+
+
 def _team_runtime_tool_name(value: Any) -> str:
     name = str(value or "").strip().lower().replace("-", "_")
     return {
@@ -6150,6 +7542,7 @@ def _strict_child_candidate_shape_reasons(
         "schema_version",
         "candidate_id",
         "product_smiles",
+        "product_retron_type",
         "reaction_family",
         "transformation_rationale",
         "source_channel",

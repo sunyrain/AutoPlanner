@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 from pathlib import Path
 
 from cascade_planner.application.route_portfolio import derive_portfolio_bindings
@@ -77,12 +78,19 @@ def test_host_edge_proof_and_hashed_stock_provider_bind_without_route_verifier(
             target_smiles="CC=O",
         ),
     ).to_dict()
+    # Campaign/blackboard persistence converts envelope tuples to JSON lists;
+    # replay must compare canonical JSON values rather than Python container
+    # implementation details.
+    stock = json.loads(json.dumps(stock))
 
     bindings = derive_portfolio_bindings(
         _overlay(),
         {},
         supplemental_edge_verification_reports=[edge_report],
         supplemental_stock_provider_results=[stock],
+        trusted_stock_provider_instances={
+            BenchmarkCatalogStockProvider.descriptor.provider_id: provider,
+        },
     )
 
     assert bindings["edge_proof_levels"] == {"rxn:oxidation": 2}
@@ -132,6 +140,15 @@ def test_digest_consistent_detached_reaction_booleans_are_not_authority() -> Non
 
     assert bindings["accepted_supplemental_reaction_validation_count"] == 0
     assert bindings["edge_proof_levels"] == {}
+
+
+def test_overlay_leaf_without_stock_observation_remains_explicitly_unmatched() -> None:
+    bindings = derive_portfolio_bindings(_overlay(), {})
+
+    assert bindings["materialized_terminal_count"] == 1
+    assert bindings["matched_stock_terminal_count"] == 0
+    assert bindings["unmatched_materialized_terminals"] == ["CCO"]
+    assert bindings["all_materialized_terminals_proven"] is False
 
 
 def test_rehashed_tampered_replay_comparison_is_rejected() -> None:

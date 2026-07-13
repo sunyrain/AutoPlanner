@@ -172,6 +172,121 @@ def test_disabled_guidance_still_runs_shared_structural_admission_without_rerank
     assert stats["rejected_by_reason"] == {"element_inventory_not_conserved": 1}
 
 
+def test_nirmatrelvir_bad_edge_is_rejected_before_moltree_with_bound_provenance():
+    product = "O=C(O)C(O)(CCO)C(=O)OCc1ccccc1"
+    reactants = "O=C(Cl)OCc1ccccc1.O=C([O-])[O-]"
+    config = ChemEnzyGuidanceConfig(enabled=False)
+    state = ChemEnzyGuidanceState(config=config)
+    wrapped = ChemEnzyGuidedOneStepWrapper(
+        _OneStep(
+            {
+                "reactants": [reactants],
+                "scores": [0.99],
+                "model_full_name": ["graphfp_models.test"],
+                "source": ["native_graphfp"],
+                "template": [
+                    {
+                        "template_id": "bad-nirmatrelvir-edge",
+                        "model_full_name": "graphfp_models.test",
+                        "source": "native_graphfp",
+                    }
+                ],
+            }
+        ),
+        config=config,
+        state=state,
+    )
+
+    result = wrapped.run(product)
+    stats = state.to_dict()
+
+    assert result["reactants"] == []
+    assert stats["rejected_by_reason"] == {"element_inventory_not_conserved": 1}
+    record = stats["rejected_candidate_audits"][0]
+    assert record["stage"] == "pre_moltree_one_step"
+    assert record["source"] == "native_graphfp"
+    assert record["model"] == "graphfp_models.test"
+    assert record["template"]["fields"]["template_id"] == "bad-nirmatrelvir-edge"
+    assert len(record["edge_digest"]) == 64
+    assert record["precursor_smiles_multiset"] == sorted(
+        ["O=C(Cl)OCc1ccccc1", "O=C([O-])[O-]"]
+    )
+
+
+def test_reaction_family_and_retron_prior_only_reranks_matching_native_candidate():
+    config = ChemEnzyGuidanceConfig(
+        enabled=True,
+        preferred_reaction_classes=("late stage esterification",),
+        preferred_retrons=("alpha hydroxy acid",),
+    )
+    state = ChemEnzyGuidanceState(config=config)
+    wrapped = ChemEnzyGuidedOneStepWrapper(
+        _OneStep(
+            {
+                "reactants": ["CC=O", "OCCO"],
+                "scores": [0.90, 0.80],
+                "costs": [-math.log(0.90), -math.log(0.80)],
+                "template": [
+                    {"reaction_class": "oxidation"},
+                    {
+                        "reaction_class": "late_stage_esterification",
+                        "product_retron": {"retron_type": "alpha-hydroxy-acid"},
+                    },
+                ],
+            }
+        ),
+        config=config,
+        state=state,
+    )
+
+    result = wrapped.run("CCO")
+    stats = state.to_dict()
+
+    assert result["reactants"][0] == "OCCO"
+    prior = result["chem_enzy_guidance"][0]["reaction_prior"]
+    assert prior["reaction_class_matches"] == ["late stage esterification"]
+    assert prior["retron_matches"] == ["alpha hydroxy acid"]
+    assert prior["applied"] is True
+    assert prior["raw_reaction_injection"] is False
+    assert stats["reaction_class_matches"] == 1
+    assert stats["retron_matches"] == 1
+    assert stats["reaction_prior_score_adjusted"] == 1
+    assert stats["reaction_prior_applied"] is True
+
+
+def test_unmatched_reaction_prior_is_observable_and_never_claimed_applied():
+    config = ChemEnzyGuidanceConfig(
+        enabled=True,
+        preferred_reaction_classes=("esterification",),
+        preferred_retrons=("alpha hydroxy acid",),
+    )
+    state = ChemEnzyGuidanceState(config=config)
+    wrapped = ChemEnzyGuidedOneStepWrapper(
+        _OneStep(
+            {
+                "reactants": ["CC=O", "OCCO"],
+                "scores": [0.90, 0.80],
+                "costs": [-math.log(0.90), -math.log(0.80)],
+            }
+        ),
+        config=config,
+        state=state,
+    )
+
+    result = wrapped.run("CCO")
+    stats = state.to_dict()
+
+    assert result["reactants"] == ["CC=O", "OCCO"]
+    assert all(
+        row["reaction_prior"]["applied"] is False
+        for row in result["chem_enzy_guidance"]
+    )
+    assert stats["requested_reaction_prior_count"] == 2
+    assert stats["reaction_prior_metadata_observed"] is False
+    assert stats["reaction_prior_score_adjusted"] == 0
+    assert stats["reaction_prior_applied"] is False
+
+
 def test_repeated_precursors_preserve_stoichiometry_for_homocoupling_inventory():
     config = ChemEnzyGuidanceConfig.from_flags(
         {
@@ -240,14 +355,85 @@ def test_vendor_ancestor_filter_uses_canonical_identity_and_emits_observable_tra
         1.0, ["C(C)O"], parent, "tpl", {"CCO"}, cascade_annotation={}
     )
     allowed = tree._add_reaction_and_mol_nodes(
-        1.0, ["CCC"], parent, "tpl", {"CCO"}, cascade_annotation={}
+        1.0, ["CCCN"], parent, "tpl", {"CCO"}, cascade_annotation={}
     )
 
     assert blocked is None
     assert allowed == "added"
     assert len(tree.added) == 1
-    assert tree.cascade_expansion_trace[0]["reasons"] == ["ancestor_or_target_cycle"]
+    assert "ancestor_or_target_cycle" in tree.cascade_expansion_trace[0]["reasons"]
     assert tree.cascade_expansion_trace[0]["raw_reaction_injection"] is False
+
+
+def test_vendor_insertion_gate_rejects_bad_edge_even_if_one_step_wrapper_is_bypassed():
+    class FakeTree:
+        def __init__(self):
+            self.cascade_expansion_trace = []
+            self.added = []
+
+        def _add_reaction_and_mol_nodes(
+            self, cost, mols, parent, template, ancestors, cascade_annotation=None
+        ):
+            self.added.append((cost, list(mols), template, set(ancestors)))
+            return "added"
+
+    module = SimpleNamespace(MolTree=FakeTree)
+    install_canonical_ancestor_cycle_filter(module)
+    tree = FakeTree()
+    parent = SimpleNamespace(mol="O=C(O)C(O)(CCO)C(=O)OCc1ccccc1")
+
+    blocked = tree._add_reaction_and_mol_nodes(
+        0.01,
+        ["O=C(Cl)OCc1ccccc1", "O=C([O-])[O-]"],
+        parent,
+        {
+            "template_id": "bypassed-high-score-template",
+            "source": "native_model",
+            "model_full_name": "graphfp_models.test",
+        },
+        set(),
+        cascade_annotation={"source": "native_model"},
+    )
+
+    assert blocked is None
+    assert tree.added == []
+    trace = tree.cascade_expansion_trace[0]
+    assert trace["stage"] == "pre_moltree_insert"
+    assert trace["reasons"] == ["element_inventory_not_conserved"]
+    assert trace["source"] == "native_model"
+    assert trace["model"] == "graphfp_models.test"
+    assert trace["admission_record"]["decision"] == "rejected"
+    assert len(trace["edge_digest"]) == 64
+
+
+def test_vendor_prepare_expansion_preserves_exact_precursor_multiplicity():
+    class FakeTree:
+        def prepare_expansion(self, _parent, result, **_kwargs):
+            # Reproduce the historical vendor behavior that discarded
+            # multiplicity before insertion.
+            reactants = [list(set(row.split("."))) for row in result["reactants"]]
+            return reactants, result["costs"], result["template"], [None]
+
+        def _add_reaction_and_mol_nodes(
+            self, cost, mols, parent, template, ancestors, cascade_annotation=None
+        ):
+            return (cost, mols, parent, template, ancestors, cascade_annotation)
+
+    module = SimpleNamespace(MolTree=FakeTree)
+    install_canonical_ancestor_cycle_filter(module)
+    tree = FakeTree()
+
+    reactants, _costs, _templates, _annotations = tree.prepare_expansion(
+        "CC",
+        {
+            "reactants": ["C.C"],
+            "scores": [0.5],
+            "costs": [0.7],
+            "template": ["homocoupling"],
+        },
+    )
+
+    assert reactants == [["C", "C"]]
 
 
 def test_runtime_diagnostic_refuses_guided_label_when_adapter_or_plugin_was_not_loaded():

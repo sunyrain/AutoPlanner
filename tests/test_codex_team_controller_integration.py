@@ -5,6 +5,9 @@ from pathlib import Path
 
 import cascade_planner.harness.agentic_blackboard_controller as controller_module
 from cascade_planner.agent.codex_worker import WorkerRunRecord
+from cascade_planner.application.retrosynthesis_run_contract import (
+    RetrosynthesisRunBudget,
+)
 from cascade_planner.harness.agentic_blackboard_controller import (
     _controller_codex_search_should_stop,
     _controller_evidence_stop_preserves_campaign,
@@ -40,6 +43,7 @@ def _team_artifact(case_id: str, *, target_smiles: str = "CCO", precursor_smiles
                     "product_smiles": target_smiles,
                     "precursor_smiles": [precursor_smiles],
                     "reaction_family": "carbonyl reduction",
+                    "product_retron_type": "carbonyl interconversion",
                     "transformation_rationale": "Reduce acetaldehyde after validation.",
                     "source_channel": "codex_strategy",
                     "source_refs": ["child:target_structure_strategist"],
@@ -109,6 +113,8 @@ def _team_run_record(task, *, artifact: dict, session_id: str) -> WorkerRunRecor
         backend="codex_cli",
         output_artifact=artifact,
         output_validation={"accepted": True, "reasons": []},
+        usage={"input_tokens": 100, "output_tokens": 20},
+        elapsed_s=0.01,
         metadata={
             "session_id": session_id,
             "event_summary": {"child_agent_spawn_count": len(task.child_roles)},
@@ -559,6 +565,10 @@ def test_controller_drains_campaign_after_evidence_round_budget(tmp_path: Path) 
         codex_agent_team_max_expansions_per_invocation=1,
         codex_agent_team_max_attempt_runs_per_invocation=2,
         codex_agent_team_runner=_chain_team_runner,
+        codex_agent_team_auto_resume=True,
+        retrosynthesis_run_budget=RetrosynthesisRunBudget(
+            max_model_invocations=8,
+        ),
         action_planner=_continue_planner,
     )
 

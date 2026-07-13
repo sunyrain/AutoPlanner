@@ -3,10 +3,16 @@ from cascade_planner.routes.admission import audit_retrosynthetic_candidate
 
 def test_admission_preserves_precursor_multiplicity_and_allows_balanced_edge() -> None:
     audit = audit_retrosynthetic_candidate("CC", ["C", "C"])
+    ordered = audit_retrosynthetic_candidate("CCO", ["CC", "O"])
+    reordered = audit_retrosynthetic_candidate("CCO", ["O", "CC"])
+    missing_copy = audit_retrosynthetic_candidate("CC", ["C"])
 
     assert audit["accepted"] is True
     assert audit["precursor_smiles"] == ["C", "C"]
+    assert audit["precursor_smiles_multiset"] == ["C", "C"]
     assert audit["precursor_element_counts"] == {"C": 2}
+    assert ordered["edge_digest"] == reordered["edge_digest"]
+    assert audit["edge_digest"] != missing_copy["edge_digest"]
     assert audit["semantics"]["precursor_multiplicity_preserved"] is True
 
 

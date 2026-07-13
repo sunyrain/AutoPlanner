@@ -13,6 +13,14 @@ from cascade_planner.harness.codex_edge_verification import (
     validate_edge_evidence_binding_set,
 )
 from cascade_planner.harness.parent_route_proof import is_solved_parent_route_proof
+from cascade_planner.application.selected_route_parent_proof import (
+    is_solved_selected_route_parent_proof,
+    validate_selected_route_parent_proof,
+)
+from cascade_planner.orchestration.codex_retrosynthesis import (
+    CODEX_RETROSYNTHESIS_SELECTED_ROUTE_PROJECTION_SCHEMA,
+    validate_codex_campaign_projection_bundle,
+)
 from cascade_planner.harness.reaction_step_verifier import (
     REACTION_STEP_VERIFIER_VERSION,
     canonical_reaction_digest,
@@ -508,6 +516,8 @@ class _RouteForestCompiler:
         self._frontier_ledger_cache: dict[str, Any] | None = None
 
     def finish(self) -> dict[str, Any]:
+        selected_route_parent_proof = self._selected_route_parent_proof_view()
+        self._apply_selected_route_parent_proof(selected_route_parent_proof)
         self._finalize_trust_vectors()
         replacement_validation = self._replacement_validation()
         modules = self._modules()
@@ -522,6 +532,32 @@ class _RouteForestCompiler:
         route_portfolio = dict(route_consensus_graph.get("route_portfolio") or {})
         primary_selection = self._primary_selection()
         frontier_ledger = self._frontier_ledger_view()
+        retrosynthesis_control = self._retrosynthesis_control_view()
+        declared_campaign_binding = dict(
+            self.blackboard.get("campaign_projection_binding") or {}
+        )
+        graph_campaign_binding = dict(
+            authority_graph.get("campaign_projection_binding") or {}
+        )
+        ledger_input_bindings = dict(frontier_ledger.get("input_bindings") or {})
+        campaign_binding_reasons: list[str] = []
+        if declared_campaign_binding:
+            if graph_campaign_binding != declared_campaign_binding:
+                campaign_binding_reasons.append(
+                    "route_forest_canonical_graph_campaign_revision_mismatch"
+                )
+            if (
+                ledger_input_bindings.get("campaign_revision")
+                != declared_campaign_binding.get("campaign_revision")
+                or ledger_input_bindings.get("campaign_revision_sha256")
+                != declared_campaign_binding.get("campaign_revision_sha256")
+            ):
+                campaign_binding_reasons.append(
+                    "route_forest_frontier_ledger_campaign_revision_mismatch"
+                )
+        campaign_projection_binding = (
+            declared_campaign_binding if not campaign_binding_reasons else {}
+        )
         semantic_summary = self._semantic_summary(frontier_ledger=frontier_ledger)
         synthesis_class_counts: dict[str, int] = {}
         for branch in self.branches:
@@ -531,6 +567,12 @@ class _RouteForestCompiler:
             "schema_version": SCHEMA_VERSION,
             "case_id": str(self.blackboard.get("case_id") or ""),
             "run_dir": self.run_dir,
+            "campaign_projection_binding": campaign_projection_binding,
+            "campaign_projection_validation": {
+                "accepted": not campaign_binding_reasons,
+                "reasons": campaign_binding_reasons,
+                "same_revision_required_for_graph_ledger_portfolio_and_forest": True,
+            },
             "target": target,
             "counts": {
                 "branches": len(self.branches),
@@ -555,6 +597,18 @@ class _RouteForestCompiler:
                 ),
                 "verified_parent_routes": int(
                     (semantic_summary.get("route_states") or {}).get("verified_parent") or 0
+                ),
+                "selected_route_witnesses": int(
+                    selected_route_parent_proof.get("distinct_complete_route_count")
+                    or 0
+                ),
+                "selected_route_benchmark_routes": int(
+                    selected_route_parent_proof.get("benchmark_route_count")
+                    or 0
+                ),
+                "selected_route_procurement_routes": int(
+                    selected_route_parent_proof.get("procurement_route_count")
+                    or 0
                 ),
                 "ledger_l0_break_suggestions": int(
                     (frontier_ledger.get("counts") or {}).get("l0_break_suggestion_edges") or 0
@@ -610,6 +664,8 @@ class _RouteForestCompiler:
             "primary_selection": primary_selection,
             "semantic_summary": semantic_summary,
             "frontier_ledger": frontier_ledger,
+            "retrosynthesis_control": retrosynthesis_control,
+            "selected_route_parent_proof": selected_route_parent_proof,
             "display_policy": self._display_policy(),
             "branches": self.branches,
             "nodes": sorted(self.nodes.values(), key=lambda row: str(row.get("node_id") or "")),
@@ -645,12 +701,251 @@ class _RouteForestCompiler:
                 "Standalone route consensus branches are advisory disconnections not represented in the graph; they are never solved or executable routes.",
                 "Route consensus graph branches assemble frontier expansions but remain advisory and non-executable.",
                 "Agent task completion, reaction validation, stock closure, and complete portfolio closure are separate display states.",
+                "Acceptance, next route deficit, and run-wide model cost are separate digest-checked control-plane projections.",
+                "Selected-route completion requires two distinct L3 stock-closed route witnesses; procurement readiness remains a separate L4 claim.",
                 "Codex role channels are displayed separately but share one correlated support group.",
                 "The dependency graph is molecule-reaction bipartite; no edge is inferred from adjacent array positions.",
                 "Pairwise replacement interfaces are diagnostics only and never authorize a single-step splice.",
                 "Replacement previews require backend connectivity, stock, and reaction-proof revalidation of the complete route.",
             ],
         }
+
+    def _retrosynthesis_control_view(self) -> dict[str, Any]:
+        """Expose digest-checked control state without granting route proof."""
+
+        contract = dict(
+            self.blackboard.get("retrosynthesis_run_contract") or {}
+        )
+        cost_ledger = dict(contract.get("cost_ledger") or {})
+        acceptance = dict(
+            self.blackboard.get("retrosynthesis_acceptance") or {}
+        )
+        deficit_queue = dict(self.blackboard.get("route_deficit_queue") or {})
+        reasons: list[str] = []
+        available = bool(contract or acceptance or deficit_queue)
+        cost_valid = bool(
+            cost_ledger.get("schema_version") == "retrosynthesis_cost_ledger.v1"
+            and _portfolio_content_digest_valid(cost_ledger)
+        )
+        acceptance_valid = bool(
+            acceptance.get("schema_version")
+            == "retrosynthesis_acceptance_report.v1"
+            and _portfolio_content_digest_valid(acceptance)
+        )
+        queue_valid = bool(
+            deficit_queue.get("schema_version") == "route_deficit_queue.v1"
+            and _portfolio_content_digest_valid(deficit_queue)
+        )
+        if contract and contract.get("schema_version") != "retrosynthesis_run_contract.v1":
+            reasons.append("retrosynthesis_run_contract_schema_invalid")
+        if cost_ledger and not cost_valid:
+            reasons.append("retrosynthesis_cost_ledger_digest_invalid")
+        if acceptance and not acceptance_valid:
+            reasons.append("retrosynthesis_acceptance_digest_invalid")
+        if deficit_queue and not queue_valid:
+            reasons.append("route_deficit_queue_digest_invalid")
+        authoritative = bool(
+            available
+            and contract.get("schema_version") == "retrosynthesis_run_contract.v1"
+            and cost_valid
+            and acceptance_valid
+            and queue_valid
+            and not reasons
+        )
+        return {
+            "schema_version": "retrosynthesis_control_projection.v1",
+            "available": available,
+            "authoritative": authoritative,
+            "acceptance": acceptance if acceptance_valid else {},
+            "next_deficit": (
+                dict((deficit_queue.get("deficits") or [{}])[0])
+                if queue_valid and deficit_queue.get("deficits")
+                else {}
+            ),
+            "deficit_summary": (
+                dict(deficit_queue.get("summary") or {}) if queue_valid else {}
+            ),
+            "cost_totals": (
+                dict(cost_ledger.get("totals") or {}) if cost_valid else {}
+            ),
+            "cost_budget": (
+                dict(cost_ledger.get("budget") or {}) if cost_valid else {}
+            ),
+            "cost_gate_reasons": (
+                list(cost_ledger.get("gate_reasons") or [])
+                if cost_valid
+                else []
+            ),
+            "validation_reasons": sorted(set(reasons)),
+            "semantics": {
+                "control_plane_cannot_grant_chemistry_authority": True,
+                "acceptance_deficit_and_cost_are_orthogonal": True,
+                "invalid_or_missing_digest_fails_closed": True,
+            },
+        }
+
+    def _selected_route_parent_proof_view(self) -> dict[str, Any]:
+        bundle = dict(self.blackboard.get("campaign_projection_bundle") or {})
+        reasons = [
+            f"campaign_projection_bundle:{reason}"
+            for reason in validate_codex_campaign_projection_bundle(bundle)
+        ] if bundle else ["campaign_projection_bundle_missing"]
+        components = dict(bundle.get("components") or {})
+        projection = dict(components.get("selected_route_parent_proof") or {})
+        if (
+            projection.get("schema_version")
+            != CODEX_RETROSYNTHESIS_SELECTED_ROUTE_PROJECTION_SCHEMA
+        ):
+            reasons.append("selected_route_parent_proof_projection_missing_or_invalid")
+        graph = dict(components.get("canonical_route_consensus_graph") or {})
+        portfolio_component = dict(components.get("route_portfolio") or {})
+        overlay = dict(graph.get("v2_overlay") or {})
+        bindings = dict(
+            portfolio_component.get("route_portfolio_bindings")
+            or graph.get("route_portfolio_bindings")
+            or {}
+        )
+        frontier_ledger = dict(components.get("frontier_ledger") or {})
+        proof = dict(projection.get("proof") or {})
+        compiler_binding = dict(
+            projection.get("selected_route_campaign_binding") or {}
+        )
+        campaign_binding = dict(bundle.get("campaign_projection_binding") or {})
+        revision = campaign_binding.get("campaign_revision")
+        compile_options = {
+            "expected_overlay_sha256": str(
+                compiler_binding.get("route_hypergraph_overlay_sha256") or ""
+            ),
+            "expected_bindings_sha256": str(
+                compiler_binding.get("route_portfolio_bindings_sha256") or ""
+            ),
+            "campaign_binding": compiler_binding,
+            "frontier_ledger": frontier_ledger,
+            "expected_campaign_revision": revision,
+        }
+        if not reasons:
+            reasons.extend(
+                validate_selected_route_parent_proof(
+                    proof,
+                    overlay,
+                    bindings,
+                    **compile_options,
+                )
+            )
+        accepted = not reasons
+        benchmark_solved = bool(
+            accepted
+            and is_solved_selected_route_parent_proof(
+                proof,
+                overlay,
+                bindings,
+                **compile_options,
+            )
+        )
+        routes = [
+            {
+                "route_id": str(row.get("route_id") or ""),
+                "edge_set_sha256": str(row.get("edge_set_sha256") or ""),
+                "selected_hyperedge_ids": [
+                    str(value) for value in row.get("selected_hyperedge_ids") or []
+                ],
+                "weakest_edge_proof_level": int(
+                    row.get("weakest_edge_proof_level") or 0
+                ),
+                "benchmark_closed": row.get("benchmark_closed") is True,
+                "procurement_ready": row.get("procurement_ready") is True,
+            }
+            for row in proof.get("routes") or []
+            if isinstance(row, dict)
+        ] if accepted else []
+        return {
+            "schema_version": "selected_route_parent_proof_display.v1",
+            "available": bool(bundle and projection),
+            "accepted": accepted,
+            "benchmark_solved": benchmark_solved,
+            "procurement_ready": bool(
+                benchmark_solved and proof.get("procurement_ready") is True
+            ),
+            "any_procurement_route_ready": bool(
+                accepted and proof.get("any_procurement_route_ready") is True
+            ),
+            "minimum_complete_routes": int(
+                (proof.get("policy") or {}).get("minimum_complete_routes") or 2
+            ),
+            "distinct_complete_route_count": len(routes),
+            "benchmark_route_count": sum(
+                row["benchmark_closed"] is True for row in routes
+            ),
+            "procurement_route_count": sum(
+                row["procurement_ready"] is True for row in routes
+            ),
+            "routes": routes,
+            "campaign_revision": revision if type(revision) is int else None,
+            "proof_content_sha256": str(proof.get("content_sha256") or ""),
+            "reasons": sorted(set(str(reason) for reason in reasons)),
+            "semantics": {
+                "at_least_two_distinct_edge_sets_required": True,
+                "all_selected_edges_require_l3_or_better": True,
+                "all_selected_leaves_require_exact_stock_bindings": True,
+                "benchmark_is_not_procurement": True,
+            },
+        }
+
+    def _apply_selected_route_parent_proof(
+        self,
+        proof_view: dict[str, Any],
+    ) -> None:
+        witnesses = {
+            frozenset(str(value) for value in row.get("selected_hyperedge_ids") or []): row
+            for row in proof_view.get("routes") or []
+            if isinstance(row, dict) and row.get("selected_hyperedge_ids")
+        }
+        if not witnesses:
+            return
+        solved = proof_view.get("benchmark_solved") is True
+        for branch in self.branches:
+            selection = frozenset(
+                str(row.get("hyperedge_id") or "")
+                for row in branch.get("selected_hyperedges") or []
+                if isinstance(row, dict) and str(row.get("hyperedge_id") or "")
+            )
+            witness = witnesses.get(selection)
+            if witness is None:
+                continue
+            branch["selected_route_witness"] = True
+            branch["selected_route_id"] = str(witness.get("route_id") or "")
+            branch["selected_route_edge_set_sha256"] = str(
+                witness.get("edge_set_sha256") or ""
+            )
+            branch["procurement_ready"] = witness.get("procurement_ready") is True
+            if not solved:
+                continue
+            branch.update(
+                {
+                    "kind": "selected_route_parent_proof",
+                    "recommendation": "deterministically selected parent route",
+                    "summary": (
+                        "A current-revision selected-route witness: every reaction "
+                        "edge is L3+ and every synthesis leaf is exactly stock-bound."
+                    ),
+                    "solved": True,
+                    "executable": True,
+                    "advisory_only": False,
+                    "not_parent_route_proof": False,
+                    "proof_binding": {
+                        "schema_version": "selected_route_witness_binding.v1",
+                        "accepted": True,
+                        "route_id": str(witness.get("route_id") or ""),
+                        "edge_set_sha256": str(
+                            witness.get("edge_set_sha256") or ""
+                        ),
+                        "campaign_revision": proof_view.get("campaign_revision"),
+                        "proof_content_sha256": str(
+                            proof_view.get("proof_content_sha256") or ""
+                        ),
+                    },
+                }
+            )
 
     def _semantic_summary(self, *, frontier_ledger: dict[str, Any]) -> dict[str, Any]:
         """Expose orthogonal execution and chemistry states for honest UI counts."""
@@ -697,7 +992,10 @@ class _RouteForestCompiler:
             dependency = self._branch_dependency_view(branch)
             if dependency.get("all_leaves_stock_bound") is True:
                 route_states["stock_closed"] += 1
-            if kind == "proof_eligible_portfolio_route" and branch.get("complete") is True:
+            if kind in {
+                "proof_eligible_portfolio_route",
+                "selected_route_parent_proof",
+            } and branch.get("complete") is True:
                 route_states["complete_portfolio"] += 1
             if (
                 branch.get("solved") is True
@@ -1920,6 +2218,7 @@ class _RouteForestCompiler:
             connectivity = 0.0
             connectivity_status = "rejected_or_incomplete"
         elif branch_kind in {
+            "selected_route_parent_proof",
             "direct_verified_route",
             "stitched_verified_route",
             "subgoal_verified_route",
@@ -1962,7 +2261,11 @@ class _RouteForestCompiler:
         if support_group_count == 0 and origin.startswith("direct_verified"):
             source_independence = 0.25
 
-        if branch_kind in {"direct_verified_route", "stitched_verified_route"}:
+        if branch_kind in {
+            "selected_route_parent_proof",
+            "direct_verified_route",
+            "stitched_verified_route",
+        }:
             stock = 1.0
             stock_status = "parent_route_stock_closed"
         elif branch_kind == "subgoal_verified_route":
@@ -2019,7 +2322,12 @@ class _RouteForestCompiler:
             # Exact precedent without a deterministic atom-mapped reaction
             # proof remains useful evidence, but cannot skip directly to L3.
             forward_feasibility = 0.65
-        elif branch_kind in {"direct_verified_route", "stitched_verified_route", "subgoal_verified_route"}:
+        elif branch_kind in {
+            "selected_route_parent_proof",
+            "direct_verified_route",
+            "stitched_verified_route",
+            "subgoal_verified_route",
+        }:
             # The current deterministic verifier proves graph/stock closure,
             # not a universal reaction-forward simulation.
             forward_feasibility = 0.55
@@ -2034,7 +2342,12 @@ class _RouteForestCompiler:
             proof_tier = "L0_rejected"
         elif authoritative_proof_tier:
             proof_tier = authoritative_proof_tier
-        elif branch_kind in {"direct_verified_route", "stitched_verified_route", "subgoal_verified_route"}:
+        elif branch_kind in {
+            "selected_route_parent_proof",
+            "direct_verified_route",
+            "stitched_verified_route",
+            "subgoal_verified_route",
+        }:
             proof_tier = "L1_graph_stock_closed"
         elif identity == 1.0:
             proof_tier = "L0_materialized"
@@ -3158,6 +3471,7 @@ class _RouteForestCompiler:
                 "reasons": ["no_compiled_branch"],
             }
         priority = {
+            "selected_route_parent_proof": 90,
             "stitched_verified_route": 80,
             "direct_verified_route": 70,
             "proof_eligible_portfolio_route": 65,
@@ -3203,7 +3517,11 @@ class _RouteForestCompiler:
             branch["is_primary"] = bool(selected_id and branch.get("branch_id") == selected_id)
         kind = str(selected.get("kind") or "")
         if (
-            kind in {"stitched_verified_route", "direct_verified_route"}
+            kind in {
+                "selected_route_parent_proof",
+                "stitched_verified_route",
+                "direct_verified_route",
+            }
             and selected.get("solved") is True
             and selected.get("executable") is True
             and selected.get("advisory_only") is False
@@ -3211,7 +3529,11 @@ class _RouteForestCompiler:
             status = "deterministically_verified"
             proof_level = "parent_route_proof"
             advisory_only = False
-        elif kind in {"stitched_verified_route", "direct_verified_route"}:
+        elif kind in {
+            "selected_route_parent_proof",
+            "stitched_verified_route",
+            "direct_verified_route",
+        }:
             status = "advisory"
             proof_level = "replayed_candidate_without_parent_proof_authority"
             advisory_only = True

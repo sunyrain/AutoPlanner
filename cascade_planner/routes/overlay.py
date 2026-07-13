@@ -146,6 +146,44 @@ def build_route_hypergraph_v2_overlay(graph: Mapping[str, Any]) -> dict[str, Any
             rank_score=float(step.get("rank_score") or 0.0),
             advisory_only=True,
         )
+        prior_hyperedge = hyperedges_by_id.get(hyperedge.hyperedge_id)
+        if prior_hyperedge is not None:
+            # Exact chemistry is one hyperedge even when several sources or
+            # candidate generators nominate it.  Preserve the union of its
+            # orthogonal support instead of letting the last v1 step silently
+            # overwrite earlier provenance.
+            hyperedge = ReactionHyperedge(
+                product=hyperedge.product,
+                precursors=hyperedge.precursors,
+                candidate_envelope_ids=(
+                    *prior_hyperedge.candidate_envelope_ids,
+                    *hyperedge.candidate_envelope_ids,
+                ),
+                evidence_claim_ids=(
+                    *prior_hyperedge.evidence_claim_ids,
+                    *hyperedge.evidence_claim_ids,
+                ),
+                source_channels=(
+                    *prior_hyperedge.source_channels,
+                    *hyperedge.source_channels,
+                ),
+                independent_support_groups=(
+                    *prior_hyperedge.independent_support_groups,
+                    *hyperedge.independent_support_groups,
+                ),
+                reaction_families=(
+                    *prior_hyperedge.reaction_families,
+                    *hyperedge.reaction_families,
+                ),
+                rank_score=max(
+                    prior_hyperedge.rank_score,
+                    hyperedge.rank_score,
+                ),
+                advisory_only=(
+                    prior_hyperedge.advisory_only
+                    and hyperedge.advisory_only
+                ),
+            )
         hyperedges_by_id[hyperedge.hyperedge_id] = hyperedge
         hyperedge_by_v1_step_id[str(step.get("step_id") or "")] = hyperedge.hyperedge_id
         validation_errors.extend(

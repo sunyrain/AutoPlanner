@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+import cascade_planner.orchestration.codex_retrosynthesis as codex_retrosynthesis_module
+
 from cascade_planner.agent.codex_worker import (
     WorkerRunRecord,
     _assign_child_roles,
@@ -43,6 +45,10 @@ from cascade_planner.routes.admission_receipts import (
 )
 from cascade_planner.routes.admission import audit_retrosynthetic_candidate
 from cascade_planner.routes.graph import select_route_consensus_frontier
+from cascade_planner.providers.stock import (
+    canonicalize_stock_snapshot,
+    stock_snapshot_sha256,
+)
 
 
 def proposal_artifact(case_id: str = "case") -> dict:
@@ -67,6 +73,7 @@ def proposal_artifact(case_id: str = "case") -> dict:
                     "candidate_id": "candidate:aldehyde",
                     "product_smiles": "CCO",
                     "precursor_smiles": ["CC=O"],
+                    "product_retron_type": "alcohol carbonyl retron",
                     "reaction_family": "carbonyl reduction",
                     "transformation_rationale": "aldehyde precursor",
                     "source_channel": "codex_strategy",
@@ -671,6 +678,37 @@ def test_strict_mode_rejects_three_of_four_valid_child_reports(tmp_path) -> None
     assert "required_child_reports_not_valid" in report["reasons"]
 
 
+def test_coordinator_candidate_restatement_cannot_veto_valid_child_consensus(
+    tmp_path,
+) -> None:
+    def runner(task):
+        record = accepted_runner_record(task)
+        record.output_artifact["payload"]["candidates"][0][
+            "precursor_smiles"
+        ] = ["C"]
+        return record
+
+    report = run_codex_retrosynthesis_team(
+        case_id="case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(
+            child_acceptance_mode="valid_subset_l0"
+        ),
+        runner=runner,
+    )
+
+    assert report["accepted"] is True
+    assert report["artifact_validation"]["accepted"] is False
+    assert report["coordinator_artifact_advisory_reasons"] == [
+        "proposal_report_candidate:0:element_inventory_not_conserved"
+    ]
+    assert report["route_consensus"]["accepted"] is True
+    assert "element_inventory_not_conserved" not in report["reasons"]
+
+
 def test_partial_mode_accepts_three_of_four_only_as_l0(tmp_path) -> None:
     report = run_codex_retrosynthesis_team(
         case_id="case",
@@ -1122,6 +1160,158 @@ def test_campaign_policy_rejects_depth_or_stock_authority_change(tmp_path) -> No
                 AssertionError("stock authority change must fail before Agent work")
             ),
         )
+
+
+def test_reaction_verifier_upgrade_replays_proof_without_resetting_campaign(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        codex_retrosynthesis_module,
+        "REACTION_STEP_VERIFIER_VERSION",
+        "autoplanner.reaction_step_verifier.v3-test",
+    )
+    config = RetrosynthesisTeamConfig(
+        max_depth=1,
+        max_expansions=1,
+        max_attempt_runs=1,
+        frontier_retry_base_seconds=0.0,
+        frontier_retry_max_seconds=0.0,
+        frontier_retry_wait_seconds=0.0,
+    )
+    first = run_codex_retrosynthesis_campaign(
+        case_id="verifier-authority-migration-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=config,
+        runner=accepted_runner_record,
+    )
+    campaign_root = tmp_path / "codex_retrosynthesis_team"
+    policy_before = (campaign_root / "campaign_policy.json").read_bytes()
+    commit_before = {
+        path.name: path.read_bytes()
+        for path in (campaign_root / "campaign_commits").glob("*.json")
+    }
+
+    monkeypatch.setattr(
+        codex_retrosynthesis_module,
+        "REACTION_STEP_VERIFIER_VERSION",
+        "autoplanner.reaction_step_verifier.v4-test",
+    )
+    second = run_codex_retrosynthesis_campaign(
+        case_id="verifier-authority-migration-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=config,
+        runner=lambda _: (_ for _ in ()).throw(
+            AssertionError("a verifier upgrade must not restart proposal search")
+        ),
+    )
+
+    assert (campaign_root / "campaign_policy.json").read_bytes() == policy_before
+    assert {
+        path.name: path.read_bytes()
+        for path in (campaign_root / "campaign_commits").glob("*.json")
+    } == commit_before
+    assert second["campaign"]["campaign_policy_sha256"] == first["campaign"][
+        "campaign_policy_sha256"
+    ]
+    assert second["campaign"]["expansion_run_count"] == first["campaign"][
+        "expansion_run_count"
+    ]
+    authority = json.loads(
+        (campaign_root / "reaction_verifier_authority.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert authority["policy_declared_verifier_version"].endswith("v3-test")
+    assert authority["active_verifier_version"].endswith("v4-test")
+    assert authority["event_count"] == 1
+    event = json.loads(
+        (
+            campaign_root
+            / "reaction_verifier_authority_events"
+            / "000000.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert event["event_kind"] == "proof_authority_upgrade"
+    assert event["search_state_preserved"] is True
+    assert event["proof_cache_replay_required"] is True
+
+
+def test_reaction_verifier_upgrade_rejects_tampered_policy(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        codex_retrosynthesis_module,
+        "REACTION_STEP_VERIFIER_VERSION",
+        "autoplanner.reaction_step_verifier.v3-test",
+    )
+    config = RetrosynthesisTeamConfig(max_depth=1, max_expansions=1)
+    run_codex_retrosynthesis_campaign(
+        case_id="verifier-authority-tamper-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=config,
+        runner=accepted_runner_record,
+    )
+    policy_path = tmp_path / "codex_retrosynthesis_team" / "campaign_policy.json"
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    policy["reaction_verifier_version"] = "tampered.verifier"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    monkeypatch.setattr(
+        codex_retrosynthesis_module,
+        "REACTION_STEP_VERIFIER_VERSION",
+        "autoplanner.reaction_step_verifier.v4-test",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="campaign policy manifest identity or digest is invalid",
+    ):
+        run_codex_retrosynthesis_campaign(
+            case_id="verifier-authority-tamper-case",
+            target_name="ethanol",
+            target_smiles="CCO",
+            run_dir=tmp_path,
+            repository_root=tmp_path,
+            config=config,
+            runner=lambda _: (_ for _ in ()).throw(
+                AssertionError("tampered authority must fail before Agent work")
+            ),
+        )
+
+
+def test_proof_reconciliation_uses_campaign_depth_not_caller_display_depth(
+    tmp_path,
+) -> None:
+    first = run_codex_retrosynthesis_campaign(
+        case_id="reconcile-display-depth-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(max_depth=1, max_expansions=1),
+        runner=accepted_runner_record,
+    )
+    caller_graph = json.loads(json.dumps(first["route_consensus_graph"]))
+    caller_graph.setdefault("limits", {})["max_depth"] = 9
+
+    reconciled = reconcile_codex_campaign_proof_state(
+        graph=caller_graph,
+        run_dir=tmp_path,
+        case_id="reconcile-display-depth-case",
+    )
+
+    assert reconciled["accepted"] is True
+    summary = reconciled["caller_advisory_graph"]
+    assert summary["declared_max_depth"] == 9
+    assert summary["campaign_max_depth"] == 1
+    assert summary["depth_policy_source"] == "immutable_campaign_policy"
 
 
 def test_campaign_policy_binds_child_acceptance_mode_roles_and_quorum(
@@ -1866,6 +2056,139 @@ def test_campaign_runs_benchmark_and_commercial_stock_providers_together(
     ]
     assert stock["benchmark_membership_closed"] is True
     assert stock["procurement_boundary_closed"] is True
+
+
+def test_campaign_accepts_cli_digest_keyed_commercial_stock_snapshots(
+    tmp_path,
+) -> None:
+    catalog = tmp_path / "provider-set.csv"
+    catalog.write_text("smiles\nCC=O\n", encoding="utf-8")
+    catalog_digest = hashlib.sha256(catalog.read_bytes()).hexdigest()
+    snapshot = canonicalize_stock_snapshot(
+        {
+            "schema_version": "stock_offer_snapshot.v1",
+            "supplier": "fixture",
+            "catalog_number": "CLI-DIGEST-1",
+            "canonical_smiles": "CC=O",
+            "checked_at": "2026-07-12T00:00:00+00:00",
+            "available": True,
+            "source_url": "https://supplier.invalid/CLI-DIGEST-1",
+            "metadata": {},
+        }
+    )
+    snapshot_digest = stock_snapshot_sha256(snapshot)
+    report = run_codex_retrosynthesis_campaign(
+        case_id="cli-digest-stock-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=tmp_path / "run",
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(
+            max_depth=1,
+            max_expansions=1,
+            stock_snapshots={
+                snapshot_digest: {
+                    **snapshot,
+                    "snapshot_sha256": snapshot_digest,
+                }
+            },
+            benchmark_stock_catalog_artifact=str(catalog),
+            benchmark_stock_catalog_sha256=catalog_digest,
+            benchmark_stock_catalog_name="provider-set",
+        ),
+        runner=lambda task: accepted_runner_record_for_target(task, "CC=O"),
+    )
+
+    authority = report["campaign"]["stock_authority"]
+    assert authority["source"] == "benchmark_and_commercial_provider_set"
+    assert authority["trusted_snapshot_sha256"] == [snapshot_digest]
+    binding = report["campaign"]["campaign_policy"]["stock_authority_binding"]
+    assert binding["trusted_snapshot_sha256"] == [snapshot_digest]
+    assert binding["snapshot_material_count"] == 1
+
+
+def test_commercial_stock_material_rehydrates_on_config_free_resume_and_tamper_fails_closed(
+    tmp_path,
+) -> None:
+    snapshot = {
+        "schema_version": "stock_offer_snapshot.v1",
+        "supplier": "fixture",
+        "catalog_number": "DURABLE-1",
+        "smiles": "CC=O",
+        "checked_at": "2026-07-12T00:00:00Z",
+        "available": True,
+        "price": 12.5,
+        "currency": "USD",
+    }
+    run_dir = tmp_path / "run"
+    first = run_codex_retrosynthesis_campaign(
+        case_id="commercial-rehydration-case",
+        target_name="ethanol",
+        target_smiles="CCO",
+        run_dir=run_dir,
+        repository_root=tmp_path,
+        config=RetrosynthesisTeamConfig(
+            max_depth=1,
+            max_expansions=1,
+            stock_snapshots={"CC=O": snapshot},
+        ),
+        runner=lambda task: accepted_runner_record_for_target(task, "CC=O"),
+    )
+
+    binding = first["campaign"]["campaign_policy"]["stock_authority_binding"]
+    assert binding["snapshot_material_artifact"] == "stock_authority_material.json"
+    assert binding["snapshot_material_count"] == 1
+    material_path = (
+        run_dir
+        / "codex_retrosynthesis_team"
+        / binding["snapshot_material_artifact"]
+    )
+    assert hashlib.sha256(material_path.read_bytes()).hexdigest() == binding[
+        "snapshot_material_artifact_sha256"
+    ]
+    providers, authority = (
+        codex_retrosynthesis_module.rehydrate_campaign_stock_provider_instances(
+            run_dir
+        )
+    )
+    assert authority["available"] is True
+    assert set(providers) == {"autoplanner.snapshot_stock"}
+
+    resumed = reconcile_codex_campaign_proof_state(
+        graph=first["route_consensus_graph"],
+        run_dir=run_dir,
+        case_id="commercial-rehydration-case",
+    )
+    assert resumed["frontier_sync"]["stock_authority"]["available"] is True
+    leaf = next(
+        row
+        for row in resumed["frontier_queue"]["jobs"]
+        if row["frontier_smiles"] == "CC=O"
+    )
+    assert leaf["metadata"]["stock_observation_current_closed"] is True
+
+    from cascade_planner.application.frontier_scheduler import PersistentFrontierQueue
+
+    queue = PersistentFrontierQueue(
+        run_dir / "codex_retrosynthesis_team" / "frontier_queue"
+    )
+    queue_before = queue.snapshot("commercial-rehydration-case")
+    proof_path = run_dir / "codex_retrosynthesis_team" / "reaction_proof_state.json"
+    proof_before = proof_path.read_bytes()
+    material = json.loads(material_path.read_text(encoding="utf-8"))
+    material["offers"][0]["price"] = 0.01
+    material_path.write_text(json.dumps(material), encoding="utf-8")
+    with pytest.raises(
+        ValueError,
+        match="campaign policy stock provider rehydration failed:.*file_digest_mismatch",
+    ):
+        reconcile_codex_campaign_proof_state(
+            graph=first["route_consensus_graph"],
+            run_dir=run_dir,
+            case_id="commercial-rehydration-case",
+        )
+    assert queue.snapshot("commercial-rehydration-case") == queue_before
+    assert proof_path.read_bytes() == proof_before
 
 
 def test_validated_reaction_proof_is_consumed_instead_of_left_open(tmp_path) -> None:
@@ -3267,6 +3590,14 @@ def test_child_report_shape_repair_only_applies_conservative_advisory_defaults()
     repaired_candidate["precursor_smiles"] = "CC"
     assert "child_candidate:0:precursor_smiles_not_string_list" in (
         _strict_child_report_shape_reasons(repaired)
+    )
+
+    missing_retron = json.loads(
+        child_report_message("case", "target_structure_strategist", with_candidate=True)
+    )
+    missing_retron["candidates"][0].pop("product_retron_type")
+    assert "child_candidate:0:fields_not_exact" in (
+        _strict_child_report_shape_reasons(missing_retron)
     )
 
     for invalid_candidates in (1, True, 3.14):

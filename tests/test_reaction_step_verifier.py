@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 from cascade_planner.harness.reaction_step_verifier import (
@@ -11,7 +12,12 @@ from cascade_planner.harness.reaction_step_verifier import (
     verify_reaction_route,
     verify_reaction_step,
 )
-from cascade_planner.providers import ProviderContext, SnapshotStockProvider, stock_snapshot_sha256
+from cascade_planner.providers import (
+    BenchmarkCatalogStockProvider,
+    ProviderContext,
+    SnapshotStockProvider,
+    stock_snapshot_sha256,
+)
 
 
 _FIXTURES = Path(__file__).parent / "fixtures"
@@ -165,6 +171,57 @@ def test_unmapped_departing_oxygen_in_dehydration_reaches_l2() -> None:
     )
 
 
+def test_unmapped_methyl_ester_cleavage_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "step_id": "methyl_ester_hydrolysis",
+            "product_smiles": "CC(=O)O",
+            "reactant_smiles": ["CC(=O)OC"],
+            "atom_mapped_reaction_smiles": (
+                "[CH3:1][C:2](=[O:3])[O:4][CH3]"
+                ">>[CH3:1][C:2](=[O:3])[OH:4]"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["proof_level"] == "L2_reaction_validated"
+    assert proof["checks"]["bond_change_present"] is True
+    assert proof["bond_change_audit"]["departing_unmapped_bonds"] == [
+        {
+            "retained_atom_map": 4,
+            "leaving_atomic_number": 6,
+            "bond_type": "SINGLE",
+        }
+    ]
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "heteroatom_deprotection_or_cleavage"
+    )
+
+
+def test_unmapped_boc_carbamate_cleavage_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "step_id": "boc_deprotection",
+            "product_smiles": "CN",
+            "reactant_smiles": ["CNC(=O)OC(C)(C)C"],
+            "atom_mapped_reaction_smiles": (
+                "[CH3:1][NH:2][C](=[O])[O][C]([CH3])([CH3])[CH3]"
+                ">>[CH3:1][NH2:2]"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["proof_level"] == "L2_reaction_validated"
+    assert proof["checks"]["reactant_departing_atoms_plausible"] is True
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "heteroatom_deprotection_or_cleavage"
+    )
+
+
 def test_excessive_unmapped_reactant_atom_loss_fails_closed() -> None:
     proof = verify_reaction_step(
         {
@@ -292,9 +349,12 @@ def test_l4_requires_digest_valid_stock_provider_envelopes(monkeypatch) -> None:
             "offers": [offer],
         },
         context=ProviderContext(run_id="test", case_id="test", target_smiles="CC=O"),
-    )
+    ).to_dict()
+    # Durable campaign artifacts are JSON, so tuple-valued envelope fields
+    # return as lists.  A host replay must compare the canonical JSON value.
+    stock_result = json.loads(json.dumps(stock_result))
     binding = build_verified_procurement_binding(
-        [stock_result.to_dict()],
+        [stock_result],
         reactant_smiles=["CCO"],
         trusted_stock_providers={stock_provider.descriptor.provider_id: stock_provider},
     )
@@ -315,7 +375,7 @@ def test_l4_requires_digest_valid_stock_provider_envelopes(monkeypatch) -> None:
     assert proof["proof_level"] == "L4_procurement_ready"
 
     untrusted_binding = build_verified_procurement_binding(
-        [stock_result.to_dict()],
+        [stock_result],
         reactant_smiles=["CCO"],
     )
     assert untrusted_binding["accepted"] is False
@@ -335,6 +395,107 @@ def test_l4_requires_digest_valid_stock_provider_envelopes(monkeypatch) -> None:
         trusted_stock_providers={stock_provider.descriptor.provider_id: stock_provider},
     )
     assert downgraded["proof_level"] == "L3_precedent_supported"
+
+
+def test_procurement_replay_rejects_forged_and_rehashed_tampered_envelopes() -> None:
+    trusted_snapshot = {
+        "schema_version": "stock_offer_snapshot.v1",
+        "supplier": "trusted-supplier",
+        "catalog_number": "ETHANOL-TRUSTED",
+        "smiles": "CCO",
+        "checked_at": "2026-07-10T00:00:00Z",
+        "available": True,
+    }
+    trusted_provider = SnapshotStockProvider(trusted_snapshots=[trusted_snapshot])
+    context = ProviderContext(run_id="test", case_id="test", target_smiles="CCO")
+
+    invented_snapshot = {
+        **trusted_snapshot,
+        "supplier": "invented-supplier",
+        "catalog_number": "FAKE-1",
+    }
+    attacker_provider = SnapshotStockProvider(trusted_snapshots=[invented_snapshot])
+    forged_result = attacker_provider.invoke(
+        {
+            "schema_version": "stock_lookup_request.v1",
+            "smiles": "CCO",
+            "offers": [
+                {
+                    **invented_snapshot,
+                    "snapshot_sha256": stock_snapshot_sha256(invented_snapshot),
+                }
+            ],
+        },
+        context=context,
+    ).to_dict()
+    forged_binding = build_verified_procurement_binding(
+        [forged_result],
+        reactant_smiles=["CCO"],
+        trusted_stock_providers={
+            trusted_provider.descriptor.provider_id: trusted_provider,
+        },
+    )
+    assert forged_binding["accepted"] is False
+
+    legitimate_result = trusted_provider.invoke(
+        {
+            "schema_version": "stock_lookup_request.v1",
+            "smiles": "CCO",
+            "offers": [
+                {
+                    **trusted_snapshot,
+                    "snapshot_sha256": stock_snapshot_sha256(trusted_snapshot),
+                }
+            ],
+        },
+        context=context,
+    ).to_dict()
+    tampered_result = json.loads(json.dumps(legitimate_result))
+    offer = tampered_result["payload"]["offers"][0]
+    offer["available"] = False
+    offer["snapshot"]["available"] = False
+    offer["snapshot_sha256"] = stock_snapshot_sha256(offer["snapshot"])
+    unsigned = dict(tampered_result)
+    unsigned.pop("content_hash", None)
+    tampered_result["content_hash"] = hashlib.sha256(
+        json.dumps(
+            unsigned,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+    tampered_binding = build_verified_procurement_binding(
+        [tampered_result],
+        reactant_smiles=["CCO"],
+        trusted_stock_providers={
+            trusted_provider.descriptor.provider_id: trusted_provider,
+        },
+    )
+    assert tampered_binding["accepted"] is False
+
+
+def test_benchmark_replay_cannot_claim_commercial_procurement(tmp_path: Path) -> None:
+    catalog = tmp_path / "benchmark-stock.csv"
+    catalog.write_text("smiles\nCCO\n", encoding="utf-8")
+    provider = BenchmarkCatalogStockProvider(
+        catalog_artifact=catalog,
+        catalog_sha256=hashlib.sha256(catalog.read_bytes()).hexdigest(),
+        catalog_name="fixture-benchmark",
+    )
+    result = provider.invoke(
+        {"schema_version": "stock_lookup_request.v1", "smiles": "CCO"},
+        context=ProviderContext(run_id="test", case_id="test", target_smiles="CCO"),
+    ).to_dict()
+    binding = build_verified_procurement_binding(
+        [json.loads(json.dumps(result))],
+        reactant_smiles=["CCO"],
+        trusted_stock_providers={provider.descriptor.provider_id: provider},
+    )
+
+    assert result["payload"]["boundary_type"] == "benchmark_stock"
+    assert binding["accepted"] is False
 
 
 def test_three_butanes_cut_and_glue_is_only_mapping_consistent() -> None:

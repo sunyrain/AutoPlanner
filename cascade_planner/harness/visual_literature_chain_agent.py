@@ -1,6 +1,7 @@
 """Vision-agent extraction of literature structure chains from local PDF crops."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 import json
 import os
 import re
@@ -16,6 +17,8 @@ from base64 import b64encode
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from cascade_planner.harness.source_capabilities import meaningful_compound_labels
 
 try:
     from rdkit import Chem, RDLogger
@@ -46,6 +49,7 @@ def run_visual_literature_chain_agent(
     codex_executable: str | None = None,
     allow_repair: bool = True,
 ) -> dict[str, Any]:
+    expected_labels = meaningful_compound_labels(expected_labels or [])
     out = Path(output_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
     existing_images = [Path(path).resolve() for path in image_paths if Path(path).exists()]
@@ -65,7 +69,17 @@ def run_visual_literature_chain_agent(
 
     api_key = _read_key(Path(key_path))
     executable = codex_executable or shutil.which("codex")
-    if not api_key or (not _visual_direct_api_enabled() and not executable):
+    ambient_auth = _visual_use_ambient_codex_cli_auth()
+    if (
+        (ambient_auth and not executable)
+        or (
+            not ambient_auth
+            and (
+                not api_key
+                or (not _visual_direct_api_enabled() and not executable)
+            )
+        )
+    ):
         result = _base_result(
             output_dir=out,
             accepted=False,
@@ -85,7 +99,7 @@ def run_visual_literature_chain_agent(
         target_smiles=target_smiles,
         source_ref=source_ref,
         source_title=source_title,
-        expected_labels=expected_labels or [],
+        expected_labels=expected_labels,
         route_sequence_hint=route_sequence_hint,
         text_snippets=text_snippets or [],
     )
@@ -102,8 +116,11 @@ def run_visual_literature_chain_agent(
         event_log_filename="codex_visual_chain_events.jsonl",
         stderr_log_filename="codex_visual_chain_stderr.log",
         last_message_filename="codex_visual_chain_last_message.txt",
+        ambient_auth=ambient_auth,
     )
-    if first_attempt["status"] in {"timeout", "error"} and not str(first_attempt.get("raw_last_message") or "").strip():
+    if first_attempt["status"] != "completed" and not str(
+        first_attempt.get("raw_last_message") or ""
+    ).strip():
         result = _base_result(
             output_dir=out,
             accepted=False,
@@ -133,14 +150,14 @@ def run_visual_literature_chain_agent(
     candidate_chain = _salvage_valid_visual_subchain(candidate_chain)
     attempts = [first_attempt]
     selected_attempt = first_attempt
-    candidate_quality = _candidate_quality(candidate_chain, expected_labels=expected_labels or [])
+    candidate_quality = _candidate_quality(candidate_chain, expected_labels=expected_labels)
     if allow_repair and _should_try_repair(candidate_quality, elapsed_s=time.monotonic() - started, timeout_s=float(timeout_s)):
         repair_prompt = _repair_prompt(
             target_name=target_name,
             target_smiles=target_smiles,
             source_ref=source_ref,
             source_title=source_title,
-            expected_labels=expected_labels or [],
+            expected_labels=expected_labels,
             route_sequence_hint=route_sequence_hint,
             first_parsed=parsed,
             first_quality=candidate_quality,
@@ -158,6 +175,7 @@ def run_visual_literature_chain_agent(
             event_log_filename="codex_visual_chain_repair_events.jsonl",
             stderr_log_filename="codex_visual_chain_repair_stderr.log",
             last_message_filename="codex_visual_chain_repair_last_message.txt",
+            ambient_auth=ambient_auth,
         )
         attempts.append(repair_attempt)
         repair_parsed = _parse_json_object(str(repair_attempt.get("raw_last_message") or ""))
@@ -170,7 +188,7 @@ def run_visual_literature_chain_agent(
             image_paths=existing_images,
         )
         repair_chain = _salvage_valid_visual_subchain(repair_chain)
-        repair_quality = _candidate_quality(repair_chain, expected_labels=expected_labels or [])
+        repair_quality = _candidate_quality(repair_chain, expected_labels=expected_labels)
         if _should_select_repair_candidate(
             current_chain=candidate_chain,
             current_quality=candidate_quality,
@@ -342,6 +360,8 @@ def _prompt(
     return (
         "You are extracting a literature route from newly rendered PDF scheme images.\n"
         "Return one JSON object only. Do not include markdown.\n"
+        "Do not call shell commands, tools, Python, RDKit, file listing, web search, or any external validator. "
+        "Inspect the attached images directly and return the JSON immediately; the host will validate every SMILES after your response.\n"
         "Use only the attached images and the text snippets below. Do not use prior AutoPlanner JSON, old curator records, or memory.\n"
         "This is not a solved-route verdict. You are only producing a candidate structure chain for later RDKit/source-detail validation.\n\n"
         "Critical chemistry-output rules:\n"
@@ -435,6 +455,8 @@ def _repair_prompt(
         )
     return (
         "Re-inspect the same attached current PDF scheme images and repair the visual structure chain JSON.\n"
+        "Do not call shell commands, tools, Python, RDKit, file listing, web search, or any external validator. "
+        "Return the repaired JSON directly; the host performs validation.\n"
         "The previous draft read some labels/conditions but failed the audit below. Use that draft only as a checklist of visible labels/conditions; "
         "derive all structures again from the attached current images. Do not use prior AutoPlanner route JSON, old curator records, or memory.\n\n"
         "Hard requirements:\n"
@@ -472,8 +494,9 @@ def _run_visual_json_prompt(
     event_log_filename: str,
     stderr_log_filename: str,
     last_message_filename: str,
+    ambient_auth: bool = False,
 ) -> dict[str, Any]:
-    if _visual_direct_api_enabled():
+    if _visual_direct_api_enabled() and not ambient_auth:
         direct_attempt = _run_direct_visual_prompt(
             api_key=api_key,
             base_url=base_url,
@@ -515,6 +538,7 @@ def _run_visual_json_prompt(
         event_log_filename=event_log_filename,
         stderr_log_filename=stderr_log_filename,
         last_message_filename=last_message_filename,
+        ambient_auth=ambient_auth,
     )
 
 
@@ -662,6 +686,7 @@ def _run_codex_visual_prompt(
     event_log_filename: str,
     stderr_log_filename: str,
     last_message_filename: str,
+    ambient_auth: bool = False,
 ) -> dict[str, Any]:
     output_dir = output_dir.resolve()
     prompt_path = output_dir / prompt_filename
@@ -683,28 +708,52 @@ def _run_codex_visual_prompt(
         "workspace-write",
         "--color",
         "never",
+        "--ephemeral",
         "--output-last-message",
         str(last_message),
+        "--model",
+        str(model),
     ]
     for image in image_paths:
         command.extend(["--image", str(image)])
     command.append("-")
     started = time.monotonic()
     try:
-        with tempfile.TemporaryDirectory(prefix="autoplanner_visual_chain_") as tmp:
-            codex_home = Path(tmp) / "codex_home"
-            codex_home.mkdir(parents=True, exist_ok=True)
-            _write_codex_home(
-                codex_home=codex_home,
-                api_key=api_key,
-                base_url=base_url,
-                model=model,
-                run_dir=output_dir,
+        auth_context = (
+            nullcontext(None)
+            if ambient_auth
+            else tempfile.TemporaryDirectory(
+                prefix="autoplanner_visual_chain_"
             )
+        )
+        with auth_context as tmp:
             env = os.environ.copy()
-            env["CODEX_HOME"] = str(codex_home)
-            env["OPENAI_API_KEY"] = api_key
-            env.pop("OPENAI_BASE_URL", None)
+            if ambient_auth:
+                # Reuse the operator's authenticated Codex CLI session.  API
+                # key/base URL variables are removed so a stale or depleted
+                # third-party key cannot shadow the ambient login.
+                env.pop("OPENAI_API_KEY", None)
+                env.pop("OPENAI_BASE_URL", None)
+                env.pop("CODEX_HOME", None)
+            else:
+                codex_home = Path(str(tmp)) / "codex_home"
+                codex_home.mkdir(parents=True, exist_ok=True)
+                _write_codex_home(
+                    codex_home=codex_home,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model=model,
+                    run_dir=output_dir,
+                )
+                env["CODEX_HOME"] = str(codex_home)
+                env["OPENAI_API_KEY"] = api_key
+                env.pop("OPENAI_BASE_URL", None)
+            # Windows inherits the active ANSI code page for text-mode pipes.
+            # Literature prompts routinely contain symbols such as µ, ° and
+            # stereochemical Unicode; encoding stdin with GBK used to abort a
+            # valid visual extraction before Codex received it.
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONUTF8"] = "1"
             with event_log.open("w", encoding="utf-8") as stdout, stderr_log.open("w", encoding="utf-8") as stderr:
                 proc = subprocess.Popen(
                     command,
@@ -713,6 +762,8 @@ def _run_codex_visual_prompt(
                     stdout=stdout,
                     stderr=stderr,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     env=env,
                 )
                 try:
@@ -748,17 +799,87 @@ def _run_codex_visual_prompt(
             "error": str(exc),
         }
     raw_text = last_message.read_text(encoding="utf-8", errors="replace") if last_message.exists() else ""
+    diagnostic_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in (event_log, stderr_log)
+        if path.is_file()
+    )
+    infrastructure_failure = _codex_visual_infrastructure_failure(
+        diagnostic_text
+    )
+    returncode = int(getattr(proc, "returncode", 1))
+    status = "completed" if returncode == 0 else "failed"
+    reasons = [] if returncode == 0 else ["codex_visual_chain_nonzero_exit"]
+    retryable = False
+    retry_after_hint = ""
+    if infrastructure_failure:
+        status = "error"
+        reasons = [str(infrastructure_failure["reason"])]
+        retryable = True
+        retry_after_hint = str(
+            infrastructure_failure.get("retry_after_hint") or ""
+        )
     return {
         "schema_version": "visual_literature_chain_attempt.v1",
-        "status": "completed" if int(getattr(proc, "returncode", 1)) == 0 else "failed",
-        "reasons": [] if int(getattr(proc, "returncode", 1)) == 0 else ["codex_visual_chain_nonzero_exit"],
+        "status": status,
+        "reasons": reasons,
         "elapsed_s": round(time.monotonic() - started, 3),
         "prompt_path": str(prompt_path),
         "event_log_path": str(event_log),
         "stderr_log_path": str(stderr_log),
         "last_message_path": str(last_message),
-        "returncode": int(getattr(proc, "returncode", 1)),
+        "returncode": returncode,
         "raw_last_message": raw_text,
+        "retryable_infrastructure_failure": retryable,
+        "retry_after_hint": retry_after_hint,
+        "execution_mode": (
+            "ambient_codex_cli"
+            if ambient_auth
+            else "isolated_codex_cli_api_key"
+        ),
+    }
+
+
+def _codex_visual_infrastructure_failure(
+    diagnostic_text: str,
+) -> dict[str, str]:
+    text = str(diagnostic_text or "")
+    lowered = text.casefold()
+    if any(
+        token in lowered
+        for token in (
+            "you've hit your usage limit",
+            "you have hit your usage limit",
+            "purchase more credits",
+            "usage_limit_reached",
+        )
+    ):
+        match = re.search(
+            r"try again at\s+([^\"\r\n}]+)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        return {
+            "reason": "codex_visual_usage_limit",
+            "retry_after_hint": str(match.group(1)).strip() if match else "",
+        }
+    if "rate limit" in lowered or "rate_limit" in lowered:
+        return {
+            "reason": "codex_visual_rate_limited",
+            "retry_after_hint": "",
+        }
+    return {}
+
+
+def _visual_use_ambient_codex_cli_auth() -> bool:
+    value = str(
+        os.environ.get("AUTOPLANNER_CODEX_WORKER_AUTH") or ""
+    ).strip().lower()
+    return value in {
+        "ambient",
+        "ambient_codex",
+        "ambient_codex_cli",
+        "codex_login",
     }
 
 
@@ -1599,6 +1720,7 @@ def _specified_stereo_token_count(value: str) -> int:
 
 
 def _candidate_quality(chain: dict[str, Any], *, expected_labels: list[str]) -> dict[str, Any]:
+    expected_labels = meaningful_compound_labels(expected_labels)
     labels = _labels_from_chain(chain)
     gap_labels = _labels_from_gaps(chain)
     missing = [label for label in expected_labels if label not in labels and label not in gap_labels]

@@ -20,6 +20,7 @@ from rdkit import Chem, RDLogger
 from cascade_planner.harness.reaction_step_verifier import (
     REACTION_STEP_VERIFIER_VERSION,
 )
+from cascade_planner.providers.stock import replay_stock_provider_result
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -42,6 +43,9 @@ class RoutePortfolioItem:
     complete: bool
     reaction_validated: bool
     procurement_ready: bool = False
+    benchmark_stock_closed: bool = False
+    procurement_stock_closed: bool = False
+    in_house_stock_closed: bool = False
     target_stock_available: bool = False
     target_stock_boundary_type: str = ""
     target_benchmark_membership: bool = False
@@ -565,7 +569,14 @@ def derive_portfolio_bindings(
             )
 
     proof_by_signature: dict[tuple[str, tuple[str, ...]], dict[str, Any]] = {}
-    materialized_terminals: set[str] = set()
+    # The terminal universe comes from the current host overlay, not only from
+    # verifier routes or positive stock observations.  Otherwise an
+    # unobserved leaf disappears from ``unmatched_materialized_terminals`` and
+    # can make coverage look complete by omission.
+    materialized_terminals: set[str] = _overlay_leaf_smiles(
+        overlay,
+        molecule_smiles_by_id=molecule_smiles_by_id,
+    )
     stock_evidence_candidates: dict[str, list[dict[str, Any]]] = {}
     report_validation_wrappers, accepted_edge_report_count = (
         _supplemental_edge_validation_wrappers(
@@ -1282,129 +1293,23 @@ def _replay_trusted_stock_provider_result(
     expected_smiles: str,
     trusted_stock_provider_instances: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Re-invoke one allowlisted stock implementation from materialized input.
+    """Use the single JSON-canonical host replay boundary for stock proof."""
 
-    A valid provider-envelope hash only proves internal consistency.  It does
-    not prove that the named provider exists, that a benchmark file still has
-    the asserted bytes, or that a supplier snapshot was signed over the fields
-    being consumed.  This boundary therefore binds the exact built-in host
-    descriptor and reconstructs the provider result before extracting evidence.
-    """
-
-    try:
-        from cascade_planner.providers.contracts import (
-            ProviderContext,
-            validate_provider_result,
-        )
-        from cascade_planner.providers.stock import (
-            BenchmarkCatalogStockProvider,
-            SnapshotStockProvider,
-        )
-    except ImportError:
-        return {}
-
-    provider_id = str(result.get("provider_id") or "")
-    provider_classes = {
-        SnapshotStockProvider.descriptor.provider_id: SnapshotStockProvider,
-        BenchmarkCatalogStockProvider.descriptor.provider_id: (
-            BenchmarkCatalogStockProvider
-        ),
-    }
-    provider_class = provider_classes.get(provider_id)
-    if provider_class is None:
-        return {}
-    descriptor = provider_class.descriptor
-    if validate_provider_result(result, descriptor=descriptor):
-        return {}
-    if (
-        result.get("accepted") is not True
-        or result.get("output_schema") != "stock_boundary.v1"
-        or result.get("provider_kind") != "stock"
-    ):
-        return {}
-    payload = result.get("payload")
-    if not isinstance(payload, Mapping):
-        return {}
-    payload_row = dict(payload)
-    if (
-        payload_row.get("accepted") is not True
-        or _canonical_smiles(payload_row.get("canonical_smiles")) != expected_smiles
-    ):
-        return {}
-    context = ProviderContext(
-        run_id="portfolio-stock-replay",
-        case_id="portfolio-stock-replay",
-        target_smiles=expected_smiles,
+    binding, reasons = replay_stock_provider_result(
+        result,
+        expected_smiles=expected_smiles,
+        trusted_provider_instances=trusted_stock_provider_instances,
     )
-    try:
-        if provider_class is BenchmarkCatalogStockProvider:
-            bindings = [
-                dict(row)
-                for row in payload_row.get("catalog_bindings") or []
-                if isinstance(row, Mapping)
-            ]
-            if len(bindings) != 1:
-                return {}
-            binding = bindings[0]
-            artifact = str(binding.get("catalog_path") or "").strip()
-            catalog_sha256 = str(binding.get("catalog_sha256") or "").lower()
-            catalog_name = str(binding.get("catalog_name") or "").strip()
-            if (
-                not artifact
-                or not catalog_name
-                or binding.get("artifact_hash_verified") is not True
-                or binding.get("commercial_orderability_claimed") is not False
-                or artifact not in {str(value) for value in result.get("source_refs") or []}
-            ):
-                return {}
-            provider = BenchmarkCatalogStockProvider(
-                catalog_artifact=artifact,
-                catalog_sha256=catalog_sha256,
-                catalog_name=catalog_name,
-            )
-            replayed = provider.invoke(
-                {"schema_version": "stock_lookup_request.v1", "smiles": expected_smiles},
-                context=context,
-            ).to_dict()
-        else:
-            # A digest-consistent snapshot embedded in the envelope is not a
-            # trust root: an attacker can invent both its fields and hash.  It
-            # is only a replay request against a host-owned provider instance
-            # whose construction-time trust set was established out-of-band.
-            provider = trusted_stock_provider_instances.get(provider_id)
-            if type(provider) is not SnapshotStockProvider:
-                return {}
-            offers = [
-                dict(row)
-                for row in payload_row.get("offers") or []
-                if isinstance(row, Mapping)
-            ]
-            if not offers or len(offers) != len(payload_row.get("offers") or []):
-                return {}
-            requests: list[dict[str, Any]] = []
-            for offer in offers:
-                snapshot = offer.get("snapshot")
-                if not isinstance(snapshot, Mapping):
-                    return {}
-                snapshot_row = dict(snapshot)
-                supplied_sha256 = str(offer.get("snapshot_sha256") or "").lower()
-                requests.append({**snapshot_row, "snapshot_sha256": supplied_sha256})
-            replayed = provider.invoke(
-                {
-                    "schema_version": "stock_lookup_request.v1",
-                    "smiles": expected_smiles,
-                    "offers": requests,
-                },
-                context=context,
-            ).to_dict()
-    except (OSError, TypeError, ValueError):
+    if reasons or not binding:
         return {}
-    if replayed != dict(result):
-        return {}
+    replayed = dict(binding.get("provider_result") or {})
+    payload_row = dict(replayed.get("payload") or {})
     return _stock_evidence_from_provider_payload(
         replayed,
-        dict(replayed.get("payload") or {}),
-        provider_descriptor_sha256=_digest(descriptor.to_dict()),
+        payload_row,
+        provider_descriptor_sha256=str(
+            binding.get("provider_descriptor_sha256") or ""
+        ),
     )
 
 
@@ -1858,6 +1763,49 @@ def _materialized_terminal_smiles(steps: Sequence[Mapping[str, Any]]) -> set[str
     return reactants - products
 
 
+def _overlay_leaf_smiles(
+    overlay: Mapping[str, Any],
+    *,
+    molecule_smiles_by_id: Mapping[str, str],
+) -> set[str]:
+    """Return every root-reachable molecule without an outgoing hyperedge."""
+
+    root_id = str(overlay.get("root_molecule_id") or "")
+    by_product: dict[str, list[tuple[str, ...]]] = {}
+    for raw in overlay.get("reaction_hyperedges") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        product_id = str(raw.get("product_molecule_id") or "")
+        precursors = tuple(
+            str(item)
+            for item in raw.get("precursor_molecule_ids") or []
+            if str(item or "")
+        )
+        if product_id and precursors:
+            by_product.setdefault(product_id, []).append(precursors)
+    if not root_id or root_id not in molecule_smiles_by_id:
+        return set()
+    reachable: set[str] = set()
+    pending = [root_id]
+    while pending:
+        molecule_id = pending.pop()
+        if molecule_id in reachable:
+            continue
+        reachable.add(molecule_id)
+        for precursors in by_product.get(molecule_id) or []:
+            pending.extend(
+                precursor
+                for precursor in precursors
+                if precursor not in reachable
+            )
+    return {
+        smiles
+        for molecule_id in reachable
+        if molecule_id not in by_product
+        and (smiles := str(molecule_smiles_by_id.get(molecule_id) or ""))
+    }
+
+
 def _step_product_smiles(step: Mapping[str, Any]) -> str:
     return str(
         step.get("product")
@@ -2024,7 +1972,42 @@ def _portfolio_item(
         and target_boundary_type == "commercially_orderable"
         and target_stock_binding.get("commercial_orderability_claimed") is True
     )
-    procurement_ready = bool(selections and reaction_validated and weakest >= 4)
+    terminal_bindings = [
+        dict(stock_bindings.get(molecule_id) or {})
+        for molecule_id in sorted(candidate.stock)
+    ]
+    benchmark_stock_closed = bool(
+        terminal_bindings and all(terminal_bindings)
+    )
+    procurement_stock_closed = bool(
+        terminal_bindings
+        and all(
+            str(binding.get("boundary_type") or "")
+            in {
+                "commercially_orderable",
+                "in_house_available",
+                "common_commodity",
+            }
+            for binding in terminal_bindings
+        )
+    )
+    in_house_stock_closed = bool(
+        terminal_bindings
+        and all(
+            str(binding.get("boundary_type") or "")
+            in {"in_house_available", "common_commodity"}
+            for binding in terminal_bindings
+        )
+    )
+    # Compatibility bit: L4 remains the legacy all-in-one tier.  New
+    # acceptance code reads the orthogonal stock fields and its independent
+    # minimum edge-proof requirement instead of conflating them.
+    procurement_ready = bool(
+        selections
+        and reaction_validated
+        and weakest >= 4
+        and procurement_stock_closed
+    )
     proof_score = weakest / 4.0
     support_score = min(len(support_groups) / 3.0, 1.0)
     length_penalty = min(len(selections) / 50.0, 0.25)
@@ -2053,6 +2036,9 @@ def _portfolio_item(
         complete=complete,
         reaction_validated=reaction_validated,
         procurement_ready=procurement_ready,
+        benchmark_stock_closed=benchmark_stock_closed,
+        procurement_stock_closed=procurement_stock_closed,
+        in_house_stock_closed=in_house_stock_closed,
         target_stock_available=target_stock_available,
         target_stock_boundary_type=(
             target_boundary_type

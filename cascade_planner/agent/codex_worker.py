@@ -827,11 +827,18 @@ def _task_reasoning_effort(task: WorkerTask) -> str:
     explicit = str(getattr(task.budget, "reasoning_effort", "") or "").strip()
     if explicit:
         return explicit
-    return str(os.environ.get("AUTOPLANNER_CODEX_WORKER_REASONING_EFFORT") or "xhigh").strip()
+    return str(
+        os.environ.get("AUTOPLANNER_CODEX_WORKER_REASONING_EFFORT")
+        or "medium"
+    ).strip()
 
 
 def _task_reasoning_effort_from_config(config: dict[str, str]) -> str:
-    return str(config.get("reasoning_effort") or os.environ.get("AUTOPLANNER_CODEX_WORKER_REASONING_EFFORT") or "xhigh").strip()
+    return str(
+        config.get("reasoning_effort")
+        or os.environ.get("AUTOPLANNER_CODEX_WORKER_REASONING_EFFORT")
+        or "medium"
+    ).strip()
 
 
 def _use_ambient_codex_cli_auth() -> bool:
@@ -1271,10 +1278,11 @@ def _artifact_payload_instruction(artifact_type: str) -> str:
             "For payload, return schema_version=retrosynthesis_proposal_report.v1, case_id, agent_role, "
             "target_smiles, candidates, evidence_refs, limitations, and no_solved_claim=true. Each candidate "
             "must contain product_smiles plus precursor_smiles as a list of individual components, a concise "
-            "reaction_family and transformation_rationale, source_channel, source/evidence refs, evidence_level, "
+            "reaction_family, product_retron_type, and transformation_rationale, source_channel, source/evidence refs, evidence_level, "
             "confidence, optional conditions/catalyst/enzyme, limitations, required_validation, "
             "no_solved_claim=true, and not_parent_route_proof=true. Product and precursor SMILES are advisory "
-            "typed hypotheses; never emit a reaction SMILES string or a key named reaction_smiles/rxn/raw_reaction."
+            "typed hypotheses, and product_retron_type is an advisory product-side classification only; never emit "
+            "a reaction SMILES string, reaction SMARTS, or a key named reaction_smiles/rxn/raw_reaction."
         )
     if artifact_type == "LiteratureRouteSegmentCard":
         return (
@@ -1397,6 +1405,7 @@ def _retrosynthesis_proposal_report_payload_json_schema(task: WorkerTask) -> dic
         "product_smiles": {"type": "string"},
         "precursor_smiles": _string_array_schema(),
         "reaction_family": {"type": "string"},
+        "product_retron_type": {"type": "string"},
         "transformation_rationale": {"type": "string"},
         "source_channel": {
             "type": "string",

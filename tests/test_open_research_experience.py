@@ -5,6 +5,9 @@ import unittest
 from pathlib import Path
 
 from cascade_planner.harness.downstream_compiler import compile_downstream_consumables
+from cascade_planner.harness.deterministic_literature_registry import (
+    PARSER_AUTHORITY_ID,
+)
 from cascade_planner.agent.chem_enzy_policy import validate_chem_enzy_search_policy
 from cascade_planner.harness.open_research_experience import (
     OPEN_RESEARCH_EXPERIENCE_SCHEMA,
@@ -2549,6 +2552,18 @@ class OpenResearchExperienceTest(unittest.TestCase):
             "evolution_candidates": [],
             "rejected_consumables": [],
         }
+        source_evidence = {
+            "schema_version": "materialized_source_evidence.v1",
+            "document_id": "pdf:source-detail",
+            "manifest_sha256": "1" * 64,
+            "source_pdf_sha256": "2" * 64,
+            "page_number": 1,
+            "image_sha256": "3" * 64,
+            "source_ref": "doi:10.0000/source-detail",
+        }
+        payload["source_detail_route_steps"][0]["source_evidence"] = [
+            source_evidence
+        ]
 
         compiled = compile_downstream_consumables(payload, target_smiles="CCO", case_id="source_detail_case")
 
@@ -2559,6 +2574,112 @@ class OpenResearchExperienceTest(unittest.TestCase):
         self.assertEqual(compiled["executable_template_maturity"]["status"], "executable_ready")
         self.assertEqual(compiled["executable_template_maturity"]["source_detail_route_step_count"], 2)
         self.assertTrue(any(report["kind"] == "source_detail_route_segment_draft" for report in compiled["literature_template_plugin"]["validation_reports"]))
+        first_trace = next(
+            row["literature_template_trace"]
+            for row in rows
+            if row["literature_template_trace"]["source_template_id"]
+            == "source_detail_exact_step:detail_step_1"
+        )
+        self.assertEqual(first_trace["source_evidence"], [source_evidence])
+        self.assertTrue(first_trace["exact_step_validation"]["accepted"])
+        self.assertTrue(
+            first_trace["exact_step_validation"]["allowed_for_one_step_source"]
+        )
+
+    def test_source_detail_chain_incrementally_merges_independent_source_batches(self):
+        first = _trusted_source_detail_step(
+            "source_a_step",
+            segment_id="source_a_segment",
+        )
+        first["source_ref"] = "doi:10.1000/source-a"
+        second = _trusted_source_detail_step(
+            "source_b_step",
+            segment_id="source_b_segment",
+        )
+        second["source_ref"] = "doi:10.1000/source-b"
+        initial = compile_downstream_consumables(
+            {
+                "schema_version": "open_downstream_consumables.v1",
+                "case_id": "multisource_incremental",
+                "source_detail_route_steps": [first],
+            },
+            target_smiles="CCO",
+            case_id="multisource_incremental",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            merged = compile_source_detail_chain_route(
+                source_detail_steps=[second],
+                compiled_downstream=initial,
+                output_dir=tmp,
+                target_smiles="CCO",
+                case_id="multisource_incremental",
+            )
+
+        plugin = merged["compiled_downstream"]["literature_template_plugin"]
+        traces = [row["literature_template_trace"] for row in plugin["one_step_rows"]]
+        self.assertEqual(
+            {trace["source_ref"] for trace in traces},
+            {"doi:10.1000/source-a", "doi:10.1000/source-b"},
+        )
+        self.assertEqual(len(plugin["plugin_flags"]["one_step_rows"]), 2)
+        self.assertGreaterEqual(plugin["plugin_flags"]["max_added"], 2)
+
+    def test_source_detail_merge_drops_obsolete_deterministic_parser_rows(self):
+        old = _trusted_source_detail_step(
+            "old_parser_step",
+            segment_id="old_parser_segment",
+        )
+        old.update(
+            {
+                "validation_status": "deterministically_validated",
+                "curation_status": "deterministically_validated",
+                "curator_record_id": "det-parser:old",
+                "deterministic_parser_authority_id": (
+                    "autoplanner.opsin_pubchem_source_text.v1"
+                ),
+            }
+        )
+        current = _trusted_source_detail_step(
+            "current_parser_step",
+            segment_id="current_parser_segment",
+        )
+        current.update(
+            {
+                "validation_status": "deterministically_validated",
+                "curation_status": "deterministically_validated",
+                "curator_record_id": "det-parser:current",
+                "deterministic_parser_authority_id": PARSER_AUTHORITY_ID,
+            }
+        )
+        initial = compile_downstream_consumables(
+            {
+                "schema_version": "open_downstream_consumables.v1",
+                "case_id": "parser_upgrade",
+                "source_detail_route_steps": [old],
+            },
+            target_smiles="CCO",
+            case_id="parser_upgrade",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            merged = compile_source_detail_chain_route(
+                source_detail_steps=[current],
+                compiled_downstream=initial,
+                output_dir=tmp,
+                target_smiles="CCO",
+                case_id="parser_upgrade",
+            )
+
+        rows = merged["compiled_downstream"]["literature_template_plugin"][
+            "one_step_rows"
+        ]
+        self.assertEqual(len(rows), 1)
+        trace = rows[0]["literature_template_trace"]
+        self.assertEqual(
+            trace["deterministic_parser_authority_id"],
+            PARSER_AUTHORITY_ID,
+        )
 
     def test_source_detail_child_targets_prioritize_direct_target_precursor(self):
         early = _trusted_source_detail_step("early_step", segment_id="detail_segment")

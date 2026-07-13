@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import sys
 from dataclasses import fields
@@ -15,13 +16,18 @@ if str(ROOT) not in sys.path:
 from cascade_planner.harness.agent_action_planner import validate_action_batch  # noqa: E402
 from cascade_planner.harness.agentic_blackboard import (  # noqa: E402
     complete_round,
+    initialize_agent_blackboard,
     refresh_target_derived_blackboard_priors,
     update_blackboard_from_action,
     update_blackboard_from_action_batch,
     update_budget_for_action,
 )
 from cascade_planner.harness.agentic_blackboard_controller import (  # noqa: E402
+    _IDEMPOTENT_RECOVERY_ACTIONS,
+    _artifact_digest_index,
     _auto_update_critic,
+    _changed_artifact_updates,
+    _checkpoint_blackboard_event,
     _emit_blackboard_step,
     _execute_agent_action,
     _finalize_agentic_run,
@@ -31,13 +37,23 @@ from cascade_planner.harness.agentic_blackboard_controller import (  # noqa: E40
     _record_stop_on_problem,
     _refresh_blackboard_from_local_pdf_proxy_downloads,
     _result,
+    _run_scoped_trusted_literature_registry,
     _stop_on_problem_action_batch_reason,
     _stop_on_problem_action_result_reason,
+)
+from cascade_planner.harness.blackboard_events import (  # noqa: E402
+    begin_blackboard_action,
+    blackboard_controller_single_writer,
+    commit_prepared_blackboard_action,
+    prepare_blackboard_action_result,
+    rehydrate_blackboard_from_events,
+    replay_prepared_blackboard_action,
 )
 from cascade_planner.harness.schemas import append_jsonl, write_json  # noqa: E402
 from cascade_planner.harness.tools import HarnessBudget, ToolExecutionState  # noqa: E402
 
 
+@blackboard_controller_single_writer
 def resume_agentic_blackboard_run(
     run_dir: str | Path,
     *,
@@ -54,6 +70,7 @@ def resume_agentic_blackboard_run(
     stop_on_problem: bool = False,
     emit_blackboard_steps: bool = False,
     plan_only: bool = False,
+    closeout_only: bool = False,
     key_path: str | Path = "",
     base_url: str = "https://api.wellau.com/v1",
     model: str = "gpt-5.5",
@@ -66,15 +83,82 @@ def resume_agentic_blackboard_run(
     (root / "tool_calls.jsonl").touch()
     (root / "decision_trace.jsonl").touch()
 
-    blackboard = _read_json(blackboard_path)
-    target_input = _load_target_input(root, blackboard)
-    preflight = _load_preflight(root, blackboard)
+    mutable_projection = _read_json(blackboard_path)
+    target_input = _load_target_input(root, mutable_projection)
+    preflight = _load_preflight(root, mutable_projection)
+    projection_budget = dict(mutable_projection.get("budget_state") or {})
+    explicit_budget_policy = {
+        key: deepcopy(value)
+        for key, value in projection_budget.items()
+        if key.startswith("max_")
+        or key
+        in {
+            "enable_analogical_templates",
+            "template_radius_policy",
+            "analog_template_confidence_threshold",
+        }
+    }
+    blackboard = initialize_agent_blackboard(
+        target_input=target_input,
+        preflight=preflight,
+        max_rounds=max(1, int(projection_budget.get("max_rounds") or 1)),
+        budget_limits=explicit_budget_policy,
+    )
+    blackboard, recovery_report = rehydrate_blackboard_from_events(
+        blackboard,
+        run_dir=root,
+    )
+    if recovery_report.get("recovered") is not True:
+        projection_case = str(mutable_projection.get("case_id") or "")
+        expected_case = str(
+            preflight.get("case_id") or target_input.get("case_id") or ""
+        )
+        projection_target = str(
+            (mutable_projection.get("target_profile") or {}).get(
+                "target_smiles"
+            )
+            or ""
+        )
+        expected_target = str(target_input.get("target_smiles") or "")
+        if (
+            projection_case
+            and expected_case
+            and projection_case != expected_case
+        ) or (
+            projection_target
+            and expected_target
+            and projection_target != expected_target
+        ):
+            raise ValueError("legacy mutable blackboard identity mismatch")
+        # Pre-journal runs have no stronger recovery source.  Import the
+        # projection exactly once and let the first real resume checkpoint it;
+        # all later resumes ignore the mutable file and reduce the journal.
+        blackboard = deepcopy(mutable_projection)
+        blackboard.setdefault("blackboard_migrations", []).append(
+            {
+                "schema_version": "legacy_blackboard_projection_migration.v1",
+                "source_ref": str(blackboard_path),
+                "reason": "event_journal_absent",
+                "projection_is_not_scientific_authority": True,
+            }
+        )
+        recovery_report = {
+            **recovery_report,
+            "legacy_projection_imported": True,
+            "projection_source_used": True,
+            "final_or_closeout_authority_restored": False,
+        }
+    blackboard["blackboard_rehydration"] = recovery_report
+    blackboard.setdefault("artifact_refs", {})["blackboard_rehydration"] = str(
+        root / "blackboard_events" / "recovery_report.json"
+    )
     blackboard = refresh_target_derived_blackboard_priors(
         blackboard,
         target_input=target_input,
         preflight=preflight,
     )
-    _extend_round_budget(blackboard, max_new_rounds=max_new_rounds)
+    if not closeout_only:
+        _extend_round_budget(blackboard, max_new_rounds=max_new_rounds)
     if extend_exploration_budget:
         _extend_exploration_budget(
             blackboard,
@@ -98,9 +182,18 @@ def resume_agentic_blackboard_run(
     )
     _hydrate_state_from_blackboard(state, blackboard)
     state.artifacts.update(_load_existing_artifacts(root, blackboard))
+    state.artifacts["blackboard_rehydration"] = recovery_report
 
-    action_batches = _load_round_jsons(root, prefix="action_batch_round_")
-    validations = _load_round_jsons(root, prefix="action_batch_validation_round_")
+    action_batches = [
+        dict(row)
+        for row in blackboard.get("controller_action_batches") or []
+        if isinstance(row, dict)
+    ]
+    validations = [
+        dict(row)
+        for row in blackboard.get("controller_action_batch_validations") or []
+        if isinstance(row, dict)
+    ]
     tool_calls: list[dict[str, Any]] = []
     start_round = _next_round_index(blackboard, action_batches)
     step_index = _next_blackboard_step_index(root)
@@ -112,6 +205,7 @@ def resume_agentic_blackboard_run(
             "max_new_rounds": int(max_new_rounds or 1),
             "extend_exploration_budget": bool(extend_exploration_budget),
             "plan_only": bool(plan_only),
+            "closeout_only": bool(closeout_only),
         },
     )
 
@@ -139,9 +233,24 @@ def resume_agentic_blackboard_run(
         write_json(root / f"resume_plan_round_{start_round}.json", preview)
         return preview
 
+    blackboard = _checkpoint_blackboard_event(
+        blackboard,
+        state=state,
+        stage="controller_resumed",
+        metadata={
+            "prior_event_count": int(recovery_report.get("event_count") or 0),
+            "projection_source_used": False,
+        },
+    )
+
     stop_requested = False
     executed_rounds = 0
-    for round_index in range(start_round, start_round + max(1, int(max_new_rounds or 1))):
+    round_indices = (
+        ()
+        if closeout_only
+        else range(start_round, start_round + max(1, int(max_new_rounds or 1)))
+    )
+    for round_index in round_indices:
         blackboard = _refresh_blackboard_from_local_pdf_proxy_downloads(blackboard, run_dir=root)
         action_batch = _obtain_action_batch(
             blackboard=blackboard,
@@ -159,6 +268,14 @@ def resume_agentic_blackboard_run(
             validation=validation,
             round_index=round_index,
         )
+        blackboard["controller_action_batches"] = [
+            *[dict(row) for row in action_batches],
+            dict(action_batch),
+        ]
+        blackboard["controller_action_batch_validations"] = [
+            *[dict(row) for row in validations],
+            dict(validation),
+        ]
         if emit_blackboard_steps:
             step_index = _emit_blackboard_step(
                 blackboard,
@@ -187,6 +304,17 @@ def resume_agentic_blackboard_run(
             batch_path=batch_path,
             validation_path=validation_path,
         )
+        blackboard = _checkpoint_blackboard_event(
+            blackboard,
+            state=state,
+            stage="action_batch_merged",
+            metadata={
+                "round_index": int(round_index),
+                "validation_accepted": validation.get("accepted") is True,
+                "action_count": len(action_batch.get("actions") or []),
+                "resumed_controller": True,
+            },
+        )
         append_jsonl(root / "decision_trace.jsonl", {"stage": "resume_action_batch", "round_index": round_index, "validation": validation})
         problem_reason = _stop_on_problem_action_batch_reason(action_batch, validation)
         if stop_on_problem and problem_reason:
@@ -204,21 +332,141 @@ def resume_agentic_blackboard_run(
             break
 
         round_useful = False
-        for action in action_batch.get("actions") or []:
+        action_validation_rows = {
+            int(row.get("index") or 0): dict(row)
+            for row in validation.get("action_validations") or []
+            if isinstance(row, dict)
+        }
+        for action_index, raw_action in enumerate(action_batch.get("actions") or []):
+            journal_action = deepcopy(dict(raw_action))
+            action = deepcopy(journal_action)
+            action_validation = dict(action_validation_rows.get(action_index) or {})
+            effective_payload = action_validation.get("effective_payload")
+            if isinstance(effective_payload, dict):
+                action["payload"] = dict(effective_payload)
+            host_resource_cost = dict(action_validation.get("cost") or {})
+            action["_host_resource_cost"] = host_resource_cost
             action_type = str(action.get("action_type") or "")
-            action_result, records = _execute_agent_action(
-                action=action,
-                state=state,
-                blackboard=blackboard,
+            reserved_board = update_budget_for_action(
+                blackboard,
+                action_type,
+                payload=dict(action.get("payload") or {}),
+                resource_cost=host_resource_cost,
             )
+            blackboard, action_lifecycle = begin_blackboard_action(
+                root,
+                blackboard,
+                action=journal_action,
+                round_index=round_index,
+                reserved_budget_state=dict(reserved_board.get("budget_state") or {}),
+                allow_idempotent_retry=(
+                    action_type in _IDEMPOTENT_RECOVERY_ACTIONS
+                ),
+            )
+            lifecycle_status = str(action_lifecycle.get("status") or "")
+            prepared_event = action_lifecycle.get("prepared_event")
+            if lifecycle_status == "indeterminate":
+                reason = str(
+                    action_lifecycle.get("reason")
+                    or "prior_action_started_without_prepared_result"
+                )
+                blackboard.setdefault("safety_flags", []).append(
+                    f"blackboard_action_recovery_blocked:{reason}"
+                )
+                blackboard.setdefault("route_failures", []).append(
+                    {
+                        "schema_version": "agent_action_recovery_failure.v1",
+                        "round_index": int(round_index),
+                        "action_id": str(action.get("action_id") or ""),
+                        "action_type": action_type,
+                        "reason": reason,
+                        "charged_attempt_count": int(
+                            action_lifecycle.get("charged_attempt_count") or 1
+                        ),
+                        "automatic_retry_allowed": False,
+                        "requires_explicit_operator_resolution": True,
+                        "no_solved_claim": True,
+                    }
+                )
+                blackboard = _checkpoint_blackboard_event(
+                    blackboard,
+                    state=state,
+                    stage="action_indeterminate_recovery_blocked",
+                    metadata={
+                        "round_index": int(round_index),
+                        "action_id": str(action.get("action_id") or ""),
+                        "action_type": action_type,
+                        "reason": reason,
+                    },
+                )
+                stop_requested = True
+                break
+            if lifecycle_status == "committed":
+                prior_history = next(
+                    (
+                        dict(row)
+                        for row in reversed(blackboard.get("action_history") or [])
+                        if isinstance(row, dict)
+                        and int(row.get("round_index") or 0) == int(round_index)
+                        and str(row.get("action_id") or "")
+                        == str(action.get("action_id") or "")
+                    ),
+                    {},
+                )
+                round_useful = round_useful or bool(
+                    prior_history.get("useful_artifact")
+                )
+                if action_type == "stop_unresolved":
+                    stop_requested = True
+                    break
+                continue
+            if lifecycle_status == "prepared" and isinstance(prepared_event, dict):
+                replay_payload = replay_prepared_blackboard_action(prepared_event)
+                action_result = dict(replay_payload.get("action_result") or {})
+                records = [
+                    dict(row)
+                    for row in replay_payload.get("tool_records") or []
+                    if isinstance(row, dict)
+                ]
+                state.artifacts.update(
+                    deepcopy(dict(replay_payload.get("artifact_updates") or {}))
+                )
+            else:
+                artifacts_before = _artifact_digest_index(state.artifacts)
+                with _run_scoped_trusted_literature_registry(state):
+                    action_result, records = _execute_agent_action(
+                        action=action,
+                        state=state,
+                        blackboard=blackboard,
+                    )
+                artifact_updates = _changed_artifact_updates(
+                    state.artifacts,
+                    before=artifacts_before,
+                )
+                blackboard, prepared_event = prepare_blackboard_action_result(
+                    root,
+                    blackboard,
+                    action=journal_action,
+                    round_index=round_index,
+                    started_event=dict(action_lifecycle.get("started_event") or {}),
+                    action_result=action_result,
+                    tool_records=records,
+                    artifact_updates=artifact_updates,
+                )
             tool_calls.extend(records)
-            blackboard = update_budget_for_action(blackboard, action_type, payload=dict(action.get("payload") or {}))
             blackboard = update_blackboard_from_action(
                 blackboard,
                 action=action,
                 action_result=action_result,
                 round_index=round_index,
                 run_dir=root,
+            )
+            blackboard, _ = commit_prepared_blackboard_action(
+                root,
+                blackboard,
+                action=journal_action,
+                round_index=round_index,
+                prepared_event=dict(prepared_event or {}),
             )
             if emit_blackboard_steps:
                 step_index = _emit_blackboard_step(
@@ -266,6 +514,15 @@ def resume_agentic_blackboard_run(
         blackboard = _refresh_blackboard_from_local_pdf_proxy_downloads(blackboard, run_dir=root)
         blackboard = _auto_update_critic(blackboard, state=state, run_dir=root, round_index=round_index)
         blackboard = complete_round(blackboard, round_index)
+        blackboard = _checkpoint_blackboard_event(
+            blackboard,
+            state=state,
+            stage="round_completed",
+            metadata={
+                "round_index": int(round_index),
+                "resumed_controller": True,
+            },
+        )
         write_json(root / "agent_blackboard.json", blackboard)
         executed_rounds += 1
         if stop_requested or _parent_proof_accepted(blackboard):
@@ -288,6 +545,7 @@ def resume_agentic_blackboard_run(
         "executed_rounds": executed_rounds,
         "new_tool_call_count": len(tool_calls),
         "stop_requested": bool(stop_requested),
+        "closeout_only": bool(closeout_only),
     }
     write_json(root / "resume_summary.json", result["resume_summary"])
     return result
@@ -587,6 +845,7 @@ def main() -> None:
     parser.add_argument("--stop-on-problem", action="store_true")
     parser.add_argument("--emit-blackboard-steps", action="store_true")
     parser.add_argument("--plan-only", action="store_true")
+    parser.add_argument("--closeout-only", action="store_true")
     parser.add_argument("--key-path", default="")
     parser.add_argument("--base-url", default="https://api.wellau.com/v1")
     parser.add_argument("--model", default="gpt-5.5")
@@ -607,6 +866,7 @@ def main() -> None:
         stop_on_problem=bool(args.stop_on_problem),
         emit_blackboard_steps=bool(args.emit_blackboard_steps),
         plan_only=bool(args.plan_only),
+        closeout_only=bool(args.closeout_only),
         key_path=args.key_path,
         base_url=args.base_url,
         model=args.model,

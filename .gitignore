@@ -38,6 +38,11 @@ config/
 !config/
 config/*
 !config/trusted_stock_catalogs.json
+!config/examples/
+config/examples/*
+!config/examples/nirmatrelvir_source_route_candidates.json
+!config/examples/nirmatrelvir_stock_snapshots_20260712.json
+!config/examples/nirmatrelvir_v3_golden_acceptance.json
 
 # Local databases / session state
 *.sqlite3

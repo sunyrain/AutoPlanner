@@ -54,9 +54,9 @@ const samples = {
 };
 
 const RUN_PROFILES = Object.freeze({
-  smoke: { rounds: 1, depth: 2, expansions: 4, attempts: 12, timeout: 900, chemenzy: 1, subgoal: 1, scout: 1, visual: 0 },
-  standard: { rounds: 6, depth: 6, expansions: 24, attempts: 72, timeout: 7200, chemenzy: 2, subgoal: 4, scout: 3, visual: 3 },
-  deep: { rounds: 10, depth: 10, expansions: 80, attempts: 240, timeout: 21600, chemenzy: 4, subgoal: 8, scout: 6, visual: 6 },
+  smoke: { rounds: 1, depth: 1, expansions: 2, attempts: 3, timeout: 600, chemenzy: 1, subgoal: 1, research: 0, scout: 1, visual: 0 },
+  standard: { rounds: 4, depth: 2, expansions: 8, attempts: 12, timeout: 1800, chemenzy: 1, subgoal: 2, research: 1, scout: 1, visual: 1 },
+  deep: { rounds: 6, depth: 4, expansions: 8, attempts: 12, timeout: 3600, chemenzy: 2, subgoal: 3, research: 1, scout: 2, visual: 1 },
 });
 
 const state = {
@@ -240,6 +240,7 @@ function applyRunProfile(name) {
   $("timeout-s").value = String(profile.timeout);
   $("chemenzy-runs").value = String(profile.chemenzy);
   $("subgoal-runs").value = String(profile.subgoal);
+  $("research-runs").value = String(profile.research);
   $("scout-calls").value = String(profile.scout);
   $("visual-calls").value = String(profile.visual);
 }
@@ -326,13 +327,13 @@ function readPayload() {
     max_route_expansion_subgoal_runs: Number($("subgoal-runs").value || 1),
     max_scout_calls: scoutCalls,
     max_visual_calls: Number($("visual-calls").value || 0),
-    max_codex_research_runs: scoutCalls > 0 ? 1 : 0,
+    max_codex_research_runs: Number($("research-runs").value || 0),
     max_template_applications_per_round: 5,
     codex_action_planner: $("codex-action-planner").checked,
     codex_agent_team: $("codex-agent-team").checked,
     codex_agent_team_max_depth: Number($("codex-team-depth").value || 6),
     codex_agent_team_max_expansions: Number($("codex-team-expansions").value || 24),
-    codex_agent_team_max_attempt_runs: Number($("codex-team-attempts").value || 72),
+    codex_agent_team_max_attempt_runs: Number($("codex-team-attempts").value || 12),
     codex_agent_team_model: $("codex-team-model").value.trim(),
     codex_agent_team_closure_objective: $("closure-objective").value || "benchmark_search",
     codex_agent_team_exploration_mode: $("exploration-mode").value || "exhaustive",
@@ -704,7 +705,7 @@ function completeRouteLoad(path, token, message) {
     $("route-state").textContent = "已载入";
     const counts = message?.counts || {};
     $("route-counts").textContent = counts.branches
-      ? `${counts.branches} 探索视图 · ${counts.complete_portfolio_routes || counts.verified_parent_routes || 0} 完整路线 · ${counts.reaction_nodes || counts.steps || 0} 反应`
+      ? `${counts.branches} 探索视图 · ${counts.selected_route_benchmark_routes || 0} 条 L3 闭合路线 · ${counts.selected_route_procurement_routes || 0} 条 L4 采购路线 · ${counts.reaction_nodes || counts.steps || 0} 反应`
       : path;
   }
 }

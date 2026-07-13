@@ -173,6 +173,35 @@ def deduplicate_retrosynthetic_proposals(rows: list[dict[str, Any]]) -> list[dic
                     if str(item or "").strip()
                 ]
             )
+        primary["reaction_families"] = _dedupe(
+            [
+                str(item)
+                for row in projections
+                for item in [
+                    str(row.get("reaction_family") or ""),
+                    *[str(value) for value in row.get("reaction_families") or []],
+                ]
+                if str(item or "").strip()
+            ]
+        )
+        primary["product_retron_types"] = _dedupe(
+            [
+                str(item)
+                for row in projections
+                for item in [
+                    str(row.get("product_retron_type") or ""),
+                    str(row.get("derived_from_retron") or ""),
+                    *[str(value) for value in row.get("product_retron_types") or []],
+                ]
+                if str(item or "").strip()
+            ]
+        )
+        if not str(primary.get("reaction_family") or "").strip() and primary["reaction_families"]:
+            primary["reaction_family"] = primary["reaction_families"][0]
+        if not str(primary.get("product_retron_type") or "").strip() and len(primary["product_retron_types"]) == 1:
+            primary["product_retron_type"] = primary["product_retron_types"][0]
+        primary["derived_from_retron"] = str(primary.get("product_retron_type") or "")
+        primary["retron_authority"] = "advisory_search_prior_only"
         primary["score"] = max(int(row.get("score") or 0) for row in projections)
         primary["executable"] = any(bool(row.get("executable")) for row in projections)
         primary["recursive_expandable"] = any(bool(row.get("recursive_expandable")) for row in projections)
@@ -309,6 +338,29 @@ def _recursive_task_from_proposal(
         "recursive_depth": 1,
         "operation_idea": str(proposal.get("transformation_idea") or ""),
         "variant_type": str(proposal.get("source_type") or "proposal_precursor"),
+        "reaction_family": str(
+            proposal.get("reaction_family") or proposal.get("proposal_label") or ""
+        ),
+        "reaction_families": _dedupe(
+            [
+                str(proposal.get("reaction_family") or ""),
+                *[str(item) for item in proposal.get("reaction_families") or []],
+            ]
+        ),
+        "product_retron_type": str(proposal.get("product_retron_type") or ""),
+        "product_retron_types": _dedupe(
+            [
+                str(proposal.get("product_retron_type") or ""),
+                str(proposal.get("derived_from_retron") or ""),
+                *[str(item) for item in proposal.get("product_retron_types") or []],
+            ]
+        ),
+        "derived_from_retron": str(
+            proposal.get("product_retron_type")
+            or proposal.get("derived_from_retron")
+            or ""
+        ),
+        "retron_authority": "advisory_search_prior_only",
         "proposal_granularity": str(proposal.get("proposal_granularity") or "hypothesis"),
         "proposal_score": int(proposal.get("score") or 0),
         "route_objective_type": str(proposal.get("route_objective_type") or ""),
@@ -1491,6 +1543,12 @@ def _proposal(
         "proposal_type": proposal_type,
         "source_type": source_type,
         "proposal_label": proposal_label,
+        "reaction_family": proposal_label,
+        "reaction_families": _dedupe([proposal_label]),
+        "product_retron_type": "",
+        "product_retron_types": [],
+        "derived_from_retron": "",
+        "retron_authority": "not_supplied",
         "target_smiles": canonical_target or target_smiles,
         "precursor_smiles": canonical_precursor or precursor_smiles,
         "precursor_component_count": precursor_component_count,

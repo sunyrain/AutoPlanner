@@ -295,6 +295,10 @@ def _web_payload_from_result(
     verifier_gate = _cascade_verifier_gate_enabled(request_payload)
     routes, verifier_gate_report = _apply_cascade_verifier_gate(raw_routes, enabled=verifier_gate)
     strict_solved = any(bool((route.get("metrics") or {}).get("route_solved")) for route in routes)
+    raw_solved = any(
+        bool((route.get("raw_backend_metadata") or {}).get("raw_solved"))
+        for route in native_raw_routes
+    )
     rescue_report = {
         "enabled": request_payload.get("enable_semisynthesis_rescue") is True,
         "route_count": len(rescue_candidates),
@@ -312,8 +316,10 @@ def _web_payload_from_result(
     )
     status = "solved" if strict_solved else "partial" if routes else "filtered" if raw_routes and verifier_gate else "failed"
     message = (
-        "ChemEnzy native core search returned stock-closed routes"
+        "ChemEnzy native core search returned a host-admitted stock-closed route"
         if strict_solved
+        else "ChemEnzy returned raw stock-closed routes, but host edge admission rejected every materialized route"
+        if raw_solved
         else "AutoPlanner generated semisynthesis anchor routes; the advanced precursor remains an open upstream subgoal"
         if routes and rescue_routes and not native_raw_routes
         else "ChemEnzy native core search returned routes, but terminal reactants are not all in the selected stock"
@@ -324,6 +330,8 @@ def _web_payload_from_result(
     )
     output = {
         "ok": (not bool(result.failures) or bool(rescue_routes)) and (bool(routes) or strict_solved),
+        "raw_solved": raw_solved,
+        "materialization_admission_solved": strict_solved,
         "target": result.target_smiles,
         "objective": "chem_enzy_native",
         "constraints": request_payload.get("constraints"),
@@ -338,6 +346,9 @@ def _web_payload_from_result(
             "cascade_verifier_gate": verifier_gate_report,
             "learned_verifier_annotation": learned_annotation_report,
             "semisynthesis_rescue": rescue_report,
+            "route_materialization_admission": _route_materialization_admission_summary(
+                raw_routes
+            ),
         },
         "ui_metadata": {
             "backend": "CascadePlanner",
@@ -388,6 +399,9 @@ def _web_payload_from_result(
         "search_status": {
             "status": status,
             "solved": strict_solved,
+            "raw_solved": raw_solved,
+            "materialization_admission_solved": strict_solved,
+            "raw_solved_is_not_host_solved_authority": True,
             "native_returned_routes": any(
                 not ((route.get("raw_backend_metadata") or {}).get("rescue_type"))
                 for route in routes
@@ -640,13 +654,18 @@ def _route_metrics(
     route_class_hint = str(route_metadata.get("route_class_hint") or "")
     stitched_semisynthesis = route_class_hint == "stitched_semisynthesis_upstream"
     source_supported_semisynthesis = route_class_hint == "source_supported_semisynthesis"
+    materialization_admission = dict(
+        route_metadata.get("route_materialization_admission") or {}
+    )
+    raw_backend_solved = bool(route_metadata.get("raw_solved"))
     strict_stock = (
         all(bool(value) for value in terminal_stock_status.values())
         if terminal_stock_status
         else bool(route.solved)
     )
     native_returned_route = bool(route.solved and not semisynthesis_anchor)
-    displayed_progressive_route = bool(native_returned_route or semisynthesis_anchor)
+    native_raw_returned_route = bool(raw_backend_solved and not semisynthesis_anchor)
+    displayed_progressive_route = bool(native_raw_returned_route or semisynthesis_anchor)
     stock_closed = bool((native_returned_route or stitched_semisynthesis or source_supported_semisynthesis) and strict_stock)
     verifier_report = verify_cascade_route(
         {
@@ -670,8 +689,13 @@ def _route_metrics(
         "professional_solved": stock_closed,
         "diagnostic_solved": bool(displayed_progressive_route and not stock_closed),
         "route_solved": stock_closed,
+        "raw_backend_solved": raw_backend_solved,
+        "raw_backend_solved_not_proof": bool(raw_backend_solved and not stock_closed),
+        "route_outcome": str(route_metadata.get("route_outcome") or ""),
+        "route_materialization_admission": materialization_admission,
         "strict_stock_solve": strict_stock,
         "native_returned_route": native_returned_route,
+        "native_raw_returned_route": native_raw_returned_route,
         "semisynthesis_anchor": semisynthesis_anchor,
         "stitched_semisynthesis": stitched_semisynthesis,
         "source_supported_semisynthesis": source_supported_semisynthesis,
@@ -791,6 +815,33 @@ def _route_summary(route: dict[str, Any]) -> dict[str, Any]:
         "strict_stock_solve": metrics.get("strict_stock_solve"),
         "main_chain_reduction": progress.get("main_chain_reduction"),
         "largest_leaf_reduction": progress.get("largest_leaf_reduction"),
+    }
+
+
+def _route_materialization_admission_summary(
+    routes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    audits = [
+        dict((route.get("raw_backend_metadata") or {}).get("route_materialization_admission") or {})
+        for route in routes
+        if isinstance(route, dict)
+        and isinstance(route.get("raw_backend_metadata"), dict)
+        and isinstance(
+            (route.get("raw_backend_metadata") or {}).get(
+                "route_materialization_admission"
+            ),
+            dict,
+        )
+    ]
+    rejected = [audit for audit in audits if audit.get("accepted") is not True]
+    return {
+        "schema_version": "chemenzy_web_route_materialization_admission_summary.v1",
+        "audited_route_count": len(audits),
+        "accepted_route_count": len(audits) - len(rejected),
+        "rejected_route_count": len(rejected),
+        "rejected_routes": rejected[:50],
+        "host_audit_authority": True,
+        "raw_solved_is_not_host_solved_authority": True,
     }
 
 

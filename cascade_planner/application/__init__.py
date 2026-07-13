@@ -24,6 +24,22 @@ from cascade_planner.application.route_portfolio import (
     validate_portfolio_replacements,
     validate_route_replacement,
 )
+from cascade_planner.application.retrosynthesis_acceptance import (
+    RETROSYNTHESIS_ACCEPTANCE_REPORT_SCHEMA,
+    evaluate_retrosynthesis_acceptance,
+)
+from cascade_planner.application.retrosynthesis_run_contract import (
+    ModelCostEvent,
+    RetrosynthesisAcceptanceSpec,
+    RetrosynthesisCostLedger,
+    RetrosynthesisRunBudget,
+)
+from cascade_planner.application.route_deficit_queue import (
+    RouteDeficit,
+    RouteDeficitKind,
+    compile_route_deficit_queue,
+    next_route_deficit,
+)
 
 __all__ = [
     "FrontierCompletenessReport",
@@ -44,4 +60,14 @@ __all__ = [
     "validate_portfolio_replacements",
     "validate_route_replacement",
     "derive_portfolio_bindings",
+    "RETROSYNTHESIS_ACCEPTANCE_REPORT_SCHEMA",
+    "evaluate_retrosynthesis_acceptance",
+    "ModelCostEvent",
+    "RetrosynthesisAcceptanceSpec",
+    "RetrosynthesisCostLedger",
+    "RetrosynthesisRunBudget",
+    "RouteDeficit",
+    "RouteDeficitKind",
+    "compile_route_deficit_queue",
+    "next_route_deficit",
 ]

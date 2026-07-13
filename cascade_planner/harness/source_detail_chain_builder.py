@@ -150,9 +150,22 @@ def compile_source_detail_chain_route(
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     compiled = _compiled_payload(compiled_downstream)
-    if not compiled:
+    if source_detail_steps:
         payload = _downstream_payload_from_steps(source_detail_steps or [], case_id=case_id)
-        compiled = compile_downstream_consumables(payload, target_smiles=target_smiles, case_id=case_id)
+        current = compile_downstream_consumables(
+            payload,
+            target_smiles=target_smiles,
+            case_id=case_id,
+        )
+        compiled = _merge_compiled_downstream(compiled, current)
+        write_compiled_downstream_artifacts(compiled, output_dir=out)
+    elif not compiled:
+        payload = _downstream_payload_from_steps([], case_id=case_id)
+        compiled = compile_downstream_consumables(
+            payload,
+            target_smiles=target_smiles,
+            case_id=case_id,
+        )
         write_compiled_downstream_artifacts(compiled, output_dir=out)
     rows = [dict(item) for item in ((compiled.get("literature_template_plugin") or {}).get("one_step_rows") or []) if isinstance(item, dict)]
     audit = audit_source_detail_route_chain(
@@ -508,6 +521,20 @@ def audit_source_detail_route_chain(
                 "product_smiles": current,
                 "reactant_smiles": reactants,
                 "main_reactant_smiles": main,
+                "product_name": str(
+                    trace.get("product_name")
+                    or trace.get("product_label")
+                    or ""
+                ),
+                "reactant_names": [
+                    str(item)
+                    for item in (
+                        trace.get("reactant_names")
+                        or trace.get("reactant_labels")
+                        or []
+                    )
+                    if str(item).strip()
+                ],
                  "source_ref": str(trace.get("source_ref") or ""),
                  **{
                      key: trace.get(key) or row.get(key)
@@ -781,6 +808,153 @@ def _compiled_payload(value: dict[str, Any] | str | Path | None) -> dict[str, An
     return {}
 
 
+def _merge_compiled_downstream(
+    prior: dict[str, Any],
+    current: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge independently compiled source batches into one runtime payload."""
+
+    if not prior:
+        return dict(current)
+    if not current:
+        return dict(prior)
+    merged = dict(prior)
+    for key, value in current.items():
+        if key in {
+            "accepted",
+            "literature_template_plugin",
+            "reasons",
+            "rejected_items",
+        }:
+            continue
+        if value not in (None, "", [], {}) or key not in merged:
+            if merged.get(key) in (None, "", [], {}):
+                merged[key] = value
+
+    prior_plugin = dict(prior.get("literature_template_plugin") or {})
+    current_plugin = dict(current.get("literature_template_plugin") or {})
+    prior_rows = [
+        dict(row)
+        for row in prior_plugin.get("one_step_rows") or []
+        if isinstance(row, dict)
+    ]
+    current_rows = [
+        dict(row)
+        for row in current_plugin.get("one_step_rows") or []
+        if isinstance(row, dict)
+    ]
+    current_parser_authorities = {
+        str(_row_trace(row).get("deterministic_parser_authority_id") or "")
+        for row in current_rows
+        if str(
+            _row_trace(row).get("deterministic_parser_authority_id") or ""
+        )
+    }
+    if current_parser_authorities:
+        prior_rows = [
+            row
+            for row in prior_rows
+            if not (
+                str(_row_trace(row).get("curator_record_id") or "").startswith(
+                    "det-parser:"
+                )
+                and str(
+                    _row_trace(row).get(
+                        "deterministic_parser_authority_id"
+                    )
+                    or ""
+                )
+                not in current_parser_authorities
+            )
+        ]
+    rows = _merge_compiled_rows(
+        prior_rows,
+        current_rows,
+        identity=_one_step_row_identity,
+    )
+    cards = _merge_compiled_rows(
+        prior_plugin.get("template_cards") or [],
+        current_plugin.get("template_cards") or [],
+        identity=lambda row: str(row.get("template_id") or ""),
+    )
+    validations = _merge_compiled_rows(
+        prior_plugin.get("validation_reports") or [],
+        current_plugin.get("validation_reports") or [],
+        identity=lambda row: _canonical_json_sha256(row),
+    )
+    plugin = {**prior_plugin, **current_plugin}
+    plugin.update(
+        {
+            "enabled": bool(rows or cards),
+            "one_step_rows": rows,
+            "template_cards": cards,
+            "validation_reports": validations,
+        }
+    )
+    flags = {
+        **dict(prior_plugin.get("plugin_flags") or {}),
+        **dict(current_plugin.get("plugin_flags") or {}),
+    }
+    flags.update(
+        {
+            "enabled": bool(rows or cards),
+            "max_added": max(
+                int(flags.get("max_added") or 0),
+                len(rows) + len(cards),
+            ),
+            "one_step_rows": rows,
+            "template_cards": cards,
+        }
+    )
+    plugin["plugin_flags"] = flags
+    merged["literature_template_plugin"] = plugin
+    merged["accepted"] = bool(
+        prior.get("accepted") or current.get("accepted") or rows or cards
+    )
+    merged["reasons"] = _dedupe_text(
+        [*(prior.get("reasons") or []), *(current.get("reasons") or [])]
+    )
+    merged["rejected_items"] = _merge_compiled_rows(
+        prior.get("rejected_items") or [],
+        current.get("rejected_items") or [],
+        identity=lambda row: _canonical_json_sha256(row),
+    )
+    return merged
+
+
+def _merge_compiled_rows(
+    prior: Any,
+    current: Any,
+    *,
+    identity: Any,
+) -> list[dict[str, Any]]:
+    by_id: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for raw in [*(prior or []), *(current or [])]:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        key = str(identity(row) or _canonical_json_sha256(row))
+        if key not in by_id:
+            order.append(key)
+        by_id[key] = row
+    return [by_id[key] for key in order]
+
+
+def _one_step_row_identity(row: dict[str, Any]) -> str:
+    trace = _row_trace(row)
+    return str(trace.get("source_template_id") or "")
+
+
+def _dedupe_text(values: list[Any]) -> list[str]:
+    out: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
 def _plugin_payload(value: dict[str, Any] | str | Path) -> dict[str, Any]:
     data = _load_jsonish(value)
     if data.get("literature_template_plugin"):
@@ -892,6 +1066,28 @@ def _materialized_source_evidence(trace: dict[str, Any]) -> list[dict[str, Any]]
                 }
             )
     return rows
+
+
+def materialize_source_detail_step_evidence(
+    step: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Replay manifest/page/image refs before deterministic parsing.
+
+    This is the pre-compilation counterpart of the chain auditor's evidence
+    materialization.  It grants no proof level; callers still need an approved
+    deterministic or human registry binding and the normal exact-row replay.
+    """
+
+    return _materialized_source_evidence(
+        {
+            "source_ref": str(step.get("source_ref") or ""),
+            "evidence_refs": [
+                str(item)
+                for item in step.get("evidence_refs") or []
+                if str(item or "").strip()
+            ],
+        }
+    )
 
 
 def _source_detail_chain_step_provenance_valid(step: dict[str, Any]) -> bool:

@@ -574,6 +574,39 @@ class RoutePortfolioTest(unittest.TestCase):
         item["base_score"] = 1.0 - item["base_score"]
         self.assertNotEqual(item_sha256, digest(item))
 
+    def test_l3_reaction_proof_and_procurement_stock_are_orthogonal(self) -> None:
+        stock_ids = ["stock-1", "stock-2", "stock-3"]
+        report = solve_diverse_routes(
+            overlay(),
+            stock_molecule_ids=stock_ids,
+            stock_bindings={
+                molecule_id: {
+                    "boundary_type": "commercially_orderable",
+                    "commercial_orderability_claimed": True,
+                }
+                for molecule_id in stock_ids
+            },
+            edge_proof_levels={
+                "e-main": 3,
+                "e-alt": 3,
+                "e-shared": 3,
+                "e-side-a": 3,
+                "e-side-b": 3,
+            },
+            top_k=2,
+            min_reaction_proof_level=3,
+        )
+
+        self.assertEqual(len(report.routes), 2)
+        for route in report.routes:
+            self.assertTrue(route.complete)
+            self.assertTrue(route.reaction_validated)
+            self.assertTrue(route.benchmark_stock_closed)
+            self.assertTrue(route.procurement_stock_closed)
+            self.assertFalse(route.in_house_stock_closed)
+            self.assertFalse(route.procurement_ready)
+            self.assertEqual(route.weakest_proof_level, 3)
+
     def test_target_in_benchmark_stock_is_not_a_reaction_or_procurement_claim(self) -> None:
         graph = {
             "schema_version": "route_hypergraph_overlay.v2",

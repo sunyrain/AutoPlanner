@@ -20,6 +20,9 @@ from cascade_planner.harness.reaction_step_verifier import (
     is_precedent_supported_route,
     verify_reaction_route,
 )
+from cascade_planner.harness.source_text_companion import (
+    validate_source_text_companion_binding,
+)
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -865,6 +868,12 @@ def _literature_step_chemistry_digest(step: dict[str, Any]) -> str:
 
 
 def _binding_matches_evidence(binding: dict[str, Any], row: dict[str, Any]) -> bool:
+    companion = binding.get("source_text_companion")
+    if companion and not validate_source_text_companion_binding(
+        companion,
+        expected_source_ref=str(binding.get("source_ref") or ""),
+    ):
+        return False
     return bool(
         str(binding.get("document_id") or "") == str(row.get("document_id") or "")
         and str(binding.get("source_pdf_sha256") or "").lower()

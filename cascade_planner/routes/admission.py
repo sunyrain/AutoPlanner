@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import hashlib
+import json
 from typing import Any, Iterable
 
 from rdkit import Chem, RDLogger
@@ -10,6 +12,8 @@ from rdkit import Chem, RDLogger
 
 RDLogger.DisableLog("rdApp.*")
 RETROSYNTHETIC_ADMISSION_SCHEMA = "retrosynthetic_candidate_admission.v1"
+RETROSYNTHETIC_EDGE_IDENTITY_SCHEMA = "retrosynthetic_edge_identity.v1"
+RETROSYNTHETIC_ADMISSION_RECORD_SCHEMA = "retrosynthetic_admission_record.v1"
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,15 @@ def audit_retrosynthetic_candidate(
     product = _canonical_smiles(product_smiles)
     raw_precursors = list(precursor_smiles or [])
     precursors = [_canonical_smiles(item) for item in raw_precursors]
+    precursor_multiset = sorted(precursors)
+    edge_identity = {
+        "schema_version": RETROSYNTHETIC_EDGE_IDENTITY_SCHEMA,
+        "product_smiles": product,
+        # Sorting gives one identity to every ordering of the same exact
+        # multiset while deliberately preserving duplicate components.
+        "precursor_smiles_multiset": precursor_multiset,
+    }
+    edge_digest = _stable_digest(edge_identity)
     reasons: list[str] = []
     if not product or not raw_precursors or any(not item for item in precursors):
         reasons.append("invalid_or_missing_material")
@@ -118,8 +131,11 @@ def audit_retrosynthetic_candidate(
     return {
         "schema_version": RETROSYNTHETIC_ADMISSION_SCHEMA,
         "accepted": not reasons,
+        "edge_digest": edge_digest,
+        "edge_identity": edge_identity,
         "product_smiles": product,
         "precursor_smiles": precursors,
+        "precursor_smiles_multiset": precursor_multiset,
         "forbidden_return_smiles": sorted(forbidden),
         "ancestor_return_smiles": ancestor_returns,
         "product_element_counts": dict(sorted(product_counts.items())),
@@ -140,6 +156,57 @@ def audit_retrosynthetic_candidate(
     }
 
 
+def retrosynthetic_admission_record(
+    audit: dict[str, Any],
+    *,
+    stage: str,
+    source: Any = "",
+    model: Any = "",
+    template: Any = None,
+    candidate_index: int | None = None,
+) -> dict[str, Any]:
+    """Bind a host admission decision to its execution provenance.
+
+    The full model/template payload can be large or non-JSON-native.  The
+    record therefore stores a bounded human-readable reference plus a stable
+    digest while retaining the exact canonical reaction-edge identity from
+    :func:`audit_retrosynthetic_candidate`.
+    """
+
+    bound_audit = dict(audit or {})
+    edge_identity = dict(bound_audit.get("edge_identity") or {})
+    edge_digest = str(bound_audit.get("edge_digest") or _stable_digest(edge_identity))
+    template_ref = _bounded_template_reference(template)
+    record_identity = {
+        "stage": str(stage or "unknown"),
+        "edge_digest": edge_digest,
+        "source": _bounded_text(source),
+        "model": _bounded_text(model),
+        "template_digest": template_ref.get("digest", ""),
+        "candidate_index": candidate_index,
+    }
+    return {
+        "schema_version": RETROSYNTHETIC_ADMISSION_RECORD_SCHEMA,
+        "record_id": "retro-admission:" + _stable_digest(record_identity)[:24],
+        "stage": record_identity["stage"],
+        "decision": "accepted" if bound_audit.get("accepted") is True else "rejected",
+        "accepted": bound_audit.get("accepted") is True,
+        "edge_digest": edge_digest,
+        "edge_identity": edge_identity,
+        "product_smiles": str(bound_audit.get("product_smiles") or ""),
+        "precursor_smiles_multiset": list(
+            bound_audit.get("precursor_smiles_multiset") or []
+        ),
+        "reasons": [str(item) for item in bound_audit.get("reasons") or []],
+        "source": record_identity["source"],
+        "model": record_identity["model"],
+        "template": template_ref,
+        "candidate_index": candidate_index,
+        "host_audit_schema": str(bound_audit.get("schema_version") or ""),
+        "host_audit_authority": True,
+    }
+
+
 def _canonical_smiles(value: Any) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -157,3 +224,57 @@ def _element_counts(smiles: str) -> Counter[str]:
     return Counter(
         atom.GetSymbol() for atom in molecule.GetAtoms() if atom.GetAtomicNum() != 1
     )
+
+
+def _stable_digest(value: Any) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _bounded_text(value: Any, *, limit: int = 512) -> str:
+    text = str(value or "").strip()
+    return text if len(text) <= limit else text[: limit - 1] + "\u2026"
+
+
+def _bounded_template_reference(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        fields = {
+            str(key): _bounded_text(value.get(key))
+            for key in (
+                "template_id",
+                "id",
+                "model_full_name",
+                "model_name",
+                "source_model",
+                "source",
+                "reaction_family",
+                "reaction_class",
+                "template",
+                "reaction_smarts",
+                "retro_template",
+                "retron",
+            )
+            if value.get(key) not in (None, "")
+        }
+        return {
+            "kind": "mapping",
+            "digest": _stable_digest({"kind": "mapping", "fields": fields}),
+            "fields": fields,
+        }
+    bounded_value = _bounded_text(value)
+    return {
+        "kind": type(value).__name__ if value is not None else "none",
+        "digest": _stable_digest(
+            {
+                "kind": type(value).__name__ if value is not None else "none",
+                "value": bounded_value,
+            }
+        ),
+        "value": bounded_value,
+    }

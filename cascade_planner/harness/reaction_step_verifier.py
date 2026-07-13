@@ -29,12 +29,14 @@ from typing import Any, Iterable, Mapping
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.providers.stock import replay_stock_provider_result
+
 
 RDLogger.DisableLog("rdApp.*")
 
 REACTION_STEP_PROOF_SCHEMA = "reaction_step_proof.v1"
 REACTION_ROUTE_PROOF_SCHEMA = "reaction_route_validation.v1"
-REACTION_STEP_VERIFIER_VERSION = "autoplanner.reaction_step_verifier.v3"
+REACTION_STEP_VERIFIER_VERSION = "autoplanner.reaction_step_verifier.v4"
 
 PROOF_LEVEL_ORDER = {
     "L0_materialized": 0,
@@ -542,10 +544,11 @@ def _audit_mapped_reaction(
 
     reactant_bonds = _mapped_bonds(reactant_mols)
     product_bonds = _mapped_bonds([product_mol])
+    departing_unmapped_bonds = _departing_unmapped_bonds(reactant_mols)
     formed = sorted(product_bonds - reactant_bonds)
     broken = sorted(reactant_bonds - product_bonds)
-    bond_change_present = bool(formed or broken)
-    edit_count = len(formed) + len(broken)
+    bond_change_present = bool(formed or broken or departing_unmapped_bonds)
+    edit_count = len(formed) + len(broken) + len(departing_unmapped_bonds)
     edit_budget_plausible = edit_count <= 8
     bond_reasons = [] if bond_change_present else ["mapped_reaction_has_no_bond_change"]
     if not edit_budget_plausible:
@@ -557,6 +560,16 @@ def _audit_mapped_reaction(
         "max_bond_edit_count": 8,
         "formed_or_changed_bonds": [list(row) for row in formed],
         "broken_or_changed_bonds": [list(row) for row in broken],
+        "departing_unmapped_bonds": [
+            {
+                "retained_atom_map": retained_map,
+                "leaving_atomic_number": leaving_atomic_number,
+                "bond_type": bond_type,
+            }
+            for retained_map, leaving_atomic_number, bond_type in (
+                departing_unmapped_bonds
+            )
+        ],
         "reasons": bond_reasons,
     }
     return atom_audit, bond_audit
@@ -635,6 +648,7 @@ def _deterministic_transform_reapply_audit(
     product_atoms, _ = _mapped_atom_context([product_mol])
     reactant_bonds = _mapped_bonds(reactant_mols)
     product_bonds = _mapped_bonds([product_mol])
+    departing_unmapped_bonds = _departing_unmapped_bonds(reactant_mols)
     formed = product_bonds - reactant_bonds
     broken = reactant_bonds - product_bonds
     product_maps = set(product_atoms)
@@ -650,6 +664,7 @@ def _deterministic_transform_reapply_audit(
         product_atoms=product_atoms,
         reactant_components=reactant_components,
         product_bonds=product_bonds,
+        departing_unmapped_bonds=departing_unmapped_bonds,
         unmapped_heavy_neighbors_by_mapped_center=(
             _unmapped_heavy_neighbors_by_mapped_center(reactant_mols)
         ),
@@ -666,6 +681,16 @@ def _deterministic_transform_reapply_audit(
         "product_bonds_reconstructed": reconstructed,
         "formed_or_changed_bonds": [list(row) for row in sorted(formed)],
         "broken_or_changed_bonds": [list(row) for row in sorted(broken)],
+        "departing_unmapped_bonds": [
+            {
+                "retained_atom_map": retained_map,
+                "leaving_atomic_number": leaving_atomic_number,
+                "bond_type": bond_type,
+            }
+            for retained_map, leaving_atomic_number, bond_type in (
+                departing_unmapped_bonds
+            )
+        ],
         "registry_policy": "host_derived_local_reaction_centre_allowlist.v2",
         "model_reaction_family_ignored": True,
         "reasons": reasons,
@@ -680,9 +705,10 @@ def _recognized_transform_family(
     product_atoms: Mapping[int, int],
     reactant_components: Mapping[int, int],
     product_bonds: set[tuple[int, int, str]],
+    departing_unmapped_bonds: tuple[tuple[int, int, str], ...],
     unmapped_heavy_neighbors_by_mapped_center: Mapping[int, tuple[int, ...]],
 ) -> str:
-    edit_count = len(formed) + len(broken)
+    edit_count = len(formed) + len(broken) + len(departing_unmapped_bonds)
     if edit_count <= 0 or edit_count > 3:
         return ""
 
@@ -771,6 +797,14 @@ def _recognized_transform_family(
             and reactant_atoms.get(leaving) in {6, 14, 15, 16}
         ):
             return "heteroatom_deprotection_or_cleavage"
+    if not formed and not broken and len(departing_unmapped_bonds) == 1:
+        retained, leaving_atomic_number, order = departing_unmapped_bonds[0]
+        if (
+            order == "SINGLE"
+            and product_atoms.get(retained) in {7, 8, 16}
+            and leaving_atomic_number in {6, 14, 15, 16}
+        ):
+            return "heteroatom_deprotection_or_cleavage"
     return ""
 
 
@@ -806,6 +840,39 @@ def _unmapped_heavy_neighbors_by_mapped_center(
         map_num: tuple(sorted(elements))
         for map_num, elements in values.items()
     }
+
+
+def _departing_unmapped_bonds(
+    mols: Iterable[Any],
+) -> tuple[tuple[int, int, str], ...]:
+    """Describe bonds from retained mapped atoms to departing unmapped atoms."""
+
+    rows: list[tuple[int, int, str]] = []
+    for mol in mols:
+        for bond in mol.GetBonds():
+            begin = bond.GetBeginAtom()
+            end = bond.GetEndAtom()
+            begin_map = int(begin.GetAtomMapNum())
+            end_map = int(end.GetAtomMapNum())
+            if begin.GetAtomicNum() <= 1 or end.GetAtomicNum() <= 1:
+                continue
+            if begin_map > 0 and end_map <= 0:
+                rows.append(
+                    (
+                        begin_map,
+                        int(end.GetAtomicNum()),
+                        str(bond.GetBondType()),
+                    )
+                )
+            elif end_map > 0 and begin_map <= 0:
+                rows.append(
+                    (
+                        end_map,
+                        int(begin.GetAtomicNum()),
+                        str(bond.GetBondType()),
+                    )
+                )
+    return tuple(sorted(rows))
 
 
 def _ordered_element_pair(
@@ -1021,24 +1088,41 @@ def _procurement_binding(
     for result in results:
         if not isinstance(result, Mapping):
             return False
-        envelope = dict(result)
+        try:
+            envelope = _json_value(dict(result))
+        except (TypeError, ValueError):
+            return False
         payload = envelope.get("payload")
         if (
-            envelope.get("provider_id") != "autoplanner.snapshot_stock"
-            or envelope.get("provider_kind") != "stock"
+            envelope.get("provider_kind") != "stock"
             or envelope.get("output_schema") != "stock_boundary.v1"
             or envelope.get("accepted") is not True
             or not isinstance(payload, Mapping)
             or payload.get("accepted") is not True
         ):
             return False
-        if not _trusted_commercial_stock_result_replays(envelope, providers=providers):
-            return False
         molecule = _canonical_smiles(payload.get("canonical_smiles"))
         if not molecule or molecule not in expected_reactants:
             return False
-        offers = payload.get("offers")
-        if payload.get("boundary_type") == "commercially_orderable" and not (
+        replay_binding, replay_reasons = replay_stock_provider_result(
+            envelope,
+            expected_smiles=molecule,
+            trusted_provider_instances=providers,
+        )
+        if replay_reasons or not replay_binding:
+            return False
+        replayed = replay_binding.get("provider_result")
+        if not isinstance(replayed, Mapping):
+            return False
+        replayed_payload = replayed.get("payload")
+        if not isinstance(replayed_payload, Mapping):
+            return False
+        # Benchmark membership is useful route-closure evidence, but it is not
+        # a supplier offer and can never establish L4 procurement readiness.
+        if replayed_payload.get("boundary_type") != "commercially_orderable":
+            return False
+        offers = replayed_payload.get("offers")
+        if not (
             isinstance(offers, list)
             and any(
                 isinstance(offer, Mapping)
@@ -1050,7 +1134,7 @@ def _procurement_binding(
         ):
             return False
         covered.add(molecule)
-        content_hashes.append(str(envelope.get("content_hash") or ""))
+        content_hashes.append(str(replayed.get("content_hash") or ""))
     expected = sorted(set(expected_reactants))
     digest_payload = {
         "reactant_smiles": expected,
@@ -1075,7 +1159,15 @@ def build_verified_procurement_binding(
     caller must supply the construction-time trusted provider instances; the
     verifier invokes them again and compares the complete result envelope.
     """
-    results = [dict(row) for row in stock_provider_results if isinstance(row, Mapping)]
+    results: list[dict[str, Any]] = []
+    serialization_failed = False
+    for row in stock_provider_results:
+        if not isinstance(row, Mapping):
+            continue
+        try:
+            results.append(_json_value(dict(row)))
+        except (TypeError, ValueError):
+            serialization_failed = True
     reactants = sorted(
         {value for value in (_canonical_smiles(item) for item in reactant_smiles) if value}
     )
@@ -1091,68 +1183,13 @@ def build_verified_procurement_binding(
         "stock_provider_results": results,
         "binding_digest": _digest(payload),
     }
-    if not _procurement_binding(
+    if serialization_failed or not _procurement_binding(
         binding,
         expected_reactants=tuple(reactants),
         trusted_stock_providers=trusted_stock_providers,
     ):
         binding["accepted"] = False
     return binding
-
-
-def _trusted_commercial_stock_result_replays(
-    result: Mapping[str, Any],
-    *,
-    providers: Mapping[str, Any],
-) -> bool:
-    """Replay a commercial snapshot through the exact trusted host provider."""
-    try:
-        from cascade_planner.providers.contracts import (
-            ProviderContext,
-            ProviderKind,
-            validate_provider_result,
-        )
-        from cascade_planner.providers.stock import SnapshotStockProvider
-    except ImportError:
-        return False
-    envelope = dict(result)
-    provider_id = str(envelope.get("provider_id") or "")
-    provider = providers.get(provider_id)
-    # Subclasses can replace ``invoke`` while reusing a trusted-looking
-    # descriptor.  Procurement authority is intentionally narrower than a
-    # general provider protocol.
-    if type(provider) is not SnapshotStockProvider:
-        return False
-    descriptor = provider.descriptor
-    if (
-        descriptor.kind is not ProviderKind.STOCK
-        or descriptor.provider_id != provider_id
-        or validate_provider_result(envelope, descriptor=descriptor)
-    ):
-        return False
-    payload = envelope.get("payload")
-    if not isinstance(payload, Mapping) or payload.get("boundary_type") != "commercially_orderable":
-        return False
-    molecule = _canonical_smiles(payload.get("canonical_smiles"))
-    offers = [dict(row) for row in payload.get("offers") or [] if isinstance(row, Mapping)]
-    if not molecule or not offers:
-        return False
-    try:
-        replayed = provider.invoke(
-            {
-                "schema_version": "stock_lookup_request.v1",
-                "smiles": molecule,
-                "offers": offers,
-            },
-            context=ProviderContext(
-                run_id="reaction-proof-replay",
-                case_id="reaction-proof-replay",
-                target_smiles=molecule,
-            ),
-        ).to_dict()
-    except Exception:
-        return False
-    return replayed == envelope
 
 
 def _is_sha256(value: str) -> bool:
@@ -1183,3 +1220,17 @@ def _conditions_complete(step: Mapping[str, Any]) -> bool:
 def _digest(value: Any) -> str:
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _json_value(value: Any) -> Any:
+    """Return the exact JSON-persisted value (not Python tuple/list variants)."""
+
+    return json.loads(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    )

@@ -1,0 +1,48 @@
+{
+  "schema_version": "retrosynthesis_golden_acceptance.v1",
+  "case_id": "nirmatrelvir-v3-real-source-dual-route",
+  "target_name": "nirmatrelvir",
+  "candidate_manifest": "config/examples/nirmatrelvir_source_route_candidates.json",
+  "stock_snapshots": "config/examples/nirmatrelvir_stock_snapshots_20260712.json",
+  "source_documents": [
+    {
+      "source_ref": "doi:10.1126/science.abl4784",
+      "artifact_path": "results/shared/nirmatrelvir_source_cache_20260712/Science_abl4784/science.abl4784_sm.pdf",
+      "artifact_sha256": "9b02bd2c2adc31bfec061e229458b584cefd38a69a1d09d63231ce2248da38dd"
+    },
+    {
+      "source_ref": "patent:WO2021250648A1",
+      "artifact_path": "results/shared/nirmatrelvir_source_cache_20260712/WO2021250648A1/WO2021250648A1.pdf",
+      "artifact_sha256": "6402c264d0704e04f2517f2b51b6ee0f6c98e49077a91cc2695233d3ed88bca3",
+      "text_companion_path": "results/shared/nirmatrelvir_source_cache_20260712/WO2021250648A1/WO2021250648A1.google_patents.html",
+      "text_companion_sha256": "99bbeb7067d2aeb87dfb52da484e32d8c3eccbb00d507c33c6dd9ffbfa19cd15"
+    }
+  ],
+  "acceptance_spec": {
+    "minimum_complete_routes": 2,
+    "minimum_edge_proof_level": 3,
+    "require_all_selected_leaves_stock_closed": true,
+    "stock_boundary": "procurement",
+    "minimum_independent_source_groups": 2,
+    "require_distinct_edge_sets": true
+  },
+  "expected": {
+    "approved_source_step_count": 15,
+    "unique_reaction_hyperedge_count": 12,
+    "complete_route_count": 2,
+    "selected_route_count": 2,
+    "stock_terminal_count": 7,
+    "model_invocations": 0,
+    "independent_support_groups": [
+      "doi:10.1126/science.abl4784",
+      "patent:wo2021250648a1"
+    ]
+  },
+  "semantics": {
+    "source_artifacts_are_local_and_hash_bound": true,
+    "older_candidates_nominate_but_do_not_grant_proof": true,
+    "current_deterministic_parser_must_reconstruct_every_step": true,
+    "stock_snapshots_require_current_host_provider_replay": true,
+    "acceptance_is_a_hard_contract_not_a_score_threshold": true
+  }
+}

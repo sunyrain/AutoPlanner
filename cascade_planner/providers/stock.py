@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Mapping, Sequence
 
 from rdkit import Chem, RDLogger
+from rdkit.Chem.MolStandardize import rdMolStandardize
 
 from cascade_planner.providers.contracts import (
     ProviderContext,
@@ -27,6 +28,12 @@ STOCK_PROVIDER_AUTHORITY_BINDING_SCHEMA = "stock_provider_authority_binding.v1"
 STOCK_PROVIDER_SET_BINDING_SCHEMA = "stock_provider_set_binding.v1"
 STOCK_PROVIDER_OBSERVATION_SCHEMA = "stock_provider_observation.v1"
 STOCK_OBSERVATION_STATE_SCHEMA = "stock_observation_state.v1"
+STOCK_INVENTORY_FORMULATION_PROJECTION_SCHEMA = (
+    "stock_inventory_formulation_projection.v1"
+)
+STOCK_INVENTORY_FORMULATION_PROJECTION_POLICY = (
+    "largest_covalent_fragment_and_counterion_neutralization"
+)
 
 
 @dataclass(frozen=True)
@@ -940,6 +947,10 @@ def canonicalize_stock_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
     metadata = row.get("metadata") or {}
     if not isinstance(metadata, Mapping):
         raise ValueError("stock snapshot metadata must be an object")
+    normalized_metadata = _canonicalize_stock_snapshot_metadata(
+        metadata,
+        expected_parent_smiles=canonical,
+    )
     return {
         "schema_version": "stock_offer_snapshot.v1",
         "supplier": supplier,
@@ -954,8 +965,75 @@ def canonicalize_stock_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
         "region": str(row.get("region") or "").strip(),
         "lead_time_days": lead_time,
         "source_url": str(row.get("source_url") or "").strip(),
-        "metadata": dict(metadata),
+        "metadata": normalized_metadata,
     }
+
+
+def _canonicalize_stock_snapshot_metadata(
+    metadata: Mapping[str, Any],
+    *,
+    expected_parent_smiles: str,
+) -> dict[str, Any]:
+    normalized = _json_value(dict(metadata))
+    raw_projection = normalized.get("inventory_formulation")
+    if raw_projection is None:
+        return normalized
+    if not isinstance(raw_projection, Mapping):
+        raise ValueError("stock inventory formulation metadata must be an object")
+    projection = dict(raw_projection)
+    source_formulation = _canonical_smiles(
+        projection.get("source_formulation_smiles")
+    )
+    projected_parent = _canonical_smiles(
+        projection.get("projected_parent_smiles")
+    )
+    if (
+        projection.get("schema_version")
+        != STOCK_INVENTORY_FORMULATION_PROJECTION_SCHEMA
+        or projection.get("projection_policy")
+        != STOCK_INVENTORY_FORMULATION_PROJECTION_POLICY
+        or not source_formulation
+        or not projected_parent
+    ):
+        raise ValueError("stock inventory formulation projection is incomplete")
+    deterministic_parent = _inventory_formulation_parent(source_formulation)
+    if (
+        deterministic_parent != expected_parent_smiles
+        or projected_parent != expected_parent_smiles
+    ):
+        raise ValueError(
+            "stock inventory formulation does not project to snapshot molecule"
+        )
+    normalized["inventory_formulation"] = {
+        "schema_version": STOCK_INVENTORY_FORMULATION_PROJECTION_SCHEMA,
+        "source_formulation_smiles": source_formulation,
+        "projected_parent_smiles": projected_parent,
+        "projection_policy": STOCK_INVENTORY_FORMULATION_PROJECTION_POLICY,
+    }
+    return normalized
+
+
+def _inventory_formulation_parent(smiles: str) -> str:
+    molecule = Chem.MolFromSmiles(str(smiles or ""))
+    if molecule is None:
+        return ""
+    fragments = Chem.GetMolFrags(molecule, asMols=True, sanitizeFrags=True)
+    if not fragments:
+        return ""
+    parent = max(
+        fragments,
+        key=lambda fragment: (
+            fragment.GetNumHeavyAtoms(),
+            fragment.GetNumAtoms(),
+            Chem.MolToSmiles(fragment, canonical=True, isomericSmiles=True),
+        ),
+    )
+    try:
+        parent = rdMolStandardize.Uncharger().uncharge(parent)
+        Chem.SanitizeMol(parent)
+    except (RuntimeError, ValueError):
+        return ""
+    return Chem.MolToSmiles(parent, canonical=True, isomericSmiles=True)
 
 
 def stock_snapshot_sha256(value: Mapping[str, Any]) -> str:

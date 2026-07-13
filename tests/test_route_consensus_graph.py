@@ -14,6 +14,7 @@ from cascade_planner.routes.graph import (
     route_consensus_frontier_records,
     select_route_consensus_frontier,
 )
+from cascade_planner.routes.overlay import build_route_hypergraph_v2_overlay
 from cascade_planner.harness.route_forest import compile_explored_route_forest, render_route_forest_html
 
 
@@ -75,6 +76,63 @@ def _expansion(
         agent_run_ref=f"agent:{candidate_id}",
         depth=depth,
     )
+
+
+def test_overlay_merges_identical_chemistry_without_losing_source_support() -> None:
+    graph = {
+        "schema_version": "route_consensus_graph.v1",
+        "case_id": "two-source-same-edge",
+        "root_node_id": "target",
+        "nodes": [
+            {"node_id": "target", "smiles": "CCO"},
+            {"node_id": "precursor", "smiles": "CC"},
+        ],
+        "steps": [
+            {
+                "step_id": "paper-step",
+                "product_node_id": "target",
+                "product_smiles": "CCO",
+                "precursor_node_ids": ["precursor"],
+                "precursor_smiles": ["CC"],
+                "reaction_family": "hydration",
+                "source_channels": ["literature_exact"],
+                "independent_support_groups": ["doi:paper"],
+                "proposal_ids": ["paper-binding"],
+                "rank_score": 0.8,
+            },
+            {
+                "step_id": "patent-step",
+                "product_node_id": "target",
+                "product_smiles": "CCO",
+                "precursor_node_ids": ["precursor"],
+                "precursor_smiles": ["CC"],
+                "reaction_family": "hydration",
+                "source_channels": ["literature_exact"],
+                "independent_support_groups": ["patent:example"],
+                "proposal_ids": ["patent-binding"],
+                "rank_score": 0.9,
+            },
+        ],
+        "route_hypotheses": [],
+    }
+
+    overlay = build_route_hypergraph_v2_overlay(graph)
+
+    assert overlay["validation"] == {"valid": True, "errors": []}
+    assert len(overlay["reaction_hyperedges"]) == 1
+    merged = overlay["reaction_hyperedges"][0]
+    assert merged["independent_support_groups"] == [
+        "doi:paper",
+        "patent:example",
+    ]
+    assert len(merged["candidate_envelope_ids"]) == 2
+    assert merged["rank_score"] == 0.9
+    assert overlay["v1_id_map"]["step_ids"]["paper-step"] == merged[
+        "hyperedge_id"
+    ]
+    assert overlay["v1_id_map"]["step_ids"]["patent-step"] == merged[
+        "hyperedge_id"
+    ]
 
 
 def test_two_one_step_expansions_assemble_into_forward_multistep_route() -> None:

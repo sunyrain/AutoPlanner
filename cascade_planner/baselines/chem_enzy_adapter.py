@@ -69,6 +69,10 @@ from cascade_planner.baselines.chem_enzy_guidance import (
     reset_guided_policy_state,
 )
 from cascade_planner.agent.chem_enzy_policy import chem_enzy_policy_trace_from_search_flags
+from cascade_planner.routes.admission import (
+    audit_retrosynthetic_candidate,
+    retrosynthetic_admission_record,
+)
 
 
 BACKEND_NAME = "ChemEnzyRetroPlanner"
@@ -413,6 +417,7 @@ class ChemEnzyBackendAdapter:
         routes = route_candidates_from_chem_enzy_result(raw_result, target_smiles=config.target_smiles)
         for route in routes:
             route.search_time_s = elapsed_s
+        materialization_admission = _materialized_route_admission_summary(routes)
         expansion_trace = raw_result.get("cascade_expansion_trace") or []
         trace_preview_limit = int(config.search_flags.get("cascade_expansion_trace_preview", 20))
         trace_metadata = {
@@ -447,6 +452,7 @@ class ChemEnzyBackendAdapter:
                 **({"literature_template_plugin": literature_template_plugin_stats} if literature_template_plugin_stats is not None else {}),
                 **({"chem_enzy_guidance": guidance_stats} if guidance_stats is not None else {}),
                 "starting_molecule_exclusions": _guidance_terminal_exclusion_stats(guidance_stats),
+                "route_materialization_admission": materialization_admission,
             },
         )
 
@@ -1135,23 +1141,126 @@ def route_candidates_from_chem_enzy_result(raw_result: dict[str, Any], *, target
     for idx, dict_route in enumerate(dict_routes):
         steps = _flatten_chem_enzy_dict_route(dict_route)
         score = _route_score_from_steps(steps)
+        materialization_admission = audit_materialized_chem_enzy_route(
+            steps,
+            route_index=idx,
+        )
+        admitted = materialization_admission.get("accepted") is True
         routes.append(
             RouteCandidate(
                 target_smiles=target_smiles or str((dict_route or {}).get("smiles") or ""),
                 steps=steps,
                 backend=BACKEND_NAME,
                 score=score,
-                solved=True,
+                # ``all_succ_dict_routes`` is only the vendor's raw closure
+                # claim.  It becomes host-visible solved state only after
+                # every exact materialized edge passes the same admission
+                # audit used before MolTree insertion.
+                solved=admitted,
                 route_rank=idx,
                 search_time_s=_finite_or_none(raw_result.get("time")),
                 raw_backend_metadata={
                     "route_index": idx,
                     "route_lens": raw_result.get("route_lens"),
                     "iter": raw_result.get("iter"),
+                    "raw_solved": True,
+                    "route_outcome": (
+                        "admitted_raw_solved" if admitted else "verification_rejected"
+                    ),
+                    "route_materialization_admission": materialization_admission,
+                    "raw_solved_is_not_host_solved_authority": True,
                 },
             )
         )
     return routes
+
+
+def audit_materialized_chem_enzy_route(
+    steps: Iterable[RouteStepCandidate],
+    *,
+    route_index: int = 0,
+) -> dict[str, Any]:
+    """Fail an entire materialized route when any exact edge is inadmissible."""
+
+    step_list = list(steps)
+    edge_records: list[dict[str, Any]] = []
+    rejected_edges: list[dict[str, Any]] = []
+    for step_index, step in enumerate(step_list):
+        audit = audit_retrosynthetic_candidate(
+            step.product_smiles,
+            list(step.reactant_smiles or []),
+        )
+        template = (
+            step.raw_backend_metadata.get("template")
+            if isinstance(step.raw_backend_metadata, dict)
+            else None
+        )
+        source = ""
+        if isinstance(template, dict):
+            source = str(template.get("source") or template.get("source_model") or "")
+        record = retrosynthetic_admission_record(
+            audit,
+            stage="final_route_materialization",
+            source=source or step.source_model,
+            model=step.source_model,
+            template=template,
+            candidate_index=step_index,
+        )
+        edge_records.append(record)
+        if audit.get("accepted") is not True:
+            rejected_edges.append(record)
+    reasons = sorted(
+        {
+            str(reason)
+            for record in rejected_edges
+            for reason in record.get("reasons") or []
+        }
+    )
+    if not step_list:
+        reasons.append("missing_route_steps")
+    accepted = bool(step_list) and not rejected_edges
+    return {
+        "schema_version": "chemenzy_route_materialization_admission.v1",
+        "route_index": int(route_index),
+        "accepted": accepted,
+        "route_outcome": "admitted_raw_solved" if accepted else "verification_rejected",
+        "raw_solved": True,
+        "host_admission_accepted": accepted,
+        "edge_count": len(edge_records),
+        "accepted_edge_count": len(edge_records) - len(rejected_edges),
+        "rejected_edge_count": len(rejected_edges),
+        "reasons": reasons,
+        "edge_digests": [str(record.get("edge_digest") or "") for record in edge_records],
+        "rejected_edges": rejected_edges,
+        "edge_admission_records": edge_records,
+        "admission_stage": "final_route_materialization",
+        "host_audit_authority": True,
+        "raw_solved_is_not_host_solved_authority": True,
+    }
+
+
+def _materialized_route_admission_summary(
+    routes: Iterable[RouteCandidate],
+) -> dict[str, Any]:
+    rows = [
+        dict(route.raw_backend_metadata.get("route_materialization_admission") or {})
+        for route in routes
+        if isinstance(route.raw_backend_metadata, dict)
+    ]
+    rejected = [row for row in rows if row.get("accepted") is not True]
+    return {
+        "schema_version": "chemenzy_route_materialization_admission_summary.v1",
+        "route_count": len(rows),
+        "accepted_route_count": len(rows) - len(rejected),
+        "rejected_route_count": len(rejected),
+        "raw_solved_route_count": sum(1 for row in rows if row.get("raw_solved") is True),
+        "host_admitted_route_count": sum(
+            1 for row in rows if row.get("host_admission_accepted") is True
+        ),
+        "rejected_routes": rejected[:50],
+        "host_audit_authority": True,
+        "raw_solved_is_not_host_solved_authority": True,
+    }
 
 
 def _flatten_chem_enzy_dict_route(route: dict[str, Any]) -> list[RouteStepCandidate]:

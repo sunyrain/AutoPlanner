@@ -11,6 +11,7 @@ from cascade_planner.providers import (
 )
 from cascade_planner.providers.stock import (
     build_trusted_stock_provider_instances,
+    canonicalize_stock_snapshot,
     replay_stock_provider_result,
 )
 
@@ -215,6 +216,72 @@ def test_snapshot_hash_and_timestamp_are_strictly_validated() -> None:
         assert "timezone" in str(exc)
     else:
         raise AssertionError("timezone-free stock snapshot was accepted")
+
+
+def test_supplier_salt_snapshot_closes_only_its_deterministic_covalent_parent() -> None:
+    parent = "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C"
+    hydrochloride = "[Cl-].COC(=O)[C@H]1[NH2+]C[C@H]2[C@@H]1C2(C)C"
+    snapshot = canonicalize_stock_snapshot(
+        {
+            "supplier": "fixture",
+            "catalog_number": "HCL-1",
+            "canonical_smiles": parent,
+            "checked_at": "2026-07-12T00:00:00Z",
+            "available": True,
+            "metadata": {
+                "inventory_formulation": {
+                    "schema_version": "stock_inventory_formulation_projection.v1",
+                    "source_formulation_smiles": hydrochloride,
+                    "projected_parent_smiles": parent,
+                    "projection_policy": (
+                        "largest_covalent_fragment_and_counterion_neutralization"
+                    ),
+                }
+            },
+        }
+    )
+    provider = SnapshotStockProvider(trusted_snapshots=[snapshot])
+    result = provider.invoke(
+        {
+            "schema_version": "stock_lookup_request.v1",
+            "smiles": parent,
+            "offers": [_request_offer(snapshot)],
+        },
+        context=ProviderContext(run_id="run", case_id="case", target_smiles=parent),
+    )
+
+    assert result.accepted is True
+    formulation = result.payload["offers"][0]["metadata"][
+        "inventory_formulation"
+    ]
+    assert formulation["projected_parent_smiles"] == parent
+    assert formulation["source_formulation_smiles"].endswith(".[Cl-]")
+
+
+def test_supplier_formulation_projection_cannot_be_declared_for_another_parent() -> None:
+    snapshot = {
+        "supplier": "fixture",
+        "catalog_number": "HCL-ATTACK",
+        "canonical_smiles": "CCO",
+        "checked_at": "2026-07-12T00:00:00Z",
+        "available": True,
+        "metadata": {
+            "inventory_formulation": {
+                "schema_version": "stock_inventory_formulation_projection.v1",
+                "source_formulation_smiles": "C[NH3+].[Cl-]",
+                "projected_parent_smiles": "CCO",
+                "projection_policy": (
+                    "largest_covalent_fragment_and_counterion_neutralization"
+                ),
+            }
+        },
+    }
+    try:
+        stock_snapshot_sha256(snapshot)
+    except ValueError as exc:
+        assert "does not project" in str(exc)
+    else:
+        raise AssertionError("mismatched supplier formulation was accepted")
 
 
 def test_hashed_benchmark_catalog_is_explicitly_not_commercial_stock(tmp_path) -> None:

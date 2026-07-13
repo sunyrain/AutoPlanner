@@ -1,12 +1,14 @@
 # AutoPlanner Architecture V2
 
-Last update: 2026-07-12.
+Last update: 2026-07-12. Historical architecture reference.
 
-This document is the normative architecture for the active AutoPlanner
-mainline. It explains how Codex-driven exploration, multi-source route fusion,
+This document records the V2 architecture and is no longer normative for the
+active mainline. The V3 contract and operator guidance live in
+[MAINLINE.md](MAINLINE.md); V2 limits such as 24 accepted expansions and 72
+attempts are retained below only to explain older artifacts. This document
+explains how Codex-driven exploration, multi-source route fusion,
 deterministic reaction proof, durable frontier execution, route selection, and
-the global route view fit together. [MAINLINE.md](MAINLINE.md) remains the
-operator-facing runbook and records concrete end-to-end results.
+the global route view fit together.
 
 The central rule is simple: generation is broad, but authority is narrow.
 Codex and other proposal providers may explore aggressively; only replayable,

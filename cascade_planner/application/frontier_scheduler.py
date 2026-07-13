@@ -766,6 +766,8 @@ class PersistentFrontierQueue:
                 updated.append(found)
             if found is None:
                 raise KeyError(f"unknown frontier job: {job_id}")
+            if updated == state["jobs"]:
+                return found
             state["jobs"] = updated
             self._write(run_id, state)
             return found
@@ -994,6 +996,30 @@ class PersistentFrontierQueue:
                 result.append(row)
                 continue
             retry = row.attempt < row.max_attempts
+            lease_token_sha256 = hashlib.sha256(
+                row.lease_token.encode("utf-8")
+            ).hexdigest()
+            recovery_audit = [
+                dict(item)
+                for item in row.metadata.get("lease_recovery_audit") or []
+                if isinstance(item, Mapping)
+            ]
+            recovery_audit.append(
+                {
+                    "schema_version": "frontier_lease_recovery_audit.v1",
+                    "attempt": int(row.attempt),
+                    "lease_owner": str(row.lease_owner),
+                    "lease_token_sha256": lease_token_sha256,
+                    "lease_expires_at": str(row.lease_expires_at),
+                    "recovered_at": _format_time(now),
+                    "recovered_state": (
+                        FrontierJobState.RETRY_WAIT.value
+                        if retry
+                        else FrontierJobState.FAILED.value
+                    ),
+                    "accepted_expansion_count_delta": 0,
+                }
+            )
             result.append(
                 replace(
                     row,
@@ -1010,9 +1036,8 @@ class PersistentFrontierQueue:
                     failure_reasons=tuple([*row.failure_reasons, "lease_expired"]),
                     metadata={
                         **dict(row.metadata),
-                        "last_lease_token_sha256": hashlib.sha256(
-                            row.lease_token.encode("utf-8")
-                        ).hexdigest(),
+                        "last_lease_token_sha256": lease_token_sha256,
+                        "lease_recovery_audit": recovery_audit,
                     },
                     updated_at=_format_time(now),
                 )

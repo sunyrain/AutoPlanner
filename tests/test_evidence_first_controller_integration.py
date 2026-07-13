@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import cascade_planner.harness.agentic_blackboard_controller as controller_module
 from cascade_planner.agent.codex_worker import WorkerRunRecord
@@ -15,6 +16,143 @@ _FIXTURES = Path(__file__).parent / "fixtures"
 _SOURCE_PDF = (_FIXTURES / "source_evidence_stub.pdf").resolve()
 _SOURCE_PAGE = (_FIXTURES / "source_page.ppm").resolve()
 _SOURCE_REF = "doi:10.1000/evidence-first-controller"
+
+
+def test_recovered_campaign_defers_bootstrap_for_bound_exact_compile(
+    tmp_path: Path,
+) -> None:
+    pdf = tmp_path / "source.pdf"
+    page = tmp_path / "page.png"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    page.write_bytes(b"materialized-page")
+    board = {
+        "case_id": "evidence-first",
+        "target_profile": {
+            "valid": True,
+            "target_name": "acetaldehyde",
+            "target_smiles": "CC=O",
+        },
+        "budget_state": {
+            "rounds_completed": 2,
+            "visual_calls": 1,
+            "max_visual_calls": 4,
+            "scout_calls": 0,
+            "max_scout_calls": 4,
+        },
+        "literature_evidence": {
+            "source_candidates": [
+                {
+                    "source_ref": _SOURCE_REF,
+                    "local_pdf": str(pdf),
+                }
+            ],
+            "pdf_structure_evidence": [
+                {
+                    "accepted": True,
+                    "source_ref": _SOURCE_REF,
+                    "source_pdf_path": str(pdf),
+                    "rendered_page_count": 1,
+                    "rendered_pages": [
+                        {"page_number": 1, "image_path": str(page)}
+                    ],
+                    "reasons": [],
+                }
+            ],
+            "visual_chains": [
+                {
+                    "schema_version": "agent_visual_chain_summary.v1",
+                    "accepted": True,
+                    "chain_id": "visual:exact",
+                    "source_ref": _SOURCE_REF,
+                    "source_pdf_path": str(pdf),
+                    "candidate_step_count": 1,
+                    "steps": [
+                        {
+                            "step_id": "oxidation",
+                            "product_smiles": "CC=O",
+                            "reactant_smiles": ["CCO"],
+                            "allowed_use": "exact_candidate",
+                        }
+                    ],
+                }
+            ],
+            "exact_rows": [],
+            "structure_resolution_tasks": [],
+        },
+    }
+
+    assert controller_module._controller_evidence_first_work_pending(board)
+
+    board["literature_evidence"]["visual_chains"] = []
+    board["literature_evidence"]["pdf_structure_evidence"] = []
+    board["literature_evidence"]["source_candidates"] = []
+    assert not controller_module._controller_evidence_first_work_pending(board)
+
+
+def test_source_bound_evidence_queue_bypasses_redundant_codex_planner(
+    tmp_path: Path,
+) -> None:
+    pdf = tmp_path / "source.pdf"
+    page = tmp_path / "page.png"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    page.write_bytes(b"materialized-page")
+    board = {
+        "case_id": "evidence-first",
+        "target_profile": {
+            "valid": True,
+            "target_name": "acetaldehyde",
+            "target_smiles": "CC=O",
+        },
+        "budget_state": {
+            "rounds_completed": 2,
+            "visual_calls": 1,
+            "max_visual_calls": 4,
+            "scout_calls": 0,
+            "max_scout_calls": 4,
+        },
+        "literature_evidence": {
+            "source_candidates": [
+                {"source_ref": _SOURCE_REF, "local_pdf": str(pdf)}
+            ],
+            "pdf_structure_evidence": [
+                {
+                    "accepted": True,
+                    "source_ref": _SOURCE_REF,
+                    "source_pdf_path": str(pdf),
+                    "rendered_page_count": 1,
+                    "rendered_pages": [
+                        {"page_number": 1, "image_path": str(page)}
+                    ],
+                    "reasons": [],
+                }
+            ],
+            "visual_chains": [],
+            "exact_rows": [],
+            "structure_resolution_tasks": [],
+        },
+    }
+
+    with patch.object(
+        controller_module,
+        "plan_action_batch_with_codex",
+        side_effect=AssertionError("Codex planner must not be invoked"),
+    ):
+        batch = controller_module._obtain_action_batch(
+            blackboard=board,
+            round_index=3,
+            run_dir=tmp_path,
+            state=None,
+            action_planner=None,
+            exhaust_round_budget=True,
+            use_codex_action_planner=True,
+            allow_deterministic_fallback=True,
+        )
+
+    assert batch["mode"] == "deterministic_evidence_first_scheduler"
+    assert batch["planner_audit"]["codex_action_planner_invoked"] is False
+    assert batch["actions"][0]["action_type"] == (
+        "extract_visual_literature_chain"
+    )
 
 
 def _team_artifact(
@@ -45,6 +183,7 @@ def _team_artifact(
                     "product_smiles": target_smiles,
                     "precursor_smiles": [precursor_smiles],
                     "reaction_family": "evidence-gated test transformation",
+                    "product_retron_type": "carbonyl interconversion",
                     "transformation_rationale": (
                         "Keep this proposal advisory until the host verifier accepts it."
                     ),
@@ -82,6 +221,7 @@ def _team_run_record(task: Any, artifact: dict[str, Any]) -> WorkerRunRecord:
         backend="codex_cli",
         output_artifact=artifact,
         output_validation={"accepted": True, "reasons": []},
+        usage={"input_tokens": 100, "output_tokens": 20},
         metadata={
             "session_id": "evidence-first-controller-integration",
             "event_summary": {"child_agent_spawn_count": len(task.child_roles)},
@@ -449,6 +589,7 @@ def test_late_exact_row_unlocks_one_child_frontier_and_resumes_campaign_once(
         codex_agent_team_max_expansions_per_invocation=1,
         codex_agent_team_max_attempt_runs_per_invocation=1,
         codex_agent_team_frontier_batch_size=1,
+        codex_agent_team_auto_resume=True,
         codex_agent_team_runner=runner,
         action_planner=planner,
         mock_tool_results={

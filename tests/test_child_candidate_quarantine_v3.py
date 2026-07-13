@@ -23,6 +23,7 @@ def _candidate(
         "product_smiles": "CCO",
         "precursor_smiles": [precursor],
         "reaction_family": "carbonyl reduction",
+        "product_retron_type": "carbonyl interconversion",
         "transformation_rationale": "one exact precursor set to the current product",
         "source_channel": "chem_enzy",
         "source_refs": [],

@@ -489,6 +489,7 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
                         "AUTOPLANNER_WORKER_API_BASE_URL": "https://api.example.test/v1",
                         "AUTOPLANNER_WORKER_API_MODEL": "test-model",
                         "AUTOPLANNER_WORKER_API_PROVIDER": "test-provider",
+                        "AUTOPLANNER_CODEX_WORKER_REASONING_EFFORT": "xhigh",
                         "CAPTURE_CODEX_WORKER_ENV": str(root / "captured_codex_worker_env.json"),
                     },
                     clear=False,
@@ -504,6 +505,8 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertEqual(captured["auth"]["OPENAI_API_KEY"], "subprocess-worker-key")
         self.assertIn("--ignore-user-config", captured["argv"])
         self.assertIn('openai_base_url="https://api.example.test/v1"', captured["argv"])
+        # The test process may carry an explicit operator override; it must
+        # still take precedence over the safer implicit medium fallback.
         self.assertIn('model_reasoning_effort="xhigh"', captured["argv"])
         self.assertIn('openai_base_url = "https://api.example.test/v1"', captured["config"])
         self.assertIn('model = "test-model"', captured["config"])
@@ -531,6 +534,21 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
 
         self.assertEqual(_task_reasoning_effort(task), "high")
         self.assertIn('model_reasoning_effort="high"', command)
+
+    def test_codex_cli_worker_implicit_reasoning_effort_is_bounded(self):
+        task = WorkerTask(
+            task_id="codex_cli_worker_default_effort",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            input_refs=["target_profile"],
+        )
+        with patch.dict(
+            "os.environ",
+            {"AUTOPLANNER_CODEX_WORKER_REASONING_EFFORT": ""},
+            clear=False,
+        ):
+            self.assertEqual(_task_reasoning_effort(task), "medium")
 
     def test_worker_timeout_preserves_backend_and_command(self):
         task = WorkerTask(

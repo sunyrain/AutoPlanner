@@ -1,10 +1,12 @@
 """Agentic blackboard controller entry point."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import hashlib
 import os
 import re
+import threading
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,7 +18,11 @@ from cascade_planner.agent.codex_worker import (
     WorkerTask,
     run_codex_worker,
 )
-from cascade_planner.harness.agent_action_planner import validate_action_batch
+from cascade_planner.harness.agent_action_planner import (
+    plan_action_batch,
+    plan_literature_evidence_followup_actions,
+    validate_action_batch,
+)
 from cascade_planner.harness.agentic_blackboard import (
     _drop_large_fields,
     _merge_source_candidate_rows,
@@ -79,6 +85,9 @@ from cascade_planner.harness.retrosynthetic_proposals import (
     compile_retrosynthetic_proposal_bus,
     recursive_tasks_from_retrosynthetic_proposals,
 )
+from cascade_planner.harness.source_capabilities import (
+    build_source_capability_queue,
+)
 from cascade_planner.harness.schemas import (
     ArtifactBundle,
     FinalVerdict,
@@ -94,9 +103,15 @@ from cascade_planner.harness.tools import (
     execute_local_tool,
 )
 from cascade_planner.orchestration.codex_retrosynthesis import (
+    CODEX_RETROSYNTHESIS_CAMPAIGN_SCHEMA,
+    CODEX_RETROSYNTHESIS_SELECTED_ROUTE_PROJECTION_SCHEMA,
+    CODEX_RETROSYNTHESIS_TEAM_SCHEMA,
+    DEFAULT_CHILD_ROLES,
     RetrosynthesisTeamConfig,
     campaign_closure_status,
     reconcile_codex_campaign_proof_state,
+    rehydrate_campaign_stock_provider_instances,
+    validate_codex_campaign_projection_bundle,
 )
 from cascade_planner.providers.builtins import (
     CodexRetrosynthesisProvider,
@@ -117,9 +132,25 @@ from cascade_planner.application.route_portfolio import (
     solve_diverse_routes,
     validate_portfolio_replacements,
 )
+from cascade_planner.application.selected_route_parent_proof import (
+    is_solved_selected_route_parent_proof,
+    validate_selected_route_parent_proof,
+)
 from cascade_planner.application.frontier_ledger import (
     project_frontier_ledger,
     validate_frontier_ledger,
+)
+from cascade_planner.application.retrosynthesis_run_contract import (
+    ModelCostEvent,
+    RetrosynthesisAcceptanceSpec,
+    RetrosynthesisCostLedger,
+    RetrosynthesisRunBudget,
+)
+from cascade_planner.application.route_deficit_queue import (
+    compile_route_deficit_queue,
+)
+from cascade_planner.application.retrosynthesis_acceptance import (
+    evaluate_retrosynthesis_acceptance,
 )
 from cascade_planner.routes import (
     assemble_route_consensus_graph,
@@ -135,6 +166,17 @@ from cascade_planner.runtime.artifact_revision import (
 
 ActionPlannerRunner = Callable[..., dict[str, Any]]
 AgentTeamRunner = Callable[[WorkerTask], Any]
+_TRUSTED_REGISTRY_ENV_LOCK = threading.RLock()
+
+
+_IDEMPOTENT_RECOVERY_ACTIONS = frozenset(
+    {
+        "extract_pdf_literature_structures",
+        "extract_visual_literature_chain",
+        "resolve_literature_structure_task",
+        "compile_exact_literature_rows",
+    }
+)
 
 
 def _nonnegative_budget_int(value: Any, *, default: int) -> int:
@@ -167,7 +209,12 @@ def run_agentic_blackboard_controller(
     max_template_applications_per_round: int = 5,
     template_radius_policy: str = "auto",
     analog_template_confidence_threshold: str = "medium",
-    use_codex_action_planner: bool | None = True,
+    enable_deterministic_literature_parser: bool = False,
+    deterministic_literature_parser_opsin_base_url: str = (
+        "https://opsin.ch.cam.ac.uk/opsin"
+    ),
+    deterministic_literature_parser_timeout_s: float = 30.0,
+    use_codex_action_planner: bool | None = False,
     use_codex_agent_team: bool = False,
     codex_agent_team_max_depth: int = 2,
     codex_agent_team_max_expansions: int = 4,
@@ -181,12 +228,17 @@ def run_agentic_blackboard_controller(
     codex_agent_team_child_acceptance_mode: str = "strict_all",
     codex_agent_team_authority_lock_timeout_s: float = 3600.0,
     codex_agent_team_model: str = "",
+    codex_agent_team_reasoning_effort: str = "low",
     codex_agent_team_auth_mode: str = "auto",
     codex_agent_team_runner: AgentTeamRunner | None = None,
     codex_agent_team_stock_snapshots: dict[str, dict[str, Any]] | None = None,
     codex_agent_team_benchmark_stock_catalog_artifact: str | Path = "",
     codex_agent_team_benchmark_stock_catalog_sha256: str = "",
     codex_agent_team_benchmark_stock_catalog_name: str = "",
+    codex_agent_team_auto_resume: bool = False,
+    codex_agent_team_child_roles: list[str] | tuple[str, ...] | None = None,
+    retrosynthesis_acceptance_spec: RetrosynthesisAcceptanceSpec | None = None,
+    retrosynthesis_run_budget: RetrosynthesisRunBudget | None = None,
     stop_on_problem: bool = False,
     action_planner: ActionPlannerRunner | None = None,
     mock_tool_results: dict[str, Any] | None = None,
@@ -200,6 +252,31 @@ def run_agentic_blackboard_controller(
     (run_dir / "tool_calls.jsonl").touch()
     (run_dir / "decision_trace.jsonl").touch()
     budget = budget or HarnessBudget(timeout_s=float(timeout_s))
+    acceptance_spec = (
+        retrosynthesis_acceptance_spec or RetrosynthesisAcceptanceSpec()
+    )
+    run_budget = retrosynthesis_run_budget or RetrosynthesisRunBudget()
+    codex_agent_team_max_expansions = min(
+        max(0, int(codex_agent_team_max_expansions or 0)),
+        run_budget.max_accepted_expansions,
+    )
+    requested_attempt_cap = int(codex_agent_team_max_attempt_runs or 0)
+    codex_agent_team_max_attempt_runs = min(
+        (
+            requested_attempt_cap
+            if requested_attempt_cap > 0
+            else run_budget.max_attempt_runs
+        ),
+        run_budget.max_attempt_runs,
+    )
+    codex_agent_team_max_expansions_per_invocation = min(
+        max(1, int(codex_agent_team_max_expansions_per_invocation or 1)),
+        max(1, codex_agent_team_max_expansions),
+    )
+    codex_agent_team_max_attempt_runs_per_invocation = min(
+        max(1, int(codex_agent_team_max_attempt_runs_per_invocation or 1)),
+        max(1, codex_agent_team_max_attempt_runs),
+    )
     budget.max_guided_chemenzy_runs = _nonnegative_budget_int(budget.max_guided_chemenzy_runs, default=1)
     budget.max_route_expansion_subgoal_runs = _nonnegative_budget_int(
         budget.max_route_expansion_subgoal_runs,
@@ -228,6 +305,22 @@ def run_agentic_blackboard_controller(
         "template_radius_policy": str(template_radius_policy or "auto"),
         "analog_template_confidence_threshold": str(analog_template_confidence_threshold or "medium"),
     }
+    target_data["deterministic_literature_parser_policy"] = {
+        "enabled": bool(enable_deterministic_literature_parser),
+        "registry_path": str(
+            (run_dir / "trusted_literature_step_registry.generated.json").resolve()
+        ),
+        "opsin_base_url": str(
+            deterministic_literature_parser_opsin_base_url
+            or "https://opsin.ch.cam.ac.uk/opsin"
+        ),
+        "timeout_s": max(
+            1.0,
+            float(deterministic_literature_parser_timeout_s or 30.0),
+        ),
+        "authority": "deterministic_structure_parser",
+        "model_output_is_advisory": True,
+    }
     write_json(run_dir / "target_input.json", target_data)
     write_json(run_dir / "budget.json", budget.to_dict())
     append_jsonl(run_dir / "decision_trace.jsonl", {"stage": "start", "created_at_utc": _now(), "controller": "agentic_blackboard"})
@@ -241,6 +334,22 @@ def run_agentic_blackboard_controller(
         "max_template_applications_per_round": max(1, int(max_template_applications_per_round or 5)),
         "template_radius_policy": str(template_radius_policy or "auto"),
         "analog_template_confidence_threshold": str(analog_template_confidence_threshold or "medium"),
+    }
+    target_data["deterministic_literature_parser_policy"] = {
+        "enabled": bool(enable_deterministic_literature_parser),
+        "registry_path": str(
+            (run_dir / "trusted_literature_step_registry.generated.json").resolve()
+        ),
+        "opsin_base_url": str(
+            deterministic_literature_parser_opsin_base_url
+            or "https://opsin.ch.cam.ac.uk/opsin"
+        ),
+        "timeout_s": max(
+            1.0,
+            float(deterministic_literature_parser_timeout_s or 30.0),
+        ),
+        "authority": "deterministic_structure_parser",
+        "model_output_is_advisory": True,
     }
     write_json(run_dir / "target_input.json", target_data)
     write_json(run_dir / "preflight.json", preflight)
@@ -258,6 +367,7 @@ def run_agentic_blackboard_controller(
     )
     codex_campaign_refresh_config = (
         _controller_codex_team_config(
+            child_roles=codex_agent_team_child_roles,
             timeout_s=timeout_s,
             max_depth=codex_agent_team_max_depth,
             max_expansions=codex_agent_team_max_expansions,
@@ -272,6 +382,7 @@ def run_agentic_blackboard_controller(
                 codex_agent_team_authority_lock_timeout_s
             ),
             model=codex_agent_team_model,
+            reasoning_effort=codex_agent_team_reasoning_effort,
             auth_mode=codex_agent_team_auth_mode,
             stock_snapshots=codex_agent_team_stock_snapshots,
             benchmark_stock_catalog_artifact=codex_agent_team_benchmark_stock_catalog_artifact,
@@ -295,6 +406,8 @@ def run_agentic_blackboard_controller(
             "analog_template_confidence_threshold": str(analog_template_confidence_threshold or "medium"),
         },
         prior_artifacts=prior_artifacts,
+        acceptance_spec=acceptance_spec,
+        run_budget=run_budget,
     )
     blackboard, recovery_report = rehydrate_blackboard_from_events(
         blackboard,
@@ -326,7 +439,29 @@ def run_agentic_blackboard_controller(
         blackboard = _seed_failure_evidence_from_prior(blackboard, state=state)
         blackboard = _seed_prior_analogical_evidence(blackboard, state=state)
     blackboard = _refresh_blackboard_from_local_pdf_proxy_downloads(blackboard, run_dir=run_dir)
+    blackboard = _restore_materialized_literature_artifacts(
+        blackboard,
+        state=state,
+    )
     _restore_tool_execution_counters(state, blackboard)
+    durable_campaign_root = run_dir / "codex_retrosynthesis_team"
+    durable_campaign_recovered = bool(
+        use_codex_agent_team
+        and preflight.get("accepted") is True
+        and recovery_report.get("recovered") is True
+        and (durable_campaign_root / "campaign_identity.json").is_file()
+        and (durable_campaign_root / "campaign_policy.json").is_file()
+    )
+    if durable_campaign_recovered:
+        # Event replay restores orchestration history, not current campaign
+        # authority.  Reconcile immutable commits and the live queue before the
+        # first post-restart checkpoint so a stale agent_blackboard snapshot
+        # cannot advertise an older graph/ledger revision.
+        blackboard = _refresh_multisource_route_consensus(
+            state=state,
+            blackboard=blackboard,
+            codex_campaign_config=codex_campaign_refresh_config,
+        )
     blackboard = _checkpoint_blackboard_event(
         blackboard,
         state=state,
@@ -372,7 +507,10 @@ def run_agentic_blackboard_controller(
         )
         return _result(run_dir, target_data, preflight, blackboard, action_batches, validations, bundle, final, tool_calls)
 
-    if use_codex_agent_team:
+    defer_campaign_bootstrap = bool(
+        _controller_evidence_first_work_pending(blackboard)
+    )
+    if use_codex_agent_team and not defer_campaign_bootstrap:
         blackboard = _run_and_merge_codex_agent_team(
             blackboard=blackboard,
             state=state,
@@ -380,6 +518,7 @@ def run_agentic_blackboard_controller(
             target_smiles=target_smiles,
             literature_sources=source_rows,
             config=_controller_codex_team_config(
+                child_roles=codex_agent_team_child_roles,
                 timeout_s=timeout_s,
                 max_depth=codex_agent_team_max_depth,
                 max_expansions=codex_agent_team_max_expansions,
@@ -397,6 +536,7 @@ def run_agentic_blackboard_controller(
                     codex_agent_team_authority_lock_timeout_s
                 ),
                 model=codex_agent_team_model,
+                reasoning_effort=codex_agent_team_reasoning_effort,
                 auth_mode=codex_agent_team_auth_mode,
                 stock_snapshots=codex_agent_team_stock_snapshots,
                 benchmark_stock_catalog_artifact=codex_agent_team_benchmark_stock_catalog_artifact,
@@ -418,6 +558,20 @@ def run_agentic_blackboard_controller(
                     ),
                 },
             )
+    elif defer_campaign_bootstrap:
+        append_jsonl(
+            run_dir / "decision_trace.jsonl",
+            {
+                "stage": "codex_agent_team_bootstrap_deferred",
+                "reason": (
+                    "recoverable_evidence_first_work_pending"
+                    if durable_campaign_recovered
+                    else "fresh_evidence_first_work_pending"
+                ),
+                "campaign_state_preserved": True,
+                "proposal_budget_consumed": 0,
+            },
+        )
 
     stop_requested = False
     # ``stop_unresolved`` ends evidence/action planning.  In exhaustive mode a
@@ -439,7 +593,10 @@ def run_agentic_blackboard_controller(
             action_planner=action_planner,
             exhaust_round_budget=exhaust_round_budget,
             use_codex_action_planner=use_codex_action_planner,
-            allow_deterministic_fallback=not bool(use_codex_agent_team),
+            allow_deterministic_fallback=bool(
+                not use_codex_agent_team
+                or _controller_evidence_first_work_pending(blackboard)
+            ),
         )
         validation = validate_action_batch(action_batch, blackboard=blackboard)
         blackboard = update_blackboard_from_action_batch(
@@ -539,6 +696,9 @@ def run_agentic_blackboard_controller(
                 round_index=round_index,
                 reserved_budget_state=dict(
                     reserved_board.get("budget_state") or {}
+                ),
+                allow_idempotent_retry=(
+                    action_type in _IDEMPOTENT_RECOVERY_ACTIONS
                 ),
             )
             lifecycle_status = str(action_lifecycle.get("status") or "")
@@ -657,11 +817,17 @@ def run_agentic_blackboard_controller(
                 )
             else:
                 artifacts_before = _artifact_digest_index(state.artifacts)
-                action_result, records = _execute_agent_action(
-                    action=action,
-                    state=state,
-                    blackboard=blackboard,
-                )
+                # Exact-row compilation and several verifier-backed actions
+                # run through the same generic dispatcher.  Resumed processes
+                # must therefore bind the host-authored, run-local trusted
+                # registry while the tool itself executes, not only while the
+                # later consensus projection is rebuilt.
+                with _run_scoped_trusted_literature_registry(state):
+                    action_result, records = _execute_agent_action(
+                        action=action,
+                        state=state,
+                        blackboard=blackboard,
+                    )
                 artifact_updates = _changed_artifact_updates(
                     state.artifacts,
                     before=artifacts_before,
@@ -788,11 +954,13 @@ def run_agentic_blackboard_controller(
             )
         if (
             use_codex_agent_team
+            and codex_agent_team_auto_resume
             and not stop_requested
             and not _controller_codex_search_should_stop(
                 blackboard,
                 exploration_mode=codex_agent_team_exploration_mode,
             )
+            and not _controller_evidence_first_work_pending(blackboard)
             and _codex_team_has_remaining_campaign_work(blackboard)
         ):
             prior_accepted_expansions = int(
@@ -808,6 +976,7 @@ def run_agentic_blackboard_controller(
                 target_smiles=target_smiles,
                 literature_sources=_blackboard_literature_sources(blackboard),
                 config=_controller_codex_team_config(
+                    child_roles=codex_agent_team_child_roles,
                     timeout_s=timeout_s,
                     max_depth=codex_agent_team_max_depth,
                     max_expansions=codex_agent_team_max_expansions,
@@ -822,6 +991,7 @@ def run_agentic_blackboard_controller(
                         codex_agent_team_authority_lock_timeout_s
                     ),
                     model=codex_agent_team_model,
+                    reasoning_effort=codex_agent_team_reasoning_effort,
                     auth_mode=codex_agent_team_auth_mode,
                     stock_snapshots=codex_agent_team_stock_snapshots,
                     benchmark_stock_catalog_artifact=codex_agent_team_benchmark_stock_catalog_artifact,
@@ -913,14 +1083,21 @@ def run_agentic_blackboard_controller(
     # state before and after every invocation.  This makes the terminal state
     # closure-driven while retaining explicit accepted/attempt/depth caps.
     campaign_drain_records: list[dict[str, Any]] = []
-    campaign_drain_stop_reason = "not_enabled"
+    campaign_drain_stop_reason = (
+        "evidence_first_work_pending"
+        if use_codex_agent_team
+        and _controller_evidence_first_work_pending(blackboard)
+        else "not_enabled"
+    )
     if (
         use_codex_agent_team
+        and codex_agent_team_auto_resume
         and not stop_requested
         and not _controller_codex_search_should_stop(
             blackboard,
             exploration_mode=codex_agent_team_exploration_mode,
         )
+        and not _controller_evidence_first_work_pending(blackboard)
     ):
         blackboard = _refresh_multisource_route_consensus(
             state=state,
@@ -967,6 +1144,7 @@ def run_agentic_blackboard_controller(
                 target_smiles=target_smiles,
                 literature_sources=_blackboard_literature_sources(blackboard),
                 config=_controller_codex_team_config(
+                    child_roles=codex_agent_team_child_roles,
                     timeout_s=timeout_s,
                     max_depth=codex_agent_team_max_depth,
                     max_expansions=codex_agent_team_max_expansions,
@@ -981,6 +1159,7 @@ def run_agentic_blackboard_controller(
                         codex_agent_team_authority_lock_timeout_s
                     ),
                     model=codex_agent_team_model,
+                    reasoning_effort=codex_agent_team_reasoning_effort,
                     auth_mode=codex_agent_team_auth_mode,
                     stock_snapshots=codex_agent_team_stock_snapshots,
                     benchmark_stock_catalog_artifact=codex_agent_team_benchmark_stock_catalog_artifact,
@@ -1043,6 +1222,8 @@ def run_agentic_blackboard_controller(
             campaign_drain_stop_reason = "campaign_drain_invocation_cap_reached"
     elif stop_requested:
         campaign_drain_stop_reason = "controller_stop_requested"
+    elif use_codex_agent_team and not codex_agent_team_auto_resume:
+        campaign_drain_stop_reason = "automatic_model_resume_disabled"
     elif use_codex_agent_team and _controller_codex_search_should_stop(
         blackboard,
         exploration_mode=codex_agent_team_exploration_mode,
@@ -1198,8 +1379,186 @@ def _restore_tool_execution_counters(
     )
 
 
+def _restore_materialized_literature_artifacts(
+    blackboard: dict[str, Any],
+    *,
+    state: ToolExecutionState,
+) -> dict[str, Any]:
+    """Re-index current-host PDF evidence after event-journal recovery.
+
+    The journal retains compact workflow facts but intentionally does not
+    replay scientific artifact payloads.  Visual extraction nevertheless
+    needs the full rendered-page manifest.  Recover it from files beneath the
+    run directory only after replaying the source PDF hash and constraining
+    every rendered image/crop path to that directory.
+    """
+
+    run_root = state.run_dir.resolve()
+    accepted: list[tuple[Path, dict[str, Any]]] = []
+    rejected: list[dict[str, Any]] = []
+    for manifest_path in sorted(
+        run_root.rglob("literature_pdf_structure_evidence.json")
+    ):
+        reasons: list[str] = []
+        try:
+            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            rejected.append(
+                {
+                    "manifest_ref": str(manifest_path),
+                    "reasons": [
+                        "literature_pdf_manifest_read_error:"
+                        f"{type(exc).__name__}"
+                    ],
+                }
+            )
+            continue
+        evidence = dict(raw) if isinstance(raw, dict) else {}
+        if evidence.get("schema_version") != "literature_pdf_structure_evidence.v1":
+            reasons.append("invalid_literature_pdf_manifest_schema")
+        if evidence.get("accepted") is not True:
+            reasons.append("literature_pdf_manifest_not_accepted")
+        source_ref = str(evidence.get("source_ref") or "").strip()
+        if not source_ref:
+            reasons.append("literature_pdf_manifest_source_ref_missing")
+        source_pdf = Path(
+            str(evidence.get("source_pdf_path") or "")
+        ).expanduser()
+        supplied_pdf_sha256 = str(
+            evidence.get("source_pdf_sha256") or ""
+        )
+        if not source_pdf.is_file():
+            reasons.append("literature_pdf_manifest_source_pdf_missing")
+        elif (
+            len(supplied_pdf_sha256) != 64
+            or sha256_file(source_pdf) != supplied_pdf_sha256
+        ):
+            reasons.append("literature_pdf_manifest_source_pdf_digest_mismatch")
+        for collection in ("rendered_pages", "scheme_crops"):
+            for row in evidence.get(collection) or []:
+                if not isinstance(row, dict):
+                    reasons.append(
+                        f"literature_pdf_manifest_{collection}_row_invalid"
+                    )
+                    continue
+                image_value = str(row.get("image_path") or "").strip()
+                if not image_value:
+                    if collection == "scheme_crops" and row.get("status") != "created":
+                        continue
+                    reasons.append(
+                        f"literature_pdf_manifest_{collection}_image_missing"
+                    )
+                    continue
+                image_path = Path(image_value).expanduser().resolve()
+                try:
+                    image_path.relative_to(run_root)
+                except ValueError:
+                    reasons.append(
+                        f"literature_pdf_manifest_{collection}_outside_run"
+                    )
+                    continue
+                if not image_path.is_file():
+                    reasons.append(
+                        f"literature_pdf_manifest_{collection}_file_missing"
+                    )
+                if len(str(row.get("sha256") or "")) != 64:
+                    reasons.append(
+                        f"literature_pdf_manifest_{collection}_digest_missing"
+                    )
+        if reasons:
+            rejected.append(
+                {
+                    "manifest_ref": str(manifest_path),
+                    "source_ref": source_ref,
+                    "reasons": sorted(set(reasons)),
+                }
+            )
+            continue
+        evidence["recovery_manifest_ref"] = str(manifest_path)
+        evidence["current_host_source_pdf_replay"] = True
+        accepted.append((manifest_path, evidence))
+
+    def preference(
+        item: tuple[Path, dict[str, Any]],
+    ) -> tuple[int, int]:
+        path, evidence = item
+        algorithm = str(
+            (evidence.get("focus_audit") or {}).get("algorithm_version")
+            or ""
+        )
+        return (
+            1 if algorithm == "literature_pdf_page_focus.v3" else 0,
+            path.stat().st_mtime_ns,
+        )
+
+    by_source: dict[str, dict[str, Any]] = {}
+    by_pdf: dict[str, dict[str, Any]] = {}
+    selected_items: dict[str, tuple[Path, dict[str, Any]]] = {}
+    for item in accepted:
+        path, evidence = item
+        source_key = str(evidence.get("source_ref") or "").strip().lower()
+        current = selected_items.get(source_key)
+        if current is None or preference(item) > preference(current):
+            selected_items[source_key] = (path, evidence)
+    selected = [
+        dict(item[1])
+        for _, item in sorted(selected_items.items())
+    ]
+    for evidence in selected:
+        source_key = str(evidence.get("source_ref") or "").strip().lower()
+        pdf_key = str(
+            Path(str(evidence.get("source_pdf_path") or ""))
+            .expanduser()
+            .resolve()
+        ).lower()
+        by_source[f"ref:{source_key}"] = evidence
+        by_source[f"pdf:{pdf_key}"] = evidence
+        by_pdf[pdf_key] = evidence
+    if selected:
+        state.artifacts["literature_pdf_structure_evidence_history"] = selected
+        state.artifacts["literature_pdf_structure_evidence_by_source"] = by_source
+        state.artifacts["literature_pdf_structure_evidence_by_pdf"] = by_pdf
+        state.artifacts["literature_pdf_structure_evidence"] = selected[-1]
+
+    audit = {
+        "schema_version": "literature_pdf_artifact_recovery.v1",
+        "accepted": bool(selected),
+        "manifest_candidate_count": len(accepted) + len(rejected),
+        "validated_manifest_count": len(accepted),
+        "selected_source_count": len(selected),
+        "selected_sources": [
+            {
+                "source_ref": str(row.get("source_ref") or ""),
+                "source_pdf_path": str(row.get("source_pdf_path") or ""),
+                "manifest_ref": str(row.get("recovery_manifest_ref") or ""),
+                "focus_algorithm_version": str(
+                    (row.get("focus_audit") or {}).get("algorithm_version")
+                    or ""
+                ),
+            }
+            for row in selected
+        ],
+        "rejected_manifests": rejected,
+        "semantics": {
+            "mutable_blackboard_artifact_payload_not_used": True,
+            "source_pdf_digest_replayed_on_current_host": True,
+            "rendered_assets_constrained_to_run_directory": True,
+            "exact_step_authority_not_granted": True,
+        },
+    }
+    audit_path = state.run_dir / "literature_pdf_artifact_recovery.json"
+    write_json(audit_path, audit)
+    state.artifacts["literature_pdf_artifact_recovery"] = audit
+    board = dict(blackboard)
+    refs = dict(board.get("artifact_refs") or {})
+    refs["literature_pdf_artifact_recovery"] = str(audit_path)
+    board["artifact_refs"] = refs
+    return board
+
+
 def _controller_codex_team_config(
     *,
+    child_roles: list[str] | tuple[str, ...] | None = None,
     timeout_s: float,
     max_depth: int,
     max_expansions: int,
@@ -1212,6 +1571,7 @@ def _controller_codex_team_config(
     child_acceptance_mode: str,
     campaign_authority_lock_timeout_s: float,
     model: str,
+    reasoning_effort: str,
     auth_mode: str,
     stock_snapshots: dict[str, dict[str, Any]] | None,
     benchmark_stock_catalog_artifact: str | Path,
@@ -1220,6 +1580,7 @@ def _controller_codex_team_config(
     reaction_proofs: dict[str, dict[str, Any]] | None = None,
 ) -> RetrosynthesisTeamConfig:
     return RetrosynthesisTeamConfig(
+        child_roles=list(child_roles or DEFAULT_CHILD_ROLES),
         timeout_s=min(float(timeout_s), 900.0),
         max_depth=max(1, int(max_depth or 1)),
         max_expansions=max(1, int(max_expansions or 1)),
@@ -1238,6 +1599,7 @@ def _controller_codex_team_config(
             0.1, float(campaign_authority_lock_timeout_s or 3600.0)
         ),
         model=str(model or ""),
+        reasoning_effort=str(reasoning_effort or "low"),
         auth_mode=str(auth_mode or "auto"),
         stock_snapshots=dict(stock_snapshots or {}),
         benchmark_stock_catalog_artifact=str(
@@ -1290,6 +1652,14 @@ def _write_codex_controller_projection(
         if isinstance(row, dict)
     ]
     events.append(event)
+    team_projection = dict(board.get("codex_agent_team") or {})
+    team_campaign = dict(team_projection.get("campaign") or {})
+    campaign_projection_binding = dict(
+        board.get("campaign_projection_binding")
+        or team_campaign.get("campaign_projection_binding")
+        or team_projection.get("campaign_projection_binding")
+        or {}
+    )
     payload = {
         "schema_version": "codex_retrosynthesis_controller_projection.v1",
         "case_id": str(
@@ -1302,7 +1672,16 @@ def _write_codex_controller_projection(
         "durable_team_report_sha256": (
             sha256_file(durable_report_path) if durable_report_path.is_file() else ""
         ),
-        "team_projection": dict(board.get("codex_agent_team") or {}),
+        "team_projection": team_projection,
+        "campaign_projection_binding": campaign_projection_binding,
+        "campaign_revision": (
+            campaign_projection_binding.get("campaign_revision")
+            if campaign_projection_binding
+            else None
+        ),
+        "campaign_revision_sha256": str(
+            campaign_projection_binding.get("campaign_revision_sha256") or ""
+        ),
         "latest_stage": event["stage"],
         "latest_failure": failure_row,
         "prior_accepted_team_preserved": bool(prior_accepted_team_preserved),
@@ -1311,6 +1690,7 @@ def _write_codex_controller_projection(
             "durable_team_report_owned_by_provider_orchestration": True,
             "controller_never_rewrites_durable_team_report": True,
             "controller_projection_is_not_campaign_recovery_authority": True,
+            "current_campaign_authority_revision_is_explicit": True,
         },
     }
     digest_payload = json.dumps(
@@ -1349,6 +1729,67 @@ def _run_and_merge_codex_agent_team(
     runner: AgentTeamRunner | None,
 ) -> dict[str, Any]:
     board = dict(blackboard)
+    cost_ledger = _retrosynthesis_cost_ledger(board)
+    invocation_id = (
+        f"campaign:{int(cost_ledger.totals()['model_invocations']) + 1:04d}"
+    )
+    prompt_context_bytes = len(
+        json.dumps(
+            {
+                "target_name": target_name,
+                "target_smiles": target_smiles,
+                "literature_sources": literature_sources,
+                "frontier_ledger_summary": board.get(
+                    "frontier_ledger_summary"
+                ),
+                "route_deficit_summary": dict(
+                    (board.get("route_deficit_queue") or {}).get("summary")
+                    or {}
+                ),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+    )
+    try:
+        cost_ledger.reserve(
+            invocation_id,
+            prompt_context_bytes=prompt_context_bytes,
+        )
+    except (RuntimeError, ValueError) as exc:
+        reasons = [
+            item
+            for item in str(exc).split(";")
+            if str(item or "").strip()
+        ] or ["retrosynthesis_model_cost_gate_rejected"]
+        board.setdefault("safety_flags", []).append(
+            "retrosynthesis_model_cost_gate_rejected"
+        )
+        board.setdefault("agent_team_history", []).append(
+            {
+                "schema_version": "codex_agent_team_history.v1",
+                "accepted": False,
+                "cost_gate_rejected": True,
+                "reasons": reasons,
+            }
+        )
+        board = _store_retrosynthesis_cost_ledger(
+            board,
+            state=state,
+            ledger=cost_ledger,
+        )
+        append_jsonl(
+            state.run_dir / "decision_trace.jsonl",
+            {
+                "stage": "retrosynthesis_model_cost_gate",
+                "accepted": False,
+                "worker_kind": "codex_retrosynthesis_campaign",
+                "reasons": reasons,
+                "cost_ledger_totals": cost_ledger.totals(),
+            },
+        )
+        return board
     prior_team = dict(board.get("codex_agent_team") or {})
     controller_failure: dict[str, Any] = {}
     prior_accepted_team_preserved = False
@@ -1401,6 +1842,59 @@ def _run_and_merge_codex_agent_team(
             prior_accepted_team_preserved = True
         else:
             report = controller_failure
+    cost_source = controller_failure or report
+    coordinator = dict(cost_source.get("coordinator") or {})
+    invocation_campaign = dict(cost_source.get("campaign") or {})
+    usage = dict(coordinator.get("usage") or {})
+
+    def _cost_token(key: str) -> int:
+        try:
+            return max(0, int(usage.get(key) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    try:
+        elapsed_s = max(0.0, float(coordinator.get("elapsed_s") or 0.0))
+    except (TypeError, ValueError):
+        elapsed_s = 0.0
+    cost_ledger.settle(
+        ModelCostEvent(
+            invocation_id=invocation_id,
+            worker_kind="codex_retrosynthesis_campaign",
+            elapsed_s=elapsed_s,
+            input_tokens=_cost_token("input_tokens"),
+            cached_input_tokens=_cost_token("cached_input_tokens"),
+            output_tokens=_cost_token("output_tokens"),
+            reasoning_output_tokens=_cost_token(
+                "reasoning_output_tokens"
+            ),
+            accepted_expansions=max(
+                0,
+                int(
+                    invocation_campaign.get(
+                        "invocation_accepted_expansion_count"
+                    )
+                    or 0
+                ),
+            ),
+            attempt_runs=max(
+                0,
+                int(
+                    invocation_campaign.get("invocation_attempt_run_count")
+                    or 0
+                ),
+            ),
+            status=str(coordinator.get("status") or "runtime_error"),
+            usage_observed=bool(
+                {"input_tokens", "output_tokens"}.issubset(usage)
+            ),
+        )
+    )
+    board = _store_retrosynthesis_cost_ledger(
+        board,
+        state=state,
+        ledger=cost_ledger,
+    )
     if (
         not controller_failure
         and prior_team.get("accepted") is True
@@ -1458,6 +1952,44 @@ def _run_and_merge_codex_agent_team(
         ],
     })
     if report.get("accepted") and not controller_failure:
+        report_campaign = dict(report.get("campaign") or {})
+        projection_bundle = dict(
+            report_campaign.get("campaign_projection_bundle") or {}
+        )
+        projection_required = bool(
+            report_campaign.get("campaign_projection_binding")
+            or report_campaign.get("campaign_projection_bundle_ref")
+            or projection_bundle
+        )
+        projection_reasons = (
+            validate_codex_campaign_projection_bundle(projection_bundle)
+            if projection_required
+            else []
+        )
+        if projection_reasons:
+            board.setdefault("safety_flags", []).append(
+                "codex_campaign_projection_bundle_invalid"
+            )
+            board.pop("campaign_projection_binding", None)
+            board.pop("campaign_projection_bundle", None)
+        elif projection_required:
+            board["campaign_projection_binding"] = dict(
+                report_campaign.get("campaign_projection_binding") or {}
+            )
+            board["campaign_projection_bundle"] = projection_bundle
+            state.artifacts["campaign_projection_bundle"] = projection_bundle
+            bundle_ref = str(
+                report_campaign.get("campaign_projection_bundle_ref") or ""
+            )
+            if bundle_ref:
+                refs["campaign_projection_bundle"] = bundle_ref
+            _install_selected_route_parent_proof_projection(
+                state=state,
+                blackboard=board,
+                refs=refs,
+                campaign_projection_bundle=projection_bundle,
+            )
+            board["artifact_refs"] = refs
         board = _merge_codex_team_source_hints(board, report=report)
         board["route_consensus"] = dict(report.get("route_consensus") or {})
         board["route_consensus_graph"] = dict(report.get("route_consensus_graph") or {})
@@ -1526,6 +2058,137 @@ def _run_and_merge_codex_agent_team(
     return board
 
 
+def _retrosynthesis_cost_ledger(
+    blackboard: dict[str, Any],
+) -> RetrosynthesisCostLedger:
+    contract = dict(blackboard.get("retrosynthesis_run_contract") or {})
+    try:
+        return RetrosynthesisCostLedger.from_dict(
+            dict(contract.get("cost_ledger") or {})
+        )
+    except (TypeError, ValueError):
+        return RetrosynthesisCostLedger()
+
+
+def _store_retrosynthesis_cost_ledger(
+    blackboard: dict[str, Any],
+    *,
+    state: ToolExecutionState,
+    ledger: RetrosynthesisCostLedger,
+) -> dict[str, Any]:
+    board = dict(blackboard)
+    contract = dict(board.get("retrosynthesis_run_contract") or {})
+    contract["schema_version"] = "retrosynthesis_run_contract.v1"
+    contract["cost_ledger"] = ledger.to_dict()
+    board["retrosynthesis_run_contract"] = contract
+    path = state.run_dir / "retrosynthesis_cost_ledger.json"
+    write_json(path, contract["cost_ledger"])
+    state.artifacts["retrosynthesis_cost_ledger"] = contract["cost_ledger"]
+    refs = dict(board.get("artifact_refs") or {})
+    refs["retrosynthesis_cost_ledger"] = str(path)
+    board["artifact_refs"] = refs
+    return board
+
+
+def _reserve_auxiliary_model_call(
+    blackboard: dict[str, Any],
+    *,
+    state: ToolExecutionState,
+    worker_kind: str,
+    visual: bool = False,
+    prompt_context_bytes: int = 0,
+) -> tuple[RetrosynthesisCostLedger | None, str, list[str]]:
+    ledger = _retrosynthesis_cost_ledger(blackboard)
+    ordinal = int(ledger.totals()["model_invocations"]) + len(
+        ledger.reserved_invocation_ids
+    ) + 1
+    prefix = "visual" if visual else worker_kind
+    invocation_id = f"{prefix}:{ordinal:04d}"
+    try:
+        ledger.reserve(
+            invocation_id,
+            visual=visual,
+            prompt_context_bytes=max(0, int(prompt_context_bytes or 0)),
+        )
+    except (RuntimeError, ValueError) as exc:
+        reasons = sorted(
+            {
+                item
+                for item in str(exc).split(";")
+                if str(item or "").strip()
+            }
+        ) or ["retrosynthesis_model_cost_gate_rejected"]
+        blackboard.setdefault("safety_flags", []).append(
+            "retrosynthesis_model_cost_gate_rejected"
+        )
+        stored = _store_retrosynthesis_cost_ledger(
+            blackboard,
+            state=state,
+            ledger=ledger,
+        )
+        blackboard.clear()
+        blackboard.update(stored)
+        return None, invocation_id, reasons
+    stored = _store_retrosynthesis_cost_ledger(
+        blackboard,
+        state=state,
+        ledger=ledger,
+    )
+    blackboard.clear()
+    blackboard.update(stored)
+    return ledger, invocation_id, []
+
+
+def _settle_auxiliary_model_call(
+    blackboard: dict[str, Any],
+    *,
+    state: ToolExecutionState,
+    ledger: RetrosynthesisCostLedger,
+    invocation_id: str,
+    worker_kind: str,
+    record: dict[str, Any] | None = None,
+    elapsed_s: float = 0.0,
+    visual: bool = False,
+) -> None:
+    payload = dict(record or {})
+    usage = dict(payload.get("usage") or {})
+
+    def token_count(key: str) -> int:
+        try:
+            return max(0, int(usage.get(key) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    try:
+        observed_elapsed = max(
+            0.0,
+            float(payload.get("elapsed_s") or elapsed_s or 0.0),
+        )
+    except (TypeError, ValueError):
+        observed_elapsed = max(0.0, float(elapsed_s or 0.0))
+    ledger.settle(
+        ModelCostEvent(
+            invocation_id=invocation_id,
+            worker_kind=worker_kind,
+            elapsed_s=observed_elapsed,
+            input_tokens=token_count("input_tokens"),
+            cached_input_tokens=token_count("cached_input_tokens"),
+            output_tokens=token_count("output_tokens"),
+            reasoning_output_tokens=token_count("reasoning_output_tokens"),
+            visual=visual,
+            status=str(payload.get("status") or "completed"),
+            usage_observed={"input_tokens", "output_tokens"}.issubset(usage),
+        )
+    )
+    stored = _store_retrosynthesis_cost_ledger(
+        blackboard,
+        state=state,
+        ledger=ledger,
+    )
+    blackboard.clear()
+    blackboard.update(stored)
+
+
 def _codex_team_replay_binding(
     report: dict[str, Any],
     *,
@@ -1551,6 +2214,10 @@ def _clear_unverified_codex_scientific_projection(
         "route_consensus",
         "route_consensus_graph",
         "codex_precursor_frontier_injection",
+        "campaign_projection_binding",
+        "campaign_projection_bundle",
+        "selected_route_parent_proof",
+        "selected_route_parent_proof_projection",
     ):
         cleared.pop(field, None)
     cleared["retrosynthetic_proposals"] = [
@@ -1572,10 +2239,41 @@ def _clear_unverified_codex_scientific_projection(
         "codex_retrosynthesis_team",
         "route_consensus",
         "route_consensus_graph",
+        "campaign_projection_bundle",
+        "selected_route_parent_proof",
     ):
         refs.pop(key, None)
     cleared["artifact_refs"] = refs
     return cleared
+
+
+def _install_selected_route_parent_proof_projection(
+    *,
+    state: ToolExecutionState,
+    blackboard: dict[str, Any],
+    refs: dict[str, str],
+    campaign_projection_bundle: dict[str, Any],
+) -> None:
+    components = dict(campaign_projection_bundle.get("components") or {})
+    projection = dict(components.get("selected_route_parent_proof") or {})
+    if (
+        projection.get("schema_version")
+        != CODEX_RETROSYNTHESIS_SELECTED_ROUTE_PROJECTION_SCHEMA
+    ):
+        blackboard.pop("selected_route_parent_proof", None)
+        blackboard.pop("selected_route_parent_proof_projection", None)
+        refs.pop("selected_route_parent_proof", None)
+        state.artifacts.pop("selected_route_parent_proof", None)
+        state.artifacts.pop("selected_route_parent_proof_projection", None)
+        return
+    proof = dict(projection.get("proof") or {})
+    proof_path = state.run_dir / "selected_route_parent_proof.json"
+    write_json(proof_path, proof)
+    blackboard["selected_route_parent_proof"] = proof
+    blackboard["selected_route_parent_proof_projection"] = projection
+    state.artifacts["selected_route_parent_proof"] = proof
+    state.artifacts["selected_route_parent_proof_projection"] = projection
+    refs["selected_route_parent_proof"] = str(proof_path)
 
 
 def _mark_codex_team_current_host_verified(
@@ -1990,6 +2688,81 @@ def _record_stop_on_problem(
     return board
 
 
+@contextmanager
+def _run_scoped_trusted_literature_registry(
+    state: ToolExecutionState,
+):
+    """Bind the run-generated registry while replaying scientific authority.
+
+    The entry CLI used to provide this environment variable only for the first
+    process.  A resumed controller consequently downgraded the same exact rows
+    from L3 to L2.  The host-authored target policy deterministically names the
+    run-local registry; the override is scoped and restored so concurrent test
+    processes or later runs cannot inherit its authority.
+    """
+
+    policy = dict(
+        (state.target_input or {}).get("deterministic_literature_parser_policy")
+        or {}
+    )
+    configured = str(policy.get("registry_path") or "").strip()
+    expected = (state.run_dir / "trusted_literature_step_registry.generated.json").resolve()
+    selected = Path(configured).expanduser().resolve() if configured else expected
+    use_run_registry = bool(
+        policy.get("enabled") is True
+        and str(policy.get("authority") or "") == "deterministic_structure_parser"
+        and selected == expected
+    )
+    key = "AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY"
+    previous_present = key in os.environ
+    previous = os.environ.get(key, "")
+    with _TRUSTED_REGISTRY_ENV_LOCK:
+        if use_run_registry:
+            os.environ[key] = str(expected)
+        try:
+            yield
+        finally:
+            if use_run_registry:
+                if previous_present:
+                    os.environ[key] = previous
+                else:
+                    os.environ.pop(key, None)
+
+
+def _trusted_stock_provider_instances_for_run(
+    *,
+    state: ToolExecutionState,
+    codex_campaign_config: RetrosynthesisTeamConfig | None,
+) -> tuple[dict[str, Any], tuple[str, ...]]:
+    """Resolve one stock trust set for both live and resumed controllers."""
+
+    if codex_campaign_config is not None:
+        return build_trusted_stock_provider_instances(
+            stock_snapshots=codex_campaign_config.stock_snapshots,
+            benchmark_catalog_artifact=(
+                codex_campaign_config.benchmark_stock_catalog_artifact
+            ),
+            benchmark_catalog_sha256=(
+                codex_campaign_config.benchmark_stock_catalog_sha256
+            ),
+            benchmark_catalog_name=(
+                codex_campaign_config.benchmark_stock_catalog_name
+            ),
+        )
+    team_dir = state.run_dir / "codex_retrosynthesis_team"
+    if not (
+        (team_dir / "campaign_identity.json").is_file()
+        and (team_dir / "campaign_policy.json").is_file()
+    ):
+        return {}, ()
+    providers, authority = rehydrate_campaign_stock_provider_instances(
+        state.run_dir
+    )
+    return providers, tuple(
+        sorted(str(item) for item in authority.get("reasons") or [])
+    )
+
+
 def _refresh_multisource_route_consensus(
     *,
     state: ToolExecutionState,
@@ -1999,8 +2772,18 @@ def _refresh_multisource_route_consensus(
     """Rebuild the advisory graph after every planner/source channel has run."""
     board = dict(blackboard)
     existing_graph = dict(board.get("route_consensus_graph") or {})
-    max_depth = int((existing_graph.get("limits") or {}).get("max_depth") or 2)
-    rebuild = rebuild_consensus_graph_from_blackboard(board, max_depth=max_depth)
+    max_depth = _consensus_refresh_max_depth(
+        existing_graph,
+        codex_campaign_config=codex_campaign_config,
+        durable_campaign_policy_path=(
+            state.run_dir / "codex_retrosynthesis_team" / "campaign_policy.json"
+        ),
+    )
+    with _run_scoped_trusted_literature_registry(state):
+        rebuild = rebuild_consensus_graph_from_blackboard(
+            board,
+            max_depth=max_depth,
+        )
     rebuild_path = state.run_dir / "route_consensus_rebuild.json"
     consensus_path = state.run_dir / "route_consensus_fused.json"
     graph_path = state.run_dir / "route_consensus_graph_fused.json"
@@ -2008,6 +2791,10 @@ def _refresh_multisource_route_consensus(
     state.artifacts["route_consensus_rebuild"] = rebuild
     refs = dict(board.get("artifact_refs") or {})
     refs["route_consensus_rebuild"] = str(rebuild_path)
+    durable_campaign_present = bool(
+        (state.run_dir / "codex_retrosynthesis_team" / "campaign_identity.json").is_file()
+        and (state.run_dir / "codex_retrosynthesis_team" / "campaign_policy.json").is_file()
+    )
     external_admission_materials = dict(
         rebuild.get("admission_receipts") or {}
     )
@@ -2024,7 +2811,11 @@ def _refresh_multisource_route_consensus(
         for material in values
         if isinstance(material, dict) and bool(material)
     )
-    if not rebuild.get("accepted") and not has_external_admission_material:
+    if (
+        not rebuild.get("accepted")
+        and not has_external_admission_material
+        and not durable_campaign_present
+    ):
         board, existing_graph, refs = _record_frontier_ledger_projection(
             state=state,
             blackboard=board,
@@ -2050,24 +2841,13 @@ def _refresh_multisource_route_consensus(
     graph = dict(rebuild.get("graph") or {})
     overlay = dict(graph.get("v2_overlay") or {})
     stock_provider_results = _codex_campaign_stock_provider_results(board)
-    trusted_stock_providers: dict[str, Any] = {}
-    stock_provider_construction_reasons: tuple[str, ...] = ()
-    if codex_campaign_config is not None:
-        (
-            trusted_stock_providers,
-            stock_provider_construction_reasons,
-        ) = build_trusted_stock_provider_instances(
-            stock_snapshots=codex_campaign_config.stock_snapshots,
-            benchmark_catalog_artifact=(
-                codex_campaign_config.benchmark_stock_catalog_artifact
-            ),
-            benchmark_catalog_sha256=(
-                codex_campaign_config.benchmark_stock_catalog_sha256
-            ),
-            benchmark_catalog_name=(
-                codex_campaign_config.benchmark_stock_catalog_name
-            ),
-        )
+    (
+        trusted_stock_providers,
+        stock_provider_construction_reasons,
+    ) = _trusted_stock_provider_instances_for_run(
+        state=state,
+        codex_campaign_config=codex_campaign_config,
+    )
     stock_host_replay = _replay_codex_campaign_stock_provider_results(
         stock_provider_results,
         trusted_stock_provider_instances=trusted_stock_providers,
@@ -2078,20 +2858,24 @@ def _refresh_multisource_route_consensus(
     state.artifacts["stock_provider_host_replay"] = stock_host_replay
     refs["stock_provider_host_replay"] = str(stock_host_replay_path)
     stock_closed_smiles = list(stock_host_replay["closed_smiles"])
-    edge_verification = verify_codex_consensus_graph(
-        graph,
-        exact_rows=[
-            dict(row)
-            for row in (board.get("literature_evidence") or {}).get("exact_rows") or []
-            if isinstance(row, dict)
-        ],
-        stock_closed_smiles=stock_closed_smiles,
-        enable_optional_rxnmapper=str(
-            os.environ.get("AUTOPLANNER_ENABLE_RXNMAPPER", "1")
-        ).strip().lower()
-        not in {"0", "false", "no", "off"},
-        work_dir=state.run_dir / ".autoplanner",
-    )
+    with _run_scoped_trusted_literature_registry(state):
+        edge_verification = verify_codex_consensus_graph(
+            graph,
+            exact_rows=[
+                dict(row)
+                for row in (board.get("literature_evidence") or {}).get(
+                    "exact_rows"
+                )
+                or []
+                if isinstance(row, dict)
+            ],
+            stock_closed_smiles=stock_closed_smiles,
+            enable_optional_rxnmapper=str(
+                os.environ.get("AUTOPLANNER_ENABLE_RXNMAPPER", "1")
+            ).strip().lower()
+            not in {"0", "false", "no", "off"},
+            work_dir=state.run_dir / ".autoplanner",
+        )
     edge_verification_path = state.run_dir / "codex_edge_verification_report.json"
     write_json(edge_verification_path, edge_verification)
     state.artifacts["codex_edge_verification"] = edge_verification
@@ -2138,13 +2922,14 @@ def _refresh_multisource_route_consensus(
         parent_proof=proof,
         solved_parent_verifier=solved_verifier,
     )
-    bindings = derive_portfolio_bindings(
-        overlay,
-        verifier,
-        supplemental_edge_verification_reports=[edge_verification],
-        supplemental_stock_provider_results=stock_provider_results,
-        trusted_stock_provider_instances=trusted_stock_providers,
-    )
+    with _run_scoped_trusted_literature_registry(state):
+        bindings = derive_portfolio_bindings(
+            overlay,
+            verifier,
+            supplemental_edge_verification_reports=[edge_verification],
+            supplemental_stock_provider_results=stock_provider_results,
+            trusted_stock_provider_instances=trusted_stock_providers,
+        )
     portfolio = solve_diverse_routes(
         overlay,
         stock_molecule_ids=bindings["stock_molecule_ids"],
@@ -2181,22 +2966,29 @@ def _refresh_multisource_route_consensus(
         if codex_team_accepted
         else "host_external_admission_material"
         if has_external_admission_material
+        else "durable_campaign_recovery"
+        if durable_campaign_present
         else "none"
     )
-    if codex_team_accepted or has_external_admission_material:
+    if codex_team_accepted or has_external_admission_material or durable_campaign_present:
         try:
-            proof_reconciliation = reconcile_codex_campaign_proof_state(
-                graph=graph,
-                run_dir=state.run_dir,
-                case_id=str(board.get("case_id") or state.preflight.get("case_id") or ""),
-                reaction_proof_reports=[edge_verification],
-                stock_evidence=stock_provider_results,
-                required_proof_level=2,
-                campaign_config=codex_campaign_config,
-                external_hyperedge_admission_receipts=(
-                    external_admission_materials
-                ),
-            )
+            with _run_scoped_trusted_literature_registry(state):
+                proof_reconciliation = reconcile_codex_campaign_proof_state(
+                    graph=graph,
+                    run_dir=state.run_dir,
+                    case_id=str(
+                        board.get("case_id")
+                        or state.preflight.get("case_id")
+                        or ""
+                    ),
+                    reaction_proof_reports=[edge_verification],
+                    stock_evidence=stock_provider_results,
+                    required_proof_level=2,
+                    campaign_config=codex_campaign_config,
+                    external_hyperedge_admission_receipts=(
+                        external_admission_materials
+                    ),
+                )
         except Exception as exc:
             proof_reconciliation = {
                 "schema_version": "codex_campaign_proof_reconciliation.v1",
@@ -2289,12 +3081,55 @@ def _refresh_multisource_route_consensus(
             ),
         }
     caller_advisory_graph = graph
+    campaign_projection_bundle = (
+        dict(proof_reconciliation.get("campaign_projection_bundle") or {})
+        if proof_reconciliation is not None
+        else {}
+    )
+    campaign_projection_required = bool(
+        proof_reconciliation is not None
+        and (
+            proof_reconciliation.get("campaign_projection_binding")
+            or proof_reconciliation.get("campaign_projection_bundle_ref")
+            or campaign_projection_bundle
+        )
+    )
+    campaign_projection_validation_reasons = (
+        validate_codex_campaign_projection_bundle(campaign_projection_bundle)
+        if campaign_projection_required and campaign_projection_bundle
+        else ["campaign_projection_bundle_missing"]
+        if campaign_projection_required
+        else []
+    )
     canonical_graph = (
         dict(proof_reconciliation.get("canonical_route_consensus_graph") or {})
         if proof_reconciliation is not None
         and proof_reconciliation.get("accepted") is True
+        and not campaign_projection_validation_reasons
         else {}
     )
+    if campaign_projection_validation_reasons:
+        board.setdefault("safety_flags", []).append(
+            "codex_campaign_projection_bundle_invalid"
+        )
+        if proof_reconciliation is not None:
+            proof_reconciliation = {
+                **proof_reconciliation,
+                "accepted": False,
+                "graph_complete": False,
+                "reasons": sorted(
+                    {
+                        *[
+                            str(item)
+                            for item in proof_reconciliation.get("reasons") or []
+                        ],
+                        *[
+                            f"campaign_projection:{item}"
+                            for item in campaign_projection_validation_reasons
+                        ],
+                    }
+                ),
+            }
     if proof_reconciliation is not None:
         # Once a canonical reconciliation is attempted, an absent/failed
         # canonical return must never promote the mutable caller graph into
@@ -2334,8 +3169,27 @@ def _refresh_multisource_route_consensus(
         refs["canonical_route_consensus_graph"] = str(canonical_graph_path)
         board["canonical_route_consensus_graph"] = ledger_graph
         state.artifacts["canonical_route_consensus_graph"] = ledger_graph
+        campaign_projection_binding = dict(
+            proof_reconciliation.get("campaign_projection_binding") or {}
+        )
+        board["campaign_projection_binding"] = campaign_projection_binding
+        board["campaign_projection_bundle"] = campaign_projection_bundle
+        state.artifacts["campaign_projection_bundle"] = (
+            campaign_projection_bundle
+        )
+        bundle_ref = str(
+            proof_reconciliation.get("campaign_projection_bundle_ref") or ""
+        )
+        if bundle_ref:
+            refs["campaign_projection_bundle"] = bundle_ref
+        _install_selected_route_parent_proof_projection(
+            state=state,
+            blackboard=board,
+            refs=refs,
+            campaign_projection_bundle=campaign_projection_bundle,
+        )
         board["codex_campaign_authority_projection"] = {
-            "schema_version": "codex_campaign_authority_projection.v1",
+            "schema_version": "codex_campaign_authority_projection.v2",
             "accepted": True,
             "reconciliation_trigger": reconciliation_trigger,
             "codex_team_present": bool(team_snapshot),
@@ -2348,6 +3202,18 @@ def _refresh_multisource_route_consensus(
             ),
             "campaign_policy_ref": str(
                 proof_reconciliation.get("campaign_policy_ref") or ""
+            ),
+            "campaign_projection_binding": campaign_projection_binding,
+            "campaign_revision": int(
+                campaign_projection_binding.get("campaign_revision") or 0
+            ),
+            "campaign_revision_sha256": str(
+                campaign_projection_binding.get("campaign_revision_sha256")
+                or ""
+            ),
+            "campaign_projection_bundle_ref": bundle_ref,
+            "campaign_projection_bundle_content_sha256": str(
+                campaign_projection_bundle.get("content_sha256") or ""
             ),
             "canonical_route_consensus_graph_ref": str(canonical_graph_path),
             "frontier_ledger_ref": str(
@@ -2412,7 +3278,22 @@ def _refresh_multisource_route_consensus(
         )
     # Keep unsupported analogy/template rows available as caller-advisory L0
     # suggestions, but never feed them back into the authority ledger above.
-    graph = caller_advisory_graph
+    # After a controller restart the event journal intentionally omits the old
+    # team payload.  In that case the caller graph may contain only the root
+    # even though immutable campaign commits replayed dozens of canonical
+    # edges.  Prefer the replayed graph for presentation whenever the caller
+    # is missing a canonical edge; once a normal team projection is present,
+    # its advisory superset wins again.
+    caller_step_signatures = _route_graph_step_signatures(caller_advisory_graph)
+    canonical_step_signatures = _route_graph_step_signatures(ledger_graph)
+    caller_missing_canonical_edges = bool(
+        canonical_step_signatures - caller_step_signatures
+    )
+    graph = (
+        ledger_graph
+        if canonical_graph and caller_missing_canonical_edges
+        else caller_advisory_graph
+    )
     board["route_consensus_graph"] = graph
     board["caller_advisory_route_consensus_graph"] = graph
     state.artifacts["caller_advisory_route_consensus_graph"] = graph
@@ -2438,6 +3319,51 @@ def _refresh_multisource_route_consensus(
     board["retrosynthetic_proposals"] = list(existing.values())
 
     team = dict(board.get("codex_agent_team") or {})
+    recovered_team_projection = False
+    if (
+        not team
+        and proof_reconciliation is not None
+        and proof_reconciliation.get("accepted") is True
+        and canonical_graph
+        and campaign_projection_bundle
+        and not campaign_projection_validation_reasons
+    ):
+        # Event recovery deliberately discards mutable team reports.  A
+        # successful current-host reconciliation is stronger recovery
+        # material: it replays immutable commits, the admitted-edge journal,
+        # proof state, stock providers and the live queue into one validated
+        # revision bundle.  Reconstruct only the minimal scheduling projection
+        # needed to resume the campaign; no producer solved flag is restored.
+        team = _codex_team_projection_from_reconciliation(
+            proof_reconciliation,
+            graph=ledger_graph,
+            config=codex_campaign_config,
+        )
+        team_snapshot = dict(team)
+        board["codex_agent_team"] = team
+        state.artifacts["codex_retrosynthesis_team"] = team
+        recovered_team_projection = True
+        append_jsonl(
+            state.run_dir / "decision_trace.jsonl",
+            {
+                "stage": "codex_agent_team_recovered_from_campaign_authority",
+                "campaign_revision": int(
+                    (proof_reconciliation.get("campaign_projection_binding") or {}).get(
+                        "campaign_revision"
+                    )
+                    or 0
+                ),
+                "durable_accepted_expansion_count": int(
+                    proof_reconciliation.get("durable_accepted_expansion_count")
+                    or 0
+                ),
+                "canonical_reaction_edge_count": int(
+                    proof_reconciliation.get("canonical_reaction_edge_count")
+                    or 0
+                ),
+                "producer_solved_flags_restored": False,
+            },
+        )
     if team:
         team["route_consensus"] = consensus
         team["route_consensus_ref"] = str(consensus_path)
@@ -2505,6 +3431,15 @@ def _refresh_multisource_route_consensus(
             campaign["reaction_proof_state"] = dict(
                 proof_reconciliation.get("reaction_proof_state") or {}
             )
+            campaign["campaign_projection_binding"] = dict(
+                proof_reconciliation.get("campaign_projection_binding") or {}
+            )
+            campaign["campaign_projection_bundle"] = dict(
+                proof_reconciliation.get("campaign_projection_bundle") or {}
+            )
+            campaign["campaign_projection_bundle_ref"] = str(
+                proof_reconciliation.get("campaign_projection_bundle_ref") or ""
+            )
             campaign["reaction_proof_state_ref"] = str(
                 proof_reconciliation.get("reaction_proof_state_ref") or ""
             )
@@ -2570,10 +3505,26 @@ def _refresh_multisource_route_consensus(
             team["proof_closed"] = campaign["graph_complete"]
         board["codex_agent_team"] = team
         state.artifacts["codex_retrosynthesis_team"] = team
+        if proof_reconciliation is not None and proof_reconciliation.get(
+            "accepted"
+        ) is True:
+            _mark_codex_team_current_host_verified(
+                state,
+                team,
+                case_id=str(
+                    board.get("case_id")
+                    or state.preflight.get("case_id")
+                    or ""
+                ),
+            )
         board = _write_codex_controller_projection(
             state=state,
             blackboard=board,
-            stage="multisource_refresh",
+            stage=(
+                "campaign_authority_recovery"
+                if recovered_team_projection
+                else "multisource_refresh"
+            ),
         )
     return _checkpoint_blackboard_event(
         board,
@@ -2590,6 +3541,226 @@ def _refresh_multisource_route_consensus(
             "graph_step_count": len(graph.get("steps") or []),
         },
     )
+
+
+def _consensus_refresh_max_depth(
+    existing_graph: dict[str, Any],
+    *,
+    codex_campaign_config: RetrosynthesisTeamConfig | None,
+    durable_campaign_policy_path: Path | None = None,
+) -> int:
+    """Resolve depth without letting a recovery root graph shrink policy.
+
+    Campaign depth is immutable policy.  During journal recovery the full
+    team graph is intentionally absent, so the historic fallback of ``2``
+    made reconciliation reject a campaign created at depth 6.  The supplied
+    campaign config is the controller's replay of that policy and therefore
+    takes precedence whenever a durable campaign is in scope.
+    """
+
+    if codex_campaign_config is not None:
+        return max(1, int(codex_campaign_config.max_depth or 1))
+    if durable_campaign_policy_path is not None and durable_campaign_policy_path.is_file():
+        try:
+            policy = json.loads(
+                durable_campaign_policy_path.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            policy = {}
+        digest_payload = dict(policy) if isinstance(policy, dict) else {}
+        recorded_digest = str(digest_payload.pop("content_sha256", ""))
+        try:
+            policy_max_depth = int(policy.get("max_depth") or 0)
+        except (TypeError, ValueError):
+            policy_max_depth = 0
+        if (
+            policy.get("schema_version")
+            == "codex_retrosynthesis_campaign_policy.v1"
+            and recorded_digest
+            and recorded_digest == _stable_json_digest(digest_payload)
+            and policy_max_depth > 0
+        ):
+            return policy_max_depth
+    return max(
+        1,
+        int((existing_graph.get("limits") or {}).get("max_depth") or 2),
+    )
+
+
+def _route_graph_step_signatures(graph: dict[str, Any]) -> set[str]:
+    """Return stable chemistry signatures for presentation-superset checks."""
+
+    return {
+        str(row.get("signature") or "")
+        for row in graph.get("steps") or []
+        if isinstance(row, dict) and str(row.get("signature") or "")
+    }
+
+
+def _codex_team_projection_from_reconciliation(
+    reconciliation: dict[str, Any],
+    *,
+    graph: dict[str, Any],
+    config: RetrosynthesisTeamConfig | None,
+) -> dict[str, Any]:
+    """Build a minimal resumable team view from current-host authority replay.
+
+    This projection is intentionally narrower than an agent-produced team
+    report.  It contains queue and revision state required by the controller,
+    but no recovered child report, proposal, completion or solved assertion.
+    """
+
+    binding = dict(reconciliation.get("campaign_projection_binding") or {})
+    queue = dict(reconciliation.get("frontier_queue") or {})
+    accepted_expansions = int(
+        reconciliation.get("durable_accepted_expansion_count")
+        or binding.get("accepted_expansion_count")
+        or 0
+    )
+    maximum_expansions = max(
+        accepted_expansions,
+        int(config.max_expansions if config is not None else accepted_expansions),
+    )
+    maximum_attempt_runs = max(
+        0,
+        int(config.max_attempt_runs if config is not None else 0),
+    )
+    campaign_search_complete = (
+        reconciliation.get("campaign_search_complete") is True
+    )
+    queue_has_proposal_work = any(
+        str(row.get("state") or "") in {"pending", "retry_wait", "leased"}
+        and dict(row.get("metadata") or {}).get("proposal_expansion_allowed")
+        is not False
+        for row in queue.get("jobs") or []
+        if isinstance(row, dict)
+    )
+    campaign = {
+        "schema_version": CODEX_RETROSYNTHESIS_CAMPAIGN_SCHEMA,
+        "root_case_id": str(reconciliation.get("case_id") or ""),
+        "campaign_identity_sha256": str(
+            reconciliation.get("campaign_identity_sha256") or ""
+        ),
+        "campaign_policy_sha256": str(
+            reconciliation.get("campaign_policy_sha256") or ""
+        ),
+        "campaign_policy_ref": str(
+            reconciliation.get("campaign_policy_ref") or ""
+        ),
+        "campaign_projection_binding": binding,
+        "campaign_projection_bundle": dict(
+            reconciliation.get("campaign_projection_bundle") or {}
+        ),
+        "campaign_projection_bundle_ref": str(
+            reconciliation.get("campaign_projection_bundle_ref") or ""
+        ),
+        "max_depth": max(
+            1,
+            int(
+                config.max_depth
+                if config is not None
+                else (graph.get("limits") or {}).get("max_depth")
+                or 1
+            ),
+        ),
+        "max_expansions": maximum_expansions,
+        "max_attempt_runs": maximum_attempt_runs,
+        "accepted_expansion_count": accepted_expansions,
+        "invocation_accepted_expansion_count": 0,
+        "invocation_attempt_run_count": 0,
+        "closure_objective": str(
+            reconciliation.get("closure_objective")
+            or (config.closure_objective if config is not None else "benchmark_search")
+        ),
+        "exploration_mode": str(
+            reconciliation.get("exploration_mode")
+            or (config.exploration_mode if config is not None else "exhaustive")
+        ),
+        "frontier_queue": queue,
+        "queue_state_counts": dict(
+            reconciliation.get("queue_state_counts") or {}
+        ),
+        "remaining_frontier": list(
+            reconciliation.get("remaining_frontier") or []
+        ),
+        "reaction_proof_state": dict(
+            reconciliation.get("reaction_proof_state") or {}
+        ),
+        "reaction_proof_state_ref": str(
+            reconciliation.get("reaction_proof_state_ref") or ""
+        ),
+        "open_reaction_proofs": list(
+            reconciliation.get("open_reaction_proofs") or []
+        ),
+        "frontier_completeness": dict(
+            reconciliation.get("frontier_completeness") or {}
+        ),
+        "frontier_ledger": dict(
+            reconciliation.get("frontier_ledger") or {}
+        ),
+        "frontier_ledger_ref": str(
+            reconciliation.get("frontier_ledger_ref") or ""
+        ),
+        "route_solved": reconciliation.get("route_solved") is True,
+        "campaign_search_complete": campaign_search_complete,
+        "graph_complete": campaign_search_complete,
+        "all_reaction_edges_closed": (
+            reconciliation.get("all_reaction_edges_closed") is True
+        ),
+        "all_benchmark_leaves_closed": (
+            reconciliation.get("all_benchmark_leaves_closed") is True
+        ),
+        "all_procurement_leaves_closed": (
+            reconciliation.get("all_procurement_leaves_closed") is True
+        ),
+        "proposal_graph_exhausted": (
+            reconciliation.get("proposal_graph_exhausted") is True
+        ),
+        "resumable": bool(
+            not campaign_search_complete
+            and maximum_expansions > accepted_expansions
+            and queue_has_proposal_work
+        ),
+        "semantics": {
+            "current_host_campaign_authority_replay": True,
+            "producer_completion_flags_restored": False,
+            "proposal_runner_invoked": False,
+            "accepted_expansion_budget_preserved": True,
+        },
+    }
+    return {
+        "schema_version": CODEX_RETROSYNTHESIS_TEAM_SCHEMA,
+        "accepted": True,
+        "accepted_semantics": "current_host_campaign_authority_replay_only",
+        "case_id": str(reconciliation.get("case_id") or ""),
+        "target_smiles": str(reconciliation.get("target_smiles") or ""),
+        "campaign_identity_sha256": str(
+            reconciliation.get("campaign_identity_sha256") or ""
+        ),
+        "campaign_policy_sha256": str(
+            reconciliation.get("campaign_policy_sha256") or ""
+        ),
+        "campaign_projection_binding": binding,
+        "campaign_projection_bundle_ref": str(
+            reconciliation.get("campaign_projection_bundle_ref") or ""
+        ),
+        "campaign": campaign,
+        "route_consensus": {},
+        "route_consensus_graph": dict(graph),
+        "route_consensus_expansions": [],
+        "route_expansion_count": accepted_expansions,
+        "blackboard_proposals": [],
+        "proof_closed": campaign_search_complete,
+        "route_solved": reconciliation.get("route_solved") is True,
+        "campaign_search_complete": campaign_search_complete,
+        "reasons": [],
+        "semantics": {
+            "current_host_campaign_authority_replay": True,
+            "mutable_team_report_not_used_for_recovery": True,
+            "no_child_reports_or_proposals_restored": True,
+            "no_solved_claim_from_recovery": True,
+        },
+    }
 
 
 def _durable_first_expansion_union(
@@ -2657,36 +3828,45 @@ def _record_frontier_ledger_projection(
     else:
         frontier_queue = dict(campaign.get("frontier_queue") or {})
         reaction_proof_state = dict(campaign.get("reaction_proof_state") or {})
-    trusted_stock_providers: dict[str, Any] = {}
-    stock_provider_construction_reasons: tuple[str, ...] = ()
-    if codex_campaign_config is not None:
-        (
-            trusted_stock_providers,
-            stock_provider_construction_reasons,
-        ) = build_trusted_stock_provider_instances(
-            stock_snapshots=codex_campaign_config.stock_snapshots,
-            benchmark_catalog_artifact=(
-                codex_campaign_config.benchmark_stock_catalog_artifact
-            ),
-            benchmark_catalog_sha256=(
-                codex_campaign_config.benchmark_stock_catalog_sha256
-            ),
-            benchmark_catalog_name=(
-                codex_campaign_config.benchmark_stock_catalog_name
-            ),
-        )
-    ledger = project_frontier_ledger(
-        projected_graph,
-        frontier_queue,
-        reaction_proof_state,
-        required_reaction_proof_level=2,
-        trusted_stock_provider_instances=trusted_stock_providers,
-        campaign_policy_sha256=str(
-            reconciliation.get("campaign_policy_sha256")
-            or campaign.get("campaign_policy_sha256")
-            or ""
-        ),
+    (
+        trusted_stock_providers,
+        stock_provider_construction_reasons,
+    ) = _trusted_stock_provider_instances_for_run(
+        state=state,
+        codex_campaign_config=codex_campaign_config,
     )
+    reconciled_ledger = reconciliation.get("frontier_ledger")
+    if reconciliation_accepted and isinstance(reconciled_ledger, dict):
+        # Reuse the exact ledger produced in the same campaign projection
+        # transaction.  Recomputing from compatibility fields can otherwise
+        # create a second, equally plausible revision during recovery.
+        ledger = dict(reconciled_ledger)
+    else:
+        projection_binding = dict(
+            reconciliation.get("campaign_projection_binding")
+            or campaign.get("campaign_projection_binding")
+            or {}
+        )
+        revision = projection_binding.get("campaign_revision")
+        revision_sha256 = str(
+            projection_binding.get("campaign_revision_sha256") or ""
+        )
+        ledger = project_frontier_ledger(
+            projected_graph,
+            frontier_queue,
+            reaction_proof_state,
+            required_reaction_proof_level=2,
+            trusted_stock_provider_instances=trusted_stock_providers,
+            campaign_policy_sha256=str(
+                reconciliation.get("campaign_policy_sha256")
+                or campaign.get("campaign_policy_sha256")
+                or ""
+            ),
+            campaign_revision=(
+                int(revision) if type(revision) is int else None
+            ),
+            campaign_revision_sha256=revision_sha256,
+        )
     ledger_path = state.run_dir / "frontier_ledger.json"
     write_json(ledger_path, ledger)
     ledger_ref = str(ledger_path)
@@ -2778,6 +3958,43 @@ def _record_frontier_ledger_projection(
     board["artifact_refs"] = refs
     state.artifacts["frontier_ledger"] = ledger
 
+    acceptance = _retrosynthesis_acceptance_spec(board)
+    route_deficit_queue = compile_route_deficit_queue(
+        frontier_ledger=ledger,
+        route_portfolio=dict(projected_graph.get("route_portfolio") or {}),
+        source_capability_queue=build_source_capability_queue(
+            board,
+            round_index=max(
+                1,
+                int(
+                    (board.get("budget_state") or {}).get(
+                        "rounds_completed"
+                    )
+                    or 0
+                )
+                + 1,
+            ),
+        ),
+        acceptance_spec=acceptance,
+    )
+    route_deficit_path = state.run_dir / "route_deficit_queue.json"
+    write_json(route_deficit_path, route_deficit_queue)
+    board["route_deficit_queue"] = route_deficit_queue
+    state.artifacts["route_deficit_queue"] = route_deficit_queue
+    refs["route_deficit_queue"] = str(route_deficit_path)
+    board["artifact_refs"] = refs
+
+    acceptance_report = evaluate_retrosynthesis_acceptance(
+        route_portfolio=dict(projected_graph.get("route_portfolio") or {}),
+        acceptance_spec=acceptance,
+    )
+    acceptance_path = state.run_dir / "retrosynthesis_acceptance_report.json"
+    write_json(acceptance_path, acceptance_report)
+    board["retrosynthesis_acceptance"] = acceptance_report
+    state.artifacts["retrosynthesis_acceptance"] = acceptance_report
+    refs["retrosynthesis_acceptance"] = str(acceptance_path)
+    board["artifact_refs"] = refs
+
     if team:
         team["frontier_ledger_ref"] = ledger_ref
         team["frontier_ledger_summary"] = semantic_summary
@@ -2815,6 +4032,9 @@ def _record_frontier_ledger_projection(
             "frontier_ledger_content_sha256": ledger_digest,
             "input_valid": input_valid,
             "ledger_validation_accepted": not ledger_validation_reasons,
+            "route_deficit_summary": dict(
+                route_deficit_queue.get("summary") or {}
+            ),
             **closure_status,
             **{
                 key: ledger_core.get(key)
@@ -2837,6 +4057,19 @@ def _record_frontier_ledger_projection(
         },
     )
     return board, projected_graph, refs
+
+
+def _retrosynthesis_acceptance_spec(
+    blackboard: dict[str, Any],
+) -> RetrosynthesisAcceptanceSpec:
+    contract = dict(blackboard.get("retrosynthesis_run_contract") or {})
+    row = dict(contract.get("acceptance_spec") or {})
+    row.pop("schema_version", None)
+    row.pop("content_sha256", None)
+    try:
+        return RetrosynthesisAcceptanceSpec(**row)
+    except (TypeError, ValueError):
+        return RetrosynthesisAcceptanceSpec()
 
 
 def _codex_campaign_stock_provider_results(
@@ -2949,6 +4182,9 @@ def _controller_codex_search_stop_reason(
 ) -> str:
     """Return a closure-policy stop reason, never a generic solved-route claim."""
 
+    acceptance = dict(blackboard.get("retrosynthesis_acceptance") or {})
+    if acceptance.get("accepted") is True:
+        return "retrosynthesis_acceptance_contract_satisfied"
     campaign = dict(
         ((blackboard.get("codex_agent_team") or {}).get("campaign") or {})
     )
@@ -2978,6 +4214,39 @@ def _controller_codex_search_should_stop(
             blackboard,
             exploration_mode=exploration_mode,
         )
+    )
+
+
+def _controller_evidence_first_work_pending(
+    blackboard: dict[str, Any],
+) -> bool:
+    """Defer recovered proposal work until concrete evidence work advances.
+
+    Generic scouting is deliberately excluded.  Only an executable,
+    source-bound transition (render, visual extraction, structure resolution,
+    or exact compilation) can defer the bootstrap invocation.
+    """
+
+    round_index = max(
+        1,
+        int((blackboard.get("budget_state") or {}).get("rounds_completed") or 0)
+        + 1,
+    )
+    queue = build_source_capability_queue(
+        blackboard,
+        round_index=round_index,
+    )
+    evidence_actions = {
+        "extract_pdf_literature_structures",
+        "extract_visual_literature_chain",
+        "resolve_literature_structure_task",
+        "compile_exact_literature_rows",
+    }
+    return any(
+        isinstance(row, dict)
+        and row.get("eligible") is True
+        and str(row.get("action_type") or "") in evidence_actions
+        for row in queue.get("capabilities") or []
     )
 
 
@@ -3312,7 +4581,11 @@ def emit_agentic_final_verdict(
     artifacts: dict[str, Any],
     bundle: dict[str, Any] | None = None,
 ) -> FinalVerdict:
-    proof = dict(blackboard.get("parent_route_proof") or artifacts.get("parent_route_proof") or {})
+    selected_context = _selected_route_parent_proof_context(blackboard)
+    proof = _authoritative_parent_route_proof(
+        blackboard,
+        dict(artifacts.get("parent_route_proof") or {}),
+    )
     case_id = str(blackboard.get("case_id") or (bundle or {}).get("case_id") or "target")
     if _blackboard_parent_proof_solved(blackboard, proof):
         return FinalVerdict(
@@ -3321,6 +4594,54 @@ def emit_agentic_final_verdict(
             route_status="solved",
             solved=True,
             stock_audit_passed=True,
+            artifact_refs=dict(blackboard.get("artifact_refs") or {}),
+        )
+    if selected_context is not None:
+        # Once a revision-bound selected-route proof exists it is the sole
+        # scientific completion authority. Historical action failures remain
+        # available in operational audits, but cannot masquerade as the
+        # current route-closure reason in the final verdict or UI.
+        selected_reasons = sorted(
+            set(
+                [
+                    *[
+                        str(item)
+                        for item in selected_context.get("reasons") or []
+                        if str(item or "").strip()
+                    ],
+                    *[
+                        str(item)
+                        for item in proof.get("reasons") or []
+                        if str(item or "").strip()
+                    ],
+                ]
+            )
+        ) or ["selected_route_parent_proof_incomplete"]
+        hypothesis_status = _hypothesis_route_status_from_artifacts(artifacts)
+        if hypothesis_status:
+            return FinalVerdict(
+                case_id=case_id,
+                verdict="hypothesis_route_proposed",
+                reasons=sorted(
+                    set(
+                        [
+                            "hypothesis_only_retrosynthesis_available",
+                            *selected_reasons,
+                        ]
+                    )
+                ),
+                route_status=hypothesis_status,
+                solved=False,
+                stock_audit_passed=False,
+                artifact_refs=dict(blackboard.get("artifact_refs") or {}),
+            )
+        return FinalVerdict(
+            case_id=case_id,
+            verdict="unresolved",
+            reasons=selected_reasons,
+            route_status="selected_route_proof_incomplete",
+            solved=False,
+            stock_audit_passed=False,
             artifact_refs=dict(blackboard.get("artifact_refs") or {}),
         )
     latest_verdict = emit_final_verdict(bundle or {
@@ -3472,7 +4793,7 @@ def _validate_agentic_final_verdict(
     blackboard: dict[str, Any],
     validations: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    proof = dict(blackboard.get("parent_route_proof") or {})
+    proof = _authoritative_parent_route_proof(blackboard)
     belief = dict(blackboard.get("current_belief") or {})
     proof_solved = _blackboard_parent_proof_solved(blackboard, proof)
     reasons: list[str] = []
@@ -3556,15 +4877,143 @@ def _obtain_action_batch(
 ) -> dict[str, Any]:
     if action_planner is not None:
         return action_planner(blackboard=blackboard, round_index=round_index, run_dir=run_dir)
-    return plan_action_batch_with_codex(
+    mock_output = (
+        _mock_codex_action_planner(state, blackboard, round_index)
+        if state is not None
+        else None
+    )
+    if (
+        use_codex_action_planner is True
+        and mock_output is None
+        and _controller_evidence_first_work_pending(blackboard)
+    ):
+        # Source-bound PDF/render/visual/compile transitions are already a
+        # deterministic capability queue.  Calling a second model merely to
+        # choose its unique head adds minutes of transport/auth latency and
+        # can strand exact evidence behind an infrastructure failure.  Codex
+        # still owns proposal generation through the campaign; the host owns
+        # evidence materialization and verification scheduling.
+        batch = plan_action_batch(
+            blackboard,
+            round_index=round_index,
+            max_actions=3,
+            exhaust_round_budget=exhaust_round_budget,
+        )
+        evidence_actions = plan_literature_evidence_followup_actions(
+            blackboard,
+            round_index=round_index,
+            max_actions=1,
+        )
+        if evidence_actions:
+            batch["actions"] = evidence_actions
+        batch["mode"] = "deterministic_evidence_first_scheduler"
+        batch["planner_audit"] = {
+            "schema_version": "evidence_first_scheduler_audit.v1",
+            "codex_action_planner_invoked": False,
+            "codex_campaign_proposal_agents_unchanged": True,
+            "source_capability_queue_is_execution_authority": True,
+            "reason": "executable_source_bound_evidence_transition_pending",
+        }
+        append_jsonl(
+            run_dir / "decision_trace.jsonl",
+            {
+                "stage": "deterministic_evidence_first_action_batch",
+                "round_index": int(round_index),
+                "action_types": [
+                    str(row.get("action_type") or "")
+                    for row in batch.get("actions") or []
+                    if isinstance(row, dict)
+                ],
+                "codex_action_planner_invoked": False,
+            },
+        )
+        return batch
+    planner_ledger: RetrosynthesisCostLedger | None = None
+    planner_invocation_id = ""
+    if use_codex_action_planner is True and mock_output is None and state is not None:
+        planner_context_bytes = len(
+            json.dumps(
+                {
+                    "case_id": blackboard.get("case_id"),
+                    "current_belief": blackboard.get("current_belief"),
+                    "route_deficit_summary": dict(
+                        (blackboard.get("route_deficit_queue") or {}).get(
+                            "summary"
+                        )
+                        or {}
+                    ),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            ).encode("utf-8")
+        )
+        planner_ledger, planner_invocation_id, gate_reasons = (
+            _reserve_auxiliary_model_call(
+                blackboard,
+                state=state,
+                worker_kind="codex_action_planner",
+                prompt_context_bytes=planner_context_bytes,
+            )
+        )
+        if planner_ledger is None:
+            batch = plan_action_batch_with_codex(
+                blackboard=blackboard,
+                round_index=round_index,
+                run_dir=run_dir,
+                enabled=False,
+                exhaust_round_budget=exhaust_round_budget,
+                mock_output=None,
+                allow_deterministic_fallback=True,
+            )
+            batch["model_cost_gate"] = {
+                "accepted": False,
+                "worker_kind": "codex_action_planner",
+                "reasons": gate_reasons,
+            }
+            return batch
+    batch = plan_action_batch_with_codex(
         blackboard=blackboard,
         round_index=round_index,
         run_dir=run_dir,
         enabled=use_codex_action_planner,
         exhaust_round_budget=exhaust_round_budget,
-        mock_output=_mock_codex_action_planner(state, blackboard, round_index) if state is not None else None,
+        mock_output=mock_output,
         allow_deterministic_fallback=allow_deterministic_fallback,
     )
+    if planner_ledger is not None and state is not None:
+        metadata = dict(batch.get("codex_action_planner") or {})
+        record_ref = str(metadata.get("record_ref") or "")
+        record: dict[str, Any] = {}
+        if record_ref and Path(record_ref).is_file():
+            try:
+                raw = json.loads(Path(record_ref).read_text(encoding="utf-8"))
+                record = dict(raw) if isinstance(raw, dict) else {}
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                record = {}
+        model_attempted = bool(
+            str(batch.get("mode") or "").startswith("codex_")
+            or record_ref
+        )
+        if model_attempted:
+            _settle_auxiliary_model_call(
+                blackboard,
+                state=state,
+                ledger=planner_ledger,
+                invocation_id=planner_invocation_id,
+                worker_kind="codex_action_planner",
+                record=record,
+            )
+        else:
+            planner_ledger.abandon(planner_invocation_id)
+            stored = _store_retrosynthesis_cost_ledger(
+                blackboard,
+                state=state,
+                ledger=planner_ledger,
+            )
+            blackboard.clear()
+            blackboard.update(stored)
+    return batch
 
 
 def _execute_agent_action(
@@ -3614,7 +5063,55 @@ def _execute_agent_action(
         state.artifacts["failure_critic_report"] = result
         return {"accepted": True, "result": result, "reasons": [str(item) for item in result.get("reasons") or []]}, []
     if action_type == "search_literature":
-        result = _codex_first_literature_scout(blackboard=blackboard, state=state, payload=dict(action.get("payload") or {}))
+        scout_payload = dict(action.get("payload") or {})
+        scout_ledger: RetrosynthesisCostLedger | None = None
+        scout_invocation_id = ""
+        scout_gate_reasons: list[str] = []
+        scout_is_mock = state.mock_tool_results.get("codex_literature_scout") is not None
+        if _codex_scout_enabled(scout_payload) and not scout_is_mock:
+            scout_ledger, scout_invocation_id, scout_gate_reasons = (
+                _reserve_auxiliary_model_call(
+                    blackboard,
+                    state=state,
+                    worker_kind="codex_literature_scout",
+                    prompt_context_bytes=len(
+                        json.dumps(
+                            scout_payload,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            default=str,
+                        ).encode("utf-8")
+                    ),
+                )
+            )
+            if scout_ledger is None:
+                # Continue with local metadata/cache fallbacks; the model cost
+                # gate is never permission to suppress deterministic work.
+                scout_payload["codex_scout_enabled"] = False
+        result = _codex_first_literature_scout(
+            blackboard=blackboard,
+            state=state,
+            payload=scout_payload,
+        )
+        if scout_ledger is not None:
+            record = dict(
+                state.artifacts.get("codex_literature_scout_run_record") or {}
+            )
+            _settle_auxiliary_model_call(
+                blackboard,
+                state=state,
+                ledger=scout_ledger,
+                invocation_id=scout_invocation_id,
+                worker_kind="codex_literature_scout",
+                record=record,
+            )
+        if scout_gate_reasons:
+            result["model_cost_gate"] = {
+                "accepted": False,
+                "worker_kind": "codex_literature_scout",
+                "reasons": scout_gate_reasons,
+                "deterministic_fallback_continued": True,
+            }
         state.artifacts["literature_scout"] = result
         scout_artifact = _record_literature_scout_report_artifact(
             state=state,
@@ -3735,7 +5232,62 @@ def _execute_agent_action(
         payload = dict(action.get("payload") or {})
         _inject_pdf_defaults(payload, state.target_input, blackboard=blackboard)
         payload.setdefault("output_dir", _visual_action_output_dir(action))
+        payload.setdefault("allow_repair", False)
+        visual_is_mock = (
+            state.mock_tool_results.get("extract_visual_literature_chain")
+            is not None
+        )
+        visual_ledger: RetrosynthesisCostLedger | None = None
+        visual_invocation_id = ""
+        if not visual_is_mock:
+            visual_ledger, visual_invocation_id, gate_reasons = (
+                _reserve_auxiliary_model_call(
+                    blackboard,
+                    state=state,
+                    worker_kind="visual_literature_chain",
+                    visual=True,
+                    prompt_context_bytes=len(
+                        json.dumps(
+                            {
+                                "source_ref": payload.get("source_ref"),
+                                "expected_labels": payload.get(
+                                    "expected_labels"
+                                ),
+                                "route_sequence_hint": payload.get(
+                                    "route_sequence_hint"
+                                ),
+                            },
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            default=str,
+                        ).encode("utf-8")
+                    ),
+                )
+            )
+            if visual_ledger is None:
+                return {
+                    "accepted": False,
+                    "reasons": gate_reasons,
+                    "result": {
+                        "schema_version": "visual_literature_chain_extraction_result.v1",
+                        "accepted": False,
+                        "status": "model_cost_gate_rejected",
+                        "reasons": gate_reasons,
+                        "no_solved_claim": True,
+                    },
+                }, []
         record = execute_local_tool("extract_visual_literature_chain", payload, state)
+        if visual_ledger is not None:
+            _settle_auxiliary_model_call(
+                blackboard,
+                state=state,
+                ledger=visual_ledger,
+                invocation_id=visual_invocation_id,
+                worker_kind="visual_literature_chain",
+                record={},
+                elapsed_s=float(record.elapsed_s or 0.0),
+                visual=True,
+            )
         return _tool_record_to_action_result(record), [record.to_dict()]
     if action_type == "resolve_literature_structure_task":
         payload = dict(action.get("payload") or {})
@@ -4620,7 +6172,7 @@ def _capability_check_final_verdict_gate(
     final_verdict: dict[str, Any],
     final_validation: dict[str, Any],
 ) -> dict[str, Any]:
-    proof = dict(blackboard.get("parent_route_proof") or {})
+    proof = _authoritative_parent_route_proof(blackboard)
     solved = bool(final_verdict.get("solved")) or str(final_verdict.get("verdict") or "") == "solved"
     reasons: list[str] = []
     if not final_validation.get("accepted"):
@@ -4853,20 +6405,10 @@ def _record_route_forest_display_artifact(
     refs["explored_route_forest"] = str(forest_path)
     refs["route_forest_html"] = str(html_path)
     try:
-        trusted_stock_providers: dict[str, Any] = {}
-        if codex_campaign_config is not None:
-            trusted_stock_providers, _ = build_trusted_stock_provider_instances(
-                stock_snapshots=codex_campaign_config.stock_snapshots,
-                benchmark_catalog_artifact=(
-                    codex_campaign_config.benchmark_stock_catalog_artifact
-                ),
-                benchmark_catalog_sha256=(
-                    codex_campaign_config.benchmark_stock_catalog_sha256
-                ),
-                benchmark_catalog_name=(
-                    codex_campaign_config.benchmark_stock_catalog_name
-                ),
-            )
+        trusted_stock_providers, _ = _trusted_stock_provider_instances_for_run(
+            state=state,
+            codex_campaign_config=codex_campaign_config,
+        )
         rendered = write_route_forest_artifacts(
             blackboard,
             run_dir=state.run_dir,
@@ -4967,6 +6509,92 @@ def _record_route_forest_display_artifact(
     return artifact
 
 
+def _campaign_projection_closeout_reasons(
+    *,
+    state: ToolExecutionState,
+    blackboard: dict[str, Any],
+    binding: dict[str, Any],
+) -> list[str]:
+    """Reject a closeout assembled from more than one campaign revision."""
+
+    reasons: list[str] = []
+    revision = binding.get("campaign_revision")
+    revision_sha256 = str(binding.get("campaign_revision_sha256") or "")
+    if (
+        binding.get("schema_version")
+        != "codex_retrosynthesis_campaign_projection_binding.v1"
+        or type(revision) is not int
+        or revision < 0
+        or not re.fullmatch(r"[0-9a-f]{64}", revision_sha256)
+    ):
+        return ["campaign_projection_binding_invalid"]
+    bundle = dict(
+        blackboard.get("campaign_projection_bundle")
+        or state.artifacts.get("campaign_projection_bundle")
+        or {}
+    )
+    reasons.extend(
+        f"campaign_projection_bundle:{reason}"
+        for reason in validate_codex_campaign_projection_bundle(bundle)
+    )
+    if dict(bundle.get("campaign_projection_binding") or {}) != binding:
+        reasons.append("campaign_projection_bundle_revision_mismatch")
+    canonical_graph = dict(
+        blackboard.get("canonical_route_consensus_graph")
+        or state.artifacts.get("canonical_route_consensus_graph")
+        or {}
+    )
+    if not canonical_graph:
+        reasons.append("campaign_projection_canonical_graph_missing")
+    elif dict(canonical_graph.get("campaign_projection_binding") or {}) != binding:
+        reasons.append("campaign_projection_canonical_graph_revision_mismatch")
+    ledger = dict(
+        blackboard.get("frontier_ledger")
+        or state.artifacts.get("frontier_ledger")
+        or {}
+    )
+    ledger_binding = dict(ledger.get("input_bindings") or {})
+    if not ledger:
+        reasons.append("campaign_projection_frontier_ledger_missing")
+    elif (
+        ledger_binding.get("campaign_revision") != revision
+        or ledger_binding.get("campaign_revision_sha256") != revision_sha256
+    ):
+        reasons.append("campaign_projection_frontier_ledger_revision_mismatch")
+    forest = dict(state.artifacts.get("explored_route_forest") or {})
+    if not forest:
+        forest_ref = str((blackboard.get("artifact_refs") or {}).get("explored_route_forest") or "")
+        forest_path = Path(forest_ref).expanduser() if forest_ref else None
+        if forest_path is not None and forest_path.is_file():
+            try:
+                forest = dict(json.loads(forest_path.read_text(encoding="utf-8")))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError):
+                forest = {}
+    if not forest:
+        reasons.append("campaign_projection_route_forest_missing")
+    elif dict(forest.get("campaign_projection_binding") or {}) != binding:
+        reasons.append("campaign_projection_route_forest_revision_mismatch")
+    queue_files = sorted(
+        (state.run_dir / "codex_retrosynthesis_team" / "frontier_queue").glob(
+            "frontiers-*.json"
+        )
+    )
+    if len(queue_files) != 1:
+        reasons.append("campaign_projection_current_queue_unavailable")
+    else:
+        try:
+            queue = dict(json.loads(queue_files[0].read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError):
+            queue = {}
+        if (
+            queue.get("revision") != binding.get("frontier_queue_revision")
+            or queue.get("content_sha256")
+            != binding.get("frontier_queue_content_sha256")
+        ):
+            reasons.append("campaign_projection_current_queue_revision_mismatch")
+    return sorted(set(reasons))
+
+
 def _commit_route_closeout_revision(
     *,
     state: ToolExecutionState,
@@ -4983,7 +6611,15 @@ def _commit_route_closeout_revision(
     refs = blackboard.setdefault("artifact_refs", {})
     proof_snapshot_path = state.run_dir / "parent_route_proof_snapshot.json"
     verdict_core_path = state.run_dir / "final_verdict_core.json"
-    proof = dict(blackboard.get("parent_route_proof") or {})
+    proof = _authoritative_parent_route_proof(blackboard)
+    team_campaign = dict(
+        dict(blackboard.get("codex_agent_team") or {}).get("campaign") or {}
+    )
+    campaign_projection_binding = dict(
+        blackboard.get("campaign_projection_binding")
+        or team_campaign.get("campaign_projection_binding")
+        or {}
+    )
     target_profile = dict(blackboard.get("target_profile") or {})
     proof_snapshot = {
         "schema_version": "parent_route_proof_snapshot.v1",
@@ -5000,8 +6636,11 @@ def _commit_route_closeout_revision(
         ),
         "proof_schema_version": str(proof.get("schema_version") or "missing"),
         "solved": _blackboard_parent_proof_solved(blackboard, proof),
-        "authority": "deterministic_parent_route_proof",
+        "authority": str(
+            proof.get("authority") or "deterministic_parent_route_proof"
+        ),
         "proof": proof,
+        "campaign_projection_binding": campaign_projection_binding,
     }
     verdict_payload = final_verdict.to_dict()
     # The compatibility verdict gains CAS digest references after publication.
@@ -5014,7 +6653,9 @@ def _commit_route_closeout_revision(
     verdict_core = {
         "schema_version": "final_verdict_core.v1",
         "case_id": str(verdict_payload.get("case_id") or proof_snapshot["case_id"]),
-        "authority": "deterministic_parent_route_proof",
+        "authority": str(
+            proof.get("authority") or "deterministic_parent_route_proof"
+        ),
         "parent_route_proof_solved": proof_snapshot["solved"],
         "validation": {
             "schema_version": str(effective_validation.get("schema_version") or ""),
@@ -5023,6 +6664,7 @@ def _commit_route_closeout_revision(
             "reasons": [str(item) for item in effective_validation.get("reasons") or []],
         },
         "verdict": verdict_payload,
+        "campaign_projection_binding": campaign_projection_binding,
     }
     write_json(proof_snapshot_path, proof_snapshot)
     write_json(verdict_core_path, verdict_core)
@@ -5037,6 +6679,7 @@ def _commit_route_closeout_revision(
         "canonical_route_consensus_graph",
         "codex_edge_verification",
         "codex_campaign_proof_reconciliation",
+        "campaign_projection_bundle",
         "frontier_ledger",
         "parent_route_proof_snapshot",
         "final_verdict_core",
@@ -5058,6 +6701,29 @@ def _commit_route_closeout_revision(
         if path.is_file():
             artifacts[artifact_id] = path
 
+    if campaign_projection_binding:
+        projection_reasons = _campaign_projection_closeout_reasons(
+            state=state,
+            blackboard=blackboard,
+            binding=campaign_projection_binding,
+        )
+        if projection_reasons:
+            failure = {
+                "schema_version": "closeout_revision_state.v1",
+                "accepted": False,
+                "status": "not_committed",
+                "reasons": projection_reasons,
+                "authority": "campaign_projection_revision_rejected",
+                "campaign_projection_binding": campaign_projection_binding,
+            }
+            blackboard["closeout_revision"] = failure
+            state.safety_flags.append("closeout_campaign_projection_mismatch")
+            append_jsonl(
+                state.run_dir / "decision_trace.jsonl",
+                {"stage": "closeout_revision_rejected", **failure},
+            )
+            return failure
+
     if not artifacts:
         failure = {
             "schema_version": "closeout_revision_state.v1",
@@ -5071,6 +6737,16 @@ def _commit_route_closeout_revision(
         return failure
 
     dependencies: dict[str, tuple[str, ...]] = {}
+    if "campaign_projection_bundle" in artifacts:
+        for artifact_id in (
+            "canonical_route_consensus_graph",
+            "frontier_ledger",
+            "parent_route_proof_snapshot",
+            "final_verdict_core",
+            "explored_route_forest",
+        ):
+            if artifact_id in artifacts:
+                dependencies[artifact_id] = ("campaign_projection_bundle",)
     if "route_consensus_rebuild" in artifacts and "route_consensus" in artifacts:
         dependencies["route_consensus"] = ("route_consensus_rebuild",)
     if "route_consensus" in artifacts and "route_consensus_graph" in artifacts:
@@ -5089,8 +6765,13 @@ def _commit_route_closeout_revision(
         "codex_campaign_proof_reconciliation" in artifacts
         and "canonical_route_consensus_graph" in artifacts
     ):
-        dependencies["canonical_route_consensus_graph"] = (
-            "codex_campaign_proof_reconciliation",
+        dependencies["canonical_route_consensus_graph"] = tuple(
+            dict.fromkeys(
+                [
+                    *dependencies.get("canonical_route_consensus_graph", ()),
+                    "codex_campaign_proof_reconciliation",
+                ]
+            )
         )
     if "route_consensus_graph" in artifacts and "codex_edge_verification" in artifacts:
         dependencies["codex_edge_verification"] = ("route_consensus_graph",)
@@ -5105,13 +6786,29 @@ def _commit_route_closeout_revision(
         ledger_dependencies = [authority_graph_artifact]
         if "codex_campaign_proof_reconciliation" in artifacts:
             ledger_dependencies.append("codex_campaign_proof_reconciliation")
-        dependencies["frontier_ledger"] = tuple(ledger_dependencies)
+        dependencies["frontier_ledger"] = tuple(
+            dict.fromkeys(
+                [*dependencies.get("frontier_ledger", ()), *ledger_dependencies]
+            )
+        )
     if authority_graph_artifact and "parent_route_proof_snapshot" in artifacts:
-        dependencies["parent_route_proof_snapshot"] = (
-            authority_graph_artifact,
+        dependencies["parent_route_proof_snapshot"] = tuple(
+            dict.fromkeys(
+                [
+                    *dependencies.get("parent_route_proof_snapshot", ()),
+                    authority_graph_artifact,
+                ]
+            )
         )
     if "parent_route_proof_snapshot" in artifacts and "final_verdict_core" in artifacts:
-        dependencies["final_verdict_core"] = ("parent_route_proof_snapshot",)
+        dependencies["final_verdict_core"] = tuple(
+            dict.fromkeys(
+                [
+                    *dependencies.get("final_verdict_core", ()),
+                    "parent_route_proof_snapshot",
+                ]
+            )
+        )
     forest_dependencies = tuple(
         artifact_id
         for artifact_id in (
@@ -5125,7 +6822,14 @@ def _commit_route_closeout_revision(
         if artifact_id in artifacts
     )
     if "explored_route_forest" in artifacts and forest_dependencies:
-        dependencies["explored_route_forest"] = forest_dependencies
+        dependencies["explored_route_forest"] = tuple(
+            dict.fromkeys(
+                [
+                    *dependencies.get("explored_route_forest", ()),
+                    *forest_dependencies,
+                ]
+            )
+        )
     if "explored_route_forest" in artifacts and "route_forest_html" in artifacts:
         dependencies["route_forest_html"] = ("explored_route_forest",)
 
@@ -5195,6 +6899,7 @@ def _commit_route_closeout_revision(
         "latest_pointer_path": pointer_path,
         "authority": "content_addressed_closeout_manifest",
         "artifact_count": len(digest_refs),
+        "campaign_projection_binding": campaign_projection_binding,
     }
     refs["closeout_revision_manifest"] = manifest_path
     refs["closeout_latest_pointer"] = pointer_path
@@ -5229,7 +6934,7 @@ def _compile_agentic_run_audit_payload(
 ) -> dict[str, Any]:
     evidence = dict(blackboard.get("literature_evidence") or {})
     belief = dict(blackboard.get("current_belief") or {})
-    parent_proof = dict(blackboard.get("parent_route_proof") or {})
+    parent_proof = _authoritative_parent_route_proof(blackboard)
     route_proof_bundle = dict(blackboard.get("route_proof_bundle") or {})
     objective_summary = dict(blackboard.get("route_objective_summary") or {})
     round_summaries = _round_summaries_from_blackboard(
@@ -5337,7 +7042,7 @@ def _followup_tasks_from_blackboard(
     final_verdict: dict[str, Any],
 ) -> list[dict[str, Any]]:
     evidence = dict(blackboard.get("literature_evidence") or {})
-    parent_proof = dict(blackboard.get("parent_route_proof") or {})
+    parent_proof = _authoritative_parent_route_proof(blackboard)
     tasks: list[dict[str, Any]] = []
 
     queue_path = str((evidence.get("local_pdf_proxy_request_summary") or {}).get("queue_path") or "")
@@ -6761,7 +8466,9 @@ def _codex_scout_reasoning_effort(payload: dict[str, Any]) -> str:
     explicit = str(payload.get("reasoning_effort") or payload.get("codex_reasoning_effort") or "").strip()
     if explicit:
         return explicit
-    return str(os.environ.get("AUTOPLANNER_CODEX_SCOUT_REASONING_EFFORT") or "high").strip() or "high"
+    return str(
+        os.environ.get("AUTOPLANNER_CODEX_SCOUT_REASONING_EFFORT") or "low"
+    ).strip() or "low"
 
 
 def _positive_float(value: Any) -> float | None:
@@ -7162,6 +8869,13 @@ def _local_pdf_source_candidate(
             if isinstance(source.get("visual_extraction_profile"), dict)
             else {}
         ),
+        "pdf_page_numbers": [
+            int(item)
+            for item in source.get("pdf_page_numbers")
+            or source.get("page_numbers")
+            or []
+            if str(item).strip().isdigit() and int(item) > 0
+        ],
         "no_solved_claim": True,
     }
     if isinstance(source.get("local_pdf_match"), dict):
@@ -7600,8 +9314,12 @@ def _tool_record_to_action_result(record: Any) -> dict[str, Any]:
     output = dict(record.output or {})
     result = output.get("result") if isinstance(output.get("result"), dict) else output
     return {
-        "accepted": record.status not in {"rejected", "error"} or bool(output.get("result")),
+        # A rejected tool may still return a rich diagnostic ``result``.  That
+        # artifact is valuable for audit/debugging, but its mere presence must
+        # never turn a failed scientific action into an accepted one.
+        "accepted": record.status not in {"rejected", "error"},
         "result": result,
+        "diagnostic_result_available": bool(output.get("result")),
         "reasons": [str(item) for item in getattr(record, "reasons", []) or output.get("reasons") or []],
     }
 
@@ -7666,6 +9384,16 @@ def _inject_pdf_defaults(
             payload["compound_labels"] = list(payload.get("expected_labels") or [])
         if not payload.get("route_sequence_hint") and str(source.get("route_sequence_hint") or "").strip():
             payload["route_sequence_hint"] = str(source.get("route_sequence_hint") or "").strip()
+        if not payload.get("page_numbers"):
+            page_numbers = source.get("pdf_page_numbers") or source.get(
+                "page_numbers"
+            )
+            if isinstance(page_numbers, (list, tuple)):
+                payload["page_numbers"] = [
+                    int(item)
+                    for item in page_numbers
+                    if str(item).strip().isdigit() and int(item) > 0
+                ]
     if not payload.get("source_ref") and str(target_input.get("literature_pdf_source_ref") or "").strip():
         payload["source_ref"] = str(target_input.get("literature_pdf_source_ref") or "").strip()
     if not payload.get("pdf_path") and str(target_input.get("literature_pdf_path") or "").strip():
@@ -7900,6 +9628,28 @@ def _normalize_literature_sources(
                     }
             else:
                 row.setdefault("content_scope", inferred_scope)
+        raw_companions = row.get("source_text_companions")
+        companions = (
+            [dict(item) for item in raw_companions if isinstance(item, dict)]
+            if isinstance(raw_companions, list)
+            else []
+        )
+        if isinstance(row.get("source_text_companion"), dict):
+            companions.append(dict(row["source_text_companion"]))
+        normalized_companions: list[dict[str, Any]] = []
+        for companion in companions:
+            artifact_path = str(
+                companion.get("artifact_path") or companion.get("path") or ""
+            ).strip()
+            if artifact_path:
+                companion["artifact_path"] = str(
+                    Path(artifact_path).expanduser().resolve()
+                )
+                companion.pop("path", None)
+            normalized_companions.append(companion)
+        if normalized_companions:
+            row["source_text_companions"] = normalized_companions
+            row.pop("source_text_companion", None)
         row.setdefault("source_ref", str(row.get("ref") or row.get("source_ref") or "").strip())
         row.setdefault("source_role", "local_cache")
         row.setdefault("candidate_id", f"provided_pdf_{idx}")
@@ -8419,14 +10169,113 @@ def _invalid_final(preflight: dict[str, Any]) -> FinalVerdict:
 
 
 def _parent_proof_accepted(blackboard: dict[str, Any]) -> bool:
-    proof = dict(blackboard.get("parent_route_proof") or {})
+    proof = _authoritative_parent_route_proof(blackboard)
     return _blackboard_parent_proof_solved(blackboard, proof)
+
+
+def _selected_route_parent_proof_context(
+    blackboard: dict[str, Any],
+) -> dict[str, Any] | None:
+    bundle = dict(blackboard.get("campaign_projection_bundle") or {})
+    if not bundle:
+        return None
+    reasons = [
+        f"campaign_projection_bundle:{reason}"
+        for reason in validate_codex_campaign_projection_bundle(bundle)
+    ]
+    components = dict(bundle.get("components") or {})
+    projection = dict(components.get("selected_route_parent_proof") or {})
+    if (
+        projection.get("schema_version")
+        != CODEX_RETROSYNTHESIS_SELECTED_ROUTE_PROJECTION_SCHEMA
+    ):
+        reasons.append("selected_route_parent_proof_projection_missing_or_invalid")
+    graph = dict(components.get("canonical_route_consensus_graph") or {})
+    portfolio_component = dict(components.get("route_portfolio") or {})
+    overlay = dict(graph.get("v2_overlay") or {})
+    bindings = dict(
+        portfolio_component.get("route_portfolio_bindings")
+        or graph.get("route_portfolio_bindings")
+        or {}
+    )
+    frontier_ledger = dict(components.get("frontier_ledger") or {})
+    proof = dict(projection.get("proof") or {})
+    compiler_campaign_binding = dict(
+        projection.get("selected_route_campaign_binding") or {}
+    )
+    campaign_projection_binding = dict(
+        bundle.get("campaign_projection_binding") or {}
+    )
+    revision = campaign_projection_binding.get("campaign_revision")
+    if type(revision) is not int or revision < 0:
+        reasons.append("selected_route_parent_proof_campaign_revision_invalid")
+    compile_options = {
+        "expected_overlay_sha256": str(
+            compiler_campaign_binding.get("route_hypergraph_overlay_sha256")
+            or ""
+        ),
+        "expected_bindings_sha256": str(
+            compiler_campaign_binding.get("route_portfolio_bindings_sha256")
+            or ""
+        ),
+        "campaign_binding": compiler_campaign_binding,
+        "frontier_ledger": frontier_ledger,
+        "expected_campaign_revision": revision,
+    }
+    if not reasons:
+        reasons.extend(
+            validate_selected_route_parent_proof(
+                proof,
+                overlay,
+                bindings,
+                **compile_options,
+            )
+        )
+    return {
+        "proof": proof,
+        "overlay": overlay,
+        "bindings": bindings,
+        "compile_options": compile_options,
+        "reasons": sorted(set(reasons)),
+    }
+
+
+def _authoritative_parent_route_proof(
+    blackboard: dict[str, Any],
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    selected_context = _selected_route_parent_proof_context(blackboard)
+    if selected_context is not None:
+        proof = dict(selected_context.get("proof") or {})
+        if proof:
+            return proof
+        return {
+            "schema_version": "selected_route_parent_proof.v1",
+            "authority": "deterministic_selected_route_parent_proof",
+            "solved": False,
+            "benchmark_solved": False,
+            "route_status": "unresolved",
+            "reasons": list(selected_context.get("reasons") or [
+                "selected_route_parent_proof_missing"
+            ]),
+        }
+    return dict(fallback or blackboard.get("parent_route_proof") or {})
 
 
 def _blackboard_parent_proof_solved(
     blackboard: dict[str, Any],
     proof: dict[str, Any] | None = None,
 ) -> bool:
+    selected_context = _selected_route_parent_proof_context(blackboard)
+    if selected_context is not None:
+        if selected_context.get("reasons"):
+            return False
+        return is_solved_selected_route_parent_proof(
+            selected_context["proof"],
+            selected_context["overlay"],
+            selected_context["bindings"],
+            **selected_context["compile_options"],
+        )
     target = dict(blackboard.get("target_profile") or {})
     return is_solved_parent_route_proof(
         dict(proof or blackboard.get("parent_route_proof") or {}),

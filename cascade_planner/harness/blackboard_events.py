@@ -35,6 +35,8 @@ BLACKBOARD_TOMBSTONE_SCHEMA = "agent_blackboard_recovery_tombstone.v1"
 BLACKBOARD_TORN_TAIL_QUARANTINE_SCHEMA = (
     "agent_blackboard_torn_tail_quarantine.v1"
 )
+BLACKBOARD_CHECKPOINT_REF_SCHEMA = "agent_blackboard_checkpoint_ref.v1"
+_CHECKPOINT_INLINE_MAX_BYTES = 128 * 1024
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -70,6 +72,14 @@ _RECOVERABLE_FIELDS = (
     "blackboard_migrations",
     "safety_flags",
     "artifact_refs",
+    "retrosynthesis_run_contract",
+    "route_deficit_queue",
+    "retrosynthesis_acceptance",
+    # Narrow, revision-only campaign authority survives controller restart.
+    # Full team/graph/ledger payloads remain rebuildable from immutable
+    # campaign commits and the live queue and are intentionally not journaled.
+    "campaign_projection_binding",
+    "codex_campaign_authority_projection",
 )
 
 _BLOCKED_ARTIFACT_REF_TOKENS = (
@@ -111,7 +121,9 @@ def blackboard_controller_single_writer(func: _F) -> _F:
 
     @wraps(func)
     def wrapped(*args: Any, **kwargs: Any) -> Any:
-        output_dir = kwargs.get("output_dir")
+        output_dir = kwargs.get("output_dir") or kwargs.get("run_dir")
+        if output_dir is None and args:
+            output_dir = args[0]
         if output_dir is None:
             raise BlackboardJournalError("blackboard_controller_output_dir_missing")
         try:
@@ -200,10 +212,16 @@ def append_blackboard_checkpoint(
             "target_identity": identity["target_identity"],
             "target_identity_sha256": identity["target_identity_sha256"],
             "previous_event_sha256": previous_sha256,
-            "checkpoint": checkpoint,
             "checkpoint_sha256": payload_sha256,
             "metadata": deepcopy(dict(metadata or {})),
         }
+        event.update(
+            _checkpoint_storage_fields(
+                path,
+                checkpoint=checkpoint,
+                checkpoint_sha256=payload_sha256,
+            )
+        )
         event["event_sha256"] = _canonical_sha256(event)
         _append_json_line_durable(path, event)
     board["blackboard_event_journal"] = _journal_summary(
@@ -228,12 +246,15 @@ def begin_blackboard_action(
     action: Mapping[str, Any],
     round_index: int,
     reserved_budget_state: Mapping[str, Any],
+    allow_idempotent_retry: bool = False,
+    max_idempotent_recovery_attempts: int = 3,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Claim an action attempt or return its durable prepared/commit state.
 
-    A prior ``started`` event without a prepared result is indeterminate.  It
-    is charged once but never retried automatically, because the external
-    call may have completed before the process died.
+    A prior ``started`` event without a prepared result is indeterminate by
+    default, because an external side effect may have completed before the
+    process died.  Callers may explicitly authorize a bounded, uncharged
+    retry for an idempotent local/read-only action.
     """
 
     board = deepcopy(dict(blackboard))
@@ -249,12 +270,64 @@ def begin_blackboard_action(
 
         attempts = list(lifecycle.get("started_events") or [])
         if attempts:
+            maximum_attempts = max(
+                1,
+                int(max_idempotent_recovery_attempts or 1),
+            )
+            if not allow_idempotent_retry or len(attempts) >= maximum_attempts:
+                return board, {
+                    **lifecycle,
+                    "status": "indeterminate",
+                    "reason": "prior_action_started_without_prepared_result",
+                    "automatic_retry_allowed": False,
+                    "charged_attempt_count": len(attempts),
+                }
+            prior_event = dict(attempts[-1])
+            attempt_index = len(attempts) + 1
+            current_budget = deepcopy(dict(board.get("budget_state") or {}))
+            action_payload = {
+                "schema_version": BLACKBOARD_ACTION_STARTED_SCHEMA,
+                **binding,
+                "action": deepcopy(dict(action)),
+                "attempt_index": attempt_index,
+                "retry_of_event_id": str(prior_event.get("event_id") or ""),
+                "retry_reason": "idempotent_local_action_recovery",
+                "budget_pre_state": current_budget,
+                "budget_after_reservation": current_budget,
+                "budget_reservation_sha256": _canonical_sha256(
+                    current_budget
+                ),
+            }
+            event = _append_event_locked(
+                path,
+                events=events,
+                identity=identity,
+                event_type="action_started",
+                stage="agent_action_idempotent_retry_started",
+                body_key="action_execution",
+                body=action_payload,
+                metadata={
+                    "round_index": int(round_index),
+                    "action_id": binding["action_id"],
+                    "action_type": binding["action_type"],
+                    "attempt_index": attempt_index,
+                    "charged_retry": False,
+                    "idempotent_recovery_retry": True,
+                },
+            )
+            board["blackboard_event_journal"] = _journal_summary(
+                path,
+                event_count=int(event["sequence"]),
+                last_event=event,
+                rehydrated=_board_was_rehydrated(board),
+            )
             return board, {
-                **lifecycle,
-                "status": "indeterminate",
-                "reason": "prior_action_started_without_prepared_result",
-                "automatic_retry_allowed": False,
-                "charged_attempt_count": len(attempts),
+                "status": "started",
+                "action_key": binding["action_key"],
+                "started_event": event,
+                "attempt_index": attempt_index,
+                "charged_retry": False,
+                "idempotent_recovery_retry": True,
             }
         attempt_index = len(attempts) + 1
         action_payload = {
@@ -413,9 +486,15 @@ def commit_prepared_blackboard_action(
         "prepared_event_sha256": prepared_sha256,
         "result_sha256": str(prepared_execution.get("result_sha256") or ""),
         "budget_committed": deepcopy(dict(board.get("budget_state") or {})),
-        "checkpoint": checkpoint,
         "checkpoint_sha256": _canonical_sha256(checkpoint),
     }
+    committed.update(
+        _checkpoint_storage_fields(
+            path,
+            checkpoint=checkpoint,
+            checkpoint_sha256=str(committed["checkpoint_sha256"]),
+        )
+    )
     with _exclusive_journal_lock(path):
         events = _load_and_validate_events(path, expected_identity=identity)
         _require_expected_head(events, board=board, explicit_expected=None)
@@ -509,7 +588,7 @@ def rehydrate_blackboard_from_events(
     restored_fields: list[str] = []
     tombstoned_fields: list[str] = []
     for event in events:
-        checkpoint = _event_checkpoint(event)
+        checkpoint = _event_checkpoint(event, journal_path=path)
         if checkpoint is None:
             if event.get("event_type") == "action_started":
                 execution = dict(event.get("action_execution") or {})
@@ -596,6 +675,7 @@ def rehydrate_blackboard_from_events(
             "target_and_case_must_match": True,
             "journal_is_not_scientific_trust_root": True,
             "codex_consensus_and_solved_state_not_recoverable": True,
+            "campaign_authority_revision_locator_is_recoverable": True,
             "prepared_results_require_controller_commit": True,
         },
     }
@@ -638,12 +718,125 @@ def _recovery_checkpoint(blackboard: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _event_checkpoint(event: Mapping[str, Any]) -> dict[str, Any] | None:
+def _checkpoint_storage_fields(
+    journal_path: Path,
+    *,
+    checkpoint: Mapping[str, Any],
+    checkpoint_sha256: str,
+) -> dict[str, Any]:
+    encoded = _canonical_json_bytes(checkpoint)
+    if len(encoded) <= _CHECKPOINT_INLINE_MAX_BYTES:
+        return {"checkpoint": deepcopy(dict(checkpoint))}
+    if hashlib.sha256(encoded).hexdigest() != checkpoint_sha256:
+        raise BlackboardJournalError("blackboard_checkpoint_canonical_digest_mismatch")
+    object_dir = journal_path.parent / "checkpoint_objects"
+    object_path = object_dir / f"{checkpoint_sha256}.json"
+    object_dir.mkdir(parents=True, exist_ok=True)
+    if object_path.exists():
+        try:
+            if object_path.read_bytes() != encoded:
+                raise BlackboardJournalError(
+                    "blackboard_checkpoint_object_digest_collision"
+                )
+        except OSError as exc:
+            raise BlackboardJournalError(
+                f"blackboard_checkpoint_object_unreadable:{type(exc).__name__}"
+            ) from exc
+    else:
+        temporary = object_path.with_name(
+            f".{object_path.name}.{os.getpid()}.{time.time_ns():x}.tmp"
+        )
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, object_path)
+            _fsync_directory(object_dir)
+        except OSError as exc:
+            raise BlackboardJournalError(
+                f"blackboard_checkpoint_object_write_failed:{type(exc).__name__}"
+            ) from exc
+        finally:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return {
+        "checkpoint_ref": {
+            "schema_version": BLACKBOARD_CHECKPOINT_REF_SCHEMA,
+            "relative_path": f"checkpoint_objects/{checkpoint_sha256}.json",
+            "checkpoint_sha256": checkpoint_sha256,
+            "byte_count": len(encoded),
+            "storage": "immutable_content_addressed_json",
+        }
+    }
+
+
+def _resolve_checkpoint_storage(
+    container: Mapping[str, Any],
+    *,
+    journal_path: Path,
+) -> dict[str, Any]:
+    inline = container.get("checkpoint")
+    raw_ref = container.get("checkpoint_ref")
+    if inline is not None and raw_ref is not None:
+        raise BlackboardJournalError("blackboard_checkpoint_storage_ambiguous")
+    if inline is not None:
+        return dict(inline) if isinstance(inline, Mapping) else {}
+    if not isinstance(raw_ref, Mapping):
+        return {}
+    ref = dict(raw_ref)
+    digest = str(ref.get("checkpoint_sha256") or "")
+    relative = str(ref.get("relative_path") or "")
+    expected_relative = f"checkpoint_objects/{digest}.json"
+    root = journal_path.parent.resolve()
+    path = (root / Path(relative)).resolve()
+    if (
+        ref.get("schema_version") != BLACKBOARD_CHECKPOINT_REF_SCHEMA
+        or not _is_sha256(digest)
+        or relative.replace("\\", "/") != expected_relative
+        or path.parent != (root / "checkpoint_objects").resolve()
+        or not path.is_file()
+    ):
+        raise BlackboardJournalError("blackboard_checkpoint_ref_invalid")
+    try:
+        encoded = path.read_bytes()
+    except OSError as exc:
+        raise BlackboardJournalError(
+            f"blackboard_checkpoint_object_unreadable:{type(exc).__name__}"
+        ) from exc
+    if (
+        len(encoded) != int(ref.get("byte_count") or -1)
+        or hashlib.sha256(encoded).hexdigest() != digest
+    ):
+        raise BlackboardJournalError("blackboard_checkpoint_object_digest_mismatch")
+    try:
+        parsed = _strict_json_loads(encoded.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise BlackboardJournalError("blackboard_checkpoint_object_json_invalid") from exc
+    if (
+        not isinstance(parsed, dict)
+        or _canonical_sha256(parsed) != digest
+        or _canonical_json_bytes(parsed) != encoded
+    ):
+        raise BlackboardJournalError("blackboard_checkpoint_object_not_canonical")
+    return dict(parsed)
+
+
+def _event_checkpoint(
+    event: Mapping[str, Any],
+    *,
+    journal_path: Path,
+) -> dict[str, Any] | None:
     if event.get("event_type") == "blackboard_checkpoint":
-        return dict(event.get("checkpoint") or {})
+        return _resolve_checkpoint_storage(event, journal_path=journal_path)
     if event.get("event_type") == "action_committed":
         execution = dict(event.get("action_execution") or {})
-        return dict(execution.get("checkpoint") or {})
+        return _resolve_checkpoint_storage(
+            execution,
+            journal_path=journal_path,
+        )
     return None
 
 
@@ -1042,6 +1235,7 @@ def _load_and_validate_events(
                 line_number=line_number,
                 previous_sha256=previous_sha256,
                 expected_identity=expected_identity,
+                journal_path=path,
             )
         except BlackboardJournalError as exc:
             if is_unterminated_tail and _tail_validation_failure_can_quarantine(
@@ -1219,6 +1413,7 @@ def _validate_event(
     line_number: int,
     previous_sha256: str,
     expected_identity: Mapping[str, Any],
+    journal_path: Path,
 ) -> None:
     prefix = f"blackboard_event:{line_number}"
     if event.get("schema_version") != BLACKBOARD_EVENT_SCHEMA:
@@ -1248,8 +1443,12 @@ def _validate_event(
     if str(event.get("previous_event_sha256") or "") != previous_sha256:
         raise BlackboardJournalError(f"{prefix}:previous_digest_mismatch")
     if event_type == "blackboard_checkpoint":
+        checkpoint = _resolve_checkpoint_storage(
+            event,
+            journal_path=journal_path,
+        )
         _validate_checkpoint(
-            event.get("checkpoint"),
+            checkpoint,
             supplied_digest=str(event.get("checkpoint_sha256") or ""),
             prefix=prefix,
         )
@@ -1258,7 +1457,11 @@ def _validate_event(
     elif event_type == "action_result_prepared":
         _validate_action_prepared(event, prefix=prefix)
     elif event_type == "action_committed":
-        _validate_action_committed(event, prefix=prefix)
+        _validate_action_committed(
+            event,
+            prefix=prefix,
+            journal_path=journal_path,
+        )
     event_without_digest = dict(event)
     supplied_digest = str(event_without_digest.pop("event_sha256", ""))
     if not _is_sha256(supplied_digest) or _canonical_sha256(
@@ -1348,7 +1551,12 @@ def _validate_action_prepared(event: Mapping[str, Any], *, prefix: str) -> None:
             )
 
 
-def _validate_action_committed(event: Mapping[str, Any], *, prefix: str) -> None:
+def _validate_action_committed(
+    event: Mapping[str, Any],
+    *,
+    prefix: str,
+    journal_path: Path,
+) -> None:
     execution = event.get("action_execution")
     if not isinstance(execution, Mapping) or execution.get(
         "schema_version"
@@ -1357,8 +1565,12 @@ def _validate_action_committed(event: Mapping[str, Any], *, prefix: str) -> None
     _validate_action_binding(execution, prefix=prefix)
     if not _is_sha256(str(execution.get("prepared_event_sha256") or "")):
         raise BlackboardJournalError(f"{prefix}:action_committed_parent_invalid")
+    checkpoint = _resolve_checkpoint_storage(
+        execution,
+        journal_path=journal_path,
+    )
     _validate_checkpoint(
-        execution.get("checkpoint"),
+        checkpoint,
         supplied_digest=str(execution.get("checkpoint_sha256") or ""),
         prefix=prefix,
     )
@@ -1528,14 +1740,17 @@ def _write_recovery_report(path: Path, report: Mapping[str, Any]) -> None:
 
 
 def _canonical_sha256(value: Any) -> str:
-    encoded = json.dumps(
+    return hashlib.sha256(_canonical_json_bytes(value)).hexdigest()
+
+
+def _canonical_json_bytes(value: Any) -> bytes:
+    return json.dumps(
         value,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
         allow_nan=False,
     ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _is_sha256(value: str) -> bool:
