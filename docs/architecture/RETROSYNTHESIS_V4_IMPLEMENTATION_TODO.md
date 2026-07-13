@@ -230,23 +230,23 @@ Observed P3 host-boundary acceptance:
 
 Purpose: turn global hypotheses into auditable facts.
 
-- [ ] Define one worker command/result envelope with input revision, idempotency
+- [x] Define one worker command/result envelope with input revision, idempotency
   key, budget reservation, artifact refs, and status.
-- [ ] Implement candidate reactant/reagent materialization worker.
-- [ ] Run identity, parse, element balance, atom-jump, ancestor-cycle, duplicate,
+- [x] Implement candidate reactant/reagent materialization worker.
+- [x] Run identity, parse, element balance, atom-jump, ancestor-cycle, duplicate,
   and impossible-precursor gates before expensive work.
-- [ ] Implement source discovery separately from exact-row extraction.
-- [ ] Automatically schedule extraction after a usable source is discovered.
-- [ ] Resume the campaign when new exact rows arrive.
-- [ ] Normalize patents, papers/SI, curated registries, image extraction, and
+- [x] Implement source discovery separately from exact-row extraction.
+- [x] Automatically schedule extraction after a usable source is discovered.
+- [x] Resume the campaign when new exact rows arrive.
+- [x] Normalize patents, papers/SI, curated registries, image extraction, and
   Codex claims into source bindings with explicit provenance.
-- [ ] Keep L0 hypothesis, structural/materialized, validated, exact-source, and
+- [x] Keep L0 hypothesis, structural/materialized, validated, exact-source, and
   independently supported proof states separate.
-- [ ] Add conflict representation instead of silently selecting one source.
-- [ ] Implement versioned inventory adapters and immutable supplier snapshots.
-- [ ] Audit every selected deep leaf; do not infer availability from commonness.
-- [ ] Cache workers by normalized input plus dependency revision.
-- [ ] Add deterministic fixtures for success, rejection, timeout, partial
+- [x] Add conflict representation instead of silently selecting one source.
+- [x] Implement versioned inventory adapters and immutable supplier snapshots.
+- [x] Audit every selected deep leaf; do not infer availability from commonness.
+- [x] Cache workers by normalized input plus dependency revision.
+- [x] Add deterministic fixtures for success, rejection, timeout, partial
   extraction, source conflict, and stale stock.
 
 Exit gate:
@@ -254,6 +254,38 @@ Exit gate:
 - A Codex multi-step skeleton can be independently materialized edge by edge.
 - Rejected candidates consume attempts but never accepted expansions.
 - Exact evidence and stock records are replayable without Codex.
+
+Observed P4 deterministic-worker acceptance:
+
+- one global multi-step plan compiled to unique edge commands while retaining
+  every route-family/skeleton/step provenance reference; repeated shared edges
+  were executed once and each accepted hyperedge counted exactly once;
+- parse, identity, element inventory, large atom jump, self/ancestor cycle,
+  surplus precursor, and duplicate gates run before reaction validation, and
+  rejected commands consume attempts without creating accepted expansions;
+- source discovery schedules exact-row extraction automatically, while exact
+  evidence can only be promoted from command-bound, content-addressed artifacts
+  in the host-owned `structured_exact_row_extraction` authority scope;
+- patent, paper/SI, curated registry, image extraction, and Codex claim records
+  share one provenance schema; Codex translations remain advisory and cannot
+  claim exact-source authority;
+- exact rows emit material events recognized by `GlobalCampaignDirector`, so a
+  newly arrived row resumes event-driven global planning rather than another
+  blind local expansion;
+- proof axes remain separate, independent support requires two host-derived
+  source groups, and incompatible structures/conditions remain unresolved
+  conflict records with no automatic winner;
+- every selected leaf receives a stock audit against a host-trusted, versioned,
+  immutable inventory artifact; commonness, untrusted availability claims, and
+  stale snapshots cannot close a route;
+- normalized input, graph/evidence dependency revisions, artifact digests,
+  authority scopes, handler version, and execution policy bind worker caches;
+  immutable exact-evidence and stock results replay without a worker or Codex;
+- focused tests cover success, multi-step deduplication, cheap rejection,
+  validation, automatic extraction, partial/tampered/untrusted extraction,
+  source conflict, independent support, fresh/missing/stale/untrusted stock,
+  cache reuse, timeout, stale revision, and artifact replay;
+- the full local suite passed with 1446 tests, 3 skips, and 2 subtests.
 
 ### P5 — Single frontier and incremental hypergraph
 

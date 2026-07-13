@@ -48,10 +48,13 @@ DIRECTOR_DISPOSITIONS = frozenset(
 MATERIAL_REPLAN_EVENTS = frozenset(
     {
         "critical_edge_rejected",
+        "exact_rows_added",
         "material_evidence_added",
         "new_route_family",
         "portfolio_stagnation",
         "shared_bottleneck_changed",
+        "source_conflict_added",
+        "stock_records_added",
         "stock_boundary_changed",
     }
 )
