@@ -4,7 +4,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Mapping
 
-from cascade_planner.application.proof_policy import stock_boundary_matches
+from cascade_planner.application.proof_policy import (
+    stock_boundary_matches,
+)
+from cascade_planner.application.reaction_proof_versions import (
+    CURRENT_REACTION_VALIDATOR_VERSION,
+    active_reaction_proofs,
+)
 from cascade_planner.application.precursor_repair import (
     propose_precursor_repair,
 )
@@ -26,6 +32,7 @@ from cascade_planner.source_locators import canonical_traceable_source_ref
 
 
 StockCatalogBuilder = Callable[..., Mapping[str, Any]]
+InventorySnapshotBuilder = Callable[..., Mapping[str, Any]]
 
 
 def validate_materialized_edges(
@@ -38,10 +45,7 @@ def validate_materialized_edges(
     pending = [
         dict(edge)
         for edge in graph["edges"].values()
-        if not any(
-            isinstance(proof, Mapping) and proof.get("accepted") is True
-            for proof in edge.get("reaction_proofs") or []
-        )
+        if not active_reaction_proofs(edge.get("reaction_proofs") or [])
     ]
     reactions = {
         str(edge["edge_id"]): (
@@ -104,9 +108,13 @@ def validate_materialized_edges(
                     },
                     "mapped_reaction_smiles": mapped_reaction,
                     "exact_source_records": exact_records,
+                    "validator_version": CURRENT_REACTION_VALIDATOR_VERSION,
                 },
                 task_kind="validation",
-                suffix=str(edge["edge_digest"])[:24],
+                suffix=(
+                    f"{str(edge['edge_digest'])[:24]}:"
+                    f"{CURRENT_REACTION_VALIDATOR_VERSION.rsplit('.', 1)[-1]}"
+                ),
             )
         )
     execution = (
@@ -125,10 +133,10 @@ def validate_materialized_edges(
         for edge_id in edge_by_id
         if any(
             isinstance(proof, Mapping) and proof.get("accepted") is True
-            for proof in dict(updated["edges"].get(edge_id) or {}).get(
-                "reaction_proofs"
+            for proof in active_reaction_proofs(
+                dict(updated["edges"].get(edge_id) or {}).get("reaction_proofs")
+                or []
             )
-            or []
         )
     )
     rejected_ids = sorted(set(edge_by_id) - set(accepted_ids))
@@ -364,17 +372,27 @@ def audit_live_benchmark_stock(
             "execution": {"executed_command_count": 0},
         }
     if leaf_ids and all(
-        _has_boundary_observation(
+        _has_recent_boundary_audit(
             graph,
             molecule_id,
             required="benchmark_search",
         )
         for molecule_id in leaf_ids
     ):
+        closed_count = sum(
+            _has_boundary_observation(
+                graph,
+                molecule_id,
+                required="benchmark_search",
+            )
+            for molecule_id in leaf_ids
+        )
         return {
             "stage": "benchmark_stock",
             "status": "reused",
             "selected_leaf_count": len(leaf_ids),
+            "stock_closed_leaf_count": closed_count,
+            "miss_count": len(leaf_ids) - closed_count,
             "execution": {"executed_command_count": 0},
         }
     leaves = [graph["molecules"][molecule_id]["canonical_smiles"] for molecule_id in leaf_ids]
@@ -433,6 +451,140 @@ def audit_live_benchmark_stock(
     }
 
 
+def audit_authoritative_inventory_stock(
+    service: RetrosynthesisCampaignService,
+    *,
+    inventory_builder: InventorySnapshotBuilder,
+    required_boundary: str,
+    max_molecules: int = 24,
+    max_age_days: float = 30.0,
+) -> dict[str, Any]:
+    """Freeze and audit a configured supplier snapshot for every selected leaf."""
+
+    graph = service.graph_store.load()
+    leaf_ids = sorted(
+        {
+            str(molecule_id)
+            for route in graph["route_families"].values()
+            if route.get("selected") is not False
+            for molecule_id in route.get("leaf_molecule_ids") or []
+        }
+    )
+    if not leaf_ids:
+        return {
+            "stage": "authoritative_inventory_stock",
+            "status": "unresolved",
+            "reason": "selected_route_leaves_missing",
+            "selected_leaf_count": 0,
+            "execution": {"executed_command_count": 0},
+        }
+    if all(
+        _has_recent_boundary_audit(
+            graph,
+            molecule_id,
+            required=required_boundary,
+            max_age_days=max_age_days,
+        )
+        for molecule_id in leaf_ids
+    ):
+        closed_count = sum(
+            _has_boundary_observation(
+                graph,
+                molecule_id,
+                required=required_boundary,
+            )
+            for molecule_id in leaf_ids
+        )
+        return {
+            "stage": "authoritative_inventory_stock",
+            "status": "reused",
+            "selected_leaf_count": len(leaf_ids),
+            "stock_closed_leaf_count": closed_count,
+            "miss_count": len(leaf_ids) - closed_count,
+            "execution": {"executed_command_count": 0},
+        }
+    if len(leaf_ids) > max_molecules:
+        return {
+            "stage": "authoritative_inventory_stock",
+            "status": "unresolved",
+            "reason": "selected_leaf_count_exceeds_inventory_audit_limit",
+            "selected_leaf_count": len(leaf_ids),
+            "max_molecules": max_molecules,
+            "execution": {"executed_command_count": 0},
+        }
+    leaves = [graph["molecules"][molecule_id]["canonical_smiles"] for molecule_id in leaf_ids]
+    inventory = dict(
+        inventory_builder(
+            leaves,
+            boundary=required_boundary,
+            max_molecules=max_molecules,
+        )
+    )
+    ref = service.kernel.artifacts.put_json(
+        inventory,
+        logical_name="versioned_inventory_snapshot.json",
+        producer="autoplanner.authoritative_inventory",
+    ).to_dict()
+    service.register_artifact_authorities({ref["sha256"]: "inventory_snapshot_set"})
+    timestamp = str(inventory.get("retrieved_at") or _utc_now())
+    execution = service.execute_commands(
+        (
+            _command(
+                service,
+                "audit_deep_leaf_stock",
+                {
+                    "target_smiles": service.kernel.spec.target_smiles,
+                    "selected_deep_leaves": [
+                        {
+                            "leaf_id": molecule_id,
+                            "smiles": graph["molecules"][molecule_id]["canonical_smiles"],
+                        }
+                        for molecule_id in leaf_ids
+                    ],
+                    "inventory_artifact_sha256": ref["sha256"],
+                    "as_of": timestamp,
+                    "max_age_days": max_age_days,
+                },
+                task_kind="stock",
+                suffix=f"inventory-{ref['sha256'][:20]}",
+                artifact_refs=(ref,),
+            ),
+        ),
+        idempotency_key=(
+            f"solve-target:inventory-stock:{service.kernel.state.graph_revision}:"
+            f"{ref['sha256']}"
+        ),
+    )
+    updated = service.graph_store.load()
+    closed_count = sum(
+        _has_boundary_observation(updated, molecule_id, required=required_boundary)
+        for molecule_id in leaf_ids
+    )
+    return {
+        "stage": "authoritative_inventory_stock",
+        "status": (
+            "completed"
+            if closed_count == len(leaf_ids)
+            else "partial"
+        ),
+        "selected_leaf_count": len(leaf_ids),
+        "stock_closed_leaf_count": closed_count,
+        "inventory_ref": ref,
+        "inventory_summary": {
+            "adapter_version": inventory.get("adapter_version"),
+            "inventory_version": inventory.get("inventory_version"),
+            "retrieved_at": inventory.get("retrieved_at"),
+            "offer_count": len(inventory.get("offers") or []),
+        },
+        "execution": execution,
+        "semantics": {
+            "snapshot_is_host_frozen": True,
+            "every_selected_leaf_is_audited": True,
+            "missing_offer_fails_closed": True,
+        },
+    }
+
+
 def _command(
     service: RetrosynthesisCampaignService,
     worker_type: str,
@@ -488,12 +640,48 @@ def _has_boundary_observation(
     )
 
 
+def _has_recent_boundary_audit(
+    graph: Mapping[str, Any],
+    molecule_id: str,
+    *,
+    required: str,
+    max_age_days: float = 30.0,
+) -> bool:
+    molecule = dict(dict(graph.get("molecules") or {}).get(molecule_id) or {})
+    observation = dict(
+        dict(graph.get("stock_observations") or {}).get(
+            str(molecule.get("active_stock_observation_id") or "")
+        )
+        or {}
+    )
+    if not observation or not stock_boundary_matches(observation, required=required):
+        return False
+    if str(observation.get("molecule_id") or "") != molecule_id:
+        return False
+    if (
+        observation.get("accepted") is not True
+        and observation.get("authority_valid") is not True
+    ):
+        return False
+    timestamp = str(observation.get("audited_as_of") or "").replace("Z", "+00:00")
+    try:
+        audited_at = datetime.fromisoformat(timestamp)
+    except ValueError:
+        return False
+    if audited_at.tzinfo is None:
+        audited_at = audited_at.replace(tzinfo=timezone.utc)
+    age_days = (datetime.now(timezone.utc) - audited_at).total_seconds() / 86_400.0
+    return -5 / 1_440 <= age_days <= max(0.0, float(max_age_days))
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 __all__ = [
+    "InventorySnapshotBuilder",
     "StockCatalogBuilder",
+    "audit_authoritative_inventory_stock",
     "audit_live_benchmark_stock",
     "discover_director_source_hints",
     "repair_rejected_precursor_typos",

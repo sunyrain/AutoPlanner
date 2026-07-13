@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Mapping
 
-from cascade_planner.interfaces.live_stock import build_pubchem_vendor_catalog
+from cascade_planner.interfaces.live_stock import (
+    build_pubchem_vendor_catalog,
+    load_versioned_inventory_snapshot,
+)
 
 
 def _requester(
@@ -65,3 +69,17 @@ def test_pubchem_vendor_adapter_freezes_bounded_benchmark_only_catalog() -> None
     assert catalog["source"]["boundary"] == "benchmark_search"
     assert catalog["semantics"]["not_procurement_authority"] is True
     assert len(catalog["content_sha256"]) == 64
+
+
+def test_versioned_inventory_loader_is_bounded_and_schema_typed(tmp_path: Path) -> None:
+    path = tmp_path / "inventory.json"
+    expected = {
+        "schema_version": "versioned_inventory_snapshot.v1",
+        "adapter_version": "tests.inventory.v1",
+        "inventory_version": "snapshot-1",
+        "retrieved_at": "2026-07-14T00:00:00Z",
+        "offers": [],
+    }
+    path.write_text(json.dumps(expected), encoding="utf-8")
+
+    assert load_versioned_inventory_snapshot(path) == expected

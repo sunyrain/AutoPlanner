@@ -25,8 +25,19 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 )
 from cascade_planner.application.reaction_mapping import ReactionMapper
 from cascade_planner.application.proof_portfolio import compile_proof_portfolio
+from cascade_planner.interfaces.evidence_import import (
+    ingest_structured_evidence_document,
+)
+from cascade_planner.interfaces.live_evidence import (
+    EvidenceConnector,
+    LiveEvidenceConnectorError,
+    acquire_structured_evidence,
+    compile_evidence_acquisition_request,
+)
 from cascade_planner.interfaces.target_solver_stages import (
+    InventorySnapshotBuilder,
     StockCatalogBuilder,
+    audit_authoritative_inventory_stock,
     audit_live_benchmark_stock,
     discover_director_source_hints,
     repair_rejected_precursor_typos,
@@ -47,11 +58,12 @@ if TYPE_CHECKING:
 
 TARGET_SOLVE_REPORT_SCHEMA = "target_only_retrosynthesis_solve_report.v1"
 TARGET_SOLVE_CHECKPOINT_SCHEMA = "target_only_solve_checkpoint.v1"
+DEFAULT_TARGET_DIRECTOR_MODEL = "gpt-5.6-sol"
 
 
 @dataclass(frozen=True, slots=True)
 class TargetSolveConfig:
-    model: str = "gpt-5.5"
+    model: str = DEFAULT_TARGET_DIRECTOR_MODEL
     reasoning_effort: str = "low"
     use_coordinator: bool = True
     enable_web_search: bool = True
@@ -87,6 +99,8 @@ def solve_target(
     director_runner: DirectorRunner | None = None,
     atom_mapper: ReactionMapper | None = None,
     stock_catalog_builder: StockCatalogBuilder | None = None,
+    inventory_snapshot_builder: InventorySnapshotBuilder | None = None,
+    evidence_connector: EvidenceConnector | None = None,
 ) -> dict[str, Any]:
     """Run or resume the real SMILES-only campaign path through one V4 kernel."""
 
@@ -249,11 +263,19 @@ def solve_target(
     # CampaignContext instead of making the director repeat a blind first pass.
     source_stage = discover_director_source_hints(service, outcomes)
     stages.append(_stage("source_frontier", source_stage["status"], source_stage))
+    evidence_stage = _acquire_evidence_stage(
+        service,
+        source_stage=source_stage,
+        connector=evidence_connector,
+        atom_mapper=atom_mapper,
+    )
+    stages.append(_stage("evidence_acquisition", evidence_stage["status"], evidence_stage))
     stock_stage = _audit_stock_stage(
         service,
         acceptance=resolved_acceptance,
         config=active,
         catalog_builder=stock_catalog_builder,
+        inventory_builder=inventory_snapshot_builder,
     )
     stages.append(_stage("stock", stock_stage["status"], stock_stage))
 
@@ -281,6 +303,7 @@ def solve_target(
         repair_stage,
         repair_validation,
         source_stage,
+        evidence_stage,
         stock_stage,
     )
     replan_prompt_context_bytes = 0
@@ -366,11 +389,25 @@ def solve_target(
             stages.append(
                 _stage("replan_source_frontier", source_stage["status"], source_stage)
             )
+            evidence_stage = _acquire_evidence_stage(
+                service,
+                source_stage=source_stage,
+                connector=evidence_connector,
+                atom_mapper=atom_mapper,
+            )
+            stages.append(
+                _stage(
+                    "replan_evidence_acquisition",
+                    evidence_stage["status"],
+                    evidence_stage,
+                )
+            )
             stock_stage = _audit_stock_stage(
                 service,
                 acceptance=resolved_acceptance,
                 config=active,
                 catalog_builder=stock_catalog_builder,
+                inventory_builder=inventory_snapshot_builder,
             )
             stages.append(_stage("replan_stock", stock_stage["status"], stock_stage))
 
@@ -391,6 +428,12 @@ def solve_target(
     )
     stop_preview = service.kernel.decide_stop().to_dict()
     claim = _claim(gates, resolved_acceptance, resource_envelope)
+    current_disposition = _current_disposition(
+        kernel_status=service.kernel.state.status,
+        stop_decision=stop_preview,
+        claim=claim,
+        gates=gates,
+    )
     workbench = service.publish_workbench(
         campaign_summary=_workbench_campaign_summary(
             gates=gates,
@@ -398,6 +441,7 @@ def solve_target(
             model_cost=service.kernel.state.model_totals,
             stop_decision=stop_preview,
             claim=claim,
+            current_disposition=current_disposition,
         )
     )
     stop = service.kernel.apply_stop_decision(
@@ -420,6 +464,7 @@ def solve_target(
         "attempt_count": service.kernel.state.attempt_count,
         "accepted_expansion_count": service.kernel.state.accepted_expansion_count,
         "stop_decision": stop,
+        "current_disposition": current_disposition,
         "portfolio_ref": closeout["portfolio_ref"],
         "workbench_ref": workbench["snapshot_ref"],
         "claim": claim,
@@ -489,6 +534,12 @@ def _refresh_terminal_report(
     )
     stop_decision = service.kernel.decide_stop().to_dict()
     claim = _claim(gates, acceptance, resource_envelope)
+    current_disposition = _current_disposition(
+        kernel_status=service.kernel.state.status,
+        stop_decision=stop_decision,
+        claim=claim,
+        gates=gates,
+    )
     workbench = service.publish_workbench(
         campaign_summary=_workbench_campaign_summary(
             gates=gates,
@@ -496,6 +547,7 @@ def _refresh_terminal_report(
             model_cost=service.kernel.state.model_totals,
             stop_decision=stop_decision,
             claim=claim,
+            current_disposition=current_disposition,
         )
     )
     report_path = directory / "target-only-solve-report.json"
@@ -522,11 +574,16 @@ def _refresh_terminal_report(
         "attempt_count": service.kernel.state.attempt_count,
         "accepted_expansion_count": service.kernel.state.accepted_expansion_count,
         "stop_decision": stop_decision,
+        "current_disposition": current_disposition,
         "workbench_ref": workbench["snapshot_ref"],
         "claim": claim,
         "report_refresh": {
             "model_invocations": 0,
             "terminal_state_unchanged": True,
+            "terminal_state_scientifically_stale": (
+                current_disposition["state"]
+                == "terminal_snapshot_requires_revalidation"
+            ),
             "canonical_graph_sha256": str(graph.get("scientific_sha256") or ""),
             "portfolio_sha256": str(portfolio.get("content_sha256") or ""),
         },
@@ -571,6 +628,7 @@ def _audit_stock_stage(
     acceptance: RetrosynthesisAcceptanceSpec,
     config: TargetSolveConfig,
     catalog_builder: StockCatalogBuilder | None,
+    inventory_builder: InventorySnapshotBuilder | None,
 ) -> dict[str, Any]:
     if config.enable_live_benchmark_stock and acceptance.stock_boundary == (
         "benchmark_search"
@@ -580,10 +638,83 @@ def _audit_stock_stage(
             catalog_builder=catalog_builder,
             max_molecules=config.max_live_stock_molecules,
         )
+    if acceptance.stock_boundary == "procurement" and inventory_builder is not None:
+        return audit_authoritative_inventory_stock(
+            service,
+            inventory_builder=inventory_builder,
+            required_boundary="procurement",
+            max_molecules=config.max_live_stock_molecules,
+        )
     return {
         "stage": "stock",
         "status": "unresolved",
         "reason": "authoritative_stock_adapter_not_configured",
+    }
+
+
+def _acquire_evidence_stage(
+    service: Any,
+    *,
+    source_stage: Mapping[str, Any],
+    connector: EvidenceConnector | None,
+    atom_mapper: ReactionMapper | None,
+) -> dict[str, Any]:
+    if connector is None:
+        return {
+            "stage": "evidence_acquisition",
+            "status": "unresolved",
+            "reason": "structured_evidence_connector_not_configured",
+            "model_invocations": 0,
+        }
+    request = compile_evidence_acquisition_request(
+        run_id=service.kernel.spec.run_id,
+        target_smiles=service.kernel.spec.target_smiles,
+        graph=service.graph_store.load(),
+        source_frontier=source_stage,
+    )
+    try:
+        acquired = acquire_structured_evidence(request, connector=connector)
+        receipt = dict(acquired.get("receipt") or {})
+        receipt_ref: dict[str, Any] = {}
+        if receipt:
+            receipt_ref = service.kernel.artifacts.put_json(
+                receipt,
+                logical_name="evidence_connector_receipt.json",
+                producer="autoplanner.live_evidence",
+            ).to_dict()
+        imported = ingest_structured_evidence_document(
+            service,
+            document=dict(acquired["document"]),
+            atom_mapper=atom_mapper,
+        )
+    except (LiveEvidenceConnectorError, ValueError) as exc:
+        return {
+            "stage": "evidence_acquisition",
+            "status": "unresolved",
+            "reason": f"evidence_connector_failed:{type(exc).__name__}:{exc}",
+            "request_sha256": request["content_sha256"],
+            "model_invocations": 0,
+            "false_evidence_claim": False,
+        }
+    return {
+        "stage": "evidence_acquisition",
+        "status": (
+            "completed" if int(imported.get("exact_record_count") or 0) else "partial"
+        ),
+        "request_sha256": request["content_sha256"],
+        "document_sha256": acquired["document_sha256"],
+        "receipt_ref": receipt_ref,
+        "source_count": imported["source_count"],
+        "exact_record_count": imported["exact_record_count"],
+        "source_binding_count": imported["source_binding_count"],
+        "execution": imported["execution"],
+        "validation": imported["validation"],
+        "model_invocations": 0,
+        "semantics": {
+            "connector_output_requires_normal_host_ingestion": True,
+            "connector_cannot_grant_reaction_validation": True,
+            "receipt_grants_no_scientific_authority": True,
+        },
     }
 
 
@@ -700,6 +831,7 @@ def _workbench_campaign_summary(
     model_cost: Mapping[str, Any],
     stop_decision: Mapping[str, Any],
     claim: Mapping[str, Any],
+    current_disposition: Mapping[str, Any],
 ) -> dict[str, Any]:
     return {
         "gates": dict(gates.get("gates") or {}),
@@ -711,6 +843,52 @@ def _workbench_campaign_summary(
         "model_cost": dict(model_cost),
         "stop_decision": dict(stop_decision),
         "claim": dict(claim),
+        "current_disposition": dict(current_disposition),
+    }
+
+
+def _current_disposition(
+    *,
+    kernel_status: str,
+    stop_decision: Mapping[str, Any],
+    claim: Mapping[str, Any],
+    gates: Mapping[str, Any],
+) -> dict[str, Any]:
+    accepted = claim.get("accepted_under_configured_policy") is True
+    historical_completion = bool(
+        str(kernel_status) == "completed"
+        or stop_decision.get("decision") == "completed"
+    )
+    proof_audit = dict(gates.get("reaction_proof_version_audit") or {})
+    stale_terminal = historical_completion and not accepted
+    if accepted:
+        state = "accepted"
+        reasons: list[str] = []
+    elif stale_terminal:
+        state = "terminal_snapshot_requires_revalidation"
+        reasons = ["current_proof_policy_does_not_accept_historical_terminal_snapshot"]
+        if proof_audit.get("requires_revalidation") is True:
+            reasons.append("stale_reaction_validator_proofs_present")
+    elif stop_decision.get("terminal") is True:
+        state = str(stop_decision.get("decision") or "terminal_unresolved")
+        reasons = [str(value) for value in stop_decision.get("reasons") or []]
+    else:
+        state = "unresolved"
+        reasons = [str(value) for value in stop_decision.get("reasons") or []]
+    return {
+        "schema_version": "target_solve_current_disposition.v1",
+        "state": state,
+        "scientifically_accepted": accepted,
+        "historical_kernel_status": str(kernel_status),
+        "historical_kernel_terminal": stop_decision.get("terminal") is True,
+        "requires_revalidation": bool(
+            stale_terminal or proof_audit.get("requires_revalidation") is True
+        ),
+        "reasons": reasons,
+        "semantics": {
+            "historical_terminal_state_cannot_override_current_proof_policy": True,
+            "kernel_event_history_is_not_rewritten": True,
+        },
     }
 
 
@@ -898,6 +1076,7 @@ def _digest(value: Any) -> str:
 
 
 __all__ = [
+    "DEFAULT_TARGET_DIRECTOR_MODEL",
     "TARGET_SOLVE_CHECKPOINT_SCHEMA",
     "TARGET_SOLVE_REPORT_SCHEMA",
     "TargetSolveConfig",

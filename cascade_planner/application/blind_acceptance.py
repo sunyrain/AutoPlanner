@@ -10,6 +10,10 @@ from cascade_planner.application.canonical_identity import (
     reaction_edge_identity,
 )
 from cascade_planner.application.proof_policy import stock_boundary_matches
+from cascade_planner.application.reaction_proof_versions import (
+    active_reaction_proofs,
+    compile_reaction_proof_version_audit,
+)
 
 
 BLIND_ACCEPTANCE_REPORT_SCHEMA = "blind_retrosynthesis_acceptance_report.v1"
@@ -57,6 +61,10 @@ def compile_blind_acceptance_report(
                 }
             )
             >= minimum_sources
+            and not _edge_has_unresolved_source_conflict(
+                edges[edge_id],
+                graph=graph,
+            )
             for edge_id in edge_ids
         )
         leaf_ids = _leaf_molecule_ids(
@@ -104,6 +112,10 @@ def compile_blind_acceptance_report(
                 }
             )
             >= minimum_sources
+            and not _edge_has_unresolved_source_conflict(
+                dict(edges.get(str(edge_id)) or {}),
+                graph=graph,
+            )
             for edge_id in route.get("edge_ids") or []
         )
         for route in selected_routes
@@ -150,6 +162,9 @@ def compile_blind_acceptance_report(
         "canonical_portfolio_accepted": portfolio.get("accepted") is True,
         "canonical_closeout": dict(portfolio.get("closeout") or {}),
         "false_closure_claim_count": 0,
+        "reaction_proof_version_audit": compile_reaction_proof_version_audit(
+            graph
+        ),
         "semantics": {
             "gates_are_independent_measurements": True,
             "B2_is_not_evidence_grade": True,
@@ -310,8 +325,25 @@ def _resolved_edge_id(
 def _edge_validated(edge: Mapping[str, Any]) -> bool:
     return any(
         isinstance(proof, Mapping) and proof.get("accepted") is True
-        for proof in edge.get("reaction_proofs") or []
+        for proof in active_reaction_proofs(edge.get("reaction_proofs") or [])
     )
+
+
+def _edge_has_unresolved_source_conflict(
+    edge: Mapping[str, Any],
+    *,
+    graph: Mapping[str, Any],
+) -> bool:
+    edge_digest = str(edge.get("edge_digest") or "")
+    record_ids = {str(value) for value in edge.get("exact_record_ids") or []}
+    for raw in dict(graph.get("conflicts") or {}).values():
+        if not isinstance(raw, Mapping) or raw.get("status") == "resolved":
+            continue
+        subject = str(raw.get("subject_id") or "")
+        conflict_records = {str(value) for value in raw.get("record_ids") or []}
+        if (edge_digest and edge_digest in subject) or record_ids & conflict_records:
+            return True
+    return False
 
 
 def _target_reachable_edges_after_repair(

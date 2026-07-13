@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,10 @@ from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisRunBudget,
 )
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
-from cascade_planner.interfaces.target_solver import TargetSolveConfig
+from cascade_planner.interfaces.target_solver import (
+    TargetSolveConfig,
+    _current_disposition,
+)
 from cascade_planner.runtime import AgentResult, AgentSpec, AgentState
 from cascade_planner.runtime.paths import RuntimePaths
 
@@ -187,6 +191,91 @@ def _catalog(smiles: list[str], **_: Any) -> dict[str, Any]:
     }
 
 
+def _partial_catalog(smiles: list[str], **_: Any) -> dict[str, Any]:
+    catalog = _catalog(smiles)
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    catalog["catalog_version"] = timestamp
+    catalog["retrieved_at"] = timestamp
+    missing = sorted(set(smiles))[-1]
+    catalog["members"] = [
+        row
+        for row in catalog["members"]
+        if row["canonical_smiles"] != missing
+    ]
+    catalog["misses"] = [
+        {
+            "canonical_smiles": missing,
+            "cid": 0,
+            "reason": "test_catalog_miss",
+        }
+    ]
+    return catalog
+
+
+def _evidence_connector(request: Any) -> dict[str, Any]:
+    rows = [
+        {
+            "product_smiles": edge["product_smiles"],
+            "reactant_smiles": edge["precursor_smiles"],
+            "step_id": f"connector-step:{index}",
+            "location_ref": f"Example 4, step {index}",
+            "conditions": {"temperature_c": 25},
+        }
+        for index, edge in enumerate(request["edges"], start=1)
+    ]
+    return {
+        "schema_version": "structured_evidence_import.v1",
+        "sources": [
+            {
+                "binding": {
+                    "source_kind": source_kind,
+                    "source_ref": source_ref,
+                    "title": f"Independent source {index}",
+                    "provenance": "typed_connector",
+                },
+                "extraction": {
+                    "schema_version": "structured_exact_row_extraction.v1",
+                    "extractor": {
+                        "producer_kind": "typed_connector_structured_extraction",
+                        "producer_id": "tests.target-evidence",
+                        "version": "1.0.0",
+                    },
+                    "rows": rows,
+                },
+            }
+            for index, (source_kind, source_ref) in enumerate(
+                (
+                    ("patent", "patent:US1234567A1"),
+                    ("paper_si", "doi:10.1000/example.1"),
+                ),
+                start=1,
+            )
+        ],
+    }
+
+
+def _inventory_builder(smiles: list[str], **_: Any) -> dict[str, Any]:
+    checked_at = "2026-07-14T00:00:00Z"
+    return {
+        "schema_version": "versioned_inventory_snapshot.v1",
+        "adapter_version": "tests.inventory.v1",
+        "inventory_version": "snapshot-2026-07-14",
+        "retrieved_at": checked_at,
+        "offers": [
+            {
+                "schema_version": "stock_offer_snapshot.v1",
+                "supplier": "Test Supplier",
+                "catalog_number": f"SKU-{index}",
+                "smiles": value,
+                "checked_at": checked_at,
+                "available": True,
+                "source_url": f"https://supplier.invalid/SKU-{index}",
+            }
+            for index, value in enumerate(sorted(set(smiles)), start=1)
+        ],
+    }
+
+
 def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
     tmp_path: Path,
 ) -> None:
@@ -236,6 +325,7 @@ def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
     assert result["claim"]["generated_route_portfolio"] is True
     assert result["claim"]["exact_multi_source_grade"] is False
     assert result["claim"]["procurement_ready"] is False
+    assert result["current_disposition"]["state"] == "accepted"
     assert Path(result["report_path"]).is_file()
 
     resumed = gateway.solve_target(
@@ -255,6 +345,21 @@ def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
     )
     assert resumed["model_cost"]["model_invocations"] == 1
     assert resumed["gates"]["gates"]["B5_configured_portfolio_acceptance"] is True
+
+
+def test_current_disposition_does_not_treat_stale_terminal_as_scientific_success() -> None:
+    disposition = _current_disposition(
+        kernel_status="completed",
+        stop_decision={"decision": "completed", "terminal": True},
+        claim={"accepted_under_configured_policy": False},
+        gates={
+            "reaction_proof_version_audit": {"requires_revalidation": True}
+        },
+    )
+
+    assert disposition["state"] == "terminal_snapshot_requires_revalidation"
+    assert disposition["scientifically_accepted"] is False
+    assert disposition["requires_revalidation"] is True
 
 
 def test_target_solver_reports_provider_failure_without_replan_or_false_closure(
@@ -301,3 +406,130 @@ def test_target_solver_reports_provider_failure_without_replan_or_false_closure(
     )
     assert result["claim"]["accepted_under_configured_policy"] is False
     assert Path(result["report_path"]).is_file()
+
+
+def test_resume_reuses_fresh_negative_stock_audits_without_spending_attempts(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    config = TargetSolveConfig(
+        use_coordinator=False,
+        enable_web_search=False,
+        enable_replan=False,
+    )
+    first = gateway.solve_target(
+        target_name="partial stock blind molecule",
+        target_smiles=TARGET,
+        run_id="blind-partial-stock",
+        config=config,
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_partial_catalog,
+    )
+
+    def unexpected_catalog_call(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("fresh negative stock audit should be reused")
+
+    resumed = gateway.solve_target(
+        target_name="partial stock blind molecule",
+        target_smiles=TARGET,
+        run_id="blind-partial-stock",
+        config=config,
+        resume=True,
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=unexpected_catalog_call,
+    )
+
+    assert first["gates"]["gates"]["B4_stock_boundary"] is False
+    assert resumed["attempt_count"] == first["attempt_count"]
+    assert any(
+        stage["stage"] == "stock"
+        and stage["detail"].get("status") == "reused"
+        and stage["detail"].get("miss_count") == 1
+        for stage in resumed["stages"]
+    )
+def test_target_solver_ingests_connector_rows_before_stock_and_closeout(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    result = gateway.solve_target(
+        target_name="blind evidence target",
+        target_smiles=TARGET,
+        run_id="blind-target-evidence-e2e",
+        acceptance=RetrosynthesisAcceptanceSpec(
+            minimum_complete_routes=2,
+            minimum_edge_proof_level=3,
+            minimum_independent_source_groups=2,
+            stock_boundary="benchmark_search",
+        ),
+        budget=RetrosynthesisRunBudget(
+            max_model_invocations=1,
+            max_total_input_tokens=10_000,
+            max_total_output_tokens=5_000,
+            max_total_wall_time_s=60,
+            max_visual_invocations=0,
+            max_accepted_expansions=8,
+            max_attempt_runs=20,
+        ),
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=_evidence_connector,
+    )
+
+    assert result["model_cost"]["model_invocations"] == 1
+    assert result["gates"]["gates"]["B2_host_validated_routes"] is True
+    assert result["gates"]["gates"]["B3_exact_multi_source"] is True
+    assert result["gates"]["gates"]["B4_stock_boundary"] is True
+    assert result["gates"]["gates"]["B5_configured_portfolio_acceptance"] is True
+    evidence_stage = next(
+        stage for stage in result["stages"] if stage["stage"] == "evidence_acquisition"
+    )
+    assert evidence_stage["status"] == "completed"
+    assert evidence_stage["detail"]["exact_record_count"] == 6
+
+
+def test_target_solver_can_close_procurement_from_frozen_supplier_snapshot(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    result = gateway.solve_target(
+        target_name="blind procurement target",
+        target_smiles=TARGET,
+        run_id="blind-target-procurement-e2e",
+        acceptance=RetrosynthesisAcceptanceSpec(
+            minimum_complete_routes=2,
+            minimum_edge_proof_level=2,
+            minimum_independent_source_groups=2,
+            stock_boundary="procurement",
+        ),
+        budget=RetrosynthesisRunBudget(
+            max_model_invocations=1,
+            max_total_input_tokens=10_000,
+            max_total_output_tokens=5_000,
+            max_total_wall_time_s=60,
+            max_visual_invocations=0,
+            max_accepted_expansions=8,
+            max_attempt_runs=16,
+        ),
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        inventory_snapshot_builder=_inventory_builder,
+    )
+
+    assert result["gates"]["gates"]["B4_stock_boundary"] is True
+    assert result["gates"]["gates"]["B5_configured_portfolio_acceptance"] is True
+    assert result["claim"]["procurement_ready"] is True
+    stock_stage = next(stage for stage in result["stages"] if stage["stage"] == "stock")
+    assert stock_stage["detail"]["stock_closed_leaf_count"] == 4

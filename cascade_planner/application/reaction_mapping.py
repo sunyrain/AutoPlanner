@@ -37,10 +37,13 @@ def map_reactions_locally(
     truncated = len(unique) > active.max_reactions
     selected = unique[: active.max_reactions]
     started = time.monotonic()
-    selected_mapper = mapper or _rxnmapper()
+    selected_mapper = (
+        mapper if mapper is not None else (_rxnmapper() if selected else None)
+    )
     mapped: dict[str, str] = {}
     failures: list[dict[str, str]] = []
     for offset in range(0, len(selected), active.batch_size):
+        assert selected_mapper is not None
         batch = selected[offset : offset + active.batch_size]
         try:
             raw_results = list(selected_mapper(batch))
@@ -86,7 +89,9 @@ def map_reactions_locally(
         "truncated": truncated,
         "mapped_reactions": mapped,
         "failures": failures,
-        "elapsed_s": round(max(0.0, time.monotonic() - started), 6),
+        "elapsed_s": (
+            round(max(0.0, time.monotonic() - started), 6) if selected else 0.0
+        ),
         "semantics": {
             "local_only": True,
             "hosted_model_calls": 0,

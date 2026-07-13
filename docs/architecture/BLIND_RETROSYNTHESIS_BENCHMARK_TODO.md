@@ -33,7 +33,8 @@ The host then owns every scientific promotion:
 The resulting main path is:
 
 `SMILES -> blind preflight -> global portfolio -> admission -> materialize ->`
-`local map/verify -> narrow host repair -> source frontier -> stock audit ->`
+`local map/verify -> narrow host repair -> source frontier -> typed evidence connector ->`
+`exact-row ingestion -> benchmark catalog or supplier snapshot audit ->`
 `proof stitch -> B0-B5 gates -> bounded workbench -> stop/checkpoint`
 
 ## Independent gates
@@ -67,13 +68,22 @@ benchmark-stock policy is not an L3 or procurement claim.
   campaign path; model-free `run` remains unchanged.
 - [x] `solve-case` is explicitly a dossier replay compatibility alias.
 - [x] Atomic checkpoints and `--resume` avoid additional model calls after a
-  completed checkpoint; terminal resume only refreshes reporting projections.
+  completed checkpoint. Terminal resume never mutates the historical graph;
+  if a newer verifier invalidates its proof, the current disposition is
+  `terminal_snapshot_requires_revalidation` rather than a solved claim.
 - [x] Provider failures produce an unresolved report instead of false closure.
+- [x] CLI output is a bounded route-free summary by default; the complete
+  content-addressed report stays on disk and is emitted only with
+  `--full-output`.
+- [x] A no-change resume is content-idempotent: consecutive refreshes keep the
+  same report SHA, attempt count, and model-call count.
 
 ### P2 - Bounded global Codex campaign
 
-- [x] Default model policy is `gpt-5.5`, low reasoning, one initial campaign
-  call and at most one event replan.
+- [x] New target-only runs default to `gpt-5.6-sol`, low reasoning, one initial
+  campaign call and at most one event replan. The model remains explicitly
+  replaceable with `--model`; the formal runs below retain their historical
+  `gpt-5.5` identity.
 - [x] Prompts require exact-target-rooted connected DAGs, route-family
   diversity, complete leaves, pivots, limitations, and source tasks.
 - [x] CampaignContext is compacted by topology/proof summaries while retaining
@@ -100,6 +110,10 @@ benchmark-stock policy is not an L3 or procurement claim.
   rejected middle edge cannot make a route pass.
 - [x] Duplicate repairs are skipped before worker reservation, so resume cannot
   collide with an older payload under the same idempotency key.
+- [x] Reaction proofs are verifier-versioned. V7 acceptance or rejection is
+  authoritative; stale V6 acceptance cannot outvote a current rejection.
+- [x] Current negative reaction proofs are cached, so unresolved resume does
+  not map and reject the same edge indefinitely.
 
 ### P4 - Replaceable evidence and stock authority
 
@@ -107,12 +121,24 @@ benchmark-stock policy is not an L3 or procurement claim.
   never become exact evidence.
 - [x] `import-evidence` accepts only trusted structured extraction artifacts
   and resumes canonical proof compilation.
+- [x] `--evidence-endpoint` provides a bounded HTTPS/loopback typed connector.
+  Its provider identity, limits, receipt hash, and structured rows are frozen;
+  connector booleans cannot grant L2 or L3.
 - [x] The generic PubChem vendor-catalog adapter records version, retrieval
   time, response hashes, members, and misses.
+- [x] `--inventory-snapshot` closes the procurement boundary only from a
+  versioned trusted supplier snapshot and audits every selected leaf.
 - [x] Every selected deep leaf is audited again after repairs or replans.
+- [x] Fresh positive and negative stock observations are reused on resume;
+  a miss no longer triggers an identical network audit until the 30-day
+  freshness window expires.
+- [x] An empty validation batch does not initialize RXNMapper. A no-change
+  Ibrutinib resume now completes locally in under one second without consuming
+  another attempt (machine-specific timing, not a contractual latency bound).
 - [x] B3/B4 fail closed when their authoritative adapters are absent.
-- [ ] A live primary-source acquisition/extraction connector is not configured
-  in this environment. Therefore no blind case is reported as B3.
+- [x] The live primary-source connector boundary is implemented and covered by
+  an end-to-end injected-provider test. No trusted endpoint is configured in
+  this environment, so the formal cases below still correctly fail B3.
 
 ### P5 - Trustworthy bounded display
 
@@ -136,9 +162,9 @@ The compact result contains no generated route or precursor answers.
 
 | Case | B0 | B1 | B2 | B3 | B4 | B5 | Calls | Result |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Enzalutamide formal run 04 | yes | yes | no | no | yes | no | 1 | Two global families retained unvalidated critical transforms; resource-compliant unresolved result |
+| Enzalutamide formal run 04 | yes | yes | no | no | yes | no | 1 | One of two skeletons passes V7; an older false-positive edge is revoked |
 | Ibrutinib run 01 | yes | yes | no | no | no | no | 1 | Shared core/piperidine connection rejected; three selected stock misses |
-| Linagliptin run 02 | yes | yes | yes | no | yes | yes | 1 | Two L2 plus benchmark-stock routes after a generic ring-size repair |
+| Linagliptin run 02 | yes | yes | no | no | yes | no | 1 | Historical V6 terminal graph is immutable; current report requires a V7 validation fork or fresh run |
 
 Aggregate model use: 3 calls, 54,081 input tokens, 19,299 output tokens, and
 692.626 reported model seconds. All formal runs stayed within their actual
@@ -147,9 +173,13 @@ the formal result because its deliberately tighter 7k output contract was
 exceeded; the resource gate correctly disqualifies it.
 
 The benchmark release threshold is intentionally **not passed**: all three
-cases pass B0/B1 and no false evidence/procurement claims exist, but only one
-formal case currently has two B2 routes. Failed cases remain in the report; the
-repository does not cherry-pick a showcase and call it universal success.
+cases pass B0/B1 and no false evidence/procurement claims exist, but none now
+has two routes accepted by the current V7 verifier. This is stricter than the
+previous report: Linagliptin's historical terminal status is retained as event
+history but cannot override current proof policy. Enzalutamide and Ibrutinib
+were revalidated locally without model calls. Their cumulative attempts rose
+to 56 and 47 for the one-time migration, then stayed fixed on another resume;
+the Linagliptin attempt count remains 35.
 
 See `benchmarks/results/blind_benchmark_summary.v1.json` for report hashes,
 gate counts, costs, and failure codes.
@@ -158,8 +188,8 @@ gate counts, costs, and failure codes.
 
 - [x] Focused target, repair, verifier, route-workbench, worker, evidence, and
   blind-contract tests.
-- [x] Full test suite (`1552 passed, 3 skipped`) and Ruff.
-- [x] Architecture and repository audits.
+- [x] Full test suite (`1565 passed, 3 skipped`, 2 subtests) and Ruff.
+- [x] Static V4 architecture ownership/line-budget audit and repository audit.
 - [x] Verified no GitHub Actions/workflows were added or changed.
 - [x] Commit the bounded source changes and compact benchmark summary only.
 - [x] Push directly to `origin/main`.

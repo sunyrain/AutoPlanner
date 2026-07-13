@@ -7,6 +7,9 @@ from cascade_planner.application.canonical_identity import (
     molecule_identity,
     reaction_edge_identity,
 )
+from cascade_planner.application.reaction_proof_versions import (
+    CURRENT_REACTION_VALIDATOR_VERSION,
+)
 
 
 TARGET = "CCOC(C)=O"
@@ -197,3 +200,63 @@ def test_repair_prunes_only_an_upstream_tail_that_no_longer_feeds_it() -> None:
     assert report["gates"]["B2_host_validated_routes"] is True
     assert report["routes"][0]["edge_ids"] == [repair_id]
     assert report["routes"][0]["pruned_after_replacement_edge_ids"] == [tail_id]
+
+
+def test_stale_accepted_proof_cannot_outvote_current_host_rejection() -> None:
+    root = _step("step:root", TARGET, ["CCO", "CC(=O)Cl"])
+    edge_id, edge = _validated_edge(TARGET, root["precursor_smiles"])
+    edge["reaction_proofs"] = [
+        {
+            "accepted": True,
+            "validator_version": "autoplanner.reaction_step_verifier.v6",
+        },
+        {
+            "accepted": False,
+            "validator_version": CURRENT_REACTION_VALIDATOR_VERSION,
+        },
+    ]
+
+    report = compile_blind_acceptance_report(
+        preflight=_preflight(),
+        director_outcomes=[_outcome([root], accepted={"step:root"})],
+        graph={"edges": {edge_id: edge}, "molecules": {}, "stock_observations": {}},
+        portfolio=_portfolio(),
+    )
+
+    assert report["gates"]["B1_global_multi_route"] is True
+    assert report["gates"]["B2_host_validated_routes"] is False
+    version_audit = report["reaction_proof_version_audit"]
+    assert version_audit["current_proof_count"] == 1
+    assert version_audit["stale_versioned_proof_count"] == 1
+    assert version_audit["requires_revalidation"] is False
+
+
+def test_unresolved_exact_source_conflict_blocks_b3() -> None:
+    root = _step("step:root", TARGET, ["CCO", "CC(=O)Cl"])
+    edge_id, edge = _validated_edge(TARGET, root["precursor_smiles"])
+    edge["edge_digest"] = edge_id.removeprefix("edge:")
+    edge["exact_record_ids"] = ["exact:one", "exact:two"]
+    edge["independent_source_groups"] = ["patent:one", "doi:two"]
+    portfolio = _portfolio()
+    portfolio["selected_routes"] = [{"edge_ids": [edge_id]}]
+
+    report = compile_blind_acceptance_report(
+        preflight=_preflight(),
+        director_outcomes=[_outcome([root], accepted={"step:root"})],
+        graph={
+            "edges": {edge_id: edge},
+            "molecules": {},
+            "stock_observations": {},
+            "conflicts": {
+                "conflict:one": {
+                    "status": "open",
+                    "subject_id": f"edge:{edge['edge_digest']}",
+                    "record_ids": ["exact:one", "exact:two"],
+                }
+            },
+        },
+        portfolio=portfolio,
+    )
+
+    assert report["gates"]["B2_host_validated_routes"] is True
+    assert report["gates"]["B3_exact_multi_source"] is False

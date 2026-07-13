@@ -193,6 +193,7 @@ def test_workbench_projects_independent_campaign_gates_without_granting_proof() 
             "model_cost": {"model_invocations": 1},
             "stop_decision": {"decision": "completed"},
             "claim": {"exact_multi_source_grade": False},
+            "current_disposition": {"state": "accepted"},
         },
     )
 
@@ -201,6 +202,7 @@ def test_workbench_projects_independent_campaign_gates_without_granting_proof() 
     assert summary["highest_contiguous_gate"] == "B2"
     assert summary["gates"]["B3_exact_multi_source"] is False
     assert summary["gates"]["B4_stock_boundary"] is True
+    assert summary["current_disposition"]["state"] == "accepted"
     assert summary["semantics"]["measurement_only"] is True
 
     forest = compile_v4_route_forest(projection)

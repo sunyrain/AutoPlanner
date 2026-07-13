@@ -28,6 +28,7 @@ from cascade_planner.application.canonical_identity import (
     stock_observation_identity,
 )
 from cascade_planner.application.run_kernel import RunKernel
+from cascade_planner.application.reaction_proof_versions import active_reaction_proofs
 from cascade_planner.application.retrosynthesis_workers import (
     materialization_commands_for_proposals,
 )
@@ -1269,7 +1270,7 @@ def _edge_id_from_digest(graph: Mapping[str, Any], digest: str) -> str:
 
 def _edge_proof_level(edge: Mapping[str, Any]) -> int:
     level = 0
-    for proof in edge.get("reaction_proofs") or []:
+    for proof in active_reaction_proofs(edge.get("reaction_proofs") or []):
         name = str(dict(proof).get("proof_level") or "")
         if name == "L4_procurement_ready":
             level = max(level, 4)

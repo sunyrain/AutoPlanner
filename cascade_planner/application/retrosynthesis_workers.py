@@ -24,6 +24,9 @@ from cascade_planner.application.worker_runtime import (
     WorkerRuntimeError,
 )
 from cascade_planner.harness.reaction_step_verifier import verify_reaction_step
+from cascade_planner.application.reaction_proof_versions import (
+    CURRENT_REACTION_VALIDATOR_VERSION,
+)
 from cascade_planner.providers import (
     BenchmarkCatalogStockProvider,
     ProviderContext,
@@ -91,7 +94,7 @@ def build_retrosynthesis_worker_handlers() -> dict[str, WorkerHandlerSpec]:
         ),
         WorkerHandlerSpec(
             "validate_reaction",
-            WORKER_SET_VERSION,
+            f"{WORKER_SET_VERSION}+{CURRENT_REACTION_VALIDATOR_VERSION}",
             "validation",
             validate_reaction_worker,
         ),
@@ -430,6 +433,13 @@ def validate_reaction_worker(
     """Run the existing deterministic reaction verifier on a materialized edge."""
     del artifacts
     payload = dict(command.payload)
+    requested_version = str(payload.get("validator_version") or "")
+    if requested_version and requested_version != CURRENT_REACTION_VALIDATOR_VERSION:
+        return {
+            "status": "stale",
+            "payload": {},
+            "failure_reasons": ["reaction_validator_version_stale"],
+        }
     candidate = dict(payload.get("candidate") or {})
     if (
         candidate.get("accepted") is not True
@@ -1103,6 +1113,7 @@ def audit_deep_leaf_stock_worker(
             "leaf_id": leaf_id,
             "canonical_smiles": canonical,
             "accepted": accepted,
+            "authority_valid": not inventory_authority_invalid,
             "inventory_snapshot_set_id": snapshot_set["snapshot_set_id"],
             "inventory_artifact_authority_scope": "inventory_snapshot_set",
             "audited_as_of": _iso(as_of),
@@ -1273,6 +1284,7 @@ def audit_benchmark_leaf_stock_worker(
             "leaf_id": leaf_id,
             "canonical_smiles": canonical,
             "accepted": accepted,
+            "authority_valid": not invalid_authority,
             "inventory_snapshot_set_id": snapshot_set_id,
             "inventory_artifact_authority_scope": "benchmark_stock_catalog",
             "audited_as_of": _iso(as_of),

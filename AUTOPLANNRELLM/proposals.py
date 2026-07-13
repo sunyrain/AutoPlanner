@@ -6,7 +6,7 @@ from typing import Any
 
 from rdkit import Chem
 
-from cascade_planner.cascadeboard.route_recovery import canonical_reaction, canonical_smiles
+from cascade_planner.cascadeboard.route_recovery import canonical_smiles
 from cascade_planner.route_tree.schema import CandidateAction
 
 from AUTOPLANNRELLM.deepseek_client import DeepSeekJSONClient

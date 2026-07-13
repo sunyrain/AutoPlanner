@@ -8,7 +8,15 @@ from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
 )
-from cascade_planner.interfaces.target_solver import TargetSolveConfig
+from cascade_planner.interfaces.live_evidence import (
+    HttpEvidenceConnectorConfig,
+    build_http_evidence_connector,
+)
+from cascade_planner.interfaces.live_stock import load_versioned_inventory_snapshot
+from cascade_planner.interfaces.target_solver import (
+    DEFAULT_TARGET_DIRECTOR_MODEL,
+    TargetSolveConfig,
+)
 
 
 TARGET_COMMANDS = frozenset({"solve-target", "import-evidence"})
@@ -26,8 +34,13 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--manifest", help="target-only manifest allowed by blind preflight")
     solve.add_argument("--resume", action="store_true")
     solve.add_argument(
+        "--full-output",
+        action="store_true",
+        help="emit the full report JSON; default output is a bounded summary",
+    )
+    solve.add_argument(
         "--model",
-        default="gpt-5.5",
+        default=DEFAULT_TARGET_DIRECTOR_MODEL,
         help="explicit Codex model; defaults to the strongest current CLI-compatible tier",
     )
     solve.add_argument(
@@ -39,6 +52,17 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--no-web-search", action="store_true")
     solve.add_argument("--no-replan", action="store_true")
     solve.add_argument("--no-live-benchmark-stock", action="store_true")
+    solve.add_argument(
+        "--evidence-endpoint",
+        help="trusted structured extraction HTTPS endpoint (loopback HTTP allowed)",
+    )
+    solve.add_argument("--evidence-provider-id", default="")
+    solve.add_argument("--evidence-provider-version", default="")
+    solve.add_argument("--evidence-token-env", default="")
+    solve.add_argument(
+        "--inventory-snapshot",
+        help="versioned trusted supplier snapshot used for procurement closure",
+    )
     solve.add_argument("--minimum-complete-routes", type=int, default=2)
     solve.add_argument("--minimum-edge-proof-level", type=int, default=2)
     solve.add_argument("--minimum-source-groups", type=int, default=2)
@@ -74,13 +98,34 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         )
     if args.command != "solve-target":
         raise ValueError(f"unsupported_target_command:{args.command}")
-    return gateway.solve_target(
+    evidence_connector = None
+    if args.evidence_endpoint:
+        evidence_connector = build_http_evidence_connector(
+            HttpEvidenceConnectorConfig(
+                endpoint=args.evidence_endpoint,
+                provider_id=args.evidence_provider_id,
+                provider_version=args.evidence_provider_version,
+                token_env=args.evidence_token_env,
+            )
+        )
+    inventory_snapshot_builder = None
+    if args.inventory_snapshot:
+        if args.stock_boundary != "procurement":
+            raise ValueError("inventory_snapshot_requires_procurement_boundary")
+        frozen_inventory = load_versioned_inventory_snapshot(args.inventory_snapshot)
+
+        def inventory_snapshot_builder(_smiles: Any, **_kwargs: Any) -> Any:
+            return frozen_inventory
+
+    result = gateway.solve_target(
         target_name=args.target_name,
         target_smiles=args.target_smiles,
         run_id=args.run_id,
         run_dir=args.run_dir,
         manifest_path=args.manifest,
         resume=args.resume,
+        evidence_connector=evidence_connector,
+        inventory_snapshot_builder=inventory_snapshot_builder,
         acceptance=RetrosynthesisAcceptanceSpec(
             minimum_complete_routes=args.minimum_complete_routes,
             minimum_edge_proof_level=args.minimum_edge_proof_level,
@@ -108,6 +153,47 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             max_live_stock_molecules=args.max_stock_molecules,
         ),
     )
+    return result if args.full_output else _compact_target_result(result)
 
 
-__all__ = ["TARGET_COMMANDS", "add_target_commands", "dispatch_target_command"]
+def _compact_target_result(result: Any) -> dict[str, Any]:
+    row = dict(result)
+    gates = dict(row.get("gates") or {})
+    resource = dict(row.get("resource_envelope") or {})
+    return {
+        "schema_version": "target_solve_cli_summary.v1",
+        "run_id": str(row.get("run_id") or ""),
+        "target": dict(row.get("target") or {}),
+        "gates": dict(gates.get("gates") or {}),
+        "highest_contiguous_gate": str(
+            gates.get("highest_contiguous_gate") or "none"
+        ),
+        "counts": dict(gates.get("counts") or {}),
+        "claim": dict(row.get("claim") or {}),
+        "current_disposition": dict(row.get("current_disposition") or {}),
+        "model_cost": dict(row.get("model_cost") or {}),
+        "resource_envelope": {
+            "within_budget": resource.get("within_budget") is True,
+            "observed": dict(resource.get("observed") or {}),
+            "violations": list(resource.get("violations") or []),
+        },
+        "attempt_count": int(row.get("attempt_count") or 0),
+        "accepted_expansion_count": int(
+            row.get("accepted_expansion_count") or 0
+        ),
+        "stop_decision": dict(row.get("stop_decision") or {}),
+        "report_path": str(row.get("report_path") or ""),
+        "report_ref": dict(row.get("report_ref") or {}),
+        "report_sha256": str(row.get("content_sha256") or ""),
+        "semantics": {
+            "full_report_is_content_addressed_and_written_to_report_path": True,
+            "summary_omits_generated_routes_and_precursors": True,
+        },
+    }
+
+
+__all__ = [
+    "TARGET_COMMANDS",
+    "add_target_commands",
+    "dispatch_target_command",
+]

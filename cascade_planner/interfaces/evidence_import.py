@@ -36,6 +36,27 @@ def import_structured_evidence(
     path = Path(import_path).expanduser().resolve()
     document = _read_import(path)
     service = gateway._open(run_id, run_dir=run_dir)
+    result = ingest_structured_evidence_document(
+        service,
+        document=document,
+        atom_mapper=atom_mapper,
+    )
+    return {
+        **result,
+        "input_path": str(path),
+        "input_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+
+
+def ingest_structured_evidence_document(
+    service: Any,
+    *,
+    document: Mapping[str, Any],
+    atom_mapper: ReactionMapper | None = None,
+) -> dict[str, Any]:
+    """Ingest a validated in-memory connector response through normal workers."""
+
+    document = validate_structured_evidence_document(document)
     if service.kernel.state.terminal:
         raise CampaignGatewayError("terminal_run_cannot_import_evidence")
     graph = service.graph_store.load()
@@ -121,8 +142,7 @@ def import_structured_evidence(
         "schema_version": "structured_evidence_import_result.v1",
         "run_id": service.kernel.spec.run_id,
         "run_dir": str(service.kernel.run_dir),
-        "input_path": str(path),
-        "input_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "document_sha256": _digest(document),
         "source_count": len(document["sources"]),
         "new_source_command_count": len(commands),
         "imported_artifact_refs": imported_refs,
@@ -146,6 +166,12 @@ def _read_import(path: Path) -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("structured_evidence_import_unreadable") from exc
+    return validate_structured_evidence_document(value)
+
+
+def validate_structured_evidence_document(value: Any) -> dict[str, Any]:
+    """Validate the bounded interchange schema without granting authority."""
+
     if not isinstance(value, Mapping):
         raise ValueError("structured_evidence_import_not_object")
     row = dict(value)
@@ -186,5 +212,7 @@ def _digest(value: Any) -> str:
 
 __all__ = [
     "STRUCTURED_EVIDENCE_IMPORT_SCHEMA",
+    "ingest_structured_evidence_document",
     "import_structured_evidence",
+    "validate_structured_evidence_document",
 ]

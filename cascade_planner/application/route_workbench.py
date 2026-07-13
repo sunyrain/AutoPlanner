@@ -286,6 +286,9 @@ def _campaign_summary(value: Mapping[str, Any] | None) -> dict[str, Any]:
         "model_cost": _copy_json(source.get("model_cost") or {}),
         "stop_decision": _copy_json(source.get("stop_decision") or {}),
         "claim": _copy_json(source.get("claim") or {}),
+        "current_disposition": _copy_json(
+            source.get("current_disposition") or {}
+        ),
         "semantics": {
             "measurement_only": True,
             "independent_gates_may_pass_after_a_contiguous_gap": True,

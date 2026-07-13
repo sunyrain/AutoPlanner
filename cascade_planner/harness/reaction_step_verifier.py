@@ -29,6 +29,9 @@ from typing import Any, Iterable, Mapping
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.application.reaction_proof_versions import (
+    CURRENT_REACTION_VALIDATOR_VERSION,
+)
 from cascade_planner.providers.stock import replay_stock_provider_result
 
 
@@ -36,7 +39,7 @@ RDLogger.DisableLog("rdApp.*")
 
 REACTION_STEP_PROOF_SCHEMA = "reaction_step_proof.v1"
 REACTION_ROUTE_PROOF_SCHEMA = "reaction_route_validation.v1"
-REACTION_STEP_VERIFIER_VERSION = "autoplanner.reaction_step_verifier.v6"
+REACTION_STEP_VERIFIER_VERSION = CURRENT_REACTION_VALIDATOR_VERSION
 
 PROOF_LEVEL_ORDER = {
     "L0_materialized": 0,

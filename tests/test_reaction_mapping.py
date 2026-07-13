@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from cascade_planner.application import reaction_mapping
 from cascade_planner.application.reaction_mapping import (
     ReactionMappingConfig,
     map_reactions_locally,
@@ -39,3 +42,17 @@ def test_local_mapping_hard_cap_is_reported() -> None:
     )
     assert report["truncated"] is True
     assert report["mapped_count"] == 1
+
+
+def test_empty_mapping_batch_does_not_initialize_rxnmapper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_mapper() -> object:
+        raise AssertionError("empty batch must not initialize RXNMapper")
+
+    monkeypatch.setattr(reaction_mapping, "_rxnmapper", unexpected_mapper)
+    report = map_reactions_locally([])
+
+    assert report["requested_count"] == 0
+    assert report["mapped_count"] == 0
+    assert report["elapsed_s"] == 0.0

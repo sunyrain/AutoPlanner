@@ -14,6 +14,7 @@ from typing import Any, Mapping
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
 )
+from cascade_planner.application.reaction_proof_versions import active_reaction_proofs
 
 
 PROOF_POLICY_SCHEMA = "retrosynthesis_proof_policy.v1"
@@ -91,7 +92,7 @@ def stitch_edge_proof(
         reasons.append("canonical_edge_missing_or_digest_invalid")
     reaction_proofs = [
         dict(value)
-        for value in edge.get("reaction_proofs") or []
+        for value in active_reaction_proofs(edge.get("reaction_proofs") or [])
         if isinstance(value, Mapping) and _valid_reaction_proof(value)
     ]
     reaction_level = max(

@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
+from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 import requests
@@ -32,6 +33,31 @@ JsonRequester = Callable[..., tuple[int, bytes, Mapping[str, Any]]]
 
 class LiveStockAdapterError(RuntimeError):
     """The generic live catalog could not be frozen within its hard bounds."""
+
+
+def load_versioned_inventory_snapshot(
+    path: str | Path,
+    *,
+    max_bytes: int = 8_000_000,
+) -> dict[str, Any]:
+    """Read a bounded supplier snapshot; the stock worker grants authority."""
+
+    resolved = Path(path).expanduser().resolve()
+    try:
+        size = resolved.stat().st_size
+        if size < 1 or size > max_bytes:
+            raise LiveStockAdapterError("inventory_snapshot_size_invalid")
+        value = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LiveStockAdapterError("inventory_snapshot_unreadable") from exc
+    if not isinstance(value, Mapping):
+        raise LiveStockAdapterError("inventory_snapshot_not_object")
+    row = dict(value)
+    if row.get("schema_version") != "versioned_inventory_snapshot.v1":
+        raise LiveStockAdapterError("inventory_snapshot_schema_invalid")
+    if not isinstance(row.get("offers"), list):
+        raise LiveStockAdapterError("inventory_snapshot_offers_invalid")
+    return row
 
 
 def build_pubchem_vendor_catalog(
@@ -212,4 +238,5 @@ __all__ = [
     "LiveStockAdapterError",
     "PUBCHEM_VENDOR_ADAPTER_VERSION",
     "build_pubchem_vendor_catalog",
+    "load_versioned_inventory_snapshot",
 ]
