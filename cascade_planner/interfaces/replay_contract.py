@@ -79,6 +79,7 @@ def validate_replay_pack(pack: Mapping[str, Any]) -> None:
         raise ReplayPackError("replay_pack_expansion_budget_too_small")
     if not pack["sources"] or not pack["reactions"]:
         raise ReplayPackError("replay_pack_facts_missing")
+    exact_source_edge_digests: set[str] = set()
     for source in pack["sources"]:
         binding = normalize_source_binding(source["binding"])
         if (
@@ -89,6 +90,15 @@ def validate_replay_pack(pack: Mapping[str, Any]) -> None:
             or not source.get("rows")
         ):
             raise ReplayPackError("replay_pack_source_invalid")
+        for row in source["rows"]:
+            if not isinstance(row, Mapping) or row.get("relation_type") != "exact":
+                raise ReplayPackError("replay_pack_source_row_invalid")
+            source_audit = audit_retrosynthetic_candidate(
+                row.get("product_smiles"), row.get("reactant_smiles") or []
+            )
+            if source_audit.get("accepted") is not True:
+                raise ReplayPackError("replay_pack_source_row_invalid")
+            exact_source_edge_digests.add(str(source_audit["edge_digest"]))
     edge_digests: set[str] = set()
     for reaction in pack["reactions"]:
         audit = audit_retrosynthetic_candidate(
@@ -104,11 +114,17 @@ def validate_replay_pack(pack: Mapping[str, Any]) -> None:
                 "product_smiles": reaction["product_smiles"],
                 "reactant_smiles": reaction["reactant_smiles"],
                 "mapped_reaction_smiles": reaction.get("mapped_reaction_smiles"),
-            }
+            },
+            source_supported_multicentre=(
+                str(reaction.get("edge_digest") or "")
+                in exact_source_edge_digests
+            ),
         )
         if proof.get("accepted") is not True:
             raise ReplayPackError("replay_pack_reaction_validation_failed")
         edge_digests.add(str(reaction["edge_digest"]))
+    if not edge_digests <= exact_source_edge_digests:
+        raise ReplayPackError("replay_pack_reaction_without_exact_source")
     if len(edge_digests) != len(pack["reactions"]):
         raise ReplayPackError("replay_pack_reaction_duplicate")
     artifact = dict(dict(pack["inventory"]).get("artifact") or {})

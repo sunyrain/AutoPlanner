@@ -594,6 +594,53 @@ def test_segmented_complex_target_cannot_gain_reaction_authority() -> None:
     assert proof["proof_level"] == "L2_mapping_consistent"
     assert proof["accepted"] is False
 
+    source_claimed = verify_reaction_step(
+        {
+            "product_smiles": "C" * 24,
+            "reactant_smiles": ["C1CCCCC1"] * 4,
+            "atom_mapped_reaction_smiles": f"{'.'.join(rings)}>>{product}",
+        },
+        graph_and_stock_closed=True,
+        source_supported_multicentre=True,
+    )
+    assert source_claimed["accepted"] is False
+    assert source_claimed["deterministic_transform_audit"]["transform_family"] == ""
+
+
+def test_exact_source_supported_artemisinin_oxidative_cascade_is_validated() -> None:
+    artemisinin = (
+        "C[C@@H]1CC[C@H]2[C@H](C(=O)O[C@H]3[C@@]24[C@H]1CC[C@](O3)(OO4)C)C"
+    )
+    dihydroartemisinic_acid = (
+        "C[C@@H]1CC[C@H]([C@@H]2[C@H]1CCC(=C2)C)[C@@H](C)C(=O)O"
+    )
+    mapped = (
+        "[CH3:1][C@@H:2]1[CH2:3][CH2:4][C@@H:5]([C@@H:6]([CH3:7])"
+        "[C:8](=[O:9])[OH:10])[C@H:18]2[CH:11]=[C:13]([CH3:14])[CH2:15]"
+        "[CH2:16][C@@H:17]12.[O:19]=[O:20].O=[O:12]>>[CH3:1][C@@H:2]1"
+        "[CH2:3][CH2:4][C@H:5]2[C@@H:6]([CH3:7])[C:8](=[O:9])[O:10]"
+        "[C@@H:11]3[O:12][C@@:13]4([CH3:14])[CH2:15][CH2:16][C@@H:17]1"
+        "[C@@:18]23[O:19][O:20]4"
+    )
+    step = {
+        "product_smiles": artemisinin,
+        "reactant_smiles": [dihydroartemisinic_acid, "O=O", "O=O"],
+        "mapped_reaction_smiles": mapped,
+    }
+
+    unbound = verify_reaction_step(step)
+    supported = verify_reaction_step(step, source_supported_multicentre=True)
+
+    assert unbound["accepted"] is False
+    assert "reaction_creates_too_many_rings_in_one_step" in unbound["reasons"]
+    assert supported["accepted"] is True
+    assert supported["proof_level"] == "L2_reaction_validated"
+    assert supported["atom_map_audit"]["net_ring_increase"] == 3
+    assert supported["bond_change_audit"]["bond_edit_count"] == 9
+    assert supported["deterministic_transform_audit"]["transform_family"] == (
+        "source_supported_tandem_oxidative_cyclization"
+    )
+
 
 def test_route_validation_uses_weakest_link_and_digest(monkeypatch) -> None:
     validation = verify_reaction_route(

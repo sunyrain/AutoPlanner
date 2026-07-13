@@ -18,7 +18,11 @@ from cascade_planner.harness.route_forest_delivery import (
     render_route_forest_html,
     sanitize_structure_svg,
 )
-from cascade_planner.harness.route_forest_layout import canonical_sha256
+from cascade_planner.harness.v4_workbench_authority import (
+    frontier_ledger,
+    retrosynthesis_control,
+    selected_route_proof,
+)
 
 
 V4_WORKBENCH_ADAPTER_SCHEMA = "v4_route_workbench_adapter.v1"
@@ -67,7 +71,12 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             step_id = _stable_id("step", branch_id, str(canonical_edge_id))
             reaction_graph_id = _reaction_graph_id(step_id)
             product_id = str(edge.get("product_molecule_id") or "")
-            precursor_ids = [str(value) for value in edge.get("precursor_molecule_ids") or []]
+            raw_precursor_ids = [
+                str(value) for value in edge.get("precursor_molecule_ids") or []
+            ]
+            precursor_ids, precursor_multiplicity = _project_stoichiometric_inputs(
+                raw_precursor_ids
+            )
             if product_id not in nodes_by_id or any(value not in nodes_by_id for value in precursor_ids):
                 continue
             proof_level = int(edge.get("proof_level") or 0)
@@ -82,6 +91,19 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                 if isinstance(value, Mapping)
             ]
             conditions = _conditions(exact_records)
+            repeated_inputs = [
+                row for row in precursor_multiplicity if int(row["count"]) > 1
+            ]
+            if repeated_inputs:
+                conditions.append(
+                    {
+                        "label": "input multiplicity",
+                        "value": ", ".join(
+                            f"{nodes_by_id[row['molecule_node_id']]['label']} ×{row['count']}"
+                            for row in repeated_inputs
+                        ),
+                    }
+                )
             step = {
                 "step_id": step_id,
                 "graph_step_id": str(canonical_edge_id),
@@ -89,6 +111,8 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                 "frontier_exact_edge_signature": str(canonical_edge_id),
                 "branch_id": branch_id,
                 "from_node_ids": precursor_ids,
+                "precursor_multiplicity": precursor_multiplicity,
+                "stoichiometric_input_count": len(raw_precursor_ids),
                 "to_node_ids": [product_id],
                 "reaction_class": str(route.get("strategy") or "Retrosynthetic step"),
                 "conditions": conditions,
@@ -191,7 +215,13 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
         branch_views=branch_views,
     )
     primary_id = str(dict(source.get("portfolio") or {}).get("default_route_id") or "")
-    frontier_ledger = _frontier_ledger(source, nodes_by_id=nodes_by_id, authority_edges=authority_edges)
+    portfolio_accepted = dict(source.get("portfolio") or {}).get("accepted") is True
+    frontier_ledger_value = frontier_ledger(
+        source,
+        nodes_by_id=nodes_by_id,
+        authority_edges=authority_edges,
+    )
+    selected_route_proof_value = selected_route_proof(source)
     route_count = len(routes)
     complete_count = sum(dict(value).get("complete") is True for value in routes.values())
     forest = {
@@ -213,8 +243,9 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             "schema_version": "route_forest_primary_selection.v1",
             "status": "display_projection",
             "primary_branch_id": primary_id,
+            "proof_level": "v4_proof_portfolio" if portfolio_accepted else "",
+            "advisory_only": not portfolio_accepted,
             "display_tiebreak_only": True,
-            "advisory_only": not bool(primary_id),
         },
         "nodes": list(nodes_by_id.values()),
         "steps": steps,
@@ -231,8 +262,13 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             "branch_views": branch_views,
             "no_array_adjacency_edges": True,
         },
-        "frontier_ledger": frontier_ledger,
-        "semantic_summary": {"frontier_ledger": frontier_ledger},
+        "frontier_ledger": frontier_ledger_value,
+        "selected_route_parent_proof": selected_route_proof_value,
+        "retrosynthesis_control": retrosynthesis_control(
+            source,
+            selected_route_proof=selected_route_proof_value,
+        ),
+        "semantic_summary": {"frontier_ledger": frontier_ledger_value},
         "display_policy": {
             "default_overview_top_k": min(5, max(2, route_count)),
             "default_group_visible_count": 5,
@@ -279,6 +315,14 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                         for source_row in dict(inspector).get("sources") or []
                         if isinstance(source_row, Mapping)
                     }
+                ),
+                "representation_count": sum(
+                    len(dict(inspector).get("exact_records") or [])
+                    for inspector in edge_inspectors.values()
+                ),
+                "real_source_candidate_records": sum(
+                    len(dict(inspector).get("exact_records") or [])
+                    for inspector in edge_inspectors.values()
                 ),
             }
         },
@@ -354,6 +398,24 @@ def _molecule_graph_id(molecule_id: str) -> str:
     return f"graph:molecule:{molecule_id}"
 
 
+def _project_stoichiometric_inputs(
+    values: list[str],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Keep one display node per molecule while preserving repeated equivalents."""
+
+    counts: dict[str, int] = {}
+    unique: list[str] = []
+    for molecule_id in values:
+        if molecule_id not in counts:
+            unique.append(molecule_id)
+            counts[molecule_id] = 0
+        counts[molecule_id] += 1
+    return unique, [
+        {"molecule_node_id": molecule_id, "count": counts[molecule_id]}
+        for molecule_id in unique
+    ]
+
+
 def _reaction_graph_id(step_id: str) -> str:
     return f"graph:reaction:{step_id}"
 
@@ -398,6 +460,7 @@ def _route_branch(
     primary: bool,
 ) -> dict[str, Any]:
     level = max(0, min(4, int(route.get("proof_level") or 0)))
+    complete = route.get("complete") is True
     source_refs = [
         str(value)[7:]
         for value in route.get("badges") or []
@@ -410,11 +473,11 @@ def _route_branch(
         "listed": True,
         "is_primary": primary,
         "step_ids": step_ids,
-        "solved": route.get("complete") is True,
-        "complete": route.get("complete") is True,
-        "executable": route.get("complete") is True,
-        "advisory_only": route.get("complete") is not True,
-        "not_parent_route_proof": True,
+        "solved": complete,
+        "complete": complete,
+        "executable": complete,
+        "advisory_only": not complete,
+        "not_parent_route_proof": not complete,
         "proof_tier": _PROOF_TIER[level],
         "confidence": "high" if level >= 3 else "medium" if level >= 2 else "low",
         "source_refs": source_refs,
@@ -534,98 +597,6 @@ def _append_hypothesis_branches(
                 "all_leaves_stock_bound": False,
             }
         )
-
-
-def _frontier_ledger(
-    source: Mapping[str, Any],
-    *,
-    nodes_by_id: Mapping[str, Mapping[str, Any]],
-    authority_edges: list[dict[str, Any]],
-) -> dict[str, Any]:
-    molecules_by_smiles: dict[str, dict[str, Any]] = {}
-    for molecule_id, node in nodes_by_id.items():
-        smiles = str(node.get("canonical_isomeric_smiles") or "")
-        if not smiles:
-            continue
-        stock_closed = node.get("stock_closed") is True
-        observation_id = str(node.get("stock_observation_id") or "")
-        current = molecules_by_smiles.setdefault(
-            smiles,
-            {
-                "canonical_smiles": smiles,
-                "work": {"proposal_expansion_succeeded": True, "job_ids": []},
-                "stock": {
-                    "host_replay_verified": False,
-                    "current_observation_ids": [],
-                    "closure_job_ids": [],
-                    "benchmark_search_boundary_closed": False,
-                    "procurement_boundary_closed": False,
-                },
-            },
-        )
-        current["work"]["job_ids"] = sorted(
-            {*current["work"]["job_ids"], f"graph:{molecule_id}"}
-        )
-        if stock_closed and observation_id:
-            current["stock"].update(
-                {
-                    "host_replay_verified": True,
-                    "current_observation_ids": sorted(
-                        {
-                            *current["stock"]["current_observation_ids"],
-                            observation_id,
-                        }
-                    ),
-                    "closure_job_ids": sorted(
-                        {
-                            *current["stock"]["closure_job_ids"],
-                            f"stock:{molecule_id}",
-                        }
-                    ),
-                    "benchmark_search_boundary_closed": True,
-                    "procurement_boundary_closed": True,
-                }
-            )
-    edges_by_signature: dict[str, dict[str, Any]] = {}
-    for edge in authority_edges:
-        signature = str(edge.get("exact_edge_signature") or "")
-        if not signature:
-            continue
-        current = edges_by_signature.setdefault(signature, dict(edge))
-        current["step_ids"] = sorted(
-            {
-                *(str(value) for value in current.get("step_ids") or []),
-                *(str(value) for value in edge.get("step_ids") or []),
-            }
-        )
-        current_level = int(dict(current.get("reaction_proof") or {}).get("achieved_proof_level") or 0)
-        next_level = int(dict(edge.get("reaction_proof") or {}).get("achieved_proof_level") or 0)
-        if next_level > current_level:
-            current["reaction_proof"] = dict(edge.get("reaction_proof") or {})
-    ledger = {
-        "schema_version": "route_forest_frontier_ledger_authority.v1",
-        "authoritative": True,
-        "stage_authority": {
-            "schema_version": "route_forest_stage_authority.v1",
-            "authoritative": True,
-            "reasons": [],
-            "molecules": [molecules_by_smiles[key] for key in sorted(molecules_by_smiles)],
-            "edges": [edges_by_signature[key] for key in sorted(edges_by_signature)],
-        },
-        "counts": {
-            "selected_routes": len(dict(source.get("routes") or {})),
-            "complete_routes": sum(
-                dict(value).get("complete") is True
-                for value in dict(source.get("routes") or {}).values()
-            ),
-        },
-        "semantics": {
-            "display_projection_only": True,
-            "aggregate_counts_never_authorize_stage_membership": True,
-        },
-    }
-    ledger["content_sha256"] = canonical_sha256(ledger)
-    return ledger
 
 
 def _trust_vector(edge: Mapping[str, Any], sources: list[Mapping[str, Any]]) -> dict[str, Any]:

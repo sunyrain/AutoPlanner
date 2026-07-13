@@ -12,6 +12,9 @@
 | `proof_stitched_route_portfolio.v1` | 多样路线组合与 completion | proof stitcher |
 | `retrosynthesis_route_workbench.v1` | 有界只读 UI snapshot | workbench projection |
 | `retrosynthesis_route_workbench_delta.v1` | revision 间实体增删改 | workbench projection |
+| `retrosynthesis_case_dossier.v1` | 审阅后的全局路线、精确来源与库存输入 | operator / upstream planner |
+| `retrosynthesis_case_compile_result.v1` | 案卷到重放包的确定性编译摘要 | case compiler |
+| `retrosynthesis_case_run_result.v1` | 编译、重放、闭合、导出与分阶段耗时 | one-command case runner |
 | `retrosynthesis_replay_pack.v1` | 可移植的目标、事实、库存与期望 | reviewed golden case |
 | `retrosynthesis_replay_result.v1` | 重放阶段、指标和 digest 校验 | replay runner |
 | `autoplanner_campaign_gateway_result.v1` | CLI/API 操作包装 | campaign gateway |

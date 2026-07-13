@@ -44,6 +44,8 @@ config/examples/*
 !config/examples/nirmatrelvir_stock_snapshots_20260712.json
 !config/examples/nirmatrelvir_v3_golden_acceptance.json
 !config/examples/nirmatrelvir_v4_replay_pack.json
+!config/examples/artemisinin_v4_case_dossier.json
+!config/examples/artemisinin_v4_replay_pack.json
 !config/examples/paclitaxel_v4_bounded_showcase_plan.json
 !config/examples/unseen_v4_baseline_panel.json
 

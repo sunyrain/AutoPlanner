@@ -33,13 +33,16 @@ def test_pointer_motion_is_latest_value_raf_batched_without_layout_render() -> N
     move = script.split("window.addEventListener('pointermove'", 1)[1].split(
         "window.addEventListener('pointerup'", 1
     )[0]
+    camera_frame = script.split("function commitPendingPanFrame", 1)[1].split(
+        "function bindViewportEvents", 1
+    )[0]
 
     assert "panSession.latestX = event.clientX" in move
     assert "panSession.latestY = event.clientY" in move
-    assert "requestAnimationFrame(frameTime =>" in move
-    assert "applyViewportTransform({ updateMinimap: false })" in move
-    assert "renderGraph(" not in move
-    assert "buildGraphModel(" not in move
+    assert "requestAnimationFrame(commitPendingPanFrame)" in move
+    assert "applyViewportTransform({ updateMinimap: false })" in camera_frame
+    assert "renderGraph(" not in move + camera_frame
+    assert "buildGraphModel(" not in move + camera_frame
 
 
 def test_large_graph_runtime_has_bounded_portfolio_lod_culling_and_probe() -> None:
@@ -81,6 +84,14 @@ def test_camera_transform_is_the_only_composited_graph_layer() -> None:
     assert "will-change: transform" in graph_world
 
 
+def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+
+    assert "function preferReadableFocus()" in script
+    assert "return (lane.step_ids || []).length <= 4" in script
+    assert "fitGraph({ readable: preferReadableFocus() })" in script
+
+
 def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
     tmp_path: Path,
 ) -> None:
@@ -100,6 +111,7 @@ def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
 
     workbench = _large_workbench(edge_count=70)
     page = tmp_path / "route-workbench.html"
+    browser_profile = tmp_path / "chromium-profile"
     page.write_text(render_v4_route_workbench_html(workbench), encoding="utf-8")
     result = subprocess.run(
         [
@@ -111,6 +123,7 @@ def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
             "--disable-background-networking",
             "--disable-extensions",
             "--disable-sync",
+            f"--user-data-dir={browser_profile}",
             "--run-all-compositor-stages-before-draw",
             "--virtual-time-budget=4000",
             "--dump-dom",

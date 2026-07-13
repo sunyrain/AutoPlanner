@@ -62,6 +62,20 @@ python -m cascade_planner replay-case \
 该案例重建 2 条完整路线、12 条规范超边、15 条精确来源记录和 7 个库存叶，
 全程 0 次模型/视觉调用。可用 `--stop-after evidence` 验证暂停恢复。
 
+从小型精确来源案卷一键完成 Artemisinin 编译、验收和离线展示：
+
+```bash
+python -m cascade_planner solve-case \
+  --dossier config/examples/artemisinin_v4_case_dossier.json \
+  --run-id artemisinin-showcase \
+  --output-dir local-showcase/artemisinin
+```
+
+该案例保留“从青蒿酸开始”和“直接采购二氢青蒿酸开始”两种采购边界，闭合 2 条路线、
+2 条验证超边、3 条精确来源记录和 4 个库存叶，并输出分阶段耗时。案卷入口适合接收
+Codex 的全局多步路线组合；它不是逐边调用 Codex，也不会在没有来源事实或 proposal
+provider 时伪装成任意未见分子的自动发现器。
+
 启动 Web：
 
 ```bash

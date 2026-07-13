@@ -37,7 +37,32 @@ python -m cascade_planner run \
 
 同一 run id 和同一计划可安全重试。
 
-## 3. 科学案例重放
+## 3. 从精确来源案卷一键求解
+
+```bash
+python -m cascade_planner solve-case \
+  --dossier config/examples/artemisinin_v4_case_dossier.json \
+  --run-id artemisinin-showcase \
+  --output-dir local-showcase/artemisinin
+```
+
+该命令依次编译案卷、进入 canonical hypergraph、执行来源/反应/库存 worker、拼接
+proof portfolio，并导出离线 workbench。输出带分阶段墙钟时间；默认模型和视觉调用均为 0。
+
+需要单独审阅生成的可移植重放包时：
+
+```bash
+python -m cascade_planner compile-case \
+  --dossier config/examples/artemisinin_v4_case_dossier.json \
+  --output local-showcase/artemisinin-pack.json
+```
+
+案卷必须包含：少量全局路线族、原子映射反应、覆盖每条边的精确来源记录，以及覆盖
+每个深层叶节点的带时间戳库存 offer。缺一项即失败关闭。`--map-missing` 只会调用本机
+已安装的 RXNMapper，不会访问 hosted model 或网络。案卷负责输入事实的人工/上游审阅；
+编译器不会把摘要哈希误当成化学真实性，也不会把目录可订购性表述为实时本地库存。
+
+## 4. 科学案例重放
 
 ```bash
 python -m cascade_planner replay-case \
@@ -61,7 +86,7 @@ python -m cascade_planner replay-case \
 可暂停阶段为 `plan`、`materialization`、`evidence`、`validation`、`stock`。
 重放包必须通过内容哈希、来源 artifact、反应身份/验证和库存 schema 校验。
 
-## 4. 运行管理与校验
+## 5. 运行管理与校验
 
 ```bash
 python -m cascade_planner list
@@ -76,7 +101,7 @@ python -m cascade_planner benchmark target-001 --iterations 3
 `validate` 比较事件重放、snapshot、规范图 full-recompute oracle 和 workbench 绑定。
 `benchmark` 不访问模型或网络。
 
-## 5. 导出、Web 与存储维护
+## 6. 导出、Web 与存储维护
 
 ```bash
 python -m cascade_planner export target-001 --output-dir local-export
@@ -88,7 +113,7 @@ python -m cascade_planner audit
 Web 为 `/v4`，JSON API 为 `/api/v4/runs`。默认仅绑定 `127.0.0.1`。CLI 不提供隐式
 删除模式；GC 只生成 dry-run 计划。
 
-## 6. 本地发布门
+## 7. 本地发布门
 
 ```bash
 python -m pytest -q
@@ -98,6 +123,6 @@ git diff --check
 git status --short
 ```
 
-仓库不使用 CI/Action。Nirmatrelvir golden 必须闭环；Paclitaxel 必须明确显示未验证的
+仓库不使用 CI/Action。Nirmatrelvir golden 与 Artemisinin dossier 必须闭环；Paclitaxel 必须明确显示未验证的
 多路线；无本地 fixture 的目标必须具名失败，不能假成功。实际 Codex A/B 只有在显式
 非零预算下运行，并记录调用、token、时间和 portfolio gain。

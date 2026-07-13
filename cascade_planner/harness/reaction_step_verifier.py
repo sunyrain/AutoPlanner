@@ -36,7 +36,7 @@ RDLogger.DisableLog("rdApp.*")
 
 REACTION_STEP_PROOF_SCHEMA = "reaction_step_proof.v1"
 REACTION_ROUTE_PROOF_SCHEMA = "reaction_route_validation.v1"
-REACTION_STEP_VERIFIER_VERSION = "autoplanner.reaction_step_verifier.v5"
+REACTION_STEP_VERIFIER_VERSION = "autoplanner.reaction_step_verifier.v6"
 
 PROOF_LEVEL_ORDER = {
     "L0_materialized": 0,
@@ -82,6 +82,7 @@ def verify_reaction_step(
     trusted_precedent_binding: Mapping[str, Any] | None = None,
     procurement_binding: Mapping[str, Any] | None = None,
     trusted_stock_providers: Mapping[str, Any] | None = None,
+    source_supported_multicentre: bool = False,
 ) -> dict[str, Any]:
     """Materialize and independently validate one reaction edge."""
     raw = dict(step or {})
@@ -135,6 +136,7 @@ def verify_reaction_step(
             mapped_reaction,
             expected_product=product,
             expected_reactants=reactants,
+            source_supported_multicentre=source_supported_multicentre,
         )
         for key in (
             "mapped_product_matches",
@@ -160,6 +162,7 @@ def verify_reaction_step(
             mapped_reaction,
             atom_audit=atom_audit,
             bond_audit=bond_audit,
+            source_supported_multicentre=source_supported_multicentre,
         )
         checks["deterministic_transform_reapplied"] = bool(
             transform_audit.get("accepted")
@@ -251,6 +254,7 @@ def verify_reaction_step(
         "trusted_precedent_binding": precedent,
         "procurement_binding": procurement,
         "reaction_digest": reaction_digest,
+        "source_supported_multicentre": bool(source_supported_multicentre),
     }
     input_digest = _digest(input_payload)
     proof_payload = {
@@ -393,6 +397,7 @@ def _audit_mapped_reaction(
     *,
     expected_product: str,
     expected_reactants: tuple[str, ...],
+    source_supported_multicentre: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     reasons: list[str] = []
     parts = str(reaction_smiles or "").split(">")
@@ -534,7 +539,13 @@ def _audit_mapped_reaction(
     reactant_ring_count = sum(int(mol.GetRingInfo().NumRings()) for mol in reactant_mols)
     product_ring_count = int(product_mol.GetRingInfo().NumRings())
     net_ring_increase = product_ring_count - reactant_ring_count
-    ring_change_plausible = net_ring_increase <= 2
+    source_supported_tandem_shape = bool(
+        source_supported_multicentre
+        and scaffold_fraction >= 0.75
+        and 0 < product_heavy_atoms - largest_reactant_heavy_atoms <= 4
+    )
+    max_net_ring_increase = 3 if source_supported_tandem_shape else 2
+    ring_change_plausible = net_ring_increase <= max_net_ring_increase
     if not ring_change_plausible:
         reasons.append("reaction_creates_too_many_rings_in_one_step")
 
@@ -567,6 +578,8 @@ def _audit_mapped_reaction(
         "reactant_ring_count": reactant_ring_count,
         "product_ring_count": product_ring_count,
         "net_ring_increase": net_ring_increase,
+        "max_net_ring_increase": max_net_ring_increase,
+        "source_supported_tandem_shape": source_supported_tandem_shape,
         "stereochemical_product_matches": stereo_matches,
         "reactant_heavy_atom_map_count": len(reactant_atoms),
         "product_heavy_atom_map_count": len(product_atoms),
@@ -589,7 +602,8 @@ def _audit_mapped_reaction(
     broken = sorted(reactant_bonds - product_bonds)
     bond_change_present = bool(formed or broken or departing_unmapped_bonds)
     edit_count = len(formed) + len(broken) + len(departing_unmapped_bonds)
-    edit_budget_plausible = edit_count <= 8
+    max_bond_edit_count = 12 if source_supported_tandem_shape else 8
+    edit_budget_plausible = edit_count <= max_bond_edit_count
     bond_reasons = [] if bond_change_present else ["mapped_reaction_has_no_bond_change"]
     if not edit_budget_plausible:
         bond_reasons.append("reaction_edit_budget_exceeded")
@@ -597,7 +611,8 @@ def _audit_mapped_reaction(
         "bond_change_present": bond_change_present,
         "reaction_edit_budget_plausible": edit_budget_plausible,
         "bond_edit_count": edit_count,
-        "max_bond_edit_count": 8,
+        "max_bond_edit_count": max_bond_edit_count,
+        "source_supported_tandem_shape": source_supported_tandem_shape,
         "formed_or_changed_bonds": [list(row) for row in formed],
         "broken_or_changed_bonds": [list(row) for row in broken],
         "departing_unmapped_bonds": [
@@ -620,6 +635,7 @@ def _deterministic_transform_reapply_audit(
     *,
     atom_audit: Mapping[str, Any],
     bond_audit: Mapping[str, Any],
+    source_supported_multicentre: bool = False,
 ) -> dict[str, Any]:
     """Reapply mapped bond edits and match a conservative transform family.
 
@@ -708,6 +724,9 @@ def _deterministic_transform_reapply_audit(
         unmapped_heavy_neighbors_by_mapped_center=(
             _unmapped_heavy_neighbors_by_mapped_center(reactant_mols)
         ),
+        atom_audit=atom_audit,
+        bond_audit=bond_audit,
+        source_supported_multicentre=source_supported_multicentre,
     )
     reasons: list[str] = []
     if not reconstructed:
@@ -731,7 +750,7 @@ def _deterministic_transform_reapply_audit(
                 departing_unmapped_bonds
             )
         ],
-        "registry_policy": "host_derived_local_reaction_centre_allowlist.v2",
+        "registry_policy": "host_derived_local_reaction_centre_allowlist.v3",
         "model_reaction_family_ignored": True,
         "reasons": reasons,
     }
@@ -747,9 +766,50 @@ def _recognized_transform_family(
     product_bonds: set[tuple[int, int, str]],
     departing_unmapped_bonds: tuple[tuple[int, int, str], ...],
     unmapped_heavy_neighbors_by_mapped_center: Mapping[int, tuple[int, ...]],
+    atom_audit: Mapping[str, Any],
+    bond_audit: Mapping[str, Any],
+    source_supported_multicentre: bool,
 ) -> str:
     edit_count = len(formed) + len(broken) + len(departing_unmapped_bonds)
-    if edit_count <= 0 or edit_count > 3:
+    if edit_count <= 0:
+        return ""
+
+    # A source-bound one-pot oxidative cascade may legitimately create several
+    # peroxide/acetal rings.  It is recognized from the mapped structures, not
+    # from a model-authored family label: the main scaffold must dominate, all
+    # atoms transferred from small components must be oxygen, every new bond
+    # must touch oxygen, and both the ring and edit budgets remain bounded.
+    if (
+        source_supported_multicentre
+        and atom_audit.get("source_supported_tandem_shape") is True
+        and int(atom_audit.get("net_ring_increase") or 0) <= 3
+        and int(bond_audit.get("bond_edit_count") or 0) <= 12
+    ):
+        component_sizes: dict[int, int] = {}
+        for map_num, component in reactant_components.items():
+            if map_num in product_atoms:
+                component_sizes[component] = component_sizes.get(component, 0) + 1
+        primary_component = max(
+            component_sizes,
+            key=lambda key: component_sizes[key],
+            default=-1,
+        )
+        transferred = {
+            map_num
+            for map_num in product_atoms
+            if reactant_components.get(map_num, primary_component) != primary_component
+        }
+        oxygen_only_transfer = bool(transferred) and all(
+            product_atoms.get(map_num) == 8 for map_num in transferred
+        )
+        oxygen_centred_formation = bool(formed) and all(
+            8 in {product_atoms.get(left), product_atoms.get(right)}
+            for left, right, _order in formed
+        )
+        if oxygen_only_transfer and oxygen_centred_formation:
+            return "source_supported_tandem_oxidative_cyclization"
+
+    if edit_count > 3:
         return ""
 
     formed_by_pair = {(left, right): order for left, right, order in formed}

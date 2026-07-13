@@ -366,7 +366,7 @@
       : parentL3Solved && anyProcurementClosed && closure.l4_procurement_ready === true;
     element('pageTitle').textContent = `${targetName()} · 路线工作台`;
     const verdict = element('verdictBadge');
-    verdict.textContent = hardAcceptance ? 'V3 双路线硬验收通过'
+    verdict.textContent = hardAcceptance ? 'V4 路线硬验收通过'
       : procurementL4Ready ? 'L4 双路线采购就绪'
       : parentL3Solved ? `${Number(selectedRouteProof.distinct_complete_route_count || 1)} 条 L3 替代路线闭合`
         : allGraphClosed ? 'Benchmark 全探索闭合'
@@ -1102,7 +1102,7 @@
           ? '相同规范分子合并显示；线宽表达支持，颜色仅表达反应证明层级。'
           : `${(currentLane.step_ids || []).length} 步 · ${tierLabel(currentLane.proof_tier)} · ${(currentLane.source_refs || []).length} 个来源引用；分子保持中性，证明颜色只用于反应和依赖边。`;
     renderMinimap();
-    if (fit) fitGraph({ readable: state.mode === 'current' }); else applyViewportTransform();
+    if (fit) fitGraph({ readable: preferReadableFocus() }); else applyViewportTransform();
     applyGraphSelection();
   }
 
@@ -1223,6 +1223,15 @@
     return ranked.sort((left, right) => orientation === 'vertical'
       ? right.position.y - left.position.y
       : right.position.x - left.position.x)[0]?.position || null;
+  }
+
+  function preferReadableFocus() {
+    if (state.mode !== 'current') return false;
+    const lane = laneByBranch.get(state.selectedBranchId) || {};
+    // Short routes benefit from a readable close view.  Longer routes must
+    // open fully visible; users can zoom in without first discovering that
+    // the upstream half was placed outside the viewport.
+    return (lane.step_ids || []).length <= 4;
   }
 
   function fitGraph({ readable = false } = {}) {
@@ -1729,8 +1738,8 @@
       if (target.dataset.graphAction === 'reset') { resetGraph(); return; }
       if (target.dataset.detailTab) { state.detailTab = target.dataset.detailTab; renderDetail(); persistState(); return; }
       if (target.id === 'themeToggle') { state.theme = state.theme === 'dark' ? 'light' : 'dark'; applyPersistentChromeState(); persistState(); return; }
-      if (target.id === 'navToggle') { state.navOpen = !state.navOpen; if (isMobileDrawerLayout() && state.navOpen) state.inspectorOpen = false; applyPersistentChromeState(); updateMobileNavigation(state.navOpen ? 'nav' : 'graph'); persistState(); requestAnimationFrame(() => fitGraph({ readable: state.mode === 'current' })); return; }
-      if (target.id === 'inspectorToggle') { state.inspectorOpen = !state.inspectorOpen; if (isMobileDrawerLayout() && state.inspectorOpen) state.navOpen = false; applyPersistentChromeState(); updateMobileNavigation(state.inspectorOpen ? 'inspector' : 'graph'); persistState(); if (!isInspectorOverlayLayout()) requestAnimationFrame(() => fitGraph({ readable: state.mode === 'current' })); return; }
+      if (target.id === 'navToggle') { state.navOpen = !state.navOpen; if (isMobileDrawerLayout() && state.navOpen) state.inspectorOpen = false; applyPersistentChromeState(); updateMobileNavigation(state.navOpen ? 'nav' : 'graph'); persistState(); requestAnimationFrame(() => fitGraph({ readable: preferReadableFocus() })); return; }
+      if (target.id === 'inspectorToggle') { state.inspectorOpen = !state.inspectorOpen; if (isMobileDrawerLayout() && state.inspectorOpen) state.navOpen = false; applyPersistentChromeState(); updateMobileNavigation(state.inspectorOpen ? 'inspector' : 'graph'); persistState(); if (!isInspectorOverlayLayout()) requestAnimationFrame(() => fitGraph({ readable: preferReadableFocus() })); return; }
       if (target.dataset.closePanel === 'inspector') { state.inspectorOpen = false; applyPersistentChromeState(); updateMobileNavigation('graph'); focusPanelReturn('inspectorToggle'); persistState(); return; }
       if (target.dataset.closeMobilePanels !== undefined) { closeMobilePanels({ restoreFocus: true }); return; }
       if (target.dataset.mobilePanel) { openMobilePanel(target.dataset.mobilePanel); return; }
@@ -1755,6 +1764,25 @@
     bindResizeHandles();
     document.addEventListener('keydown', handleKeyboard);
     window.addEventListener('resize', debounce(() => renderGraph(), 120));
+  }
+
+  function commitPendingPanFrame(frameTime = performance.now()) {
+    panAnimationFrame = 0;
+    if (!panSession) return;
+    const frameStartedAt = performance.now();
+    state.panX = panSession.panX + panSession.latestX - panSession.x;
+    state.panY = panSession.panY + panSession.latestY - panSession.y;
+    const delay = Math.max(0, frameTime - (panSession.frameRequestedAt || frameTime));
+    renderPerformance.cameraFrames += 1;
+    renderPerformance.maximumFrameDelayMs = Math.max(renderPerformance.maximumFrameDelayMs, delay);
+    if (delay > 24) renderPerformance.droppedFrames += 1;
+    applyViewportTransform({ updateMinimap: false });
+    const frameDuration = performance.now() - frameStartedAt;
+    renderPerformance.totalCameraFrameMs += frameDuration;
+    renderPerformance.maximumCameraFrameMs = Math.max(
+      renderPerformance.maximumCameraFrameMs,
+      frameDuration
+    );
   }
 
   function bindViewportEvents() {
@@ -1824,25 +1852,8 @@
       panSession.latestX = event.clientX;
       panSession.latestY = event.clientY;
       if (!panAnimationFrame) {
-        const requestedAt = performance.now();
-        panAnimationFrame = requestAnimationFrame(frameTime => {
-          panAnimationFrame = 0;
-          if (!panSession) return;
-          const frameStartedAt = performance.now();
-          state.panX = panSession.panX + panSession.latestX - panSession.x;
-          state.panY = panSession.panY + panSession.latestY - panSession.y;
-          const delay = Math.max(0, frameTime - requestedAt);
-          renderPerformance.cameraFrames += 1;
-          renderPerformance.maximumFrameDelayMs = Math.max(renderPerformance.maximumFrameDelayMs, delay);
-          if (delay > 24) renderPerformance.droppedFrames += 1;
-          applyViewportTransform({ updateMinimap: false });
-          const frameDuration = performance.now() - frameStartedAt;
-          renderPerformance.totalCameraFrameMs += frameDuration;
-          renderPerformance.maximumCameraFrameMs = Math.max(
-            renderPerformance.maximumCameraFrameMs,
-            frameDuration
-          );
-        });
+        panSession.frameRequestedAt = performance.now();
+        panAnimationFrame = requestAnimationFrame(commitPendingPanFrame);
       }
     }, { capture: true, passive: false });
     window.addEventListener('pointerup', event => finishPan(event), true);
@@ -2053,8 +2064,12 @@
         bubbles: true, button: 0, buttons: 1, pointerId: 901,
         pointerType: 'mouse', isPrimary: true, clientX: 178, clientY: 151
       }));
-      requestAnimationFrame(() => {
-        try {
+      // Synthetic pointer dispatch is synchronous.  Finishing in this frame keeps
+      // --dump-dom regression runs deterministic while pointerup still exercises
+      // the production camera-frame path and final pointerup commit.
+      try {
+          if (panAnimationFrame) cancelAnimationFrame(panAnimationFrame);
+          commitPendingPanFrame(performance.now());
           window.dispatchEvent(new PointerEvent('pointerup', {
             bubbles: true, button: 0, buttons: 0, pointerId: 901,
             pointerType: 'mouse', isPrimary: true, clientX: 178, clientY: 151
@@ -2099,9 +2114,8 @@
           checks.largeGraphCulling = renderPerformance.renderedObjects <= CULLING_OBJECT_THRESHOLD
             || renderPerformance.culledObjects > 0;
           fitGraph();
-          requestAnimationFrame(() => finish());
-        } catch (error) { finish(error); }
-      });
+          finish();
+      } catch (error) { finish(error); }
     } catch (error) { finish(error); }
   }
 

@@ -25,6 +25,7 @@ def test_repository_audit_is_read_only_and_reports_review_candidates(
     values = {
         "cascade_planner/dead.py": "import os\nVALUE = 1\n",
         "cascade_planner/used.py": "import os\nVALUE = os.name\n",
+        "cascade_planner/reexported.py": "from os import name\n__all__ = ['name']\n",
         "docs/a.svg": "<svg/>",
         "docs/b.svg": "<svg/>",
         "results/run.log": "generated",
@@ -51,7 +52,10 @@ def test_repository_audit_is_read_only_and_reports_review_candidates(
         for row in report["dead_import_candidates"]
     )
     assert not any(
-        row["path"] == "cascade_planner/used.py"
+        row["path"] in {
+            "cascade_planner/used.py",
+            "cascade_planner/reexported.py",
+        }
         for row in report["dead_import_candidates"]
     )
     supplied = report.pop("content_sha256")

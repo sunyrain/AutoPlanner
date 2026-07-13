@@ -85,3 +85,17 @@ def test_cli_exposes_bounded_replay_case_recovery_stages() -> None:
     assert args.command == "replay-case"
     assert args.pack == Path("case.json")
     assert args.stop_after == "evidence"
+
+
+def test_cli_exposes_case_compile_and_one_command_solve() -> None:
+    compile_args = build_parser().parse_args(
+        ["compile-case", "--dossier", "case.json", "--output", "pack.json"]
+    )
+    solve_args = build_parser().parse_args(
+        ["solve-case", "--dossier", "case.json", "--output-dir", "showcase"]
+    )
+
+    assert compile_args.dossier == Path("case.json")
+    assert compile_args.output == Path("pack.json")
+    assert solve_args.command == "solve-case"
+    assert solve_args.output_dir == "showcase"

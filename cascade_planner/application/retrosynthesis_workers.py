@@ -436,22 +436,30 @@ def validate_reaction_worker(
         "condition_candidate": dict(payload.get("condition_candidate") or {}),
         "evidence_bindings": list(payload.get("evidence_bindings") or []),
     }
+    exact_source_records = [
+        dict(row)
+        for row in payload.get("exact_source_records") or []
+        if isinstance(row, Mapping)
+    ]
     proof = verify_reaction_step(
         step,
         graph_and_stock_closed=payload.get("graph_and_stock_closed") is True,
         trusted_precedent_binding=dict(payload.get("trusted_precedent_binding") or {}),
         procurement_binding=dict(payload.get("procurement_binding") or {}),
         trusted_stock_providers=dict(payload.get("trusted_stock_providers") or {}),
+        source_supported_multicentre=_exact_records_support_edge(
+            exact_source_records,
+            str(candidate.get("edge_digest") or ""),
+        ),
     )
     validated = proof.get("accepted") is True
     state = proof_state(
         structural_materialized=True,
         reaction_validated=validated,
-        exact_source_bound=bool(payload.get("exact_source_records")),
+        exact_source_bound=bool(exact_source_records),
         independent_source_groups=(
             str(row.get("independence_group") or "")
-            for row in payload.get("exact_source_records") or []
-            if isinstance(row, Mapping)
+            for row in exact_source_records
         ),
     )
     return {
@@ -465,6 +473,27 @@ def validate_reaction_worker(
         },
         "failure_reasons": [] if validated else list(proof.get("reasons") or []),
     }
+
+
+def _exact_records_support_edge(
+    records: Iterable[Mapping[str, Any]],
+    edge_digest: str,
+) -> bool:
+    """Bind multicentre relaxation to canonical exact-source graph records."""
+
+    for raw in records:
+        row = dict(raw)
+        supplied = str(row.get("content_sha256") or "")
+        body = {key: value for key, value in row.items() if key != "content_sha256"}
+        if (
+            str(row.get("edge_digest") or "") == edge_digest
+            and row.get("relation_type") == "exact"
+            and row.get("authority_scope") == "source_exact_structure_observation"
+            and row.get("not_reaction_validation") is True
+            and supplied == _digest(body)
+        ):
+            return True
+    return False
 
 
 def normalize_source_binding(value: Mapping[str, Any]) -> dict[str, Any]:

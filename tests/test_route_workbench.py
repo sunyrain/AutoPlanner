@@ -259,3 +259,27 @@ def test_v4_workbench_adapter_renders_bounded_routes_and_separate_hypotheses() -
     assert "MAX_PORTFOLIO_ROUTES = 5" in html
     assert "__AUTOPLANNER_ROUTE_PERF__" in html
     assert "translate3d" not in html
+
+
+def test_v4_workbench_preserves_repeated_reagent_stoichiometry_without_duplicate_ids() -> None:
+    graph = _graph()
+    graph["edges"]["edge:ester"]["precursor_molecule_ids"] = [
+        "m:acid",
+        "m:ethanol",
+        "m:ethanol",
+    ]
+    projection = compile_route_workbench(graph, _portfolio())
+    forest = compile_v4_route_forest(projection)
+    payload = build_route_forest_delivery_payload(forest)
+
+    assert route_forest_delivery_integrity_reasons(payload, source_forest=forest) == []
+    step = next(value for value in forest["steps"] if value["graph_step_id"] == "edge:ester")
+    assert step["from_node_ids"] == ["m:acid", "m:ethanol"]
+    assert step["stoichiometric_input_count"] == 3
+    assert step["precursor_multiplicity"] == [
+        {"molecule_node_id": "m:acid", "count": 1},
+        {"molecule_node_id": "m:ethanol", "count": 2},
+    ]
+    assert {"label": "input multiplicity", "value": "C2H6O ×2"} in step[
+        "conditions"
+    ]

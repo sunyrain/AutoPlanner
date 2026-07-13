@@ -968,6 +968,7 @@ def _mark_dominated_routes(graph: dict[str, Any]) -> None:
     }
     for route_id, route in sorted(active.items()):
         edges = set(route.get("edge_ids") or [])
+        leaves = set(route.get("leaf_molecule_ids") or [])
         dominated_by = ""
         if edges:
             for other_id, other in sorted(active.items()):
@@ -977,6 +978,11 @@ def _mark_dominated_routes(graph: dict[str, Any]) -> None:
                 if (
                     other_edges
                     and other_edges < edges
+                    # A shorter route that stops at a purchasable intermediate is
+                    # a different procurement strategy, not proof that the deeper
+                    # route is redundant.  Dominance is only meaningful when both
+                    # families terminate at the same audited material boundary.
+                    and set(other.get("leaf_molecule_ids") or []) == leaves
                     and int(other.get("minimum_proof_level") or 0)
                     >= int(route.get("minimum_proof_level") or 0)
                     and float(other.get("stock_closure_rate") or 0.0)

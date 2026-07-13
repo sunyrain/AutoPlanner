@@ -216,6 +216,7 @@ def _dead_import_candidates(
             for node in ast.walk(tree)
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
         }
+        loaded.update(_exported_names(tree))
         lines = source.splitlines()
         for node in ast.walk(tree):
             bindings: list[tuple[str, str]] = []
@@ -251,6 +252,26 @@ def _dead_import_candidates(
         sorted(candidates, key=lambda row: (row["path"], row["line"], row["binding"])),
         parse_errors,
     )
+
+
+def _exported_names(tree: ast.AST) -> set[str]:
+    """Treat explicit ``__all__`` re-exports as intentional import uses."""
+
+    exported: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        if not any(isinstance(target, ast.Name) and target.id == "__all__" for target in targets):
+            continue
+        value = node.value
+        if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+            exported.update(
+                item.value
+                for item in value.elts
+                if isinstance(item, ast.Constant) and isinstance(item.value, str)
+            )
+    return exported
 
 
 def _script_launchers(files: list[tuple[str, Path, int]]) -> list[dict[str, Any]]:

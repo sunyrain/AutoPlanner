@@ -1,0 +1,409 @@
+{
+  "acceptance": {
+    "minimum_complete_routes": 2,
+    "minimum_edge_proof_level": 3,
+    "minimum_independent_source_groups": 2,
+    "require_all_selected_leaves_stock_closed": true,
+    "require_distinct_edge_sets": true,
+    "stock_boundary": "procurement"
+  },
+  "budget": {
+    "automatic_budget_extension": false,
+    "max_accepted_expansions": 2,
+    "max_attempt_runs": 12,
+    "max_model_invocations": 0,
+    "max_prompt_context_bytes": 96000,
+    "max_total_input_tokens": 60000,
+    "max_total_output_tokens": 12000,
+    "max_total_wall_time_s": 1800.0,
+    "max_visual_invocations": 0
+  },
+  "case_id": "artemisinin-source-closed-v4",
+  "content_sha256": "3c426c5939c659f705a3c4fbee92faa1c607d4d84f71b7a5bfc176b64ad43038",
+  "created_at": "2026-07-13T16:00:00+08:00",
+  "expected": {
+    "accepted": true,
+    "accepted_expansion_count": 2,
+    "complete_route_count": 2,
+    "exact_record_count": 3,
+    "hyperedge_count": 2,
+    "independent_source_groups": [
+      "doi:10.1002/anie.201801424",
+      "doi:10.1038/nature12051"
+    ],
+    "model_invocations": 0,
+    "selected_route_count": 2,
+    "stock_terminal_count": 4,
+    "validated_edge_count": 2,
+    "visual_invocations": 0
+  },
+  "global_plan": {
+    "content_sha256": "e58a6123a19e028175eacbbf458c417a76279b8a520996609701b276ee7aae22",
+    "context_sha256": "7b83fc379b7cbf26e37a2be8fd52ecca47e4e073b8bd38081faf693cec88826f",
+    "critical_unknowns": [],
+    "fallback_strategies": [],
+    "frontier_priorities": [
+      {
+        "priority": 1,
+        "route_family_id": "route:microbial-artemisinic-acid"
+      },
+      {
+        "priority": 2,
+        "route_family_id": "route:purchased-dhaa"
+      }
+    ],
+    "graph_revision": 0,
+    "limitations": [
+      "This compact semisynthesis demonstration begins at commercially catalogued artemisinic acid or dihydroartemisinic acid; it is not a total synthesis from commodity feedstocks.",
+      "Catalog orderability is an auditable procurement boundary, not a guarantee of local same-day stock."
+    ],
+    "mode": "initial_architecture",
+    "multi_step_skeletons": [
+      {
+        "route_family_id": "route:microbial-artemisinic-acid",
+        "skeleton_id": "skeleton:route:microbial-artemisinic-acid",
+        "steps": [
+          {
+            "precursor_smiles": [
+              "C=C(C(=O)O)[C@@H]1CC[C@@H](C)[C@@H]2CCC(C)=C[C@@H]21",
+              "[H][H]"
+            ],
+            "product_smiles": "CC1=C[C@H]2[C@@H](CC1)[C@H](C)CC[C@H]2[C@@H](C)C(=O)O",
+            "source_refs": [
+              "doi:10.1038/nature12051"
+            ],
+            "step_id": "AA_to_DHAA",
+            "transformation_hypothesis": "diastereoselective catalytic hydrogenation of the exocyclic alkene"
+          },
+          {
+            "precursor_smiles": [
+              "CC1=C[C@H]2[C@@H](CC1)[C@H](C)CC[C@H]2[C@@H](C)C(=O)O",
+              "O=O",
+              "O=O"
+            ],
+            "product_smiles": "C[C@@H]1CC[C@H]2[C@@H](C)C(=O)O[C@@H]3O[C@@]4(C)CC[C@@H]1[C@]32OO4",
+            "source_refs": [
+              "doi:10.1002/anie.201801424",
+              "doi:10.1038/nature12051"
+            ],
+            "step_id": "DHAA_to_artemisinin",
+            "transformation_hypothesis": "source-supported singlet-oxygen ene reaction followed by tandem oxidative cyclization"
+          }
+        ],
+        "target_smiles": "C[C@@H]1CC[C@H]2[C@@H](C)C(=O)O[C@@H]3O[C@@]4(C)CC[C@@H]1[C@]32OO4"
+      },
+      {
+        "route_family_id": "route:purchased-dhaa",
+        "skeleton_id": "skeleton:route:purchased-dhaa",
+        "steps": [
+          {
+            "precursor_smiles": [
+              "CC1=C[C@H]2[C@@H](CC1)[C@H](C)CC[C@H]2[C@@H](C)C(=O)O",
+              "O=O",
+              "O=O"
+            ],
+            "product_smiles": "C[C@@H]1CC[C@H]2[C@@H](C)C(=O)O[C@@H]3O[C@@]4(C)CC[C@@H]1[C@]32OO4",
+            "source_refs": [
+              "doi:10.1002/anie.201801424",
+              "doi:10.1038/nature12051"
+            ],
+            "step_id": "DHAA_to_artemisinin",
+            "transformation_hypothesis": "source-supported singlet-oxygen ene reaction followed by tandem oxidative cyclization"
+          }
+        ],
+        "target_smiles": "C[C@@H]1CC[C@H]2[C@@H](C)C(=O)O[C@@H]3O[C@@]4(C)CC[C@@H]1[C@]32OO4"
+      }
+    ],
+    "pivot_conditions": [],
+    "plan_id": "plan:artemisinin-source-closed-v4",
+    "portfolio_rationale": "Keep the scalable artemisinic-acid route and the shorter purchased-DHAA route as distinct procurement boundaries while sharing one source-validated oxidative cascade.",
+    "route_families": [
+      {
+        "label": "Artemisinic acid semisynthesis",
+        "route_family_id": "route:microbial-artemisinic-acid",
+        "selected": true,
+        "strategic_disconnection": "Use the scalable literature semisynthesis from artemisinic acid through DHAA."
+      },
+      {
+        "label": "Purchased DHAA shortcut",
+        "route_family_id": "route:purchased-dhaa",
+        "selected": true,
+        "strategic_disconnection": "Move the procurement boundary to catalogued DHAA and retain the independently supported oxidative closure."
+      }
+    ],
+    "run_id": "artemisinin-source-closed-v4",
+    "schema_version": "global_campaign_plan.v1",
+    "semantics": {
+      "grants_no_reaction_proof": true,
+      "grants_no_route_completion": true,
+      "grants_no_stock_authority": true,
+      "hypothesis_only": true
+    },
+    "shared_intermediates": [
+      {
+        "canonical_smiles": "CC1=C[C@H]2[C@@H](CC1)[C@H](C)CC[C@H]2[C@@H](C)C(=O)O",
+        "role": "shared_intermediate",
+        "route_family_ids": [
+          "route:microbial-artemisinic-acid",
+          "route:purchased-dhaa"
+        ]
+      },
+      {
+        "canonical_smiles": "C[C@@H]1CC[C@H]2[C@@H](C)C(=O)O[C@@H]3O[C@@]4(C)CC[C@@H]1[C@]32OO4",
+        "role": "shared_target",
+        "route_family_ids": [
+          "route:microbial-artemisinic-acid",
+          "route:purchased-dhaa"
+        ]
+      },
+      {
+        "canonical_smiles": "O=O",
+        "role": "shared_intermediate",
+        "route_family_ids": [
+          "route:microbial-artemisinic-acid",
+          "route:purchased-dhaa"
+        ]
+      }
+    ],
+    "source_plan": [
+      {
+        "purpose": "exact route replay",
+        "source_ref": "doi:10.1038/nature12051"
+      },
+      {
+        "purpose": "exact route replay",
+        "source_ref": "doi:10.1002/anie.201801424"
+      }
+    ],
+    "stop_conditions": [
+      {
+        "kind": "acceptance_contract_satisfied"
+      },
+      {
+        "kind": "hard_budget_exhausted"
+      }
+    ],
+    "strategic_disconnections": [
+      {
+        "description": "Use the scalable literature semisynthesis from artemisinic acid through DHAA.",
+        "route_family_id": "route:microbial-artemisinic-acid"
+      },
+      {
+        "description": "Move the procurement boundary to catalogued DHAA and retain the independently supported oxidative closure.",
+        "route_family_id": "route:purchased-dhaa"
+      }
+    ]
+  },
+  "inventory": {
+    "artifact": {
+      "adapter_version": "autoplanner.operator_verified_catalog.v1",
+      "inventory_version": "artemisinin-2026-07-13",
+      "offers": [
+        {
+          "available": true,
+          "canonical_smiles": "C=C(C(=O)O)[C@@H]1CC[C@@H](C)[C@@H]2CCC(C)=C[C@@H]21",
+          "catalog_number": "25059",
+          "checked_at": "2026-07-13T16:00:00+08:00",
+          "currency": "",
+          "lead_time_days": null,
+          "metadata": {
+            "observation_kind": "operator_verified_supplier_catalog_page",
+            "supplier_product_name": "Artemisinic Acid"
+          },
+          "pack_size": "",
+          "price": null,
+          "purity": ">=98%",
+          "region": "supplier catalog",
+          "schema_version": "stock_offer_snapshot.v1",
+          "snapshot_sha256": "672a25008ce85be77012023d281697a96a6b520a321c4c6646e67338433726d3",
+          "source_url": "https://www.caymanchem.com/product/25059/artemisinic-acid",
+          "supplier": "Cayman Chemical"
+        },
+        {
+          "available": true,
+          "canonical_smiles": "CC1=C[C@H]2[C@@H](CC1)[C@H](C)CC[C@H]2[C@@H](C)C(=O)O",
+          "catalog_number": "25142",
+          "checked_at": "2026-07-13T16:00:00+08:00",
+          "currency": "",
+          "lead_time_days": null,
+          "metadata": {
+            "observation_kind": "operator_verified_supplier_catalog_page",
+            "supplier_product_name": "Dihydro Artemisinic Acid"
+          },
+          "pack_size": "",
+          "price": null,
+          "purity": ">=98%",
+          "region": "supplier catalog",
+          "schema_version": "stock_offer_snapshot.v1",
+          "snapshot_sha256": "620612788bc246d7136e2c3a7849f7cf564917206252ef22becbd0b5beaed4a5",
+          "source_url": "https://www.caymanchem.com/product/25142/dihydroartemisinic-acid",
+          "supplier": "Cayman Chemical"
+        },
+        {
+          "available": true,
+          "canonical_smiles": "[H][H]",
+          "catalog_number": "HY R80",
+          "checked_at": "2026-07-13T16:00:00+08:00",
+          "currency": "",
+          "lead_time_days": null,
+          "metadata": {
+            "observation_kind": "operator_verified_supplier_catalog_page",
+            "supplier_product_name": "Research Grade Hydrogen"
+          },
+          "pack_size": "size 80 high-pressure cylinder",
+          "price": null,
+          "purity": "99.9999%",
+          "region": "US; location-dependent",
+          "schema_version": "stock_offer_snapshot.v1",
+          "snapshot_sha256": "fbd865e7aea9c0cdcb496807ebdd0a7f6e478a582c8a11978a188415a29522fd",
+          "source_url": "https://www.airgas.com/product/Gases/Specialty-Gases/Hydrogen---Specialty-Gas/p/HY%20R80",
+          "supplier": "Airgas"
+        },
+        {
+          "available": true,
+          "canonical_smiles": "O=O",
+          "catalog_number": "OX R80",
+          "checked_at": "2026-07-13T16:00:00+08:00",
+          "currency": "",
+          "lead_time_days": null,
+          "metadata": {
+            "observation_kind": "operator_verified_supplier_catalog_page",
+            "supplier_product_name": "Research Grade Oxygen"
+          },
+          "pack_size": "size 80 high-pressure cylinder",
+          "price": null,
+          "purity": "99.999%",
+          "region": "US; location-dependent",
+          "schema_version": "stock_offer_snapshot.v1",
+          "snapshot_sha256": "636bd6c6aa979ee8d3439683b220da75636b77b0f6b6f64582408c5e5db90a10",
+          "source_url": "https://www.airgas.com/product/Gases/Oxygen/p/OX%20R80",
+          "supplier": "Airgas"
+        }
+      ],
+      "retrieved_at": "2026-07-13T16:00:00+08:00",
+      "schema_version": "versioned_inventory_snapshot.v1"
+    },
+    "as_of": "2026-07-13T16:05:00+08:00",
+    "max_age_days": 2
+  },
+  "provenance": {
+    "compiled_from": "retrosynthesis_case_dossier.v1",
+    "compiler": "autoplanner.case_dossier.v1",
+    "dossier_sha256": "7b83fc379b7cbf26e37a2be8fd52ecca47e4e073b8bd38081faf693cec88826f"
+  },
+  "reactions": [
+    {
+      "edge_digest": "8e98f6cbc31ff6dfa28cf840225e462773e0e4bf4a8970054b68294c780909be",
+      "mapped_reaction_smiles": "[CH3:1][C@@H:2]1[CH2:3][CH2:4][C@@H:5]([C@@H:6]([CH3:7])[C:8](=[O:9])[OH:10])[C@H:18]2[CH:11]=[C:13]([CH3:14])[CH2:15][CH2:16][C@@H:17]12.[O:19]=[O:20].O=[O:12]>>[CH3:1][C@@H:2]1[CH2:3][CH2:4][C@H:5]2[C@@H:6]([CH3:7])[C:8](=[O:9])[O:10][C@@H:11]3[O:12][C@@:13]4([CH3:14])[CH2:15][CH2:16][C@@H:17]1[C@@:18]23[O:19][O:20]4",
+      "mapping_authority": "dossier_supplied_host_replayed_mapping",
+      "product_smiles": "C[C@@H]1CC[C@H]2[C@@H](C)C(=O)O[C@@H]3O[C@@]4(C)CC[C@@H]1[C@]32OO4",
+      "reactant_smiles": [
+        "CC1=C[C@H]2[C@@H](CC1)[C@H](C)CC[C@H]2[C@@H](C)C(=O)O",
+        "O=O",
+        "O=O"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v6"
+    },
+    {
+      "edge_digest": "920e045833ca243ed8987f88160886e0fd6721cbc2b5aef371571a1c2167c342",
+      "mapped_reaction_smiles": "[CH3:1][C:2]1=[CH:3][C@H:4]2[C@@H:5]([CH2:6][CH2:7]1)[C@H:8]([CH3:9])[CH2:10][CH2:11][C@H:12]2[C:13](=[CH2:14])[C:15](=[O:16])[OH:17].[H][H]>>[CH3:1][C:2]1=[CH:3][C@H:4]2[C@@H:5]([CH2:6][CH2:7]1)[C@H:8]([CH3:9])[CH2:10][CH2:11][C@H:12]2[C@@H:13]([CH3:14])[C:15](=[O:16])[OH:17]",
+      "mapping_authority": "dossier_supplied_host_replayed_mapping",
+      "product_smiles": "CC1=C[C@H]2[C@@H](CC1)[C@H](C)CC[C@H]2[C@@H](C)C(=O)O",
+      "reactant_smiles": [
+        "C=C(C(=O)O)[C@@H]1CC[C@@H](C)[C@@H]2CCC(C)=C[C@@H]21",
+        "[H][H]"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v6"
+    }
+  ],
+  "schema_version": "retrosynthesis_replay_pack.v1",
+  "sources": [
+    {
+      "binding": {
+        "artifact_sha256": "f04088aff16b20ee83e9ac5cb8889a0d3df69e5dca379dcb04f9729d41f412ca",
+        "content_scope": "article text and Figure 4 semisynthesis discussion",
+        "provenance": "operator_verified_exact_structure_extraction",
+        "source_kind": "paper",
+        "source_ref": "doi:10.1038/nature12051",
+        "title": "High-level semi-synthetic production of the potent antimalarial artemisinin"
+      },
+      "extractor": {
+        "producer_id": "autoplanner.artemisinin_case_dossier",
+        "producer_kind": "deterministic_structure_parser",
+        "version": "1.0.0"
+      },
+      "rows": [
+        {
+          "claim_scope_id": "doi:10.1038/nature12051:figure4:AA_to_DHAA",
+          "condition_candidate": {
+            "operation": "catalytic hydrogenation",
+            "reported_outcome": "nearly quantitative reduced acid; R:S up to 94:6"
+          },
+          "location_ref": "Figure 4a and semisynthesis text: catalytic hydrogenation gives DHAA",
+          "product_smiles": "C[C@@H]1CC[C@H]([C@@H]2[C@H]1CCC(=C2)C)[C@@H](C)C(=O)O",
+          "reactant_smiles": [
+            "C[C@@H]1CC[C@H]([C@@H]2[C@H]1CCC(=C2)C)C(=C)C(=O)O",
+            "[H][H]"
+          ],
+          "relation_type": "exact",
+          "step_id": "AA_to_DHAA"
+        },
+        {
+          "claim_scope_id": "doi:10.1038/nature12051:figure4:DHAA_to_artemisinin",
+          "condition_candidate": {
+            "operation": "photooxidation and oxidative cascade",
+            "oxidant": "oxygen"
+          },
+          "location_ref": "Figure 4a oxidative conversion sequence from DHAA to artemisinin",
+          "product_smiles": "C[C@@H]1CC[C@H]2[C@H](C(=O)O[C@H]3[C@@]24[C@H]1CC[C@](O3)(OO4)C)C",
+          "reactant_smiles": [
+            "C[C@@H]1CC[C@H]([C@@H]2[C@H]1CCC(=C2)C)[C@@H](C)C(=O)O",
+            "O=O",
+            "O=O"
+          ],
+          "relation_type": "exact",
+          "step_id": "DHAA_to_artemisinin"
+        }
+      ]
+    },
+    {
+      "binding": {
+        "artifact_sha256": "4672d67e71de2e2c3141408cbed001d0087b19fd0b7e23d14c1e371f854e1e38",
+        "content_scope": "accepted manuscript reaction scheme and optimized DHAA photooxidation procedure",
+        "provenance": "operator_verified_exact_structure_extraction",
+        "source_kind": "paper",
+        "source_ref": "doi:10.1002/anie.201801424",
+        "title": "Green and scalable synthesis of artemisinin by photooxidation"
+      },
+      "extractor": {
+        "producer_id": "autoplanner.artemisinin_case_dossier",
+        "producer_kind": "deterministic_structure_parser",
+        "version": "1.0.0"
+      },
+      "rows": [
+        {
+          "claim_scope_id": "doi:10.1002/anie.201801424:DHAA_to_artemisinin",
+          "condition_candidate": {
+            "operation": "visible-light photooxidation followed by acid-promoted cascade",
+            "oxidant": "oxygen"
+          },
+          "location_ref": "accepted manuscript reaction scheme and optimized photooxidation",
+          "product_smiles": "C[C@@H]1CC[C@H]2[C@H](C(=O)O[C@H]3[C@@]24[C@H]1CC[C@](O3)(OO4)C)C",
+          "reactant_smiles": [
+            "C[C@@H]1CC[C@H]([C@@H]2[C@H]1CCC(=C2)C)[C@@H](C)C(=O)O",
+            "O=O",
+            "O=O"
+          ],
+          "relation_type": "exact",
+          "step_id": "DHAA_to_artemisinin"
+        }
+      ]
+    }
+  ],
+  "target": {
+    "inchikey": "BLUAFEHZUWYNDE-NNWCWBAJSA-N",
+    "name": "artemisinin",
+    "pubchem_cid": 68827,
+    "smiles": "C[C@@H]1CC[C@H]2[C@@H](C)C(=O)O[C@@H]3O[C@@]4(C)CC[C@@H]1[C@]32OO4"
+  }
+}

@@ -555,7 +555,9 @@ def test_deficit_frontier_ties_and_incremental_replacement_are_deterministic(
     ]
 
 
-def test_dominated_route_family_is_removed_from_active_ranking(tmp_path: Path) -> None:
+def test_different_procurement_boundaries_are_not_marked_dominated(
+    tmp_path: Path,
+) -> None:
     kernel = _kernel(tmp_path)
     store = CanonicalHypergraphStore(kernel)
     runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
@@ -605,9 +607,10 @@ def test_dominated_route_family_is_removed_from_active_ranking(tmp_path: Path) -
     long = next(route for route in routes.values() if "route:long" in route["aliases"])
 
     assert set(short["edge_ids"]) < set(long["edge_ids"])
-    assert long["status"] == "dominated"
-    assert long["dominated_by_route_family_id"] == short["route_family_id"]
-    assert long["route_family_id"] not in {
+    assert set(short["leaf_molecule_ids"]) != set(long["leaf_molecule_ids"])
+    assert long["status"] != "dominated"
+    assert "dominated_by_route_family_id" not in long
+    assert {short["route_family_id"], long["route_family_id"]} <= {
         row["route_family_id"] for row in result["graph"]["portfolio_ranking"]
     }
 

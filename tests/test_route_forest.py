@@ -2345,7 +2345,7 @@ def test_route_forest_html_is_read_only_and_inspectable() -> None:
     assert "translate3d(${state.panX}px, ${state.panY}px, 0)" not in html
     assert "translate(${state.panX} ${state.panY}) scale(${state.zoom})" in html
     assert "world.setAttribute('transform', cameraTransform)" in html
-    assert "requestAnimationFrame(frameTime =>" in html
+    assert "requestAnimationFrame(commitPendingPanFrame)" in html
     assert "applyViewportTransform({ updateMinimap: false })" in html
     assert "if (panAnimationFrame) cancelAnimationFrame(panAnimationFrame);" in html
     assert "suppressNextPointerClick" in html
