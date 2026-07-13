@@ -772,7 +772,7 @@ Observed P10.6 acceptance:
 - Ruff passes across `cascade_planner`, `tests`, and `scripts`. Explicit
   per-file exceptions cover only frozen research trees and legacy scripts;
   architecture tests prevent those exceptions from covering V4 or tests;
-- repository audit reports a clean 730-file, roughly 18 MB current tree with no
+- repository audit reports a clean 739-file, roughly 18 MB current tree with no
   generated artifacts, tracked credentials, GitHub Actions, missing tracked
   files, Python parse errors, or duplicate assets;
 - a clean Nirmatrelvir replay completes in about 2.7 seconds and a second
