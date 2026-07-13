@@ -368,6 +368,85 @@ def test_event_replan_without_material_change_is_ignored_without_model(
     assert kernel.state.attempt_count == 0
 
 
+def test_director_enforces_campaign_level_call_caps_per_global_mode(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path, calls=6)
+    calls: list[str] = []
+
+    def dynamic_runner(
+        spec: AgentSpec,
+        context: CampaignContext,
+        mode: str,
+        _config: DirectorConfig,
+    ) -> AgentResult:
+        raw = _plan(context)
+        raw["mode"] = mode
+        calls.append(mode)
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=f"{spec.idempotency_key}:result",
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.SUCCEEDED,
+            output=raw,
+            usage={"model_invocations": 1, "wall_time_s": 0.1},
+        )
+
+    director = GlobalCampaignDirector(kernel, runner=dynamic_runner)
+    initial = _context(kernel)
+    changed_initial = _context(
+        kernel,
+        previous=initial,
+        material_events=("new_route_family",),
+    )
+
+    assert director.run(initial, mode="initial_architecture").status == "accepted"
+    blocked_initial = director.run(
+        changed_initial,
+        mode="initial_architecture",
+    )
+    assert blocked_initial.status == "budget_exhausted"
+    assert blocked_initial.reasons == ("director_mode_call_budget_exhausted",)
+
+    previous = initial
+    for event in ("critical_edge_rejected", "exact_rows_added"):
+        context = _context(kernel, previous=previous, material_events=(event,))
+        assert director.run(context, mode="event_replan").status == "accepted"
+        previous = context
+    third_replan = _context(
+        kernel,
+        previous=previous,
+        material_events=("stock_boundary_changed",),
+    )
+    assert director.run(third_replan, mode="event_replan").status == (
+        "budget_exhausted"
+    )
+
+    final = _context(kernel, previous=third_replan)
+    assert director.run(final, mode="final_portfolio_synthesis").status == "accepted"
+    another_final = _context(
+        kernel,
+        previous=final,
+        material_events=("portfolio_stagnation",),
+    )
+    assert director.run(
+        another_final,
+        mode="final_portfolio_synthesis",
+    ).status == "budget_exhausted"
+    assert calls == [
+        "initial_architecture",
+        "event_replan",
+        "event_replan",
+        "final_portfolio_synthesis",
+    ]
+
+
 def test_critical_edge_rejection_triggers_targeted_global_replan(
     tmp_path: Path,
 ) -> None:

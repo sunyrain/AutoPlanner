@@ -222,6 +222,50 @@ def test_unmapped_boc_carbamate_cleavage_reaches_l2() -> None:
     )
 
 
+def test_small_noncontributing_acid_is_allowed_as_a_bounded_spectator() -> None:
+    proof = verify_reaction_step(
+        {
+            "step_id": "boc_deprotection_with_mesylate_condition",
+            "product_smiles": "N#C[C@@H](N)C[C@@H]1CCNC1=O",
+            "reactant_smiles": [
+                "CC(C)(C)OC(=O)N[C@H](C#N)C[C@@H]1CCNC1=O",
+                "CS(=O)(=O)O",
+            ],
+            "atom_mapped_reaction_smiles": (
+                "CC(C)(C)OC(=O)[NH:4][C@H:3]([C:2]#[N:1])"
+                "[CH2:5][C@@H:6]1[CH2:7][CH2:8][NH:9][C:10]1=[O:11]."
+                "CS(=O)(=O)O>>[N:1]#[C:2][C@@H:3]([NH2:4])"
+                "[CH2:5][C@@H:6]1[CH2:7][CH2:8][NH:9][C:10]1=[O:11]"
+            ),
+        }
+    )
+
+    assert proof["accepted"] is True
+    assert proof["checks"]["mapped_reactant_components_contribute"] is False
+    assert proof["checks"]["reactant_component_participation_plausible"] is True
+    assert proof["atom_map_audit"]["spectator_reactant_component_count"] == 1
+
+
+def test_more_than_two_noncontributing_components_are_rejected() -> None:
+    proof = verify_reaction_step(
+        {
+            "step_id": "oxidation_with_implausible_spectator_bundle",
+            "product_smiles": "CC=O",
+            "reactant_smiles": ["CCO", "Cl", "Br", "I"],
+            "atom_mapped_reaction_smiles": (
+                "[CH3:1][CH2:2][OH:3].Cl.Br.I>>[CH3:1][CH:2]=[O:3]"
+            ),
+        }
+    )
+
+    assert proof["accepted"] is False
+    assert proof["checks"]["reactant_component_participation_plausible"] is False
+    assert proof["atom_map_audit"]["spectator_reactant_component_count"] == 3
+    assert "mapped_reactant_component_does_not_contribute_to_product" in proof[
+        "reasons"
+    ]
+
+
 def test_excessive_unmapped_reactant_atom_loss_fails_closed() -> None:
     proof = verify_reaction_step(
         {

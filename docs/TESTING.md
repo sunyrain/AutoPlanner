@@ -183,12 +183,17 @@ These are integrity and authority-replay tests, not cryptographic-authentication
 tests. A matching SHA-256 detects canonical-content drift; it is not a security
 signature for a repository or run directory controlled by an attacker.
 
-Whole-repository strict Ruff is not yet an honest gate: the retained research
-and legacy surfaces have pre-existing style debt. Apply syntax/undefined-name
-checks to all active Python and normal strict Ruff rules to the upgraded
-application, provider, route, runtime, proof, and test surfaces. Move a module
-into the strict set when modernizing it; do not silence new findings with
-blanket ignores.
+Ruff is a release gate:
+
+```bash
+python -m ruff check cascade_planner tests scripts
+```
+
+The checked-in `pyproject.toml` keeps V4, runtime, Web, and all tests strict.
+Narrow per-file exceptions document only error categories already present in
+frozen research trees and legacy scripts. An architecture test prevents those
+patterns from expanding over V4 or tests. Move a module out of the exception
+set when modernizing it; do not add new production code to an exempt tree.
 
 ## Safety and hardcoding gates
 

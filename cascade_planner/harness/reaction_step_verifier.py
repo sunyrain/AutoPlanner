@@ -36,7 +36,7 @@ RDLogger.DisableLog("rdApp.*")
 
 REACTION_STEP_PROOF_SCHEMA = "reaction_step_proof.v1"
 REACTION_ROUTE_PROOF_SCHEMA = "reaction_route_validation.v1"
-REACTION_STEP_VERIFIER_VERSION = "autoplanner.reaction_step_verifier.v4"
+REACTION_STEP_VERIFIER_VERSION = "autoplanner.reaction_step_verifier.v5"
 
 PROOF_LEVEL_ORDER = {
     "L0_materialized": 0,
@@ -107,6 +107,7 @@ def verify_reaction_step(
         "product_atoms_have_reactant_provenance": False,
         "mapped_elements_preserved": False,
         "mapped_reactant_components_contribute": False,
+        "reactant_component_participation_plausible": False,
         "scaffold_continuity_plausible": False,
         "ring_change_plausible": False,
         "bond_change_present": False,
@@ -145,6 +146,7 @@ def verify_reaction_step(
             "product_atoms_have_reactant_provenance",
             "mapped_elements_preserved",
             "mapped_reactant_components_contribute",
+            "reactant_component_participation_plausible",
             "scaffold_continuity_plausible",
             "ring_change_plausible",
             "stereochemical_product_matches",
@@ -200,7 +202,7 @@ def verify_reaction_step(
         "atom_maps_unique",
         "product_atoms_have_reactant_provenance",
         "mapped_elements_preserved",
-        "mapped_reactant_components_contribute",
+        "reactant_component_participation_plausible",
         "scaffold_continuity_plausible",
         "ring_change_plausible",
         "bond_change_present",
@@ -439,7 +441,15 @@ def _audit_mapped_reaction(
     departing_reactant_heavy_atom_count = (
         int(reactant_unmapped) + len(departing_reactant_maps)
     )
-    max_departing_reactant_heavy_atoms = 12
+    product_heavy_atoms = int(product_mol.GetNumHeavyAtoms())
+    # A fixed allowance rejected legitimate protecting-group and one-pot
+    # operations on large molecules while being unnecessarily permissive for
+    # very small products. Scale conservatively with the product, retain the
+    # historical floor, and keep an absolute ceiling.
+    max_departing_reactant_heavy_atoms = max(
+        12,
+        min(24, (product_heavy_atoms + 1) // 2),
+    )
     departing_atoms_plausible = (
         departing_reactant_heavy_atom_count
         <= max_departing_reactant_heavy_atoms
@@ -478,10 +488,34 @@ def _audit_mapped_reaction(
     components_contribute = bool(component_map_sets) and contributing_components == len(
         component_map_sets
     )
-    if not components_contribute:
+    component_heavy_atom_counts = [
+        int(mol.GetNumHeavyAtoms()) for mol in reactant_mols
+    ]
+    spectator_component_indices = [
+        index
+        for index, component_maps in enumerate(component_map_sets)
+        if not component_maps & product_map_set
+    ]
+    spectator_heavy_atom_count = sum(
+        component_heavy_atom_counts[index]
+        for index in spectator_component_indices
+    )
+    max_spectator_heavy_atoms = max(
+        6,
+        min(12, (product_heavy_atoms + 3) // 4),
+    )
+    component_participation_plausible = bool(component_map_sets) and bool(
+        contributing_components
+    ) and (
+        components_contribute
+        or (
+            len(spectator_component_indices) <= 2
+            and spectator_heavy_atom_count <= max_spectator_heavy_atoms
+        )
+    )
+    if not component_participation_plausible:
         reasons.append("mapped_reactant_component_does_not_contribute_to_product")
 
-    product_heavy_atoms = int(product_mol.GetNumHeavyAtoms())
     largest_reactant_heavy_atoms = max(
         (int(mol.GetNumHeavyAtoms()) for mol in reactant_mols),
         default=0,
@@ -517,8 +551,14 @@ def _audit_mapped_reaction(
         "product_atoms_have_reactant_provenance": provenance,
         "mapped_elements_preserved": elements_preserved,
         "mapped_reactant_components_contribute": components_contribute,
+        "reactant_component_participation_plausible": (
+            component_participation_plausible
+        ),
         "contributing_reactant_component_count": contributing_components,
         "mapped_reactant_component_count": len(component_map_sets),
+        "spectator_reactant_component_count": len(spectator_component_indices),
+        "spectator_reactant_heavy_atom_count": spectator_heavy_atom_count,
+        "max_spectator_reactant_heavy_atoms": max_spectator_heavy_atoms,
         "scaffold_continuity_plausible": scaffold_plausible,
         "largest_reactant_heavy_atom_count": largest_reactant_heavy_atoms,
         "product_heavy_atom_count": product_heavy_atoms,
@@ -597,7 +637,7 @@ def _deterministic_transform_reapply_audit(
         "atom_maps_unique",
         "product_atoms_have_reactant_provenance",
         "mapped_elements_preserved",
-        "mapped_reactant_components_contribute",
+        "reactant_component_participation_plausible",
         "scaffold_continuity_plausible",
         "ring_change_plausible",
         "stereochemical_product_matches",

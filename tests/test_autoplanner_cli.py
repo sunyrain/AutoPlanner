@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from cascade_planner.cli import main
+from cascade_planner.cli import build_parser, main
 
 
 def _storage_args(tmp_path: Path) -> list[str]:
@@ -69,3 +69,19 @@ def test_cli_gc_refuses_an_implicit_destructive_mode(
     assert main([*_storage_args(tmp_path), "gc"]) == 2
     error = json.loads(capsys.readouterr().err)
     assert error["reason"] == "gc_requires_explicit_--dry-run"
+
+
+def test_cli_exposes_bounded_replay_case_recovery_stages() -> None:
+    args = build_parser().parse_args(
+        [
+            "replay-case",
+            "--pack",
+            "case.json",
+            "--stop-after",
+            "evidence",
+        ]
+    )
+
+    assert args.command == "replay-case"
+    assert args.pack == Path("case.json")
+    assert args.stop_after == "evidence"

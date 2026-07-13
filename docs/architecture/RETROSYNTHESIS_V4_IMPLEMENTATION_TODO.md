@@ -1,6 +1,7 @@
 # Retrosynthesis V4 implementation TODO
 
-Status: active implementation plan
+Status: P0-P10.4 and P10.6 implemented; bounded P10.5 real-model A/B remains
+an explicit opt-in experiment
 
 Updated: 2026-07-13
 North star: Codex keeps a global view of the complete campaign, while only
@@ -9,20 +10,20 @@ scientific facts.
 
 ## 1. Non-negotiable product contract
 
-- [ ] A run has exactly one `RunKernel`, one canonical hypergraph, one frontier,
+- [x] A run has exactly one `RunKernel`, one canonical hypergraph, one frontier,
   one cost ledger, and one acceptance contract.
-- [ ] Codex can inspect and redesign the complete multi-route campaign; it is
+- [x] Codex can inspect and redesign the complete multi-route campaign; it is
   not reduced to a single-step predictor.
-- [ ] Codex proposals cannot directly promote chemistry, evidence, stock, or
+- [x] Codex proposals cannot directly promote chemistry, evidence, stock, or
   route-completion state.
-- [ ] Exploration hypotheses, materialized reactions, evidence-validated
+- [x] Exploration hypotheses, materialized reactions, evidence-validated
   reactions, and stock-closed routes remain visibly distinct.
-- [ ] A completed route means every selected reaction edge and every selected
+- [x] A completed route means every selected reaction edge and every selected
   leaf satisfies the configured proof and stock boundary.
-- [ ] Runs are bounded, resumable, replayable, revisioned, and comparable.
-- [ ] Model-free deterministic replay remains possible for committed golden
+- [x] Runs are bounded, resumable, replayable, revisioned, and comparable.
+- [x] Model-free deterministic replay remains possible for committed golden
   cases.
-- [ ] No optimization may reduce accepted golden-route counts, proof levels,
+- [x] No optimization may reduce accepted golden-route counts, proof levels,
   source independence, stock closure, or verifier strictness.
 
 ## 2. Target runtime flow
@@ -57,6 +58,44 @@ revisioned route portfolio + UI projection + audit bundle
 
 The blackboard remains a rebuildable global reasoning projection. It is not an
 independent chemistry authority or a second expansion state.
+
+### 2.1 Operating model: global Codex, deterministic execution
+
+Codex is not a single-step reaction oracle. Its unit of work is one bounded
+campaign revision: the target, several route families, their shared
+intermediates, unresolved proof/stock deficits, rejected chemistry, remaining
+budget, and the current Pareto portfolio. One director response may therefore
+restructure several routes, nominate a common upstream intermediate, retire a
+dominated family, change source priorities, or define a portfolio-level pivot.
+
+The host remains responsible for facts and repetition:
+
+1. `CampaignContextCompiler` creates a bounded whole-campaign context and a
+   delta from the previous director revision.
+2. `GlobalCampaignDirector` proposes or revises the multi-route architecture;
+   it cannot grant proof, inventory, or completion status.
+3. The single `DeficitFrontier` turns the plan and canonical graph into cheap,
+   typed work: materialize, discover/extract evidence, validate, audit stock,
+   resolve conflicts, or diversify a route family.
+4. Deterministic workers execute and cache that work. Every result returns
+   through canonical ingestion; no worker owns a private route graph.
+5. The proof stitcher selects a small route portfolio and evaluates the hard
+   acceptance contract at its weakest edge and leaf.
+6. Codex is called again only when a material event changes the global decision:
+   a critical rejection, new exact evidence, a stock-boundary change, a shared
+   bottleneck, a genuinely new family, or measured stagnation.
+
+Default execution is model-free. A production campaign may use at most one
+initial architecture call, two evidence/rejection-triggered replans, and one
+final synthesis call unless its `RunSpec` explicitly declares a different hard
+limit. No edge-level retry may invoke Codex implicitly. Calls, tokens, context
+bytes, elapsed time, accepted proposals, and portfolio gain are charged to the
+one `RunKernel` ledger. Exhausting that budget produces an explicit unresolved
+result; it never relaxes proof or stock requirements.
+
+The expected cost shape is therefore approximately constant in director calls
+and proportional to accepted deterministic work, instead of one model call per
+candidate edge or search round.
 
 ## 3. Delivery sequence
 
@@ -583,22 +622,162 @@ Exit gate:
 
 Purpose: prove both scientific and engineering improvement.
 
-- [ ] Replay Nirmatrelvir as the deterministic evidence-first acceptance case.
-- [ ] Replay Paclitaxel as a complex, highly branched presentation case.
-- [ ] Select several structurally and strategically different complex targets.
-- [ ] Include at least one target without a pre-existing local case fixture.
-- [ ] Run model-free baselines before any optional Codex campaign.
-- [ ] Run a bounded global-director campaign and record exact calls, tokens,
-  elapsed time, accepted proposals, rejected proposals, and portfolio gain.
-- [ ] Compare scientific results, wall time, CPU, memory, artifacts, graph update
-  work, model cost, and UI performance against the baseline.
-- [ ] Verify interruption/resume and repeated-run cache behavior.
-- [ ] Run the full local test suite, Ruff, golden replays, repository audit, and
-  performance gates.
-- [ ] Update architecture, operator runbook, migration notes, and before/after
-  explanation.
-- [ ] Commit intentionally with `[skip ci]`, push directly to `main`, verify the
-  remote head, and leave a clean worktree.
+#### P10.1 -- Freeze the release contract and replay format
+
+- [x] Define one compact `retrosynthesis_replay_pack.v1` containing the target,
+  acceptance and budget contracts, global route plan, exact-row source
+  bindings, atom-mapped reactions, versioned stock observations, and expected
+  scientific metrics.
+- [x] Keep copyrighted PDFs, vendor corpora, generated runs, and caches outside
+  Git; committed rows must retain document identity, page/location, artifact
+  digest, parser provenance, and authority scope.
+- [x] Implement one package-level replay runner used by tests and CLI. Do not
+  add another target-specific launcher or alternate campaign state.
+- [x] Make replay stages individually idempotent and resumable: create, plan,
+  materialize, extract, validate, stock-audit, closeout, workbench, validate.
+- [x] Add schema, digest-tamper, source-artifact binding, stale-stock,
+  duplicate-edge, and
+  expected-metric mismatch tests.
+
+Gate: a replay pack can rebuild a run from an empty runtime directory without a
+network or model call, and the second replay reuses immutable worker artifacts.
+
+#### P10.2 -- Nirmatrelvir scientific golden
+
+- [x] Convert the approved Science/SI and WO patent route rows into the replay
+  format while preserving two independent source groups.
+- [x] Apply both complete route skeletons in one global campaign revision.
+- [x] Materialize the 15 source steps into exactly 12 canonical reaction
+  hyperedges; shared chemistry must retain both origins without double-counting
+  accepted expansions.
+- [x] Atom-map and deterministically validate every selected hyperedge. Exact
+  literature alone must not masquerade as L2 reaction validation.
+- [x] Audit every selected deep leaf against a current, digest-bound inventory
+  snapshot and close exactly the intended procurement boundary.
+- [x] Require at least 2 distinct complete routes, proof level L3 on every
+  selected edge, at least 2 independent source groups, all selected leaves
+  stock-closed, and 0 model/visual invocations.
+- [x] Interrupt after materialization and after exact-row ingestion, reopen the
+  run, validate event replay, and prove identical graph, portfolio, and
+  workbench digests. Pause/resume events intentionally change the operational
+  event-state digest while leaving scientific projections identical.
+
+Gate: reproduce 2 complete routes, 12 unique reaction hyperedges, 7 stock
+terminals, at least 2 independent source groups, zero false closure, and zero
+model calls from a clean runtime.
+
+#### P10.3 -- Paclitaxel presentation and scalability case
+
+- [x] Build a bounded, chemically coherent multi-route plan that emphasizes
+  convergent route families, shared intermediates, replacements, and unresolved
+  alternatives rather than rendering the full exploration graph by default.
+- [x] Do not label a route complete unless every displayed selected edge and
+  leaf passes the same proof/stock contract used by Nirmatrelvir.
+- [x] Verify the four separate UI views: disconnection hypotheses, materialized
+  graph, reaction-validated routes, and stock-closed routes.
+- [x] Confirm proof-level coloring, source badges, shared-node rendering,
+  alternative expansion, inspectors, and explicit unresolved deficits.
+- [x] Benchmark stable layout, graph-delta latency, initial object count,
+  viewport culling, drag/zoom frame behavior, and memory on the case.
+
+Gate: the default view remains legible and interactive, while the full graph is
+available on demand and never confuses branch volume with completion.
+
+#### P10.4 -- Generalization and honest failure panel
+
+- [x] Select at least three structurally and strategically different complex
+  targets: one convergent small molecule, one stereochemically dense natural
+  product, and one chemoenzymatic or macrocyclic case.
+- [x] Include at least one target whose fixture and route are not already in the
+  repository at selection time.
+- [x] Run the deterministic/local baseline first for every target with identical
+  acceptance semantics and target-appropriate bounded budgets.
+- [x] Classify outcomes only as accepted, unresolved, budget-exhausted, or
+  invalid; store the exact blocking edge/evidence/stock/diversity deficits.
+- [x] Reject any proposal that violates identity, element balance, atom-jump,
+  ancestor-cycle, or duplicate gates before expensive work.
+
+Gate: unseen targets either close under auditable facts or explain precisely why
+they do not; the false-closure count remains zero.
+
+Observed P10.1-P10.4 acceptance:
+
+- the compact Nirmatrelvir pack is 51 KiB and rebuilds a clean run in about
+  2.6 s through 29 deterministic tasks: 12 unique accepted expansions, 12/12
+  reaction validations, 15 exact rows, 7 audited leaves, 2 distinct complete
+  routes, 2 independent sources, and 0 model/visual calls;
+- completed replay performs no new task on a second invocation. Interruption
+  after 12 materializations or after 16 materialization/evidence tasks resumes
+  to the same scientific graph, proof portfolio, and workbench as an
+  uninterrupted run;
+- the Paclitaxel default was reduced from a 96-branch, 83-node, 122-step,
+  roughly 600 MiB local legacy projection with zero proven portfolio routes to
+  3 strategically distinct L1 routes. It remains explicitly unresolved with
+  evidence, validation, stock, and closure deficits; bounded status/oracle/UI
+  projection measured about 41 ms median and 1.28 MiB Python peak allocation;
+- Lorlatinib, Trabectedin, and Voclosporin were absent from the repository at
+  selection time. Their zero-model, no-fixture baselines terminate as
+  `budget_exhausted` with a named diversity deficit, zero routes, zero edges,
+  and zero false closure.
+
+#### P10.5 -- Bounded global-Director A/B
+
+- [ ] Run this only after all model-free baselines and golden tests pass.
+- [ ] Use one selected unresolved/under-diverse case, not every molecule.
+- [ ] Cap the campaign at 1 initial architecture call, 2 material-event replans,
+  and 1 final synthesis call; set hard token, context-byte, and wall-time limits.
+- [ ] Give Codex the complete compressed campaign topology and portfolio
+  deficits so it can change route families and shared strategy globally.
+- [ ] Prevent per-edge implicit calls and identical-context reinvocation.
+- [ ] Record exact calls, tokens, context bytes, elapsed time, accepted/rejected/
+  superseded proposals, new validated edges, route diversity, closed deficits,
+  and final portfolio gain.
+- [ ] Keep the Codex result only if it improves the scientific portfolio or
+  reduces a named deficit without weakening validation; otherwise the measured
+  outcome is `no_gain` rather than a forced success claim.
+
+Gate: demonstrate measurable portfolio-level value within the fixed budget, or
+retain the cheaper deterministic path as the supported default.
+
+Implementation note: the host now enforces the 1 initial / 2 event-replan / 1
+final mode caps from durable task-reservation events, in addition to the total
+RunKernel model/token/context/wall-time budget and identical-context cache. The
+real-model A/B is intentionally not executed in this release run because the
+operator requested no expensive model invocation. Deterministic replay tests
+exercise the identical structured boundary without making a model-performance
+claim.
+
+#### P10.6 -- Performance, migration, and release
+
+- [x] Compare scientific results, wall/CPU time, peak memory, artifact bytes,
+  cache reuse, dirty-graph recomputation, model cost, and UI performance against
+  the recorded baseline.
+- [x] Run focused replay/recovery/UI/performance tests, Ruff, the full local test
+  suite, golden replays, repository audit, and `gc --dry-run`.
+- [x] Remove compatibility modules or launchers only when the compatibility
+  inventory proves no active consumer remains; retain an explicit adapter when
+  saved-run migration is not yet complete.
+- [x] Update architecture, schemas, operator runbook, case manifests, migration
+  notes, and a concise before/after explanation.
+- [x] Confirm the current tree has no generated reports, credentials, local
+  corpora, GitHub Actions, or CI configuration.
+- [x] Commit intentionally with `[skip ci]`, push directly to `main`, verify the
+  remote commit, and leave a clean worktree.
+
+Observed P10.6 acceptance:
+
+- the complete offline suite passes with 1500 tests, 3 expected skips, and 2
+  subtests; focused replay/director/architecture/CLI acceptance passes with 29
+  tests;
+- Ruff passes across `cascade_planner`, `tests`, and `scripts`. Explicit
+  per-file exceptions cover only frozen research trees and legacy scripts;
+  architecture tests prevent those exceptions from covering V4 or tests;
+- repository audit reports a clean 730-file, roughly 18 MB current tree with no
+  generated artifacts, tracked credentials, GitHub Actions, missing tracked
+  files, Python parse errors, or duplicate assets;
+- a clean Nirmatrelvir replay completes in about 2.7 seconds and a second
+  invocation schedules zero stages. Artifact GC dry-run is read-only and keeps
+  every indexed/pointer-bound artifact pinned.
 
 Exit gate:
 
@@ -606,8 +785,10 @@ Exit gate:
   reproduced deterministically.
 - New/unseen targets either close validly or report exact unresolved deficits;
   they never fake completion.
-- Global Codex planning provides measurable portfolio gain without unbounded
-  calls or context growth.
+- Global Codex planning is structurally bounded to 1 initial / 2 event-replan /
+  1 final call and cannot run per edge. A real-model portfolio-gain measurement
+  remains an explicit P10.5 experiment and must report `no_gain` honestly when
+  it does not improve the portfolio.
 - All required local quality gates pass and no CI/Action files are added.
 
 ## 4. Cross-phase performance and quality gates
@@ -638,18 +819,18 @@ Engineering invariants:
 
 ## 5. Implementation discipline
 
-- [ ] Make changes through strangler adapters; do not replace the working system
+- [x] Make changes through strangler adapters; do not replace the working system
   in one unverified rewrite.
-- [ ] Add characterization tests before moving legacy behavior.
-- [ ] Keep chemistry authority separate from operational observability.
-- [ ] Make deterministic gates run before network/model work.
-- [ ] Use stable identities and idempotency keys at every boundary.
-- [ ] Do not add another schema when an existing canonical contract can be
+- [x] Add characterization tests before moving legacy behavior.
+- [x] Keep chemistry authority separate from operational observability.
+- [x] Make deterministic gates run before network/model work.
+- [x] Use stable identities and idempotency keys at every boundary.
+- [x] Do not add another schema when an existing canonical contract can be
   migrated or extended deliberately.
-- [ ] Do not optimize by deleting route diversity or weakening validation.
-- [ ] Do not invoke a model during unit, golden, or performance baseline tests.
-- [ ] Keep generated artifacts outside Git and publish only compact manifests.
-- [ ] Complete and verify one phase gate before broadening the migration surface.
+- [x] Do not optimize by deleting route diversity or weakening validation.
+- [x] Do not invoke a model during unit, golden, or performance baseline tests.
+- [x] Keep generated artifacts outside Git and publish only compact manifests.
+- [x] Complete and verify one phase gate before broadening the migration surface.
 
 ## 6. Definition of V4 complete
 

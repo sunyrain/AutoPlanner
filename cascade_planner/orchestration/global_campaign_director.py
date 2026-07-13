@@ -198,6 +198,9 @@ class DirectorConfig:
     max_output_tokens: int = 8_000
     max_wall_time_s: float = 600.0
     max_tool_calls: int = 12
+    max_initial_architecture_calls: int = 1
+    max_event_replan_calls: int = 2
+    max_final_portfolio_synthesis_calls: int = 1
     model: str = ""
     reasoning_effort: str = "low"
     schema_version: str = GLOBAL_CAMPAIGN_DIRECTOR_CONFIG_SCHEMA
@@ -210,6 +213,9 @@ class DirectorConfig:
             self.max_output_bytes,
             self.max_output_tokens,
             self.max_tool_calls,
+            self.max_initial_architecture_calls,
+            self.max_event_replan_calls,
+            self.max_final_portfolio_synthesis_calls,
         ):
             if int(value) <= 0:
                 raise ValueError("director integer limits must be positive")
@@ -407,6 +413,26 @@ class GlobalCampaignDirector:
                 mode=mode,
                 context_sha256=context.content_sha256,
                 reasons=("identical_director_task_requires_recovery",),
+                task_id=task_id,
+            )
+        mode_limit = {
+            "initial_architecture": self.config.max_initial_architecture_calls,
+            "event_replan": self.config.max_event_replan_calls,
+            "final_portfolio_synthesis": (
+                self.config.max_final_portfolio_synthesis_calls
+            ),
+        }[mode]
+        prior_mode_calls = self.kernel.count_task_reservations(
+            metadata={"director_mode": mode},
+        )
+        if prior_mode_calls >= mode_limit:
+            return DirectorOutcome(
+                status="budget_exhausted",
+                invoked=False,
+                cache_hit=False,
+                mode=mode,
+                context_sha256=context.content_sha256,
+                reasons=("director_mode_call_budget_exhausted",),
                 task_id=task_id,
             )
         prompt = director_prompt(context, mode=mode, config=self.config)

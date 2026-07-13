@@ -92,6 +92,20 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--large-blob-bytes", type=int, default=1_000_000)
     audit.add_argument("--output", type=Path)
 
+    replay_case = sub.add_parser(
+        "replay-case",
+        help="rebuild a compact, model-free scientific acceptance pack",
+    )
+    replay_case.add_argument("--pack", type=Path, required=True)
+    replay_case.add_argument("--run-id")
+    replay_case.add_argument("--run-dir")
+    replay_case.add_argument(
+        "--stop-after",
+        choices=("plan", "materialization", "evidence", "validation", "stock"),
+        default="",
+        help="pause after a stage to exercise deterministic recovery",
+    )
+
     serve = sub.add_parser("serve", help="serve the Web UI and V4 API")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=7860)
@@ -127,6 +141,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _dispatch(gateway: CampaignGateway, args: argparse.Namespace) -> dict[str, Any]:
+    if args.command == "replay-case":
+        from cascade_planner.interfaces.replay_pack import run_replay_pack
+
+        return run_replay_pack(
+            args.pack,
+            paths=gateway.paths,
+            run_id=args.run_id,
+            run_dir=args.run_dir,
+            stop_after=args.stop_after,
+        )
     if args.command == "run":
         plan = _read_object(args.plan) if args.plan else None
         return gateway.create_run(

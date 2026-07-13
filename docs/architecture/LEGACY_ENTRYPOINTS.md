@@ -42,3 +42,10 @@
 - 受控研究 worker：`run_open_structure_template_agent.py`、`run_smiles_first_literature_workflow.py`、`run_codex_entry_pdf_visual_followup.py`
 
 这些工具的输出必须通过 V4 worker/canonical ingestion 才能影响路线 proof。独立 CLI 文件的存在不代表它拥有第二套图、frontier 或完成判定。
+
+## 质量边界
+
+`pyproject.toml` 仅为上述冻结研究目录和 legacy script 记录已有 Ruff
+错误类别；V4 application、interfaces、orchestration、runtime、Web 和全部测试
+不在豁免范围。架构测试会阻止豁免模式扩展到主线。迁移某个旧模块时，应同时
+移除它的豁免，而不是把新逻辑继续写进旧树。

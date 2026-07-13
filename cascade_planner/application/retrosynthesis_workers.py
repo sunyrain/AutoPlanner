@@ -601,6 +601,13 @@ def discover_sources_worker(
                     "existing_exact_records": list(
                         payload.get("existing_exact_records") or []
                     ),
+                    "existing_edge_digests": sorted(
+                        {
+                            str(value)
+                            for value in payload.get("existing_edge_digests") or []
+                            if str(value)
+                        }
+                    ),
                 },
                 budget=WorkerBudget(
                     task_kind="evidence",
@@ -801,6 +808,11 @@ def extract_exact_source_worker(
         material_events.extend(["exact_rows_added", "material_evidence_added"])
     if conflicts:
         material_events.append("source_conflict_added")
+    existing_edge_digests = {
+        str(value)
+        for value in payload.get("existing_edge_digests") or []
+        if str(value)
+    }
     scheduled_materializations = materialization_commands_for_proposals(
         (
             {
@@ -811,6 +823,7 @@ def extract_exact_source_worker(
                 "proposal_id": row["record_id"],
             }
             for row in accepted
+            if str(row.get("edge_digest") or "") not in existing_edge_digests
         ),
         run_id=command.run_id,
         input_revision=command.input_revision,

@@ -1,0 +1,130 @@
+{
+  "case_id": "paclitaxel-v4-bounded-showcase",
+  "critical_unknowns": [
+    "exact source row and protection-state bridge for every selected edge",
+    "deterministic atom-mapped reaction validation",
+    "versioned inventory for every selected leaf"
+  ],
+  "director_role": "bounded_global_route_portfolio",
+  "multi_step_skeletons": [
+    {
+      "route_family_id": "family:formal-c13-ester",
+      "skeleton_id": "skeleton:formal-c13-ester",
+      "steps": [
+        {
+          "precursor_smiles": [
+            "CC(=O)O[C@H]1C(=O)[C@@]2(C)[C@H]([C@H](OC(=O)c3ccccc3)[C@]3(O)C[C@H](O)C(C)=C1C3(C)C)[C@]1(OC(C)=O)CO[C@@H]1C[C@@H]2O",
+            "O=C(N[C@@H](c1ccccc1)[C@@H](O)C(=O)O)c1ccccc1"
+          ],
+          "product_smiles": "CC(=O)O[C@H]1C(=O)[C@@]2(C)[C@H]([C@H](OC(=O)c3ccccc3)[C@]3(O)C[C@H](OC(=O)[C@H](O)[C@@H](NC(=O)c4ccccc4)c4ccccc4)C(C)=C1C3(C)C)[C@]1(OC(C)=O)CO[C@@H]1C[C@@H]2O",
+          "proof_status": "L0_hypothesis",
+          "required_validation": [
+            "Validate that the C13 alcohol precursor maps stereochemically to the target side-chain attachment site.",
+            "Assess whether side-chain hydroxyl protection or acid activation is required for selective ester formation.",
+            "Confirm taxane oxetane and acetate groups survive proposed late-stage esterification conditions.",
+            "target_equivalence"
+          ],
+          "step_id": "hypothesis:formal_c13",
+          "transformation_hypothesis": "C13 side-chain esterification"
+        }
+      ]
+    },
+    {
+      "route_family_id": "family:ojima-beta-lactam",
+      "skeleton_id": "skeleton:ojima-beta-lactam",
+      "steps": [
+        {
+          "precursor_smiles": [
+            "CC(=O)O[C@@H]1C(=O)[C@]2(C)[C@H](O)C[C@@H]3OC[C@@]3(OC(C)=O)[C@H]2[C@@H](OC(=O)c2ccccc2)[C@]2(O)C[C@@H](O)C(C)=C1C2(C)C",
+            "CC[Si](CC)(CC)O[C@H]1C(=O)N(C(=O)c2ccccc2)[C@@H]1c1ccccc1"
+          ],
+          "product_smiles": "CC(=O)O[C@H]1C(=O)[C@@]2(C)[C@H]([C@H](OC(=O)c3ccccc3)[C@]3(O)C[C@H](OC(=O)[C@H](O)[C@@H](NC(=O)c4ccccc4)c4ccccc4)C(C)=C1C3(C)C)[C@]1(OC(C)=O)CO[C@@H]1C[C@@H]2O",
+          "proof_status": "L0_hypothesis",
+          "required_validation": [
+            "Verify exact baccatin substrate protection state and C13 alkoxide generation conditions from the cited primary paper.",
+            "Confirm beta-lactam enantiomer and TES deprotection compatibility with the target taxane core.",
+            "Check analytical identity of the product against authentic paclitaxel."
+          ],
+          "step_id": "hypothesis:ojima",
+          "transformation_hypothesis": "C13 side-chain ester installation by beta-lactam ring opening"
+        }
+      ]
+    },
+    {
+      "route_family_id": "family:biosynthetic-tailoring",
+      "skeleton_id": "skeleton:biosynthetic-tailoring",
+      "steps": [
+        {
+          "precursor_smiles": [
+            "CC(=O)O[C@@H]1C(=O)[C@]2(C)[C@H](O)C[C@@H]3OC[C@@]3(OC(C)=O)[C@H]2[C@@H](OC(=O)c2ccccc2)[C@]2(O)C[C@@H](O)C(C)=C1C2(C)C",
+            "N[C@@H](CC(=O)O)c1ccccc1",
+            "O=C(O)c1ccccc1"
+          ],
+          "product_smiles": "CC(=O)O[C@H]1C(=O)[C@@]2(C)[C@H]([C@H](OC(=O)c3ccccc3)[C@]3(O)C[C@H](OC(=O)[C@H](O)[C@@H](NC(=O)c4ccccc4)c4ccccc4)C(C)=C1C3(C)C)[C@]1(OC(C)=O)CO[C@@H]1C[C@@H]2O",
+          "proof_status": "L0_hypothesis",
+          "required_validation": [
+            "Identify and express candidate Taxus C13 acyltransferase and N-benzoyltransferase activities.",
+            "Prepare or regenerate the relevant aminoacyl-CoA and benzoyl-CoA donors.",
+            "Test whether the cascade gives paclitaxel, 2-deoxypaclitaxel, or stalled intermediates under analytical-scale conditions."
+          ],
+          "step_id": "hypothesis:biosynthetic",
+          "transformation_hypothesis": "biosynthetic C13 side-chain acylation and tailoring"
+        }
+      ]
+    }
+  ],
+  "portfolio_rationale": "Retain three strategically distinct target-level families; do not render or imply closure from the 96-branch legacy exploration graph.",
+  "route_families": [
+    {
+      "evidence_status": "model_only",
+      "limitations": [
+        "Target-structure inference only; coupling reagent, activation state, and protecting-group sequence are not specified.",
+        "Free secondary alcohols and the oxetane-bearing taxane core create chemoselectivity and stability risks.",
+        "Does not solve construction or stereochemical validation of the taxane skeleton."
+      ],
+      "route_family_id": "family:formal-c13-ester",
+      "selected": true,
+      "strategic_disconnection": "Formal C13 ester disconnection"
+    },
+    {
+      "evidence_status": "analogy",
+      "limitations": [
+        "Late-stage proposal only; it does not prove upstream access to baccatin III or the Ojima lactam.",
+        "The beta-lactam precursor stereochemical SMILES should be checked against the exact enantiomer and protecting-group variant used in the cited procedure before experimental use.",
+        "Conditions are summarized at route-family level, not an executable protocol."
+      ],
+      "route_family_id": "family:ojima-beta-lactam",
+      "selected": true,
+      "strategic_disconnection": "Ojima beta-lactam semisynthesis"
+    },
+    {
+      "evidence_status": "analogy",
+      "limitations": [
+        "The full late-stage enzymatic sequence to paclitaxel is not presented here as a solved preparative route.",
+        "The exact side-chain hydroxylase step and substrate order need independent confirmation for route design.",
+        "CoA thioesters, enzyme expression, cofactor recycling, and taxane solubility are likely major constraints."
+      ],
+      "route_family_id": "family:biosynthetic-tailoring",
+      "selected": true,
+      "strategic_disconnection": "Biosynthetic-inspired side-chain tailoring"
+    }
+  ],
+  "schema_version": "global_campaign_plan.v1",
+  "semantics": {
+    "default_projection_is_bounded": true,
+    "hypotheses_are_not_routes": true,
+    "model_calls_required": 0,
+    "unresolved_is_expected": true
+  },
+  "shared_intermediates": [
+    {
+      "label": "baccatin III taxane core",
+      "proof_status": "hypothesis_only",
+      "role": "shared_semisynthesis_and_biosynthesis_anchor"
+    }
+  ],
+  "target": {
+    "name": "paclitaxel",
+    "smiles": "CC(=O)O[C@H]1C(=O)[C@@]2(C)[C@H]([C@H](OC(=O)c3ccccc3)[C@]3(O)C[C@H](OC(=O)[C@H](O)[C@@H](NC(=O)c4ccccc4)c4ccccc4)C(C)=C1C3(C)C)[C@]1(OC(C)=O)CO[C@@H]1C[C@@H]2O"
+  }
+}

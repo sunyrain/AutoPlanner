@@ -483,6 +483,30 @@ class RunKernel:
     def revision(self) -> RunRevision:
         return RunRevision.from_state(self.state)
 
+    def count_task_reservations(
+        self,
+        *,
+        kind: str = "",
+        metadata: Mapping[str, Any] | None = None,
+    ) -> int:
+        """Count durable task admissions matching an optional metadata subset.
+
+        This reads the event authority rather than transient in-flight state,
+        so failed, interrupted, and completed attempts all consume the same
+        campaign-level call allowance.
+        """
+        expected = dict(metadata or {})
+        return sum(
+            1
+            for event in self._read_events()
+            if event.event_type == "task_reserved"
+            and (not kind or str(event.payload.get("kind") or "") == kind)
+            and all(
+                dict(event.payload.get("metadata") or {}).get(key) == value
+                for key, value in expected.items()
+            )
+        )
+
     def start(self) -> RunEvent:
         return self.transition("running", idempotency_key="run:start")
 

@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import tomllib
 
 from cascade_planner.application.compatibility_inventory import (
     compatibility_inventory,
@@ -31,6 +32,9 @@ V4_MODULES = (
     "cascade_planner/application/worker_runtime.py",
     "cascade_planner/interfaces/campaign_gateway.py",
     "cascade_planner/interfaces/campaign_operations.py",
+    "cascade_planner/interfaces/replay_contract.py",
+    "cascade_planner/interfaces/replay_pack.py",
+    "cascade_planner/interfaces/replay_reporting.py",
     "cascade_planner/orchestration/global_campaign_director.py",
     "cascade_planner/orchestration/retrosynthesis_service.py",
 )
@@ -59,6 +63,9 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/harness/v4_route_workbench.py": 750,
     "cascade_planner/interfaces/campaign_gateway.py": 400,
     "cascade_planner/interfaces/campaign_operations.py": 160,
+    "cascade_planner/interfaces/replay_contract.py": 200,
+    "cascade_planner/interfaces/replay_pack.py": 500,
+    "cascade_planner/interfaces/replay_reporting.py": 120,
     "cascade_planner/cli.py": 300,
     "cascade_planner/runtime/repository_audit.py": 360,
     "cascade_planner/web/v4_api.py": 220,
@@ -112,6 +119,25 @@ def test_new_focused_modules_stay_within_practical_line_budgets() -> None:
         for relative, lines in observed.items()
         if lines > FOCUSED_LINE_BUDGETS[relative]
     } == {}
+
+
+def test_ruff_legacy_exceptions_cannot_cover_v4_or_tests() -> None:
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    ignored_patterns = config["tool"]["ruff"]["lint"]["per-file-ignores"]
+
+    protected_prefixes = (
+        "cascade_planner/application/",
+        "cascade_planner/interfaces/",
+        "cascade_planner/orchestration/",
+        "cascade_planner/runtime/",
+        "cascade_planner/web/",
+        "tests/",
+    )
+    assert all(
+        not pattern.startswith(prefix)
+        for pattern in ignored_patterns
+        for prefix in protected_prefixes
+    )
 
 
 def test_v4_workbench_adapter_does_not_execute_legacy_route_forest_compiler() -> None:

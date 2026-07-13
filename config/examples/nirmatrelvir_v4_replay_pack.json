@@ -1,0 +1,962 @@
+{
+  "acceptance": {
+    "minimum_complete_routes": 2,
+    "minimum_edge_proof_level": 3,
+    "minimum_independent_source_groups": 2,
+    "require_all_selected_leaves_stock_closed": true,
+    "require_distinct_edge_sets": true,
+    "stock_boundary": "procurement"
+  },
+  "budget": {
+    "automatic_budget_extension": false,
+    "max_accepted_expansions": 12,
+    "max_attempt_runs": 40,
+    "max_model_invocations": 0,
+    "max_prompt_context_bytes": 0,
+    "max_total_input_tokens": 0,
+    "max_total_output_tokens": 0,
+    "max_total_wall_time_s": 0,
+    "max_visual_invocations": 0
+  },
+  "case_id": "nirmatrelvir-v4-dual-source-replay",
+  "content_sha256": "84a9096ef5e77dbae46f510415a47aaf3201ba25a786e7d6650d6b85c73757a8",
+  "created_at": "2026-07-13T15:00:00+08:00",
+  "expected": {
+    "accepted": true,
+    "accepted_expansion_count": 12,
+    "complete_route_count": 2,
+    "exact_record_count": 15,
+    "hyperedge_count": 12,
+    "independent_source_groups": [
+      "doi:10.1126/science.abl4784",
+      "patent:WO2021250648A1"
+    ],
+    "model_invocations": 0,
+    "selected_route_count": 2,
+    "stock_terminal_count": 7,
+    "validated_edge_count": 12,
+    "visual_invocations": 0
+  },
+  "global_plan": {
+    "director_role": "global_route_portfolio_planner_not_single_step_generator",
+    "multi_step_skeletons": [
+      {
+        "route_family_id": "family:science_abl4784_complete_process",
+        "skeleton_id": "skeleton:science_abl4784_complete_process",
+        "steps": [
+          {
+            "precursor_smiles": [
+              "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O)C2(C)C"
+            ],
+            "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C",
+            "step_id": "hypothesis:compound_6_mtbe_solvate_from_T18",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+              "NC(=O)[C@@H](N)C[C@@H]1CCNC1=O"
+            ],
+            "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O)C2(C)C",
+            "step_id": "hypothesis:T18_from_T17_and_T13",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "CC(C)(C)[C@H](N)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+              "CCOC(=O)C(F)(F)F"
+            ],
+            "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+            "step_id": "hypothesis:T17_from_T16",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C"
+            ],
+            "product_smiles": "CC(C)(C)[C@H](N)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+            "step_id": "hypothesis:T16_from_T15",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C"
+            ],
+            "product_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C",
+            "step_id": "hypothesis:T15_from_T14",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C(=O)O)C(C)(C)C",
+              "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C"
+            ],
+            "product_smiles": "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C",
+            "step_id": "hypothesis:T14_from_bicyclic_ester_and_boc_tle",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O"
+            ],
+            "product_smiles": "NC(=O)[C@@H](N)C[C@@H]1CCNC1=O",
+            "step_id": "hypothesis:T13_from_T12",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "COC(=O)[C@H](C[C@@H]1CCNC1=O)NC(=O)OC(C)(C)C",
+              "N"
+            ],
+            "product_smiles": "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O",
+            "step_id": "hypothesis:T12_from_boc_methyl_ester",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          }
+        ]
+      },
+      {
+        "route_family_id": "family:wo2021250648a1_example13",
+        "skeleton_id": "skeleton:wo2021250648a1_example13",
+        "steps": [
+          {
+            "precursor_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C)C(C)(C)C",
+              "O=C(OC(=O)C(F)(F)F)C(F)(F)F"
+            ],
+            "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C",
+            "step_id": "hypothesis:patent_13",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C",
+              "N#C[C@@H](N)C[C@@H]1CCNC1=O"
+            ],
+            "product_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C)C(C)(C)C",
+            "step_id": "hypothesis:patent_c33",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C"
+            ],
+            "product_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C",
+            "step_id": "hypothesis:patent_c32",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C(=O)O)C(C)(C)C",
+              "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C"
+            ],
+            "product_smiles": "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C",
+            "step_id": "hypothesis:patent_c31",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C#N)C[C@@H]1CCNC1=O",
+              "CS(=O)(=O)O"
+            ],
+            "product_smiles": "N#C[C@@H](N)C[C@@H]1CCNC1=O",
+            "step_id": "hypothesis:patent_c7",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O"
+            ],
+            "product_smiles": "CC(C)(C)OC(=O)N[C@H](C#N)C[C@@H]1CCNC1=O",
+            "step_id": "hypothesis:patent_c6",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          },
+          {
+            "precursor_smiles": [
+              "COC(=O)[C@H](C[C@@H]1CCNC1=O)NC(=O)OC(C)(C)C",
+              "N"
+            ],
+            "product_smiles": "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O",
+            "step_id": "hypothesis:patent_c5",
+            "transformation_hypothesis": "global route skeleton exact-source candidate"
+          }
+        ]
+      }
+    ],
+    "route_families": [
+      {
+        "route_family_id": "family:science_abl4784_complete_process",
+        "selected": true,
+        "strategic_disconnection": "published convergent process route from Science SI"
+      },
+      {
+        "route_family_id": "family:wo2021250648a1_example13",
+        "selected": true,
+        "strategic_disconnection": "independent patent process route with alternative late-stage acylation"
+      }
+    ],
+    "schema_version": "global_campaign_plan.v1"
+  },
+  "inventory": {
+    "artifact": {
+      "adapter_version": "autoplanner.replay_inventory.v1",
+      "inventory_version": "nirmatrelvir-2026-07-13",
+      "offers": [
+        {
+          "available": true,
+          "canonical_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)O)C(C)(C)C",
+          "catalog_number": "AAH5113614",
+          "checked_at": "2026-07-12T12:00:00+08:00",
+          "currency": "USD",
+          "lead_time_days": null,
+          "metadata": {
+            "observation_kind": "operator_verified_supplier_page",
+            "supplier_product_name": "N-Boc-L-tert-leucine, 98%"
+          },
+          "pack_size": "25 g",
+          "price": 351.0,
+          "purity": "98%",
+          "region": "US",
+          "schema_version": "stock_offer_snapshot.v1",
+          "snapshot_sha256": "5c2b8bc9c8bfd09579aa0531ca4d7f279c68a23eb74a8213e84d4154afe54f1e",
+          "source_url": "https://www.fishersci.com/shop/products/n-boc-l-tert-leucine-98-thermo-scientific-1/AAH5113614",
+          "supplier": "Thermo Fisher Scientific / Alfa Aesar"
+        },
+        {
+          "available": true,
+          "canonical_smiles": "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C",
+          "catalog_number": "BL3H160BEAAD-250MG",
+          "checked_at": "2026-07-12T12:00:00+08:00",
+          "currency": "EUR",
+          "lead_time_days": 60,
+          "metadata": {
+            "inventory_formulation": {
+              "projected_parent_smiles": "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C",
+              "projection_policy": "largest_covalent_fragment_and_counterion_neutralization",
+              "schema_version": "stock_inventory_formulation_projection.v1",
+              "source_formulation_smiles": "[Cl-].COC(=O)[C@H]1[NH2+]C[C@H]2[C@@H]1C2(C)C"
+            },
+            "observation_kind": "operator_verified_supplier_page",
+            "supplier_cas": "565456-77-1",
+            "supplier_product_name": "Methyl (1R,2S,5S)-6,6-dimethyl-3-azabicyclo[3.1.0]hexane-2-carboxylate hydrochloride"
+          },
+          "pack_size": "250 mg",
+          "price": 40.0,
+          "purity": "96%",
+          "region": "TR/EU storefront",
+          "schema_version": "stock_offer_snapshot.v1",
+          "snapshot_sha256": "4e9a0eb2f09952481eed3cc35f7a133fcc672ea243e5064b318db0327fdaffb2",
+          "source_url": "https://www.sigmaaldrich.com/TR/en/product/bldpharmatech/bl3h160beaad",
+          "supplier": "Sigma-Aldrich / BLDpharm"
+        },
+        {
+          "available": true,
+          "canonical_smiles": "COC(=O)[C@H](C[C@@H]1CCNC1=O)NC(=O)OC(C)(C)C",
+          "catalog_number": "M3533",
+          "checked_at": "2026-07-12T12:00:00+08:00",
+          "currency": "GBP",
+          "lead_time_days": 0,
+          "metadata": {
+            "observation_kind": "operator_verified_supplier_page",
+            "supplier_cas": "328086-60-8",
+            "supplier_product_name": "Methyl (2S)-2-[(tert-Butoxycarbonyl)amino]-3-[(3S)-2-oxopyrrolidin-3-yl]propanoate"
+          },
+          "pack_size": "5 g",
+          "price": 65.0,
+          "purity": ">98%",
+          "region": "GB/Belgium warehouse",
+          "schema_version": "stock_offer_snapshot.v1",
+          "snapshot_sha256": "6bbcbd8c4a470f97865e2b22ece540a12691a4b2e3044391ade93ab499eee3db",
+          "source_url": "https://www.tcichemicals.com/GB/en/p/M3533",
+          "supplier": "Tokyo Chemical Industry"
+        },
+        {
+          "available": true,
+          "canonical_smiles": "N",
+          "catalog_number": "499145-100ML",
+          "checked_at": "2026-07-13T14:46:43+08:00",
+          "currency": "USD",
+          "lead_time_days": 0,
+          "metadata": {
+            "observation_kind": "operator_verified_supplier_page",
+            "supplier_availability_text": "Available to ship TODAY from MILWAUKEE",
+            "supplier_product_name": "Ammonia solution, 7 N in methanol"
+          },
+          "pack_size": "100 mL",
+          "price": 110.0,
+          "purity": "7 N in methanol (6.5-7.5 M)",
+          "region": "US / Milwaukee",
+          "schema_version": "stock_offer_snapshot.v1",
+          "snapshot_sha256": "d654770070ecec2c70c62dbc3c2d5096127b4a016b715e30ce277c4ab369b74e",
+          "source_url": "https://www.sigmaaldrich.com/US/en/product/sigald/499145",
+          "supplier": "MilliporeSigma / Sigma-Aldrich"
+        },
+        {
+          "available": true,
+          "canonical_smiles": "CS(=O)(=O)O",
+          "catalog_number": "M0093-25G",
+          "checked_at": "2026-07-13T14:46:43+08:00",
+          "currency": "USD",
+          "lead_time_days": 0,
+          "metadata": {
+            "observation_kind": "operator_verified_supplier_page",
+            "supplier_availability_text": "10 units in Philadelphia, PA",
+            "supplier_product_name": "Methanesulfonic Acid"
+          },
+          "pack_size": "25 g",
+          "price": 19.0,
+          "purity": ">99.0% (neutralization titration)",
+          "region": "US / Philadelphia",
+          "schema_version": "stock_offer_snapshot.v1",
+          "snapshot_sha256": "27d8e654f4f5c69f2046ab5b7808782deb6aacc2e90bb7c664d5835e61b4dae7",
+          "source_url": "https://www.tcichemicals.com/US/en/p/M0093",
+          "supplier": "TCI America"
+        },
+        {
+          "available": true,
+          "canonical_smiles": "CCOC(=O)C(F)(F)F",
+          "catalog_number": "E50000-25G",
+          "checked_at": "2026-07-13T14:46:43+08:00",
+          "currency": "USD",
+          "lead_time_days": 0,
+          "metadata": {
+            "observation_kind": "operator_verified_supplier_page",
+            "supplier_availability_text": "Available to ship TODAY from MILWAUKEE",
+            "supplier_product_name": "Ethyl trifluoroacetate"
+          },
+          "pack_size": "25 g",
+          "price": 37.1,
+          "purity": "99%",
+          "region": "US / Milwaukee",
+          "schema_version": "stock_offer_snapshot.v1",
+          "snapshot_sha256": "4adee1b0dd7be87772afe1a80080dc464a994da32239f87bf99e72cade360ead",
+          "source_url": "https://www.sigmaaldrich.com/US/en/product/aldrich/e50000",
+          "supplier": "MilliporeSigma / Sigma-Aldrich"
+        },
+        {
+          "available": true,
+          "canonical_smiles": "O=C(OC(=O)C(F)(F)F)C(F)(F)F",
+          "catalog_number": "T0433-20ML",
+          "checked_at": "2026-07-13T14:46:43+08:00",
+          "currency": "USD",
+          "lead_time_days": 0,
+          "metadata": {
+            "observation_kind": "operator_verified_supplier_page",
+            "supplier_availability_text": ">=40 units in Philadelphia, PA",
+            "supplier_product_name": "Trifluoroacetic Anhydride"
+          },
+          "pack_size": "20 mL",
+          "price": 32.0,
+          "purity": ">98.0% (GC)",
+          "region": "US / Philadelphia",
+          "schema_version": "stock_offer_snapshot.v1",
+          "snapshot_sha256": "0882a14cac7767203e59e3aafe7aaa8d4a1e286cd6d32f7d9905242b6a8085a0",
+          "source_url": "https://www.tcichemicals.com/US/en/p/T0433",
+          "supplier": "TCI America"
+        }
+      ],
+      "retrieved_at": "2026-07-13T14:46:43+08:00",
+      "schema_version": "versioned_inventory_snapshot.v1"
+    },
+    "as_of": "2026-07-13T15:00:00+08:00",
+    "max_age_days": 2
+  },
+  "reactions": [
+    {
+      "edge_digest": "08856a5d924cdd21057372a1f0a63abd4c050b50237fdb63414ffc5ec6ff76eb",
+      "mapped_reaction_smiles": "O[C:20]([C@H:19]1[N:15]([C:13]([C@H:5]([C:2]([CH3:1])([CH3:3])[CH3:4])[NH:6][C:7](=[O:8])[C:9]([F:10])([F:11])[F:12])=[O:14])[CH2:16][C@H:17]2[C@@H:18]1[C:34]2([CH3:35])[CH3:36])=[O:21].[NH2:22][C@@H:23]([CH2:24][C@@H:25]1[CH2:26][CH2:27][NH:28][C:29]1=[O:30])[C:31]([NH2:32])=[O:33]>>[CH3:1][C:2]([CH3:3])([CH3:4])[C@H:5]([NH:6][C:7](=[O:8])[C:9]([F:10])([F:11])[F:12])[C:13](=[O:14])[N:15]1[CH2:16][C@H:17]2[C@@H:18]([C@H:19]1[C:20](=[O:21])[NH:22][C@@H:23]([CH2:24][C@@H:25]1[CH2:26][CH2:27][NH:28][C:29]1=[O:30])[C:31]([NH2:32])=[O:33])[C:34]2([CH3:35])[CH3:36]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O)C2(C)C",
+      "reactant_smiles": [
+        "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+        "NC(=O)[C@@H](N)C[C@@H]1CCNC1=O"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    },
+    {
+      "edge_digest": "096c5e257f1bc8e54cf8d40220178de7e7b3aa25f8d6593c432cf312c5467ba1",
+      "mapped_reaction_smiles": "CC(C)(C)OC(=O)[NH:5][C@H:4]([C:2]([NH2:1])=[O:3])[CH2:6][C@@H:7]1[CH2:8][CH2:9][NH:10][C:11]1=[O:12]>>[NH2:1][C:2](=[O:3])[C@@H:4]([NH2:5])[CH2:6][C@@H:7]1[CH2:8][CH2:9][NH:10][C:11]1=[O:12]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "NC(=O)[C@@H](N)C[C@@H]1CCNC1=O",
+      "reactant_smiles": [
+        "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    },
+    {
+      "edge_digest": "0f478abdf578588063c9141d3afc7dc34b8c666434921a0f30496a27acd1be42",
+      "mapped_reaction_smiles": "[CH3:1][C:2]([CH3:3])([CH3:4])[C@H:5]([NH2:6])[C:13](=[O:14])[N:15]1[CH2:16][C@H:17]2[C@@H:18]([C@H:19]1[C:20](=[O:21])[OH:22])[C:23]2([CH3:24])[CH3:25].CCO[C:7](=[O:8])[C:9]([F:10])([F:11])[F:12]>>[CH3:1][C:2]([CH3:3])([CH3:4])[C@H:5]([NH:6][C:7](=[O:8])[C:9]([F:10])([F:11])[F:12])[C:13](=[O:14])[N:15]1[CH2:16][C@H:17]2[C@@H:18]([C@H:19]1[C:20](=[O:21])[OH:22])[C:23]2([CH3:24])[CH3:25]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+      "reactant_smiles": [
+        "CC(C)(C)[C@H](N)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+        "CCOC(=O)C(F)(F)F"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    },
+    {
+      "edge_digest": "21d34a5dfc54052373f47280669b34179d7250302c1853c0e7be0a56c9b0d344",
+      "mapped_reaction_smiles": "C[O:19][C:17]([C@H:16]1[N:12]([C:10]([C@@H:9]([NH:8][C:6]([O:5][C:2]([CH3:1])([CH3:3])[CH3:4])=[O:7])[C:23]([CH3:24])([CH3:25])[CH3:26])=[O:11])[CH2:13][C@H:14]2[C@@H:15]1[C:20]2([CH3:21])[CH3:22])=[O:18]>>[CH3:1][C:2]([CH3:3])([CH3:4])[O:5][C:6](=[O:7])[NH:8][C@H:9]([C:10](=[O:11])[N:12]1[CH2:13][C@H:14]2[C@@H:15]([C@H:16]1[C:17](=[O:18])[OH:19])[C:20]2([CH3:21])[CH3:22])[C:23]([CH3:24])([CH3:25])[CH3:26]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C",
+      "reactant_smiles": [
+        "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    },
+    {
+      "edge_digest": "27c96a34f6438e7af4bd6396b3b0739bfaef7b048fd029311e44a626f5c1d1c1",
+      "mapped_reaction_smiles": "O[C:10](=[O:11])[C@@H:12]([NH:13][C:14](=[O:15])[O:16][C:17]([CH3:18])([CH3:19])[CH3:20])[C:21]([CH3:22])([CH3:23])[CH3:24].[CH3:1][O:2][C:3](=[O:4])[C@@H:5]1[C@@H:6]2[C@H:7]([CH2:8][NH:9]1)[C:25]2([CH3:26])[CH3:27]>>[CH3:1][O:2][C:3](=[O:4])[C@@H:5]1[C@@H:6]2[C@H:7]([CH2:8][N:9]1[C:10](=[O:11])[C@@H:12]([NH:13][C:14](=[O:15])[O:16][C:17]([CH3:18])([CH3:19])[CH3:20])[C:21]([CH3:22])([CH3:23])[CH3:24])[C:25]2([CH3:26])[CH3:27]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C",
+      "reactant_smiles": [
+        "CC(C)(C)OC(=O)N[C@H](C(=O)O)C(C)(C)C",
+        "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    },
+    {
+      "edge_digest": "4b20f39aba79eb869d18fd786925b1d5a1dd4ed8c6fd3ba36c3569c821534785",
+      "mapped_reaction_smiles": "O[C:17]([C@H:16]1[N:12]([C:10]([C@@H:9]([NH:8][C:6]([O:5][C:2]([CH3:1])([CH3:3])[CH3:4])=[O:7])[C:33]([CH3:34])([CH3:35])[CH3:36])=[O:11])[CH2:13][C@H:14]2[C@@H:15]1[C:30]2([CH3:31])[CH3:32])=[O:18].[NH2:19][C@H:20]([C:21]#[N:22])[CH2:23][C@@H:24]1[CH2:25][CH2:26][NH:27][C:28]1=[O:29]>>[CH3:1][C:2]([CH3:3])([CH3:4])[O:5][C:6](=[O:7])[NH:8][C@H:9]([C:10](=[O:11])[N:12]1[CH2:13][C@H:14]2[C@@H:15]([C@H:16]1[C:17](=[O:18])[NH:19][C@H:20]([C:21]#[N:22])[CH2:23][C@@H:24]1[CH2:25][CH2:26][NH:27][C:28]1=[O:29])[C:30]2([CH3:31])[CH3:32])[C:33]([CH3:34])([CH3:35])[CH3:36]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C)C(C)(C)C",
+      "reactant_smiles": [
+        "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C",
+        "N#C[C@@H](N)C[C@@H]1CCNC1=O"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    },
+    {
+      "edge_digest": "5917d50d9335138cc48985023e8fd4c40977947f170518d55e1450510364406b",
+      "mapped_reaction_smiles": "CO[C:17]([C@@H:9]([NH:8][C:6]([O:5][C:2]([CH3:1])([CH3:3])[CH3:4])=[O:7])[CH2:10][C@@H:11]1[CH2:12][CH2:13][NH:14][C:15]1=[O:16])=[O:19].[NH3:18]>>[CH3:1][C:2]([CH3:3])([CH3:4])[O:5][C:6](=[O:7])[NH:8][C@@H:9]([CH2:10][C@@H:11]1[CH2:12][CH2:13][NH:14][C:15]1=[O:16])[C:17]([NH2:18])=[O:19]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O",
+      "reactant_smiles": [
+        "COC(=O)[C@H](C[C@@H]1CCNC1=O)NC(=O)OC(C)(C)C",
+        "N"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    },
+    {
+      "edge_digest": "639bcfc5bcc112b1b712c17e81aded728f9275fd43b5e88c35dbae502f342de6",
+      "mapped_reaction_smiles": "CC(C)(C)O[C]([NH:6][C@@H:5]([C:2]([CH3:1])([CH3:3])[CH3:4])[C:13](=[O:14])[N:15]1[CH2:16][C@H:17]2[C@@H:18]([C@H:19]1[C:20](=[O:21])[NH:22][C@H:23]([C:24]#[N:25])[CH2:26][C@@H:27]1[CH2:28][CH2:29][NH:30][C:31]1=[O:32])[C:33]2([CH3:34])[CH3:35])=[O].O=C(O[C:7](=[O:8])[C:9]([F:10])([F:11])[F:12])C(F)(F)F>>[CH3:1][C:2]([CH3:3])([CH3:4])[C@H:5]([NH:6][C:7](=[O:8])[C:9]([F:10])([F:11])[F:12])[C:13](=[O:14])[N:15]1[CH2:16][C@H:17]2[C@@H:18]([C@H:19]1[C:20](=[O:21])[NH:22][C@H:23]([C:24]#[N:25])[CH2:26][C@@H:27]1[CH2:28][CH2:29][NH:30][C:31]1=[O:32])[C:33]2([CH3:34])[CH3:35]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C",
+      "reactant_smiles": [
+        "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C)C(C)(C)C",
+        "O=C(OC(=O)C(F)(F)F)C(F)(F)F"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    },
+    {
+      "edge_digest": "877faa9f98755af59585fa06ee454a0f5908b9e5fc1900dbba38f5d592419d42",
+      "mapped_reaction_smiles": "O=[C:24]([C@@H:23]([NH:22][C:20]([C@H:19]1[N:15]([C:13]([C@H:5]([C:2]([CH3:1])([CH3:3])[CH3:4])[NH:6][C:7](=[O:8])[C:9]([F:10])([F:11])[F:12])=[O:14])[CH2:16][C@H:17]2[C@@H:18]1[C:33]2([CH3:34])[CH3:35])=[O:21])[CH2:26][C@@H:27]1[CH2:28][CH2:29][NH:30][C:31]1=[O:32])[NH2:25]>>[CH3:1][C:2]([CH3:3])([CH3:4])[C@H:5]([NH:6][C:7](=[O:8])[C:9]([F:10])([F:11])[F:12])[C:13](=[O:14])[N:15]1[CH2:16][C@H:17]2[C@@H:18]([C@H:19]1[C:20](=[O:21])[NH:22][C@H:23]([C:24]#[N:25])[CH2:26][C@@H:27]1[CH2:28][CH2:29][NH:30][C:31]1=[O:32])[C:33]2([CH3:34])[CH3:35]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C",
+      "reactant_smiles": [
+        "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O)C2(C)C"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    },
+    {
+      "edge_digest": "97c2190797e5ddd8af923557175b961d7f46ab4024478364543aae6cfeb3b459",
+      "mapped_reaction_smiles": "CC(C)(C)OC(=O)[NH:4][C@H:3]([C:2]#[N:1])[CH2:5][C@@H:6]1[CH2:7][CH2:8][NH:9][C:10]1=[O:11].CS(=O)(=O)O>>[N:1]#[C:2][C@@H:3]([NH2:4])[CH2:5][C@@H:6]1[CH2:7][CH2:8][NH:9][C:10]1=[O:11]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "N#C[C@@H](N)C[C@@H]1CCNC1=O",
+      "reactant_smiles": [
+        "CC(C)(C)OC(=O)N[C@H](C#N)C[C@@H]1CCNC1=O",
+        "CS(=O)(=O)O"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    },
+    {
+      "edge_digest": "c76c3d96f88bbc204079e14eff8689a080a710620be5db91394934377c95d449",
+      "mapped_reaction_smiles": "CC(C)(C)OC(=O)[NH:6][C@@H:5]([C:2]([CH3:1])([CH3:3])[CH3:4])[C:7](=[O:8])[N:9]1[CH2:10][C@H:11]2[C@@H:12]([C@H:13]1[C:14](=[O:15])[OH:16])[C:17]2([CH3:18])[CH3:19]>>[CH3:1][C:2]([CH3:3])([CH3:4])[C@H:5]([NH2:6])[C:7](=[O:8])[N:9]1[CH2:10][C@H:11]2[C@@H:12]([C@H:13]1[C:14](=[O:15])[OH:16])[C:17]2([CH3:18])[CH3:19]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "CC(C)(C)[C@H](N)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+      "reactant_smiles": [
+        "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    },
+    {
+      "edge_digest": "f597809abb93e4b0273aaab61ddba049cccb6f4ce14dcd7e7282920585c9da58",
+      "mapped_reaction_smiles": "O=[C:10]([C@@H:9]([NH:8][C:6]([O:5][C:2]([CH3:1])([CH3:3])[CH3:4])=[O:7])[CH2:12][C@@H:13]1[CH2:14][CH2:15][NH:16][C:17]1=[O:18])[NH2:11]>>[CH3:1][C:2]([CH3:3])([CH3:4])[O:5][C:6](=[O:7])[NH:8][C@H:9]([C:10]#[N:11])[CH2:12][C@@H:13]1[CH2:14][CH2:15][NH:16][C:17]1=[O:18]",
+      "mapping_authority": "host_replayed_rxnmapper_with_deterministic_atom_conservation_audit",
+      "product_smiles": "CC(C)(C)OC(=O)N[C@H](C#N)C[C@@H]1CCNC1=O",
+      "reactant_smiles": [
+        "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O"
+      ],
+      "reaction_step_verifier_version": "autoplanner.reaction_step_verifier.v5"
+    }
+  ],
+  "schema_version": "retrosynthesis_replay_pack.v1",
+  "semantics": {
+    "all_selected_leaves_require_versioned_stock_audit": true,
+    "codex_directs_the_complete_route_portfolio": true,
+    "codex_is_not_an_edge_level_worker": true,
+    "facts_are_host_replayed": true,
+    "network_free_after_pack_creation": true,
+    "source_rows_fold_into_canonical_hyperedges": true
+  },
+  "sources": [
+    {
+      "binding": {
+        "artifact_sha256": "9b02bd2c2adc31bfec061e229458b584cefd38a69a1d09d63231ce2248da38dd",
+        "content_scope": "supporting_information_pages_12_16",
+        "discovered_by": "replay_pack",
+        "provenance": "deterministic_structure_parser_replay",
+        "source_kind": "paper_si",
+        "source_ref": "doi:10.1126/science.abl4784",
+        "title": "A process chemistry route to PF-07321332 (Science supporting information)"
+      },
+      "extractor": {
+        "producer_id": "autoplanner.nirmatrelvir_replay_pack",
+        "producer_kind": "deterministic_structure_parser",
+        "version": "1.0.0"
+      },
+      "rows": [
+        {
+          "claim_scope_id": "doi:10.1126/science.abl4784:T12_from_boc_methyl_ester",
+          "condition_candidate": {},
+          "evidence_refs": [
+            "document:pdf:b194aed4656dbd09",
+            "image-sha256:ed4ed58c696e47d0c45cb333a73d3dcab15c907da85a97b04611606d98af13a6",
+            "procedure-text-sha256:7a18d179f3bdd3235d23ceb795d96a8157fcd250dbbbfd8b5e87d9338a3f8bf0"
+          ],
+          "location_ref": "page 13; source step T12_from_boc_methyl_ester",
+          "product_smiles": "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O",
+          "reactant_smiles": [
+            "COC(=O)[C@H](C[C@@H]1CCNC1=O)NC(=O)OC(C)(C)C",
+            "N"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O",
+            "reactant_smiles": [
+              "COC(=O)[C@H](C[C@@H]1CCNC1=O)NC(=O)OC(C)(C)C",
+              "N"
+            ],
+            "reaction_digest": "26e7e626526dd65c56712a82cf2cf86979fc50c556338ee3486d2cccbfeee554",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "26e7e626526dd65c56712a82cf2cf86979fc50c556338ee3486d2cccbfeee554",
+          "step_id": "T12_from_boc_methyl_ester"
+        },
+        {
+          "claim_scope_id": "doi:10.1126/science.abl4784:T13_from_T12",
+          "condition_candidate": {},
+          "evidence_refs": [
+            "document:pdf:b194aed4656dbd09",
+            "image-sha256:ed4ed58c696e47d0c45cb333a73d3dcab15c907da85a97b04611606d98af13a6",
+            "procedure-text-sha256:83a4bf497bc280a499af1284935bbf65101d1fef4b14c6c96e10e78d1eecfc59"
+          ],
+          "location_ref": "page 13; source step T13_from_T12",
+          "product_smiles": "NC(=O)[C@@H](N)C[C@@H]1CCNC1=O",
+          "reactant_smiles": [
+            "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "NC(=O)[C@@H](N)C[C@@H]1CCNC1=O",
+            "reactant_smiles": [
+              "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O"
+            ],
+            "reaction_digest": "9efd3376ce3e8c7122ca5a32e76f4046db41b725554c129f924ba11d9ea67d4f",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "9efd3376ce3e8c7122ca5a32e76f4046db41b725554c129f924ba11d9ea67d4f",
+          "step_id": "T13_from_T12"
+        },
+        {
+          "claim_scope_id": "doi:10.1126/science.abl4784:T14_from_bicyclic_ester_and_boc_tle",
+          "condition_candidate": {},
+          "evidence_refs": [
+            "document:pdf:b194aed4656dbd09",
+            "image-sha256:ed4ed58c696e47d0c45cb333a73d3dcab15c907da85a97b04611606d98af13a6",
+            "procedure-text-sha256:b67132bb119eb78d3ab98cf4f7e1d72f955c7a3829db17038b819fb0685c1164"
+          ],
+          "location_ref": "page 13; source step T14_from_bicyclic_ester_and_boc_tle",
+          "product_smiles": "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C",
+          "reactant_smiles": [
+            "CC(C)(C)OC(=O)N[C@H](C(=O)O)C(C)(C)C",
+            "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C",
+            "reactant_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C(=O)O)C(C)(C)C",
+              "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C"
+            ],
+            "reaction_digest": "50b4abb5642ee6fe0e2425ad446318bb737be5c8a19cb85b4484ec9b53876e48",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "50b4abb5642ee6fe0e2425ad446318bb737be5c8a19cb85b4484ec9b53876e48",
+          "step_id": "T14_from_bicyclic_ester_and_boc_tle"
+        },
+        {
+          "claim_scope_id": "doi:10.1126/science.abl4784:T15_from_T14",
+          "condition_candidate": {},
+          "evidence_refs": [
+            "document:pdf:b194aed4656dbd09",
+            "image-sha256:4afb0a7357a9d909b94ffc499e4d01584a0980c189ce4a4a364b3281ff20eb62",
+            "procedure-text-sha256:f99aea8379cf00f0adc727bb2e925bbab79c633edb56df59c38b466170b81315"
+          ],
+          "location_ref": "page 14; source step T15_from_T14",
+          "product_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C",
+          "reactant_smiles": [
+            "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C",
+            "reactant_smiles": [
+              "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C"
+            ],
+            "reaction_digest": "0d01384e07dbc56605f84b991d5264eca49cc0d51c77d1282e105c4d8c4481b0",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "0d01384e07dbc56605f84b991d5264eca49cc0d51c77d1282e105c4d8c4481b0",
+          "step_id": "T15_from_T14"
+        },
+        {
+          "claim_scope_id": "doi:10.1126/science.abl4784:T16_from_T15",
+          "condition_candidate": {},
+          "evidence_refs": [
+            "document:pdf:b194aed4656dbd09",
+            "image-sha256:4afb0a7357a9d909b94ffc499e4d01584a0980c189ce4a4a364b3281ff20eb62",
+            "procedure-text-sha256:a9bf11526dcf91322bfdd846db02196a6869bcf266c5942907451b5a9abb7b15"
+          ],
+          "location_ref": "page 14; source step T16_from_T15",
+          "product_smiles": "CC(C)(C)[C@H](N)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+          "reactant_smiles": [
+            "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CC(C)(C)[C@H](N)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+            "reactant_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C"
+            ],
+            "reaction_digest": "4f721e19e014ec5b0ec44d0882211cd3bb8cc925e992344978249ab912df8419",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "4f721e19e014ec5b0ec44d0882211cd3bb8cc925e992344978249ab912df8419",
+          "step_id": "T16_from_T15"
+        },
+        {
+          "claim_scope_id": "doi:10.1126/science.abl4784:T17_from_T16",
+          "condition_candidate": {},
+          "evidence_refs": [
+            "document:pdf:b194aed4656dbd09",
+            "image-sha256:4afb0a7357a9d909b94ffc499e4d01584a0980c189ce4a4a364b3281ff20eb62",
+            "procedure-text-sha256:497eaba272f9f14e7d7720a724e3c6e8ce487196c92209ba80f6293e8b868119"
+          ],
+          "location_ref": "page 14; source step T17_from_T16",
+          "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+          "reactant_smiles": [
+            "CC(C)(C)[C@H](N)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+            "CCOC(=O)C(F)(F)F"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+            "reactant_smiles": [
+              "CC(C)(C)[C@H](N)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+              "CCOC(=O)C(F)(F)F"
+            ],
+            "reaction_digest": "ddc9a934f73dfaac7bcda21e14e5728155c9e7e4b121df0478cd64764cf35ee1",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "ddc9a934f73dfaac7bcda21e14e5728155c9e7e4b121df0478cd64764cf35ee1",
+          "step_id": "T17_from_T16"
+        },
+        {
+          "claim_scope_id": "doi:10.1126/science.abl4784:compound_6_mtbe_solvate_from_T18",
+          "condition_candidate": {},
+          "evidence_refs": [
+            "document:pdf:b194aed4656dbd09",
+            "image-sha256:e7d61a76d06095961a851a8e1b0f8bb2a8a9aa9d0d1baef4c773e46275b05f44",
+            "procedure-text-sha256:1538c43209613b64e401d1854b1a6a3c1349a47cdb94b6da86e466353b74375d"
+          ],
+          "location_ref": "page 15; source step compound_6_mtbe_solvate_from_T18",
+          "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C",
+          "reactant_smiles": [
+            "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O)C2(C)C"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C",
+            "reactant_smiles": [
+              "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O)C2(C)C"
+            ],
+            "reaction_digest": "5d3bd71e08bc2d98ae8f1ee1f30ed48fe5851375ef3dc2520d282e32702990c3",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "5d3bd71e08bc2d98ae8f1ee1f30ed48fe5851375ef3dc2520d282e32702990c3",
+          "step_id": "compound_6_mtbe_solvate_from_T18"
+        },
+        {
+          "claim_scope_id": "doi:10.1126/science.abl4784:T18_from_T17_and_T13",
+          "condition_candidate": {},
+          "evidence_refs": [
+            "document:pdf:b194aed4656dbd09",
+            "image-sha256:e7d61a76d06095961a851a8e1b0f8bb2a8a9aa9d0d1baef4c773e46275b05f44",
+            "procedure-text-sha256:6ee0e8aa9853b283acf2cb3dcefb66008e90bd185907c000fa8748004b973998"
+          ],
+          "location_ref": "page 15; source step T18_from_T17_and_T13",
+          "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O)C2(C)C",
+          "reactant_smiles": [
+            "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+            "NC(=O)[C@@H](N)C[C@@H]1CCNC1=O"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O)C2(C)C",
+            "reactant_smiles": [
+              "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C",
+              "NC(=O)[C@@H](N)C[C@@H]1CCNC1=O"
+            ],
+            "reaction_digest": "c3413acba7d0e26b145368df8b138ff69ac700501bb4cf710943c1c6b4d07b43",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "c3413acba7d0e26b145368df8b138ff69ac700501bb4cf710943c1c6b4d07b43",
+          "step_id": "T18_from_T17_and_T13"
+        }
+      ]
+    },
+    {
+      "binding": {
+        "artifact_sha256": "6402c264d0704e04f2517f2b51b6ee0f6c98e49077a91cc2695233d3ed88bca3",
+        "content_scope": "examples_pages_85_and_121",
+        "discovered_by": "replay_pack",
+        "provenance": "deterministic_structure_parser_replay",
+        "source_kind": "patent",
+        "source_ref": "patent:wo2021250648a1",
+        "title": "WO2021250648A1 examples C5-C7 and C31-C33/13"
+      },
+      "extractor": {
+        "producer_id": "autoplanner.nirmatrelvir_replay_pack",
+        "producer_kind": "deterministic_structure_parser",
+        "version": "1.0.0"
+      },
+      "rows": [
+        {
+          "claim_scope_id": "patent:WO2021250648A1:patent_c5",
+          "condition_candidate": {
+            "reagent": "ammonia",
+            "solvent": "methanol",
+            "source_excerpt": "A solution of ammonia in methanol was added to the methyl ester to provide C5."
+          },
+          "evidence_refs": [
+            "document:pdf:7a05d272224ca464",
+            "image-sha256:8a1bd9c42ae2009d22fa436c43102dcab7871b6301a4e74f475c5c98dc353ae0",
+            "procedure-text-sha256:2030290e4d5c27e4d695f92264440129b705cadec0438d28067f4146b31e9a03"
+          ],
+          "location_ref": "page 85; source step patent_c5",
+          "product_smiles": "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O",
+          "reactant_smiles": [
+            "COC(=O)[C@H](C[C@@H]1CCNC1=O)NC(=O)OC(C)(C)C",
+            "N"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O",
+            "reactant_smiles": [
+              "COC(=O)[C@H](C[C@@H]1CCNC1=O)NC(=O)OC(C)(C)C",
+              "N"
+            ],
+            "reaction_digest": "26e7e626526dd65c56712a82cf2cf86979fc50c556338ee3486d2cccbfeee554",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "26e7e626526dd65c56712a82cf2cf86979fc50c556338ee3486d2cccbfeee554",
+          "step_id": "patent_c5"
+        },
+        {
+          "claim_scope_id": "patent:WO2021250648A1:patent_c6",
+          "condition_candidate": {
+            "base": "2,6-dimethylpyridine",
+            "reagent": "trifluoroacetic anhydride",
+            "solvent": "dichloromethane"
+          },
+          "evidence_refs": [
+            "document:pdf:7a05d272224ca464",
+            "image-sha256:8a1bd9c42ae2009d22fa436c43102dcab7871b6301a4e74f475c5c98dc353ae0",
+            "procedure-text-sha256:4adb5a5368e6ea88f1d1363b54aa1054c3a7e13e91b59121fec90cd274441e75"
+          ],
+          "location_ref": "page 85; source step patent_c6",
+          "product_smiles": "CC(C)(C)OC(=O)N[C@H](C#N)C[C@@H]1CCNC1=O",
+          "reactant_smiles": [
+            "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CC(C)(C)OC(=O)N[C@H](C#N)C[C@@H]1CCNC1=O",
+            "reactant_smiles": [
+              "CC(C)(C)OC(=O)N[C@@H](C[C@@H]1CCNC1=O)C(N)=O"
+            ],
+            "reaction_digest": "ffd7fb702871f7f88d4301581dc9fdd5ff6bfa7b18475b412939455d93440345",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "ffd7fb702871f7f88d4301581dc9fdd5ff6bfa7b18475b412939455d93440345",
+          "step_id": "patent_c6"
+        },
+        {
+          "claim_scope_id": "patent:WO2021250648A1:patent_c7",
+          "condition_candidate": {
+            "reagent": "methanesulfonic acid",
+            "solvent": "1,1,1,3,3,3-hexafluoropropan-2-ol"
+          },
+          "evidence_refs": [
+            "document:pdf:7a05d272224ca464",
+            "image-sha256:8a1bd9c42ae2009d22fa436c43102dcab7871b6301a4e74f475c5c98dc353ae0",
+            "procedure-text-sha256:a7ed8a6c92b45adb7ed6aa94ee27b6f804f12454baa7d29b6c50a8aaebeb0880"
+          ],
+          "location_ref": "page 85; source step patent_c7",
+          "product_smiles": "N#C[C@@H](N)C[C@@H]1CCNC1=O",
+          "reactant_smiles": [
+            "CC(C)(C)OC(=O)N[C@H](C#N)C[C@@H]1CCNC1=O",
+            "CS(=O)(=O)O"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CS(=O)(=O)O.N#C[C@@H](N)C[C@@H]1CCNC1=O",
+            "reactant_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C#N)C[C@@H]1CCNC1=O",
+              "CS(=O)(=O)O"
+            ],
+            "reaction_digest": "55087e5eefc1eaf6887f66d3f82f44f1e5b4ebf214e1bd94eeabbac3cee85fa4",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "c8fe46486a38b3cbf5c1843c357999438aa8a520ed49c1def5d8d0bc0b377b1f",
+          "step_id": "patent_c7"
+        },
+        {
+          "claim_scope_id": "patent:WO2021250648A1:patent_13",
+          "condition_candidate": {
+            "base": "4-methylmorpholine",
+            "reagent": "methanesulfonic acid; trifluoroacetic anhydride",
+            "solvent": "1,1,1,3,3,3-hexafluoropropan-2-ol then dichloromethane"
+          },
+          "evidence_refs": [
+            "document:pdf:7a05d272224ca464",
+            "image-sha256:b8b7421282e398e9388c8b539ffa3cceb7a645f0782d4a66a83306d45c2b75a3",
+            "procedure-text-sha256:12afe127a45892264e760088df6b4031b61aeb0a1c83913d45721d98e12488e7"
+          ],
+          "location_ref": "page 121; source step patent_13",
+          "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C",
+          "reactant_smiles": [
+            "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C)C(C)(C)C",
+            "O=C(OC(=O)C(F)(F)F)C(F)(F)F"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C",
+            "reactant_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C)C(C)(C)C",
+              "O=C(OC(=O)C(F)(F)F)C(F)(F)F"
+            ],
+            "reaction_digest": "6add41a2a33eb9802a61abeb5eaefa737fcdc0dabf9f8f5f0c0c3e77c4339d71",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "6add41a2a33eb9802a61abeb5eaefa737fcdc0dabf9f8f5f0c0c3e77c4339d71",
+          "step_id": "patent_13"
+        },
+        {
+          "claim_scope_id": "patent:WO2021250648A1:patent_c31",
+          "condition_candidate": {
+            "base": "N,N-diisopropylethylamine",
+            "reagent": "HATU",
+            "solvent": "N,N-dimethylformamide"
+          },
+          "evidence_refs": [
+            "document:pdf:7a05d272224ca464",
+            "image-sha256:b8b7421282e398e9388c8b539ffa3cceb7a645f0782d4a66a83306d45c2b75a3",
+            "procedure-text-sha256:13d2312907414cf9a6d85dcfa626e2afbfc4e00a52d930cdc2cc616f1ec50bc4"
+          ],
+          "location_ref": "page 121; source step patent_c31",
+          "product_smiles": "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C",
+          "reactant_smiles": [
+            "CC(C)(C)OC(=O)N[C@H](C(=O)O)C(C)(C)C",
+            "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C",
+            "reactant_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C(=O)O)C(C)(C)C",
+              "COC(=O)[C@H]1NC[C@H]2[C@@H]1C2(C)C"
+            ],
+            "reaction_digest": "50b4abb5642ee6fe0e2425ad446318bb737be5c8a19cb85b4484ec9b53876e48",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "50b4abb5642ee6fe0e2425ad446318bb737be5c8a19cb85b4484ec9b53876e48",
+          "step_id": "patent_c31"
+        },
+        {
+          "claim_scope_id": "patent:WO2021250648A1:patent_c32",
+          "condition_candidate": {
+            "reagent": "lithium hydroxide",
+            "solvent": "tetrahydrofuran and methanol"
+          },
+          "evidence_refs": [
+            "document:pdf:7a05d272224ca464",
+            "image-sha256:b8b7421282e398e9388c8b539ffa3cceb7a645f0782d4a66a83306d45c2b75a3",
+            "procedure-text-sha256:e6ae284648b26a0ba44a4803dd6ca5279eddf06772f1941e4e21b5cb73345c14"
+          ],
+          "location_ref": "page 121; source step patent_c32",
+          "product_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C",
+          "reactant_smiles": [
+            "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C",
+            "reactant_smiles": [
+              "COC(=O)[C@@H]1[C@@H]2[C@H](CN1C(=O)[C@@H](NC(=O)OC(C)(C)C)C(C)(C)C)C2(C)C"
+            ],
+            "reaction_digest": "0d01384e07dbc56605f84b991d5264eca49cc0d51c77d1282e105c4d8c4481b0",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "0d01384e07dbc56605f84b991d5264eca49cc0d51c77d1282e105c4d8c4481b0",
+          "step_id": "patent_c32"
+        },
+        {
+          "claim_scope_id": "patent:WO2021250648A1:patent_c33",
+          "condition_candidate": {
+            "base": "4-methylmorpholine",
+            "reagent": "HATU",
+            "solvent": "acetonitrile"
+          },
+          "evidence_refs": [
+            "document:pdf:7a05d272224ca464",
+            "image-sha256:b8b7421282e398e9388c8b539ffa3cceb7a645f0782d4a66a83306d45c2b75a3",
+            "procedure-text-sha256:66be020c165a47a394fa2bab99b63725642cb87e98d8ce8e4a25e885cdc617e0"
+          ],
+          "location_ref": "page 121; source step patent_c33",
+          "product_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C)C(C)(C)C",
+          "reactant_smiles": [
+            "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C",
+            "N#C[C@@H](N)C[C@@H]1CCNC1=O"
+          ],
+          "relation_type": "exact",
+          "source_formulation": {
+            "product_smiles": "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C)C(C)(C)C",
+            "reactant_smiles": [
+              "CC(C)(C)OC(=O)N[C@H](C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)O)C2(C)C)C(C)(C)C",
+              "CS(=O)(=O)O.N#C[C@@H](N)C[C@@H]1CCNC1=O"
+            ],
+            "reaction_digest": "8e3cf00e8a14cf13adea480a0200a3dea303369276aef27d077bde357007712a",
+            "schema_version": "literature_source_formulation.v1"
+          },
+          "source_projection_reaction_digest": "90c96cc56d755680529519b893d8a9f95e5dc3c705210cc96d43371be8a1307b",
+          "step_id": "patent_c33"
+        }
+      ]
+    }
+  ],
+  "target": {
+    "name": "nirmatrelvir",
+    "smiles": "CC(C)(C)[C@H](NC(=O)C(F)(F)F)C(=O)N1C[C@H]2[C@@H]([C@H]1C(=O)N[C@H](C#N)C[C@@H]1CCNC1=O)C2(C)C"
+  }
+}

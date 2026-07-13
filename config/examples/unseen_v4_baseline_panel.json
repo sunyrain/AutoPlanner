@@ -1,0 +1,58 @@
+{
+  "schema_version": "retrosynthesis_unseen_baseline_panel.v1",
+  "selected_at": "2026-07-13T16:00:00+08:00",
+  "selection_policy": {
+    "all_names_absent_from_tracked_repository_before_manifest_creation": true,
+    "identity_source": "PubChem PUG REST",
+    "local_route_fixture_required": false,
+    "model_free_baseline_first": true
+  },
+  "targets": [
+    {
+      "category": "convergent_drug_small_molecule",
+      "name": "lorlatinib",
+      "smiles": "C[C@@H]1C2=C(C=CC(=C2)F)C(=O)N(CC3=NN(C(=C3C4=CC(=C(N=C4)N)O1)C#N)C)C",
+      "inchi_key": "IIXWYSCJSQVBQM-LLVKDONJSA-N",
+      "identity_source": "https://pubchem.ncbi.nlm.nih.gov/compound/71731823",
+      "expected_outcome": "budget_exhausted",
+      "expected_blocking_deficit": "diversity"
+    },
+    {
+      "category": "stereochemically_dense_natural_product",
+      "name": "trabectedin",
+      "smiles": "CC1=CC2=C([C@@H]3[C@@H]4[C@H]5C6=C(C(=C7C(=C6[C@@H](N4[C@H]([C@H](C2)N3C)O)COC(=O)[C@@]8(CS5)C9=CC(=C(C=C9CCN8)O)OC)OCO7)C)OC(=O)C)C(=C1OC)O",
+      "inchi_key": "PKVRCIRHQMSYJX-AIFWHQITSA-N",
+      "identity_source": "https://pubchem.ncbi.nlm.nih.gov/compound/108150",
+      "expected_outcome": "budget_exhausted",
+      "expected_blocking_deficit": "diversity"
+    },
+    {
+      "category": "macrocyclic_peptide",
+      "name": "voclosporin",
+      "smiles": "CC[C@H]1C(=O)N(CC(=O)N([C@H](C(=O)N[C@H](C(=O)N([C@H](C(=O)N[C@H](C(=O)N[C@@H](C(=O)N([C@H](C(=O)N([C@H](C(=O)N([C@H](C(=O)N([C@H](C(=O)N1)[C@@H]([C@H](C)C/C=C/C=C)O)C)C(C)C)C)CC(C)C)C)CC(C)C)C)C)C)CC(C)C)C)C(C)C)CC(C)C)C)C",
+      "inchi_key": "BICRTLVBTLFLRD-PTWUADNWSA-N",
+      "identity_source": "https://pubchem.ncbi.nlm.nih.gov/compound/6918486",
+      "expected_outcome": "budget_exhausted",
+      "expected_blocking_deficit": "diversity"
+    }
+  ],
+  "acceptance": {
+    "minimum_complete_routes": 2,
+    "minimum_edge_proof_level": 3,
+    "minimum_independent_source_groups": 2,
+    "require_all_selected_leaves_stock_closed": true,
+    "stock_boundary": "procurement"
+  },
+  "budget": {
+    "max_model_invocations": 0,
+    "max_visual_invocations": 0,
+    "max_accepted_expansions": 4,
+    "max_attempt_runs": 4
+  },
+  "semantics": {
+    "no_route_fixture_means_no_route_fact": true,
+    "empty_search_is_not_success": true,
+    "zero_model_budget_is_a_deliberate_baseline": true,
+    "a_named_terminal_deficit_is_required": true
+  }
+}

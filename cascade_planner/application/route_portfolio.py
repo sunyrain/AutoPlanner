@@ -1685,7 +1685,6 @@ def _mapping_consistency_checks_pass(checks: Mapping[str, Any]) -> bool:
         "atom_maps_unique",
         "product_atoms_have_reactant_provenance",
         "mapped_elements_preserved",
-        "mapped_reactant_components_contribute",
         "scaffold_continuity_plausible",
         "ring_change_plausible",
         "bond_change_present",
@@ -1701,7 +1700,14 @@ def _mapping_consistency_checks_pass(checks: Mapping[str, Any]) -> bool:
         # still rejected above unless the validator version is current.
         or checks.get("atom_maps_complete") is True
     )
-    return mapping_policy_satisfied and all(
+    component_policy_satisfied = bool(
+        checks.get("reactant_component_participation_plausible") is True
+        # Compatibility for proof fixtures and accepted artifacts created by
+        # the previous verifier contract, which required every component to
+        # contribute to the product.
+        or checks.get("mapped_reactant_components_contribute") is True
+    )
+    return component_policy_satisfied and mapping_policy_satisfied and all(
         checks.get(key) is True for key in required
     )
 
