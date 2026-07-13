@@ -188,7 +188,7 @@ preflight; it was added to the target-only manifest only after the run.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | Enzalutamide formal run 04 | yes | yes | no | no | yes | no | 1 | One of two skeletons passes V7; an older false-positive edge is revoked |
 | Ibrutinib run 01 | yes | yes | no | no | no | no | 1 | Shared core/piperidine connection rejected; three selected stock misses |
-| Linagliptin run 02 | yes | yes | no | no | yes | no | 1 | Historical V6 terminal graph is immutable; current report requires a V7 validation fork or fresh run |
+| Linagliptin + V7 fork 05 | yes | yes | yes | no | yes | yes | 1 + 0 replay | Two skeletons validate under V7; the source terminal graph remains immutable |
 | Vismodegib + V7 fork 06 | yes | yes | yes | no | yes | yes | 1 + 0 replay | Three skeletons validate; five canonical routes stock-close; one exact patent row is bound |
 
 Aggregate model use: 4 calls, 72,083 input tokens, 25,477 output tokens, and
@@ -199,13 +199,14 @@ within their actual contracts. The historical Enzalutamide run 03 reached two
 L2 routes, but is not the formal result because its deliberately tighter 7k
 output contract was exceeded; the resource gate correctly disqualifies it.
 
-The benchmark release threshold is intentionally **not passed**: all three
-historical cases remain honest failures and only one of four cases currently
-passes B2/B5, below the release requirement of two. Vismodegib correctly keeps
-B3 false: one exact EP patent row is useful evidence, but it is not two
-independent source groups across two routes. This is not converted into a
-false multi-source claim. Linagliptin's historical terminal status likewise
-cannot override current proof policy.
+The benchmark release threshold is now **passed**: all four cases pass B0/B1,
+Linagliptin and Vismodegib pass B2/B5 under the current V7 verifier, every case
+stays within its resource contract, and no false evidence or procurement claim
+is present. Failed Enzalutamide and Ibrutinib cases remain in the release set.
+B3 still correctly remains false for every case: Vismodegib's one exact EP
+patent row is useful evidence, but it is not two independent source groups
+across two routes. Linagliptin's discovered patent route differs from the
+proposed route and is likewise not promoted into a false exact binding.
 
 The important Vismodegib result is architectural. Before the stock-cut fix,
 the same global proposal reported zero validated skeletons because rejected

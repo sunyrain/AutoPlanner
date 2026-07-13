@@ -17,23 +17,23 @@
     "stock_boundary": "benchmark_search",
     "release_threshold": {
       "all_cases_pass_B0_and_B1": true,
-      "at_least_two_cases_pass_B2": false,
+      "at_least_two_cases_pass_B2": true,
       "zero_false_evidence_or_procurement_claims": true,
       "all_cases_within_their_actual_resource_contract": true
     },
-    "accepted": false
+    "accepted": true
   },
   "aggregate": {
     "case_count": 4,
     "gate_pass_counts": {
       "B0_blind_input": 4,
       "B1_global_multi_route": 4,
-      "B2_host_validated_routes": 1,
+      "B2_host_validated_routes": 2,
       "B3_exact_multi_source": 0,
       "B4_stock_boundary": 3,
-      "B5_configured_portfolio_acceptance": 1
+      "B5_configured_portfolio_acceptance": 2
     },
-    "qualified_policy_acceptance_count": 1,
+    "qualified_policy_acceptance_count": 2,
     "within_resource_budget_count": 4,
     "model_cost": {
       "model_invocations": 4,
@@ -42,15 +42,15 @@
       "reported_model_wall_time_s": 918.267,
       "wall_time_missing_case_count": 0
     },
-    "attempt_count": 161,
+    "attempt_count": 151,
     "accepted_expansion_count": 43,
     "false_closure_claim_count": 0,
     "reaction_proof_version_audit": {
       "current_validator_version": "autoplanner.reaction_step_verifier.v7",
-      "current_proof_count": 31,
-      "stale_versioned_proof_count": 39,
-      "stale_only_edge_count": 12,
-      "terminal_snapshot_requires_revalidation_count": 1
+      "current_proof_count": 43,
+      "stale_versioned_proof_count": 27,
+      "stale_only_edge_count": 0,
+      "terminal_snapshot_requires_revalidation_count": 0
     }
   },
   "results": [
@@ -140,21 +140,23 @@
     },
     {
       "case_id": "blind-linagliptin-01",
-      "run_id": "blind-linagliptin-live-02",
-      "report_sha256": "02ac9b2f491f7c83765469e9892a81443954e134b1231c38bdbcda24d790c1a6",
-      "highest_contiguous_gate": "B1",
+      "run_id": "linagliptin-validation-v7-05",
+      "report_sha256": "adc8fb7d1632293a861bc4bef48b0c303cc8d051e7006c58c810cc15f270aa30",
+      "source_run_id": "blind-linagliptin-live-02",
+      "source_report_sha256": "02ac9b2f491f7c83765469e9892a81443954e134b1231c38bdbcda24d790c1a6",
+      "highest_contiguous_gate": "B2",
       "gates": {
         "B0_blind_input": true,
         "B1_global_multi_route": true,
-        "B2_host_validated_routes": false,
+        "B2_host_validated_routes": true,
         "B3_exact_multi_source": false,
         "B4_stock_boundary": true,
-        "B5_configured_portfolio_acceptance": false
+        "B5_configured_portfolio_acceptance": true
       },
       "counts": {
         "target_rooted_distinct_skeletons": 3,
         "materialized_skeletons": 3,
-        "reaction_validated_skeletons": 0,
+        "reaction_validated_skeletons": 2,
         "canonical_evidence_closed_routes": 0,
         "canonical_stock_closed_routes": 2
       },
@@ -162,21 +164,23 @@
         "model_invocations": 1,
         "input_tokens": 17991,
         "output_tokens": 5210,
-        "reported_model_wall_time_s": 207.922
+        "reported_model_wall_time_s": 207.922,
+        "validation_replay_model_invocations": 0
       },
-      "attempt_count": 35,
+      "attempt_count": 25,
       "accepted_expansion_count": 12,
       "resource_envelope": {
         "within_budget": true,
         "violations": []
       },
-      "qualified_policy_acceptance": false,
-      "current_disposition": "terminal_snapshot_requires_revalidation",
+      "qualified_policy_acceptance": true,
+      "current_disposition": "accepted",
       "outcome_codes": [
-        "historical_v6_terminal_snapshot_is_not_current_scientific_acceptance",
-        "terminal_graph_requires_non_mutating_validation_fork_or_fresh_run",
+        "historical_v6_terminal_snapshot_replayed_without_mutation",
+        "two_routes_pass_current_host_validation_after_zero_model_replay",
         "benchmark_stock_boundary_closed",
-        "exact_source_rows_unavailable"
+        "patent_source_material_discovered_but_not_exactly_bound",
+        "B3_remains_false_without_two_independent_exact_source_groups"
       ]
     },
     {
