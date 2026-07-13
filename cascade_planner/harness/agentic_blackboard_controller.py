@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from functools import wraps
 import json
 import hashlib
 import os
@@ -152,6 +153,9 @@ from cascade_planner.application.route_deficit_queue import (
 from cascade_planner.application.retrosynthesis_acceptance import (
     evaluate_retrosynthesis_acceptance,
 )
+from cascade_planner.application.compatibility_inventory import (
+    record_compatibility_use,
+)
 from cascade_planner.routes import (
     assemble_route_consensus_graph,
     consensus_to_blackboard_proposals,
@@ -195,7 +199,7 @@ def _nonnegative_budget_int(value: Any, *, default: int) -> int:
 
 @blackboard_controller_single_writer
 @record_run_metrics
-def run_agentic_blackboard_controller(
+def _run_legacy_agentic_blackboard_controller(
     *,
     target_name: str,
     target_smiles: str,
@@ -256,6 +260,15 @@ def run_agentic_blackboard_controller(
     """Run the policy-driven DAG + blackboard controller."""
     run_dir = Path(output_dir).resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
+    record_compatibility_use(
+        run_dir,
+        "legacy.agentic_blackboard_controller",
+        callsite="run_agentic_blackboard_controller",
+        metadata={
+            "use_codex_action_planner": bool(use_codex_action_planner),
+            "use_codex_agent_team": bool(use_codex_agent_team),
+        },
+    )
     run_metrics = current_run_metrics()
     if run_metrics is None:  # Defensive for direct access through __wrapped__.
         raise RuntimeError("run_metrics_context_missing")
@@ -1334,6 +1347,34 @@ def run_agentic_blackboard_controller(
         codex_campaign_config=codex_campaign_refresh_config,
     )
     return _result(run_dir, target_data, preflight, blackboard, action_batches, validations, bundle, final, tool_calls)
+
+
+@wraps(_run_legacy_agentic_blackboard_controller)
+def run_agentic_blackboard_controller(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Thin compatibility adapter for the frozen pre-V4 implementation.
+
+    New callers use ``RetrosynthesisCampaignService``.  This wrapper preserves
+    the established keyword contract while keeping the legacy implementation
+    behind an explicit, telemetry-bearing removal boundary.
+    """
+    engine = str(kwargs.pop("engine", "legacy") or "legacy").strip().lower()
+    if engine == "v4":
+        from cascade_planner.harness.v4_controller_adapter import (
+            run_v4_controller_adapter,
+        )
+
+        return run_v4_controller_adapter(*args, **kwargs)
+    if engine != "legacy":
+        raise ValueError(f"unsupported_retrosynthesis_engine:{engine}")
+    return _run_legacy_agentic_blackboard_controller(*args, **kwargs)
+
+
+run_agentic_blackboard_controller.compatibility_shim_id = (  # type: ignore[attr-defined]
+    "legacy.agentic_blackboard_controller"
+)
+run_agentic_blackboard_controller.removal_milestone = (  # type: ignore[attr-defined]
+    "P9 after CLI/API/WebUI use the V4 service"
+)
 
 
 def _checkpoint_blackboard_event(

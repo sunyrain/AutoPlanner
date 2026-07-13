@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from cascade_planner.agent.chem_enzy_policy import chem_enzy_guidance_contract
+from cascade_planner.application.compatibility_inventory import (
+    record_compatibility_use,
+)
 from cascade_planner.agent.route_auditor import audit_route_package, validate_route_audit_report
 from cascade_planner.agent.smiles_first import SmilesFirstWorkflowConfig, run_smiles_first_workflow
 from cascade_planner.baselines.chem_enzy_runtime import (
@@ -94,6 +97,8 @@ from cascade_planner.harness.schemas import (
 )
 from cascade_planner.harness.self_evo_memory import compile_self_evo_memory, write_self_evo_memory
 from cascade_planner.harness.self_evo_replay import run_self_evo_replay_gate as run_self_evo_replay_gate_report
+from cascade_planner.harness.tool_execution_policy import execute_registered_tool
+from cascade_planner.harness.tool_registry import bind_legacy_tool_registry
 from cascade_planner.routes.domain import canonicalize_smiles
 from cascade_planner.runtime.run_metrics import RunMetricsRecorder
 from cascade_planner.source_locators import canonical_traceable_source_ref
@@ -184,6 +189,12 @@ def _configured_advisory_anchor_catalog(
 
 def execute_local_tool(tool_name: str, payload: dict[str, Any], state: ToolExecutionState) -> ToolCallRecord:
     started = time.monotonic()
+    record_compatibility_use(
+        state.run_dir,
+        "legacy.local_tool_harness",
+        callsite="execute_local_tool",
+        metadata={"tool_name": tool_name},
+    )
     validation = validate_tool_payload(tool_name, payload)
     if not validation["accepted"]:
         record = ToolCallRecord(
@@ -197,7 +208,7 @@ def execute_local_tool(tool_name: str, payload: dict[str, Any], state: ToolExecu
         _write_tool_record(state, record)
         return record
 
-    handlers: dict[str, ToolHandler] = {
+    handlers = bind_legacy_tool_registry({
         "run_chemenzy": run_chemenzy,
         "audit_route_and_extract_frontier": audit_route_and_extract_frontier,
         "run_smiles_first_literature_workflow": run_smiles_first_literature_workflow_tool,
@@ -217,29 +228,16 @@ def execute_local_tool(tool_name: str, payload: dict[str, Any], state: ToolExecu
         "run_self_evo_replay_gate": run_self_evo_replay_gate_tool,
         "validate_artifact_bundle": validate_artifact_bundle_tool,
         "emit_final_verdict": lambda st, pl: {"status": "deferred_to_runner", "accepted": True},
-    }
-    handler = handlers.get(tool_name)
-    if handler is None:
-        output = {"accepted": False, "reasons": ["forbidden_tool"]}
-        status = "rejected"
-    else:
-        try:
-            output = handler(state, payload)
-            status = "accepted" if output.get("accepted", True) else "rejected"
-        except Exception as exc:
-            if tool_name == "resolve_literature_structure_task":
-                output = _structure_resolution_exception_output(state, payload, exc)
-                status = "rejected"
-            elif tool_name == "extract_visual_literature_chain" and isinstance(exc, (FileNotFoundError, OSError)):
-                output = _visual_literature_chain_exception_output(state, payload, exc)
-                status = "accepted" if output.get("accepted", False) else "rejected"
-            else:
-                output = {
-                    "accepted": False,
-                    "reasons": ["tool_exception"],
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-                status = "error"
+    })
+    outcome = execute_registered_tool(
+        tool_name,
+        payload,
+        state,
+        registry=handlers,
+        exception_policy=_legacy_tool_exception_policy,
+    )
+    output = dict(outcome.output)
+    status = outcome.status
     record = ToolCallRecord(
         tool_name=tool_name,
         status=status,
@@ -250,6 +248,34 @@ def execute_local_tool(tool_name: str, payload: dict[str, Any], state: ToolExecu
     )
     _write_tool_record(state, record)
     return record
+
+
+def _legacy_tool_exception_policy(
+    tool_name: str,
+    state: ToolExecutionState,
+    payload: dict[str, Any],
+    exc: Exception,
+) -> tuple[str, dict[str, Any]]:
+    if tool_name == "resolve_literature_structure_task":
+        return "rejected", _structure_resolution_exception_output(
+            state, payload, exc
+        )
+    if tool_name == "extract_visual_literature_chain" and isinstance(
+        exc, (FileNotFoundError, OSError)
+    ):
+        output = _visual_literature_chain_exception_output(state, payload, exc)
+        return (
+            "accepted" if output.get("accepted", False) else "rejected",
+            output,
+        )
+    return (
+        "error",
+        {
+            "accepted": False,
+            "reasons": ["tool_exception"],
+            "error": f"{type(exc).__name__}: {exc}",
+        },
+    )
 
 
 def _structure_resolution_exception_output(

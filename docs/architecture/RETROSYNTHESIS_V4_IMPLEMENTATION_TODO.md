@@ -412,24 +412,65 @@ Observed P6 proof-portfolio acceptance:
 
 Purpose: make the system maintainable without a risky rewrite.
 
-- [ ] Turn the existing controller into a thin adapter over `RunKernel`.
-- [ ] Extract scheduling, campaign direction, evidence orchestration, graph
+- [x] Turn the public controller surface into a thin adapter: V4 requests use
+  `RunKernel`, while the old behavior remains an explicit frozen compatibility
+  engine until P9 consumer migration.
+- [x] Extract scheduling, campaign direction, evidence orchestration, graph
   projection, closeout, recovery, and artifact publication into bounded modules.
-- [ ] Split the tool registry from tool implementations and execution policy.
-- [ ] Split `RouteForest` storage, identity, traversal, ranking, and projection.
-- [ ] Remove duplicated Codex campaign state and legacy action-planner ownership.
-- [ ] Inventory schema versions and compatibility branches.
-- [ ] Attach telemetry and a removal milestone to every compatibility shim.
-- [ ] Delete unreachable code and duplicate scripts only after usage/search and
+- [x] Split the tool registry from tool implementations and execution policy.
+- [x] Split `RouteForest` storage, identity, traversal, ranking, and projection.
+- [x] Remove duplicated Codex campaign state and legacy action-planner ownership.
+- [x] Inventory schema versions and compatibility branches.
+- [x] Attach telemetry and a removal milestone to every compatibility shim.
+- [x] Delete unreachable code and duplicate scripts only after usage/search and
   regression proof.
-- [ ] Enforce module dependency direction and add architecture tests.
-- [ ] Establish practical file-size/complexity budgets for new code.
+- [x] Enforce module dependency direction and add architecture tests.
+- [x] Establish practical file-size/complexity budgets for new code.
 
 Exit gate:
 
 - Core orchestration can be understood without reading a multi-thousand-line
   controller.
 - Legacy adapters contain no scientific logic and can be removed independently.
+
+Observed P7 strangler acceptance:
+
+- `RetrosynthesisCampaignService` is the compact V4 orchestration owner.  It
+  coordinates one `RunKernel`, bounded global director, deterministic Workers,
+  canonical graph, single frontier, proof portfolio, recovery, and artifact
+  publication without importing the blackboard controller, recursive Codex
+  campaign, old queues, legacy portfolio, `RouteForest`, or Web;
+- graph exploration deficits and proof-closeout deficits now pass through one
+  `frontier_runtime` projection into `RunKernel`; V4 creates no second queue,
+  campaign-state JSON, or action-planner ownership path;
+- the public blackboard controller and recursive Codex campaign functions are
+  thin, metadata-bearing compatibility adapters over frozen implementations.
+  Package APIs are lazy and expose the V4 service/contracts first, avoiding
+  eager initialization of the old orchestration chain;
+- stable identity, route enumeration, Pareto selection/metrics, proof policy,
+  portfolio publication, and frontier publication are bounded modules;
+  `proof_portfolio.py` fell from 829 to 303 lines without output changes;
+- the V4 replacement for `RouteForest` separates ArtifactStore persistence,
+  canonical identity, route traversal, ranking/diversity, and proof projection.
+  The 7k-line legacy display compiler remains only for historical-run rendering
+  until P8 migrates its UI consumer;
+- local tool names, execution/error policy, and implementations are separate;
+  registry drift now fails closed instead of silently exposing or losing a
+  tool;
+- `compatibility_inventory` records every known legacy owner, its V4
+  replacement, telemetry source, and P8/P9/P10 removal milestone.  Instrumented
+  uses append digest-bound, explicitly non-scientific events under each run;
+- a repository-wide reference search showed the large compatibility modules
+  are still used by Web, scripts, and replay tests, so none was falsely called
+  unreachable.  They are frozen against new product logic and deletion waits
+  for consumer migration plus regression proof;
+- architecture tests enforce dependency direction, forbidden legacy imports,
+  focused-module line ceilings, compatibility metadata, telemetry integrity,
+  and tool registry separation;
+- V4 create/materialize/closeout/reopen tests prove recovery from the kernel
+  event chain and canonical graph with zero private campaign state and zero
+  model calls.  The full local suite passed with 1468 tests, 3 skips, and 2
+  subtests.
 
 ### P8 — Route UI and rendering performance
 

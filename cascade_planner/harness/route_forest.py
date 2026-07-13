@@ -17,6 +17,9 @@ from cascade_planner.application.selected_route_parent_proof import (
     is_solved_selected_route_parent_proof,
     validate_selected_route_parent_proof,
 )
+from cascade_planner.application.compatibility_inventory import (
+    record_compatibility_use,
+)
 from cascade_planner.orchestration.codex_retrosynthesis import (
     CODEX_RETROSYNTHESIS_SELECTED_ROUTE_PROJECTION_SCHEMA,
     validate_codex_campaign_projection_bundle,
@@ -409,6 +412,12 @@ def compile_explored_route_forest(
     max_template_branches: int | None = None,
 ) -> dict[str, Any]:
     """Project a complex blackboard into user-facing explored route branches."""
+    if run_dir is not None and Path(run_dir).expanduser().exists():
+        record_compatibility_use(
+            run_dir,
+            "legacy.route_forest",
+            callsite="compile_explored_route_forest",
+        )
     compiler = _RouteForestCompiler(
         blackboard,
         run_dir=run_dir,

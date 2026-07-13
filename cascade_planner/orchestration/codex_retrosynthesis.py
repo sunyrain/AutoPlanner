@@ -29,6 +29,9 @@ from cascade_planner.application.frontier_scheduler import (
     PersistentFrontierQueue,
     assess_frontier_completeness,
 )
+from cascade_planner.application.compatibility_inventory import (
+    record_compatibility_use,
+)
 from cascade_planner.application.frontier_ledger import (
     exact_edge_signature,
     project_frontier_ledger,
@@ -1154,7 +1157,7 @@ def _in_house_closure_fixed_point(
 
 
 @_campaign_authority_single_writer
-def run_codex_retrosynthesis_campaign(
+def _run_legacy_codex_retrosynthesis_campaign(
     *,
     case_id: str,
     target_name: str,
@@ -1198,6 +1201,12 @@ def run_codex_retrosynthesis_campaign(
     )
     frontier_batch_size = max(1, int(config.frontier_batch_size or 1))
     root_run_dir = Path(run_dir).resolve()
+    record_compatibility_use(
+        root_run_dir,
+        "legacy.codex_retrosynthesis_campaign",
+        callsite="run_codex_retrosynthesis_campaign",
+        metadata={"case_id": case_id},
+    )
     root_output_dir = root_run_dir / "codex_retrosynthesis_team"
     root_output_dir.mkdir(parents=True, exist_ok=True)
     root_smiles = _canonical_target_smiles(target_smiles)
@@ -2271,6 +2280,20 @@ def run_codex_retrosynthesis_campaign(
     root_report["route_expansion_count"] = len(expansions)
     _write_json(root_output_dir / "team_report.json", root_report)
     return root_report
+
+
+@wraps(_run_legacy_codex_retrosynthesis_campaign)
+def run_codex_retrosynthesis_campaign(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Thin compatibility adapter for the pre-V4 recursive campaign."""
+    return _run_legacy_codex_retrosynthesis_campaign(*args, **kwargs)
+
+
+run_codex_retrosynthesis_campaign.compatibility_shim_id = (  # type: ignore[attr-defined]
+    "legacy.codex_retrosynthesis_campaign"
+)
+run_codex_retrosynthesis_campaign.removal_milestone = (  # type: ignore[attr-defined]
+    "P10 after golden replays migrate to canonical plans"
+)
 
 
 @_campaign_authority_single_writer
