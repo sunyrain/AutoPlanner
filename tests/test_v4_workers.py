@@ -373,12 +373,14 @@ def test_discovery_automatically_extracts_exact_rows_and_signals_resume(
     )
     batch = runtime.execute_pipeline(discovery)
 
-    assert len(batch.results) == 2
+    assert len(batch.results) == 3
     assert batch.results[0].payload["extraction_task_count"] == 1
     assert batch.results[1].payload["exact_records"][0]["relation_type"] == "exact"
     assert batch.results[1].payload["exact_records"][0]["proof_state"][
         "reaction_validated"
     ] is False
+    assert batch.results[2].worker_type == "materialize_candidate"
+    assert batch.results[2].status == "completed"
     assert "exact_rows_added" in batch.material_events
     assert batch.resume_campaign is True
     assert "exact_rows_added" in director_trigger_reasons(

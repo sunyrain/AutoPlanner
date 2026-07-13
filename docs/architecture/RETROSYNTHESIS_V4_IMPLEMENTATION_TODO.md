@@ -291,30 +291,65 @@ Observed P4 deterministic-worker acceptance:
 
 Purpose: search for complete portfolios rather than accumulate local branches.
 
-- [ ] Define stable molecule, reaction-edge, source-binding, stock-observation,
+- [x] Define stable molecule, reaction-edge, source-binding, stock-observation,
   route-family, and hypothesis identities.
-- [ ] Merge Codex, ChemEnzy, templates, literature, and manual imports into one
+- [x] Merge Codex, ChemEnzy, templates, literature, and manual imports into one
   canonical hypergraph ingestion path.
-- [ ] Make Codex precursor/retron proposals real frontier candidates rather than
+- [x] Make Codex precursor/retron proposals real frontier candidates rather than
   UI-only annotations.
-- [ ] Define one `DeficitFrontier` for missing materialization, evidence,
+- [x] Define one `DeficitFrontier` for missing materialization, evidence,
   validation, stock, diversity, and route closure.
-- [ ] Rank by expected portfolio gain, distance to closure, evidence gain,
+- [x] Rank by expected portfolio gain, distance to closure, evidence gain,
   source independence, route diversity, cost, failure risk, and prior attempts.
-- [ ] Add dirty-node revisions and incrementally recompute only affected
+- [x] Add dirty-node revisions and incrementally recompute only affected
   ancestors, routes, deficits, and rankings.
-- [ ] Deduplicate canonical edges while preserving all independent source
+- [x] Deduplicate canonical edges while preserving all independent source
   bindings and proposal origins.
-- [ ] Detect cycles, repeated chemistry, large atom jumps, and dominated route
+- [x] Detect cycles, repeated chemistry, large atom jumps, and dominated route
   families before expansion.
-- [ ] Add deterministic tie-breaking and replay tests.
-- [ ] Compare incremental output digests against a full recomputation oracle.
+- [x] Add deterministic tie-breaking and replay tests.
+- [x] Compare incremental output digests against a full recomputation oracle.
 
 Exit gate:
 
 - No action can bypass canonical ingestion or create a private search graph.
 - Incremental and full recomputation yield identical scientific results.
 - Large graph updates scale with dirty subgraph size, not total graph size.
+
+Observed P5 canonical-graph acceptance:
+
+- molecule, exact reaction multiset, source binding, stock observation, route
+  family, and hypothesis identities are canonical, full-digest IDs; presentation
+  labels and precursor order do not change scientific identity;
+- `CanonicalHypergraphStore` publishes one immutable graph revision through the
+  existing `RunKernel`; blackboard, legacy frontier ledger, and UI remain
+  projections and receive no V4 write authority;
+- Codex global skeleton steps enter as real `frontier_candidate` hypotheses and
+  produce materialization deficits; no reaction edge exists until the proposal
+  Worker settles successfully;
+- Codex, ChemEnzy, template, literature, and manual origins pass the same
+  materialization/admission boundary, merge into one exact edge, retain all
+  origin/source records, and count one unique accepted expansion;
+- exact literature extraction automatically schedules proposal materialization;
+  an evidence result cannot create a private edge or bypass proposal budgets;
+- one `DeficitFrontier` ranks materialization, evidence, validation, stock,
+  conflict, diversity, and route-closure work using explicit portfolio gain,
+  closure distance, evidence/independence/diversity gain, cost, failure risk,
+  and prior-attempt components with stable tie-breaking;
+- duplicate edges are skipped before worker execution, and parse/element,
+  large-atom-jump, ancestor-cycle, canonical graph cycle, and dominated-family
+  gates prevent wasteful follow-on expansion;
+- edge/source/proof/stock facts are ingested in dependency order independent of
+  result arrival order; untrusted or digest-invalid facts are rejected without
+  mutating the graph;
+- dirty molecule/edge ancestors and affected route families are revisioned and
+  recomputed incrementally.  In the 15-edge regression, one local stock update
+  recomputed less than 20% of graph entities;
+- incremental frontiers and graph projections match full recomputation oracles
+  byte-semantically at the scientific projection, including the local-update
+  regression;
+- focused V4 and legacy-frontier regressions passed, followed by the full local
+  suite: 1455 tests passed, 3 skipped, and 2 subtests passed.
 
 ### P6 — Proof stitcher and route portfolio
 

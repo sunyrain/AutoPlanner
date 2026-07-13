@@ -160,6 +160,7 @@ def materialization_commands_for_global_plan(
                 },
             )["proposal_refs"].append(
                 {
+                    "origin_kind": "codex_global_director",
                     "route_family_id": route_family_id,
                     "skeleton_id": skeleton_id,
                     "step_id": str(step.get("step_id") or ""),
@@ -178,13 +179,109 @@ def materialization_commands_for_global_plan(
                 row["step_id"],
             ),
         )
+        work_identity = _digest(
+            {"edge_identity": identity, "proposal_refs": payload["proposal_refs"]}
+        )
         commands.append(
             WorkerCommand(
-                command_id=f"materialize:{identity[:24]}",
+                command_id=f"materialize:{work_identity[:24]}",
                 run_id=run_id,
                 worker_type="materialize_candidate",
                 input_revision=int(input_revision),
-                idempotency_key=f"materialize:{identity}",
+                idempotency_key=f"materialize:{work_identity}",
+                payload=payload,
+                budget=WorkerBudget(task_kind="proposal"),
+                dependency_revisions=dict(dependency_revisions or {}),
+            )
+        )
+    return tuple(commands)
+
+
+def materialization_commands_for_proposals(
+    proposals: Iterable[Mapping[str, Any]],
+    *,
+    run_id: str,
+    input_revision: int,
+    dependency_revisions: Mapping[str, str | int] | None = None,
+    existing_edge_digests: Iterable[str] = (),
+    ancestor_smiles_by_product: Mapping[str, Iterable[str]] | None = None,
+) -> tuple[WorkerCommand, ...]:
+    """Compile ChemEnzy/template/literature/manual proposals through one gate."""
+    grouped: dict[str, dict[str, Any]] = {}
+    existing = sorted({str(value) for value in existing_edge_digests if str(value)})
+    for raw in proposals:
+        if not isinstance(raw, Mapping):
+            continue
+        row = dict(raw)
+        product = str(row.get("product_smiles") or "").strip()
+        precursors = _string_list(
+            row.get("precursor_smiles") or row.get("reactant_smiles")
+        )
+        identity = _digest(
+            {
+                "product_smiles": product,
+                "precursor_smiles_multiset": sorted(precursors),
+            }
+        )
+        payload = grouped.setdefault(
+            identity,
+            {
+                "product_smiles": product,
+                "precursor_smiles": precursors,
+                "reagent_smiles": _string_list(row.get("reagent_smiles")),
+                "existing_edge_digests": existing,
+                "ancestor_smiles": sorted(
+                    {
+                        str(value)
+                        for value in dict(ancestor_smiles_by_product or {}).get(
+                            product,
+                            (),
+                        )
+                        if str(value)
+                    }
+                ),
+                "proposal_refs": [],
+            },
+        )
+        payload["proposal_refs"].append(
+            {
+                "origin_kind": str(row.get("origin_kind") or "manual"),
+                "origin_ref": str(
+                    row.get("origin_ref")
+                    or row.get("source_ref")
+                    or row.get("model")
+                    or ""
+                ),
+                "proposal_id": str(
+                    row.get("proposal_id") or row.get("step_id") or ""
+                ),
+                "route_family_id": str(row.get("route_family_id") or ""),
+                "skeleton_id": str(row.get("skeleton_id") or ""),
+                "transformation_hypothesis": str(
+                    row.get("transformation_hypothesis") or ""
+                ),
+            }
+        )
+    commands: list[WorkerCommand] = []
+    for identity, payload in sorted(grouped.items()):
+        payload["proposal_refs"] = sorted(
+            payload["proposal_refs"],
+            key=lambda row: (
+                row["origin_kind"],
+                row["origin_ref"],
+                row["proposal_id"],
+            ),
+        )
+        work_identity = _digest(
+            {"edge_identity": identity, "proposal_refs": payload["proposal_refs"]}
+        )
+        commands.append(
+            WorkerCommand(
+                command_id=f"materialize:{work_identity[:24]}",
+                run_id=run_id,
+                worker_type="materialize_candidate",
+                input_revision=int(input_revision),
+                idempotency_key=f"materialize:{work_identity}",
                 payload=payload,
                 budget=WorkerBudget(task_kind="proposal"),
                 dependency_revisions=dict(dependency_revisions or {}),
@@ -704,6 +801,21 @@ def extract_exact_source_worker(
         material_events.extend(["exact_rows_added", "material_evidence_added"])
     if conflicts:
         material_events.append("source_conflict_added")
+    scheduled_materializations = materialization_commands_for_proposals(
+        (
+            {
+                "product_smiles": row["product_smiles"],
+                "precursor_smiles": row["reactant_smiles"],
+                "origin_kind": "literature",
+                "origin_ref": row["source_ref"],
+                "proposal_id": row["record_id"],
+            }
+            for row in accepted
+        ),
+        run_id=command.run_id,
+        input_revision=command.input_revision,
+        dependency_revisions=command.dependency_revisions,
+    )
     return {
         "status": status,
         "payload": {
@@ -715,6 +827,7 @@ def extract_exact_source_worker(
         },
         "failure_reasons": ["exact_source_rows_missing_or_rejected"] if not accepted else [],
         "material_events": material_events,
+        "scheduled_commands": scheduled_materializations,
     }
 
 
@@ -933,6 +1046,8 @@ def audit_deep_leaf_stock_worker(
             "accepted": accepted,
             "inventory_snapshot_set_id": snapshot_set["snapshot_set_id"],
             "inventory_artifact_authority_scope": "inventory_snapshot_set",
+            "audited_as_of": _iso(as_of),
+            "inventory_retrieved_at": _iso(retrieved_at),
             "provider_result": provider_result,
             "reasons": sorted(set(leaf_reasons)),
             "semantics": {
