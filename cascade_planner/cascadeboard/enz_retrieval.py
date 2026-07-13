@@ -42,8 +42,13 @@ def _first_nonempty(*values):
     return None
 
 
-def _load_uniprot_cache(cache_path: str = "data/uniprot_cache.json") -> dict:
-    p = Path(cache_path)
+def _load_uniprot_cache(cache_path: str | None = None) -> dict:
+    if cache_path is None:
+        from cascade_planner.runtime.paths import RuntimePaths
+
+        p = RuntimePaths.discover().cache_root / "uniprot_cache.json"
+    else:
+        p = Path(cache_path)
     cache_key = str(p.resolve())
     if cache_key in _UNIPROT_CACHE:
         return _UNIPROT_CACHE[cache_key]

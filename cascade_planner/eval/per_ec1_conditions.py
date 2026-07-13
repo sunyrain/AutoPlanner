@@ -10,14 +10,12 @@ from __future__ import annotations
 
 import argparse
 import collections
-import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.metrics import accuracy_score, mean_absolute_error, r2_score
+from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import GroupKFold
 
 from cascade_planner.data.loader_v2 import load_v2

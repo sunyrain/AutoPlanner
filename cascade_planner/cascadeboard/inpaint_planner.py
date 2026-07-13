@@ -11,7 +11,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -19,10 +18,8 @@ from cascade_planner.cascadeboard import CascadeBoard, Slot, RouteResult, RouteE
 from cascade_planner.cascadeboard.route_encoder import (
     CascadeBoardTransformer,
     board_to_tensors,
-    smiles_to_morgan_fp,
     REACTION_TYPE_TO_ID,
     OBJECTIVE_TO_ID,
-    NUM_EC1_CLASSES,
     COMPAT_VOCAB,
     OPMODE_VOCAB,
     ISSUE_TYPE_VOCAB,

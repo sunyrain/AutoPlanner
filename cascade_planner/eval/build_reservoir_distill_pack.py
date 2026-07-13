@@ -13,7 +13,6 @@ from cascade_planner.cascadeboard.route_recovery import canonical_reaction, cano
 from cascade_planner.eval.chem_enzy_broad_union import _chem_route_stock_closed, _convert_chem_route, _select_chem_routes
 from cascade_planner.route_tree.schema import CandidateAction
 from cascade_planner.route_tree.source_gate import source_group, source_policy_group
-from cascade_planner.vnext.features import stable_bucket
 
 
 RESERVOIR_SPLIT_NAMES = ("train", "val", "eval")

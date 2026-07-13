@@ -5,19 +5,16 @@ edit action heads, and inpainting heads.
 """
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass
 from enum import IntEnum
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from rdkit import Chem, RDLogger
 from rdkit.Chem import AllChem
 from rdkit import DataStructs
 
-from cascade_planner.cascadeboard import CascadeBoard, Slot, EditType
+from cascade_planner.cascadeboard import CascadeBoard, EditType
 
 RDLogger.DisableLog("rdApp.*")
 

@@ -9,8 +9,13 @@ from typing import Any
 from cascade_planner.cascadeboard.enz_retrieval import _load_db
 
 
-def summarize_cache(cache_path: str = "data/uniprot_cache.json") -> dict[str, int]:
-    path = Path(cache_path)
+def summarize_cache(cache_path: str | None = None) -> dict[str, int]:
+    if cache_path is None:
+        from cascade_planner.runtime.paths import RuntimePaths
+
+        path = RuntimePaths.discover().cache_root / "uniprot_cache.json"
+    else:
+        path = Path(cache_path)
     if not path.exists():
         return {
             "cache_entries": 0,
@@ -95,7 +100,7 @@ def write_markdown(summary: dict[str, Any], output_path: str, cache_path: str) -
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Summarize UniProt evidence coverage")
-    ap.add_argument("--cache", default="data/uniprot_cache.json")
+    ap.add_argument("--cache", default=None)
     ap.add_argument("--data", default="cascade_dataset_v3.json")
     ap.add_argument("--output", default="results/v2/uniprot_enrichment_summary.md")
     ap.add_argument("--json-output", default=None)

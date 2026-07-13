@@ -15,10 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import torch
 
 from rdkit import Chem, RDLogger
-from rdkit.Chem import AllChem
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -26,16 +24,12 @@ from cascade_planner.cascadeboard.skeleton_inpainter import (
     load_model as load_inpainter,
     generate_multiple_skeletons,
     SkeletonResult,
-    RTYPE_TO_ID, REACTION_TYPE_VOCAB,
-    morgan_fp,
+    RTYPE_TO_ID, morgan_fp,
 )
 from cascade_planner.cascadeboard.learned_scorer import (
     load_scorer,
     score_route,
-    build_scorer_dataset,
-    collate_scorer_batch,
     SlotFeatures,
-    ScoreResult,
 )
 
 
@@ -237,7 +231,7 @@ def run_benchmark(
     }
 
     # Per-domain breakdown
-    from collections import Counter, defaultdict
+    from collections import defaultdict
     domain_stats = defaultdict(lambda: {"n": 0, "gt1": 0, "gt5": 0})
     for r in results:
         d = r.domain

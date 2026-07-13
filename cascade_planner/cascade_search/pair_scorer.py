@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from cascade_planner.cascade_search.state import CascadeAction, CascadeProgramState, ConditionEnvelope, StepAnnotation
+from cascade_planner.cascade_search.state import CascadeAction, CascadeProgramState, StepAnnotation
 
 
 PAIR_LABEL_NAMES = [

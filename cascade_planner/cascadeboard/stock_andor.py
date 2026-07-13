@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import heapq
 import itertools
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from rdkit import Chem

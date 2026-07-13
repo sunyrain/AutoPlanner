@@ -4,7 +4,6 @@ Loads 17.4M InChI keys from zinc_stock.hdf5 for accurate stock checking.
 """
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from typing import Set
 

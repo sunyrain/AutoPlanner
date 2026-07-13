@@ -7,14 +7,12 @@ from __future__ import annotations
 
 import json
 import random
-import copy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
-from cascade_planner.cascadeboard import CascadeBoard, Slot, EditType
+from cascade_planner.cascadeboard import CascadeBoard, Slot
 from cascade_planner.cascadeboard.route_encoder import (
-    REACTION_TYPE_TO_ID, OBJECTIVE_TO_ID, smiles_to_morgan_fp,
+    REACTION_TYPE_TO_ID, smiles_to_morgan_fp,
 )
 
 

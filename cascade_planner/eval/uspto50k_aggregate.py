@@ -1,7 +1,7 @@
 """Aggregate K2 USPTO-50K results into a single report once all per-model
 prediction caches exist. Re-runs ensemble from cache so it never re-does inference."""
 from __future__ import annotations
-import argparse, json, time
+import argparse, json
 from pathlib import Path
 
 from cascade_planner.eval.uspto50k_syntheseus import (

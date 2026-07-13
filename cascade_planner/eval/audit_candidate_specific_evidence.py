@@ -13,14 +13,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import time
 from collections import Counter, defaultdict
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 from rdkit import Chem, DataStructs, RDLogger
 from rdkit.Chem import AllChem
 

@@ -5,8 +5,8 @@ Uniprot REST for the top reviewed (Swiss-Prot) entry, and writes an
 enriched snapshot with `uniprot_id`, names, reviewed/status fields,
 sequence, taxon, Rhea cross-references, and cofactors populated per component.
 
-Cache: queries are cached in `data/uniprot_cache.json` so reruns don't
-hit the network.
+Cache: queries are cached under the configured V4 runtime cache root so reruns
+do not repeat them and generated provider data never enters Git.
 
 Usage:
     python -m cascade_planner.data.enrich_uniprot \
@@ -22,8 +22,10 @@ from pathlib import Path
 
 import requests
 
+from cascade_planner.runtime.paths import RuntimePaths
+
 ROOT = Path(__file__).resolve().parent.parent.parent
-CACHE = ROOT / "data" / "uniprot_cache.json"
+CACHE = RuntimePaths.discover(repository_root=ROOT).cache_root / "uniprot_cache.json"
 URL = "https://rest.uniprot.org/uniprotkb/search"
 ENTRY_URL = "https://rest.uniprot.org/uniprotkb"
 

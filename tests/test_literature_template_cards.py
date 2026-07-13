@@ -1,6 +1,5 @@
 from cascade_planner.agent.artifact_schemas import ARTIFACT_CLASSES, artifact_json_round_trip
 from cascade_planner.agent.literature_templates import (
-    ExecutableTemplateCandidate,
     LiteratureTemplateCard,
     LiteratureTemplateLevel,
     LiteratureTriggerReason,

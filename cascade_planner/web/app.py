@@ -59,6 +59,7 @@ from cascade_planner.runtime.artifact_revision import (
     load_latest_closeout_manifest,
     validate_latest_closeout_revision,
 )
+from cascade_planner.web.v4_api import create_v4_blueprint
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -143,6 +144,7 @@ class _PlanJobCancelled(RuntimeError):
 def create_app() -> Flask:
     app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+    app.register_blueprint(create_v4_blueprint())
 
     @app.before_request
     def protect_mutating_api() -> None:

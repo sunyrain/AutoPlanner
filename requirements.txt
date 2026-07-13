@@ -22,3 +22,4 @@ pyyaml
 requests
 PyMuPDF>=1.24,<2
 flask>=3.0,<4
+waitress>=3.0,<4

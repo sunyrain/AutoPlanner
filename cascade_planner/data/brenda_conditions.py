@@ -17,7 +17,6 @@ import json
 import logging
 import re
 import statistics
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -375,7 +374,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     # Load steps
-    from cascade_planner.data.loader_v2 import StepRowV2, load_v2
+    from cascade_planner.data.loader_v2 import load_v2
 
     steps, _pairs, _cascades = load_v2(args.data)
 

@@ -8,7 +8,6 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from cascade_planner.cascadeboard.route_recovery import canonical_smiles
 from cascade_planner.route_tree.cascade_oracle import (
     CascadeOracleRuntime,
     build_cascade_oracle_payload_from_native,

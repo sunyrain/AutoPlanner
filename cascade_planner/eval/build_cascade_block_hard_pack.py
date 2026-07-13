@@ -11,7 +11,6 @@ import argparse
 import json
 import random
 import time
-from collections import Counter
 from pathlib import Path
 from typing import Any
 

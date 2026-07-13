@@ -29,6 +29,8 @@ V4_MODULES = (
     "cascade_planner/application/route_variants.py",
     "cascade_planner/application/route_workbench.py",
     "cascade_planner/application/worker_runtime.py",
+    "cascade_planner/interfaces/campaign_gateway.py",
+    "cascade_planner/interfaces/campaign_operations.py",
     "cascade_planner/orchestration/global_campaign_director.py",
     "cascade_planner/orchestration/retrosynthesis_service.py",
 )
@@ -55,6 +57,11 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/harness/tool_registry.py": 120,
     "cascade_planner/harness/v4_controller_adapter.py": 180,
     "cascade_planner/harness/v4_route_workbench.py": 750,
+    "cascade_planner/interfaces/campaign_gateway.py": 400,
+    "cascade_planner/interfaces/campaign_operations.py": 160,
+    "cascade_planner/cli.py": 300,
+    "cascade_planner/runtime/repository_audit.py": 360,
+    "cascade_planner/web/v4_api.py": 220,
     "cascade_planner/orchestration/retrosynthesis_service.py": 400,
 }
 

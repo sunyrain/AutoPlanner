@@ -5,7 +5,6 @@ conflict detection, and relaxation suggestions.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
 from cascade_planner.cascadeboard import (

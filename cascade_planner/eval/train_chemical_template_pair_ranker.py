@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from cascade_planner.cascadeboard.chemical_template_pair_ranker import ChemicalTemplatePairRankerModel
 from cascade_planner.expand.enz_template import apply_template_to_product, canon_set
+from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.vnext.features import morgan_fp
 
 
@@ -321,7 +322,10 @@ def _report(manifest: dict[str, Any]) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Train pairwise USPTO chemical template ranker")
-    ap.add_argument("--uspto-tab", default="data/uspto50k.tab")
+    ap.add_argument(
+        "--uspto-tab",
+        default=str(RuntimePaths.discover().external_data_root / "uspto50k.tab"),
+    )
     ap.add_argument("--template-csv", default="data_external/retrorules/templates_uspto.csv.gz")
     ap.add_argument("--output-dir", default="results/shared/chemical_template_preselector/uspto_pair_mlp_20260507")
     ap.add_argument("--max-rows", type=int, default=20000)

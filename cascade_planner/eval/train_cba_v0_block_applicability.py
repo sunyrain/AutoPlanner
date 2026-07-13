@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 from lightgbm import LGBMRanker, early_stopping
 from rdkit import Chem, DataStructs, RDLogger
-from rdkit.Chem import AllChem, Descriptors
+from rdkit.Chem import AllChem
 
 from cascade_planner.cascade_search.v4_product_value import canonical_smiles
 

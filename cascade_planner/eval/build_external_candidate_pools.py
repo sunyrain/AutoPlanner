@@ -13,7 +13,7 @@ import random
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from cascade_planner.vnext.features import read_jsonl, stable_id, write_jsonl
 

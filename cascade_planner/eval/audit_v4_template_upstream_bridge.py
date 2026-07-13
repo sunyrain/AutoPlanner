@@ -14,8 +14,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from rdkit import Chem, DataStructs, RDLogger
-from rdkit.Chem import AllChem
+from rdkit import Chem, RDLogger
 
 from cascade_planner.cascade_search.v4_product_value import canonical_smiles
 from cascade_planner.eval.audit_nonoracle_provider_bridge import (

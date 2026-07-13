@@ -6,7 +6,6 @@ Computes feasibility, quality vector, risk vector, and total energy.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 

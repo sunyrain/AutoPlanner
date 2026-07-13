@@ -1,7 +1,0 @@
-{
-  "accepted": true,
-  "reasons": [
-    "stop_unresolved_selected"
-  ],
-  "schema_version": "agent_stop_unresolved.v1"
-}

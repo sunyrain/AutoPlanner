@@ -7,14 +7,13 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
-from typing import Any
 
 from rdkit import Chem, RDLogger
 
 RDLogger.DisableLog("rdApp.*")
 
 from cascade_planner.cascadeboard import (
-    CascadeBoard, Slot, HardMask, CompiledConstraints,
+    CascadeBoard, CompiledConstraints,
 )
 
 

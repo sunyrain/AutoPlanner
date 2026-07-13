@@ -1,6 +1,5 @@
 from types import SimpleNamespace
 
-from cascade_planner.agent.literature_templates import default_literature_template_cards
 from cascade_planner.baselines.chem_enzy_adapter import (
     ChemEnzyBackendAdapter,
     _configure_native_autoplanner_plugins,

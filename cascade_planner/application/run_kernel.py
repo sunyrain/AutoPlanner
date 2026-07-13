@@ -436,6 +436,8 @@ class RunKernel:
         run_dir: str | os.PathLike[str],
         *,
         spec: RunSpec | None = None,
+        artifact_store_root: str | os.PathLike[str] | None = None,
+        run_index_path: str | os.PathLike[str] | None = None,
         lock_timeout_s: float = 10.0,
         stale_lock_s: float = 120.0,
     ) -> None:
@@ -449,8 +451,10 @@ class RunKernel:
         self.lock_path = self.kernel_dir / "writer.lock"
         self.lock_timeout_s = max(0.1, float(lock_timeout_s))
         self.stale_lock_s = max(1.0, float(stale_lock_s))
-        self.artifacts = ArtifactStore(self.runtime_root / "artifacts")
-        self.index = RunIndex(self.runtime_root / "run_index.sqlite3")
+        self.artifacts = ArtifactStore(
+            artifact_store_root or self.runtime_root / "artifacts"
+        )
+        self.index = RunIndex(run_index_path or self.runtime_root / "run_index.sqlite3")
         if self.spec_path.is_file():
             stored = RunSpec.from_dict(_read_json_object(self.spec_path))
             if spec is not None and spec.to_dict()["content_sha256"] != stored.to_dict()[

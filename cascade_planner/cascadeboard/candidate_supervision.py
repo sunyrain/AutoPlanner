@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import random
 import time
 from collections import Counter, defaultdict
@@ -13,7 +12,6 @@ from typing import Any
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from rdkit import Chem, DataStructs, RDLogger
 from rdkit.Chem import AllChem
 from torch.utils.data import DataLoader, TensorDataset

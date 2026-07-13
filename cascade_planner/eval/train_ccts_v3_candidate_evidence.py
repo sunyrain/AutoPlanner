@@ -31,7 +31,6 @@ from cascade_planner.eval.train_ccts_v0_transition_ranker import (
     CandidateDataset,
     _baseline_scores,
     _candidate_rows_from_cache,
-    _metric_for_selection,
     _read_json,
     _standardize,
     _write_jsonl,

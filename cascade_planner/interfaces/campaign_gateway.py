@@ -1,0 +1,387 @@
+"""Shared CLI/Web gateway for model-free V4 campaign operations.
+
+The gateway resolves configured storage once and delegates chemistry and run
+state to :class:`RetrosynthesisCampaignService`.  It deliberately owns no
+scientific status, queue, graph, or acceptance state of its own.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import re
+from typing import Any, Mapping
+
+from cascade_planner.application.retrosynthesis_run_contract import (
+    RetrosynthesisAcceptanceSpec,
+    RetrosynthesisRunBudget,
+)
+from cascade_planner.application.run_kernel import RunLimits, RunSpec
+from cascade_planner.interfaces.campaign_operations import (
+    benchmark_campaign,
+    export_campaign,
+    plan_artifact_gc,
+)
+from cascade_planner.orchestration.retrosynthesis_service import (
+    RetrosynthesisCampaignService,
+)
+from cascade_planner.runtime.paths import RuntimePaths
+from cascade_planner.runtime.run_index import RunIndex
+
+
+CAMPAIGN_GATEWAY_RESULT_SCHEMA = "autoplanner_campaign_gateway_result.v1"
+_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+
+class CampaignGatewayError(RuntimeError):
+    """An operator request cannot be mapped to one canonical V4 run."""
+
+
+class CampaignGateway:
+    """Expose one bounded interface shared by CLI and HTTP adapters."""
+
+    def __init__(self, paths: RuntimePaths | None = None) -> None:
+        self.paths = paths or RuntimePaths.discover()
+        self.paths.ensure_runtime_directories()
+        self.index = RunIndex(self.paths.run_index_path)
+
+    def create_run(
+        self,
+        *,
+        target_name: str,
+        target_smiles: str,
+        run_id: str | None = None,
+        run_dir: str | Path | None = None,
+        acceptance: RetrosynthesisAcceptanceSpec | None = None,
+        budget: RetrosynthesisRunBudget | None = None,
+        global_plan: Mapping[str, Any] | None = None,
+        materialize: bool = False,
+        closeout: bool = False,
+    ) -> dict[str, Any]:
+        target_name = str(target_name or "").strip()
+        target_smiles = str(target_smiles or "").strip()
+        if not target_name or not target_smiles:
+            raise CampaignGatewayError("target_name_and_smiles_required")
+        identity = self._normalize_run_id(
+            run_id or self._new_run_id(target_name, target_smiles)
+        )
+        directory = self._run_dir(identity, explicit=run_dir, require=False)
+        spec_path = directory / ".autoplanner" / "kernel" / "run_spec.json"
+        if spec_path.is_file():
+            service = self._open(identity, run_dir=directory)
+            if (
+                service.kernel.spec.target_name != target_name
+                or service.kernel.spec.target_smiles != target_smiles
+            ):
+                raise CampaignGatewayError("existing_run_target_conflict")
+        else:
+            service = RetrosynthesisCampaignService.create(
+                self.paths.runtime_root,
+                directory,
+                spec=RunSpec(
+                    run_id=identity,
+                    target_name=target_name,
+                    target_smiles=target_smiles,
+                    acceptance=acceptance or RetrosynthesisAcceptanceSpec(),
+                    limits=RunLimits(
+                        model=budget
+                        or RetrosynthesisRunBudget(max_model_invocations=0)
+                    ),
+                    created_at=_utc_now(),
+                ),
+                artifact_store_root=self.paths.artifact_store_root,
+                run_index_path=self.paths.run_index_path,
+            )
+        operations: dict[str, Any] = {}
+        if global_plan is not None:
+            operations["global_plan"] = service.apply_global_plan(
+                global_plan,
+                idempotency_key=f"gateway:plan:{_digest(global_plan)[:24]}",
+            )
+        if materialize:
+            revision = service.kernel.state.graph_revision
+            operations["materialization"] = service.execute_frontier_materialization(
+                idempotency_key=f"gateway:frontier-materialization:{revision}"
+            )
+        if closeout:
+            revision = service.kernel.state.graph_revision
+            operations["closeout"] = service.closeout(
+                idempotency_key=f"gateway:closeout:{revision}"
+            )
+        return self._result(service, operation="run", operations=operations)
+
+    def resume(
+        self,
+        run_id: str,
+        *,
+        run_dir: str | Path | None = None,
+        materialize: bool = False,
+        closeout: bool = False,
+    ) -> dict[str, Any]:
+        service = self._open(run_id, run_dir=run_dir)
+        operations: dict[str, Any] = {}
+        if service.kernel.state.status == "paused":
+            operations["transition"] = service.kernel.resume(
+                idempotency_key=f"gateway:resume:{service.kernel.state.revision}"
+            ).to_dict()
+        if materialize:
+            operations["materialization"] = service.execute_frontier_materialization(
+                idempotency_key=(
+                    f"gateway:resume-materialization:{service.kernel.state.graph_revision}"
+                )
+            )
+        if closeout:
+            operations["closeout"] = service.closeout(
+                idempotency_key=f"gateway:resume-closeout:{service.kernel.state.revision}"
+            )
+        return self._result(service, operation="resume", operations=operations)
+
+    def apply_plan(
+        self,
+        run_id: str,
+        plan: Mapping[str, Any],
+        *,
+        run_dir: str | Path | None = None,
+        materialize: bool = False,
+    ) -> dict[str, Any]:
+        service = self._open(run_id, run_dir=run_dir)
+        operations: dict[str, Any] = {
+            "global_plan": service.apply_global_plan(
+                plan,
+                idempotency_key=f"gateway:plan:{_digest(plan)[:24]}",
+            )
+        }
+        if materialize:
+            revision = service.kernel.state.graph_revision
+            operations["materialization"] = service.execute_frontier_materialization(
+                idempotency_key=f"gateway:frontier-materialization:{revision}"
+            )
+        return self._result(service, operation="apply-plan", operations=operations)
+
+    def status(
+        self,
+        run_id: str,
+        *,
+        run_dir: str | Path | None = None,
+    ) -> dict[str, Any]:
+        return self._result(
+            self._open(run_id, run_dir=run_dir), operation="status"
+        )
+
+    def workbench(
+        self,
+        run_id: str,
+        *,
+        run_dir: str | Path | None = None,
+    ) -> dict[str, Any]:
+        service = self._open(run_id, run_dir=run_dir)
+        return {
+            "schema_version": CAMPAIGN_GATEWAY_RESULT_SCHEMA,
+            "operation": "workbench",
+            "run_id": service.kernel.spec.run_id,
+            **service.workbench(),
+        }
+
+    def validate(
+        self,
+        run_id: str,
+        *,
+        run_dir: str | Path | None = None,
+    ) -> dict[str, Any]:
+        service = self._open(run_id, run_dir=run_dir)
+        recovery = service.kernel.recover()
+        graph = service.graph_store.load()
+        oracle = service.graph_store.full_recompute_oracle()
+        workbench = service.workbench()["snapshot"]
+        checks = {
+            "event_replay_matches_snapshot": (
+                recovery["replayed_state_sha256"]
+                == service.kernel.state.to_dict()["content_sha256"]
+            ),
+            "graph_scientific_oracle_equal": (
+                graph["scientific_sha256"] == oracle["scientific_sha256"]
+            ),
+            "graph_topology_oracle_equal": (
+                graph["topology_sha256"] == oracle["topology_sha256"]
+            ),
+            "workbench_binds_graph": (
+                workbench["revision"]["graph_scientific_sha256"]
+                == graph["scientific_sha256"]
+            ),
+        }
+        return {
+            "schema_version": CAMPAIGN_GATEWAY_RESULT_SCHEMA,
+            "operation": "validate",
+            "run_id": service.kernel.spec.run_id,
+            "accepted": all(checks.values()),
+            "checks": checks,
+            "recovery": recovery,
+            "graph_revision": graph["revision"],
+            "graph_scientific_sha256": graph["scientific_sha256"],
+            "workbench_sha256": workbench["content_sha256"],
+        }
+
+    def replay(
+        self,
+        run_id: str,
+        *,
+        run_dir: str | Path | None = None,
+    ) -> dict[str, Any]:
+        service = self._open(run_id, run_dir=run_dir)
+        before = service.kernel.state.to_dict()["content_sha256"]
+        recovery = service.kernel.recover()
+        after = service.kernel.state.to_dict()["content_sha256"]
+        oracle = service.graph_store.full_recompute_oracle()
+        graph = service.graph_store.load()
+        checks = {
+            "snapshot_reproduced": before == after,
+            "event_replay_digest_equal": recovery["replayed_state_sha256"] == after,
+            "graph_oracle_equal": (
+                graph["scientific_sha256"] == oracle["scientific_sha256"]
+            ),
+        }
+        return {
+            "schema_version": CAMPAIGN_GATEWAY_RESULT_SCHEMA,
+            "operation": "replay",
+            "run_id": service.kernel.spec.run_id,
+            "accepted": all(checks.values()),
+            "checks": checks,
+            "recovery": recovery,
+        }
+
+    def benchmark(
+        self,
+        run_id: str,
+        *,
+        run_dir: str | Path | None = None,
+        iterations: int = 3,
+    ) -> dict[str, Any]:
+        service = self._open(run_id, run_dir=run_dir)
+        return benchmark_campaign(service, iterations=iterations)
+
+    def export(
+        self,
+        run_id: str,
+        *,
+        run_dir: str | Path | None = None,
+        output_dir: str | Path | None = None,
+    ) -> dict[str, Any]:
+        service = self._open(run_id, run_dir=run_dir)
+        return export_campaign(service, output_dir=output_dir)
+
+    def gc_plan(self, *, minimum_age_s: float = 86_400.0) -> dict[str, Any]:
+        return plan_artifact_gc(
+            self.paths,
+            self.index,
+            minimum_age_s=minimum_age_s,
+        )
+
+    def list_runs(self, *, limit: int = 100) -> dict[str, Any]:
+        rows = self.index.list_runs(limit=max(1, min(1_000, int(limit))))
+        return {
+            "schema_version": CAMPAIGN_GATEWAY_RESULT_SCHEMA,
+            "operation": "list",
+            "run_count": len(rows),
+            "runs": rows,
+        }
+
+    def _open(
+        self,
+        run_id: str,
+        *,
+        run_dir: str | Path | None = None,
+    ) -> RetrosynthesisCampaignService:
+        identity = self._normalize_run_id(run_id)
+        directory = self._run_dir(identity, explicit=run_dir, require=True)
+        service = RetrosynthesisCampaignService.open(
+            self.paths.runtime_root,
+            directory,
+            artifact_store_root=self.paths.artifact_store_root,
+            run_index_path=self.paths.run_index_path,
+        )
+        if service.kernel.spec.run_id != identity:
+            raise CampaignGatewayError("run_directory_identity_mismatch")
+        return service
+
+    def _run_dir(
+        self,
+        run_id: str,
+        *,
+        explicit: str | Path | None,
+        require: bool,
+    ) -> Path:
+        if explicit is not None:
+            directory = Path(explicit).expanduser().resolve()
+        else:
+            manifest = self.index.get_run(run_id)
+            if manifest and manifest.get("run_dir"):
+                directory = Path(str(manifest["run_dir"])).expanduser().resolve()
+            else:
+                directory = self.paths.runs_root / _run_segment(run_id)
+        if require and not (
+            directory / ".autoplanner" / "kernel" / "run_spec.json"
+        ).is_file():
+            raise CampaignGatewayError(f"run_not_found:{run_id}")
+        return directory
+
+    @staticmethod
+    def _normalize_run_id(value: str) -> str:
+        identity = str(value or "").strip()
+        if not _RUN_ID.fullmatch(identity):
+            raise CampaignGatewayError("run_id_invalid")
+        return identity
+
+    @staticmethod
+    def _new_run_id(target_name: str, target_smiles: str) -> str:
+        label = re.sub(r"[^a-z0-9]+", "-", target_name.lower()).strip("-")[:36]
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        digest = hashlib.sha256(
+            f"{target_name}\0{target_smiles}\0{stamp}".encode("utf-8")
+        ).hexdigest()[:10]
+        return f"{label or 'target'}-{stamp}-{digest}"
+
+    @staticmethod
+    def _result(
+        service: RetrosynthesisCampaignService,
+        *,
+        operation: str,
+        operations: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": CAMPAIGN_GATEWAY_RESULT_SCHEMA,
+            "operation": operation,
+            "run_id": service.kernel.spec.run_id,
+            "run_dir": str(service.kernel.run_dir),
+            "status": service.status(),
+            "operations": dict(operations or {}),
+        }
+
+
+def _run_segment(run_id: str) -> str:
+    label = re.sub(r"[^A-Za-z0-9._-]+", "-", run_id).strip(".-")[:64] or "run"
+    digest = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:12]
+    return f"{label}--{digest}"
+
+
+def _digest(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+__all__ = [
+    "CAMPAIGN_GATEWAY_RESULT_SCHEMA",
+    "CampaignGateway",
+    "CampaignGatewayError",
+]

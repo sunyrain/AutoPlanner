@@ -96,7 +96,7 @@ def _load_enzexpand():
     global _ENZ_MODEL, _ENZ_TEMPLATES
     if _ENZ_MODEL is not None:
         return _ENZ_MODEL, _ENZ_TEMPLATES
-    import json, gzip, csv
+    import csv
     import onnxruntime as ort
     _ENZ_MODEL = ort.InferenceSession("workspace/aizdata/enzexpand_model.onnx")
     tpl_path = Path("results/shared/merged_templates.csv")
@@ -188,8 +188,7 @@ class _EnzExpandWrapper:
     def _load(self):
         if self._model is not None:
             return
-        import csv, torch
-        import torch.nn as nn
+        import csv
         from cascade_planner.expand.enz_template import TemplateMLP
 
         # Load 150 templates from v3-trained table

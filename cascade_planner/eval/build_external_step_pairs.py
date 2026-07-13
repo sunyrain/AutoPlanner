@@ -25,6 +25,7 @@ from typing import Any, Iterable
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.vnext.features import stable_id, write_jsonl
 
 
@@ -369,7 +370,10 @@ def main() -> None:
     parser.add_argument("--output-dir", default="results/shared/external_step_pairs/current")
     parser.add_argument("--ecreact", default="data_external/ecreact/ecreact-1.0.csv")
     parser.add_argument("--enzymatic-json", action="append", default=["data_external/enzymatic_retro_data/train.json", "data_external/enzymatic_retro_data/val.json"])
-    parser.add_argument("--uspto-tab", default="data/uspto50k.tab")
+    parser.add_argument(
+        "--uspto-tab",
+        default=str(RuntimePaths.discover().external_data_root / "uspto50k.tab"),
+    )
     parser.add_argument("--rhea-tar", default="data_external/rhea/140.tar.bz2")
     parser.add_argument("--reactzyme-zip", default="data_external/reactzyme/13635807.zip")
     parser.add_argument("--template", action="append", default=[

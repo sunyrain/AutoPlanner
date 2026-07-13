@@ -1,7 +1,0 @@
-{
-  "case_id": "mla_like_alkaloid_case",
-  "family_hint": "MLA, methyllycaconitine-like alkaloid, aryl ester, imide, cage",
-  "schema_version": "codex_entry_target_input.v1",
-  "target_name": "MLA-like alkaloid case",
-  "target_smiles": "CN1CC2CCC1CC2OC(=O)c3ccccc3N4C(=O)CCC4=O"
-}

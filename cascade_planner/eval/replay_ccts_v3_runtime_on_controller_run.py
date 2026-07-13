@@ -29,7 +29,7 @@ from cascade_planner.eval.replay_ccts_v3_on_controller_run import (
     _standardize,
     _write_jsonl,
 )
-from cascade_planner.eval.train_ccts_v3_runtime_pairwise_ranker import FittedRuntimeModel, _feature_row
+from cascade_planner.eval.train_ccts_v3_runtime_pairwise_ranker import _feature_row
 
 
 SCHEMA_VERSION = "ccts_v3_runtime_controller_run_replay.v1"

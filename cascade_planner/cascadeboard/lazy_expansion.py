@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from cascade_planner.cascadeboard import CascadeBoard, CompiledConstraints
 from cascade_planner.cascadeboard.candidate_graph import (
-    CandidateHypergraph, CandidateReaction,
+    CandidateHypergraph,
 )
 from cascade_planner.cascadeboard.energy_api import EnergyAPI
 

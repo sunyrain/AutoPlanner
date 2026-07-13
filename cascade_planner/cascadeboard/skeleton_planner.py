@@ -12,17 +12,14 @@ import random
 import os
 import time
 import logging
-import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
 import torch
 
 from cascade_planner.cascadeboard import (
-    CascadeBoard, Slot, EditType, CompiledConstraints,
-    RouteResult, RouteExplanation,
+    CascadeBoard, Slot, RouteResult, RouteExplanation,
 )
 from cascade_planner.cascadeboard.constraint_compiler import ConstraintCompiler
 from cascade_planner.cascadeboard.energy_api import EnergyAPI

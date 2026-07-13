@@ -82,11 +82,19 @@ class RetrosynthesisCampaignService:
         run_dir: str | Path,
         *,
         spec: RunSpec,
+        artifact_store_root: str | Path | None = None,
+        run_index_path: str | Path | None = None,
         artifact_authorities: Mapping[str, str] | None = None,
         director_runner: DirectorRunner | None = None,
         director_config: DirectorConfig | None = None,
     ) -> "RetrosynthesisCampaignService":
-        kernel = RunKernel(runtime_root, run_dir, spec=spec)
+        kernel = RunKernel(
+            runtime_root,
+            run_dir,
+            spec=spec,
+            artifact_store_root=artifact_store_root,
+            run_index_path=run_index_path,
+        )
         if kernel.state.status == "created":
             kernel.start()
         return cls(
@@ -102,12 +110,19 @@ class RetrosynthesisCampaignService:
         runtime_root: str | Path,
         run_dir: str | Path,
         *,
+        artifact_store_root: str | Path | None = None,
+        run_index_path: str | Path | None = None,
         artifact_authorities: Mapping[str, str] | None = None,
         director_runner: DirectorRunner | None = None,
         director_config: DirectorConfig | None = None,
     ) -> "RetrosynthesisCampaignService":
         return cls(
-            RunKernel(runtime_root, run_dir),
+            RunKernel(
+                runtime_root,
+                run_dir,
+                artifact_store_root=artifact_store_root,
+                run_index_path=run_index_path,
+            ),
             artifact_authorities=artifact_authorities,
             director_runner=director_runner,
             director_config=director_config,

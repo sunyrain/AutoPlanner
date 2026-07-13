@@ -6,7 +6,7 @@ import json
 import math
 import pickle
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -21,7 +21,6 @@ from cascade_planner.cascadeboard.route_recovery import canonical_reaction, cano
 from cascade_planner.eval.train_ccts_v0_transition_ranker import (
     _baseline_scores,
     _best_set_similarity,
-    _bucket_int,
     _candidate_rows_from_cache,
     _evaluate_dataset,
     _float_or_zero,

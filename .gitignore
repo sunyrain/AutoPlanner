@@ -48,6 +48,10 @@ config/examples/*
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
+.autoplanner/
+**/.autoplanner/
+exports/
+runs/
 
 # IDE
 .vscode/
@@ -76,8 +80,13 @@ data/enzyme_sp_verifier_v1/
 ChemEnzyRetroPlanner/
 vendor/ChemEnzyRetroPlanner/
 backup_from_zip/
+data/uspto*.tab
+data/*_cache.json
 
 # Legacy migration bundle
+archive/
+docs/archive/
+scripts/archive/
 archive/migration_*/autoplanner_full_*.zip
 archive/migration_*/autoplanner_full_*.zip.sha256
 archive/cleanup_*/
@@ -182,6 +191,9 @@ archive/docs_*/
 archive/cleanup_*/docs/
 
 # Generated manuscript build products
+docs/**/report_*/
+docs/**/*_report.pdf
+docs/**/*_report.png
 *.aux
 *.bbl
 *.blg

@@ -535,21 +535,43 @@ Observed P8 acceptance:
 
 Purpose: make the optimized path the obvious path.
 
-- [ ] Provide one CLI with `run`, `resume`, `status`, `validate`, `replay`,
+- [x] Provide one CLI with `run`, `resume`, `status`, `validate`, `replay`,
   `benchmark`, `export`, and `gc --dry-run` commands.
-- [ ] Route API and WebUI through the same application services.
-- [ ] Remove obsolete one-off launchers after mapping their supported use cases.
-- [ ] Move historical reports out of active documentation navigation.
-- [ ] Keep active docs short: architecture, runbook, schemas, testing, and data
+- [x] Route API and WebUI through the same application services.
+- [x] Remove obsolete one-off launchers after mapping their supported use cases.
+- [x] Move historical reports out of active documentation navigation.
+- [x] Keep active docs short: architecture, runbook, schemas, testing, and data
   policy.
-- [ ] Tighten ignore rules for runs, caches, credentials, local corpora, and
+- [x] Tighten ignore rules for runs, caches, credentials, local corpora, and
   generated reports.
-- [ ] Add a repository audit for tracked size, large blobs in current tree,
+- [x] Add a repository audit for tracked size, large blobs in current tree,
   duplicate assets, dead imports, and generated artifacts.
-- [ ] Do not rewrite published Git history without a separate explicit decision;
+- [x] Do not rewrite published Git history without a separate explicit decision;
   clean the current tree and prevent recurrence first.
-- [ ] Do not add GitHub Actions or other CI configuration; all quality gates are
+- [x] Do not add GitHub Actions or other CI configuration; all quality gates are
   runnable locally.
+
+P9 implementation result:
+
+- `python -m cascade_planner` is the sole campaign/operator entry. Its run path
+  fixes model and visual calls at zero and exposes deterministic resume,
+  validation, replay, benchmark, export, list, Web serving, repository audit,
+  and explicit dry-run-only GC;
+- CLI and `/api/v4/runs` share `CampaignGateway` and
+  `RetrosynthesisCampaignService`. `/v4` and workbench HTML compile from the
+  same digest-bound snapshot; HTTP clients cannot select arbitrary run paths;
+- the Waitress and PowerShell wrappers were removed. Remaining scripts are
+  classified as frozen V3 saved-run compatibility, P10 golden cases, or
+  specialized external-data/source tools in `LEGACY_ENTRYPOINTS.md`;
+- generated reports, rendered assets, copied archives, the tracked USPTO corpus,
+  and the generated UniProt cache were removed from the current tree without
+  changing Git history. The statin summary remains as a 25 KiB test fixture;
+- the read-only audit reports 730 tracked files and 17.12 MiB, with zero current
+  blobs at or above 1 MiB, generated artifacts, historical copies, duplicate
+  assets, credential candidates, GitHub Actions, missing files, or dead-import
+  candidates. Ruff independently removed 132 confirmed unused imports;
+- focused CLI/gateway/API/audit, compatibility, Web, and fixture regressions run
+  without a model or network call. The full local suite is the final P9 gate.
 
 Exit gate:
 

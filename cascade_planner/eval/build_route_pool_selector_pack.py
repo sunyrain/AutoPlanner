@@ -6,7 +6,7 @@ import glob
 import hashlib
 import json
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from statistics import mean
 from typing import Any

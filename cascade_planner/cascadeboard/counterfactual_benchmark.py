@@ -9,7 +9,6 @@ import argparse
 import json
 import random
 import time
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +16,6 @@ import numpy as np
 import torch
 
 from cascade_planner.cascadeboard import CascadeBoard, EditType
-from cascade_planner.cascadeboard.benchmarks import _make_cached_graph
 from cascade_planner.cascadeboard.constraint_compiler import ConstraintCompiler
 from cascade_planner.cascadeboard.energy_api import EnergyAPI
 from cascade_planner.cascadeboard.planner import (
@@ -25,7 +23,7 @@ from cascade_planner.cascadeboard.planner import (
     load_cascadeboard_model,
 )
 from cascade_planner.cascadeboard.route_encoder import (
-    board_to_tensors, REACTION_TYPE_TO_ID,
+    board_to_tensors,
 )
 from cascade_planner.cascadeboard.training_data import (
     load_cascade_routes, route_to_board,

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import time
 from collections import defaultdict
 from dataclasses import dataclass

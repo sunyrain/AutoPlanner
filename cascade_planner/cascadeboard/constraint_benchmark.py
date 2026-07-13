@@ -9,18 +9,17 @@ import argparse
 import json
 import random
 import time
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from cascade_planner.cascadeboard import CascadeBoard, CompiledConstraints
+from cascade_planner.cascadeboard import CascadeBoard
 from cascade_planner.cascadeboard.benchmarks import _make_cached_graph
 from cascade_planner.cascadeboard.constraint_compiler import (
-    ConstraintCompiler, EC1_T_RANGES, EC1_PH_RANGES,
+    ConstraintCompiler,
 )
 from cascade_planner.cascadeboard.energy_api import EnergyAPI
 from cascade_planner.cascadeboard.planner import (
-    CascadeBoardPlanner, apply_edit, propose_edits, propose_neural_edits,
+    apply_edit, propose_edits, propose_neural_edits,
     load_cascadeboard_model, resample_pareto_diverse, ScoredBoard,
 )
 

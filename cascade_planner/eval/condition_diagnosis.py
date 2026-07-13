@@ -14,7 +14,6 @@ Key findings (computed below, not hard-coded):
     sequence) is what we need — same as in CARE/Catechol.
 """
 from __future__ import annotations
-from pathlib import Path
 import pandas as pd
 
 from cascade_planner.paths import results_dir, RESULTS_BASE

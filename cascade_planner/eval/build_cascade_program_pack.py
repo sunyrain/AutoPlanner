@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from cascade_planner.cascadeboard.route_recovery import canonical_reaction, canonical_side, canonical_smiles
+from cascade_planner.cascadeboard.route_recovery import canonical_smiles
 
 
 PROGRAM_PACK_SCHEMA_VERSION = "cascade_program_pack.v1"

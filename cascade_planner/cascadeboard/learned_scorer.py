@@ -18,20 +18,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from rdkit import Chem, RDLogger
-from rdkit.Chem import AllChem
+from rdkit import RDLogger
 
 RDLogger.DisableLog("rdApp.*")
 
 # Reuse vocabularies from skeleton_inpainter
 from cascade_planner.cascadeboard.skeleton_inpainter import (
-    RTYPE_TO_ID, NUM_RTYPES, NUM_EC1, EC2_TO_ID, NUM_EC2,
-    STEP_ROLE_TO_ID, STEP_TYPE_TO_ID, STEP_MODE_TO_ID,
-    ATMO_TO_ID, CATCLASS_TO_ID, ENG_TO_ID, BIOFMT_TO_ID,
+    NUM_RTYPES, NUM_EC1, NUM_EC2,
+    STEP_ROLE_TO_ID, STEP_TYPE_TO_ID, CATCLASS_TO_ID, ENG_TO_ID, BIOFMT_TO_ID,
     COFMODE_TO_ID, COMPAT_TO_ID, COMPAT_VOCAB, OPMODE_TO_ID, OPMODE_VOCAB,
     ISSUE_TYPE_VOCAB, NUM_ISSUES, DOMAIN_TO_ID,
-    EVIDENCE_WEIGHT, morgan_fp, _normalize_atmosphere, _normalize_cofactor_mode,
-    _extract_slot_features, SlotFeatures,
+    EVIDENCE_WEIGHT, morgan_fp, _extract_slot_features, SlotFeatures,
 )
 
 MAX_SLOTS = 8

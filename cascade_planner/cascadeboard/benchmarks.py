@@ -12,19 +12,15 @@ import json
 import random
 import time
 from pathlib import Path
-from collections import Counter
 
-from cascade_planner.cascadeboard import CascadeBoard, Slot
+from cascade_planner.cascadeboard import CascadeBoard
 from cascade_planner.cascadeboard.candidate_graph import (
     CandidateReaction, CandidateHypergraph,
 )
 from cascade_planner.cascadeboard.constraint_compiler import ConstraintCompiler
 from cascade_planner.cascadeboard.energy_api import EnergyAPI
 from cascade_planner.cascadeboard.planner import (
-    CascadeBoardPlanner, apply_edit, propose_edits, ScoredBoard,
-)
-from cascade_planner.cascadeboard.preference import (
-    compute_route_uncertainty, rank_routes,
+    apply_edit, propose_edits,
 )
 
 

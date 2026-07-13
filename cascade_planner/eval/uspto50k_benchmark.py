@@ -22,10 +22,8 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from collections import Counter
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from rdkit import Chem, RDLogger
 

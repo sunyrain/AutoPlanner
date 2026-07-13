@@ -6,7 +6,6 @@ changing the cascade state machine.
 """
 from __future__ import annotations
 
-import math
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path

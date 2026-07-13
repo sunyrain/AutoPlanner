@@ -5,7 +5,6 @@ Masked Route Modeling + Edit Action prediction.
 from __future__ import annotations
 
 import json
-import time
 import random
 from pathlib import Path
 
@@ -17,8 +16,7 @@ from torch.utils.data import Dataset, DataLoader
 
 from cascade_planner.cascadeboard.route_encoder import (
     CascadeBoardTransformer, REACTION_TYPE_TO_ID, count_params,
-    D_MODEL, NUM_REACTION_TYPES, NUM_EC1_CLASSES, NUM_EC2_CLASSES, NUM_EDIT_TYPES,
-    OBJECTIVE_TO_ID, smiles_to_morgan_fp, inject_constraint_features,
+    D_MODEL, NUM_REACTION_TYPES, NUM_EC1_CLASSES, NUM_EC2_CLASSES, OBJECTIVE_TO_ID, smiles_to_morgan_fp, inject_constraint_features,
     constraint_features_from_slot_dicts, EC2_TO_ID,
     COMPAT_TO_ID, OPMODE_TO_ID, ISSUE_TYPE_TO_IDX, PAIRWISE_TO_ID,
     DOMAIN_TO_ID,
@@ -26,8 +24,7 @@ from cascade_planner.cascadeboard.route_encoder import (
 from cascade_planner.cascadeboard import EditType
 from cascade_planner.cascadeboard.training_data import (
     load_cascade_routes, build_training_data, TrainingSample,
-    DIFFICULTY_EASY, DIFFICULTY_MEDIUM, DIFFICULTY_HARD, DIFFICULTY_HARDEST,
-    route_to_board, mask_single_field, mask_full_step, mask_half, mask_all,
+    DIFFICULTY_EASY, DIFFICULTY_MEDIUM, DIFFICULTY_HARD, route_to_board, mask_single_field, mask_full_step, mask_half, mask_all,
     corrupt_replace_type, corrupt_shift_T, corrupt_shift_pH,
     corrupt_replace_ec, corrupt_replace_enzyme, corrupt_swap_order,
     corrupt_delete_step, corrupt_insert_extra, route_ok,

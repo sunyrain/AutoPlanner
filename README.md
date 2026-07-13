@@ -1,186 +1,85 @@
 # AutoPlanner
 
-AutoPlanner uses an evidence-first retrosynthesis core with a bounded Codex
-control plane. The blackboard coordinates durable work and recovery; chemistry
-truth lives in a provenance-preserving reaction hypergraph, current-host proof
-bindings, stock observations, and a deterministic AND/OR solver.
+AutoPlanner V4 是一个由 Codex 做全局路线规划、由确定性 worker 做事实升级的逆合成系统。它不把 Codex 限制成单步反应预测器：全局 director 一次查看目标、候选路线族、共享中间体、证据缺口、库存边界、冲突和预算，再决定整个 campaign 的下一组工作。
 
-The active architecture is:
+系统只有四个状态权威：
 
-```text
-target input
--> deterministic preflight
--> immutable acceptance contract + run-wide cost ledger
--> hash-bound source discovery and deterministic exact-step reconstruction
--> one route-deficit queue prioritizes evidence, reaction, and stock gaps
--> Codex coordinator directly spawns a small specialist team only for a remaining proposal gap
--> each child report is independently parsed, role-bound, and validated
--> typed Provider SPI envelopes bind schema/version/hash; host policy binds correlation and authority
--> stock-first durable frontiers launch additional direct child-agent teams
--> every intermediate fuses its own multi-source reaction neighborhood
--> typed reaction hyperedges assemble into a provenance-preserving global graph
--> Codex chooses compact typed follow-up actions
--> deterministic validators check safety, budgets, source binding, and proof boundaries
--> local tools execute approved actions
--> deterministic route verifiers preserve every accepted route in a replayable proof bank
--> exact edge/stock bindings gate AND/OR closure and a diverse valid portfolio
--> deterministic acceptance requires distinct complete routes, L3+ edges,
-   independent sources, and the requested stock boundary
--> immutable closeout binds the trust-coloured full route graph and alternatives
-```
+1. `RunKernel`：事件、恢复和全运行预算；
+2. canonical reaction hypergraph：分子、反应超边和路线拓扑；
+3. deficit frontier：所有待办工作，确定性缺口优先于模型提议；
+4. proof portfolio：反应证据、库存闭合、路线多样性和最终完成判定。
 
-Codex is allowed to delegate, plan, search, classify sources, and draft route
-candidates. Multiple Codex roles are one correlated model source, not multiple
-independent evidence sources. Codex cannot directly mark a route solved, inject
-raw reaction SMILES into production, or promote artifacts to the production KB.
-When deterministic work can close the route, no model call is made. When a
-proposal gap remains, every model-backed worker shares one small fail-closed
-invocation/token/wall-time budget; a missing usage report blocks automatic
-continuation.
+Blackboard 只允许作为兼容投影，不再保存第二套 expansion、proof 或 stock 状态。Codex 提议不能直接宣布成功；候选必须依次经过结构物化、反应验证、精确来源绑定和叶节点库存审计。
 
-The proof boundary is fail-closed. `route_proof_bank.v1` retains every
-accepted, materialized verifier route instead of only the best route; a bundle
-of verifier results keeps each bank and authority separate while exact
-structure signatures are combined. Portfolio admission requires digest-valid
-`exact_edge_proof_binding.v1` and `exact_stock_binding.v1` records. Mapping-only
-`L2_mapping_consistent` is advisory and never enters the portfolio.
-`L2_reaction_validated` is reserved for a trusted deterministic transform
-reapply/reaction-centre replay; current parent authority still requires trusted
-exact precedent at L3 or L4 for every reaction. A literature stitch
-additionally requires exact step chemistry bound to a real
-PDF page and an out-of-band trusted registry, plus independently verified stock
-closure for every terminal reactant frontier. The packaged registry is empty by
-default. Consensus graphs, visual extractions, solved child targets, and
-structurally closed but reaction-unvalidated routes remain advisory until those
-parent-proof conditions are met.
+## 快速开始
 
-The durable Codex campaign queue persists stock-first **proposal expansion**
-jobs. Reaction replay, proof-bank validation, exact portfolio binding, full
-replacement re-solving, parent proof, and CAS publication are downstream
-deterministic stages; they are not silently represented as proof jobs in that
-same queue. Every proof-eligible Top-K item is rendered as its own closed branch
-DAG. Canonical molecule nodes may be shared, but reaction selections are
-branch-specific. A replacement preview switches to the complete backend
-re-solved route; rejected candidates remain visible, and no UI single-step
-splice can establish truth. Portfolio eligibility remains advisory and is not
-equivalent to `parent solved`.
-
-The committed Nirmatrelvir V3 golden contract demonstrates the acceptance
-path on two real sources. A fresh current-parser replay reconstructs 8/8
-Science steps and 7/7 WO2021250648A1 steps, merges them into 12 unique reaction
-hyperedges, replays 7 supplier stock snapshots through a host-owned provider,
-and accepts 2 distinct complete procurement-closed routes with 0 model calls.
-Run it with:
-
-```powershell
-python scripts/run_nirmatrelvir_v3_golden.py
-```
-
-The source PDFs remain local and ignored; their expected SHA-256 values and
-the hard acceptance metrics are committed in
-`config/examples/nirmatrelvir_v3_golden_acceptance.json`.
-
-The older paclitaxel Architecture V2 replay demonstrates the engineering
-path without claiming a scientific solve: the four-child Codex team completed,
-the fused overlay contains 85 molecules and 82 reaction hyperedges (including
-five independently supported multi-source edges), and a validated CAS revision
-binds the complete 96-branch projection of the explored graph. No stock-closed,
-reaction-validated route entered the portfolio, so the authoritative verdict
-remains `hypothesis_route_proposed`, `solved=false`. The exact run metrics and
-remaining gates are recorded in [AutoPlanner mainline](docs/MAINLINE.md#paclitaxel-end-to-end-run-2026-07-10).
-
-The route workbench is a digest-bound view of that full forest, not a second
-source of truth. It offers deterministic route-cluster, shared-hypergraph, and
-current-branch layouts; branch/source/proof filters; pan, zoom, fit, minimap,
-orientation, density, and label controls; and a molecule/reaction/evidence
-inspector. Desktop panes are resizable, medium screens use drawers, and mobile
-and embedded views start canvas-first. Large diagnostic-only interface matrices
-and duplicate graph structure SVGs are omitted from the browser payload while
-the complete `explored_route_forest.v1` remains SHA-256-bound and authoritative.
-The embedded parent accepts only a browser-verified delivery handshake. Route
-replacement previews are complete hidden branches that already passed backend
-AND/OR connectivity, stock, and reaction-proof revalidation; pairwise interface
-comparisons remain diagnostic and never authorize a single-step splice.
-
-## Current Anchors
-
-- [Docs index](docs/README.md)
-- [Architecture V2](docs/ARCHITECTURE_V2.md)
-- [AutoPlanner mainline](docs/MAINLINE.md)
-- [Agentic blackboard mainline](docs/AGENTIC_BLACKBOARD_MAINLINE_2026-06-24.md)
-- [Repository surface and hygiene](docs/REPOSITORY_HYGIENE.md)
-- [Codex WellAU streaming runbook](docs/CODEX_WELLAU_STREAMING_RUNBOOK_2026-06-05.md)
-
-## Active Repository Surface
-
-| Path | Purpose |
-| --- | --- |
-| `cascade_planner/agent/` | Codex-facing schemas, controllers, evidence artifacts, route audit, literature workflow, and validation gates. |
-| `cascade_planner/orchestration/` | Direct Codex coordinator/child-agent execution and team result collection. |
-| `cascade_planner/routes/` | Canonical route identity, multi-source fusion, blackboard adapters, and advisory multi-step graph assembly. |
-| `cascade_planner/application/` | Persistent proposal-frontier scheduling plus downstream proof-bound AND/OR route portfolios and full-route replacement validation. |
-| `cascade_planner/providers/` | Replaceable typed proposal, evidence, stock, verifier, agent, artifact, and renderer interfaces. |
-| `cascade_planner/runtime/` | Persistent agent state, event log, idempotency, and reconciliation contracts. |
-| `cascade_planner/baselines/` | ChemEnzy adapter and shared route contracts used as deterministic tools. |
-| `cascade_planner/harness/` | Deterministic proof/closeout compilers plus digest-bound route-forest layout and delivery. |
-| `cascade_planner/web/` | Local UI and progress/artifact inspection surface. |
-| `scripts/` | Active launchers for agentic blackboard runs, Codex/WellAU, ChemEnzy, WebUI, and current replay workflows. |
-| `tests/` | Current contract tests for artifacts, route audit, Codex worker control, literature evidence, and WebUI behavior. |
-| `data/strategic_disconnections/` | Small curated evidence/disconnection source layer. |
-| `results/shared/` | Local run outputs and traces; ignored by git. |
-| `docs/archive/` | Historical plans and fixed-chain/fullflow reports kept for provenance. |
-
-## Quick Start
-
-Python 3.12 is the validated development version; Python 3.11 is also
-supported. Create an isolated environment and install the application and test
-requirements.
-
-PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m pytest --collect-only -q
-```
-
-POSIX shell:
+安装依赖后，用唯一主入口查看所有命令：
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest --collect-only -q
+python -m cascade_planner --help
 ```
 
-`requirements.txt` is the application/inference environment;
-`requirements-dev.txt` contains test tooling. ChemEnzy model weights, vendor
-checkouts, and saved run artifacts are optional local resources and are not
-installed by either file.
+创建一个不调用模型的新运行：
 
-Run the complete test suite with:
-
-```powershell
-$env:AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY = 'tests/fixtures/trusted_literature_step_registry.json'
-python -m pytest -q
-Remove-Item Env:AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY
+```bash
+python -m cascade_planner run \
+  --run-id aspirin-demo \
+  --target-name aspirin \
+  --target-smiles 'CC(=O)Oc1ccccc1C(=O)O'
 ```
 
-The fixture registry is test-only; never use it as production literature
-curation. See [AutoPlanner mainline](docs/MAINLINE.md) for the proof contracts
-and the honest paclitaxel end-to-end result.
+如果已有经过审阅的 `global_campaign_plan.v1`，可在同一次运行中注入并物化：
 
-The main Codex-entry CLI creates a run-local, out-of-band literature registry
-with its deterministic OPSIN/PubChem source parser by default. Model-extracted
-SMILES remain advisory unless the parser can reconstruct the source heading,
-locate every reactant in the same procedure, and replay the bound PDF/page
-image. Use `--no-deterministic-literature-parser` when operating with a
-separately curated registry.
+```bash
+python -m cascade_planner run \
+  --run-id aspirin-demo \
+  --target-name aspirin \
+  --target-smiles 'CC(=O)Oc1ccccc1C(=O)O' \
+  --plan plan.json --materialize
+```
 
-## Local-Only
+检查、确定性重放和导出：
 
-Do not commit credentials, `results/shared/`, vendor checkouts, generated
-archives, or local run caches. Historical material can be kept locally under an
-ignored `archive/harness_prep_*` directory.
+```bash
+python -m cascade_planner status aspirin-demo
+python -m cascade_planner validate aspirin-demo
+python -m cascade_planner replay aspirin-demo
+python -m cascade_planner benchmark aspirin-demo --iterations 3
+python -m cascade_planner export aspirin-demo --output-dir local-export
+python -m cascade_planner gc --dry-run
+```
+
+`run` 的模型和视觉调用预算固定为 0。P10 的可选 Codex campaign 必须显式配置 runner 和硬预算；任何 CLI 基线、校验、重放、导出或 GC 都不会偷偷访问网络或模型。
+
+启动 WebUI：
+
+```bash
+python -m cascade_planner serve
+```
+
+打开 `http://127.0.0.1:7860/v4`。CLI、V4 API 和 Web workbench 都调用同一个 `CampaignGateway` 和 `RetrosynthesisCampaignService`，因此不会再出现“命令行已扩展、网页仍读旧黑板”的分叉状态。
+
+## 可信度与完成定义
+
+界面严格区分：
+
+- L0：Codex/ChemEnzy/模板的断键假设；
+- L1：结构和元素守恒通过、反应超边已物化；
+- L2：当前主机确定性反应验证通过；
+- L3：精确反应步骤绑定可信来源；
+- L4：所选路线的反应证据和全部叶节点库存边界均闭合。
+
+颜色只显示已经存在的 proof，不会赋予 proof。路线分支数、Agent 返回成功、预算耗尽和“没有更多任务”都不等于逆合成完成。
+
+## 仓库边界
+
+- 源码：`cascade_planner/`
+- 本地测试：`tests/`
+- 小型版本化夹具：`data/`、`config/examples/`
+- 外部语料/模型/vendor：Git 忽略，由环境变量配置
+- 运行、CAS、缓存和导出：默认位于 `results/.autoplanner/`，Git 忽略
+- 历史报告：不再复制到当前树，可从 Git 历史读取
+
+仓库没有 GitHub Actions。提交前在本地运行完整测试、Ruff、仓库审计和 `git diff --check`。
+
+更多说明见 [文档入口](docs/README.md)、[主线架构](docs/MAINLINE.md)、[操作手册](docs/RUNBOOK.md) 和 [V4 实现清单](docs/architecture/RETROSYNTHESIS_V4_IMPLEMENTATION_TODO.md)。

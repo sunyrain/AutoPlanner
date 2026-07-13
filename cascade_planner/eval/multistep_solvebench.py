@@ -13,7 +13,6 @@ Designed to fill PROPOSAL.md's K3 (solve rate) baseline column.
 from __future__ import annotations
 
 import argparse
-import json
 import random
 import time
 from pathlib import Path

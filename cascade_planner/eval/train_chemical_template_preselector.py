@@ -22,6 +22,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from cascade_planner.cascadeboard.chemical_template_preselector import ChemicalTemplatePreselectorModel
+from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.vnext.features import morgan_fp
 
 
@@ -222,7 +223,10 @@ def _report(manifest: dict[str, Any]) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Train USPTO chemical template preselector")
-    ap.add_argument("--uspto-tab", default="data/uspto50k.tab")
+    ap.add_argument(
+        "--uspto-tab",
+        default=str(RuntimePaths.discover().external_data_root / "uspto50k.tab"),
+    )
     ap.add_argument("--template-csv", default="data_external/retrorules/templates_uspto.csv.gz")
     ap.add_argument("--output-dir", default="results/shared/chemical_template_preselector/uspto_product_mlp_20260507")
     ap.add_argument("--max-rows", type=int, default=50000)

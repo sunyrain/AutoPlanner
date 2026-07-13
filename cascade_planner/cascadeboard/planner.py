@@ -6,7 +6,6 @@ energy API → route encoder → edit policy → particle sampling.
 """
 from __future__ import annotations
 
-import random
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,7 +24,7 @@ from cascade_planner.cascadeboard.constraint_compiler import (
 from cascade_planner.cascadeboard.candidate_graph import CandidateHypergraph
 from cascade_planner.cascadeboard.energy_api import EnergyAPI
 from cascade_planner.cascadeboard.route_encoder import (
-    CascadeBoardTransformer, board_to_tensors, REACTION_TYPE_TO_ID,
+    CascadeBoardTransformer, board_to_tensors,
 )
 
 # Lazy-loaded real candidate cache for production use
@@ -40,7 +39,7 @@ def _load_real_cache() -> dict:
         return _REAL_CACHE
     import json
     from pathlib import Path
-    from cascade_planner.cascadeboard.candidate_cache import merge_candidate_caches, canon_smiles
+    from cascade_planner.cascadeboard.candidate_cache import canon_smiles
 
     merged = {}
     for cache_path in [

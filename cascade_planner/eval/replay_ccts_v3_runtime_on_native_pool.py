@@ -9,7 +9,7 @@ import argparse
 import json
 import pickle
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +27,7 @@ from cascade_planner.eval.rerank_native_routes_with_v4_value import (
     _read_rows,
     _routes_for_target,
 )
-from cascade_planner.eval.train_ccts_v3_runtime_pairwise_ranker import FittedRuntimeModel, _feature_row
+from cascade_planner.eval.train_ccts_v3_runtime_pairwise_ranker import _feature_row
 
 
 SCHEMA_VERSION = "ccts_v3_runtime_native_pool_replay.v1"

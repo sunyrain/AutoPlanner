@@ -27,7 +27,7 @@ from cascade_planner.route_tree.condition_prior import (
 )
 from cascade_planner.route_tree.proposals import ProposalContext, RetroEngineProposalTool
 from cascade_planner.route_tree.cascade_oracle import cascade_oracle_runtime_from_env
-from cascade_planner.route_tree.runtime import RouteTreeEvaluation, RouteTreeRuntime, default_route_tree_runtime, heuristic_action_scores
+from cascade_planner.route_tree.runtime import RouteTreeEvaluation, RouteTreeRuntime, default_route_tree_runtime
 from cascade_planner.route_tree.schema import CandidateAction, RouteTreeState
 from cascade_planner.route_tree.trace import RouteTreeTraceCollector
 from cascade_planner.route_tree.verifier import RouteVerifier
