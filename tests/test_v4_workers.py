@@ -357,6 +357,7 @@ def test_discovery_automatically_extracts_exact_rows_and_signals_resume(
     patent_source = {
         "source_kind": "patent",
         "source_ref": "patent:US2020123456A1",
+        "patent_family": "fixture-family-42",
         "title": "Fixture process",
     }
     patent_binding = normalize_source_binding(patent_source)
@@ -415,6 +416,20 @@ def test_discovery_automatically_extracts_exact_rows_and_signals_resume(
     replayed = runtime.replay_result(batch.results[1].to_dict())
     assert replayed.payload == batch.results[1].payload
     assert kernel.state.attempt_count == attempts
+
+
+def test_patent_family_source_binding_normalization_is_replayable() -> None:
+    binding = normalize_source_binding(
+        {
+            "source_kind": "patent",
+            "source_ref": "patent:EP3381900A1",
+            "patent_family": "Publication-Family:Example 42",
+            "title": "Example process",
+        }
+    )
+
+    assert binding["patent_family"] == "publication-family:example42"
+    assert normalize_source_binding(binding) == binding
 
 
 def test_partial_extraction_and_tampered_source_binding_fail_closed(

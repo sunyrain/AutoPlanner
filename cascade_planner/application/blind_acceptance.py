@@ -49,7 +49,15 @@ def compile_blind_acceptance_report(
     observations = dict(graph.get("stock_observations") or {})
     route_rows: list[dict[str, Any]] = []
     for skeleton in skeletons:
-        edge_ids = list(skeleton["edge_ids"])
+        generated_edge_ids = list(skeleton["edge_ids"])
+        edge_ids, stock_pruned_edge_ids = _target_reachable_edges_until_stock_boundary(
+            generated_edge_ids,
+            edges=edges,
+            target_molecule_id=str(graph.get("target_molecule_id") or ""),
+            molecules=molecules,
+            observations=observations,
+            required_boundary=stock_boundary,
+        )
         materialized = bool(edge_ids) and all(edge_id in edges for edge_id in edge_ids)
         validated = materialized and all(_edge_validated(edges[edge_id]) for edge_id in edge_ids)
         evidence_closed = validated and all(
@@ -84,6 +92,9 @@ def compile_blind_acceptance_report(
         route_rows.append(
             {
                 **skeleton,
+                "generated_edge_ids": sorted(set(generated_edge_ids)),
+                "edge_ids": sorted(set(edge_ids)),
+                "pruned_at_stock_boundary_edge_ids": stock_pruned_edge_ids,
                 "materialized": materialized,
                 "reaction_validated": validated,
                 "evidence_closed": evidence_closed,
@@ -383,6 +394,66 @@ def _target_reachable_edges_after_repair(
         )
         selected.append(edge_id)
     return selected, sorted(remaining)
+
+
+def _target_reachable_edges_until_stock_boundary(
+    edge_ids: list[str],
+    *,
+    edges: Mapping[str, Any],
+    target_molecule_id: str,
+    molecules: Mapping[str, Any],
+    observations: Mapping[str, Any],
+    required_boundary: str,
+) -> tuple[list[str], list[str]]:
+    """Prune upstream chemistry only where a host-audited stock cut exists."""
+
+    if not edge_ids:
+        return [], []
+    target_id = target_molecule_id
+    if not target_id:
+        products = {
+            str(dict(edges.get(edge_id) or {}).get("product_molecule_id") or "")
+            for edge_id in edge_ids
+        }
+        precursors = {
+            str(value)
+            for edge_id in edge_ids
+            for value in dict(edges.get(edge_id) or {}).get("precursor_molecule_ids") or []
+            if str(value)
+        }
+        roots = sorted(products - precursors)
+        target_id = roots[0] if len(roots) == 1 else ""
+    if not target_id:
+        return list(edge_ids), []
+    by_product: dict[str, list[str]] = {}
+    for edge_id in edge_ids:
+        product_id = str(dict(edges.get(edge_id) or {}).get("product_molecule_id") or "")
+        if product_id:
+            by_product.setdefault(product_id, []).append(edge_id)
+    frontier = [target_id]
+    visited: set[str] = set()
+    selected: list[str] = []
+    while frontier:
+        molecule_id = frontier.pop(0)
+        if molecule_id in visited:
+            continue
+        visited.add(molecule_id)
+        if molecule_id != target_id and _leaf_stock_closed(
+            molecule_id,
+            molecules=molecules,
+            observations=observations,
+            required_boundary=required_boundary,
+        ):
+            continue
+        for edge_id in sorted(by_product.get(molecule_id, [])):
+            selected.append(edge_id)
+            frontier.extend(
+                str(value)
+                for value in dict(edges.get(edge_id) or {}).get("precursor_molecule_ids") or []
+                if str(value)
+            )
+    selected_set = set(selected)
+    return selected, sorted(set(edge_ids) - selected_set)
 
 
 def _leaf_molecule_ids(

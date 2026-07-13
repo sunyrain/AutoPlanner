@@ -573,11 +573,23 @@ def normalize_source_binding(value: Mapping[str, Any]) -> dict[str, Any]:
         independence_group = f"registry:{registry_id}"
     if not independence_group and source_ref:
         independence_group = source_document_identity(row)
+    patent_family = (
+        re.sub(
+            r"[^a-z0-9._:-]+",
+            "",
+            str(row.get("patent_family") or row.get("family_id") or "")
+            .strip()
+            .lower(),
+        )
+        if source_kind == "patent"
+        else ""
+    )
     identity = {
         "source_kind": source_kind,
         "source_ref": source_ref,
         "registry_id": registry_id,
         "artifact_sha256": artifact_sha256 if artifact_bound else "",
+        "patent_family": patent_family,
         "independence_group": independence_group,
         "content_scope": str(row.get("content_scope") or row.get("document_type") or ""),
     }

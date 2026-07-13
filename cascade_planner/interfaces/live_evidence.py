@@ -26,6 +26,7 @@ from cascade_planner.interfaces.evidence_import import (
 
 EVIDENCE_ACQUISITION_REQUEST_SCHEMA = "evidence_acquisition_request.v1"
 EVIDENCE_CONNECTOR_RECEIPT_SCHEMA = "evidence_connector_receipt.v1"
+SOURCE_DISCOVERY_OBSERVATION_SCHEMA = "source_discovery_observation.v1"
 EvidenceConnector = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 HttpRequester = Callable[..., tuple[int, bytes, Mapping[str, Any]]]
 
@@ -58,6 +59,7 @@ class HttpEvidenceConnectorConfig:
 def compile_evidence_acquisition_request(
     *,
     run_id: str,
+    target_name: str = "",
     target_smiles: str,
     graph: Mapping[str, Any],
     source_frontier: Mapping[str, Any],
@@ -103,13 +105,24 @@ def compile_evidence_acquisition_request(
         for row in detail.get("source_plan") or []
         if isinstance(row, Mapping)
     ][:max_source_tasks]
+    source_hints = [
+        {
+            "source_ref": str(row.get("source_ref") or "")[:500],
+            "source_kind": str(row.get("source_kind") or "")[:80],
+            "title": " ".join(str(row.get("title") or "").split())[:1000],
+        }
+        for row in detail.get("sources") or []
+        if isinstance(row, Mapping) and str(row.get("source_ref") or "")
+    ][:max_source_tasks]
     request = {
         "schema_version": EVIDENCE_ACQUISITION_REQUEST_SCHEMA,
         "run_id": str(run_id),
+        "target_name": " ".join(str(target_name or "").split())[:500],
         "target_smiles": str(target_smiles),
         "graph_revision": int(graph.get("revision") or 0),
         "edges": edge_rows,
         "source_tasks": tasks,
+        "source_hints": source_hints,
         "limits": {
             "max_edges": max_edges,
             "max_source_tasks": max_source_tasks,
@@ -142,14 +155,55 @@ def acquire_structured_evidence(
     if not isinstance(result, Mapping):
         raise LiveEvidenceConnectorError("evidence_connector_result_not_object")
     row = dict(result)
-    raw_document = row.get("document", row)
-    document = validate_structured_evidence_document(raw_document)
-    receipt = dict(row.get("receipt") or {}) if "document" in row else {}
+    wrapped = "document" in row or "discovery" in row
+    document = (
+        validate_structured_evidence_document(row["document"])
+        if "document" in row
+        else None
+    )
+    discovery = (
+        _validate_source_discovery_observation(row.get("discovery"))
+        if "discovery" in row
+        else None
+    )
+    if not wrapped:
+        document = validate_structured_evidence_document(row)
+    if document is None and discovery is None:
+        raise LiveEvidenceConnectorError("evidence_connector_result_empty")
+    receipt = dict(row.get("receipt") or {}) if wrapped else {}
     return {
         "document": document,
         "receipt": receipt,
-        "document_sha256": _digest(document),
+        "discovery": discovery,
+        "document_sha256": _digest(document) if document is not None else "",
     }
+
+
+def _validate_source_discovery_observation(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise LiveEvidenceConnectorError("source_discovery_observation_not_object")
+    row = dict(value)
+    if row.get("schema_version") != SOURCE_DISCOVERY_OBSERVATION_SCHEMA:
+        raise LiveEvidenceConnectorError("source_discovery_observation_schema_invalid")
+    sources = [
+        dict(item) for item in row.get("sources") or [] if isinstance(item, Mapping)
+    ]
+    if not sources or len(sources) > 16:
+        raise LiveEvidenceConnectorError("source_discovery_observation_source_count_invalid")
+    supplied = str(row.pop("content_sha256", "") or "")
+    if supplied and supplied != _digest(row):
+        raise LiveEvidenceConnectorError("source_discovery_observation_digest_invalid")
+    row["sources"] = sources
+    encoded = json.dumps(
+        row,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded) > 128_000:
+        raise LiveEvidenceConnectorError("source_discovery_observation_too_large")
+    row["content_sha256"] = supplied or _digest(row)
+    return row
 
 
 def build_http_evidence_connector(
@@ -336,6 +390,7 @@ def _digest(value: Any) -> str:
 
 __all__ = [
     "EVIDENCE_ACQUISITION_REQUEST_SCHEMA",
+    "SOURCE_DISCOVERY_OBSERVATION_SCHEMA",
     "EvidenceConnector",
     "HttpEvidenceConnectorConfig",
     "LiveEvidenceConnectorError",

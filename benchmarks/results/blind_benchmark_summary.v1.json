@@ -1,10 +1,10 @@
 {
   "schema_version": "blind_retrosynthesis_benchmark_summary.v1",
   "generated_at": "2026-07-14",
-  "manifest_file_sha256": "a2a486abc24b89871f3aa57420eee03d8297b5b4c966edfbb0a6a6831fbe10c9",
+  "manifest_file_sha256": "937f97cde9389aa1c50e6141c4115209da377efb73637f673698c8bd786eabda",
   "model_policy": {
     "model": "gpt-5.5",
-    "new_run_default_model": "gpt-5.6-sol",
+    "new_run_default_model": "gpt-5.5",
     "reasoning_effort": "low",
     "global_campaign_calls_per_target": 1,
     "event_replan_calls_executed": 0,
@@ -24,30 +24,30 @@
     "accepted": false
   },
   "aggregate": {
-    "case_count": 3,
+    "case_count": 4,
     "gate_pass_counts": {
-      "B0_blind_input": 3,
-      "B1_global_multi_route": 3,
-      "B2_host_validated_routes": 0,
+      "B0_blind_input": 4,
+      "B1_global_multi_route": 4,
+      "B2_host_validated_routes": 1,
       "B3_exact_multi_source": 0,
-      "B4_stock_boundary": 2,
-      "B5_configured_portfolio_acceptance": 0
+      "B4_stock_boundary": 3,
+      "B5_configured_portfolio_acceptance": 1
     },
-    "qualified_policy_acceptance_count": 0,
-    "within_resource_budget_count": 3,
+    "qualified_policy_acceptance_count": 1,
+    "within_resource_budget_count": 4,
     "model_cost": {
-      "model_invocations": 3,
-      "input_tokens": 54081,
-      "output_tokens": 19299,
-      "reported_model_wall_time_s": 692.626,
+      "model_invocations": 4,
+      "input_tokens": 72083,
+      "output_tokens": 25477,
+      "reported_model_wall_time_s": 918.267,
       "wall_time_missing_case_count": 0
     },
-    "attempt_count": 138,
-    "accepted_expansion_count": 33,
+    "attempt_count": 161,
+    "accepted_expansion_count": 43,
     "false_closure_claim_count": 0,
     "reaction_proof_version_audit": {
       "current_validator_version": "autoplanner.reaction_step_verifier.v7",
-      "current_proof_count": 21,
+      "current_proof_count": 31,
       "stale_versioned_proof_count": 39,
       "stale_only_edge_count": 12,
       "terminal_snapshot_requires_revalidation_count": 1
@@ -177,6 +177,53 @@
         "terminal_graph_requires_non_mutating_validation_fork_or_fresh_run",
         "benchmark_stock_boundary_closed",
         "exact_source_rows_unavailable"
+      ]
+    },
+    {
+      "case_id": "blind-vismodegib-01",
+      "run_id": "vismodegib-validation-v7-06",
+      "report_sha256": "117920ba3f1c1b41affff0286618a3aa9011786c8d5dd3b386742dcb1d62f505",
+      "source_run_id": "blind-vismodegib-live-02",
+      "source_report_sha256": "3536056abc845d10bfcff3ed5dedd91c6f857f3cf63f0c0924df41ee5a5d8597",
+      "highest_contiguous_gate": "B2",
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": true,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": true,
+        "B5_configured_portfolio_acceptance": true
+      },
+      "counts": {
+        "target_rooted_distinct_skeletons": 3,
+        "materialized_skeletons": 3,
+        "reaction_validated_skeletons": 3,
+        "canonical_evidence_closed_routes": 0,
+        "canonical_stock_closed_routes": 5,
+        "exact_primary_source_rows": 1,
+        "independent_exact_source_groups": 1
+      },
+      "model_cost": {
+        "model_invocations": 1,
+        "input_tokens": 18002,
+        "output_tokens": 6178,
+        "reported_model_wall_time_s": 225.641,
+        "validation_replay_model_invocations": 0
+      },
+      "attempt_count": 23,
+      "accepted_expansion_count": 10,
+      "resource_envelope": {
+        "within_budget": true,
+        "violations": []
+      },
+      "qualified_policy_acceptance": true,
+      "current_disposition": "completed",
+      "outcome_codes": [
+        "fresh_target_only_global_campaign",
+        "three_routes_pass_current_host_validation_after_zero_model_replay",
+        "purchasable_intermediates_form_valid_internal_stock_cut_boundaries",
+        "one_exact_primary_patent_row_bound_to_a_current_edge",
+        "B3_remains_false_without_two_independent_groups_on_two_routes"
       ]
     }
   ],

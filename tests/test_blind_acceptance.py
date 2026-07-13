@@ -231,6 +231,54 @@ def test_stale_accepted_proof_cannot_outvote_current_host_rejection() -> None:
     assert version_audit["requires_revalidation"] is False
 
 
+def test_stocked_internal_intermediate_prunes_rejected_upstream_tail() -> None:
+    intermediate = "CC(=O)Cl"
+    root = _step("step:root", TARGET, ["CCO", intermediate])
+    rejected_tail = _step("step:tail", intermediate, ["CC(=O)O", "Cl"])
+    root_id, root_edge = _validated_edge(TARGET, root["precursor_smiles"])
+    tail_id, tail_edge = _validated_edge(
+        rejected_tail["product_smiles"],
+        rejected_tail["precursor_smiles"],
+    )
+    tail_edge["reaction_proofs"] = [{"accepted": False}]
+    intermediate_id = molecule_identity(intermediate)[0]
+    observation_id = "stock:intermediate"
+
+    report = compile_blind_acceptance_report(
+        preflight=_preflight(),
+        director_outcomes=[
+            _outcome([root, rejected_tail], accepted={"step:root", "step:tail"})
+        ],
+        graph={
+            "target_molecule_id": molecule_identity(TARGET)[0],
+            "edges": {root_id: root_edge, tail_id: tail_edge},
+            "molecules": {
+                intermediate_id: {
+                    "active_stock_observation_id": observation_id,
+                }
+            },
+            "stock_observations": {
+                observation_id: {
+                    "accepted": True,
+                    "provider_result": {
+                        "payload": {"boundary_type": "benchmark_stock"}
+                    },
+                }
+            },
+        },
+        portfolio=_portfolio(),
+    )
+
+    route = report["routes"][0]
+    assert report["gates"]["B2_host_validated_routes"] is True
+    assert route["generated_edge_ids"] == sorted([root_id, tail_id])
+    assert route["edge_ids"] == [root_id]
+    assert route["pruned_at_stock_boundary_edge_ids"] == [tail_id]
+    assert route["leaf_molecule_ids"] == sorted(
+        [molecule_identity("CCO")[0], intermediate_id]
+    )
+
+
 def test_unresolved_exact_source_conflict_blocks_b3() -> None:
     root = _step("step:root", TARGET, ["CCO", "CC(=O)Cl"])
     edge_id, edge = _validated_edge(TARGET, root["precursor_smiles"])

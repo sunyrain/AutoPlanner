@@ -254,6 +254,45 @@ def _evidence_connector(request: Any) -> dict[str, Any]:
     }
 
 
+def _discovery_only_connector(request: Any) -> dict[str, Any]:
+    return {
+        "discovery": {
+            "schema_version": "source_discovery_observation.v1",
+            "provider_id": "tests.discovery",
+            "request_sha256": request["content_sha256"],
+            "sources": [
+                {
+                    "publication_number": "US7654321A1",
+                    "family_id": "family:discovery",
+                    "title": "Alternative ester preparation",
+                    "procedure_inventory": [
+                        {
+                            "label": "11",
+                            "name": "ethyl acetate",
+                            "page_number": 4,
+                            "procedure_excerpt": (
+                                "Ethanol and acetic acid were combined under "
+                                "the source conditions."
+                            ),
+                        }
+                    ],
+                    "exact_edge_ids": [],
+                    "exact_row_count": 0,
+                }
+            ],
+            "semantics": {
+                "source_text_is_untrusted_data": True,
+                "discovery_does_not_grant_exact_evidence": True,
+            },
+        },
+        "receipt": {
+            "schema_version": "evidence_connector_receipt.v1",
+            "provider_id": "tests.discovery",
+            "model_invocations": 0,
+        },
+    }
+
+
 def _inventory_builder(smiles: list[str], **_: Any) -> dict[str, Any]:
     checked_at = "2026-07-14T00:00:00Z"
     return {
@@ -495,6 +534,57 @@ def test_target_solver_ingests_connector_rows_before_stock_and_closeout(
     assert evidence_stage["detail"]["exact_record_count"] == 6
 
 
+def test_target_solver_replans_globally_from_unbound_source_discovery(
+    tmp_path: Path,
+) -> None:
+    observed_modes: list[str] = []
+
+    def runner(
+        spec: AgentSpec, context: Any, mode: str, config: Any
+    ) -> AgentResult:
+        observed_modes.append(mode)
+        if mode == "event_replan":
+            assert context.evidence["source_discovery"]["sources"][0][
+                "publication_number"
+            ] == "US7654321A1"
+            assert (
+                "source_material_discovered" in context.delta.material_events
+            )
+        return _runner(spec, context, mode, config)
+
+    gateway = CampaignGateway(_paths(tmp_path))
+    result = gateway.solve_target(
+        target_name="blind discovery target",
+        target_smiles=TARGET,
+        run_id="blind-target-discovery-replan",
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=True,
+        ),
+        director_runner=runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=_discovery_only_connector,
+    )
+
+    assert observed_modes == ["initial_architecture", "event_replan"]
+    assert result["model_cost"]["model_invocations"] == 2
+    assert any(
+        stage["stage"] == "global_replan_budget_gate"
+        and stage["detail"]["trigger_reasons"]
+        == ["evidence_deficit_with_new_source_material"]
+        for stage in result["stages"]
+    )
+    discovery_stage = next(
+        stage
+        for stage in result["stages"]
+        if stage["stage"] == "evidence_acquisition"
+    )
+    assert discovery_stage["status"] == "discovered_unbound"
+    assert discovery_stage["detail"]["exact_record_count"] == 0
+
+
 def test_target_solver_can_close_procurement_from_frozen_supplier_snapshot(
     tmp_path: Path,
 ) -> None:
@@ -533,3 +623,46 @@ def test_target_solver_can_close_procurement_from_frozen_supplier_snapshot(
     assert result["claim"]["procurement_ready"] is True
     stock_stage = next(stage for stage in result["stages"] if stage["stage"] == "stock")
     assert stock_stage["detail"]["stock_closed_leaf_count"] == 4
+
+
+def test_validation_fork_replays_global_plan_and_uses_zero_model_calls(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    source = gateway.solve_target(
+        target_name="blind validation lineage target",
+        target_smiles=TARGET,
+        run_id="blind-validation-source",
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+    )
+
+    derived = gateway.fork_target_validation(
+        source_run_id=source["run_id"],
+        run_id="blind-validation-derived",
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=_evidence_connector,
+    )
+
+    assert derived["schema_version"] == "target_validation_fork_report.v1"
+    assert derived["model_cost"]["model_invocations"] == 0
+    assert derived["lineage"]["source_run_id"] == source["run_id"]
+    assert derived["lineage"]["source_report_sha256"] == source["content_sha256"]
+    assert derived["semantics"]["B0_refers_to_bound_source_campaign"] is True
+    assert derived["gates"]["gates"] == {
+        "B0_blind_input": True,
+        "B1_global_multi_route": True,
+        "B2_host_validated_routes": True,
+        "B3_exact_multi_source": True,
+        "B4_stock_boundary": True,
+        "B5_configured_portfolio_acceptance": True,
+    }
+    assert derived["current_disposition"]["state"] == "accepted"
+    assert Path(derived["report_path"]).is_file()

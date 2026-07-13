@@ -63,6 +63,27 @@
         "max_attempt_runs": 72,
         "max_prompt_context_bytes": 96000
       }
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "blind-vismodegib-01",
+      "target_name": "vismodegib",
+      "target_smiles": "CS(=O)(=O)c1ccc(C(=O)Nc2ccc(Cl)c(-c3ccccn3)c2)c(Cl)c1",
+      "acceptance": {
+        "minimum_complete_routes": 2,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 2,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_model_invocations": 2,
+        "max_total_input_tokens": 50000,
+        "max_total_output_tokens": 12000,
+        "max_total_wall_time_s": 450,
+        "max_accepted_expansions": 24,
+        "max_attempt_runs": 48,
+        "max_prompt_context_bytes": 96000
+      }
     }
   ]
 }

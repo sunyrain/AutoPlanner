@@ -355,14 +355,12 @@ def audit_live_benchmark_stock(
     max_molecules: int = 24,
 ) -> dict[str, Any]:
     graph = service.graph_store.load()
-    leaf_ids = sorted(
-        {
-            str(molecule_id)
-            for route in graph["route_families"].values()
-            if route.get("selected") is not False
-            for molecule_id in route.get("leaf_molecule_ids") or []
-        }
+    selection = _selected_stock_audit_molecules(
+        graph,
+        max_molecules=max_molecules,
     )
+    leaf_ids = selection["leaf_molecule_ids"]
+    candidate_ids = selection["stock_candidate_molecule_ids"]
     if not leaf_ids:
         return {
             "stage": "benchmark_stock",
@@ -371,15 +369,26 @@ def audit_live_benchmark_stock(
             "reason": "selected_route_leaves_missing",
             "execution": {"executed_command_count": 0},
         }
-    if leaf_ids and all(
+    if selection["limit_exceeded"]:
+        return {
+            "stage": "benchmark_stock",
+            "status": "unresolved",
+            "selected_leaf_count": len(leaf_ids),
+            "selected_stock_candidate_count": 0,
+            "internal_stock_candidate_count": 0,
+            "reason": "selected_leaf_count_exceeds_stock_audit_limit",
+            "max_molecules": max_molecules,
+            "execution": {"executed_command_count": 0},
+        }
+    if candidate_ids and all(
         _has_recent_boundary_audit(
             graph,
             molecule_id,
             required="benchmark_search",
         )
-        for molecule_id in leaf_ids
+        for molecule_id in candidate_ids
     ):
-        closed_count = sum(
+        closed_leaf_count = sum(
             _has_boundary_observation(
                 graph,
                 molecule_id,
@@ -387,17 +396,33 @@ def audit_live_benchmark_stock(
             )
             for molecule_id in leaf_ids
         )
+        closed_candidate_count = sum(
+            _has_boundary_observation(
+                graph,
+                molecule_id,
+                required="benchmark_search",
+            )
+            for molecule_id in candidate_ids
+        )
         return {
             "stage": "benchmark_stock",
             "status": "reused",
             "selected_leaf_count": len(leaf_ids),
-            "stock_closed_leaf_count": closed_count,
-            "miss_count": len(leaf_ids) - closed_count,
+            "selected_stock_candidate_count": len(candidate_ids),
+            "internal_stock_candidate_count": selection[
+                "internal_stock_candidate_count"
+            ],
+            "stock_closed_leaf_count": closed_leaf_count,
+            "stock_closed_candidate_count": closed_candidate_count,
+            "miss_count": len(candidate_ids) - closed_candidate_count,
             "execution": {"executed_command_count": 0},
         }
-    leaves = [graph["molecules"][molecule_id]["canonical_smiles"] for molecule_id in leaf_ids]
+    candidate_smiles = [
+        graph["molecules"][molecule_id]["canonical_smiles"]
+        for molecule_id in candidate_ids
+    ]
     builder = catalog_builder or build_pubchem_vendor_catalog
-    catalog = dict(builder(leaves, max_molecules=max_molecules))
+    catalog = dict(builder(candidate_smiles, max_molecules=max_molecules))
     ref = service.kernel.artifacts.put_json(
         catalog,
         logical_name="live_benchmark_stock_catalog.json",
@@ -417,7 +442,7 @@ def audit_live_benchmark_stock(
                             "leaf_id": molecule_id,
                             "smiles": graph["molecules"][molecule_id]["canonical_smiles"],
                         }
-                        for molecule_id in leaf_ids
+                        for molecule_id in candidate_ids
                     ],
                     "catalog_artifact_sha256": ref["sha256"],
                     "as_of": timestamp,
@@ -434,6 +459,10 @@ def audit_live_benchmark_stock(
         "stage": "benchmark_stock",
         "status": "completed" if not catalog.get("misses") else "partial",
         "selected_leaf_count": len(leaf_ids),
+        "selected_stock_candidate_count": len(candidate_ids),
+        "internal_stock_candidate_count": selection[
+            "internal_stock_candidate_count"
+        ],
         "catalog_ref": ref,
         "catalog_summary": {
             key: catalog.get(key)
@@ -459,23 +488,32 @@ def audit_authoritative_inventory_stock(
     max_molecules: int = 24,
     max_age_days: float = 30.0,
 ) -> dict[str, Any]:
-    """Freeze and audit a configured supplier snapshot for every selected leaf."""
+    """Freeze and audit leaves plus useful internal procurement cut points."""
 
     graph = service.graph_store.load()
-    leaf_ids = sorted(
-        {
-            str(molecule_id)
-            for route in graph["route_families"].values()
-            if route.get("selected") is not False
-            for molecule_id in route.get("leaf_molecule_ids") or []
-        }
+    selection = _selected_stock_audit_molecules(
+        graph,
+        max_molecules=max_molecules,
     )
+    leaf_ids = selection["leaf_molecule_ids"]
+    candidate_ids = selection["stock_candidate_molecule_ids"]
     if not leaf_ids:
         return {
             "stage": "authoritative_inventory_stock",
             "status": "unresolved",
             "reason": "selected_route_leaves_missing",
             "selected_leaf_count": 0,
+            "execution": {"executed_command_count": 0},
+        }
+    if selection["limit_exceeded"]:
+        return {
+            "stage": "authoritative_inventory_stock",
+            "status": "unresolved",
+            "reason": "selected_leaf_count_exceeds_inventory_audit_limit",
+            "selected_leaf_count": len(leaf_ids),
+            "selected_stock_candidate_count": 0,
+            "internal_stock_candidate_count": 0,
+            "max_molecules": max_molecules,
             "execution": {"executed_command_count": 0},
         }
     if all(
@@ -485,9 +523,9 @@ def audit_authoritative_inventory_stock(
             required=required_boundary,
             max_age_days=max_age_days,
         )
-        for molecule_id in leaf_ids
+        for molecule_id in candidate_ids
     ):
-        closed_count = sum(
+        closed_leaf_count = sum(
             _has_boundary_observation(
                 graph,
                 molecule_id,
@@ -495,27 +533,34 @@ def audit_authoritative_inventory_stock(
             )
             for molecule_id in leaf_ids
         )
+        closed_candidate_count = sum(
+            _has_boundary_observation(
+                graph,
+                molecule_id,
+                required=required_boundary,
+            )
+            for molecule_id in candidate_ids
+        )
         return {
             "stage": "authoritative_inventory_stock",
             "status": "reused",
             "selected_leaf_count": len(leaf_ids),
-            "stock_closed_leaf_count": closed_count,
-            "miss_count": len(leaf_ids) - closed_count,
+            "selected_stock_candidate_count": len(candidate_ids),
+            "internal_stock_candidate_count": selection[
+                "internal_stock_candidate_count"
+            ],
+            "stock_closed_leaf_count": closed_leaf_count,
+            "stock_closed_candidate_count": closed_candidate_count,
+            "miss_count": len(candidate_ids) - closed_candidate_count,
             "execution": {"executed_command_count": 0},
         }
-    if len(leaf_ids) > max_molecules:
-        return {
-            "stage": "authoritative_inventory_stock",
-            "status": "unresolved",
-            "reason": "selected_leaf_count_exceeds_inventory_audit_limit",
-            "selected_leaf_count": len(leaf_ids),
-            "max_molecules": max_molecules,
-            "execution": {"executed_command_count": 0},
-        }
-    leaves = [graph["molecules"][molecule_id]["canonical_smiles"] for molecule_id in leaf_ids]
+    candidate_smiles = [
+        graph["molecules"][molecule_id]["canonical_smiles"]
+        for molecule_id in candidate_ids
+    ]
     inventory = dict(
         inventory_builder(
-            leaves,
+            candidate_smiles,
             boundary=required_boundary,
             max_molecules=max_molecules,
         )
@@ -539,7 +584,7 @@ def audit_authoritative_inventory_stock(
                             "leaf_id": molecule_id,
                             "smiles": graph["molecules"][molecule_id]["canonical_smiles"],
                         }
-                        for molecule_id in leaf_ids
+                        for molecule_id in candidate_ids
                     ],
                     "inventory_artifact_sha256": ref["sha256"],
                     "as_of": timestamp,
@@ -556,19 +601,28 @@ def audit_authoritative_inventory_stock(
         ),
     )
     updated = service.graph_store.load()
-    closed_count = sum(
+    closed_leaf_count = sum(
         _has_boundary_observation(updated, molecule_id, required=required_boundary)
         for molecule_id in leaf_ids
+    )
+    closed_candidate_count = sum(
+        _has_boundary_observation(updated, molecule_id, required=required_boundary)
+        for molecule_id in candidate_ids
     )
     return {
         "stage": "authoritative_inventory_stock",
         "status": (
             "completed"
-            if closed_count == len(leaf_ids)
+            if closed_leaf_count == len(leaf_ids)
             else "partial"
         ),
         "selected_leaf_count": len(leaf_ids),
-        "stock_closed_leaf_count": closed_count,
+        "selected_stock_candidate_count": len(candidate_ids),
+        "internal_stock_candidate_count": selection[
+            "internal_stock_candidate_count"
+        ],
+        "stock_closed_leaf_count": closed_leaf_count,
+        "stock_closed_candidate_count": closed_candidate_count,
         "inventory_ref": ref,
         "inventory_summary": {
             "adapter_version": inventory.get("adapter_version"),
@@ -580,8 +634,78 @@ def audit_authoritative_inventory_stock(
         "semantics": {
             "snapshot_is_host_frozen": True,
             "every_selected_leaf_is_audited": True,
+            "internal_procurement_cut_points_are_audited": True,
             "missing_offer_fails_closed": True,
         },
+    }
+
+
+def _selected_stock_audit_molecules(
+    graph: Mapping[str, Any],
+    *,
+    max_molecules: int,
+) -> dict[str, Any]:
+    """Select bounded stock cut points without sacrificing mandatory leaf audits.
+
+    Deep leaves remain mandatory.  Remaining capacity is spent first on products
+    of unvalidated edges, because purchasing such an intermediate can preserve a
+    valid downstream route without pretending that the rejected upstream edge is
+    sound.  Other internal products are useful alternative procurement cuts.
+    """
+
+    selected_routes = [
+        dict(route)
+        for route in dict(graph.get("route_families") or {}).values()
+        if isinstance(route, Mapping) and route.get("selected") is not False
+    ]
+    leaf_ids = sorted(
+        {
+            str(molecule_id)
+            for route in selected_routes
+            for molecule_id in route.get("leaf_molecule_ids") or []
+            if str(molecule_id)
+        }
+    )
+    if len(leaf_ids) > max_molecules:
+        return {
+            "leaf_molecule_ids": leaf_ids,
+            "stock_candidate_molecule_ids": [],
+            "internal_stock_candidate_count": 0,
+            "limit_exceeded": True,
+        }
+    edge_ids = {
+        str(edge_id)
+        for route in selected_routes
+        for edge_id in route.get("edge_ids") or []
+        if str(edge_id)
+    }
+    edges = dict(graph.get("edges") or {})
+    target_id = str(graph.get("target_molecule_id") or "")
+    leaf_set = set(leaf_ids)
+    rejected_products: set[str] = set()
+    other_products: set[str] = set()
+    for edge_id in sorted(edge_ids):
+        edge = dict(edges.get(edge_id) or {})
+        product_id = str(edge.get("product_molecule_id") or "")
+        if not product_id or product_id == target_id or product_id in leaf_set:
+            continue
+        active_proofs = active_reaction_proofs(edge.get("reaction_proofs") or [])
+        if not active_proofs or not any(
+            proof.get("accepted") is True for proof in active_proofs
+        ):
+            rejected_products.add(product_id)
+        else:
+            other_products.add(product_id)
+    capacity = max(0, max_molecules - len(leaf_ids))
+    internal_ids = (
+        sorted(rejected_products)
+        + sorted(other_products - rejected_products)
+    )[:capacity]
+    return {
+        "leaf_molecule_ids": leaf_ids,
+        "stock_candidate_molecule_ids": leaf_ids + internal_ids,
+        "internal_stock_candidate_count": len(internal_ids),
+        "limit_exceeded": False,
     }
 
 

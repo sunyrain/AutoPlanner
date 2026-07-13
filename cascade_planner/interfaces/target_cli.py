@@ -17,9 +17,12 @@ from cascade_planner.interfaces.target_solver import (
     DEFAULT_TARGET_DIRECTOR_MODEL,
     TargetSolveConfig,
 )
+from cascade_planner.interfaces.validation_fork import ValidationForkConfig
 
 
-TARGET_COMMANDS = frozenset({"solve-target", "import-evidence"})
+TARGET_COMMANDS = frozenset(
+    {"solve-target", "fork-validation", "import-evidence"}
+)
 
 
 def add_target_commands(sub: argparse._SubParsersAction) -> None:
@@ -41,17 +44,32 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument(
         "--model",
         default=DEFAULT_TARGET_DIRECTOR_MODEL,
-        help="explicit Codex model; defaults to the strongest current CLI-compatible tier",
+        help="explicit Codex model; defaults to the locally verified CLI tier",
     )
     solve.add_argument(
         "--reasoning-effort",
         choices=("low", "medium", "high"),
         default="low",
     )
-    solve.add_argument("--single-agent", action="store_true")
+    agent_mode = solve.add_mutually_exclusive_group()
+    agent_mode.add_argument(
+        "--coordinator",
+        action="store_true",
+        help="allow the global director to spawn specialist children (higher cost)",
+    )
+    agent_mode.add_argument(
+        "--single-agent",
+        action="store_true",
+        help="compatibility flag; one bounded global director is already the default",
+    )
     solve.add_argument("--no-web-search", action="store_true")
     solve.add_argument("--no-replan", action="store_true")
     solve.add_argument("--no-live-benchmark-stock", action="store_true")
+    solve.add_argument(
+        "--no-auto-patent-evidence",
+        action="store_true",
+        help="disable the bounded built-in patent PDF evidence connector",
+    )
     solve.add_argument(
         "--evidence-endpoint",
         help="trusted structured extraction HTTPS endpoint (loopback HTTP allowed)",
@@ -79,6 +97,37 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--max-attempt-runs", type=int, default=72)
     solve.add_argument("--max-map-reactions", type=int, default=48)
     solve.add_argument("--max-stock-molecules", type=int, default=24)
+    solve.add_argument("--max-patent-sources", type=int, default=3)
+    solve.add_argument(
+        "--patent-publication",
+        action="append",
+        default=[],
+        help="optional primary patent publication or direct patent PDF URL seed",
+    )
+
+    validation_fork = sub.add_parser(
+        "fork-validation",
+        help=(
+            "replay a completed target campaign into a zero-model run and "
+            "revalidate it under the current host policy"
+        ),
+    )
+    validation_fork.add_argument("source_run_id")
+    validation_fork.add_argument("--source-run-dir")
+    validation_fork.add_argument("--run-id")
+    validation_fork.add_argument("--run-dir")
+    validation_fork.add_argument("--no-live-benchmark-stock", action="store_true")
+    validation_fork.add_argument("--no-auto-patent-evidence", action="store_true")
+    validation_fork.add_argument("--full-output", action="store_true")
+    validation_fork.add_argument("--max-map-reactions", type=int, default=64)
+    validation_fork.add_argument("--max-stock-molecules", type=int, default=32)
+    validation_fork.add_argument("--max-patent-sources", type=int, default=3)
+    validation_fork.add_argument(
+        "--patent-publication",
+        action="append",
+        default=[],
+        help="optional primary patent publication or direct patent PDF URL seed",
+    )
 
     evidence = sub.add_parser(
         "import-evidence",
@@ -96,6 +145,35 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             run_dir=args.run_dir,
             import_path=args.input,
         )
+    if args.command == "fork-validation":
+        evidence_connector = None
+        if not args.no_auto_patent_evidence:
+            from cascade_planner.interfaces.patent_evidence import (
+                BuiltinPatentEvidenceConfig,
+                build_builtin_patent_evidence_connector,
+            )
+
+            evidence_connector = build_builtin_patent_evidence_connector(
+                BuiltinPatentEvidenceConfig(
+                    cache_dir=gateway.paths.external_data_root / "patent-evidence",
+                    seed_publications=tuple(args.patent_publication),
+                    max_patents=args.max_patent_sources,
+                    max_validated_edges=args.max_map_reactions,
+                )
+            )
+        result = gateway.fork_target_validation(
+            source_run_id=args.source_run_id,
+            source_run_dir=args.source_run_dir,
+            run_id=args.run_id,
+            run_dir=args.run_dir,
+            evidence_connector=evidence_connector,
+            config=ValidationForkConfig(
+                max_atom_mapping_reactions=args.max_map_reactions,
+                max_live_stock_molecules=args.max_stock_molecules,
+                enable_live_benchmark_stock=not args.no_live_benchmark_stock,
+            ),
+        )
+        return result if args.full_output else _compact_validation_fork_result(result)
     if args.command != "solve-target":
         raise ValueError(f"unsupported_target_command:{args.command}")
     evidence_connector = None
@@ -106,6 +184,20 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                 provider_id=args.evidence_provider_id,
                 provider_version=args.evidence_provider_version,
                 token_env=args.evidence_token_env,
+            )
+        )
+    elif not args.no_auto_patent_evidence:
+        from cascade_planner.interfaces.patent_evidence import (
+            BuiltinPatentEvidenceConfig,
+            build_builtin_patent_evidence_connector,
+        )
+
+        evidence_connector = build_builtin_patent_evidence_connector(
+            BuiltinPatentEvidenceConfig(
+                cache_dir=gateway.paths.external_data_root / "patent-evidence",
+                seed_publications=tuple(args.patent_publication),
+                max_patents=args.max_patent_sources,
+                max_validated_edges=args.max_map_reactions,
             )
         )
     inventory_snapshot_builder = None
@@ -145,12 +237,16 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         config=TargetSolveConfig(
             model=args.model,
             reasoning_effort=args.reasoning_effort,
-            use_coordinator=not args.single_agent,
+            use_coordinator=args.coordinator and not args.single_agent,
             enable_web_search=not args.no_web_search,
             enable_replan=not args.no_replan,
             enable_live_benchmark_stock=not args.no_live_benchmark_stock,
+            enable_builtin_patent_evidence=(
+                evidence_connector is None and not args.no_auto_patent_evidence
+            ),
             max_atom_mapping_reactions=args.max_map_reactions,
             max_live_stock_molecules=args.max_stock_molecules,
+            max_patent_sources=args.max_patent_sources,
         ),
     )
     return result if args.full_output else _compact_target_result(result)
@@ -188,6 +284,33 @@ def _compact_target_result(result: Any) -> dict[str, Any]:
         "semantics": {
             "full_report_is_content_addressed_and_written_to_report_path": True,
             "summary_omits_generated_routes_and_precursors": True,
+        },
+    }
+
+
+def _compact_validation_fork_result(result: Any) -> dict[str, Any]:
+    row = dict(result)
+    gates = dict(row.get("gates") or {})
+    lineage = dict(row.get("lineage") or {})
+    return {
+        "schema_version": "target_validation_fork_cli_summary.v1",
+        "run_id": str(row.get("run_id") or ""),
+        "source_run_id": str(lineage.get("source_run_id") or ""),
+        "target": dict(row.get("target") or {}),
+        "gates": dict(gates.get("gates") or {}),
+        "highest_contiguous_gate": str(gates.get("highest_contiguous_gate") or "none"),
+        "counts": dict(gates.get("counts") or {}),
+        "claim": dict(row.get("claim") or {}),
+        "current_disposition": dict(row.get("current_disposition") or {}),
+        "model_cost": dict(row.get("model_cost") or {}),
+        "attempt_count": int(row.get("attempt_count") or 0),
+        "accepted_expansion_count": int(row.get("accepted_expansion_count") or 0),
+        "report_path": str(row.get("report_path") or ""),
+        "report_ref": dict(row.get("report_ref") or {}),
+        "report_sha256": str(row.get("content_sha256") or ""),
+        "semantics": {
+            "source_plan_replayed_without_model_calls": True,
+            "full_report_is_content_addressed_and_written_to_report_path": True,
         },
     }
 

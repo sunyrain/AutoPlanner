@@ -58,19 +58,21 @@ if TYPE_CHECKING:
 
 TARGET_SOLVE_REPORT_SCHEMA = "target_only_retrosynthesis_solve_report.v1"
 TARGET_SOLVE_CHECKPOINT_SCHEMA = "target_only_solve_checkpoint.v1"
-DEFAULT_TARGET_DIRECTOR_MODEL = "gpt-5.6-sol"
+DEFAULT_TARGET_DIRECTOR_MODEL = "gpt-5.5"
 
 
 @dataclass(frozen=True, slots=True)
 class TargetSolveConfig:
     model: str = DEFAULT_TARGET_DIRECTOR_MODEL
     reasoning_effort: str = "low"
-    use_coordinator: bool = True
+    use_coordinator: bool = False
     enable_web_search: bool = True
     enable_replan: bool = True
     enable_live_benchmark_stock: bool = True
+    enable_builtin_patent_evidence: bool = False
     max_atom_mapping_reactions: int = 48
     max_live_stock_molecules: int = 24
+    max_patent_sources: int = 3
     max_director_output_tokens: int = 7_000
     max_director_wall_time_s: float = 360.0
     schema_version: str = "target_solve_config.v1"
@@ -80,6 +82,8 @@ class TargetSolveConfig:
             raise ValueError("target solver reasoning effort is invalid")
         if self.max_atom_mapping_reactions < 1 or self.max_live_stock_molecules < 1:
             raise ValueError("target solver deterministic limits must be positive")
+        if not 1 <= self.max_patent_sources <= 8:
+            raise ValueError("target solver patent source limit is invalid")
         if self.max_director_output_tokens < 1 or self.max_director_wall_time_s <= 0:
             raise ValueError("target solver director limits must be positive")
 
@@ -199,6 +203,23 @@ def solve_target(
         director_runner=director_runner,
         director_config=director_config,
     )
+    resolved_evidence_connector = evidence_connector
+    if (
+        resolved_evidence_connector is None
+        and active.enable_builtin_patent_evidence
+    ):
+        from cascade_planner.interfaces.patent_evidence import (
+            BuiltinPatentEvidenceConfig,
+            build_builtin_patent_evidence_connector,
+        )
+
+        resolved_evidence_connector = build_builtin_patent_evidence_connector(
+            BuiltinPatentEvidenceConfig(
+                cache_dir=gateway.paths.external_data_root / "patent-evidence",
+                max_patents=active.max_patent_sources,
+                max_validated_edges=active.max_atom_mapping_reactions,
+            )
+        )
     stages = list(checkpoint.get("stages") or [])
     outcomes = list(checkpoint.get("director_outcomes") or [])
     if checkpoint.get("complete") is True and service.kernel.decide_stop().terminal:
@@ -266,7 +287,7 @@ def solve_target(
     evidence_stage = _acquire_evidence_stage(
         service,
         source_stage=source_stage,
-        connector=evidence_connector,
+        connector=resolved_evidence_connector,
         atom_mapper=atom_mapper,
     )
     stages.append(_stage("evidence_acquisition", evidence_stage["status"], evidence_stage))
@@ -288,15 +309,6 @@ def solve_target(
         graph=service.graph_store.load(),
         portfolio=provisional,
     )
-    needs_replan = bool(
-        active.enable_replan
-        and provisional_gates["gates"]["B2_host_validated_routes"] is not True
-        and any(
-            outcome.get("status") == "accepted" and outcome.get("plan")
-            for outcome in outcomes
-        )
-        and len(outcomes) < 2
-    )
     material_events = _material_replan_events(
         materialization,
         validation,
@@ -306,10 +318,25 @@ def solve_target(
         evidence_stage,
         stock_stage,
     )
+    replan_reasons = _replan_reasons(
+        provisional_gates,
+        material_events=material_events,
+    )
+    needs_replan = bool(
+        active.enable_replan
+        and replan_reasons
+        and any(
+            outcome.get("status") == "accepted" and outcome.get("plan")
+            for outcome in outcomes
+        )
+        and len(outcomes) < 2
+    )
+    evidence_observations = _evidence_observations(evidence_stage)
     replan_prompt_context_bytes = 0
     if needs_replan:
         replan_context = service.compile_global_context(
             material_events=material_events,
+            evidence_observations=evidence_observations,
         )
         replan_prompt_context_bytes = len(
             director_prompt(
@@ -318,12 +345,15 @@ def solve_target(
                 config=director_config,
             ).encode("utf-8")
         )
-    replan_guard = _replan_budget_guard(
-        model_cost=service.kernel.state.model_totals,
-        budget=resolved_budget,
-        config=active,
-        prompt_context_bytes=replan_prompt_context_bytes,
-    )
+    replan_guard = {
+        **_replan_budget_guard(
+            model_cost=service.kernel.state.model_totals,
+            budget=resolved_budget,
+            config=active,
+            prompt_context_bytes=replan_prompt_context_bytes,
+        ),
+        "trigger_reasons": list(replan_reasons),
+    }
     if needs_replan:
         stages.append(
             _stage(
@@ -337,6 +367,7 @@ def solve_target(
             service,
             mode="event_replan",
             material_events=material_events,
+            evidence_observations=evidence_observations,
             idempotency_key="solve-target:director:replan",
         )
         outcomes.append(replan)
@@ -392,7 +423,7 @@ def solve_target(
             evidence_stage = _acquire_evidence_stage(
                 service,
                 source_stage=source_stage,
-                connector=evidence_connector,
+                connector=resolved_evidence_connector,
                 atom_mapper=atom_mapper,
             )
             stages.append(
@@ -668,6 +699,7 @@ def _acquire_evidence_stage(
         }
     request = compile_evidence_acquisition_request(
         run_id=service.kernel.spec.run_id,
+        target_name=service.kernel.spec.target_name,
         target_smiles=service.kernel.spec.target_smiles,
         graph=service.graph_store.load(),
         source_frontier=source_stage,
@@ -682,9 +714,37 @@ def _acquire_evidence_stage(
                 logical_name="evidence_connector_receipt.json",
                 producer="autoplanner.live_evidence",
             ).to_dict()
+        discovery = dict(acquired.get("discovery") or {})
+        discovery_ref: dict[str, Any] = {}
+        if discovery:
+            discovery_ref = service.kernel.artifacts.put_json(
+                discovery,
+                logical_name="source_discovery_observation.json",
+                producer="autoplanner.live_evidence.discovery",
+            ).to_dict()
+        document = acquired.get("document")
+        if document is None:
+            return {
+                "stage": "evidence_acquisition",
+                "status": "discovered_unbound",
+                "request_sha256": request["content_sha256"],
+                "receipt_ref": receipt_ref,
+                "discovery_ref": discovery_ref,
+                "discovery": discovery,
+                "source_count": len(discovery.get("sources") or []),
+                "exact_record_count": 0,
+                "model_invocations": 0,
+                "false_evidence_claim": False,
+                "material_events": ["source_material_discovered"],
+                "semantics": {
+                    "discovery_is_not_exact_evidence": True,
+                    "discovery_may_inform_bounded_global_replan": True,
+                    "connector_cannot_grant_reaction_validation": True,
+                },
+            }
         imported = ingest_structured_evidence_document(
             service,
-            document=dict(acquired["document"]),
+            document=dict(document),
             atom_mapper=atom_mapper,
         )
     except (LiveEvidenceConnectorError, ValueError) as exc:
@@ -704,12 +764,28 @@ def _acquire_evidence_stage(
         "request_sha256": request["content_sha256"],
         "document_sha256": acquired["document_sha256"],
         "receipt_ref": receipt_ref,
+        "discovery_ref": discovery_ref,
+        "discovery": discovery,
         "source_count": imported["source_count"],
         "exact_record_count": imported["exact_record_count"],
         "source_binding_count": imported["source_binding_count"],
         "execution": imported["execution"],
         "validation": imported["validation"],
         "model_invocations": 0,
+        "material_events": sorted(
+            {
+                *(
+                    ["source_material_discovered"]
+                    if discovery
+                    else []
+                ),
+                *(
+                    ["exact_rows_added"]
+                    if int(imported.get("exact_record_count") or 0)
+                    else []
+                ),
+            }
+        ),
         "semantics": {
             "connector_output_requires_normal_host_ingestion": True,
             "connector_cannot_grant_reaction_validation": True,
@@ -789,6 +865,11 @@ def _replan_budget_guard(
 def _material_replan_events(*stages: Mapping[str, Any]) -> tuple[str, ...]:
     events = {"portfolio_stagnation"}
     for stage in stages:
+        events.update(
+            str(value)
+            for value in stage.get("material_events") or []
+            if str(value).strip()
+        )
         execution = dict(stage.get("execution") or {})
         events.update(
             str(value)
@@ -798,6 +879,44 @@ def _material_replan_events(*stages: Mapping[str, Any]) -> tuple[str, ...]:
         if int(stage.get("rejected_validation_count") or 0) > 0:
             events.add("critical_edge_rejected")
     return tuple(sorted(events))
+
+
+def _replan_reasons(
+    gates: Mapping[str, Any],
+    *,
+    material_events: tuple[str, ...],
+) -> tuple[str, ...]:
+    values = dict(gates.get("gates") or {})
+    events = set(material_events)
+    reasons: list[str] = []
+    if values.get("B2_host_validated_routes") is not True:
+        reasons.append("host_validated_route_deficit")
+    if values.get("B3_exact_multi_source") is not True and events & {
+        "exact_rows_added",
+        "material_evidence_added",
+        "source_material_discovered",
+    }:
+        reasons.append("evidence_deficit_with_new_source_material")
+    if values.get("B4_stock_boundary") is not True and events & {
+        "stock_boundary_changed",
+        "stock_records_added",
+    }:
+        reasons.append("stock_deficit_with_new_inventory_observation")
+    return tuple(reasons)
+
+
+def _evidence_observations(stage: Mapping[str, Any]) -> dict[str, Any]:
+    discovery = dict(stage.get("discovery") or {})
+    if not discovery:
+        return {}
+    return {
+        "schema_version": "campaign_evidence_observations.v1",
+        "source_discovery": discovery,
+        "semantics": {
+            "untrusted_source_text_data_only": True,
+            "grants_no_scientific_authority": True,
+        },
+    }
 
 
 def _claim(
@@ -984,6 +1103,9 @@ def _run_director_safely(
     *,
     mode: str,
     material_events: tuple[str, ...] = (),
+    evidence_observations: Mapping[str, Any]
+    | tuple[Mapping[str, Any], ...]
+    | None = None,
     idempotency_key: str,
 ) -> dict[str, Any]:
     """Turn a bounded provider failure into an auditable unresolved outcome."""
@@ -992,6 +1114,7 @@ def _run_director_safely(
         return service.run_global_director(
             mode=mode,
             material_events=material_events,
+            evidence_observations=evidence_observations,
             idempotency_key=idempotency_key,
         ).to_dict()
     except GlobalCampaignDirectorError as exc:

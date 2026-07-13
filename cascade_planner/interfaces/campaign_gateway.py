@@ -1,9 +1,4 @@
-"""Shared CLI/Web gateway for model-free V4 campaign operations.
-
-The gateway resolves configured storage once and delegates chemistry and run
-state to :class:`RetrosynthesisCampaignService`.  It deliberately owns no
-scientific status, queue, graph, or acceptance state of its own.
-"""
+"""Shared CLI/Web gateway delegating all scientific state to the V4 service."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -114,6 +109,10 @@ class CampaignGateway:
     def solve_target(self, **kwargs: Any) -> dict[str, Any]:
         from cascade_planner.interfaces.target_solver import solve_target
         return solve_target(self, **kwargs)
+
+    def fork_target_validation(self, **kwargs: Any) -> dict[str, Any]:
+        from cascade_planner.interfaces.validation_fork import fork_target_validation
+        return fork_target_validation(self, **kwargs)
 
     def import_evidence(self, **kwargs: Any) -> dict[str, Any]:
         from cascade_planner.interfaces.evidence_import import import_structured_evidence

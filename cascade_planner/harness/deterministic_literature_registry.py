@@ -18,7 +18,7 @@ import urllib.request
 from collections import Counter
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from rdkit import Chem
 from rdkit.Chem.MolStandardize import rdMolStandardize
@@ -179,6 +179,9 @@ def compile_deterministic_literature_step_registry(
             1 for row in records if row.get("accepted") is not True
         ),
         "records": records,
+        "source_procedure_inventory": _source_procedure_inventory(
+            document_cache
+        ),
         "semantics": {
             "codex_candidate_cannot_self_sign": True,
             "opsin_reconstructs_source_heading": True,
@@ -325,7 +328,7 @@ def _compile_step_binding(
         procedures = [
             item
             for item in document.get("procedures") or []
-            if isinstance(item, dict)
+            if isinstance(item, dict) and item.get("declaration_only") is not True
         ]
         procedures.sort(
             key=lambda row: (
@@ -802,7 +805,7 @@ def _extract_labeled_procedures(
         r"[ \t]*(?:[.,:]|(?=\r?\n))",
         flags=re.IGNORECASE,
     )
-    heading_candidates: list[tuple[re.Match[str], int, str]] = []
+    heading_candidates: list[dict[str, Any]] = []
     for match in declaration.finditer(full_text):
         separators = list(re.finditer(r"\n\s*\n", full_text[: match.start()]))
         heading_start = separators[-1].end() if separators else 0
@@ -812,24 +815,108 @@ def _extract_labeled_procedures(
             len(name) < 3
             or len(name) > 1000
             or not re.search(r"[A-Za-z]", name)
+            or _document_metadata_heading(name)
         ):
             continue
-        heading_candidates.append((match, heading_start, name))
+        heading_candidates.append(
+            {
+                "start": match.start(),
+                "end": match.end(),
+                "heading_start": heading_start,
+                "label": str(match.group("label") or "").upper(),
+                "name": name,
+            }
+        )
+    # Patent PDFs rarely use SI-style ``name (T12)`` declarations.  Admit the
+    # equally explicit, source-authored ``Example 4 Preparation of name``
+    # heading, including common line wrapping before the example number and
+    # within long chemical names.  The following numbered paragraph or the
+    # first procedural sentence remains part of the procedure, not the name.
+    patent_declaration = re.compile(
+        r"(?im)^\s*Example\s*:?[ \t]*(?:\r?\n[ \t]*)?"
+        r"(?P<label>\d+[A-Za-z]?)[ \t]*(?:\r?\n[ \t]*)?"
+        r"(?:Preparation|Synthesis)[ \t]+of[ \t]+"
+        r"(?P<name>.{3,1000}?)"
+        r"(?=\r?\n[ \t]*(?:\d{3,5}\b|To\b|A[ \t]+total\b|"
+        r"\d+(?:\.\d+)?[ \t]*(?:mL|ml|g)\b))",
+        flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
+    )
+    for match in patent_declaration.finditer(full_text):
+        if any(
+            int(row["start"]) <= match.start() < int(row["end"])
+            for row in heading_candidates
+        ):
+            continue
+        name = _clean_source_name(str(match.group("name") or ""))
+        if (
+            len(name) < 3
+            or len(name) > 1000
+            or not re.search(r"[A-Za-z]", name)
+            or _document_metadata_heading(name)
+        ):
+            continue
+        heading_candidates.append(
+            {
+                "start": match.start(),
+                "end": match.end(),
+                "heading_start": match.start(),
+                "label": str(match.group("label") or "").upper(),
+                "name": name,
+            }
+        )
+    # Process patents also commonly use a standalone, source-authored heading
+    # such as ``Synthesis of Vismodegib (5)`` without an Example prefix.  The
+    # generic ``name (T12)`` parser cannot safely recover this when patent page
+    # headers remove blank-line boundaries, so bind the complete line directly.
+    standalone_patent_declaration = re.compile(
+        r"(?im)^\s*(?:Preparation|Synthesis)[ \t]+of[ \t]+"
+        r"(?P<name>[^\r\n]{3,1000}?)\s*"
+        r"\((?P<label>[TC]?\d+)\)\s*$",
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    for match in standalone_patent_declaration.finditer(full_text):
+        name = _clean_source_name(str(match.group("name") or ""))
+        if (
+            len(name) < 3
+            or len(name) > 1000
+            or not re.search(r"[A-Za-z]", name)
+            or _document_metadata_heading(name)
+        ):
+            continue
+        heading_candidates = [
+            row
+            for row in heading_candidates
+            if not match.start() <= int(row["start"]) < match.end()
+        ]
+        heading_candidates.append(
+            {
+                "start": match.start(),
+                "end": match.end(),
+                "heading_start": match.start(),
+                "label": str(match.group("label") or "").upper(),
+                "name": name,
+            }
+        )
+    heading_candidates.sort(
+        key=lambda row: (int(row["start"]), int(row["end"]))
+    )
     out: list[dict[str, Any]] = []
-    for index, (match, _heading_start, name) in enumerate(heading_candidates):
+    for index, heading in enumerate(heading_candidates):
         procedure_end = (
-            heading_candidates[index + 1][1]
+            int(heading_candidates[index + 1]["heading_start"])
             if index + 1 < len(heading_candidates)
             else len(full_text)
         )
-        procedure = _compact_source_text(full_text[match.end() : procedure_end])
+        procedure = _compact_source_text(
+            full_text[int(heading["end"]) : procedure_end]
+        )
         if not _procedure_like(procedure):
             continue
         page_range = next(
             (
                 (page, companion_binding)
                 for start, end, page, companion_binding in ranges
-                if start <= match.start() < end
+                if start <= int(heading["start"]) < end
             ),
             (0, {}),
         )
@@ -837,8 +924,8 @@ def _extract_labeled_procedures(
         out.append(
             {
                 "schema_version": "deterministic_source_procedure.v1",
-                "label": str(match.group("label") or "").upper(),
-                "name": name,
+                "label": str(heading["label"]),
+                "name": str(heading["name"]),
                 "page_number": page_number,
                 "procedure": procedure,
                 **(
@@ -848,7 +935,133 @@ def _extract_labeled_procedures(
                 ),
             }
         )
+    # Patent prose often defines numbered structures independently of the
+    # experimental heading: ``compound (3) (chemical name)``.  These rows are
+    # not themselves experimental procedures and can never authorize a product
+    # edge, but they let a later hash-bound procedure resolve references such as
+    # ``intermediate 3`` to an independently parsed structure.
+    out.extend(_compound_label_definition_rows(full_text, ranges=ranges))
+    out.sort(
+        key=lambda row: (
+            int(row.get("page_number") or 0),
+            int(row.get("declaration_only") is True),
+            str(row.get("label") or ""),
+            str(row.get("name") or ""),
+        )
+    )
     return out
+
+
+def _compound_label_definition_rows(
+    full_text: str,
+    *,
+    ranges: list[tuple[int, int, int, dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    starts = re.compile(
+        r"(?i)\bcompound\s*\((?P<label>[TC]?\d+)\)\s*\("
+    )
+    rows: dict[tuple[str, str], dict[str, Any]] = {}
+    for match in starts.finditer(full_text):
+        opening = match.end() - 1
+        depth = 0
+        closing = -1
+        for index in range(opening, min(len(full_text), opening + 1200)):
+            character = full_text[index]
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                depth -= 1
+                if depth == 0:
+                    closing = index
+                    break
+        if closing < 0:
+            continue
+        name = _clean_source_name(full_text[opening + 1 : closing])
+        label = str(match.group("label") or "").upper()
+        if (
+            len(name) < 3
+            or len(name) > 1000
+            or not re.search(r"[A-Za-z]", name)
+            or _document_metadata_heading(name)
+        ):
+            continue
+        page, companion_binding = next(
+            (
+                (page_number, binding)
+                for start, end, page_number, binding in ranges
+                if start <= match.start() < end
+            ),
+            (0, {}),
+        )
+        key = (label, _name_key(name).strip())
+        rows[key] = {
+            "schema_version": "deterministic_source_procedure.v1",
+            "label": label,
+            "name": name,
+            "page_number": page,
+            "procedure": "",
+            "declaration_only": True,
+            **(
+                {"source_text_companion_binding": companion_binding}
+                if companion_binding
+                else {}
+            ),
+        }
+    return [rows[key] for key in sorted(rows)]
+
+
+def _source_procedure_inventory(
+    document_cache: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Expose bounded, non-authoritative source observations for replanning."""
+
+    documents: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for document in document_cache.values():
+        source_ref = str(document.get("source_ref") or "")
+        pdf_sha256 = str(document.get("source_pdf_sha256") or "")
+        identity = (source_ref, pdf_sha256)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        procedures = [
+            {
+                "label": str(row.get("label") or "")[:80],
+                "name": " ".join(str(row.get("name") or "").split())[:1000],
+                "page_number": int(row.get("page_number") or 0),
+                "procedure_excerpt": " ".join(
+                    str(row.get("procedure") or "").split()
+                )[:800],
+            }
+            for row in document.get("procedures") or []
+            if isinstance(row, Mapping)
+        ][:64]
+        documents.append(
+            {
+                "source_ref": source_ref,
+                "source_pdf_sha256": pdf_sha256,
+                "procedure_count": len(procedures),
+                "procedures": procedures,
+                "semantics": {
+                    "discovery_only": True,
+                    "grants_no_exact_reaction_evidence": True,
+                },
+            }
+        )
+    return documents[:8]
+
+
+def _document_metadata_heading(value: str) -> bool:
+    key = _name_key(value)
+    return any(
+        term in key
+        for term in (
+            " patent application publication ",
+            " publication classification ",
+            " foreign application priority data ",
+            " united states patent ",
+        )
+    )
 
 
 def _materialize_source_label_reactants(

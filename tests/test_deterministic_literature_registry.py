@@ -60,6 +60,127 @@ def test_extract_labeled_procedures_keeps_heading_and_forward_procedure() -> Non
     assert "T1 was treated" in rows[1]["procedure"]
 
 
+def test_extract_labeled_procedures_accepts_wrapped_patent_example_headings() -> None:
+    rows = _extract_labeled_procedures(
+        [
+            {
+                "page_number": 4,
+                "text": (
+                    "EXAMPLES\nExample\n1 Preparation of 8-bromo-3-methyl-"
+                    "xanthine\n0049 Acetic acid and 3-methyl-xanthine were "
+                    "charged. The reaction mixture was stirred to isolate the "
+                    "title compound.\n"
+                    "Example: 2\nPreparation of 3-methyl-7-(2-butyn-1-yl)-"
+                    "8-bromo\nxanthine\n0050 The compound from Example 1 and "
+                    "1-bromo-2-butyne were added. The reaction mixture was "
+                    "stirred to isolate the title compound."
+                ),
+            }
+        ]
+    )
+
+    assert [(row["label"], row["name"]) for row in rows] == [
+        ("1", "8-bromo-3-methyl-xanthine"),
+        ("2", "3-methyl-7-(2-butyn-1-yl)-8-bromo xanthine"),
+    ]
+    assert "1-bromo-2-butyne" in rows[1]["procedure"]
+
+
+def test_extract_labeled_procedures_rejects_patent_cover_metadata() -> None:
+    rows = _extract_labeled_procedures(
+        [
+            {
+                "page_number": 1,
+                "text": (
+                    "United States Patent Application Publication (57). "
+                    "The abstract says the reaction mixture was processed.\n\n"
+                    "Example 1 Preparation of ethyl acetate\n0049 Ethanol was "
+                    "added and the reaction mixture was stirred."
+                ),
+            }
+        ]
+    )
+
+    assert [(row["label"], row["name"]) for row in rows] == [
+        ("1", "ethyl acetate")
+    ]
+
+
+def test_process_patent_heading_uses_numbered_compound_definitions() -> None:
+    pages = [
+        {
+            "page_number": 1,
+            "text": (
+                "The process reacts compound (3) (ethanol) and compound (4) "
+                "(acetic acid) to give compound (5) (ethyl acetate).\n"
+                "Intermediate 4 is obtained commercially\n"
+                "Synthesis of ethyl acetate (5)\n"
+                "[0045] Intermediate 3 was dissolved in THF. A solution of "
+                "intermediate 4 was added and the reaction mixture was stirred "
+                "to afford ethyl acetate."
+            ),
+        }
+    ]
+    rows = _extract_labeled_procedures(pages)
+
+    experimental = [row for row in rows if row.get("declaration_only") is not True]
+    definitions = {
+        row["label"]: row["name"]
+        for row in rows
+        if row.get("declaration_only") is True
+    }
+    assert [(row["label"], row["name"]) for row in experimental] == [
+        ("5", "ethyl acetate")
+    ]
+    assert definitions == {"3": "ethanol", "4": "acetic acid", "5": "ethyl acetate"}
+
+
+def test_process_patent_numbered_definitions_authorize_only_the_experiment(
+    tmp_path: Path,
+) -> None:
+    pdf = tmp_path / "process-patent.pdf"
+    pdf.write_bytes(b"%PDF- deterministic process patent")
+    step = {
+        "step_id": "ethyl-acetate-process",
+        "product_smiles": "CCOC(C)=O",
+        "reactant_smiles": ["CCO", "CC(=O)O"],
+        "source_ref": "patent:EP0000001A1",
+        "source_evidence": [_evidence(pdf, source_ref="patent:EP0000001A1")],
+    }
+    pages = [
+        {
+            "page_number": 1,
+            "text": (
+                "Compound (3) (ethanol) and compound (4) (acetic acid) give "
+                "compound (5) (ethyl acetate).\n"
+                "Synthesis of ethyl acetate (5)\n"
+                "Intermediate 3 was dissolved in THF and intermediate 4 was "
+                "added. The reaction mixture was stirred to afford the product."
+            ),
+        }
+    ]
+
+    with patch(
+        "cascade_planner.harness.deterministic_literature_registry."
+        "_materialized_source_evidence_valid",
+        return_value=True,
+    ):
+        audit = compile_deterministic_literature_step_registry(
+            [step],
+            registry_path=tmp_path / "registry.json",
+            structure_resolver=lambda name: {
+                "ethanol": "CCO",
+                "acetic acid": "CC(=O)O",
+                "ethyl acetate": "CCOC(C)=O",
+            }[name],
+            candidate_name_resolver=lambda _smiles: [],
+            pdf_text_loader=lambda _path: pages,
+        )
+
+    assert audit["approved_binding_count"] == 1
+    assert audit["records"][0]["accepted"] is True
+
+
 def test_extract_strips_formulation_suffix_before_name_to_structure_parse() -> None:
     rows = _extract_labeled_procedures(
         [

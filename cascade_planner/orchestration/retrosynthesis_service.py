@@ -1,20 +1,11 @@
-"""Small V4 campaign service coordinating the canonical application modules.
-
-This is the only orchestration owner for new runs.  It keeps global Codex
-reasoning, deterministic workers, graph ingestion, the work frontier, and
-proof closeout on one ``RunKernel`` without importing the legacy blackboard
-controller or its private queues.
-"""
+"""Coordinate global reasoning and deterministic work on one V4 RunKernel."""
 from __future__ import annotations
 
 from pathlib import Path
 import hashlib
 from typing import Any, Iterable, Mapping
 
-from cascade_planner.application.campaign_context import (
-    CampaignContext,
-    CampaignContextCompiler,
-)
+from cascade_planner.application.campaign_context import CampaignContext, CampaignContextCompiler
 from cascade_planner.application.canonical_hypergraph import (
     CanonicalHypergraphStore,
     CanonicalIngestionBatch,
@@ -156,10 +147,14 @@ class RetrosynthesisCampaignService:
         *,
         mode: str,
         material_events: Iterable[str] = (),
+        evidence_observations: Mapping[str, Any] | Iterable[Mapping[str, Any]] | None = None,
         force: bool = False,
         idempotency_key: str,
     ) -> DirectorOutcome:
-        context = self.compile_global_context(material_events=material_events)
+        context = self.compile_global_context(
+            material_events=material_events,
+            evidence_observations=evidence_observations,
+        )
         outcome = self.director.run(context, mode=mode, force=force)
         self._previous_context = context
         if outcome.plan is not None and outcome.status == "accepted":
@@ -175,7 +170,10 @@ class RetrosynthesisCampaignService:
         return outcome
 
     def compile_global_context(
-        self, *, material_events: Iterable[str] = ()
+        self,
+        *,
+        material_events: Iterable[str] = (),
+        evidence_observations: Mapping[str, Any] | Iterable[Mapping[str, Any]] | None = None,
     ) -> CampaignContext:
         graph = self.graph_store.load()
         portfolio = compile_proof_portfolio(
@@ -186,6 +184,7 @@ class RetrosynthesisCampaignService:
             kernel=self.kernel,
             hypergraph=graph,
             route_portfolio=portfolio,
+            evidence_ledger=evidence_observations,
             material_events=material_events,
             previous=self._previous_context,
         )

@@ -48,6 +48,7 @@ def _document(*, provider_id: str = "tests.extractor") -> dict:
 def test_request_contains_bounded_current_edges_and_source_tasks() -> None:
     request = compile_evidence_acquisition_request(
         run_id="blind-1",
+        target_name="ethyl acetate",
         target_smiles="CCOC(C)=O",
         graph={
             "revision": 4,
@@ -84,6 +85,7 @@ def test_request_contains_bounded_current_edges_and_source_tasks() -> None:
 
     assert request["edges"][0]["current_host_reaction_validated"] is True
     assert request["source_tasks"][0]["query"] == "exact ester patent"
+    assert request["target_name"] == "ethyl acetate"
     assert request["source_tasks"][0]["priority"] == 1.0
     assert len(request["content_sha256"]) == 64
 
@@ -164,6 +166,47 @@ def test_connector_rejects_public_plain_http_and_wrong_extractor_identity() -> N
     )
     with pytest.raises(LiveEvidenceConnectorError, match="identity_mismatch"):
         acquire_structured_evidence(request, connector=connector)
+
+
+def test_connector_accepts_bounded_discovery_without_promoting_exact_rows() -> None:
+    request = compile_evidence_acquisition_request(
+        run_id="blind-discovery",
+        target_name="ethyl acetate",
+        target_smiles="CCOC(C)=O",
+        graph={"revision": 1, "edges": {}, "route_families": {}},
+        source_frontier={},
+    )
+
+    def connector(_request: Mapping[str, Any]) -> Mapping[str, Any]:
+        return {
+            "discovery": {
+                "schema_version": "source_discovery_observation.v1",
+                "provider_id": "tests.discovery",
+                "request_sha256": request["content_sha256"],
+                "sources": [
+                    {
+                        "publication_number": "US1234567A1",
+                        "procedure_inventory": [
+                            {
+                                "label": "7",
+                                "name": "ethyl acetate",
+                                "procedure_excerpt": "Untrusted source text.",
+                            }
+                        ],
+                    }
+                ],
+            },
+            "receipt": {"provider_id": "tests.discovery"},
+        }
+
+    result = acquire_structured_evidence(request, connector=connector)
+
+    assert result["document"] is None
+    assert result["document_sha256"] == ""
+    assert result["discovery"]["sources"][0]["publication_number"] == (
+        "US1234567A1"
+    )
+    assert result["receipt"]["provider_id"] == "tests.discovery"
 
 
 def test_http_connector_normalizes_transport_failures() -> None:
