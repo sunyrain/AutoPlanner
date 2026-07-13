@@ -88,6 +88,10 @@ _V4_EXPORTS = {
     "RunSpec": ("cascade_planner.application.run_kernel", "RunSpec"),
     "RunRevision": ("cascade_planner.application.run_kernel", "RunRevision"),
     "RunState": ("cascade_planner.application.run_kernel", "RunState"),
+    "RouteWorkbenchProjectionError": (
+        "cascade_planner.application.route_workbench",
+        "RouteWorkbenchProjectionError",
+    ),
     "StopDecision": ("cascade_planner.application.run_kernel", "StopDecision"),
     "WorkerCommand": (
         "cascade_planner.application.worker_runtime",
@@ -104,6 +108,14 @@ _V4_EXPORTS = {
     "compile_proof_portfolio": (
         "cascade_planner.application.proof_portfolio",
         "compile_proof_portfolio",
+    ),
+    "compile_route_workbench": (
+        "cascade_planner.application.route_workbench",
+        "compile_route_workbench",
+    ),
+    "compile_route_workbench_delta": (
+        "cascade_planner.application.route_workbench",
+        "compile_route_workbench_delta",
     ),
     "publish_proof_portfolio": (
         "cascade_planner.application.proof_portfolio",

@@ -27,6 +27,7 @@ V4_MODULES = (
     "cascade_planner/application/proof_policy.py",
     "cascade_planner/application/proof_portfolio.py",
     "cascade_planner/application/route_variants.py",
+    "cascade_planner/application/route_workbench.py",
     "cascade_planner/application/worker_runtime.py",
     "cascade_planner/orchestration/global_campaign_director.py",
     "cascade_planner/orchestration/retrosynthesis_service.py",
@@ -49,9 +50,11 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/application/proof_policy.py": 400,
     "cascade_planner/application/proof_portfolio.py": 400,
     "cascade_planner/application/route_variants.py": 400,
+    "cascade_planner/application/route_workbench.py": 700,
     "cascade_planner/harness/tool_execution_policy.py": 120,
     "cascade_planner/harness/tool_registry.py": 120,
     "cascade_planner/harness/v4_controller_adapter.py": 180,
+    "cascade_planner/harness/v4_route_workbench.py": 750,
     "cascade_planner/orchestration/retrosynthesis_service.py": 400,
 }
 
@@ -102,6 +105,13 @@ def test_new_focused_modules_stay_within_practical_line_budgets() -> None:
         for relative, lines in observed.items()
         if lines > FOCUSED_LINE_BUDGETS[relative]
     } == {}
+
+
+def test_v4_workbench_adapter_does_not_execute_legacy_route_forest_compiler() -> None:
+    imports = _imports(ROOT / "cascade_planner/harness/v4_route_workbench.py")
+
+    assert "cascade_planner.harness.route_forest" not in imports
+    assert "cascade_planner.harness.route_forest_delivery" in imports
 
 
 def test_every_compatibility_shim_has_replacement_telemetry_and_milestone() -> None:

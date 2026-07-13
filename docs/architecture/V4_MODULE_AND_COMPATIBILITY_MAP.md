@@ -11,6 +11,7 @@ RetrosynthesisCampaignService
   -> DeficitFrontier (single work projection)
   -> ProofPolicy + route_variants + portfolio_selection
   -> proof_portfolio (publication and explicit closeout)
+  -> route_workbench (bounded read model and revision deltas)
 ```
 
 Blackboards, legacy campaign JSON, legacy frontier queues, and `RouteForest`
@@ -30,9 +31,11 @@ a V4 run. New features must enter through the path above.
 | Ranking/diversity | `application.portfolio_selection` | legacy route portfolio and display ranking |
 | Proof and stock closeout | `application.proof_policy` + `proof_portfolio` | legacy acceptance and parent proof |
 | Tool registration/execution | `harness.tool_registry` + `tool_execution_policy` | formerly embedded dispatch in `tools.py` |
-| Presentation projection | proof portfolio artifact; P8 UI projection | `RouteForest` HTML/JSON |
+| Presentation projection | `application.route_workbench` + `harness.v4_route_workbench` | `RouteForest` HTML/JSON |
 
-The old `RouteForest` file remains frozen for historical run display. Its V4
+The old `RouteForest` file remains frozen for historical run display. New V4
+runs use the bounded workbench projection and a small display-only adapter; they
+do not invoke the old compiler. Its V4
 responsibilities have been split among artifact storage, canonical identity,
 route traversal, portfolio ranking, and proof projection, so it is no longer a
 core orchestration dependency.
@@ -48,6 +51,7 @@ core orchestration dependency.
 | `deficit_frontier.v1`, `deficit_frontier_item.v1` | single frontier compiler |
 | proof policy, edge/leaf proof stitches | `ProofPolicy` |
 | proof route, replacement module, portfolio, closeout | proof portfolio modules |
+| `retrosynthesis_route_workbench.v1` and its delta | route workbench projection |
 | V3 campaign/queue/route-forest schemas | compatibility only; no V4 writes |
 
 Every compatibility path is registered in

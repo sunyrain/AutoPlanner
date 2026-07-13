@@ -3,9 +3,12 @@
 
   const forestDataText = document.getElementById('forest-data')?.textContent || '{}';
   const forest = JSON.parse(forestDataText);
-  const STORAGE_KEY = `autoplanner.route-forest-ui.v3:${forest.case_id || forest.target?.name || 'route'}`;
+  const STORAGE_KEY = `autoplanner.route-forest-ui.v4:${forest.case_id || forest.target?.name || 'route'}`;
   const LEGACY_STORAGE_KEY = 'autoplanner.route-forest-ui.v2';
   const PAN_DRAG_THRESHOLD_PX = 5;
+  const MAX_PORTFOLIO_ROUTES = 5;
+  const CULLING_OBJECT_THRESHOLD = 120;
+  const CULLING_WORLD_MARGIN_PX = 180;
   const BRANCH_LANE_SCHEMA_VERSION = 'route_forest_branch_lanes.v2';
   const BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION = 'route_forest_branch_stage_evidence.v2';
   const COPY = Object.freeze({
@@ -110,6 +113,32 @@
   let resizeSession = null;
   let liveAnnouncementTimer = 0;
   let deliveryIntegrityStatus = 'pending';
+  let lastCullCamera = null;
+  const depictionCache = new Map();
+  const graphModelCache = new Map();
+  const renderPerformance = {
+    cameraFrames: 0,
+    droppedFrames: 0,
+    maximumFrameDelayMs: 0,
+    maximumCameraFrameMs: 0,
+    totalCameraFrameMs: 0,
+    lastGraphUpdateMs: 0,
+    renderedObjects: 0,
+    culledObjects: 0
+  };
+
+  window.__AUTOPLANNER_ROUTE_PERF__ = Object.freeze({
+    snapshot: () => ({
+      ...renderPerformance,
+      graphRevision: forest.source_revision_context?.revision || forest.campaign_projection?.revision || null,
+      memoryBytes: Number(performance.memory?.usedJSHeapSize || 0),
+      meanCameraFrameMs: renderPerformance.cameraFrames
+        ? renderPerformance.totalCameraFrameMs / renderPerformance.cameraFrames : 0,
+      zoom: state.zoom,
+      panX: state.panX,
+      panY: state.panY
+    })
+  });
 
   if (new URLSearchParams(location.search).get('embed') === '1') {
     document.body.classList.add('embedded-route');
@@ -124,6 +153,9 @@
   function clamp(value, minimum, maximum) { return Math.min(maximum, Math.max(minimum, value)); }
   function unique(values) { return [...new Set(values)]; }
   function oneOf(value, allowed, fallback) { return allowed.includes(value) ? value : fallback; }
+  function portfolioDisplayLimit() {
+    return clamp(Number(forest.display_policy?.default_overview_top_k || MAX_PORTFOLIO_ROUTES), 2, MAX_PORTFOLIO_ROUTES);
+  }
   function stableTextCompare(left, right) {
     const a = String(left), b = String(right);
     return a < b ? -1 : a > b ? 1 : 0;
@@ -191,8 +223,12 @@
   }
   function safeStructureSvg(value) {
     const svg = String(value || '').trim();
-    if (!svg.startsWith('<svg') || /<script\b|<foreignObject\b|\son\w+\s*=|javascript:/i.test(svg)) return '';
-    return svg;
+    if (depictionCache.has(svg)) return depictionCache.get(svg);
+    const safe = svg.startsWith('<svg') && !/<script\b|<foreignObject\b|\son\w+\s*=|javascript:/i.test(svg)
+      ? svg : '';
+    if (depictionCache.size > 512) depictionCache.clear();
+    depictionCache.set(svg, safe);
+    return safe;
   }
   function looksLikeSmiles(value, node) {
     const text = String(value || '').trim();
@@ -805,16 +841,38 @@
   }
 
   function buildGraphModel() {
+    const cacheKey = JSON.stringify({
+      mode: state.mode,
+      branch: state.selectedBranchId,
+      stage: state.stageFilter,
+      branchFilter: state.branchFilter,
+      proof: [...state.proofFilters].sort(),
+      kinds: [...state.kindFilters].sort(),
+      edge: state.edgeFilter,
+      orientation: effectiveOrientation(),
+      mobile: matchMedia('(max-width: 639px)').matches,
+      density: state.density,
+      showAll: state.showAllOverview,
+      replacement: state.activeReplacement?.replacement_id || ''
+    });
+    const cached = graphModelCache.get(cacheKey);
+    if (cached) return cached;
     const lanes = filteredLanes({ includeReplacementPreview: true });
-    if (state.mode === 'shared') return buildSharedModel(overviewLanes(lanes));
-    const selected = lanes.find(lane => lane.branch_id === state.selectedBranchId);
-    const activeLanes = state.mode === 'current' ? (selected ? [selected] : []) : overviewLanes(lanes);
-    return buildLaneModel(activeLanes);
+    let model;
+    if (state.mode === 'shared') model = buildSharedModel(overviewLanes(lanes));
+    else {
+      const selected = lanes.find(lane => lane.branch_id === state.selectedBranchId);
+      const activeLanes = state.mode === 'current' ? (selected ? [selected] : []) : overviewLanes(lanes);
+      model = buildLaneModel(activeLanes);
+    }
+    if (graphModelCache.size >= 12) graphModelCache.clear();
+    graphModelCache.set(cacheKey, model);
+    return model;
   }
 
   function overviewLanes(lanes) {
     if (state.showAllOverview) return lanes;
-    const topK = Number(forest.display_policy?.default_overview_top_k || 12);
+    const topK = portfolioDisplayLimit();
     return lanes.slice().sort((left, right) => branchDisplayScore(right) - branchDisplayScore(left)
       || stableTextCompare(left.branch_id, right.branch_id)).slice(0, topK);
   }
@@ -978,6 +1036,7 @@
   }
 
   function renderGraph({ fit = true } = {}) {
+    const updateStartedAt = performance.now();
     renderModel = buildGraphModel();
     const viewport = element('graphViewport');
     viewport.dataset.graphMode = state.mode;
@@ -1019,12 +1078,14 @@
     const nodes = renderModel.instances.map(instance => nodeSvg(instance, renderModel.positions.get(instance.instanceId))).join('');
     element('mainRoute').innerHTML = `<svg class="graph-svg dependency-svg" data-layout-packing="${esc(renderModel.packing?.algorithm || 'shared_component_layers.v1')}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="graphTitle graphSubtitle">
       <defs>${markers}</defs><g class="graph-world">${decorations}${edges}${nodes}</g></svg>`;
+    indexRenderedObjects();
+    renderPerformance.lastGraphUpdateMs = performance.now() - updateStartedAt;
     const visibleBranches = new Set(renderModel.instances.map(row => row.branchId).filter(Boolean));
-    element('graphVisibleCount').textContent = `${visibleBranches.size || (state.mode === 'shared' ? Math.min(filteredLanes().length, Number(forest.display_policy?.default_overview_top_k || 12)) : 0)}/${filteredLanes().length} 探索视图 · ${renderModel.instances.length} 节点 · ${renderModel.edges.length} 边`;
+    element('graphVisibleCount').textContent = `${visibleBranches.size || (state.mode === 'shared' ? Math.min(filteredLanes().length, portfolioDisplayLimit()) : 0)}/${filteredLanes().length} 探索视图 · ${renderModel.instances.length} 节点 · ${renderModel.edges.length} 边`;
     const replacementPreview = state.activeReplacement && state.mode === 'current';
     const overviewToggle = element('overviewToggle');
     const filteredCount = filteredLanes().length;
-    const topK = Number(forest.display_policy?.default_overview_top_k || 12);
+    const topK = portfolioDisplayLimit();
     overviewToggle.hidden = !['clusters', 'shared'].includes(state.mode) || filteredCount <= topK;
     overviewToggle.textContent = state.showAllOverview
       ? `仅显示 Top ${topK}` : `显示全部 ${filteredCount} 个探索视图`;
@@ -1060,7 +1121,7 @@
     const dash = simple ? '' : String(visual.dash_pattern || '');
     const path = edgePath(source, target, state.edgeStyle !== 'trust');
     const markerId = simple ? 'arrow-neutral' : `arrow-${tierClass(tier)}`;
-    return `<path class="graph-edge dependency-edge trust-edge ${tierClass(tier)}" data-edge-id="${esc(edge.edge_id)}" data-branch-id="${esc(edge.branch_id)}" data-reaction-step-id="${esc(edge.reaction_step_id)}" d="${path}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" stroke-dasharray="${esc(dash)}" marker-end="url(#${markerId})"><title>${esc(`${tierLabel(tier)} · ${edge.edge_type || '显式依赖'} · ${edge.branch_id || ''}`)}</title></path>`;
+    return `<path class="graph-edge dependency-edge trust-edge ${tierClass(tier)}" data-edge-id="${esc(edge.edge_id)}" data-branch-id="${esc(edge.branch_id)}" data-reaction-step-id="${esc(edge.reaction_step_id)}" data-source-instance-id="${esc(edge.sourceInstanceId)}" data-target-instance-id="${esc(edge.targetInstanceId)}" d="${path}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" stroke-dasharray="${esc(dash)}" marker-end="url(#${markerId})"><title>${esc(`${tierLabel(tier)} · ${edge.edge_type || '显式依赖'} · ${edge.branch_id || ''}`)}</title></path>`;
   }
 
   function edgePath(source, target, orthogonal) {
@@ -1213,24 +1274,82 @@
     state.panY = anchorY - worldY * next;
     applyViewportTransform();
   }
-  function applyPanTransform() {
-    const svg = document.querySelector('.graph-svg');
-    if (!svg) return;
-    const transform = `translate3d(${state.panX}px, ${state.panY}px, 0)`;
-    if (svg.style.transform !== transform) svg.style.transform = transform;
+  function indexRenderedObjects() {
+    if (!renderModel) return;
+    renderModel.nodeElements = new Map(
+      [...document.querySelectorAll('.graph-node[data-instance-id]')]
+        .map(row => [row.dataset.instanceId, row])
+    );
+    renderModel.edgeElements = [...document.querySelectorAll('.graph-edge')].map(row => ({
+      row,
+      sourceInstanceId: row.dataset.sourceInstanceId,
+      targetInstanceId: row.dataset.targetInstanceId
+    }));
+    renderPerformance.renderedObjects = renderModel.nodeElements.size + renderModel.edgeElements.length;
+    renderPerformance.culledObjects = 0;
+    lastCullCamera = null;
   }
-  function applyViewportTransform() {
-    applyPanTransform();
+  function updateViewportCulling({ force = false } = {}) {
+    if (!renderModel?.nodeElements) return;
+    const objectCount = renderModel.nodeElements.size + renderModel.edgeElements.length;
+    if (objectCount <= CULLING_OBJECT_THRESHOLD || state.mode === 'current') {
+      if (lastCullCamera !== 'disabled') {
+        renderModel.nodeElements.forEach(row => row.classList.remove('is-canvas-culled'));
+        renderModel.edgeElements.forEach(({ row }) => row.classList.remove('is-canvas-culled'));
+        renderPerformance.culledObjects = 0;
+        lastCullCamera = 'disabled';
+      }
+      return;
+    }
+    const camera = { x: state.panX, y: state.panY, zoom: state.zoom };
+    if (!force && lastCullCamera && lastCullCamera !== 'disabled'
+      && Math.abs(camera.x - lastCullCamera.x) < 24
+      && Math.abs(camera.y - lastCullCamera.y) < 24
+      && Math.abs(camera.zoom - lastCullCamera.zoom) < .015) return;
+    const viewport = element('graphViewport');
+    const margin = CULLING_WORLD_MARGIN_PX / Math.max(state.zoom, .015);
+    const bounds = {
+      left: -state.panX / state.zoom - margin,
+      top: -state.panY / state.zoom - margin,
+      right: (viewport.clientWidth - state.panX) / state.zoom + margin,
+      bottom: (viewport.clientHeight - state.panY) / state.zoom + margin
+    };
+    let culled = 0;
+    renderModel.nodeElements.forEach((row, instanceId) => {
+      const position = renderModel.positions.get(instanceId);
+      const visible = position && position.x + position.w >= bounds.left
+        && position.x <= bounds.right && position.y + position.h >= bounds.top
+        && position.y <= bounds.bottom;
+      row.classList.toggle('is-canvas-culled', !visible);
+      if (!visible) culled += 1;
+    });
+    renderModel.edgeElements.forEach(({ row, sourceInstanceId, targetInstanceId }) => {
+      const source = renderModel.positions.get(sourceInstanceId);
+      const target = renderModel.positions.get(targetInstanceId);
+      const left = Math.min(source?.x ?? Infinity, target?.x ?? Infinity);
+      const top = Math.min(source?.y ?? Infinity, target?.y ?? Infinity);
+      const right = Math.max((source?.x || 0) + (source?.w || 0), (target?.x || 0) + (target?.w || 0));
+      const bottom = Math.max((source?.y || 0) + (source?.h || 0), (target?.y || 0) + (target?.h || 0));
+      const visible = left <= bounds.right && right >= bounds.left
+        && top <= bounds.bottom && bottom >= bounds.top;
+      row.classList.toggle('is-canvas-culled', !visible);
+      if (!visible) culled += 1;
+    });
+    renderPerformance.culledObjects = culled;
+    lastCullCamera = camera;
+  }
+  function applyViewportTransform({ updateMinimap = true, forceCull = false } = {}) {
     const world = document.querySelector('.graph-world');
-    const scaleTransform = `scale(${state.zoom})`;
-    if (world && world.getAttribute('transform') !== scaleTransform) world.setAttribute('transform', scaleTransform);
+    const cameraTransform = `translate(${state.panX} ${state.panY}) scale(${state.zoom})`;
+    if (world && world.getAttribute('transform') !== cameraTransform) world.setAttribute('transform', cameraTransform);
     const viewport = element('graphViewport');
     const zoomBand = state.zoom < .18 ? 'overview' : state.zoom < .5 ? 'medium' : 'detail';
     if (viewport.dataset.labelMode !== state.labelMode) viewport.dataset.labelMode = state.labelMode;
     if (viewport.dataset.zoomBand !== zoomBand) viewport.dataset.zoomBand = zoomBand;
     const zoomLabel = `${Math.round(state.zoom * 100)}%`;
     if (element('zoomReadout').textContent !== zoomLabel) element('zoomReadout').textContent = zoomLabel;
-    updateMinimapViewport();
+    updateViewportCulling({ force: forceCull });
+    if (updateMinimap) updateMinimapViewport();
   }
 
   function renderMinimap() {
@@ -1652,13 +1771,13 @@
       const session = panSession;
       panSession = null;
       if (session.moved) {
-        if (!cancelled) {
-          state.panX = session.panX + event.clientX - session.x;
-          state.panY = session.panY + event.clientY - session.y;
-        }
         if (panAnimationFrame) cancelAnimationFrame(panAnimationFrame);
         panAnimationFrame = 0;
-        applyViewportTransform();
+        const finalX = cancelled ? session.x : Number(event.clientX ?? session.latestX);
+        const finalY = cancelled ? session.y : Number(event.clientY ?? session.latestY);
+        state.panX = session.panX + finalX - session.x;
+        state.panY = session.panY + finalY - session.y;
+        applyViewportTransform({ forceCull: true });
         if (!cancelled) suppressNextPointerClick(event.pointerId);
         event.preventDefault();
       }
@@ -1673,14 +1792,21 @@
       suppressGraphClickPointerId = null;
       if (panSession) return;
       if (event.target.closest('.graph-minimap, button, input, select, textarea, a, summary')) return;
+      let captured = false;
+      try {
+        viewport.setPointerCapture(event.pointerId);
+        captured = true;
+      } catch (_) { /* the global listeners still finish a short-lived pointer */ }
       panSession = {
         pointerId: event.pointerId,
         x: event.clientX,
         y: event.clientY,
+        latestX: event.clientX,
+        latestY: event.clientY,
         panX: state.panX,
         panY: state.panY,
         moved: false,
-        captured: false
+        captured
       };
       viewport.classList.add('is-pan-ready');
     });
@@ -1691,20 +1817,31 @@
       if (!panSession.moved) {
         if (Math.hypot(deltaX, deltaY) < PAN_DRAG_THRESHOLD_PX) return;
         panSession.moved = true;
-        try {
-          viewport.setPointerCapture(event.pointerId);
-          panSession.captured = true;
-        } catch (_) { /* capture can fail if the pointer ended between frames */ }
         viewport.classList.remove('is-pan-ready');
         viewport.classList.add('is-panning');
       }
       event.preventDefault();
-      state.panX = panSession.panX + deltaX;
-      state.panY = panSession.panY + deltaY;
+      panSession.latestX = event.clientX;
+      panSession.latestY = event.clientY;
       if (!panAnimationFrame) {
-        panAnimationFrame = requestAnimationFrame(() => {
+        const requestedAt = performance.now();
+        panAnimationFrame = requestAnimationFrame(frameTime => {
           panAnimationFrame = 0;
-          applyPanTransform();
+          if (!panSession) return;
+          const frameStartedAt = performance.now();
+          state.panX = panSession.panX + panSession.latestX - panSession.x;
+          state.panY = panSession.panY + panSession.latestY - panSession.y;
+          const delay = Math.max(0, frameTime - requestedAt);
+          renderPerformance.cameraFrames += 1;
+          renderPerformance.maximumFrameDelayMs = Math.max(renderPerformance.maximumFrameDelayMs, delay);
+          if (delay > 24) renderPerformance.droppedFrames += 1;
+          applyViewportTransform({ updateMinimap: false });
+          const frameDuration = performance.now() - frameStartedAt;
+          renderPerformance.totalCameraFrameMs += frameDuration;
+          renderPerformance.maximumCameraFrameMs = Math.max(
+            renderPerformance.maximumCameraFrameMs,
+            frameDuration
+          );
         });
       }
     }, { capture: true, passive: false });
@@ -1715,6 +1852,8 @@
     });
     window.addEventListener('blur', () => {
       if (!panSession) return;
+      state.panX = panSession.panX;
+      state.panY = panSession.panY;
       viewport.classList.remove('is-pan-ready', 'is-panning');
       panSession = null;
       if (panAnimationFrame) cancelAnimationFrame(panAnimationFrame);
@@ -1884,6 +2023,88 @@
     return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); };
   }
 
+  function maybeRunBrowserSelfTest() {
+    if (new URLSearchParams(location.search).get('route_ui_selftest') !== '1') return;
+    const output = document.createElement('pre');
+    output.id = 'routeUiSelfTest';
+    output.hidden = true;
+    document.body.appendChild(output);
+    const checks = {};
+    const finish = error => {
+      const passed = !error && Object.values(checks).every(Boolean);
+      output.textContent = JSON.stringify({
+        status: passed ? 'passed' : 'failed',
+        checks,
+        error: error ? String(error.stack || error) : '',
+        performance: window.__AUTOPLANNER_ROUTE_PERF__.snapshot()
+      });
+      document.documentElement.dataset.routeUiSelfTest = passed ? 'passed' : 'failed';
+    };
+    try {
+      state.mode = 'clusters';
+      renderGraph();
+      const viewport = element('graphViewport');
+      const initialPan = { x: state.panX, y: state.panY };
+      viewport.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true, button: 0, buttons: 1, pointerId: 901,
+        pointerType: 'mouse', isPrimary: true, clientX: 120, clientY: 120
+      }));
+      window.dispatchEvent(new PointerEvent('pointermove', {
+        bubbles: true, button: 0, buttons: 1, pointerId: 901,
+        pointerType: 'mouse', isPrimary: true, clientX: 178, clientY: 151
+      }));
+      requestAnimationFrame(() => {
+        try {
+          window.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true, button: 0, buttons: 0, pointerId: 901,
+            pointerType: 'mouse', isPrimary: true, clientX: 178, clientY: 151
+          }));
+          checks.drag = Math.abs(state.panX - initialPan.x - 58) < .01
+            && Math.abs(state.panY - initialPan.y - 31) < .01;
+          checks.singleWorldTransform = document.querySelector('.graph-svg').style.transform === ''
+            && document.querySelector('.graph-world').getAttribute('transform')
+              === `translate(${state.panX} ${state.panY}) scale(${state.zoom})`;
+          const rect = viewport.getBoundingClientRect();
+          const anchorX = Math.max(1, rect.width * .43);
+          const anchorY = Math.max(1, rect.height * .47);
+          const beforeWorld = {
+            x: (anchorX - state.panX) / state.zoom,
+            y: (anchorY - state.panY) / state.zoom
+          };
+          zoomGraph(1.2, rect.left + anchorX, rect.top + anchorY);
+          checks.zoomAnchor = Math.abs((anchorX - state.panX) / state.zoom - beforeWorld.x) < 1e-6
+            && Math.abs((anchorY - state.panY) / state.zoom - beforeWorld.y) < 1e-6;
+          fitGraph();
+          checks.fit = Number.isFinite(state.zoom) && state.zoom > 0
+            && Number.isFinite(state.panX) && Number.isFinite(state.panY);
+          const firstNode = document.querySelector('.graph-node[data-graph-node-id]');
+          if (firstNode) selectGraphNode(firstNode.dataset.graphNodeId, {
+            branchId: firstNode.dataset.branchId || '',
+            instanceId: firstNode.dataset.instanceId || ''
+          });
+          checks.selection = !firstNode || Boolean(document.querySelector('.graph-node.is-selected'));
+          const minimap = element('graphMinimap');
+          minimap.hidden = false;
+          const minimapRect = minimap.getBoundingClientRect();
+          if (minimapRect.width && minimapRect.height) {
+            recenterFromMinimap({
+              clientX: minimapRect.left + minimapRect.width / 2,
+              clientY: minimapRect.top + minimapRect.height / 2
+            });
+          }
+          checks.minimap = Number.isFinite(state.panX) && Number.isFinite(state.panY);
+          state.panX = -100000;
+          state.panY = -100000;
+          applyViewportTransform({ forceCull: true });
+          checks.largeGraphCulling = renderPerformance.renderedObjects <= CULLING_OBJECT_THRESHOLD
+            || renderPerformance.culledObjects > 0;
+          fitGraph();
+          requestAnimationFrame(() => finish());
+        } catch (error) { finish(error); }
+      });
+    } catch (error) { finish(error); }
+  }
+
   function init() {
     ensureSelectedBranchMatchesFilters();
     persistState();
@@ -1896,6 +2117,7 @@
     bindEvents();
     requestAnimationFrame(() => {
       renderGraph();
+      maybeRunBrowserSelfTest();
       integrityCheck.finally(() => requestAnimationFrame(notifyParentReady));
     });
   }

@@ -1367,6 +1367,12 @@ def _sanitize_structure_svg(value: Any) -> str:
     return _serialize_safe_svg_element(root, root=True)
 
 
+def sanitize_structure_svg(value: Any) -> str:
+    """Return the delivery-safe canonical SVG subset used by workbench adapters."""
+
+    return _sanitize_structure_svg(value)
+
+
 def _serialize_safe_svg_element(
     element: ElementTree.Element,
     *,

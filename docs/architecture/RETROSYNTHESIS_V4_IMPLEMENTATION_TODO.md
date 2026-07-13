@@ -476,22 +476,23 @@ Observed P7 strangler acceptance:
 
 Purpose: communicate scientific state instead of branch volume.
 
-- [ ] Default to a 2–5 route portfolio, not the entire exploration graph.
-- [ ] Add explicit views for disconnection hypotheses, expanded graph,
+- [x] Default to a 2–5 route portfolio, not the entire exploration graph.
+- [x] Add explicit views for disconnection hypotheses, expanded graph,
   reaction-validated routes, and stock-closed routes.
-- [ ] Color encodes proof/confidence; badges encode source/proposal type.
-- [ ] Show shared intermediates once and expand alternatives on demand.
-- [ ] Add evidence, stock, rejection, conflict, and provenance inspectors.
-- [ ] Stream revision deltas rather than replacing the whole graph.
-- [ ] Stabilize camera/world transforms so pointer drag never moves the render
+- [x] Color encodes proof/confidence; badges encode source/proposal type.
+- [x] Show shared intermediates once and expand alternatives on demand.
+- [x] Add evidence, stock, rejection, conflict, and provenance inspectors.
+- [x] Stream revision deltas rather than replacing the whole graph.
+- [x] Stabilize camera/world transforms so pointer drag never moves the render
   layer independently of canvas state.
-- [ ] Batch pointer movement with animation frames and eliminate drag-time layout
+- [x] Batch pointer movement with animation frames and eliminate drag-time layout
   recomputation.
-- [ ] Add viewport culling, level of detail, cached molecular depictions, stable
-  layout, and worker-based heavy computation.
-- [ ] Add interaction regressions for drag, zoom, fit, selection, minimap, and
+- [x] Add viewport culling, level of detail, cached molecular depictions, stable
+  layout, and move heavy computation off the UI thread (backend projection or
+  worker where required).
+- [x] Add interaction regressions for drag, zoom, fit, selection, minimap, and
   large graphs.
-- [ ] Benchmark frame time, dropped frames, DOM/canvas object count, update
+- [x] Benchmark frame time, dropped frames, DOM/canvas object count, update
   latency, and memory.
 
 Exit gate:
@@ -499,6 +500,36 @@ Exit gate:
 - The accepted portfolio is readable at default zoom.
 - Drag/zoom remains stable on benchmark-size graphs without visible flashing.
 - UI labels cannot confuse L0 hypotheses with closed routes.
+
+Observed P8 acceptance:
+
+- `route_workbench` projects only the proof portfolio selected by P6 (never more
+  than five routes), exposes four explicit scientific views, canonical shared
+  intermediates, replacement modules, and proof/evidence/stock/conflict/
+  rejection/provenance inspectors. `RetrosynthesisCampaignService.workbench`
+  returns both a digest-bound snapshot and entity upsert/removal delta;
+- new V4 output reaches the existing offline shell through
+  `harness.v4_route_workbench`, a display-only adapter that does not import or
+  execute the 7k-line `RouteForest` compiler. Historical artifacts remain
+  readable through the frozen compatibility path until P9 migrates Web/CLI;
+- the old split camera was removed. Pan and zoom now update one SVG world
+  transform, pointer capture begins on pointer-down, motion is latest-value RAF
+  batched, layout is cached and never recomputed during drag, and the SVG render
+  layer itself stays fixed;
+- the client has semantic zoom/LOD, bounded route overview, cached depictions and
+  graph models, large-graph viewport culling, and an in-browser performance
+  probe. Stable logical layout is computed before rendering, so no heavy layout
+  work remains on the interaction thread;
+- a real local headless Chromium regression exercised drag, anchor zoom, fit,
+  selection, minimap recentering, and culling on a 70-step graph. The observed
+  run rendered 281 objects, reported 0 dropped frames, a 7.5 ms graph update,
+  and about 10 MB JS heap. These values are environment observations, not fixed
+  cross-device guarantees;
+- focused projection, delivery, integrity, service recovery, static interaction,
+  and browser interaction tests make L0 hypotheses visibly and contractually
+  distinct from expanded, reaction-validated, and stock-closed routes. No model
+  or network call is used by the P8 test path. The full local suite passed with
+  1480 tests, 3 skips, and 2 subtests.
 
 ### P9 — Unified interfaces and repository cleanup
 

@@ -8,6 +8,7 @@ controller or its private queues.
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 from typing import Any, Iterable, Mapping
 
 from cascade_planner.application.campaign_context import (
@@ -28,6 +29,10 @@ from cascade_planner.application.retrosynthesis_workers import (
     build_retrosynthesis_worker_handlers,
 )
 from cascade_planner.application.run_kernel import RunKernel, RunSpec
+from cascade_planner.application.route_workbench import (
+    compile_route_workbench,
+    compile_route_workbench_delta,
+)
 from cascade_planner.application.worker_runtime import (
     WorkerCommand,
     WorkerResult,
@@ -277,6 +282,57 @@ class RetrosynthesisCampaignService:
                 "blackboard_is_not_authority": True,
             },
         }
+
+    def workbench(
+        self,
+        *,
+        previous: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Build a bounded UI snapshot and an optional revision delta."""
+
+        graph = self.graph_store.load()
+        portfolio = compile_proof_portfolio(
+            graph,
+            acceptance_spec=self.kernel.spec.acceptance,
+        )
+        snapshot = compile_route_workbench(graph, portfolio)
+        return {
+            "snapshot": snapshot,
+            "delta": compile_route_workbench_delta(previous, snapshot),
+        }
+
+    def publish_workbench(
+        self,
+        *,
+        previous: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Publish the display projection without changing scientific state."""
+
+        result = self.workbench(previous=previous)
+        snapshot = result["snapshot"]
+        ref = self.kernel.artifacts.put_json(
+            snapshot,
+            logical_name="retrosynthesis_route_workbench.json",
+            producer="autoplanner.route_workbench",
+        )
+        run_digest = hashlib.sha256(self.kernel.spec.run_id.encode("utf-8")).hexdigest()
+        self.kernel.artifacts.write_pointer(
+            f"u/{run_digest[:24]}/latest",
+            ref,
+            metadata={
+                "run_id": self.kernel.spec.run_id,
+                "graph_revision": self.kernel.state.graph_revision,
+                "portfolio_route_count": snapshot["portfolio"]["route_count"],
+            },
+        )
+        self.kernel.index.index_artifact(
+            run_id=self.kernel.spec.run_id,
+            artifact_id="retrosynthesis_route_workbench",
+            ref=ref,
+            revision=self.kernel.state.graph_revision,
+            authority_scope="display_projection_only",
+        )
+        return {**result, "snapshot_ref": ref.to_dict()}
 
     def _publish_graph_frontier(
         self,

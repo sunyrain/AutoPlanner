@@ -136,6 +136,37 @@ def test_v4_service_reopens_from_kernel_without_private_campaign_state(
     assert reopened.kernel.recover()["event_count"] == reopened.kernel.state.event_count
 
 
+def test_v4_service_publishes_incremental_workbench_without_mutating_science(
+    tmp_path: Path,
+) -> None:
+    service = RetrosynthesisCampaignService.create(
+        tmp_path / "runtime",
+        tmp_path / "run",
+        spec=_spec(),
+    )
+    service.apply_global_plan(_plan(), idempotency_key="plan")
+    service.execute_frontier_materialization(idempotency_key="materialize")
+    before = service.kernel.revision
+
+    first = service.publish_workbench()
+    second = service.workbench(previous=first["snapshot"])
+
+    assert first["snapshot"]["schema_version"] == "retrosynthesis_route_workbench.v1"
+    assert first["snapshot"]["portfolio"]["route_count"] == 1
+    assert first["delta"]["from_graph_revision"] == 0
+    assert first["snapshot_ref"]["sha256"]
+    assert second["delta"]["empty"] is True
+    assert second["delta"]["base_sha256"] == first["snapshot"]["content_sha256"]
+    assert service.kernel.revision == before
+    indexed = service.kernel.index.artifacts_for_run(service.kernel.spec.run_id)
+    workbench_artifact = next(
+        value
+        for value in indexed
+        if value["artifact_id"] == "retrosynthesis_route_workbench"
+    )
+    assert workbench_artifact["authority_scope"] == "display_projection_only"
+
+
 def test_public_controller_surface_can_dispatch_to_single_kernel_v4(
     tmp_path: Path,
 ) -> None:

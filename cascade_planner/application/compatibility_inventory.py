@@ -91,8 +91,8 @@ _SHIMS = (
     CompatibilityShim(
         shim_id="legacy.route_forest",
         module="cascade_planner.harness.route_forest",
-        replacement="cascade_planner.application.proof_portfolio",
-        removal_milestone="P8 after proof-aware V4 projection reaches parity",
+        replacement="cascade_planner.application.route_workbench",
+        removal_milestone="P9 after Web/CLI use the V4 workbench projection",
         telemetry_source=".autoplanner/compatibility_usage.jsonl",
     ),
     CompatibilityShim(

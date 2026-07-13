@@ -2341,14 +2341,16 @@ def test_route_forest_html_is_read_only_and_inspectable() -> None:
     assert "unique(PROOF_ORDER.map(tierClass))" in html
     assert "const PAN_DRAG_THRESHOLD_PX = 5" in html
     assert "Math.hypot(deltaX, deltaY) < PAN_DRAG_THRESHOLD_PX" in html
-    assert "function applyPanTransform()" in html
-    assert "translate3d(${state.panX}px, ${state.panY}px, 0)" in html
-    assert "world.setAttribute('transform', scaleTransform)" in html
-    assert "requestAnimationFrame(() => {\n          panAnimationFrame = 0;\n          applyPanTransform();" in html
+    assert "function applyPanTransform()" not in html
+    assert "translate3d(${state.panX}px, ${state.panY}px, 0)" not in html
+    assert "translate(${state.panX} ${state.panY}) scale(${state.zoom})" in html
+    assert "world.setAttribute('transform', cameraTransform)" in html
+    assert "requestAnimationFrame(frameTime =>" in html
+    assert "applyViewportTransform({ updateMinimap: false })" in html
     assert "if (panAnimationFrame) cancelAnimationFrame(panAnimationFrame);" in html
     assert "suppressNextPointerClick" in html
     assert "suppressGraphClickPointerId = null" in html
-    assert "autoplanner.route-forest-ui.v3:${forest.case_id" in html
+    assert "autoplanner.route-forest-ui.v4:${forest.case_id" in html
     assert "mode: oneOf(persisted.mode, ['clusters', 'shared', 'current'], 'current')" in html
     assert "selectedStepId: ''" in html
     assert "state.edgeFilter === 'selected' && hasSelection && !related" in html
