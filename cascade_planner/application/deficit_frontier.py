@@ -428,6 +428,181 @@ def frontier_scientific_projection(value: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def compile_selected_route_deficits(
+    selected_routes: Iterable[Mapping[str, Any]],
+    *,
+    edge_proofs: Mapping[str, Mapping[str, Any]],
+    acceptance_spec: RetrosynthesisAcceptanceSpec,
+) -> list[dict[str, Any]]:
+    """Compile proof-stitched portfolio gaps with the canonical V4 taxonomy.
+
+    Route selection adds variant-level membership, but it must not introduce a
+    second deficit schema or queue.  The returned records are ordinary
+    :class:`DeficitItem` rows and can be projected directly into ``RunKernel``.
+    """
+    grouped: dict[tuple[DeficitKind, str], dict[str, Any]] = {}
+
+    def add(
+        kind: DeficitKind,
+        object_id: str,
+        *,
+        route: Mapping[str, Any] | None,
+        entity_ids: Iterable[str],
+        reason: str,
+        deterministic: bool = True,
+        model_allowed: bool = False,
+        source_groups: int = 0,
+        route_diversity: float = 0.0,
+    ) -> None:
+        key = (kind, object_id)
+        current = grouped.setdefault(
+            key,
+            {
+                "entity_ids": set(),
+                "route_family_ids": set(),
+                "route_ids": set(),
+                "reasons": set(),
+                "deterministic": deterministic,
+                "model_allowed": model_allowed,
+                "source_groups": source_groups,
+                "route_diversity": route_diversity,
+            },
+        )
+        current["entity_ids"].update(str(value) for value in entity_ids if str(value))
+        current["reasons"].add(reason)
+        current["deterministic"] = current["deterministic"] and deterministic
+        current["model_allowed"] = current["model_allowed"] or model_allowed
+        current["source_groups"] = max(current["source_groups"], source_groups)
+        current["route_diversity"] = max(
+            current["route_diversity"], route_diversity
+        )
+        if route:
+            route_id = str(route.get("route_id") or "")
+            family_id = str(route.get("route_family_id") or "")
+            if route_id:
+                current["route_ids"].add(route_id)
+            if family_id:
+                current["route_family_ids"].add(family_id)
+
+    routes = [dict(value) for value in selected_routes]
+    for route in routes:
+        for edge_id in route.get("unproven_edge_ids") or []:
+            proof = dict(edge_proofs.get(str(edge_id)) or {})
+            if proof.get("reaction_validated") is not True:
+                kind = DeficitKind.VALIDATION
+                reason = "selected_edge_requires_reaction_validation"
+            else:
+                kind = DeficitKind.EVIDENCE
+                reason = (
+                    "selected_edge_requires_exact_source_binding"
+                    if proof.get("exact_source_bound") is not True
+                    else "selected_edge_proof_below_policy"
+                )
+            add(
+                kind,
+                str(edge_id),
+                route=route,
+                entity_ids=(str(edge_id),),
+                reason=reason,
+                source_groups=len(proof.get("independent_source_groups") or []),
+            )
+        for molecule_id in route.get("open_leaf_molecule_ids") or []:
+            add(
+                DeficitKind.STOCK,
+                str(molecule_id),
+                route=route,
+                entity_ids=(str(molecule_id),),
+                reason="selected_leaf_requires_trusted_stock_audit",
+            )
+        for conflict_id in route.get("conflict_ids") or []:
+            add(
+                DeficitKind.CONFLICT,
+                str(conflict_id),
+                route=route,
+                entity_ids=(str(conflict_id),),
+                reason="selected_route_contains_unresolved_conflict",
+            )
+        if route.get("source_independence_met") is not True:
+            groups = len(route.get("independent_source_groups") or [])
+            add(
+                DeficitKind.EVIDENCE,
+                str(route.get("route_id") or "selected-route"),
+                route=route,
+                entity_ids=tuple(route.get("edge_ids") or []),
+                reason=(
+                    f"independent_source_groups_{groups}_below_required_"
+                    f"{acceptance_spec.minimum_independent_source_groups}"
+                ),
+                source_groups=groups,
+            )
+        if route.get("complete") is not True:
+            add(
+                DeficitKind.ROUTE_CLOSURE,
+                str(route.get("route_id") or "selected-route"),
+                route=route,
+                entity_ids=(
+                    *tuple(route.get("edge_ids") or []),
+                    *tuple(route.get("leaf_molecule_ids") or []),
+                ),
+                reason="selected_proof_stitched_route_not_closed",
+            )
+
+    complete = sum(route.get("complete") is True for route in routes)
+    if complete < acceptance_spec.minimum_complete_routes:
+        add(
+            DeficitKind.DIVERSITY,
+            "selected-route-portfolio",
+            route=None,
+            entity_ids=tuple(route.get("route_id") or "" for route in routes),
+            reason=(
+                f"complete_route_count_{complete}_below_required_"
+                f"{acceptance_spec.minimum_complete_routes}"
+            ),
+            deterministic=False,
+            model_allowed=True,
+            route_diversity=1.0,
+        )
+
+    items: list[DeficitItem] = []
+    for (kind, object_id), value in grouped.items():
+        reasons = sorted(value["reasons"])
+        items.append(
+            _item(
+                kind,
+                object_id,
+                entity_ids=value["entity_ids"],
+                route_family_ids=value["route_family_ids"],
+                deterministic=value["deterministic"],
+                model_allowed=value["model_allowed"],
+                reason=reasons[0],
+                score=_score(
+                    kind,
+                    selected=True,
+                    attempts=0,
+                    source_groups=value["source_groups"],
+                    route_diversity=value["route_diversity"],
+                ),
+                metadata={
+                    "route_ids": sorted(value["route_ids"]),
+                    "reasons": reasons,
+                    "proof_stitched": True,
+                },
+            )
+        )
+    return [
+        item.to_dict()
+        for item in sorted(
+            items,
+            key=lambda item: (
+                -item.score.priority,
+                _KIND_ORDER[item.kind],
+                item.object_id,
+                item.deficit_id,
+            ),
+        )
+    ]
+
+
 def _item(
     kind: DeficitKind,
     object_id: str,

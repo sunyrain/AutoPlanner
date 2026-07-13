@@ -355,20 +355,20 @@ Observed P5 canonical-graph acceptance:
 
 Purpose: make completion strict, diverse, and understandable.
 
-- [ ] Define one proof-level policy and remove duplicate/ad-hoc interpretations.
-- [ ] Require proof for every selected reaction edge and stock audit for every
+- [x] Define one proof-level policy and remove duplicate/ad-hoc interpretations.
+- [x] Require proof for every selected reaction edge and stock audit for every
   selected leaf.
-- [ ] Stitch literature, generated, and stock segments through canonical IDs.
-- [ ] Represent proof gaps and conflicting evidence as first-class deficits.
-- [ ] Compute route edge-set diversity, strategic-disconnection diversity,
+- [x] Stitch literature, generated, and stock segments through canonical IDs.
+- [x] Represent proof gaps and conflicting evidence as first-class deficits.
+- [x] Compute route edge-set diversity, strategic-disconnection diversity,
   shared bottlenecks, source independence, length, convergence, and risk.
-- [ ] Select a small Pareto portfolio rather than dozens of nearly identical
+- [x] Select a small Pareto portfolio rather than dozens of nearly identical
   routes.
-- [ ] Support step alternatives and route-module replacement without duplicating
+- [x] Support step alternatives and route-module replacement without duplicating
   the entire route.
-- [ ] Produce explicit accepted, unresolved, budget-exhausted, and invalid
+- [x] Produce explicit accepted, unresolved, budget-exhausted, and invalid
   closeout decisions.
-- [ ] Ensure aggregate counts never imply completion by themselves.
+- [x] Ensure aggregate counts never imply completion by themselves.
 
 Exit gate:
 
@@ -376,6 +376,37 @@ Exit gate:
   observations to immutable artifacts.
 - Removing any required proof deterministically reopens the corresponding
   deficit.
+
+Observed P6 proof-portfolio acceptance:
+
+- one versioned `ProofPolicy` now computes L0 through L4 from replayable facts;
+  exact literature never substitutes for deterministic reaction validation,
+  model claims never substitute for independent sources, and commonness never
+  substitutes for a current trusted stock observation;
+- selected routes are enumerated over canonical hyperedges, and every complete
+  route carries edge proof digests, exact-record/source-binding IDs, leaf stock
+  observation IDs, inventory snapshot IDs, and weakest-link proof/stock state;
+- variant-level proof, evidence, stock, conflict, closure, and diversity gaps
+  use the existing `DeficitFrontier` item schema and taxonomy before projection
+  into `RunKernel`; P6 introduces no private queue or completion counter;
+- route selection computes edge-set and strategic-disconnection diversity,
+  shared bottlenecks/intermediates, source independence, length, convergence,
+  and risk, then selects a bounded 2--5 route portfolio with Pareto preference
+  and deterministic diversity-aware tie breaking;
+- same-product alternatives are represented as canonical replacement modules;
+  a module patch replaces one edge ID and reuses the shared subgraph instead of
+  copying the full route;
+- accepted, unresolved, budget-exhausted, and invalid closeouts are explicit;
+  only boolean edge proof plus leaf stock closure can accept, while aggregate
+  route/node/edge counts remain diagnostics;
+- a deterministic two-route esterification fixture closed with two distinct
+  validated edges, two independent exact sources per edge, and all leaves in a
+  trusted inventory snapshot.  Removing one reaction proof reopened only that
+  validation deficit, removing one shared stock observation reopened only that
+  leaf deficit, conflicts blocked acceptance, and digest corruption failed
+  closed as invalid;
+- 25 focused P4--P6 tests passed, followed by the full local suite: 1460 tests
+  passed, 3 skipped, 2 subtests passed, with zero model invocations.
 
 ### P7 — Strangle giant modules and compatibility paths
 
