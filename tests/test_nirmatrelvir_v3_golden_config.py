@@ -6,6 +6,8 @@ from pathlib import Path
 
 from cascade_planner.providers.stock import stock_snapshot_sha256
 from cascade_planner.routes.domain import MoleculeIdentity
+from cascade_planner.runtime.run_metrics import validate_run_metrics
+from scripts import run_nirmatrelvir_v3_golden as golden_runner
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,3 +79,66 @@ def test_local_golden_source_digests_when_artifacts_are_present() -> None:
     # every one is still required to match the committed golden contract.
     if observed == 0:
         return
+
+
+def test_golden_runner_emits_model_free_stage_metrics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    expected = _read(GOLDEN)["expected"]
+    monkeypatch.setattr(golden_runner, "_verify_source_artifacts", lambda _: None)
+    monkeypatch.setattr(
+        golden_runner,
+        "candidate_steps_from_blackboard",
+        lambda *args, **kwargs: [{"step_id": "mock"}],
+    )
+    monkeypatch.setattr(
+        golden_runner,
+        "candidate_steps_from_manifest",
+        lambda *args, **kwargs: [{"step_id": "mock"}],
+    )
+    monkeypatch.setattr(
+        golden_runner,
+        "compile_deterministic_literature_step_registry",
+        lambda *args, **kwargs: {
+            "approved_binding_count": 1,
+            "rejected_step_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        golden_runner,
+        "compile_source_route_portfolio",
+        lambda **kwargs: {
+            "accepted": True,
+            "reasons": [],
+            "approved_source_step_count": expected[
+                "approved_source_step_count"
+            ],
+            "hyperedge_count": expected["unique_reaction_hyperedge_count"],
+            "complete_route_count": expected["complete_route_count"],
+            "selected_route_count": expected["selected_route_count"],
+            "stock_terminal_count": expected["stock_terminal_count"],
+            "model_invocations": 0,
+            "independent_support_groups": expected[
+                "independent_support_groups"
+            ],
+        },
+    )
+
+    result = golden_runner.run_golden_case(
+        golden_path=GOLDEN,
+        output_dir=tmp_path,
+    )
+
+    metrics = result["run_metrics"]
+    assert validate_run_metrics(metrics) == []
+    assert metrics["case_id"] == "nirmatrelvir-v3-real-source-dual-route"
+    assert metrics["gauges"]["model_invocations"] == 0
+    assert metrics["gauges"]["complete_route_count"] == 2
+    assert {
+        "golden.verify_sources",
+        "golden.compile_source_registry",
+        "golden.compile_portfolio",
+        "golden.enforce_acceptance",
+    }.issubset({row["name"] for row in metrics["stages"]})
+    assert Path(result["artifacts"]["run_metrics"]).is_file()

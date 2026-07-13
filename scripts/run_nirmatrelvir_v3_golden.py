@@ -14,7 +14,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from cascade_planner.harness.deterministic_literature_registry import (  # noqa: E402
+    build_deterministic_literature_resolvers,
     compile_deterministic_literature_step_registry,
+)
+from cascade_planner.runtime.run_metrics import (  # noqa: E402
+    current_run_metrics,
+    record_run_metrics,
+    run_metric_stage,
 )
 from scripts.compile_source_route_portfolio import (  # noqa: E402
     compile_source_route_portfolio,
@@ -49,6 +55,7 @@ def main() -> None:
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+@record_run_metrics
 def run_golden_case(
     *,
     golden_path: Path = DEFAULT_GOLDEN,
@@ -57,17 +64,27 @@ def run_golden_case(
 ) -> dict[str, Any]:
     """Reconstruct both sources, replay stock, and enforce expected metrics."""
 
-    golden = _read_object(golden_path)
+    with run_metric_stage("golden.load_contract", category="input"):
+        golden = _read_object(golden_path)
     if golden.get("schema_version") != "retrosynthesis_golden_acceptance.v1":
         raise SystemExit("unsupported golden acceptance schema")
-    _verify_source_artifacts(golden)
-    manifest_path = _repo_path(golden.get("candidate_manifest"))
-    stock_path = _repo_path(golden.get("stock_snapshots"))
-    manifest = _read_object(manifest_path)
+    with run_metric_stage("golden.verify_sources", category="evidence"):
+        _verify_source_artifacts(golden)
+        manifest_path = _repo_path(golden.get("candidate_manifest"))
+        stock_path = _repo_path(golden.get("stock_snapshots"))
+        manifest = _read_object(manifest_path)
 
     output = output_dir.resolve()
     registry_root = output / "registries"
     source_summaries: list[dict[str, Any]] = []
+    metrics = current_run_metrics()
+    if metrics is not None:
+        metrics.bind_case_id(str(golden.get("case_id") or ""))
+        metrics.gauge("golden.source_count", len(manifest.get("sources") or []))
+        metrics.gauge("model_invocations", 0)
+    structure_resolver, candidate_name_resolver = (
+        build_deterministic_literature_resolvers(timeout_s=timeout_s)
+    )
     for index, raw_source in enumerate(manifest.get("sources") or []):
         if not isinstance(raw_source, dict):
             continue
@@ -75,28 +92,44 @@ def run_golden_case(
         source_ref = str(source.get("source_ref") or "")
         source_dir = registry_root / f"source-{index + 1}"
         source_dir.mkdir(parents=True, exist_ok=True)
-        if source.get("candidate_blackboard"):
-            candidates = candidate_steps_from_blackboard(
-                _read_object(_repo_path(source["candidate_blackboard"])),
-                source_ref=source_ref,
-            )
-        else:
-            candidates = candidate_steps_from_manifest(
-                manifest,
-                source_ref=source_ref,
-            )
+        with run_metric_stage(
+            "golden.materialize_source_candidates",
+            category="evidence",
+            attributes={"source_index": index + 1, "source_ref": source_ref},
+        ):
+            if source.get("candidate_blackboard"):
+                candidates = candidate_steps_from_blackboard(
+                    _read_object(_repo_path(source["candidate_blackboard"])),
+                    source_ref=source_ref,
+                )
+            else:
+                candidates = candidate_steps_from_manifest(
+                    manifest,
+                    source_ref=source_ref,
+                )
         if not candidates:
             raise SystemExit(f"no deterministic candidates for {source_ref}")
-        audit = compile_deterministic_literature_step_registry(
-            candidates,
-            registry_path=(
-                source_dir / "trusted_literature_step_registry.generated.json"
-            ),
-            audit_path=(
-                source_dir / "deterministic_literature_registry_audit.json"
-            ),
-            timeout_s=timeout_s,
-        )
+        with run_metric_stage(
+            "golden.compile_source_registry",
+            category="validation",
+            attributes={
+                "source_index": index + 1,
+                "source_ref": source_ref,
+                "candidate_count": len(candidates),
+            },
+        ):
+            audit = compile_deterministic_literature_step_registry(
+                candidates,
+                registry_path=(
+                    source_dir / "trusted_literature_step_registry.generated.json"
+                ),
+                audit_path=(
+                    source_dir / "deterministic_literature_registry_audit.json"
+                ),
+                timeout_s=timeout_s,
+                structure_resolver=structure_resolver,
+                candidate_name_resolver=candidate_name_resolver,
+            )
         source_summaries.append(
             {
                 "source_ref": source_ref,
@@ -110,13 +143,15 @@ def run_golden_case(
             }
         )
 
-    portfolio_summary = compile_source_route_portfolio(
-        candidate_manifest_path=manifest_path,
-        registry_root=registry_root,
-        stock_snapshots_path=stock_path,
-        output_dir=output / "portfolio",
-    )
-    _enforce_expected(portfolio_summary, dict(golden.get("expected") or {}))
+    with run_metric_stage("golden.compile_portfolio", category="portfolio"):
+        portfolio_summary = compile_source_route_portfolio(
+            candidate_manifest_path=manifest_path,
+            registry_root=registry_root,
+            stock_snapshots_path=stock_path,
+            output_dir=output / "portfolio",
+        )
+    with run_metric_stage("golden.enforce_acceptance", category="acceptance"):
+        _enforce_expected(portfolio_summary, dict(golden.get("expected") or {}))
     if portfolio_summary.get("accepted") is not True:
         raise SystemExit(
             "Nirmatrelvir golden acceptance failed: "
@@ -131,6 +166,20 @@ def run_golden_case(
         "model_invocations": 0,
         "output_dir": str(output),
     }
+    if metrics is not None:
+        for source in source_summaries:
+            metrics.increment(
+                "golden.approved_source_bindings",
+                int(source.get("approved_binding_count") or 0),
+            )
+        for key in (
+            "hyperedge_count",
+            "complete_route_count",
+            "selected_route_count",
+            "stock_terminal_count",
+        ):
+            if key in portfolio_summary:
+                metrics.gauge(key, portfolio_summary[key])
     _write_json(output / "golden_run_summary.json", summary)
     return summary
 

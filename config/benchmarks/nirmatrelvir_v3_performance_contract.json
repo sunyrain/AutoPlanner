@@ -1,0 +1,24 @@
+{
+  "schema_version": "retrosynthesis_performance_contract.v1",
+  "case_id": "nirmatrelvir-v3-real-source-dual-route",
+  "scientific_minimums": {
+    "approved_source_step_count": 15,
+    "complete_route_count": 2,
+    "independent_support_group_count": 2,
+    "selected_route_count": 2,
+    "stock_terminal_count": 7,
+    "unique_reaction_hyperedge_count": 12
+  },
+  "engineering_limits": {
+    "max_artifact_bytes_per_iteration": 50000000,
+    "max_cpu_time_s_per_iteration": 600.0,
+    "max_model_invocations": 0,
+    "max_wall_time_s_per_iteration": 900.0
+  },
+  "semantics": {
+    "deterministic_replay_only": true,
+    "limits_reject_order_of_magnitude_regressions": true,
+    "machine_variance_is_expected": true,
+    "scientific_minimums_must_not_regress": true
+  }
+}

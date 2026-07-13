@@ -39,6 +39,17 @@ from .artifact_revision import (
     validate_closeout_manifest,
     validate_latest_closeout_revision,
 )
+from .run_metrics import (
+    RUN_METRICS_SCHEMA,
+    RUN_STAGE_METRIC_SCHEMA,
+    RunMetricsRecorder,
+    current_run_metrics,
+    measure_current_stage,
+    record_run_metrics,
+    run_metric_checkpoint,
+    run_metric_stage,
+    validate_run_metrics,
+)
 
 
 __all__ = [
@@ -63,16 +74,25 @@ __all__ = [
     "IdempotencyConflictError",
     "InvalidStateTransition",
     "JsonlEventStore",
+    "RUN_METRICS_SCHEMA",
+    "RUN_STAGE_METRIC_SCHEMA",
+    "RunMetricsRecorder",
     "SnapshotConflictError",
     "coerce_agent_state",
     "context_hash",
+    "current_run_metrics",
     "load_latest_closeout_manifest",
     "load_latest_closeout_artifact",
     "load_latest_closeout_decision",
     "publish_closeout_revision",
+    "measure_current_stage",
+    "record_run_metrics",
     "require_agent_state_transition",
+    "run_metric_checkpoint",
+    "run_metric_stage",
     "sha256_file",
     "utc_now",
     "validate_closeout_manifest",
     "validate_latest_closeout_revision",
+    "validate_run_metrics",
 ]

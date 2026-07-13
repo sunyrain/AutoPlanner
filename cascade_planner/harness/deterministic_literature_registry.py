@@ -33,6 +33,10 @@ from cascade_planner.harness.source_text_companion import (
     materialize_source_text_companion_pages,
     validate_source_text_companion_binding,
 )
+from cascade_planner.runtime.run_metrics import (
+    current_run_metrics,
+    run_metric_stage,
+)
 
 
 REGISTRY_SCHEMA = "trusted_literature_step_registry.v1"
@@ -45,6 +49,27 @@ _MAX_HEADING_PARSE_ATTEMPTS_PER_EDGE = 16
 StructureResolver = Callable[[str], str]
 CandidateNameResolver = Callable[[str], list[str]]
 PdfTextLoader = Callable[[Path], list[dict[str, Any]]]
+
+
+def build_deterministic_literature_resolvers(
+    *,
+    opsin_base_url: str = DEFAULT_OPSIN_BASE_URL,
+    pubchem_base_url: str = DEFAULT_PUBCHEM_BASE_URL,
+    timeout_s: float = 30.0,
+) -> tuple[StructureResolver, CandidateNameResolver]:
+    """Build one run-scoped resolver pair with shared in-memory caches."""
+
+    return (
+        _opsin_resolver(
+            base_url=opsin_base_url,
+            pubchem_base_url=pubchem_base_url,
+            timeout_s=timeout_s,
+        ),
+        _pubchem_name_resolver(
+            base_url=pubchem_base_url,
+            timeout_s=timeout_s,
+        ),
+    )
 
 
 def compile_deterministic_literature_step_registry(
@@ -1174,7 +1199,9 @@ def _opsin_resolver(
     def resolve(name: str) -> str:
         key = _compact_source_text(name)
         if key in cache:
+            _increment_metric("resolver.structure.cache_hit")
             return cache[key]
+        _increment_metric("resolver.structure.cache_miss")
         url = f"{base_url.rstrip('/')}/{urllib.parse.quote(key, safe='')}.smi"
         request = urllib.request.Request(
             url,
@@ -1182,11 +1209,19 @@ def _opsin_resolver(
         )
         value = ""
         try:
-            with urllib.request.urlopen(request, timeout=max(1.0, timeout_s)) as response:
-                value = response.read(1_000_000).decode("utf-8").strip()
+            with run_metric_stage("resolver.opsin.request", category="network"):
+                with urllib.request.urlopen(
+                    request,
+                    timeout=max(1.0, timeout_s),
+                ) as response:
+                    value = response.read(1_000_000).decode("utf-8").strip()
         except (urllib.error.URLError, UnicodeDecodeError, TimeoutError):
+            _increment_metric("resolver.opsin.failure")
             value = ""
+        else:
+            _increment_metric("resolver.opsin.success")
         if not _canonical_smiles(value):
+            _increment_metric("resolver.opsin.fallback_to_pubchem")
             value = _pubchem_structure_from_name(
                 key,
                 base_url=pubchem_base_url,
@@ -1215,18 +1250,24 @@ def _pubchem_structure_from_name(
         headers={"User-Agent": "AutoPlanner deterministic literature parser/1"},
     )
     try:
-        with urllib.request.urlopen(
-            request,
-            timeout=max(1.0, timeout_s),
-        ) as response:
-            payload = json.loads(response.read(2_000_000).decode("utf-8"))
+        with run_metric_stage(
+            "resolver.pubchem_structure.request",
+            category="network",
+        ):
+            with urllib.request.urlopen(
+                request,
+                timeout=max(1.0, timeout_s),
+            ) as response:
+                payload = json.loads(response.read(2_000_000).decode("utf-8"))
     except (
         urllib.error.URLError,
         UnicodeDecodeError,
         json.JSONDecodeError,
         TimeoutError,
     ):
+        _increment_metric("resolver.pubchem_structure.failure")
         return ""
+    _increment_metric("resolver.pubchem_structure.success")
     for row in ((payload.get("PropertyTable") or {}).get("Properties") or []):
         if isinstance(row, dict) and str(row.get("SMILES") or "").strip():
             return str(row.get("SMILES") or "").strip()
@@ -1243,7 +1284,9 @@ def _pubchem_name_resolver(
     def resolve(smiles: str) -> list[str]:
         canonical = _canonical_smiles(smiles)
         if canonical in cache:
+            _increment_metric("resolver.candidate_names.cache_hit")
             return list(cache[canonical])
+        _increment_metric("resolver.candidate_names.cache_miss")
         encoded = urllib.parse.quote(canonical, safe="")
         url = (
             f"{base_url.rstrip('/')}/compound/smiles/{encoded}/"
@@ -1254,16 +1297,27 @@ def _pubchem_name_resolver(
             headers={"User-Agent": "AutoPlanner deterministic literature parser/1"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=max(1.0, timeout_s)) as response:
-                payload = json.loads(response.read(2_000_000).decode("utf-8"))
+            with run_metric_stage(
+                "resolver.pubchem_names.request",
+                category="network",
+            ):
+                with urllib.request.urlopen(
+                    request,
+                    timeout=max(1.0, timeout_s),
+                ) as response:
+                    payload = json.loads(
+                        response.read(2_000_000).decode("utf-8")
+                    )
         except (
             urllib.error.URLError,
             UnicodeDecodeError,
             json.JSONDecodeError,
             TimeoutError,
         ):
+            _increment_metric("resolver.pubchem_names.failure")
             cache[canonical] = []
             return []
+        _increment_metric("resolver.pubchem_names.success")
         properties = ((payload.get("PropertyTable") or {}).get("Properties") or [])
         names: list[str] = []
         for row in properties:
@@ -1277,6 +1331,12 @@ def _pubchem_name_resolver(
         return list(names)
 
     return resolve
+
+
+def _increment_metric(name: str, value: int = 1) -> None:
+    metrics = current_run_metrics()
+    if metrics is not None:
+        metrics.increment(name, value)
 
 
 def _load_pdf_page_text(path: Path) -> list[dict[str, Any]]:

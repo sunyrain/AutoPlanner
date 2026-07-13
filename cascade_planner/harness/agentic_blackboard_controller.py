@@ -162,6 +162,12 @@ from cascade_planner.runtime.artifact_revision import (
     publish_closeout_revision,
     sha256_file,
 )
+from cascade_planner.runtime.run_metrics import (
+    current_run_metrics,
+    measure_current_stage,
+    record_run_metrics,
+    run_metric_checkpoint,
+)
 
 
 ActionPlannerRunner = Callable[..., dict[str, Any]]
@@ -188,6 +194,7 @@ def _nonnegative_budget_int(value: Any, *, default: int) -> int:
 
 
 @blackboard_controller_single_writer
+@record_run_metrics
 def run_agentic_blackboard_controller(
     *,
     target_name: str,
@@ -249,13 +256,22 @@ def run_agentic_blackboard_controller(
     """Run the policy-driven DAG + blackboard controller."""
     run_dir = Path(output_dir).resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
+    run_metrics = current_run_metrics()
+    if run_metrics is None:  # Defensive for direct access through __wrapped__.
+        raise RuntimeError("run_metrics_context_missing")
+    run_metrics.gauge("config.max_rounds", max(0, int(max_rounds or 0)))
     (run_dir / "tool_calls.jsonl").touch()
     (run_dir / "decision_trace.jsonl").touch()
+    run_metric_checkpoint("controller.setup")
     budget = budget or HarnessBudget(timeout_s=float(timeout_s))
     acceptance_spec = (
         retrosynthesis_acceptance_spec or RetrosynthesisAcceptanceSpec()
     )
     run_budget = retrosynthesis_run_budget or RetrosynthesisRunBudget()
+    run_metrics.gauge(
+        "config.model_invocation_cap",
+        int(run_budget.max_model_invocations),
+    )
     codex_agent_team_max_expansions = min(
         max(0, int(codex_agent_team_max_expansions or 0)),
         run_budget.max_accepted_expansions,
@@ -289,14 +305,16 @@ def run_agentic_blackboard_controller(
         family_hint=family_hint,
         case_id="",
     )
-    source_rows = _normalize_literature_sources(
-        literature_pdf_path=literature_pdf_path,
-        literature_pdf_source_ref=literature_pdf_source_ref,
-        literature_sources=literature_sources,
-        auto_discover_local_pdfs=auto_discover_local_pdfs,
-        local_pdf_search_dirs=local_pdf_search_dirs,
-        run_dir=run_dir,
-    )
+    with run_metrics.span("input.normalize_sources"):
+        source_rows = _normalize_literature_sources(
+            literature_pdf_path=literature_pdf_path,
+            literature_pdf_source_ref=literature_pdf_source_ref,
+            literature_sources=literature_sources,
+            auto_discover_local_pdfs=auto_discover_local_pdfs,
+            local_pdf_search_dirs=local_pdf_search_dirs,
+            run_dir=run_dir,
+        )
+    run_metrics.gauge("input.source_count", len(source_rows))
     target_data = target.to_dict()
     _attach_literature_sources(target_data, source_rows)
     target_data["analogical_template_policy"] = {
@@ -325,7 +343,8 @@ def run_agentic_blackboard_controller(
     write_json(run_dir / "budget.json", budget.to_dict())
     append_jsonl(run_dir / "decision_trace.jsonl", {"stage": "start", "created_at_utc": _now(), "controller": "agentic_blackboard"})
 
-    preflight = run_preflight(target)
+    with run_metrics.span("chemistry.preflight"):
+        preflight = run_preflight(target)
     target.case_id = str(preflight.get("case_id") or target.case_id)
     target_data = target.to_dict()
     _attach_literature_sources(target_data, source_rows)
@@ -364,6 +383,7 @@ def run_agentic_blackboard_controller(
         base_url=base_url,
         model=model,
         mock_tool_results=dict(mock_tool_results or {}),
+        run_metrics=run_metrics,
     )
     codex_campaign_refresh_config = (
         _controller_codex_team_config(
@@ -409,10 +429,11 @@ def run_agentic_blackboard_controller(
         acceptance_spec=acceptance_spec,
         run_budget=run_budget,
     )
-    blackboard, recovery_report = rehydrate_blackboard_from_events(
-        blackboard,
-        run_dir=run_dir,
-    )
+    with run_metrics.span("recovery.blackboard_events"):
+        blackboard, recovery_report = rehydrate_blackboard_from_events(
+            blackboard,
+            run_dir=run_dir,
+        )
     recovery_report_path = run_dir / "blackboard_events" / "recovery_report.json"
     state.artifacts["blackboard_rehydration"] = recovery_report
     blackboard["blackboard_rehydration"] = recovery_report
@@ -473,6 +494,13 @@ def run_agentic_blackboard_controller(
         metadata={
             "prior_event_count": int(recovery_report.get("event_count") or 0),
             "projection_source_used": False,
+        },
+    )
+    run_metric_checkpoint(
+        "controller.initialize_and_recover",
+        attributes={
+            "recovered": recovery_report.get("recovered") is True,
+            "event_count": int(recovery_report.get("event_count") or 0),
         },
     )
     step_index = 0
@@ -585,19 +613,23 @@ def run_agentic_blackboard_controller(
     )
     for round_index in range(first_round_index, int(max_rounds or 3) + 1):
         blackboard = _refresh_blackboard_from_local_pdf_proxy_downloads(blackboard, run_dir=run_dir)
-        action_batch = _obtain_action_batch(
-            blackboard=blackboard,
-            round_index=round_index,
-            run_dir=run_dir,
-            state=state,
-            action_planner=action_planner,
-            exhaust_round_budget=exhaust_round_budget,
-            use_codex_action_planner=use_codex_action_planner,
-            allow_deterministic_fallback=bool(
-                not use_codex_agent_team
-                or _controller_evidence_first_work_pending(blackboard)
-            ),
-        )
+        with run_metrics.span(
+            "round.action_planning",
+            metadata={"round_index": int(round_index)},
+        ):
+            action_batch = _obtain_action_batch(
+                blackboard=blackboard,
+                round_index=round_index,
+                run_dir=run_dir,
+                state=state,
+                action_planner=action_planner,
+                exhaust_round_budget=exhaust_round_budget,
+                use_codex_action_planner=use_codex_action_planner,
+                allow_deterministic_fallback=bool(
+                    not use_codex_agent_team
+                    or _controller_evidence_first_work_pending(blackboard)
+                ),
+            )
         validation = validate_action_batch(action_batch, blackboard=blackboard)
         blackboard = update_blackboard_from_action_batch(
             blackboard,
@@ -1718,6 +1750,7 @@ def _write_codex_controller_projection(
     return board
 
 
+@measure_current_stage("campaign.codex_team", category="model")
 def _run_and_merge_codex_agent_team(
     *,
     blackboard: dict[str, Any],
@@ -2763,6 +2796,7 @@ def _trusted_stock_provider_instances_for_run(
     )
 
 
+@measure_current_stage("graph.refresh_consensus", category="graph")
 def _refresh_multisource_route_consensus(
     *,
     state: ToolExecutionState,
@@ -4430,6 +4464,7 @@ def _codex_edge_reaction_proofs(
     return proofs
 
 
+@measure_current_stage("closeout.finalize", category="closeout")
 def _finalize_agentic_run(
     *,
     state: ToolExecutionState,
@@ -4575,6 +4610,7 @@ def _finalize_agentic_run(
     return board, bundle, final
 
 
+@measure_current_stage("closeout.emit_verdict", category="closeout")
 def emit_agentic_final_verdict(
     *,
     blackboard: dict[str, Any],
@@ -4864,6 +4900,7 @@ def _downgrade_invalid_agentic_final_verdict(
     )
 
 
+@measure_current_stage("scheduler.obtain_action_batch", category="scheduler")
 def _obtain_action_batch(
     *,
     blackboard: dict[str, Any],
@@ -5016,6 +5053,7 @@ def _obtain_action_batch(
     return batch
 
 
+@measure_current_stage("tool.execute_action", category="tool")
 def _execute_agent_action(
     *,
     action: dict[str, Any],

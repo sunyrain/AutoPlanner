@@ -95,6 +95,7 @@ from cascade_planner.harness.schemas import (
 from cascade_planner.harness.self_evo_memory import compile_self_evo_memory, write_self_evo_memory
 from cascade_planner.harness.self_evo_replay import run_self_evo_replay_gate as run_self_evo_replay_gate_report
 from cascade_planner.routes.domain import canonicalize_smiles
+from cascade_planner.runtime.run_metrics import RunMetricsRecorder
 from cascade_planner.source_locators import canonical_traceable_source_ref
 
 
@@ -159,6 +160,7 @@ class ToolExecutionState:
     artifacts: dict[str, Any] = field(default_factory=dict)
     validations: list[dict[str, Any]] = field(default_factory=list)
     safety_flags: list[str] = field(default_factory=list)
+    run_metrics: RunMetricsRecorder | None = None
 
 
 ToolHandler = Callable[[ToolExecutionState, dict[str, Any]], dict[str, Any]]
@@ -6458,6 +6460,14 @@ def _mock_result(state: ToolExecutionState, tool_name: str, payload: dict[str, A
 def _write_tool_record(state: ToolExecutionState, record: ToolCallRecord) -> None:
     append_jsonl(state.run_dir / "tool_calls.jsonl", record.to_dict())
     append_jsonl(state.run_dir / "decision_trace.jsonl", {"stage": "tool_call", "tool_call": record.to_dict()})
+    if state.run_metrics is not None:
+        state.run_metrics.observe(
+            f"tool:{record.tool_name}",
+            elapsed_s=max(0.0, float(record.elapsed_s or 0.0)),
+            status=str(record.status or "unknown"),
+        )
+        state.run_metrics.increment("tool.calls.total")
+        state.run_metrics.increment(f"tool.calls.{record.status or 'unknown'}")
 
 
 _LAST_CHEMENZY_RUNTIME_PREFLIGHT: dict[str, Any] = {}
