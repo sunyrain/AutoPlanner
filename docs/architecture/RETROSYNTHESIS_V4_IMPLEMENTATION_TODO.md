@@ -134,25 +134,44 @@ Observed P1 cold/warm acceptance:
 
 Purpose: remove competing campaign/round/expansion states.
 
-- [ ] Define `RunSpec`, `RunState`, `RunRevision`, `RunEvent`, `Deficit`, and
+- [x] Define `RunSpec`, `RunState`, `RunRevision`, `RunEvent`, `Deficit`, and
   `StopDecision` domain contracts.
-- [ ] Move acceptance, model, attempt, accepted-expansion, evidence, stock, and
+- [x] Move acceptance, model, attempt, accepted-expansion, evidence, stock, and
   wall-time budgets under one kernel.
-- [ ] Separate `attempt_budget` from `accepted_expansion_budget` in every path.
-- [ ] Guarantee one accepted child expansion increments exactly once.
-- [ ] Make all state transitions idempotent and event-addressed.
-- [ ] Persist a snapshot plus append-only events; replay must reproduce the same
+- [x] Separate `attempt_budget` from `accepted_expansion_budget` in the V4 path.
+- [x] Guarantee one accepted child expansion increments exactly once.
+- [x] Make all state transitions idempotent and event-addressed.
+- [x] Persist a snapshot plus append-only events; replay must reproduce the same
   canonical state digest.
-- [ ] Recover reserved/in-flight tasks deterministically after interruption.
-- [ ] Replace round-count completion with acceptance or explicit unresolved
+- [x] Preserve reserved/in-flight tasks deterministically after interruption so
+  the scheduler can resume or settle the same task identities.
+- [x] Replace round-count completion with acceptance or explicit unresolved
   deficits.
-- [ ] Expose cancellation, timeout, pause/recovery, and failure taxonomy.
+- [x] Expose cancellation, timeout accounting, pause/recovery, terminal states,
+  and machine-readable failure reasons.
 
 Exit gate:
 
 - There is no second mutable expansion state in the blackboard, ChemEnzy
   adapter, or Codex campaign tracker.
 - Crash/recovery replay produces the same graph and acceptance digest.
+
+Observed P2 V4-path acceptance:
+
+- one real, model-free Nirmatrelvir replay retained 2 complete routes, 12
+  hyperedges, 7 stock terminals, and 0 model invocations;
+- the run completed through 18 hash-chained events, 6 settled deterministic
+  tasks, 0 accepted proposal expansions, and a digest-bound final snapshot;
+- attempts and unique accepted-expansion identities are separately enforced,
+  including concurrent reservations, prompt-context, visual, token, and
+  wall-time admission;
+- crash-tail repair, snapshot rebuild, tamper rejection, pause/resume, stale
+  acceptance invalidation, and idempotency are covered by focused tests;
+- the full local suite passed with 1425 tests, 3 skips, and 2 subtests.
+
+The V4 path no longer creates a second campaign state.  The legacy controller
+and Codex campaign tracker remain compatibility implementations until their P7
+strangler adapters are complete; they are not treated as V4 authority.
 
 ### P3 — Global Campaign Director
 

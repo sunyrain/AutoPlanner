@@ -5,8 +5,9 @@ import argparse
 import hashlib
 import json
 import sys
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +20,15 @@ from cascade_planner.harness.deterministic_literature_registry import (  # noqa:
 )
 from cascade_planner.harness.deterministic_resolver_cache import (  # noqa: E402
     DeterministicResolverCache,
+)
+from cascade_planner.application.retrosynthesis_run_contract import (  # noqa: E402
+    RetrosynthesisAcceptanceSpec,
+    RetrosynthesisRunBudget,
+)
+from cascade_planner.application.run_kernel import (  # noqa: E402
+    RunKernel,
+    RunLimits,
+    RunSpec,
 )
 from cascade_planner.runtime.run_metrics import (  # noqa: E402
     current_run_metrics,
@@ -37,6 +47,7 @@ from scripts.replay_deterministic_literature_registry import (  # noqa: E402
 DEFAULT_GOLDEN = (
     ROOT / "config/examples/nirmatrelvir_v3_golden_acceptance.json"
 )
+_T = TypeVar("_T")
 
 
 def main() -> None:
@@ -65,6 +76,7 @@ def run_golden_case(
     output_dir: Path,
     timeout_s: float = 30.0,
     resolver_cache_root: Path | None = None,
+    runtime_root: Path | None = None,
 ) -> dict[str, Any]:
     """Reconstruct both sources, replay stock, and enforce expected metrics."""
 
@@ -79,6 +91,40 @@ def run_golden_case(
         manifest = _read_object(manifest_path)
 
     output = output_dir.resolve()
+    kernel_runtime_root = (runtime_root or output / ".autoplanner" / "runtime").resolve()
+    acceptance_row = dict(golden.get("acceptance_spec") or {})
+    kernel = RunKernel(
+        kernel_runtime_root,
+        output,
+        spec=RunSpec(
+            run_id=(
+                "golden:"
+                + str(golden.get("case_id") or "nirmatrelvir")
+                + ":"
+                + output.name
+            ),
+            target_name=str(golden.get("target_name") or "nirmatrelvir"),
+            target_smiles=str(manifest.get("target_smiles") or "unknown"),
+            acceptance=RetrosynthesisAcceptanceSpec(**acceptance_row),
+            limits=RunLimits(
+                model=RetrosynthesisRunBudget(
+                    max_model_invocations=0,
+                    max_total_input_tokens=0,
+                    max_total_output_tokens=0,
+                    max_total_wall_time_s=0.0,
+                    max_visual_invocations=0,
+                    max_accepted_expansions=0,
+                    max_attempt_runs=max(
+                        12,
+                        2 * len(manifest.get("sources") or []) + 2,
+                    ),
+                )
+            ),
+            producer="scripts.run_nirmatrelvir_v3_golden",
+        ),
+    )
+    if kernel.state.status == "created":
+        kernel.start()
     registry_root = output / "registries"
     source_summaries: list[dict[str, Any]] = []
     metrics = current_run_metrics()
@@ -103,33 +149,31 @@ def run_golden_case(
         source_ref = str(source.get("source_ref") or "")
         source_dir = registry_root / f"source-{index + 1}"
         source_dir.mkdir(parents=True, exist_ok=True)
-        with run_metric_stage(
-            "golden.materialize_source_candidates",
-            category="evidence",
-            attributes={"source_index": index + 1, "source_ref": source_ref},
-        ):
-            if source.get("candidate_blackboard"):
-                candidates = candidate_steps_from_blackboard(
-                    _read_object(_repo_path(source["candidate_blackboard"])),
-                    source_ref=source_ref,
-                )
-            else:
-                candidates = candidate_steps_from_manifest(
-                    manifest,
-                    source_ref=source_ref,
-                )
-        if not candidates:
-            raise SystemExit(f"no deterministic candidates for {source_ref}")
-        with run_metric_stage(
-            "golden.compile_source_registry",
-            category="validation",
-            attributes={
+        candidates = _execute_kernel_task(
+            kernel,
+            task_id=f"source-{index + 1}:materialize",
+            kind="evidence",
+            input_revision=kernel.state.graph_revision,
+            operation=lambda: _source_candidates(
+                source,
+                manifest=manifest,
+                source_ref=source_ref,
+            ),
+            metric_name="golden.materialize_source_candidates",
+            metric_category="evidence",
+            metric_attributes={
                 "source_index": index + 1,
                 "source_ref": source_ref,
-                "candidate_count": len(candidates),
             },
-        ):
-            audit = compile_deterministic_literature_step_registry(
+        )
+        if not candidates:
+            raise SystemExit(f"no deterministic candidates for {source_ref}")
+        audit = _execute_kernel_task(
+            kernel,
+            task_id=f"source-{index + 1}:validate",
+            kind="validation",
+            input_revision=kernel.state.graph_revision,
+            operation=lambda: compile_deterministic_literature_step_registry(
                 candidates,
                 registry_path=(
                     source_dir / "trusted_literature_step_registry.generated.json"
@@ -140,7 +184,15 @@ def run_golden_case(
                 timeout_s=timeout_s,
                 structure_resolver=structure_resolver,
                 candidate_name_resolver=candidate_name_resolver,
-            )
+            ),
+            metric_name="golden.compile_source_registry",
+            metric_category="validation",
+            metric_attributes={
+                "source_index": index + 1,
+                "source_ref": source_ref,
+                "candidate_count": len(candidates),
+            },
+        )
         source_summaries.append(
             {
                 "source_ref": source_ref,
@@ -160,20 +212,90 @@ def run_golden_case(
             int(cache_flush.get("entry_count") or 0),
         )
 
-    with run_metric_stage("golden.compile_portfolio", category="portfolio"):
-        portfolio_summary = compile_source_route_portfolio(
+    portfolio_summary = _execute_kernel_task(
+        kernel,
+        task_id="portfolio:compile",
+        kind="validation",
+        input_revision=kernel.state.graph_revision,
+        operation=lambda: compile_source_route_portfolio(
             candidate_manifest_path=manifest_path,
             registry_root=registry_root,
             stock_snapshots_path=stock_path,
             output_dir=output / "portfolio",
+        ),
+        metric_name="golden.compile_portfolio",
+        metric_category="portfolio",
+    )
+    try:
+        _execute_kernel_task(
+            kernel,
+            task_id="acceptance:enforce",
+            kind="validation",
+            input_revision=kernel.state.graph_revision,
+            operation=lambda: _enforce_expected(
+                portfolio_summary,
+                dict(golden.get("expected") or {}),
+            ),
+            metric_name="golden.enforce_acceptance",
+            metric_category="acceptance",
         )
-    with run_metric_stage("golden.enforce_acceptance", category="acceptance"):
-        _enforce_expected(portfolio_summary, dict(golden.get("expected") or {}))
+    except BaseException as exc:
+        kernel.transition(
+            "failed",
+            idempotency_key="run:failed:acceptance",
+            reasons=(type(exc).__name__,),
+        )
+        raise
+    graph_revision = max(1, kernel.state.graph_revision + 1)
+    kernel.publish_graph_revision(
+        graph_revision,
+        graph_sha256=_json_digest(portfolio_summary),
+        evidence_revision=len(source_summaries),
+        idempotency_key=f"graph:{graph_revision}",
+    )
+    accepted = portfolio_summary.get("accepted") is True
+    kernel.replace_deficits(
+        []
+        if accepted
+        else [
+            {
+                "deficit_id": "golden:acceptance",
+                "kind": "reaction_validation",
+                "priority": 1000.0,
+                "deterministic": True,
+                "model_allowed": False,
+            }
+        ],
+        source_revision=graph_revision,
+        idempotency_key=f"deficits:{graph_revision}",
+    )
+    kernel.record_acceptance(
+        {
+            "accepted": accepted,
+            "graph_revision": graph_revision,
+            "complete_route_count": int(
+                portfolio_summary.get("complete_route_count") or 0
+            ),
+            "hyperedge_count": int(portfolio_summary.get("hyperedge_count") or 0),
+            "stock_terminal_count": int(
+                portfolio_summary.get("stock_terminal_count") or 0
+            ),
+        },
+        idempotency_key=f"acceptance:{graph_revision}",
+    )
     if portfolio_summary.get("accepted") is not True:
+        kernel.transition(
+            "failed",
+            idempotency_key=f"run:failed:{graph_revision}",
+            reasons=tuple(portfolio_summary.get("reasons") or []),
+        )
         raise SystemExit(
             "Nirmatrelvir golden acceptance failed: "
             + ",".join(portfolio_summary.get("reasons") or [])
         )
+    stop_decision = kernel.apply_stop_decision(
+        idempotency_key=f"run:stop:{graph_revision}"
+    )
     summary = {
         "schema_version": "retrosynthesis_golden_run.v1",
         "case_id": str(golden.get("case_id") or ""),
@@ -182,6 +304,10 @@ def run_golden_case(
         "portfolio": portfolio_summary,
         "model_invocations": 0,
         "output_dir": str(output),
+        "run_kernel": {
+            "state": kernel.state.to_dict(),
+            "stop_decision": stop_decision.to_dict(),
+        },
     }
     if metrics is not None:
         for source in source_summaries:
@@ -199,6 +325,75 @@ def run_golden_case(
                 metrics.gauge(key, portfolio_summary[key])
     _write_json(output / "golden_run_summary.json", summary)
     return summary
+
+
+def _execute_kernel_task(
+    kernel: RunKernel,
+    *,
+    task_id: str,
+    kind: str,
+    input_revision: int,
+    operation: Callable[[], _T],
+    metric_name: str,
+    metric_category: str,
+    metric_attributes: dict[str, Any] | None = None,
+) -> _T:
+    kernel.reserve_task(
+        task_id=task_id,
+        kind=kind,
+        idempotency_key=f"reserve:{task_id}",
+        input_revision=input_revision,
+    )
+    started = time.perf_counter()
+    try:
+        with run_metric_stage(
+            metric_name,
+            category=metric_category,
+            attributes=metric_attributes,
+        ):
+            result = operation()
+    except BaseException as exc:
+        kernel.settle_task(
+            task_id=task_id,
+            idempotency_key=f"settle:{task_id}",
+            status="failed",
+            failure_reasons=(type(exc).__name__,),
+            elapsed_s=max(0.0, time.perf_counter() - started),
+        )
+        raise
+    kernel.settle_task(
+        task_id=task_id,
+        idempotency_key=f"settle:{task_id}",
+        status="completed",
+        elapsed_s=max(0.0, time.perf_counter() - started),
+    )
+    return result
+
+
+def _source_candidates(
+    source: dict[str, Any],
+    *,
+    manifest: dict[str, Any],
+    source_ref: str,
+) -> list[dict[str, Any]]:
+    if source.get("candidate_blackboard"):
+        return candidate_steps_from_blackboard(
+            _read_object(_repo_path(source["candidate_blackboard"])),
+            source_ref=source_ref,
+        )
+    return candidate_steps_from_manifest(manifest, source_ref=source_ref)
+
+
+def _json_digest(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _verify_source_artifacts(golden: dict[str, Any]) -> None:

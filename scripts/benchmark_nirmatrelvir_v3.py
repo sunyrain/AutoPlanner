@@ -92,6 +92,7 @@ def benchmark_nirmatrelvir_v3(
             output_dir=iteration_dir,
             timeout_s=timeout_s,
             resolver_cache_root=runtime_root / "artifacts",
+            runtime_root=runtime_root,
         )
         wall_time_s = round(max(0.0, time.perf_counter() - wall_started), 6)
         cpu_time_s = round(max(0.0, time.process_time() - cpu_started), 6)

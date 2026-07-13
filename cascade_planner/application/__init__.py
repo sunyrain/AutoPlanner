@@ -40,6 +40,20 @@ from cascade_planner.application.route_deficit_queue import (
     compile_route_deficit_queue,
     next_route_deficit,
 )
+from cascade_planner.application.run_kernel import (
+    Deficit,
+    RunEvent,
+    RunKernel,
+    RunKernelBudgetError,
+    RunKernelCorruptionError,
+    RunKernelError,
+    RunKernelIdempotencyConflict,
+    RunLimits,
+    RunRevision,
+    RunSpec,
+    RunState,
+    StopDecision,
+)
 
 __all__ = [
     "FrontierCompletenessReport",
@@ -70,4 +84,16 @@ __all__ = [
     "RouteDeficitKind",
     "compile_route_deficit_queue",
     "next_route_deficit",
+    "RunEvent",
+    "Deficit",
+    "RunKernel",
+    "RunKernelBudgetError",
+    "RunKernelCorruptionError",
+    "RunKernelError",
+    "RunKernelIdempotencyConflict",
+    "RunLimits",
+    "RunRevision",
+    "RunSpec",
+    "RunState",
+    "StopDecision",
 ]
