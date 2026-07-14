@@ -26,6 +26,7 @@ from cascade_planner.interfaces.literature_candidates import (
     queries as _queries,
     request_source_candidates as _request_source_candidates,
     seed_candidates as _seed_candidates,
+    target_relevant_candidates as _target_relevant_candidates,
 )
 from cascade_planner.interfaces.literature_materialization import (
     materialize_candidate as _materialize_candidate,
@@ -38,7 +39,7 @@ from cascade_planner.interfaces.live_evidence import (
 
 
 BUILTIN_LITERATURE_PROVIDER_ID = "autoplanner.builtin_literature_evidence"
-BUILTIN_LITERATURE_PROVIDER_VERSION = "1.3"
+BUILTIN_LITERATURE_PROVIDER_VERSION = "1.4"
 PaperSearch = Callable[[str, int], Iterable[Mapping[str, Any]]]
 BytesFetcher = Callable[[str, float, int], bytes]
 
@@ -53,6 +54,7 @@ class BuiltinLiteratureEvidenceConfig:
     max_pdf_bytes: int = 30_000_000
     max_pdf_pages: int = 160
     enable_structured_fulltext_first: bool = True
+    enable_repository_browser_fallback: bool = True
     max_fulltext_bytes: int = 12_000_000
     max_fulltext_sections: int = 32
     max_visual_pages: int = 6
@@ -96,7 +98,11 @@ def build_builtin_literature_evidence_connector(
     def invoke(request: Mapping[str, Any]) -> Mapping[str, Any]:
         request_sha = str(request.get("content_sha256") or "")
         queries = _queries(request, limit=config.max_queries)
-        candidates = [*_seed_candidates(config), *_request_source_candidates(request)]
+        pinned_candidates = [
+            *_seed_candidates(config),
+            *_request_source_candidates(request),
+        ]
+        candidates = list(pinned_candidates)
 
         def run_search(query: str) -> tuple[list[dict[str, Any]], str]:
             try:
@@ -123,7 +129,13 @@ def build_builtin_literature_evidence_connector(
             for query, (rows, failure) in zip(queries, searched, strict=True)
         ]
         candidates.extend(_interleave_candidates(query_candidates))
-        candidates = _dedupe_candidates(candidates)[: config.max_sources * 3]
+        candidates = _target_relevant_candidates(
+            _dedupe_candidates(candidates),
+            target_name=str(request.get("target_name") or ""),
+            pinned_source_refs=(
+                _candidate_source_ref(row) for row in pinned_candidates
+            ),
+        )[: config.max_sources * 3]
         if not candidates:
             raise LiveEvidenceConnectorError("builtin_literature_no_candidates")
         request_dir = cache_root / request_sha[:24]

@@ -76,6 +76,7 @@ def materialize_candidate(
                 fulltext_cache_dir=output_dir.parent / "_source_fulltext_cache" / slug,
                 config=config,
                 fetch=fetch,
+                allow_browser_fallback=config.enable_repository_browser_fallback,
             )
         except (OSError, RuntimeError, ValueError, requests.RequestException) as exc:
             structured_failure += (

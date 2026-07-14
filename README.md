@@ -63,6 +63,18 @@ Tesseract OCR，最后才可用
 `--self-evo-library PATH` 冻结 benchmark 的模板库快照。
 视觉结果只回到下一次全局 replan 作为 L0 候选，不能直接获得 L2/L3 或库存证明。
 
+已结束的 blind campaign 可在不重复全局规划的情况下重放最新来源、验证和库存策略：
+
+```bash
+python -m cascade_planner fork-validation target-blind-001 \
+  --run-id target-blind-validation-001
+```
+
+validation fork 默认仍为零模型；只有显式加入
+`--max-visual-invocations 1 --max-visual-pages 2` 才允许一次稀疏页面视觉调用。公开 PMC
+正文若对普通 HTTP 客户端返回 reCAPTCHA，系统会在无凭据、无用户 profile 的隔离浏览器中
+重取该 PMC 页面，并再次校验最终 host、DOI、大小和内容哈希；它不会借用校园登录态。
+
 注入已经审阅的全局路线计划并物化：
 
 ```bash
@@ -105,7 +117,9 @@ python -m cascade_planner serve
 ```
 
 打开 `http://127.0.0.1:7860/v4`。CLI、V4 API 和 Web workbench 共用
-`CampaignGateway` 与 `RetrosynthesisCampaignService`。
+`CampaignGateway` 与 `RetrosynthesisCampaignService`。控制台从任意 SMILES 发起独立
+campaign，每 2 秒读取一次 canonical checkpoint，并分别显示路线可见、证据待补、模型/
+视觉调用和历史快照；历史内核记录为 `running` 不代表进程仍在执行。
 
 ## 可信度与完成
 

@@ -76,6 +76,14 @@ def test_validation_fork_showcase_binds_frozen_html_and_zero_model_receipt(
                             "object_path": "objects/sha256/aa/receipt"
                         },
                         "validation": {"accepted_validation_count": 1},
+                        "visual_evidence": {
+                            "observation": {"candidate_step_count": 2},
+                            "materialization": {"proposal_count": 2},
+                            "validation": {
+                                "accepted_validation_count": 1,
+                                "rejected_validation_count": 1,
+                            },
+                        },
                         "discovery": {
                             "sources": [
                                 {
@@ -128,6 +136,10 @@ def test_validation_fork_showcase_binds_frozen_html_and_zero_model_receipt(
     assert payload["source_route_proposal_count"] == 1
     assert payload["source_route_host_accepted_count"] == 1
     assert payload["source_route_exact_row_count"] == 1
+    assert payload["visual_candidate_count"] == 2
+    assert payload["visual_materialized_count"] == 2
+    assert payload["visual_host_accepted_count"] == 1
+    assert payload["visual_host_rejected_count"] == 1
     assert payload["patent_source_cache_hit"] is True
     assert payload["self_evo_template_count"] == 1
     assert payload["B3_exact_multi_source"] is False
@@ -214,4 +226,4 @@ def test_blind_showcase_validation_overlay_keeps_original_codex_cost() -> None:
     assert merged["time_to_first_route_s"] == 12.0
     assert merged["gates"]["B2"] is True
     assert merged["evidence"]["exact_rows"] == 1
-    assert merged["artifact_role"] == "latest_zero_model_validation_fork"
+    assert merged["artifact_role"] == "latest_evidence_validation_fork"

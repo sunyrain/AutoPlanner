@@ -159,6 +159,11 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                 "display_label": str(display["display_label"]),
                 "stage_label": str(display["stage_label"]),
                 "synthesis_stage": int(display["synthesis_stage"]),
+                "retrosynthesis_stage": int(display["retrosynthesis_stage"]),
+                "retrosynthesis_label": str(display["retrosynthesis_label"]),
+                "retrosynthesis_display_label": str(
+                    display["retrosynthesis_display_label"]
+                ),
                 "source_step_labels": list(display["source_step_labels"]),
                 "producer_kinds": list(display["producer_kinds"]),
                 "producer_label": str(display["producer_label"]),

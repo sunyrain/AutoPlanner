@@ -70,6 +70,48 @@ python -m cascade_planner solve-target \
 主机 SMILES 规范化，但仍是 L0：它不能授予反应验证、exact-source 或库存权威。
 同一 campaign 即使 provider 少报用量，也只会持久化准入一次视觉任务。
 
+### 2.2 不重复全局规划的验证 fork
+
+```bash
+python -m cascade_planner fork-validation target-blind-001 \
+  --run-id target-blind-validation-001
+```
+
+该命令重放原始全局案卷，在当前 host 上重新运行结构物化、反应验证、来源获取、库存审计
+和 self-evo 学习。默认模型与视觉预算都是 0；需要核对图片型来源时才显式准入：
+
+```bash
+python -m cascade_planner fork-validation target-blind-001 \
+  --run-id target-blind-vision-001 \
+  --max-visual-invocations 1 \
+  --max-visual-pages 2 \
+  --visual-reasoning-effort low
+```
+
+此时派生预算只覆盖一次视觉调用，不会再次调用 Global Director。视觉 observation 必须经过
+目标 root、结构连续性、物化和 host admission；被接受也仍不会自动获得 exact-source 权威。
+
+### 2.3 论文 HTML 与受控 PDF 获取
+
+论文来源依次尝试 Europe PMC XML、公开 PMC HTML、PDF 和页面恢复。PMC 对普通 HTTP
+客户端返回 reCAPTCHA shell 时，系统只对 `https://pmc.ncbi.nlm.nih.gov` 启动一次隔离、
+无凭据、无用户 profile 的 Playwright context；最终跳转 host、HTTP 状态、字节上限和正文
+DOI 都必须再次通过校验。挑战页和最终 HTML 分别绑定 SHA-256，之后可从内容缓存重放。
+
+需要校园网或人工已登录浏览器才能获取的 PDF 仍进入显式本机队列，不会把 cookie 或凭据
+传给服务端。可只处理当前 case/source，避免混入旧请求：
+
+```bash
+python scripts/browser_pdf_fetch.py \
+  --output-dir PATH_TO_PROXY_QUEUE \
+  --case-id CASE_ID \
+  --source-ref DOI_OR_SOURCE_REF \
+  --max-items 1
+```
+
+也可用 `--title-contains` 进一步过滤。每个请求使用新的 tab；下载结果仍须经过 PDF identity、
+hash、页面选择和来源绑定，成功下载本身不授予反应证明。
+
 ## 3. 从精确来源案卷一键求解
 
 ```bash
@@ -145,6 +187,17 @@ python -m cascade_planner audit
 
 Web 为 `/v4`，JSON API 为 `/api/v4/runs`。默认仅绑定 `127.0.0.1`。CLI 不提供隐式
 删除模式；GC 只生成 dry-run 计划。
+
+本地开发环境没有安装 Waitress 时使用：
+
+```bash
+python -m cascade_planner serve --server flask --host 127.0.0.1 --port 8878
+```
+
+浏览器打开 `http://127.0.0.1:8878/v4`。表单会 `POST /api/v4/jobs`，页面每 2 秒轮询
+`/api/v4/jobs` 与单任务进度；首次路线、ChemEnzy provider 调用、来源数、exact rows、视觉
+调用和 token 分开显示。历史卡片是停止执行的不可变快照，内核原始状态只作审计，不能被
+理解为仍有后台线程或已经达到 B3/L4。
 
 ## 7. 本地发布门
 

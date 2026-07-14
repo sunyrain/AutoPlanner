@@ -22,6 +22,7 @@ from cascade_planner.interfaces.target_solver import (
     _should_retry_chemenzy_timeout,
     _current_disposition,
 )
+from cascade_planner.interfaces.validation_fork import ValidationForkConfig
 from cascade_planner.application.canonical_hypergraph import molecule_identity
 from cascade_planner.interfaces.patent_evidence import (
     BuiltinPatentEvidenceConfig,
@@ -1247,6 +1248,102 @@ def test_validation_fork_replays_global_plan_and_uses_zero_model_calls(
         for stage in derived["self_evolution"]["learning_stages"]
     )
     assert Path(derived["report_path"]).is_file()
+
+
+def test_validation_fork_can_admit_one_sparse_visual_candidate(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    source = gateway.solve_target(
+        target_name="blind visual validation target",
+        target_smiles=TARGET,
+        run_id="blind-visual-validation-source",
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+    )
+    image = tmp_path / "downloaded-source-page.png"
+    image.write_bytes(b"fresh-validation-fork-source-page")
+    image_sha256 = hashlib.sha256(image.read_bytes()).hexdigest()
+    visual_calls = 0
+
+    def connector(request: Any) -> dict[str, Any]:
+        result = _discovery_only_connector(request)
+        result["discovery"]["sources"][0].update(
+            {
+                "pdf_sha256": "c" * 64,
+                "unresolved_edge_count": len(request["edges"]),
+                "visual_candidate_pages": [
+                    {
+                        "page_number": 7,
+                        "image_path": str(image),
+                        "image_sha256": image_sha256,
+                    }
+                ],
+            }
+        )
+        return result
+
+    def visual_provider(request: Any) -> dict[str, Any]:
+        nonlocal visual_calls
+        visual_calls += 1
+        edge = request["edges"][0]
+        return {
+            "request_sha256": request["content_sha256"],
+            "provider_status": "completed",
+            "provider_receipt": {"provider_id": "tests.visual.validation"},
+            "usage": {
+                "model_invocations": 1,
+                "visual_invocations": 1,
+                "input_tokens": 120,
+                "output_tokens": 60,
+                "wall_time_s": 0.1,
+            },
+            "candidate_chain": {
+                "steps": [
+                    {
+                        "product_smiles": edge["product_smiles"],
+                        "reactant_smiles": edge["precursor_smiles"],
+                        "source_locator": "page 7",
+                    }
+                ]
+            },
+        }
+
+    derived = gateway.fork_target_validation(
+        source_run_id=source["run_id"],
+        run_id="blind-visual-validation-derived",
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=connector,
+        visual_evidence_provider=visual_provider,
+        config=ValidationForkConfig(
+            max_visual_invocations=1,
+            max_visual_evidence_pages=2,
+        ),
+    )
+
+    evidence = next(
+        stage
+        for stage in derived["stages"]
+        if stage["stage"] == "evidence_acquisition"
+    )
+    assert visual_calls == 1
+    assert derived["model_cost"]["model_invocations"] == 1
+    assert derived["model_cost"]["visual_invocations"] == 1
+    assert evidence["detail"]["visual_evidence"]["status"] == "completed"
+    assert (
+        evidence["detail"]["visual_evidence"]["observation"][
+            "candidate_steps"
+        ][0]["grants_exact_evidence"]
+        is False
+    )
+    assert derived["semantics"]["derived_visual_invocation_limit"] == 1
 
 
 def test_scanned_patent_ocr_closes_blind_route_and_zero_model_validation_fork(

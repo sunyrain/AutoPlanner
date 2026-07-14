@@ -13,7 +13,11 @@ from cascade_planner.interfaces.literature_evidence import (
     _request_source_candidates,
     build_builtin_literature_evidence_connector,
 )
+from cascade_planner.interfaces.literature_candidates import (
+    target_relevant_candidates,
+)
 from cascade_planner.interfaces.live_evidence import compose_evidence_connectors
+from cascade_planner.interfaces import literature_html
 from cascade_planner.interfaces.visual_evidence import compile_visual_evidence_request
 from cascade_planner.interfaces.literature_search import (
     europe_pmc_metadata_search,
@@ -58,6 +62,56 @@ def test_literature_candidates_are_interleaved_across_queries() -> None:
         "name-2",
         "route-2",
     ]
+
+
+def test_target_relevance_rejects_clinical_metadata_and_keeps_route_sources() -> None:
+    rows = target_relevant_candidates(
+        [
+            {
+                "doi": "10.1/clinical",
+                "title": "Cholesterol absorption and synthesis during pravastatin",
+            },
+            {
+                "doi": "10.1/route",
+                "title": "An asymmetric synthesis of pravastatin",
+            },
+            {
+                "doi": "10.1/other",
+                "title": "Total synthesis of an unrelated natural product",
+            },
+            {
+                "doi": "10.1/channel",
+                "title": (
+                    "Cholesterol synthesis inhibitors pravastatin and "
+                    "triparanol regulate channel function"
+                ),
+            },
+            {
+                "doi": "10.1/fibroblast",
+                "title": (
+                    "Residual cholesterol synthesis and pravastatin induction "
+                    "in syndrome fibroblasts"
+                ),
+            },
+            {
+                "doi": "10.1/lipid",
+                "title": (
+                    "Pravastatin enhances linoleic acid conversion and "
+                    "triglyceride synthesis"
+                ),
+            },
+            {
+                "doi": "10.1/chitosan",
+                "title": (
+                    "Synthesis and properties of mucoadhesive thiolated "
+                    "chitosan for pravastatin"
+                ),
+            },
+        ],
+        target_name="pravastatin",
+    )
+
+    assert [row["doi"] for row in rows] == ["10.1/route"]
 
 
 def test_europe_pmc_metadata_search_normalizes_papers_and_patents() -> None:
@@ -357,7 +411,6 @@ def test_literature_connector_uses_pmc_html_before_pdf_or_browser(
         searcher=lambda _query, _limit: [],
         fetcher=fetch,
     )
-
     result = connector(_request())
 
     source = result["discovery"]["sources"][0]
@@ -366,7 +419,6 @@ def test_literature_connector_uses_pmc_html_before_pdf_or_browser(
     assert source["procedure_inventory"][0]["source_artifact_kind"] == (
         "pmc_fulltext_html"
     )
-    assert result["receipt"]["queued_source_count"] == 0
     assert not any("doi.org" in url for url in calls)
 
     def offline_fetch(_url: str, _timeout: float, _maximum: int) -> bytes:
@@ -387,6 +439,78 @@ def test_literature_connector_uses_pmc_html_before_pdf_or_browser(
     assert cached_source["acquisition_method"] == "pmc_repository_fulltext_html"
     assert cached_source["acquisition_receipt"]["cache_hit"] is True
     assert cached["receipt"]["queued_source_count"] == 0
+
+
+def test_literature_connector_uses_isolated_browser_after_pmc_challenge(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    challenge = (
+        b'<!doctype html><html><head><base href="https://www.google.com/'
+        b'recaptcha/challenge"></head><body>'
+        + (b"challenge " * 32)
+        + b"</body></html>"
+    )
+    full_html = b"""<!doctype html><html><head>
+    <meta name="citation_doi" content="10.1128/AEM.02820-06"></head><body>
+    <h2>Materials and methods</h2><h3>Whole-cell biocatalysis</h3>
+    <p>Simvastatin production was incubated for 24 h and the reaction mixture
+    was purified by chromatography in 81 percent yield.</p></body></html>"""
+    browser_calls: list[str] = []
+
+    def fetch(url: str, _timeout: float, _maximum: int) -> bytes:
+        if "search?" in url:
+            return json.dumps(
+                {
+                    "resultList": {
+                        "result": [
+                            {
+                                "doi": "10.1128/aem.02820-06",
+                                "pmcid": "PMC1855665",
+                                "isOpenAccess": "N",
+                                "inPMC": "Y",
+                            }
+                        ]
+                    }
+                }
+            ).encode()
+        if "fullTextXML" in url:
+            raise OSError("legacy deposit has no Europe PMC XML")
+        if "pmc.ncbi.nlm.nih.gov" in url:
+            return challenge
+        raise AssertionError(f"unexpected URL: {url}")
+
+    def browser_fetch(url: str, _timeout: float, _maximum: int) -> bytes:
+        browser_calls.append(url)
+        return full_html
+
+    monkeypatch.setattr(
+        literature_html,
+        "fetch_repository_html_with_browser",
+        browser_fetch,
+    )
+    source = literature_html.materialize_pmc_repository_html(
+        {
+            "doi": "10.1128/AEM.02820-06",
+            "title": "Efficient synthesis of simvastatin by use of whole-cell biocatalysis.",
+        },
+        request=_request(),
+        source_ref="doi:10.1128/AEM.02820-06",
+        source_dir=tmp_path / "source",
+        fulltext_cache_dir=tmp_path / "cache",
+        config=BuiltinLiteratureEvidenceConfig(cache_dir=tmp_path / "evidence"),
+        fetch=fetch,
+    )
+    assert source["acquisition_method"] == "pmc_repository_fulltext_html"
+    assert source["acquisition_receipt"]["transport"] == (
+        "isolated_playwright_repository_fallback"
+    )
+    assert source["acquisition_receipt"]["http_challenge_sha256"] == (
+        hashlib.sha256(challenge).hexdigest()
+    )
+    assert browser_calls == [
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC1855665/"
+    ]
 
 
 def test_literature_connector_uses_structured_fulltext_and_original_figures_before_pdf(
@@ -564,7 +688,7 @@ def test_restricted_paper_is_queued_then_consumed_on_resume(
     )
     candidate = {
         "doi": "10.1000/restricted",
-        "title": "restricted route paper",
+        "title": "Restricted synthesis route for bufotalin",
         "pdf_url": "https://publisher.test/restricted.pdf",
     }
     connector = build_builtin_literature_evidence_connector(

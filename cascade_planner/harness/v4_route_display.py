@@ -56,15 +56,16 @@ def compile_route_display_rows(
         for edge_id in selected
     }
     stages, ordered = _topological_stages(selected, dependencies)
-    grouped: dict[int, list[str]] = defaultdict(list)
-    for edge_id in ordered:
-        grouped[stages[edge_id]].append(edge_id)
-    stage_labels: dict[str, str] = {}
-    for stage, values in sorted(grouped.items()):
-        ranked = sorted(values)
-        for index, edge_id in enumerate(ranked):
-            suffix = _alpha(index) if len(ranked) > 1 else ""
-            stage_labels[edge_id] = f"S{stage}{suffix}"
+    stage_labels = _stage_labels(stages, prefix="S")
+    consumers: dict[str, set[str]] = {edge_id: set() for edge_id in selected}
+    for consumer_id, dependency_ids in dependencies.items():
+        for dependency_id in dependency_ids:
+            consumers[dependency_id].add(consumer_id)
+    retrosynthesis_stages, _retrosynthesis_order = _topological_stages(
+        selected,
+        consumers,
+    )
+    retrosynthesis_labels = _stage_labels(retrosynthesis_stages, prefix="R")
 
     rows = []
     for edge_id in ordered:
@@ -80,6 +81,7 @@ def compile_route_display_rows(
             nodes_by_id=nodes_by_id,
         )
         stage_label = stage_labels[edge_id]
+        retrosynthesis_label = retrosynthesis_labels[edge_id]
         native_label = " / ".join(source_labels[:2])
         rows.append(
             {
@@ -87,6 +89,13 @@ def compile_route_display_rows(
                 "synthesis_stage": stages[edge_id],
                 "stage_label": stage_label,
                 "display_label": f"{stage_label} · {native_label}" if native_label else stage_label,
+                "retrosynthesis_stage": retrosynthesis_stages[edge_id],
+                "retrosynthesis_label": retrosynthesis_label,
+                "retrosynthesis_display_label": (
+                    f"{retrosynthesis_label} · {native_label}"
+                    if native_label
+                    else retrosynthesis_label
+                ),
                 "source_step_labels": source_labels,
                 "producer_kinds": producer_kinds,
                 "producer_label": _joined_labels(producer_kinds, ORIGIN_LABELS, "来源未标记"),
@@ -97,6 +106,19 @@ def compile_route_display_rows(
             }
         )
     return rows
+
+
+def _stage_labels(stages: Mapping[str, int], *, prefix: str) -> dict[str, str]:
+    grouped: dict[int, list[str]] = defaultdict(list)
+    for edge_id, stage in stages.items():
+        grouped[stage].append(edge_id)
+    labels: dict[str, str] = {}
+    for stage, values in sorted(grouped.items()):
+        ranked = sorted(values)
+        for index, edge_id in enumerate(ranked):
+            suffix = _alpha(index) if len(ranked) > 1 else ""
+            labels[edge_id] = f"{prefix}{stage}{suffix}"
+    return labels
 
 
 def _topological_stages(

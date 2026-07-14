@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from cascade_planner.harness.local_pdf_proxy import (
+    filter_pdf_requests,
     build_pdf_request,
     download_pdf_requests,
     local_pdf_proxy_manifest_entry,
@@ -90,6 +91,32 @@ class LocalPdfProxyTest(unittest.TestCase):
         )
 
         self.assertEqual(request["content_scope"], "si")
+
+    def test_browser_batch_filters_queue_without_rewriting_it(self):
+        requests = [
+            {
+                "case_id": "statin-rosuvastatin-evidence-v15-20260715",
+                "source_ref": "doi:10.1016/j.tet.2022.132717",
+                "title": "An efficient total synthesis of rosuvastatin",
+            },
+            {
+                "case_id": "statin-pravastatin-evidence-v15-20260715",
+                "source_ref": "doi:10.0000/clinical",
+                "title": "Clinical pravastatin study",
+            },
+        ]
+
+        selected = filter_pdf_requests(
+            requests,
+            case_ids=("statin-rosuvastatin-evidence-v15-20260715",),
+            title_terms=("total synthesis",),
+        )
+
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(
+            selected[0]["source_ref"], "doi:10.1016/j.tet.2022.132717"
+        )
+        self.assertEqual(len(requests), 2)
 
     def test_download_worker_writes_pdf_and_manifest(self):
         def fake_fetch(url, headers, timeout_s, max_bytes):

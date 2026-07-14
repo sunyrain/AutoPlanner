@@ -2,11 +2,18 @@
 from __future__ import annotations
 
 import hashlib
-from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Callable, Mapping
 
 from cascade_planner.interfaces.literature_candidates import doi, request_queries
+from cascade_planner.interfaces.literature_browser import (
+    fetch_repository_html_with_browser,
+)
+from cascade_planner.interfaces.literature_html_parser import (
+    PmcArticleParser,
+    html_procedure_inventory,
+    parse_pmc_html,
+)
 from cascade_planner.interfaces.literature_search import europe_pmc_repository_html
 
 
@@ -22,6 +29,7 @@ def materialize_pmc_repository_html(
     fulltext_cache_dir: Path,
     config: Any,
     fetch: BytesFetcher,
+    allow_browser_fallback: bool = True,
 ) -> dict[str, Any]:
     """Freeze full PMC HTML and extract bounded reaction-relevant sections."""
 
@@ -29,7 +37,7 @@ def materialize_pmc_repository_html(
     fulltext_cache_dir.mkdir(parents=True, exist_ok=True)
     html_bytes = b""
     receipt: dict[str, Any] = {}
-    parser: _PmcArticleParser | None = None
+    parser: PmcArticleParser | None = None
     for cached_path in sorted(fulltext_cache_dir.glob("fulltext-*.html")):
         try:
             cached = cached_path.read_bytes()
@@ -37,7 +45,7 @@ def materialize_pmc_repository_html(
             continue
         if not 200 <= len(cached) <= config.max_fulltext_bytes:
             continue
-        cached_parser = _parse_pmc_html(cached)
+        cached_parser = parse_pmc_html(cached)
         if cached_parser.citation_doi.casefold() != source_doi.casefold():
             continue
         html_bytes = cached
@@ -60,8 +68,26 @@ def materialize_pmc_repository_html(
             max_bytes=config.max_fulltext_bytes,
             fetch=fetch,
         )
-        parser = _parse_pmc_html(html_bytes)
+        parser = parse_pmc_html(html_bytes)
         receipt = {**receipt, "cache_hit": False}
+        if (
+            allow_browser_fallback
+            and parser.citation_doi.casefold() != source_doi.casefold()
+            and _is_repository_browser_challenge(html_bytes)
+        ):
+            challenged_sha = hashlib.sha256(html_bytes).hexdigest()
+            html_bytes = fetch_repository_html_with_browser(
+                str(receipt.get("html_url") or ""),
+                config.timeout_s,
+                config.max_fulltext_bytes,
+            )
+            parser = parse_pmc_html(html_bytes)
+            receipt = {
+                **receipt,
+                "transport": "isolated_playwright_repository_fallback",
+                "http_challenge_sha256": challenged_sha,
+                "browser_html_sha256": hashlib.sha256(html_bytes).hexdigest(),
+            }
     assert parser is not None
     if parser.citation_doi.casefold() != source_doi.casefold():
         raise ValueError("pmc_repository_html_doi_mismatch")
@@ -79,19 +105,21 @@ def materialize_pmc_repository_html(
     )
 
 
-def _parse_pmc_html(html_bytes: bytes) -> "_PmcArticleParser":
-    parser = _PmcArticleParser()
-    try:
-        parser.feed(html_bytes.decode("utf-8", errors="strict"))
-        parser.close()
-    except (UnicodeDecodeError, ValueError) as exc:
-        raise ValueError("pmc_repository_html_parse_failed") from exc
-    return parser
+def _is_repository_browser_challenge(content: bytes) -> bool:
+    prefix = content[:64_000].lower()
+    return any(
+        marker in prefix
+        for marker in (
+            b"google.com/recaptcha/challenge",
+            b"recaptcha/api.js",
+            b"g-recaptcha",
+        )
+    )
 
 
 def _materialize_parsed_pmc_html(
     *,
-    parser: "_PmcArticleParser",
+    parser: PmcArticleParser,
     html_bytes: bytes,
     receipt: Mapping[str, Any],
     candidate: Mapping[str, Any],
@@ -109,7 +137,7 @@ def _materialize_parsed_pmc_html(
     materialized.mkdir(parents=True, exist_ok=True)
     html_path = materialized / f"fulltext-{html_sha[:16]}.html"
     _write_bytes_once(html_path, html_bytes)
-    procedures = _html_procedure_inventory(
+    procedures = html_procedure_inventory(
         parser.sections,
         target_terms=[
             str(request.get("target_name") or ""),
@@ -151,124 +179,6 @@ def _materialize_parsed_pmc_html(
             "source_material_grants_no_exact_reaction_authority": True,
         },
     }
-
-
-class _PmcArticleParser(HTMLParser):
-    """Small dependency-free parser for PMC's semantic article HTML."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.citation_doi = ""
-        self.pmcid = ""
-        self.sections: list[tuple[str, str]] = []
-        self._ignored_depth = 0
-        self._capture = ""
-        self._parts: list[str] = []
-        self._title = ""
-
-    def handle_starttag(
-        self,
-        tag: str,
-        attrs: list[tuple[str, str | None]],
-    ) -> None:
-        lowered = tag.casefold()
-        attributes = {str(key).casefold(): str(value or "") for key, value in attrs}
-        if lowered in {"script", "style"}:
-            self._ignored_depth += 1
-            return
-        if lowered == "meta" and attributes.get("name", "").casefold() in {
-            "citation_doi",
-            "dc.identifier",
-        }:
-            value = attributes.get("content", "").strip()
-            if value.casefold().startswith("doi:"):
-                value = value[4:].strip()
-            if value.startswith("10."):
-                self.citation_doi = value
-        if lowered == "meta" and attributes.get("name", "").casefold() == (
-            "citation_pmcid"
-        ):
-            self.pmcid = attributes.get("content", "").strip().upper()
-        if self._ignored_depth:
-            return
-        if lowered in {"h2", "h3", "h4", "p"}:
-            self._capture = lowered
-            self._parts = []
-
-    def handle_endtag(self, tag: str) -> None:
-        lowered = tag.casefold()
-        if lowered in {"script", "style"} and self._ignored_depth:
-            self._ignored_depth -= 1
-            return
-        if self._ignored_depth or lowered != self._capture:
-            return
-        text = " ".join("".join(self._parts).split())
-        if lowered in {"h2", "h3", "h4"}:
-            self._title = text[:1_000]
-        elif lowered == "p" and len(text) >= 40:
-            self.sections.append((self._title, text[:8_000]))
-        self._capture = ""
-        self._parts = []
-
-    def handle_data(self, data: str) -> None:
-        if self._capture and not self._ignored_depth:
-            self._parts.append(data)
-
-
-def _html_procedure_inventory(
-    sections: Iterable[tuple[str, str]],
-    *,
-    target_terms: Iterable[str],
-    source_artifact_sha256: str,
-    limit: int,
-) -> list[dict[str, Any]]:
-    terms = [
-        " ".join(str(value).casefold().split())
-        for value in target_terms
-        if len(" ".join(str(value).split())) >= 3
-    ][:64]
-    title_signals = (
-        "experimental",
-        "materials and methods",
-        "synthesis",
-        "preparation",
-        "production",
-        "biotransformation",
-    )
-    process_signals = (
-        "was added",
-        "was stirred",
-        "reaction mixture",
-        "yield",
-        "purified",
-        "incubated",
-        "catalyzed",
-        "conversion",
-    )
-    ranked: list[tuple[int, int, dict[str, Any]]] = []
-    for index, (title, body) in enumerate(sections, start=1):
-        normalized = f"{title} {body}".casefold()
-        score = 40 * sum(signal in title.casefold() for signal in title_signals)
-        score += 20 * sum(term in normalized for term in terms)
-        score += 4 * sum(signal in normalized for signal in process_signals)
-        if score < 8:
-            continue
-        ranked.append(
-            (
-                -score,
-                index,
-                {
-                    "label": f"html-section-{index}",
-                    "name": title or f"PMC full-text paragraph {index}",
-                    "visual_expected": False,
-                    "page_number": index,
-                    "procedure_excerpt": body[:4_000],
-                    "source_artifact_kind": "pmc_fulltext_html",
-                    "source_artifact_sha256": source_artifact_sha256,
-                },
-            )
-        )
-    return [row for _score, _index, row in sorted(ranked)[:limit]]
 
 
 def _write_bytes_once(path: Path, content: bytes) -> None:

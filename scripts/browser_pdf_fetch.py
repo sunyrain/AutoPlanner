@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from cascade_planner.harness.local_pdf_proxy import (  # noqa: E402
+    filter_pdf_requests,
     load_pdf_requests,
     local_pdf_proxy_download_manifest_path,
     local_pdf_proxy_pdfs_dir,
@@ -34,6 +35,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--chrome-path", default="")
     parser.add_argument("--debug-port", type=int, default=9223)
     parser.add_argument("--profile-dir", default="")
+    parser.add_argument("--case-id", action="append", default=[])
+    parser.add_argument("--source-ref", action="append", default=[])
+    parser.add_argument("--title-contains", action="append", default=[])
     parser.add_argument("--max-items", type=int)
     parser.add_argument("--timeout-ms", type=int, default=90000)
     parser.add_argument("--headless", action="store_true")
@@ -47,7 +51,12 @@ def main(argv: list[str] | None = None) -> int:
     pdf_dir.mkdir(parents=True, exist_ok=True)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    requests = load_pdf_requests(queue_path)
+    requests = filter_pdf_requests(
+        load_pdf_requests(queue_path),
+        case_ids=tuple(args.case_id),
+        source_refs=tuple(args.source_ref),
+        title_terms=tuple(args.title_contains),
+    )
     if args.max_items is not None:
         requests = requests[: max(0, int(args.max_items))]
     if not requests:
@@ -66,12 +75,23 @@ def main(argv: list[str] | None = None) -> int:
     with sync_playwright() as pw:
         browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{int(args.debug_port)}")
         context = browser.contexts[0] if browser.contexts else browser.new_context(accept_downloads=True)
-        page = context.pages[0] if context.pages else context.new_page()
         for request in requests:
             request_id = str(request.get("request_id") or "")
             if request_id in existing and not args.overwrite:
                 continue
-            result = _fetch_one(page, request, pdf_dir=pdf_dir, timeout_ms=int(args.timeout_ms))
+            # DOI redirects and publisher viewers can keep navigating after
+            # ``domcontentloaded``.  Reusing that page lets one slow redirect
+            # interrupt the next source, so every queued item owns a fresh tab.
+            page = context.new_page()
+            try:
+                result = _fetch_one(
+                    page,
+                    request,
+                    pdf_dir=pdf_dir,
+                    timeout_ms=int(args.timeout_ms),
+                )
+            finally:
+                page.close()
             written.append(result)
             _append_manifest(manifest_path, result)
         browser.close()

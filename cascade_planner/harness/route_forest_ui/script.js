@@ -289,6 +289,12 @@
   function tierClass(tier) { return TIER_CLASS[tier] || 'tier-l0-advisory'; }
   function tierLabel(tier) { return PROOF_LABEL[tier] || tier || '未分级'; }
   function isRetrosynthesis() { return state.routeDirection === 'retrosynthesis'; }
+  function routeStepDisplayLabel(step) {
+    if (!step) return '反应步骤';
+    return isRetrosynthesis()
+      ? (step.retrosynthesis_display_label || step.retrosynthesis_label || step.display_label || step.step_id)
+      : (step.display_label || step.stage_label || step.step_id);
+  }
   function producerClass(step) {
     return PRODUCER_CLASS[(step?.producer_kinds || [])[0]] || 'producer-unknown';
   }
@@ -1208,7 +1214,7 @@
     const step = reaction ? steps.get(node.reaction_step_id) : null;
     const tier = reaction ? (node.proof_tier || tierOfStep(step)) : '';
     const nodeTierClass = reaction ? tierClass(tier) : 'node-tier-neutral';
-    const fullLabel = node.label || node.graph_node_id;
+    const fullLabel = reaction ? routeStepDisplayLabel(step) : (node.label || node.graph_node_id);
     const structureSvg = !reaction && state.mode === 'current' && state.labelMode !== 'minimal'
       ? safeStructureSvg(molecule?.structure_svg) : '';
     const displayLabel = structureSvg ? moleculeCaption(molecule, fullLabel) : fullLabel;
@@ -1541,7 +1547,7 @@
     const sourceCount = Number(bindingSet.independent_trusted_source_group_count || 0);
     const corroborated = bindingSet.corroborated === true;
     const conditions = (step.conditions || []).map(row => `<div class="condition-line"><span class="condition-label">${esc(row.label || '条件')}</span><span class="condition-value">${esc(row.value || '')}</span></div>`).join('');
-    return `<article><header><p class="detail-kind">${esc(step.display_label || '反应步骤')} · ${esc(tierLabel(tierOfStep(step)))}</p><h3 class="detail-title">${esc(step.reaction_class || step.label || step.step_id)}</h3></header>
+    return `<article><header><p class="detail-kind">${esc(routeStepDisplayLabel(step))} · ${esc(tierLabel(tierOfStep(step)))}</p><h3 class="detail-title">${esc(step.reaction_class || step.label || step.step_id)}</h3></header>
       ${state.activeReplacement ? `<div class="notice replacement-preview-notice"><strong>完整替换路线预览</strong><span>该分支已由后端 AND/OR 对 connectivity、stock 与 reaction proof 整路重验；预览不等于父路线证明。</span><button class="detail-action" type="button" data-replacement-reset>恢复原路线</button></div>` : ''}
       <section class="detail-section"><h3>来源分解</h3><div class="kv"><span class="k">方案生产者</span><span class="v">${esc(step.producer_label || '来源未标记')}</span></div><div class="kv"><span class="k">证据载体</span><span class="v">${esc(step.evidence_label || '无精确证据')}</span></div><div class="kv"><span class="k">主机验证</span><span class="v">${esc(tierLabel(tierOfStep(step)))}</span></div></section>
       <section class="detail-section"><h3>反应连接</h3><p class="v">${esc(nodeNames(step.main_from_node_ids || step.from_node_ids))} → ${esc(nodeNames(step.to_node_ids))}</p>${(step.auxiliary_from_node_ids || []).length ? `<div class="kv"><span class="k">辅助试剂/小分子</span><span class="v">${esc(nodeNames(step.auxiliary_from_node_ids))}</span></div>` : ''}</section>

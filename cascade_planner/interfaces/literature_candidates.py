@@ -5,6 +5,12 @@ from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping
 
+from cascade_planner.interfaces.literature_relevance import (
+    candidate_source_ref,
+    doi,
+    target_relevant_candidates,
+)
+
 
 def queries(request: Mapping[str, Any], *, limit: int) -> list[str]:
     values = request_queries(request)
@@ -113,21 +119,6 @@ def dedupe_candidates(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]
     return list(result.values())
 
 
-def candidate_source_ref(row: Mapping[str, Any]) -> str:
-    explicit = str(row.get("source_ref") or "").strip()
-    if explicit:
-        return explicit
-    value = doi(row)
-    return f"doi:{value}" if value else ""
-
-
-def doi(row: Mapping[str, Any]) -> str:
-    value = str(row.get("doi") or "").strip()
-    return re.sub(
-        r"^https?://(?:dx\.)?doi\.org/", "", value, flags=re.IGNORECASE
-    )
-
-
 __all__ = [
     "candidate_source_ref",
     "dedupe_candidates",
@@ -138,4 +129,5 @@ __all__ = [
     "request_queries",
     "request_source_candidates",
     "seed_candidates",
+    "target_relevant_candidates",
 ]

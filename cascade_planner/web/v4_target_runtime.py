@@ -365,11 +365,18 @@ def historical_job(run: Mapping[str, Any]) -> dict[str, Any]:
     costs = dict(run.get("cost_totals") or {})
     graph = dict(run.get("graph") or {})
     deficits = dict(run.get("deficits") or {})
-    phase = str(run.get("status") or "historical")
+    # A persisted manifest is an immutable snapshot, not a live background job.
+    # The canonical kernel status can legitimately remain ``running`` when a
+    # validation fork stops with unresolved deficits.  Exposing that value as
+    # the console phase makes an archived run look active, so preserve it as
+    # provenance while projecting an explicit historical phase.
+    campaign_status = str(run.get("status") or "unknown")
+    route_candidates_available = int(graph.get("complete_route_count") or 0) > 0
     progress = {
-        "phase": phase,
+        "phase": "historical_snapshot",
         "elapsed_s": float(costs.get("task_wall_time_s") or 0.0),
-        "campaign_status": phase,
+        "campaign_status": campaign_status,
+        "execution_active": False,
         "graph_revision": int(run.get("revision") or 0),
         "model_cost": {
             "model_invocations": int(costs.get("model_invocations") or 0),
@@ -387,19 +394,20 @@ def historical_job(run: Mapping[str, Any]) -> dict[str, Any]:
         "frontier_counts": deficits,
         "stages": [],
         "delivery": {
-            "state": "complete" if phase == "complete" else "historical",
-            "route_candidates_available": int(
-                graph.get("complete_route_count") or 0
-            )
-            > 0,
-            "proof_closure_complete": run.get("accepted") is True,
-            "evidence_stage_complete": int(
-                dict(run.get("evidence") or {}).get("exact_record_count") or 0
-            )
-            > 0,
+            "state": "historical",
+            "execution_active": False,
+            "route_candidates_available": route_candidates_available,
+            # Run manifests deliberately do not grant scientific authority.
+            # Exact evidence and B3 closure must be read from the validation
+            # report/workbench, therefore absence here means unknown, not true.
+            "proof_closure_complete": False,
+            "proof_closure_known": False,
+            "evidence_stage_complete": False,
             "workbench_available": True,
             "semantics": {
                 "historical_projection_only": True,
+                "historical_campaign_status": campaign_status,
+                "portfolio_policy_accepted": run.get("accepted") is True,
                 "route_candidates_do_not_imply_exact_evidence": True,
             },
         },
@@ -409,7 +417,7 @@ def historical_job(run: Mapping[str, Any]) -> dict[str, Any]:
         "run_id": run_id,
         "target_name": str(run.get("target_name") or run_id),
         "status": "historical",
-        "phase": phase,
+        "phase": "historical_snapshot",
         "created_at": str(run.get("updated_at") or ""),
         "started_at": "",
         "finished_at": str(run.get("updated_at") or ""),

@@ -20,16 +20,16 @@ smaller duplicate of a working capability is also forbidden.
 | One typed work queue | blackboard bridge tasks and route deficit queue | `DeficitFrontier` | integrated | add condition/extraction deficits and gain metrics |
 | Guided ChemEnzy | `run_guided_chemenzy_rerun`, guided payload and failure critic | `interfaces.chemenzy_probe` | migrating | port analogical/failure policy and provider-compute receipts |
 | Codex-selected provider tasks | bridge tasks and guided payload | canonical molecule scheduling annotations -> `DeficitFrontier` | integrated | blind run with 1-3 explicit subtargets |
-| Literature research | `literature_research`, source material locator | evidence connector provider chain | migrating | port richer query expansion and source ranking |
+| Literature research | `literature_research`, source material locator | evidence connector provider chain | integrated-v1 | broaden reaction-class query expansion beyond target/title relevance ranking |
 | Authorized browser/campus PDF access | `local_pdf_proxy`, `browser_pdf_fetch.py`, `tsinghua_pdf_gateway.py` | V4 literature source lifecycle | integrated | automated resume watcher and operator UX |
 | Native PDF focus and route-context selection | private helpers in `harness.tools` | `harness.literature_page_selection` | integrated | long-PDF regression corpus |
 | Page/scheme visual extraction | visual literature chain agent | `interfaces.visual_evidence` with RunKernel metering | integrated | crop batching and structured root correction |
-| Exact reaction/procedure extraction | legacy PDF/HTML exact-row tools | structured evidence workers | migrating | bind complete procedure schema to exact edges |
-| Source lifecycle and failure receipts | blackboard evidence manifests | connector receipts + artifact store | migrating | explicit discovered/downloaded/extracted/bound state projection |
+| Exact reaction/procedure extraction | legacy PDF/HTML exact-row tools | structured evidence workers | integrated-v1 | bind the complete condition/procedure schema to every accepted edge |
+| Source lifecycle and failure receipts | blackboard evidence manifests | connector receipts + artifact store | integrated-v1 | expose all discovered/downloaded/extracted/bound transitions in the UI |
 | Deterministic chemistry validation | reaction verifier, mapping and stock gates | V4 worker runtime/admission | integrated | broaden large-atom-jump and stereo regression cases |
 | Trusted stock closure | deep-leaf audit and inventory helpers | versioned inventory/stock workers | migrating | real supplier snapshot and offer expiry/revocation |
 | Patent self-evolution | patent extraction/template reuse | `PatentSelfEvolutionSession` | integrated-v1 | knowledge-record maturity and reuse statistics |
-| Auditable route UI | RouteForest | V4 route workbench/display adapter | migrating | proof-vector views, conditions, source locators, layout benchmark |
+| Auditable route UI | RouteForest | V4 route workbench/display adapter | integrated-v1 | condition/process views and long-route expert usability benchmark |
 
 `integrated` means the capability reaches the V4 canonical ingestion path and
 has a focused regression test.  It does not mean a blind complex-molecule
@@ -84,7 +84,8 @@ local alternatives where the architecture says they have value.
 - [x] Queue restricted PDFs through the existing authorized browser proxy and
   consume successful downloads on resume.
 - [ ] Extract the old guided ChemEnzy failure/analogy policy into a shared module.
-- [ ] Port the full literature research/source-ranking loop instead of relying
-  on Crossref metadata alone.
-- [ ] Port exact PDF/HTML procedure extraction and source lifecycle states.
+- [x] Port a bounded target-relevant literature ranking loop across Crossref,
+  Europe PMC XML and hash-bound PMC HTML instead of relying on titles alone.
+- [x] Port HTML procedure extraction, exact-row admission and source lifecycle
+  receipts; full per-edge condition coverage remains a separate acceptance gate.
 - [ ] Complete the proof vector, real inventory boundary, UI, and blind suite.

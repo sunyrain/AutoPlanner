@@ -1,10 +1,12 @@
-"""Model-free validation forks for scientifically stale target campaigns.
+"""Validation/evidence forks for scientifically stale target campaigns.
 
 A completed kernel is immutable even when the host reaction verifier changes.
 This module therefore replays the original, host-admitted global Codex plans
-into a new run and executes only deterministic validation, evidence, and stock
-stages.  The derived run is cryptographically bound to its source report and
-graph and never presents itself as a fresh blind generation campaign.
+into a new run and executes validation, evidence, and stock stages.  The default
+fork is model-free.  Callers may explicitly admit one sparse page-vision task;
+that task can only create L0 candidates and never replans the route.  The
+derived run is cryptographically bound to its source report and graph and never
+presents itself as a fresh blind generation campaign.
 """
 from __future__ import annotations
 
@@ -45,6 +47,7 @@ from cascade_planner.interfaces.target_solver_stages import (
     repair_rejected_precursor_typos,
     validate_materialized_edges,
 )
+from cascade_planner.interfaces.visual_evidence import VisualEvidenceProvider
 
 
 TARGET_VALIDATION_FORK_REPORT_SCHEMA = "target_validation_fork_report.v1"
@@ -63,6 +66,8 @@ class ValidationForkConfig:
     enable_patent_self_evolution: bool = True
     self_evo_library_path: str = ""
     max_self_evo_template_candidates: int = 12
+    max_visual_invocations: int = 0
+    max_visual_evidence_pages: int = 2
     schema_version: str = "target_validation_fork_config.v1"
 
     def __post_init__(self) -> None:
@@ -72,6 +77,10 @@ class ValidationForkConfig:
             raise ValueError("validation_fork_stock_limit_invalid")
         if not 1 <= self.max_self_evo_template_candidates <= 64:
             raise ValueError("validation_fork_self_evo_candidate_limit_invalid")
+        if self.max_visual_invocations not in {0, 1}:
+            raise ValueError("validation_fork_visual_invocation_limit_invalid")
+        if not 1 <= self.max_visual_evidence_pages <= 12:
+            raise ValueError("validation_fork_visual_page_limit_invalid")
 
 
 def fork_target_validation(
@@ -86,8 +95,9 @@ def fork_target_validation(
     stock_catalog_builder: StockCatalogBuilder | None = None,
     inventory_snapshot_builder: InventorySnapshotBuilder | None = None,
     evidence_connector: EvidenceConnector | None = None,
+    visual_evidence_provider: VisualEvidenceProvider | None = None,
 ) -> dict[str, Any]:
-    """Replay one source campaign into a new, zero-model validation run."""
+    """Replay one source campaign without another route-planning model call."""
 
     active = config or ValidationForkConfig()
     source_identity = gateway._normalize_run_id(source_run_id)
@@ -127,7 +137,10 @@ def fork_target_validation(
         raise TargetValidationForkError("validation_fork_source_has_no_accepted_plan")
 
     acceptance = _acceptance_from_report(source_report)
-    derived_budget = _zero_model_budget(source_report)
+    derived_budget = _derived_budget(
+        source_report,
+        max_visual_invocations=active.max_visual_invocations,
+    )
     identity = gateway._normalize_run_id(
         run_id or gateway._new_run_id(f"{target_name}-validation", target_smiles)
     )
@@ -153,7 +166,10 @@ def fork_target_validation(
             "source_blind_preflight_is_inherited_by_digest": True,
             "derived_run_is_not_a_fresh_blind_generation": True,
             "source_kernel_history_is_immutable": True,
-            "model_calls_allowed_in_derived_run": 0,
+            "route_planning_model_calls_allowed_in_derived_run": 0,
+            "visual_candidate_calls_allowed_in_derived_run": (
+                active.max_visual_invocations
+            ),
         },
     }
     lineage["content_sha256"] = _digest(lineage)
@@ -244,6 +260,13 @@ def fork_target_validation(
         source_stage=source_stage,
         connector=evidence_connector,
         atom_mapper=atom_mapper,
+        visual_provider=(
+            visual_evidence_provider
+            if active.max_visual_invocations > 0
+            else None
+        ),
+        max_visual_pages=active.max_visual_evidence_pages,
+        target_name=target_name,
     )
     stages.append(
         _stage("evidence_acquisition", evidence_stage["status"], evidence_stage)
@@ -332,11 +355,18 @@ def fork_target_validation(
             "B0_refers_to_bound_source_campaign": True,
             "B1_refers_to_replayed_source_global_plan": True,
             "B2_through_B5_are_recomputed_in_derived_run": True,
-            "derived_model_invocation_count_must_equal_zero": True,
+            "derived_route_planning_model_invocation_count_must_equal_zero": True,
+            "optional_visual_candidate_is_L0_only": True,
+            "derived_visual_invocation_limit": active.max_visual_invocations,
         },
     }
-    if int(report["model_cost"].get("model_invocations") or 0) != 0:
-        raise TargetValidationForkError("validation_fork_model_usage_detected")
+    model_invocations = int(report["model_cost"].get("model_invocations") or 0)
+    visual_invocations = int(report["model_cost"].get("visual_invocations") or 0)
+    if (
+        model_invocations != visual_invocations
+        or visual_invocations > active.max_visual_invocations
+    ):
+        raise TargetValidationForkError("validation_fork_unadmitted_model_usage_detected")
     report["content_sha256"] = _digest(report)
     report_artifact = service.kernel.artifacts.put_json(
         report,
@@ -369,20 +399,25 @@ def _acceptance_from_report(
     )
 
 
-def _zero_model_budget(report: Mapping[str, Any]) -> RetrosynthesisRunBudget:
+def _derived_budget(
+    report: Mapping[str, Any],
+    *,
+    max_visual_invocations: int,
+) -> RetrosynthesisRunBudget:
     source = dict(report.get("budget") or {})
+    visual_enabled = max_visual_invocations > 0
     return RetrosynthesisRunBudget(
-        max_model_invocations=0,
-        max_total_input_tokens=0,
-        max_total_output_tokens=0,
-        max_total_wall_time_s=0.0,
-        max_visual_invocations=0,
+        max_model_invocations=max_visual_invocations,
+        max_total_input_tokens=30_000 if visual_enabled else 0,
+        max_total_output_tokens=6_000 if visual_enabled else 0,
+        max_total_wall_time_s=360.0 if visual_enabled else 0.0,
+        max_visual_invocations=max_visual_invocations,
         max_accepted_expansions=max(
             64,
             int(source.get("max_accepted_expansions") or 0),
         ),
         max_attempt_runs=max(96, int(source.get("max_attempt_runs") or 0)),
-        max_prompt_context_bytes=0,
+        max_prompt_context_bytes=96_000 if visual_enabled else 0,
     )
 
 

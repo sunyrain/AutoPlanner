@@ -223,6 +223,38 @@ def load_pdf_requests(path: str | Path) -> list[dict[str, Any]]:
     return rows
 
 
+def filter_pdf_requests(
+    requests: list[dict[str, Any]],
+    *,
+    case_ids: tuple[str, ...] = (),
+    source_refs: tuple[str, ...] = (),
+    title_terms: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    """Select a bounded browser batch without rewriting the durable queue."""
+
+    cases = {value.strip().casefold() for value in case_ids if value.strip()}
+    sources = {value.strip().casefold() for value in source_refs if value.strip()}
+    terms = tuple(value.strip().casefold() for value in title_terms if value.strip())
+    return [
+        dict(row)
+        for row in requests
+        if (
+            (not cases or str(row.get("case_id") or "").casefold() in cases)
+            and (
+                not sources
+                or str(row.get("source_ref") or "").casefold() in sources
+            )
+            and (
+                not terms
+                or any(
+                    term in str(row.get("title") or "").casefold()
+                    for term in terms
+                )
+            )
+        )
+    ]
+
+
 def download_pdf_requests(
     *,
     queue_path: str | Path,

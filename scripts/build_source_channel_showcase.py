@@ -158,7 +158,7 @@ table{{width:100%;border-collapse:collapse}}td{{padding:9px;border-bottom:1px so
 @media(max-width:800px){{.metrics,.flow{{grid-template-columns:1fr 1fr}}.grid{{grid-template-columns:1fr}}}}
 </style></head><body><header><small>FRESH NETWORK · DIGEST BOUND · AUDITABLE</small>
 <h1>文献、专利与视觉提取实测</h1><p>该页只使用本轮从网络自动发现并下载的来源；元数据不授予证据等级，视觉结果不绕过 host 验证。</p></header>
-<main><section class="metrics">{_metric('XML 全文',_bytes(xml['size_bytes']))}{_metric('原始图',xml['figure_count'])}{_metric('实验段落',xml['section_count'])}{_metric('视觉候选',visual['candidate_step_count'])}{_metric('视觉耗时',f"{float(usage.get('wall_time_s') or 0):.1f}s")}{_metric('增量模型调用',validation_fork.get('model_invocations',0))}</section>
+<main><section class="metrics">{_metric('XML 全文',_bytes(xml['size_bytes']))}{_metric('原始图',xml['figure_count'])}{_metric('实验段落',xml['section_count'])}{_metric('视觉候选',visual['candidate_step_count'])}{_metric('视觉耗时',f"{float(usage.get('wall_time_s') or 0):.1f}s")}{_metric('来源验证模型调用',validation_fork.get('model_invocations',0))}</section>
 <section class="flow"><div>Europe PMC 元数据</div><div>XML → PMC HTML</div><div>PDF / EPO 回退</div><div>确定性过程抽取</div><div>Host 分级接纳</div></section>
 <section class="grid"><article class="panel"><h2>{_h(payload['source_title'])}</h2><img src="{_h(assets['figure'])}" alt="自动下载的文献原图"><p class="muted">{_h(payload['source_ref'])} · XML SHA-256 {_h(str(xml['sha256'])[:16])}…</p></article>
 <article class="panel"><h2>验收结果</h2><table>
@@ -200,17 +200,18 @@ def _validation_fork_panel(
             "尚未闭合；当前 exact 反应已单独显示，不能冒充全路线多来源证明"
         )
     )
-    return f"""<section class="panel wide"><h2>Simvastatin · 多信源零模型增量验证</h2>
+    return f"""<section class="panel wide"><h2>Simvastatin · 多信源增量验证</h2>
 <table><tr><td>来源</td><td>{int(value.get('source_count') or 0)} 个：EPO 专利 + PMC 原始论文</td></tr>
 <tr><td>论文获取</td><td>{_h(_source_label(value.get('paper_acquisition','')))} · {_h(value.get('paper_pmcid',''))} · {_h(_source_label(value.get('paper_access_class','')))}</td></tr>
 <tr><td>抽取结果</td><td>{int(value.get('paper_procedure_count') or 0)} 个论文段落 + {int(value.get('patent_procedure_count') or 0)} 个专利段落</td></tr>
 <tr><td>来源路线</td><td>{int(value.get('source_route_proposal_count') or 0)} 条物化 · {int(value.get('source_route_host_accepted_count') or 0)} 条主机验证 · {int(value.get('source_route_exact_row_count') or 0)} 条 exact</td></tr>
+<tr><td>视觉候选</td><td>{int(value.get('visual_candidate_count') or 0)} 条提取 · {int(value.get('visual_materialized_count') or 0)} 条物化 · {int(value.get('visual_host_accepted_count') or 0)} 条接纳 · {int(value.get('visual_host_rejected_count') or 0)} 条拒绝</td></tr>
 <tr><td>self-evo</td><td>{int(value.get('self_evo_template_count') or 0)} 个共享模板 · generation {int(value.get('self_evo_generation') or 0)}</td></tr>
 <tr><td>原始来源缓存</td><td>{'哈希复核后命中' if value.get('patent_source_cache_hit') else '本轮下载并冻结'}</td></tr>
 <tr><td>并行耗时</td><td>patent {float(timings.get('connector_1') or 0):.1f}s · paper {float(timings.get('connector_2') or 0):.1f}s</td></tr>
-<tr><td>模型 / 视觉</td><td class="ok">{int(value.get('model_invocations') or 0)} / {int(value.get('visual_invocations') or 0)}</td></tr>
+<tr><td>来源 fork 模型 / 视觉</td><td class="ok">{int(value.get('model_invocations') or 0)} / {int(value.get('visual_invocations') or 0)}</td></tr>
 <tr><td>B3 exact multi-source</td><td class="{'ok' if value.get('B3_exact_multi_source') else 'warn'}">{_h(exact_status)}</td></tr></table>
-<div class="routeCards">{routes}</div><div class="procedures">{procedures}</div><div class="links"><a href="{_h(assets.get('paper_html',''))}">查看哈希冻结的 PMC HTML</a></div></section>"""
+<div class="routeCards">{routes}</div><div class="procedures">{procedures}</div><div class="links"><a href="{_h(assets.get('paper_html',''))}">查看哈希冻结的论文全文</a></div></section>"""
 
 
 def _validation_fork_payload(
@@ -234,13 +235,29 @@ def _validation_fork_payload(
         for row in dict(stage.get("discovery") or {}).get("sources") or []
         if isinstance(row, Mapping)
     ]
-    paper = next((row for row in sources if row.get("source_kind") == "paper_si"), {})
+    paper = next(
+        (
+            row
+            for row in sources
+            if row.get("source_kind") == "paper_si"
+            and (row.get("fulltext_html_path") or row.get("fulltext_xml_path"))
+        ),
+        next(
+            (row for row in sources if row.get("source_kind") == "paper_si"),
+            {},
+        ),
+    )
     patent = next((row for row in sources if row.get("source_kind") == "patent"), {})
-    paper_path = _file(paper.get("fulltext_html_path"))
+    paper_path = _file(
+        paper.get("fulltext_html_path") or paper.get("fulltext_xml_path")
+    )
     paper_sha = _sha256(paper_path)
     if paper_sha != str(paper.get("source_fulltext_sha256") or ""):
         raise ValueError("validation_fork_paper_digest_mismatch")
-    paper_asset = _copy(paper_path, output / "simvastatin-source-paper.html")
+    paper_asset = _copy(
+        paper_path,
+        output / f"simvastatin-source-paper{paper_path.suffix.lower()}",
+    )
     receipt_ref = dict(stage.get("receipt_ref") or {})
     store = artifact_store_root or report_path.parents[2] / "artifacts"
     receipt_path = store / str(receipt_ref.get("object_path") or "")
@@ -264,6 +281,14 @@ def _validation_fork_payload(
         {},
     )
     route_observation = dict(patent_audit.get("source_route_observation") or {})
+    source_route_stage = dict(stage.get("source_route") or {})
+    source_route_validation = dict(
+        source_route_stage.get("validation") or stage.get("validation") or {}
+    )
+    visual_stage = dict(stage.get("visual_evidence") or {})
+    visual_observation = dict(visual_stage.get("observation") or {})
+    visual_materialization = dict(visual_stage.get("materialization") or {})
+    visual_validation = dict(visual_stage.get("validation") or {})
     source_routes = [
         _source_route_card(dict(row), target_name=str(dict(report.get("target") or {}).get("name") or "target"))
         for row in route_observation.get("proposals") or []
@@ -279,8 +304,10 @@ def _validation_fork_payload(
         {},
     )
     model_cost = dict(report.get("model_cost") or {})
-    if int(model_cost.get("model_invocations") or 0) != 0:
-        raise ValueError("validation_fork_model_usage_detected")
+    model_invocations = int(model_cost.get("model_invocations") or 0)
+    visual_invocations = int(model_cost.get("visual_invocations") or 0)
+    if model_invocations != visual_invocations or visual_invocations > 1:
+        raise ValueError("validation_fork_unadmitted_model_usage_detected")
     procedures = [
         {
             "name": str(row.get("name") or ""),
@@ -305,15 +332,27 @@ def _validation_fork_payload(
                 route_observation.get("proposal_count") or len(source_routes)
             ),
             "source_route_host_accepted_count": int(
-                dict(stage.get("validation") or {}).get(
-                    "accepted_validation_count"
-                )
+                source_route_validation.get("accepted_validation_count")
                 or 0
             ),
             "source_route_exact_row_count": int(
                 patent_audit.get("source_route_exact_row_count") or 0
             ),
             "source_routes": source_routes,
+            "visual_candidate_count": int(
+                visual_observation.get("candidate_step_count")
+                or visual_materialization.get("proposal_count")
+                or 0
+            ),
+            "visual_materialized_count": int(
+                visual_materialization.get("proposal_count") or 0
+            ),
+            "visual_host_accepted_count": int(
+                visual_validation.get("accepted_validation_count") or 0
+            ),
+            "visual_host_rejected_count": int(
+                visual_validation.get("rejected_validation_count") or 0
+            ),
             "patent_source_cache_hit": any(
                 dict(row).get("cache_hit") is True
                 for row in dict(patent_audit.get("source_byte_cache") or {}).values()
@@ -322,10 +361,12 @@ def _validation_fork_payload(
             "self_evo_template_count": int(learning.get("template_count") or 0),
             "self_evo_generation": int(learning.get("generation") or 0),
             "connector_elapsed_s": dict(receipt.get("child_elapsed_s") or {}),
-            "model_invocations": int(model_cost.get("model_invocations") or 0),
-            "visual_invocations": int(model_cost.get("visual_invocations") or 0),
+            "model_invocations": model_invocations,
+            "visual_invocations": visual_invocations,
             "B3_exact_multi_source": bool(
-                dict(report.get("gates") or {}).get("B3_exact_multi_source")
+                dict(dict(report.get("gates") or {}).get("gates") or {}).get(
+                    "B3_exact_multi_source"
+                )
             ),
             "procedures": procedures,
         },

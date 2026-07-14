@@ -529,6 +529,7 @@ def test_v4_display_uses_dag_stages_native_sources_and_auxiliary_roles() -> None
 
     assert [row["edge_id"] for row in rows] == ["edge:a", "edge:b", "edge:c"]
     assert [row["stage_label"] for row in rows] == ["S1a", "S1b", "S2"]
+    assert [row["retrosynthesis_label"] for row in rows] == ["R2a", "R2b", "R1"]
     assert rows[0]["display_label"] == "S1a · P-C31"
     assert rows[0]["producer_label"] == "文献重放"
     assert rows[0]["auxiliary_precursor_ids"] == ["m:small"]

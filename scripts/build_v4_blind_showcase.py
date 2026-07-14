@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         help=(
-            "newer zero-model validation-fork report whose proof/workbench "
+            "newer evidence/validation-fork report whose proof/workbench "
             "projection is merged into the matching blind target card"
         ),
     )
@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("validation_fork_target_name_missing")
         validation_rows = _compile_rows(
             {
-                "output_root": str(status_path.parent),
+                "output_root": str(validation_path.parents[2]),
                 "targets": {
                     target_name: {
                         "status": "completed",
@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
                 },
             },
             output_dir=output_dir,
-            artifact_role="latest_zero_model_validation_fork",
+            artifact_role="latest_evidence_validation_fork",
         )
         rows = _merge_validation_rows(rows, validation_rows)
     summary = _summary(panel, rows)
@@ -350,7 +350,7 @@ def _merge_validation_rows(
         current["validation_model_cost"] = dict(
             validation.get("model_cost") or {}
         )
-        current["artifact_role"] = "latest_zero_model_validation_fork"
+        current["artifact_role"] = "latest_evidence_validation_fork"
         merged[name] = current
     return sorted(
         merged.values(),
@@ -444,6 +444,7 @@ def _target_card(row: Mapping[str, Any]) -> str:
     artifact_note = (
         {
             "latest_independent_blind_rerun": " · 最新独立盲跑",
+            "latest_evidence_validation_fork": " · 最新证据/验证叉",
             "latest_zero_model_validation_fork": " · 最新零模型验证叉",
         }.get(str(row.get("artifact_role") or ""), "")
     )
@@ -456,7 +457,17 @@ def _target_card(row: Mapping[str, Any]) -> str:
         if row.get("workbench_file")
         else '<span class="warn">工作台待生成</span>'
     )
-    return f"""<article class="card"><div class="top"><div><h2>{_h(row['target_name'])}</h2><code>{_h(row.get('run_id',''))}{_h(artifact_note)}</code></div><span class="pill">{_h(row.get('claim','unresolved'))}</span></div><div class="gates">{gate_html}</div><div class="facts">{_fact('首个路线',_duration(row.get('time_to_first_route_s',0)))}{_fact('完整首轮',_duration(row.get('full_pass_s',0)))}{_fact('Codex',f"{int(cost.get('model_invocations') or 0)} 次")}{_fact('当前主路线',workbench.get('route_count',0))}{_fact('已验证替换',workbench.get('validated_replacement_count',0))}{_fact('反应验证',counts.get('reaction_validated_skeletons',0))}</div><div class="provider"><strong>ChemEnzy</strong> · 实调 {int(chem.get('provider_calls') or 0)} · 候选 {int(chem.get('proposals') or 0)} · 委派 { _h(chem.get('delegation_status','')) }<br><span class="muted">来源引擎：{_h(origins)} · 分子 {int(workbench.get('molecule_count') or 0)} · 反应边 {int(workbench.get('edge_count') or 0)} · 库存闭合 {counts.get('stock_closed_skeletons',0)}</span><br><span class="muted">Codex 输入 {int(cost.get('input_tokens') or 0):,} token · Evidence 来源 {int(evidence.get('sources') or 0)} · exact rows {int(evidence.get('exact_rows') or 0)} · visual {int(evidence.get('visual_calls') or 0)}</span></div><div class="links">{link}</div>{f'<p class="error">{_h(row["error"])} </p>' if row.get('error') else ''}</article>"""
+    validation_cost = dict(row.get("validation_model_cost") or {})
+    validation_note = ""
+    if validation_cost:
+        validation_note = (
+            '<br><span class="muted">增量证据验证：'
+            f'{int(validation_cost.get("model_invocations") or 0)} 次模型 · '
+            f'{int(validation_cost.get("visual_invocations") or 0)} 次视觉 · '
+            f'{int(validation_cost.get("input_tokens") or 0):,} 输入 token'
+            "</span>"
+        )
+    return f"""<article class="card"><div class="top"><div><h2>{_h(row['target_name'])}</h2><code>{_h(row.get('run_id',''))}{_h(artifact_note)}</code></div><span class="pill">{_h(row.get('claim','unresolved'))}</span></div><div class="gates">{gate_html}</div><div class="facts">{_fact('首个路线',_duration(row.get('time_to_first_route_s',0)))}{_fact('完整首轮',_duration(row.get('full_pass_s',0)))}{_fact('Codex',f"{int(cost.get('model_invocations') or 0)} 次")}{_fact('当前主路线',workbench.get('route_count',0))}{_fact('已验证替换',workbench.get('validated_replacement_count',0))}{_fact('反应验证',counts.get('reaction_validated_skeletons',0))}</div><div class="provider"><strong>ChemEnzy</strong> · 实调 {int(chem.get('provider_calls') or 0)} · 候选 {int(chem.get('proposals') or 0)} · 委派 { _h(chem.get('delegation_status','')) }<br><span class="muted">来源引擎：{_h(origins)} · 分子 {int(workbench.get('molecule_count') or 0)} · 反应边 {int(workbench.get('edge_count') or 0)} · 库存闭合 {counts.get('stock_closed_skeletons',0)}</span><br><span class="muted">Codex 输入 {int(cost.get('input_tokens') or 0):,} token · Evidence 来源 {int(evidence.get('sources') or 0)} · exact rows {int(evidence.get('exact_rows') or 0)} · visual {int(evidence.get('visual_calls') or 0)}</span>{validation_note}</div><div class="links">{link}</div>{f'<p class="error">{_h(row["error"])} </p>' if row.get('error') else ''}</article>"""
 
 
 def _origin_label(value: Any) -> str:

@@ -206,8 +206,9 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     validation_fork = sub.add_parser(
         "fork-validation",
         help=(
-            "replay a completed target campaign into a zero-model run and "
-            "revalidate it under the current host policy"
+            "replay a completed target campaign into a model-free-by-default "
+            "run, optionally use one sparse page-vision call, and revalidate "
+            "it under the current host policy"
         ),
     )
     validation_fork.add_argument("source_run_id")
@@ -224,6 +225,20 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     validation_fork.add_argument("--no-patent-self-evo", action="store_true")
     validation_fork.add_argument("--self-evo-library", default="")
     validation_fork.add_argument("--max-self-evo-candidates", type=int, default=12)
+    validation_fork.add_argument(
+        "--max-visual-invocations", type=int, choices=(0, 1), default=0
+    )
+    validation_fork.add_argument(
+        "--max-visual-pages", type=int, choices=range(1, 13), default=2
+    )
+    validation_fork.add_argument(
+        "--visual-model", default=DEFAULT_TARGET_DIRECTOR_MODEL
+    )
+    validation_fork.add_argument(
+        "--visual-reasoning-effort",
+        choices=("low", "medium", "high"),
+        default="low",
+    )
     validation_fork.add_argument(
         "--max-literature-sources", type=int, choices=range(1, 9), default=3
     )
@@ -300,12 +315,28 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                 else compose_evidence_connectors(*evidence_connectors)
             )
         )
+        visual_evidence_provider = None
+        if args.max_visual_invocations > 0:
+            from cascade_planner.interfaces.visual_evidence import (
+                CodexVisualEvidenceConfig,
+                build_codex_visual_evidence_provider,
+            )
+
+            visual_evidence_provider = build_codex_visual_evidence_provider(
+                CodexVisualEvidenceConfig(
+                    cache_dir=gateway.paths.external_data_root / "visual-evidence",
+                    model=args.visual_model,
+                    reasoning_effort=args.visual_reasoning_effort,
+                    max_pages=args.max_visual_pages,
+                )
+            )
         result = gateway.fork_target_validation(
             source_run_id=args.source_run_id,
             source_run_dir=args.source_run_dir,
             run_id=args.run_id,
             run_dir=args.run_dir,
             evidence_connector=evidence_connector,
+            visual_evidence_provider=visual_evidence_provider,
             config=ValidationForkConfig(
                 max_atom_mapping_reactions=args.max_map_reactions,
                 max_live_stock_molecules=args.max_stock_molecules,
@@ -313,6 +344,8 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                 enable_patent_self_evolution=not args.no_patent_self_evo,
                 self_evo_library_path=args.self_evo_library,
                 max_self_evo_template_candidates=args.max_self_evo_candidates,
+                max_visual_invocations=args.max_visual_invocations,
+                max_visual_evidence_pages=args.max_visual_pages,
             ),
         )
         return result if args.full_output else _compact_validation_fork_result(result)

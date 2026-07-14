@@ -8,6 +8,7 @@ from flask import Flask
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.web.v4_api import create_v4_blueprint
+from cascade_planner.web.v4_target_runtime import historical_job
 from cascade_planner.interfaces.target_delivery import delivery_projection
 
 
@@ -171,3 +172,27 @@ def test_v4_delivery_projection_exposes_routes_before_proof_closure() -> None:
     assert delivery["route_candidates_available"] is True
     assert delivery["workbench_available"] is True
     assert delivery["proof_closure_complete"] is False
+
+
+def test_historical_job_never_projects_archived_kernel_as_live_or_proven() -> None:
+    job = historical_job(
+        {
+            "run_id": "archived-validation-fork",
+            "target_name": "blind target",
+            "status": "running",
+            "accepted": True,
+            "graph": {"complete_route_count": 3},
+            "cost_totals": {"task_wall_time_s": 12.5},
+        }
+    )
+
+    assert job["status"] == "historical"
+    assert job["phase"] == "historical_snapshot"
+    assert job["progress"]["execution_active"] is False
+    assert job["progress"]["campaign_status"] == "running"
+    delivery = job["progress"]["delivery"]
+    assert delivery["state"] == "historical"
+    assert delivery["route_candidates_available"] is True
+    assert delivery["proof_closure_known"] is False
+    assert delivery["proof_closure_complete"] is False
+    assert delivery["semantics"]["portfolio_policy_accepted"] is True
