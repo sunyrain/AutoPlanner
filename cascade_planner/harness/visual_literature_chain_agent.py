@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from collections.abc import Mapping
 import json
 import os
 import re
@@ -48,6 +49,8 @@ def run_visual_literature_chain_agent(
     timeout_s: float = 900.0,
     codex_executable: str | None = None,
     allow_repair: bool = True,
+    ambient_auth: bool | None = None,
+    reasoning_effort: str = "low",
 ) -> dict[str, Any]:
     expected_labels = meaningful_compound_labels(expected_labels or [])
     out = Path(output_dir).resolve()
@@ -69,11 +72,15 @@ def run_visual_literature_chain_agent(
 
     api_key = _read_key(Path(key_path))
     executable = codex_executable or shutil.which("codex")
-    ambient_auth = _visual_use_ambient_codex_cli_auth()
+    use_ambient_auth = (
+        _visual_use_ambient_codex_cli_auth()
+        if ambient_auth is None
+        else bool(ambient_auth)
+    )
     if (
-        (ambient_auth and not executable)
+        (use_ambient_auth and not executable)
         or (
-            not ambient_auth
+            not use_ambient_auth
             and (
                 not api_key
                 or (not _visual_direct_api_enabled() and not executable)
@@ -116,7 +123,8 @@ def run_visual_literature_chain_agent(
         event_log_filename="codex_visual_chain_events.jsonl",
         stderr_log_filename="codex_visual_chain_stderr.log",
         last_message_filename="codex_visual_chain_last_message.txt",
-        ambient_auth=ambient_auth,
+        ambient_auth=use_ambient_auth,
+        reasoning_effort=reasoning_effort,
     )
     if first_attempt["status"] != "completed" and not str(
         first_attempt.get("raw_last_message") or ""
@@ -134,6 +142,7 @@ def run_visual_literature_chain_agent(
         result["status"] = first_attempt["status"]
         result["elapsed_s"] = round(time.monotonic() - started, 3)
         result["attempts"] = [first_attempt]
+        result["usage"] = _aggregate_visual_usage([first_attempt])
         _write_result(out, result)
         return result
 
@@ -175,7 +184,8 @@ def run_visual_literature_chain_agent(
             event_log_filename="codex_visual_chain_repair_events.jsonl",
             stderr_log_filename="codex_visual_chain_repair_stderr.log",
             last_message_filename="codex_visual_chain_repair_last_message.txt",
-            ambient_auth=ambient_auth,
+            ambient_auth=use_ambient_auth,
+            reasoning_effort=reasoning_effort,
         )
         attempts.append(repair_attempt)
         repair_parsed = _parse_json_object(str(repair_attempt.get("raw_last_message") or ""))
@@ -256,6 +266,7 @@ def run_visual_literature_chain_agent(
             "event_log_path": str(selected_attempt.get("event_log_path") or ""),
             "stderr_log_path": str(selected_attempt.get("stderr_log_path") or ""),
             "attempts": attempts,
+            "usage": _aggregate_visual_usage(attempts),
             "selected_attempt_index": attempts.index(selected_attempt),
             "candidate_quality": candidate_quality,
             "acceptance_level": str(candidate_quality.get("acceptance_level") or ("exact_source_detail_candidate" if exact_ready else "exploratory_connectivity_candidate" if accepted_for_exploration else "rejected")),
@@ -495,6 +506,7 @@ def _run_visual_json_prompt(
     stderr_log_filename: str,
     last_message_filename: str,
     ambient_auth: bool = False,
+    reasoning_effort: str = "low",
 ) -> dict[str, Any]:
     if _visual_direct_api_enabled() and not ambient_auth:
         direct_attempt = _run_direct_visual_prompt(
@@ -539,6 +551,7 @@ def _run_visual_json_prompt(
         stderr_log_filename=stderr_log_filename,
         last_message_filename=last_message_filename,
         ambient_auth=ambient_auth,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -610,6 +623,7 @@ def _run_direct_visual_prompt(
                 "raw_last_message": raw_text,
                 "execution_mode": "direct_visual_api",
                 "api_endpoint": endpoint,
+                "usage": _normalized_visual_usage(response.get("usage"), invoked=True),
             }
         except socket.timeout as exc:
             errors.append(
@@ -687,6 +701,7 @@ def _run_codex_visual_prompt(
     stderr_log_filename: str,
     last_message_filename: str,
     ambient_auth: bool = False,
+    reasoning_effort: str = "low",
 ) -> dict[str, Any]:
     output_dir = output_dir.resolve()
     prompt_path = output_dir / prompt_filename
@@ -714,6 +729,10 @@ def _run_codex_visual_prompt(
         "--model",
         str(model),
     ]
+    if reasoning_effort in {"low", "medium", "high"}:
+        command.extend(
+            ["-c", f"model_reasoning_effort={_toml_string(reasoning_effort)}"]
+        )
     for image in image_paths:
         command.extend(["--image", str(image)])
     command.append("-")
@@ -837,6 +856,7 @@ def _run_codex_visual_prompt(
             if ambient_auth
             else "isolated_codex_cli_api_key"
         ),
+        "usage": _codex_visual_event_usage(event_log, invoked=True),
     }
 
 
@@ -889,6 +909,82 @@ def _visual_direct_api_enabled() -> bool:
 
 def _visual_codex_fallback_enabled() -> bool:
     return _env_flag("AUTOPLANNER_VISUAL_CODEX_FALLBACK", default=True)
+
+
+def _codex_visual_event_usage(path: Path, *, invoked: bool) -> dict[str, Any]:
+    latest: Mapping[str, Any] = {}
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and isinstance(event.get("usage"), dict):
+            latest = dict(event["usage"])
+    return _normalized_visual_usage(latest, invoked=invoked)
+
+
+def _normalized_visual_usage(
+    value: Mapping[str, Any] | None,
+    *,
+    invoked: bool,
+) -> dict[str, Any]:
+    row = dict(value or {})
+    input_details = (
+        dict(row.get("input_tokens_details") or {})
+        if isinstance(row.get("input_tokens_details"), Mapping)
+        else {}
+    )
+    output_details = (
+        dict(row.get("output_tokens_details") or {})
+        if isinstance(row.get("output_tokens_details"), Mapping)
+        else {}
+    )
+    input_tokens = int(
+        row.get("input_tokens")
+        or row.get("prompt_tokens")
+        or input_details.get("total")
+        or 0
+    )
+    output_tokens = int(
+        row.get("output_tokens")
+        or row.get("completion_tokens")
+        or output_details.get("total")
+        or 0
+    )
+    return {
+        "model_invocations": int(bool(invoked)),
+        "visual_invocations": int(bool(invoked)),
+        "input_tokens": max(0, input_tokens),
+        "output_tokens": max(0, output_tokens),
+    }
+
+
+def _aggregate_visual_usage(attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = [
+        _normalized_visual_usage(
+            attempt.get("usage") if isinstance(attempt.get("usage"), Mapping) else {},
+            invoked=bool(dict(attempt.get("usage") or {}).get("model_invocations")),
+        )
+        for attempt in attempts
+    ]
+    return {
+        key: sum(int(row.get(key) or 0) for row in rows)
+        for key in (
+            "model_invocations",
+            "visual_invocations",
+            "input_tokens",
+            "output_tokens",
+        )
+    } | {
+        "wall_time_s": round(
+            sum(max(0.0, float(attempt.get("elapsed_s") or 0.0)) for attempt in attempts),
+            3,
+        )
+    }
 
 
 def _env_flag(name: str, *, default: bool) -> bool:

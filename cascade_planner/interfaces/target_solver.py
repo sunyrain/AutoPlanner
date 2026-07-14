@@ -43,6 +43,10 @@ from cascade_planner.interfaces.target_solver_stages import (
     repair_rejected_precursor_typos,
     validate_materialized_edges,
 )
+from cascade_planner.interfaces.visual_evidence import (
+    VisualEvidenceProvider,
+    acquire_visual_evidence_candidates,
+)
 from cascade_planner.orchestration.global_campaign_director import (
     DirectorConfig,
     DirectorOutcome,
@@ -73,6 +77,7 @@ class TargetSolveConfig:
     max_atom_mapping_reactions: int = 48
     max_live_stock_molecules: int = 24
     max_patent_sources: int = 3
+    max_visual_evidence_pages: int = 4
     max_director_output_tokens: int = 7_000
     max_director_wall_time_s: float = 360.0
     schema_version: str = "target_solve_config.v1"
@@ -84,6 +89,8 @@ class TargetSolveConfig:
             raise ValueError("target solver deterministic limits must be positive")
         if not 1 <= self.max_patent_sources <= 8:
             raise ValueError("target solver patent source limit is invalid")
+        if not 1 <= self.max_visual_evidence_pages <= 8:
+            raise ValueError("target solver visual evidence page limit is invalid")
         if self.max_director_output_tokens < 1 or self.max_director_wall_time_s <= 0:
             raise ValueError("target solver director limits must be positive")
 
@@ -105,6 +112,7 @@ def solve_target(
     stock_catalog_builder: StockCatalogBuilder | None = None,
     inventory_snapshot_builder: InventorySnapshotBuilder | None = None,
     evidence_connector: EvidenceConnector | None = None,
+    visual_evidence_provider: VisualEvidenceProvider | None = None,
 ) -> dict[str, Any]:
     """Run or resume the real SMILES-only campaign path through one V4 kernel."""
 
@@ -289,6 +297,8 @@ def solve_target(
         source_stage=source_stage,
         connector=resolved_evidence_connector,
         atom_mapper=atom_mapper,
+        visual_provider=visual_evidence_provider,
+        max_visual_pages=active.max_visual_evidence_pages,
     )
     stages.append(_stage("evidence_acquisition", evidence_stage["status"], evidence_stage))
     stock_stage = _audit_stock_stage(
@@ -425,6 +435,8 @@ def solve_target(
                 source_stage=source_stage,
                 connector=resolved_evidence_connector,
                 atom_mapper=atom_mapper,
+                visual_provider=visual_evidence_provider,
+                max_visual_pages=active.max_visual_evidence_pages,
             )
             stages.append(
                 _stage(
@@ -689,6 +701,8 @@ def _acquire_evidence_stage(
     source_stage: Mapping[str, Any],
     connector: EvidenceConnector | None,
     atom_mapper: ReactionMapper | None,
+    visual_provider: VisualEvidenceProvider | None = None,
+    max_visual_pages: int = 4,
 ) -> dict[str, Any]:
     if connector is None:
         return {
@@ -704,6 +718,7 @@ def _acquire_evidence_stage(
         graph=service.graph_store.load(),
         source_frontier=source_stage,
     )
+    visual_stage: dict[str, Any] = {}
     try:
         acquired = acquire_structured_evidence(request, connector=connector)
         receipt = dict(acquired.get("receipt") or {})
@@ -722,6 +737,13 @@ def _acquire_evidence_stage(
                 logical_name="source_discovery_observation.json",
                 producer="autoplanner.live_evidence.discovery",
             ).to_dict()
+        visual_stage = acquire_visual_evidence_candidates(
+            service,
+            evidence_request=request,
+            discovery=discovery,
+            provider=visual_provider,
+            max_pages=max_visual_pages,
+        )
         document = acquired.get("document")
         if document is None:
             return {
@@ -731,11 +753,26 @@ def _acquire_evidence_stage(
                 "receipt_ref": receipt_ref,
                 "discovery_ref": discovery_ref,
                 "discovery": discovery,
+                "visual_evidence": visual_stage,
                 "source_count": len(discovery.get("sources") or []),
                 "exact_record_count": 0,
-                "model_invocations": 0,
+                "model_invocations": int(
+                    visual_stage.get("model_invocations") or 0
+                ),
+                "visual_invocations": int(
+                    visual_stage.get("visual_invocations") or 0
+                ),
                 "false_evidence_claim": False,
-                "material_events": ["source_material_discovered"],
+                "material_events": sorted(
+                    {
+                        "source_material_discovered",
+                        *[
+                            str(value)
+                            for value in visual_stage.get("material_events") or []
+                            if str(value)
+                        ],
+                    }
+                ),
                 "semantics": {
                     "discovery_is_not_exact_evidence": True,
                     "discovery_may_inform_bounded_global_replan": True,
@@ -753,7 +790,8 @@ def _acquire_evidence_stage(
             "status": "unresolved",
             "reason": f"evidence_connector_failed:{type(exc).__name__}:{exc}",
             "request_sha256": request["content_sha256"],
-            "model_invocations": 0,
+            "model_invocations": int(visual_stage.get("model_invocations") or 0),
+            "visual_invocations": int(visual_stage.get("visual_invocations") or 0),
             "false_evidence_claim": False,
         }
     return {
@@ -766,18 +804,25 @@ def _acquire_evidence_stage(
         "receipt_ref": receipt_ref,
         "discovery_ref": discovery_ref,
         "discovery": discovery,
+        "visual_evidence": visual_stage,
         "source_count": imported["source_count"],
         "exact_record_count": imported["exact_record_count"],
         "source_binding_count": imported["source_binding_count"],
         "execution": imported["execution"],
         "validation": imported["validation"],
-        "model_invocations": 0,
+        "model_invocations": int(visual_stage.get("model_invocations") or 0),
+        "visual_invocations": int(visual_stage.get("visual_invocations") or 0),
         "material_events": sorted(
             {
                 *(
                     ["source_material_discovered"]
                     if discovery
                     else []
+                ),
+                *(
+                    str(value)
+                    for value in visual_stage.get("material_events") or []
+                    if str(value)
                 ),
                 *(
                     ["exact_rows_added"]
@@ -895,6 +940,7 @@ def _replan_reasons(
         "exact_rows_added",
         "material_evidence_added",
         "source_material_discovered",
+        "visual_source_candidates_added",
     }:
         reasons.append("evidence_deficit_with_new_source_material")
     if values.get("B4_stock_boundary") is not True and events & {
@@ -909,9 +955,11 @@ def _evidence_observations(stage: Mapping[str, Any]) -> dict[str, Any]:
     discovery = dict(stage.get("discovery") or {})
     if not discovery:
         return {}
+    visual = dict(dict(stage.get("visual_evidence") or {}).get("observation") or {})
     return {
         "schema_version": "campaign_evidence_observations.v1",
         "source_discovery": discovery,
+        "visual_source_candidates": visual,
         "semantics": {
             "untrusted_source_text_data_only": True,
             "grants_no_scientific_authority": True,

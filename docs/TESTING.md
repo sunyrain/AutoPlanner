@@ -172,6 +172,13 @@ The central P0 tests must cover these failure boundaries:
   malformed raw structures, computational groups, bare citations, and another
   edge's source set cannot increase trusted-source width or corroboration, and a
   curation outbox cannot itself grant L3 authority;
+- local OCR exact rows replay the same source/PDF/page-image/text/engine hashes;
+  wrong source identity, tampered bytes, a mismatched evidence page, and
+  non-allowlisted OCR engines all fail closed without a model call;
+- optional page vision is disabled by default, cannot run when its 0/1 budget
+  is exhausted, cannot be durably admitted twice, ignores provider reaction
+  digests in favor of host canonicalization, and can only create L0 global
+  replan observations;
 - benchmark/search and procurement stock planes are replayed through trusted
   provider instances and all four ledger fixed points are recomputed;
 - UI stage membership is derived from current ledger/queue/edge/leaf evidence,

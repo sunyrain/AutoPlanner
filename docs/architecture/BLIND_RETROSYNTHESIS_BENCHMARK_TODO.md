@@ -134,6 +134,13 @@ benchmark-stock policy is not an L3 or procurement claim.
   search bounded candidates, freeze direct patent PDFs and page hashes,
   extract procedure inventory, and emit exact rows only after deterministic
   product/reactant reconstruction. Discovery-only material remains L0 data.
+- [x] Image-only primary pages first use bounded local Tesseract OCR. OCR
+  companions bind source identity, PDF hash, page number, rendered image hash,
+  text hash, and allowlisted engine identity; any replay mismatch fails closed.
+- [x] Sparse page vision is explicit opt-in, defaults to zero, admits at most
+  one durable campaign task, and runs only while deterministic parsing leaves
+  unresolved edges. Host-normalized visual chemistry remains L0 replan data
+  and cannot grant L2, L3, source independence, stock, or completion.
 - [x] Evidence discovery is event-bearing: newly found source material or
   exact rows can resume the global campaign only when a complete second-call
   budget can be reserved.
@@ -220,6 +227,9 @@ useful L2 + benchmark-stock portfolio without paying for another model call.
 
 - One low-reasoning global call is the normal cost. A second call is allowed
   only after a material event and only when the full measured envelope fits.
+- Local OCR is zero-model work. Optional page vision has its own 0/1 hard
+  budget and also consumes the shared model budget; a visual-assisted replan
+  therefore needs three explicitly allowed calls in total.
 - Mapping, validation, stock audit, exact-source parsing, and validation forks
   are host work and report zero model invocations.
 - The solver never keeps calling a stronger model to force a bad proposal to
@@ -236,7 +246,7 @@ gate counts, costs, and failure codes.
 
 - [x] Focused target, repair, verifier, route-workbench, worker, evidence, and
   blind-contract tests.
-- [x] Full test suite (`1578 passed, 3 skipped`, 2 subtests) and Ruff.
+- [x] Full test suite (`1594 passed, 3 skipped`, 2 subtests) and Ruff.
 - [x] Static V4 architecture ownership/line-budget audit and repository audit.
 - [x] Verified no GitHub Actions/workflows were added or changed.
 - [x] Commit the bounded source changes and compact benchmark summary only.

@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import fitz
+
 from cascade_planner.harness.deterministic_literature_registry import (
     PARSER_AUTHORITY_ID,
     _extract_labeled_procedures,
@@ -15,6 +17,10 @@ from cascade_planner.harness.reaction_step_verifier import (
 )
 from cascade_planner.harness.source_text_companion import (
     validate_source_text_companion_binding,
+)
+from cascade_planner.harness.source_ocr import (
+    LocalOcrConfig,
+    materialize_local_ocr_companion,
 )
 from cascade_planner.harness.tools import (
     ToolExecutionState,
@@ -337,6 +343,91 @@ def test_image_only_pdf_uses_hash_bound_source_text_companion_and_replays_it(
         companion,
         expected_source_ref=source_ref,
     )
+
+
+def test_hash_bound_local_ocr_can_reconstruct_exact_row_but_not_wrong_page(
+    tmp_path: Path,
+) -> None:
+    pdf = tmp_path / "scanned-local.pdf"
+    document = fitz.open()
+    document.new_page()
+    document.save(pdf)
+    document.close()
+    image = tmp_path / "page-1.png"
+    image.write_bytes(b"deterministic-rendered-page-fixture")
+    image_sha256 = hashlib.sha256(image.read_bytes()).hexdigest()
+    source_ref = "patent:US1234567A1"
+    ocr = materialize_local_ocr_companion(
+        pdf_path=pdf,
+        source_ref=source_ref,
+        rendered_pages=[
+            {
+                "page_number": 1,
+                "image_path": str(image),
+                "sha256": image_sha256,
+            }
+        ],
+        output_dir=tmp_path / "ocr",
+        config=LocalOcrConfig(max_pages=1),
+        runner=lambda *_args: {
+            "text": (
+                "Ethanol (T1). Acetic acid was added and the reaction "
+                "mixture was stirred to afford T1."
+            ),
+            "engine_id": "tesseract",
+            "engine_version": "fixture",
+        },
+    )
+    evidence = _evidence(pdf, source_ref=source_ref)
+    evidence.update(
+        {
+            "image_path": str(image),
+            "image_sha256": image_sha256,
+        }
+    )
+    step = {
+        "step_id": "local_ocr_ethanol",
+        "product_smiles": "CCO",
+        "reactant_smiles": ["CC(=O)O"],
+        "source_ref": source_ref,
+        "source_evidence": [evidence],
+        "source_text_companions": [ocr["companion"]],
+    }
+
+    with patch(
+        "cascade_planner.harness.deterministic_literature_registry."
+        "_materialized_source_evidence_valid",
+        return_value=True,
+    ):
+        accepted = compile_deterministic_literature_step_registry(
+            [step],
+            registry_path=tmp_path / "accepted.json",
+            structure_resolver=lambda name: {"Ethanol": "CCO"}[name],
+            candidate_name_resolver=lambda _smiles: ["acetic acid"],
+            pdf_text_loader=lambda _path: [],
+        )
+        wrong_page_step = {
+            **step,
+            "source_evidence": [{**evidence, "image_sha256": "f" * 64}],
+        }
+        rejected = compile_deterministic_literature_step_registry(
+            [wrong_page_step],
+            registry_path=tmp_path / "rejected.json",
+            structure_resolver=lambda name: {"Ethanol": "CCO"}[name],
+            candidate_name_resolver=lambda _smiles: ["acetic acid"],
+            pdf_text_loader=lambda _path: [],
+        )
+
+    assert accepted["approved_binding_count"] == 1
+    binding = accepted["records"][0]["binding"]["source_text_companion"]
+    assert binding["format"] == "hash_bound_ocr_pages.v1"
+    assert validate_source_text_companion_binding(
+        binding,
+        expected_source_ref=source_ref,
+    )
+    assert rejected["approved_binding_count"] == 0
+    diagnostics = rejected["records"][0]["candidate_diagnostics"]
+    assert diagnostics[0]["source_text_companion_page_matched"] is False
 
 
 def test_source_labels_materialize_exact_structures_instead_of_trusting_visual_smiles(

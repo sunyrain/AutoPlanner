@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import fitz
+from PIL import Image, ImageDraw
 import pytest
 
 from cascade_planner.interfaces import patent_evidence
@@ -18,6 +20,24 @@ def _pdf_bytes() -> bytes:
     document = fitz.open()
     page = document.new_page()
     page.insert_text((72, 72), "Example 1. Preparation of ethyl acetate")
+    value = document.tobytes()
+    document.close()
+    return value
+
+
+def _image_only_pdf_bytes() -> bytes:
+    image = Image.new("RGB", (1200, 1600), "white")
+    draw = ImageDraw.Draw(image)
+    draw.text(
+        (60, 80),
+        "Ethyl acetate (T1). Ethanol and acetic acid were added.",
+        fill="black",
+    )
+    image_buffer = BytesIO()
+    image.save(image_buffer, format="PNG")
+    document = fitz.open()
+    page = document.new_page(width=600, height=800)
+    page.insert_image(page.rect, stream=image_buffer.getvalue())
     value = document.tobytes()
     document.close()
     return value
@@ -238,3 +258,56 @@ def test_builtin_patent_connector_reuses_persistent_default_resolver_cache(
         "flushed": False,
         "entry_count": 0,
     }
+
+
+def test_builtin_patent_connector_ocr_closes_image_only_exact_row_without_model(
+    tmp_path: Path,
+) -> None:
+    structures = {
+        "ethyl acetate": "CCOC(C)=O",
+        "ethanol": "CCO",
+        "acetic acid": "CC(=O)O",
+    }
+    names = {
+        "CCOC(C)=O": ["ethyl acetate"],
+        "CCO": ["ethanol"],
+        "CC(=O)O": ["acetic acid"],
+    }
+    connector = build_builtin_patent_evidence_connector(
+        BuiltinPatentEvidenceConfig(
+            cache_dir=tmp_path,
+            max_patents=1,
+            max_ocr_pages=1,
+        ),
+        candidate_provider=lambda _queries: [
+            {
+                "publication_number": "US1234567A1",
+                "family_id": "family:ocr",
+                "title": "Image-only preparation of ethyl acetate",
+                "snippet": "primary source",
+                "pdf_url": "https://source.invalid/scanned.pdf",
+            }
+        ],
+        bytes_fetcher=lambda _url, _timeout, _limit: _image_only_pdf_bytes(),
+        structure_resolver=lambda value: structures[str(value).casefold()],
+        candidate_name_resolver=lambda value: names.get(str(value), []),
+        ocr_runner=lambda *_args: {
+            "text": (
+                "Ethyl acetate (T1). Ethanol and acetic acid were added. "
+                "The reaction mixture was stirred to afford T1."
+            ),
+            "engine_id": "tesseract",
+            "engine_version": "fixture",
+        },
+    )
+
+    result = connector(_request())
+
+    assert result["receipt"]["model_invocations"] == 0
+    assert result["document"]["sources"][0]["extraction"]["rows"][0][
+        "relation_type"
+    ] == "exact"
+    discovery = result["discovery"]["sources"][0]
+    assert discovery["ocr_audit"]["status"] == "completed"
+    assert discovery["exact_row_count"] == 1
+    assert discovery["unresolved_edge_count"] == 0

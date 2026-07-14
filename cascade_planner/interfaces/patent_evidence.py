@@ -33,11 +33,16 @@ from cascade_planner.harness.deterministic_resolver_cache import (
 from cascade_planner.harness.literature_pdf_extraction import (
     extract_literature_pdf_assets,
 )
+from cascade_planner.harness.source_ocr import (
+    LocalOcrConfig,
+    OcrRunner,
+    materialize_local_ocr_companion,
+)
 from cascade_planner.interfaces.live_evidence import LiveEvidenceConnectorError
 
 
 BUILTIN_PATENT_PROVIDER_ID = "autoplanner.builtin_patent_evidence"
-BUILTIN_PATENT_PROVIDER_VERSION = "1.0.0"
+BUILTIN_PATENT_PROVIDER_VERSION = "1.1.0"
 SOURCE_DISCOVERY_OBSERVATION_SCHEMA = "source_discovery_observation.v1"
 PatentCandidateProvider = Callable[
     [Iterable[str]], Iterable[Mapping[str, Any]]
@@ -58,6 +63,8 @@ class BuiltinPatentEvidenceConfig:
     max_pdf_pages: int = 80
     max_validated_edges: int = 32
     render_zoom: float = 0.75
+    enable_local_ocr: bool = True
+    max_ocr_pages: int = 12
 
     def __post_init__(self) -> None:
         if self.timeout_s <= 0:
@@ -74,6 +81,8 @@ class BuiltinPatentEvidenceConfig:
             raise ValueError("patent_evidence_edge_limit_invalid")
         if not 0.5 <= self.render_zoom <= 2.0:
             raise ValueError("patent_evidence_render_zoom_invalid")
+        if not 1 <= self.max_ocr_pages <= 80:
+            raise ValueError("patent_evidence_ocr_page_limit_invalid")
 
 
 def build_builtin_patent_evidence_connector(
@@ -84,6 +93,7 @@ def build_builtin_patent_evidence_connector(
     registry_compiler: RegistryCompiler | None = None,
     structure_resolver: StructureResolver | None = None,
     candidate_name_resolver: CandidateNameResolver | None = None,
+    ocr_runner: OcrRunner | None = None,
 ) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
     """Build a bounded first-party connector for current validated edges."""
 
@@ -155,6 +165,8 @@ def build_builtin_patent_evidence_connector(
                     compile_registry=compile_registry,
                     resolve_structure=resolve_structure,
                     resolve_names=resolve_names,
+                    target_terms=queries,
+                    ocr_runner=ocr_runner,
                 )
             except (OSError, RuntimeError, ValueError, requests.RequestException) as exc:
                 audits.append(
@@ -179,8 +191,13 @@ def build_builtin_patent_evidence_connector(
                 "pdf_sha256": str(row.get("pdf_sha256") or ""),
                 "page_count": int(row.get("page_count") or 0),
                 "procedure_inventory": list(row.get("procedure_inventory") or [])[:64],
+                "ocr_audit": dict(row.get("ocr_audit") or {}),
+                "visual_candidate_pages": list(
+                    row.get("visual_candidate_pages") or []
+                )[:8],
                 "exact_edge_ids": list(row.get("accepted_edge_ids") or [])[:128],
                 "exact_row_count": len(row.get("accepted_edge_ids") or []),
+                "unresolved_edge_count": int(row.get("rejected_edge_count") or 0),
             }
             for row in audits
             if str(row.get("pdf_sha256") or "")
@@ -244,6 +261,8 @@ def _extract_candidate(
     compile_registry: RegistryCompiler,
     resolve_structure: StructureResolver,
     resolve_names: CandidateNameResolver,
+    target_terms: Iterable[str],
+    ocr_runner: OcrRunner | None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     publication = str(candidate["publication_number"])
     source_ref = f"patent:{publication}"
@@ -302,6 +321,25 @@ def _extract_candidate(
         }
         for page in manifest["rendered_pages"]
     ]
+    ocr_audit: dict[str, Any] = {}
+    if config.enable_local_ocr:
+        ocr_audit = materialize_local_ocr_companion(
+            pdf_path=pdf_path,
+            source_ref=source_ref,
+            rendered_pages=manifest["rendered_pages"],
+            output_dir=patent_dir / "ocr",
+            target_terms=target_terms,
+            config=LocalOcrConfig(
+                max_pages=min(config.max_ocr_pages, config.max_pdf_pages)
+            ),
+            runner=ocr_runner,
+        )
+    source_text_companions = (
+        [dict(ocr_audit["companion"])]
+        if isinstance(ocr_audit.get("companion"), Mapping)
+        and ocr_audit.get("companion")
+        else []
+    )
     steps = []
     for edge in edges:
         product = str(edge.get("product_smiles") or "")
@@ -314,6 +352,7 @@ def _extract_candidate(
                 "reactant_smiles": list(edge.get("precursor_smiles") or []),
                 "source_ref": source_ref,
                 "source_evidence": evidence,
+                "source_text_companions": source_text_companions,
             }
         )
     registry_path = patent_dir / "deterministic-step-registry.json"
@@ -374,6 +413,13 @@ def _extract_candidate(
                 "rows": rows,
             },
         }
+    procedure_inventory = [
+        dict(procedure)
+        for document in audit.get("source_procedure_inventory") or []
+        if isinstance(document, Mapping)
+        for procedure in document.get("procedures") or []
+        if isinstance(procedure, Mapping)
+    ][:64]
     return source, {
         "publication_number": publication,
         "family_id": str(candidate.get("family_id") or ""),
@@ -384,14 +430,87 @@ def _extract_candidate(
         "accepted_edge_ids": sorted(accepted_edges),
         "rejected_edge_count": max(0, len(edges) - len(rows)),
         "registry_audit_sha256": str(audit.get("content_sha256") or ""),
-        "procedure_inventory": [
-            dict(procedure)
-            for document in audit.get("source_procedure_inventory") or []
-            if isinstance(document, Mapping)
-            for procedure in document.get("procedures") or []
-            if isinstance(procedure, Mapping)
-        ][:64],
+        "procedure_inventory": procedure_inventory,
+        "ocr_audit": _bounded_ocr_audit(ocr_audit),
+        "visual_candidate_pages": _visual_candidate_pages(
+            manifest,
+            procedure_inventory=procedure_inventory,
+            ocr_audit=ocr_audit,
+        ),
     }
+
+
+def _bounded_ocr_audit(value: Mapping[str, Any]) -> dict[str, Any]:
+    row = dict(value or {})
+    return {
+        key: row.get(key)
+        for key in (
+            "schema_version",
+            "status",
+            "reasons",
+            "source_pdf_sha256",
+            "native_text_page_count",
+            "low_text_page_count",
+            "selected_page_count",
+            "selected_page_numbers",
+            "ocr_page_count",
+            "failure_count",
+            "coverage_truncated",
+            "focus_page_numbers",
+            "content_sha256",
+        )
+        if key in row
+    }
+
+
+def _visual_candidate_pages(
+    manifest: Mapping[str, Any],
+    *,
+    procedure_inventory: Iterable[Mapping[str, Any]],
+    ocr_audit: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    rendered = {
+        int(row.get("page_number") or 0): dict(row)
+        for row in manifest.get("rendered_pages") or []
+        if isinstance(row, Mapping) and int(row.get("page_number") or 0) > 0
+    }
+    page_numbers = [
+        int(row.get("page_number") or 0)
+        for row in procedure_inventory
+        if int(row.get("page_number") or 0) > 0
+    ]
+    page_numbers.extend(
+        int(value)
+        for value in ocr_audit.get("focus_page_numbers") or []
+        if int(value) > 0
+    )
+    page_numbers.extend(
+        int(value)
+        for value in manifest.get("focus_page_numbers") or []
+        if int(value) > 0
+    )
+    page_numbers.extend(
+        int(row.get("page_number") or 0)
+        for row in ocr_audit.get("visual_candidate_pages") or []
+        if isinstance(row, Mapping) and int(row.get("page_number") or 0) > 0
+    )
+    rows: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for page_number in page_numbers:
+        if page_number in seen or page_number not in rendered:
+            continue
+        seen.add(page_number)
+        page = rendered[page_number]
+        rows.append(
+            {
+                "page_number": page_number,
+                "image_path": str(page.get("image_path") or ""),
+                "image_sha256": str(page.get("sha256") or ""),
+            }
+        )
+        if len(rows) >= 8:
+            break
+    return rows
 
 
 def _evidence_queries(request: Mapping[str, Any], *, limit: int) -> list[str]:

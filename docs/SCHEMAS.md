@@ -18,11 +18,19 @@
 | `retrosynthesis_replay_pack.v1` | 可移植的目标、事实、库存与期望 | reviewed golden case |
 | `retrosynthesis_replay_result.v1` | 重放阶段、指标和 digest 校验 | replay runner |
 | `autoplanner_campaign_gateway_result.v1` | CLI/API 操作包装 | campaign gateway |
+| `local_source_ocr_materialization.v1` | 本地 OCR 执行、覆盖率与零模型审计 | local OCR adapter |
+| `source_text_companion_binding.v1` | source/PDF/page image/OCR text 哈希重放绑定 | deterministic literature parser |
+| `visual_source_candidate_request.v1` | 至多一次、页图哈希绑定的视觉请求 | visual evidence adapter |
+| `visual_source_candidate_observation.v1` | 仅供全局 replan 的 L0 视觉候选 | host-normalized visual adapter |
 | `autoplanner_repository_audit.v1` | 当前跟踪树只读审计 | repository audit |
 
 所有持久化 schema 使用 canonical JSON SHA-256 绑定。摘要只证明字节与结构一致，不能
 赋予化学真实性。反应、来源、库存和完成各有独立 authority；UI、RunIndex、Blackboard
 和缓存都是可重建投影。
+
+OCR 文字只是确定性 parser 的输入；只有 PDF、页图、文字和引擎身份全部重放通过，且
+OPSIN/PubChem 独立重建产物与反应物后，记录才可能进入 L3。视觉 observation 永远不在
+该 authority 范围内，即使其 SMILES 可被 RDKit 解析也仍只属于 L0 proposal。
 
 证明升级链为 L0 hypothesis → L1 materialized → L2 reaction validated → L3 exact source
 → L4 selected-route stock closed。任何阶段不得跳级，也不能由 aggregate count 推导 proof。

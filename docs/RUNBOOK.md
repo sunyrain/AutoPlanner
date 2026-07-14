@@ -37,6 +37,36 @@ python -m cascade_planner run \
 
 同一 run id 和同一计划可安全重试。
 
+### 2.1 任意陌生 SMILES 的有界求解
+
+```bash
+python -m cascade_planner solve-target \
+  --target-name TARGET \
+  --target-smiles SMILES \
+  --run-id target-blind-001
+```
+
+正常成本是一轮 `gpt-5.5` low-reasoning 全局路线组合；本地物化、映射、验证、库存审计
+以及 PDF 原生文本/Tesseract OCR 都不调用模型。Tesseract 是可选本地二进制：若不在
+`PATH` 中，运行会记录 `local_ocr_engine_unavailable:tesseract`，不会暗中改用视觉模型。
+
+仅当来源页确实无法由确定性解析闭合时，可显式允许一次稀疏视觉调用：
+
+```bash
+python -m cascade_planner solve-target \
+  --target-name TARGET \
+  --target-smiles SMILES \
+  --run-id target-blind-visual-001 \
+  --max-model-invocations 3 \
+  --max-visual-invocations 1 \
+  --max-visual-pages 2
+```
+
+三次模型额度分别覆盖初始全局规划、至多一次页面视觉候选、以及有新证据事件时的
+一次全局 replan；若只给两次，系统会如实跳过 replan，而不是突破预算。视觉候选经过
+主机 SMILES 规范化，但仍是 L0：它不能授予反应验证、exact-source 或库存权威。
+同一 campaign 即使 provider 少报用量，也只会持久化准入一次视觉任务。
+
 ## 3. 从精确来源案卷一键求解
 
 ```bash

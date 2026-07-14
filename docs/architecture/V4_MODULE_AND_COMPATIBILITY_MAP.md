@@ -31,6 +31,8 @@ a V4 run. New features must enter through the path above.
 | Ranking/diversity | `application.portfolio_selection` | legacy route portfolio and display ranking |
 | Proof and stock closeout | `application.proof_policy` + `proof_portfolio` | legacy acceptance and parent proof |
 | Tool registration/execution | `harness.tool_registry` + `tool_execution_policy` | formerly embedded dispatch in `tools.py` |
+| Image-only source recovery | `harness.source_ocr` + deterministic literature registry | legacy visual-chain exact claims |
+| Optional page-vision hypotheses | `interfaces.visual_evidence` + `RunKernel` budget | legacy unmetered visual retries |
 | Presentation projection | `application.route_workbench` + `harness.v4_route_workbench` | `RouteForest` HTML/JSON |
 
 The old `RouteForest` file remains frozen for historical run display. New V4

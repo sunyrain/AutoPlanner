@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+import fitz
+from PIL import Image, ImageDraw
 
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
@@ -12,6 +17,10 @@ from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.interfaces.target_solver import (
     TargetSolveConfig,
     _current_disposition,
+)
+from cascade_planner.interfaces.patent_evidence import (
+    BuiltinPatentEvidenceConfig,
+    build_builtin_patent_evidence_connector,
 )
 from cascade_planner.runtime import AgentResult, AgentSpec, AgentState
 from cascade_planner.runtime.paths import RuntimePaths
@@ -35,6 +44,23 @@ def _paths(tmp_path: Path) -> RuntimePaths:
             "AUTOPLANNER_VENDOR_ROOT": str(tmp_path / "vendor"),
         },
     )
+
+
+def _scanned_patent_pdf(label: str = "") -> bytes:
+    image = Image.new("RGB", (1200, 1600), "white")
+    ImageDraw.Draw(image).text(
+        (50, 80),
+        f"Ethyl acetate procedures T1-T3 {label}",
+        fill="black",
+    )
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    document = fitz.open()
+    page = document.new_page(width=600, height=800)
+    page.insert_image(page.rect, stream=buffer.getvalue())
+    value = document.tobytes()
+    document.close()
+    return value
 
 
 def _plan(context: Any, mode: str) -> dict[str, Any]:
@@ -585,6 +611,109 @@ def test_target_solver_replans_globally_from_unbound_source_discovery(
     assert discovery_stage["detail"]["exact_record_count"] == 0
 
 
+def test_target_solver_uses_one_budgeted_visual_candidate_in_global_replan(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "visual-source-page.png"
+    image.write_bytes(b"target-solver-visual-source-page")
+    image_sha256 = hashlib.sha256(image.read_bytes()).hexdigest()
+    observed_modes: list[str] = []
+    visual_calls = 0
+
+    def connector(request: Any) -> dict[str, Any]:
+        result = _discovery_only_connector(request)
+        source = result["discovery"]["sources"][0]
+        source.update(
+            {
+                "pdf_sha256": "b" * 64,
+                "unresolved_edge_count": len(request["edges"]),
+                "visual_candidate_pages": [
+                    {
+                        "page_number": 4,
+                        "image_path": str(image),
+                        "image_sha256": image_sha256,
+                    }
+                ],
+            }
+        )
+        return result
+
+    def visual_provider(request: Any) -> dict[str, Any]:
+        nonlocal visual_calls
+        visual_calls += 1
+        edge = request["edges"][0]
+        return {
+            "request_sha256": request["content_sha256"],
+            "provider_status": "completed",
+            "provider_receipt": {"provider_id": "tests.visual"},
+            "usage": {
+                "model_invocations": 1,
+                "visual_invocations": 1,
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "wall_time_s": 0.1,
+            },
+            "candidate_chain": {
+                "steps": [
+                    {
+                        "product_smiles": edge["product_smiles"],
+                        "reactant_smiles": edge["precursor_smiles"],
+                        "source_locator": "page 4",
+                    }
+                ]
+            },
+        }
+
+    def runner(
+        spec: AgentSpec, context: Any, mode: str, config: Any
+    ) -> AgentResult:
+        observed_modes.append(mode)
+        if mode == "event_replan":
+            visual = context.evidence["visual_source_candidates"]
+            assert visual["candidate_step_count"] == 1
+            assert visual["candidate_steps"][0]["grants_exact_evidence"] is False
+            assert "visual_source_candidates_added" in context.delta.material_events
+        return _runner(spec, context, mode, config)
+
+    gateway = CampaignGateway(_paths(tmp_path))
+    result = gateway.solve_target(
+        target_name="blind visual discovery target",
+        target_smiles=TARGET,
+        run_id="blind-target-visual-replan",
+        budget=RetrosynthesisRunBudget(
+            max_model_invocations=3,
+            max_total_input_tokens=50_000,
+            max_total_output_tokens=14_000,
+            max_total_wall_time_s=720,
+            max_visual_invocations=1,
+            max_accepted_expansions=8,
+            max_attempt_runs=20,
+        ),
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=True,
+        ),
+        director_runner=runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=connector,
+        visual_evidence_provider=visual_provider,
+    )
+
+    assert observed_modes == ["initial_architecture", "event_replan"]
+    assert visual_calls == 1
+    assert result["model_cost"]["model_invocations"] == 3
+    assert result["model_cost"]["visual_invocations"] == 1
+    first_evidence = next(
+        stage
+        for stage in result["stages"]
+        if stage["stage"] == "evidence_acquisition"
+    )
+    assert first_evidence["detail"]["visual_evidence"]["status"] == "completed"
+    assert first_evidence["detail"]["exact_record_count"] == 0
+
+
 def test_target_solver_can_close_procurement_from_frozen_supplier_snapshot(
     tmp_path: Path,
 ) -> None:
@@ -666,3 +795,110 @@ def test_validation_fork_replays_global_plan_and_uses_zero_model_calls(
     }
     assert derived["current_disposition"]["state"] == "accepted"
     assert Path(derived["report_path"]).is_file()
+
+
+def test_scanned_patent_ocr_closes_blind_route_and_zero_model_validation_fork(
+    tmp_path: Path,
+) -> None:
+    structures = {
+        "ethyl acetate": TARGET,
+        "ethanol": "CCO",
+        "acetyl chloride": "CC(=O)Cl",
+        "acetic acid": "CC(=O)O",
+        "acetyl bromide": "CC(=O)Br",
+    }
+    names = {value: [name] for name, value in structures.items()}
+    ocr_text = (
+        "Ethyl acetate (T1). Ethanol and acetyl chloride were added. The "
+        "reaction mixture was stirred to afford T1.\n\n"
+        "Ethyl acetate (T2). Ethanol and acetic acid were added. The "
+        "reaction mixture was stirred to afford T2.\n\n"
+        "Ethyl acetate (T3). Ethanol and acetyl bromide were added. The "
+        "reaction mixture was stirred to afford T3."
+    )
+    connector = build_builtin_patent_evidence_connector(
+        BuiltinPatentEvidenceConfig(
+            cache_dir=tmp_path / "scanned-patents",
+            max_patents=2,
+            max_ocr_pages=1,
+        ),
+        candidate_provider=lambda _queries: [
+            {
+                "publication_number": publication,
+                "family_id": family,
+                "title": "Scanned preparation of ethyl acetate",
+                "snippet": "primary process source",
+                "pdf_url": f"https://source.invalid/{publication}.pdf",
+            }
+            for publication, family in (
+                ("US1234567A1", "family:one"),
+                ("WO7654321A1", "family:two"),
+            )
+        ],
+        bytes_fetcher=lambda url, _timeout, _limit: _scanned_patent_pdf(url),
+        structure_resolver=lambda value: structures[str(value).casefold()],
+        candidate_name_resolver=lambda value: names.get(str(value), []),
+        ocr_runner=lambda *_args: {
+            "text": ocr_text,
+            "engine_id": "tesseract",
+            "engine_version": "fixture",
+        },
+    )
+    gateway = CampaignGateway(_paths(tmp_path))
+    source = gateway.solve_target(
+        target_name="blind scanned patent target",
+        target_smiles=TARGET,
+        run_id="blind-scanned-patent-source",
+        acceptance=RetrosynthesisAcceptanceSpec(
+            minimum_complete_routes=2,
+            minimum_edge_proof_level=3,
+            stock_boundary="benchmark_search",
+            minimum_independent_source_groups=2,
+        ),
+        budget=RetrosynthesisRunBudget(
+            max_model_invocations=1,
+            max_total_input_tokens=10_000,
+            max_total_output_tokens=5_000,
+            max_total_wall_time_s=60,
+            max_visual_invocations=0,
+            max_accepted_expansions=8,
+            max_attempt_runs=24,
+        ),
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=connector,
+    )
+
+    assert source["model_cost"]["model_invocations"] == 1
+    assert source["model_cost"]["visual_invocations"] == 0
+    assert source["gates"]["gates"]["B3_exact_multi_source"] is True
+    assert source["gates"]["gates"]["B5_configured_portfolio_acceptance"] is True
+    evidence = next(
+        stage
+        for stage in source["stages"]
+        if stage["stage"] == "evidence_acquisition"
+    )
+    assert evidence["detail"]["exact_record_count"] == 6
+    assert all(
+        row["ocr_audit"]["status"] == "completed"
+        for row in evidence["detail"]["discovery"]["sources"]
+    )
+
+    derived = gateway.fork_target_validation(
+        source_run_id=source["run_id"],
+        run_id="blind-scanned-patent-validation",
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=connector,
+    )
+
+    assert derived["model_cost"]["model_invocations"] == 0
+    assert derived["model_cost"]["visual_invocations"] == 0
+    assert derived["gates"]["gates"]["B3_exact_multi_source"] is True
+    assert derived["current_disposition"]["state"] == "accepted"

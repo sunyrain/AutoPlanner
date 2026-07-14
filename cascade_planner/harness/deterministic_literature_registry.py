@@ -34,6 +34,7 @@ from cascade_planner.harness.stitched_route import (
 )
 from cascade_planner.harness.source_text_companion import (
     materialize_source_text_companion_pages,
+    source_text_companion_matches_page,
     validate_source_text_companion_binding,
 )
 from cascade_planner.runtime.run_metrics import (
@@ -44,7 +45,7 @@ from cascade_planner.runtime.run_metrics import (
 
 REGISTRY_SCHEMA = "trusted_literature_step_registry.v1"
 AUDIT_SCHEMA = "deterministic_literature_registry_audit.v1"
-PARSER_AUTHORITY_ID = "autoplanner.opsin_pubchem_source_text.v8"
+PARSER_AUTHORITY_ID = "autoplanner.opsin_pubchem_source_text.v9"
 DEFAULT_OPSIN_BASE_URL = "https://opsin.ch.cam.ac.uk/opsin"
 DEFAULT_PUBCHEM_BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 _MAX_HEADING_PARSE_ATTEMPTS_PER_EDGE = 16
@@ -499,6 +500,20 @@ def _compile_step_binding(
         candidate_diagnostics.append(diagnostic)
         if not all_reactants_matched or not page_evidence:
             continue
+        companion_binding = dict(
+            procedure.get("source_text_companion_binding") or {}
+        )
+        companion_page_matched = source_text_companion_matches_page(
+            companion_binding,
+            page_number=page_number,
+            image_sha256=str(page_evidence.get("image_sha256") or "").lower(),
+            source_pdf_sha256=str(
+                page_evidence.get("source_pdf_sha256") or ""
+            ).lower(),
+        )
+        diagnostic["source_text_companion_page_matched"] = companion_page_matched
+        if not companion_page_matched:
+            continue
         source_product = (
             _canonical_smiles(procedure.get("canonical_smiles") or "")
             if product_match_mode
@@ -603,9 +618,6 @@ def _compile_step_binding(
                 "reaction_digest": source_formulation_reaction_digest,
             },
         }
-        companion_binding = dict(
-            procedure.get("source_text_companion_binding") or {}
-        )
         if companion_binding:
             binding_core["source_text_companion"] = companion_binding
         binding = {

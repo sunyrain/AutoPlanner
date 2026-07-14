@@ -93,6 +93,14 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--max-input-tokens", type=int, default=50_000)
     solve.add_argument("--max-output-tokens", type=int, default=14_000)
     solve.add_argument("--max-model-wall-time-s", type=float, default=720.0)
+    solve.add_argument(
+        "--max-visual-invocations",
+        type=int,
+        choices=(0, 1),
+        default=0,
+        help="opt in to at most one sparse Codex page-vision call; default is zero",
+    )
+    solve.add_argument("--max-visual-pages", type=int, choices=range(1, 9), default=4)
     solve.add_argument("--max-accepted-expansions", type=int, default=32)
     solve.add_argument("--max-attempt-runs", type=int, default=72)
     solve.add_argument("--max-map-reactions", type=int, default=48)
@@ -209,6 +217,22 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         def inventory_snapshot_builder(_smiles: Any, **_kwargs: Any) -> Any:
             return frozen_inventory
 
+    visual_evidence_provider = None
+    if args.max_visual_invocations:
+        from cascade_planner.interfaces.visual_evidence import (
+            CodexVisualEvidenceConfig,
+            build_codex_visual_evidence_provider,
+        )
+
+        visual_evidence_provider = build_codex_visual_evidence_provider(
+            CodexVisualEvidenceConfig(
+                cache_dir=gateway.paths.external_data_root / "visual-evidence",
+                model=args.model,
+                reasoning_effort=args.reasoning_effort,
+                max_pages=args.max_visual_pages,
+            )
+        )
+
     result = gateway.solve_target(
         target_name=args.target_name,
         target_smiles=args.target_smiles,
@@ -217,6 +241,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         manifest_path=args.manifest,
         resume=args.resume,
         evidence_connector=evidence_connector,
+        visual_evidence_provider=visual_evidence_provider,
         inventory_snapshot_builder=inventory_snapshot_builder,
         acceptance=RetrosynthesisAcceptanceSpec(
             minimum_complete_routes=args.minimum_complete_routes,
@@ -229,7 +254,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             max_total_input_tokens=args.max_input_tokens,
             max_total_output_tokens=args.max_output_tokens,
             max_total_wall_time_s=args.max_model_wall_time_s,
-            max_visual_invocations=0,
+            max_visual_invocations=args.max_visual_invocations,
             max_accepted_expansions=args.max_accepted_expansions,
             max_attempt_runs=args.max_attempt_runs,
             max_prompt_context_bytes=96_000,
@@ -247,6 +272,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             max_atom_mapping_reactions=args.max_map_reactions,
             max_live_stock_molecules=args.max_stock_molecules,
             max_patent_sources=args.max_patent_sources,
+            max_visual_evidence_pages=args.max_visual_pages,
         ),
     )
     return result if args.full_output else _compact_target_result(result)

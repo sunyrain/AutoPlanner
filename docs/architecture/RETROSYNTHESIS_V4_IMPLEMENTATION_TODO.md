@@ -311,6 +311,10 @@ Observed P4 deterministic-worker acceptance:
 - exact rows emit material events recognized by `GlobalCampaignDirector`, so a
   newly arrived row resumes event-driven global planning rather than another
   blind local expansion;
+- image-only pages use allowlisted local OCR with source/PDF/page/image/text
+  replay binding; optional Codex page vision is separately budgeted, runs at
+  most once per campaign, and contributes only host-normalized L0 hypotheses
+  to the next global context;
 - proof axes remain separate, independent support requires two host-derived
   source groups, and incompatible structures/conditions remain unresolved
   conflict records with no automatic winner;
