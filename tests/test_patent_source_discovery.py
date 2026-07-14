@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from cascade_planner.interfaces.patent_source_discovery import (
     _patent_publications,
     _pubchem_family_pdf_candidates,
     evidence_queries,
+    google_patent_candidate_provider,
     select_independent_candidates,
 )
 
@@ -17,6 +19,64 @@ class _Response:
 
     def json(self):
         return json.loads(self.content)
+
+
+def test_europe_pmc_patent_fallback_resolves_kindless_wo_family(
+    monkeypatch,
+) -> None:
+    attempted: list[str] = []
+    metadata_queries: list[str] = []
+
+    def family(publication: str, **_kwargs):
+        attempted.append(publication)
+        if publication.endswith("A2"):
+            return [
+                {
+                    "publication_number": "EP2486129B1",
+                    "title": "LovD mutants",
+                    "pdf_url": "https://data.epo.test/document.pdf",
+                    "family_id": "family:lovd",
+                    "_source_priority": 30,
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.patent_source_discovery.epo_family_pdf_candidates",
+        family,
+    )
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.patent_source_discovery.requests.get",
+        lambda *_args, **_kwargs: _Response(b"unavailable", status=503),
+    )
+    config = SimpleNamespace(
+        seed_publications=(),
+        timeout_s=2.0,
+        max_search_queries=1,
+        max_search_pages_per_query=1,
+        max_html_bytes=1_000_000,
+        max_patents=2,
+    )
+    provider = google_patent_candidate_provider(
+        config,
+        metadata_search=lambda query, _limit: (
+            metadata_queries.append(query)
+            or [
+                {
+                    "publication_number": "WO2011044496",
+                    "title": "LovD mutants exhibiting improved properties",
+                    "source_kind": "patent",
+                }
+            ]
+        ),
+    )
+
+    rows = list(provider(["simvastatin LovD synthesis"]))
+
+    assert attempted == ["WO2011044496A2"]
+    assert metadata_queries == ["(simvastatin LovD synthesis) AND SRC:PAT"]
+    assert rows[0]["publication_number"] == "EP2486129B1"
+    assert rows[0]["metadata_provider"] == "europe_pmc"
 
 
 def test_pubchem_hyphenated_publication_is_normalized() -> None:

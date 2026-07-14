@@ -30,7 +30,7 @@ from cascade_planner.interfaces.literature_candidates import (
 from cascade_planner.interfaces.literature_materialization import (
     materialize_candidate as _materialize_candidate,
 )
-from cascade_planner.interfaces.literature_search import crossref_search, fetch_bytes
+from cascade_planner.interfaces.literature_search import fetch_bytes, primary_literature_search
 from cascade_planner.interfaces.live_evidence import (
     LiveEvidenceConnectorError,
     SOURCE_DISCOVERY_OBSERVATION_SCHEMA,
@@ -38,7 +38,7 @@ from cascade_planner.interfaces.live_evidence import (
 
 
 BUILTIN_LITERATURE_PROVIDER_ID = "autoplanner.builtin_literature_evidence"
-BUILTIN_LITERATURE_PROVIDER_VERSION = "1.1"
+BUILTIN_LITERATURE_PROVIDER_VERSION = "1.2"
 PaperSearch = Callable[[str, int], Iterable[Mapping[str, Any]]]
 BytesFetcher = Callable[[str, float, int], bytes]
 
@@ -90,7 +90,7 @@ def build_builtin_literature_evidence_connector(
         if str(config.authorized_proxy_output_dir).strip()
         else cache_root
     )
-    search = searcher or crossref_search
+    search = searcher or primary_literature_search
     fetch = fetcher or fetch_bytes
 
     def invoke(request: Mapping[str, Any]) -> Mapping[str, Any]:

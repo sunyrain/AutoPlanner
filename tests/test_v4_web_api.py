@@ -94,7 +94,6 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
             "chemenzy_expansion_topk": 9,
             "chemenzy_timeout_s": 45,
             "max_model_invocations": 1,
-            "execution_profile": "fast",
         },
     )
 

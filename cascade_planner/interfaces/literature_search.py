@@ -14,6 +14,7 @@ import requests
 
 
 BytesFetcher = Callable[[str, float, int], bytes]
+HttpRequester = Callable[..., Any]
 
 
 def crossref_search(query: str, limit: int) -> Iterable[Mapping[str, Any]]:
@@ -45,6 +46,158 @@ def crossref_search(query: str, limit: int) -> Iterable[Mapping[str, Any]]:
             "title": str(titles[0] if titles else ""),
             "pdf_url": pdf,
         }
+
+
+def europe_pmc_metadata_search(
+    query: str,
+    limit: int,
+    *,
+    requester: HttpRequester = requests.get,
+) -> list[dict[str, Any]]:
+    """Search chemistry papers and patents without downloading source files.
+
+    Europe PMC indexes both scholarly records and patent citations.  Using its
+    small JSON response before publisher/PDF access avoids spending the source
+    acquisition budget on broad or unrelated Crossref/structure matches.
+    Metadata is discovery-only and never grants reaction evidence authority.
+    """
+
+    response = requester(
+        "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+        params={
+            "query": " ".join(str(query or "").split())[:800],
+            "format": "json",
+            "pageSize": max(1, min(int(limit), 25)),
+            "resultType": "core",
+        },
+        headers={"User-Agent": "AutoPlanner/1.0 literature-evidence"},
+        timeout=20,
+    )
+    response.raise_for_status()
+    if len(response.content) > 4_000_000:
+        raise ValueError("europe_pmc_metadata_response_too_large")
+    payload = response.json()
+    records = dict(payload.get("resultList") or {}).get("result") or []
+    rows: list[dict[str, Any]] = []
+    for raw in records:
+        if not isinstance(raw, Mapping):
+            continue
+        record = dict(raw)
+        source = str(record.get("source") or "").strip().upper()
+        title = " ".join(str(record.get("title") or "").split())
+        if source == "PAT":
+            publication = re.sub(
+                r"[^A-Z0-9]", "", str(record.get("id") or "").upper()
+            )
+            if not re.fullmatch(r"[A-Z]{2}\d{5,12}(?:[A-Z]\d?)?", publication):
+                continue
+            rows.append(
+                {
+                    "publication_number": publication,
+                    "title": title or f"Patent {publication}",
+                    "source_kind": "patent",
+                    "source_ref": f"patent:{publication}",
+                    "metadata_provider": "europe_pmc",
+                }
+            )
+            continue
+        doi = str(record.get("doi") or "").strip()
+        if not doi:
+            continue
+        rows.append(
+            {
+                "doi": doi,
+                "title": title or doi,
+                "pmid": str(record.get("pmid") or ""),
+                "pmcid": str(record.get("pmcid") or ""),
+                "is_open_access": (
+                    str(record.get("isOpenAccess") or "").upper() == "Y"
+                ),
+                "source_kind": "paper_si",
+                "metadata_provider": "europe_pmc",
+            }
+        )
+    return rows[: max(1, int(limit))]
+
+
+def primary_literature_search(query: str, limit: int) -> list[dict[str, Any]]:
+    """Prefer precise Europe PMC metadata and use Crossref only as fallback."""
+
+    maximum = max(1, min(int(limit), 20))
+    rows: list[dict[str, Any]] = []
+    failures: list[Exception] = []
+    quoted = re.search(r'["\u201c]([^"\u201d]{2,100})["\u201d]', query)
+    target = " ".join(quoted.group(1).split()) if quoted else ""
+    metadata_query = (
+        f'TITLE:"synthesis of {target}"'
+        if target and "synth" in query.casefold()
+        else query
+    )
+    try:
+        rows.extend(
+            row
+            for row in europe_pmc_metadata_search(
+                metadata_query,
+                min(25, max(8, maximum * 3)),
+            )
+            if str(row.get("doi") or "").strip()
+        )
+    except (OSError, RuntimeError, ValueError, requests.RequestException) as exc:
+        failures.append(exc)
+    if len(rows) < maximum:
+        try:
+            rows.extend(crossref_search(query, maximum - len(rows)))
+        except (OSError, RuntimeError, ValueError, requests.RequestException) as exc:
+            failures.append(exc)
+    deduped: dict[str, dict[str, Any]] = {}
+    ranked = sorted(rows, key=lambda row: _literature_rank(row, target=target))
+    for row in ranked:
+        doi = str(row.get("doi") or "").strip().casefold()
+        if doi:
+            deduped.setdefault(doi, dict(row))
+    if not deduped and failures:
+        raise failures[-1]
+    return list(deduped.values())[:maximum]
+
+
+def _literature_rank(
+    row: Mapping[str, Any],
+    *,
+    target: str,
+) -> tuple[int, int, int, str]:
+    title = html.unescape(str(row.get("title") or "")).casefold()
+    target_text = target.casefold()
+    exact = int(
+        bool(target_text)
+        and (
+            f"synthesis of {target_text}" in title
+            or f"preparation of {target_text}" in title
+            or f"production of {target_text}" in title
+        )
+    )
+    target_match = int(bool(target_text) and target_text in title)
+    route_terms = sum(
+        term in title
+        for term in (
+            "synthesis",
+            "preparation",
+            "production",
+            "synthetic route",
+            "biocatalysis",
+        )
+    )
+    noise = sum(
+        term in title
+        for term in (
+            "therapy",
+            "treatment",
+            "formulation",
+            "delivery",
+            "clinical",
+            "cancer",
+        )
+    )
+    return (-exact, -target_match, -(route_terms - noise), title)
 
 
 def citation_pdf_url(
@@ -278,7 +431,9 @@ __all__ = [
     "BytesFetcher",
     "citation_pdf_url",
     "crossref_search",
+    "europe_pmc_metadata_search",
     "europe_pmc_open_access_fulltext",
     "europe_pmc_open_access_pdf",
     "fetch_bytes",
+    "primary_literature_search",
 ]

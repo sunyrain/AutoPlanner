@@ -16,8 +16,10 @@ from cascade_planner.interfaces.literature_evidence import (
 from cascade_planner.interfaces.live_evidence import compose_evidence_connectors
 from cascade_planner.interfaces.visual_evidence import compile_visual_evidence_request
 from cascade_planner.interfaces.literature_search import (
+    europe_pmc_metadata_search,
     europe_pmc_open_access_fulltext,
     europe_pmc_open_access_pdf,
+    primary_literature_search,
 )
 from cascade_planner.harness.local_pdf_proxy import (
     local_pdf_proxy_download_manifest_path,
@@ -55,6 +57,74 @@ def test_literature_candidates_are_interleaved_across_queries() -> None:
         "name-2",
         "route-2",
     ]
+
+
+def test_europe_pmc_metadata_search_normalizes_papers_and_patents() -> None:
+    class Response:
+        content = b"{}"
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {
+                "resultList": {
+                    "result": [
+                        {
+                            "source": "MED",
+                            "doi": "10.1128/AEM.02820-06",
+                            "pmcid": "PMC1855665",
+                            "isOpenAccess": "Y",
+                            "title": "Efficient synthesis of simvastatin",
+                        },
+                        {
+                            "source": "PAT",
+                            "id": "WO2011044496",
+                            "title": "LovD mutants for simvastatin synthesis",
+                        },
+                    ]
+                }
+            }
+
+    rows = europe_pmc_metadata_search(
+        "simvastatin LovD",
+        5,
+        requester=lambda *_args, **_kwargs: Response(),
+    )
+
+    assert rows[0]["doi"] == "10.1128/AEM.02820-06"
+    assert rows[0]["is_open_access"] is True
+    assert rows[1]["publication_number"] == "WO2011044496"
+    assert rows[1]["source_ref"] == "patent:WO2011044496"
+
+
+def test_primary_literature_search_rewrites_named_synthesis_and_ranks_route_source(
+    monkeypatch: Any,
+) -> None:
+    observed: list[str] = []
+
+    def metadata(query: str, _limit: int):
+        observed.append(query)
+        return [
+            {
+                "doi": "10.1/therapy",
+                "title": "Simvastatin therapy in cancer",
+            },
+            {
+                "doi": "10.1/synthesis",
+                "title": "Efficient synthesis of simvastatin by biocatalysis",
+            },
+        ]
+
+    monkeypatch.setattr(
+        "cascade_planner.interfaces.literature_search.europe_pmc_metadata_search",
+        metadata,
+    )
+
+    rows = primary_literature_search('"Simvastatin" synthesis', 1)
+
+    assert observed == ['TITLE:"synthesis of Simvastatin"']
+    assert rows[0]["doi"] == "10.1/synthesis"
 
 
 def test_verified_literature_refs_become_direct_candidates() -> None:

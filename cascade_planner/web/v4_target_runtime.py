@@ -59,7 +59,7 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
         config=TargetSolveConfig(
             model=str(payload.get("model") or DEFAULT_TARGET_DIRECTOR_MODEL),
             reasoning_effort=str(payload.get("reasoning_effort") or "low"),
-            execution_profile=str(payload.get("execution_profile") or "standard"),
+            execution_profile=str(payload.get("execution_profile") or "fast"),
             use_coordinator=_bool(payload, "use_coordinator", False),
             enable_web_search=_bool(payload, "enable_web_search", True),
             enable_initial_director_web_search=_bool(

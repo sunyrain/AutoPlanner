@@ -55,7 +55,7 @@ from cascade_planner.interfaces.patent_source_discovery import (
 
 
 BUILTIN_PATENT_PROVIDER_ID = "autoplanner.builtin_patent_evidence"
-BUILTIN_PATENT_PROVIDER_VERSION = "1.4.0"
+BUILTIN_PATENT_PROVIDER_VERSION = "1.5.0"
 SOURCE_DISCOVERY_OBSERVATION_SCHEMA = "source_discovery_observation.v1"
 PatentCandidateProvider = Callable[
     [Iterable[str]], Iterable[Mapping[str, Any]]

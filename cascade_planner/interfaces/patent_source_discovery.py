@@ -15,9 +15,11 @@ from cascade_planner.interfaces.epo_family_discovery import (
     epo_family_pdf_candidates,
 )
 from cascade_planner.interfaces.live_evidence import LiveEvidenceConnectorError
+from cascade_planner.interfaces.literature_search import europe_pmc_metadata_search
 
 
 HttpRequester = Callable[..., Any]
+PatentMetadataSearch = Callable[[str, int], Iterable[Mapping[str, Any]]]
 
 
 class PatentSearchConfig(Protocol):
@@ -95,7 +97,11 @@ def _structure_patent_rank(value: str) -> tuple[int, int, str]:
 
 def google_patent_candidate_provider(
     config: PatentSearchConfig,
+    *,
+    metadata_search: PatentMetadataSearch | None = None,
 ):
+    search_metadata = metadata_search or europe_pmc_metadata_search
+
     def search(queries: Iterable[str]) -> Iterable[Mapping[str, Any]]:
         rows: list[dict[str, Any]] = []
         all_queries = [*config.seed_publications, *list(queries)]
@@ -139,6 +145,44 @@ def google_patent_candidate_provider(
                 ) >= max(1, int(config.max_patents)):
                     break
                 continue
+            # Start with a bounded metadata query.  A resolved EPO family is
+            # both faster and more authoritative than waiting for a blocked
+            # Google XHR endpoint, so Google now acts only as fallback.
+            try:
+                metadata_rows = list(
+                    search_metadata(
+                        f"({query}) AND SRC:PAT",
+                        max(4, int(config.max_patents) * 3),
+                    )
+                )
+            except (OSError, RuntimeError, ValueError, requests.RequestException):
+                metadata_rows = []
+            patent_metadata = [
+                dict(row)
+                for row in metadata_rows
+                if str(row.get("source_kind") or "").casefold() == "patent"
+            ]
+            patent_metadata.sort(
+                key=lambda row: _metadata_patent_rank(row, query=query)
+            )
+            for metadata in patent_metadata:
+                publication = _publication(
+                    metadata.get("publication_number") or metadata.get("id")
+                )
+                if not publication:
+                    continue
+                rows.extend(
+                    _metadata_patent_candidates(
+                        publication,
+                        title=_plain_text(metadata.get("title")),
+                        query=query,
+                        config=config,
+                    )
+                )
+                if _candidate_limit_reached(rows, all_queries, config.max_patents):
+                    break
+            if _candidate_limit_reached(rows, all_queries, config.max_patents):
+                break
             search_values = [*explicit, query]
             for search_value in search_values:
                 nested = f"q=({search_value})"
@@ -165,6 +209,94 @@ def google_patent_candidate_provider(
         return rows
 
     return search
+
+
+def _candidate_limit_reached(
+    rows: Iterable[Mapping[str, Any]],
+    queries: Iterable[str],
+    limit: int,
+) -> bool:
+    return len(
+        select_independent_candidates(
+            rows,
+            queries=queries,
+            limit=max(1, int(limit)),
+        )
+    ) >= max(1, int(limit))
+
+
+def _metadata_patent_rank(
+    row: Mapping[str, Any],
+    *,
+    query: str,
+) -> tuple[int, int, bool]:
+    title = _plain_text(row.get("title")).casefold()
+    target_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]{4,}", query.casefold())
+        if token
+        not in {
+            "synthesis",
+            "synthetic",
+            "process",
+            "preparation",
+            "production",
+            "patent",
+        }
+    }
+    matched = sum(token in title for token in target_tokens)
+    process = sum(
+        token in title
+        for token in ("synthesis", "process", "preparation", "production")
+    )
+    publication = _publication(row.get("publication_number") or row.get("id"))
+    return (-matched, -process, not publication.startswith("WO"))
+
+
+def _metadata_patent_candidates(
+    publication: str,
+    *,
+    title: str,
+    query: str,
+    config: PatentSearchConfig,
+) -> list[dict[str, Any]]:
+    """Resolve metadata-only patent ids to primary publication artifacts."""
+
+    variants = [publication]
+    if re.fullmatch(r"WO\d{5,12}", publication):
+        variants = [f"{publication}A2", f"{publication}A1"]
+    for variant in variants:
+        family = epo_family_pdf_candidates(
+            variant,
+            timeout_s=config.timeout_s,
+            max_response_bytes=config.max_html_bytes,
+        )
+        if family:
+            return [
+                {
+                    **row,
+                    "title": str(row.get("title") or title),
+                    "query": query,
+                    "metadata_provider": "europe_pmc",
+                }
+                for row in family
+            ]
+        direct = _resolve_google_patent_publication(
+            variant,
+            timeout_s=config.timeout_s,
+            max_html_bytes=config.max_html_bytes,
+        )
+        if direct:
+            return [
+                {
+                    **direct,
+                    "title": str(direct.get("title") or title),
+                    "query": query,
+                    "metadata_provider": "europe_pmc",
+                    "_source_priority": 18,
+                }
+            ]
+    return []
 
 
 def select_independent_candidates(

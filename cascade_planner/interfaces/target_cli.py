@@ -67,10 +67,10 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument(
         "--execution-profile",
         choices=("fast", "standard", "proof"),
-        default="standard",
+        default="fast",
         help=(
-            "fast returns a compact two-family architecture; standard is the "
-            "balanced default; proof permits the largest bounded dossier"
+            "fast is the default and returns a compact two-family architecture; "
+            "standard expands breadth; proof permits the largest bounded dossier"
         ),
     )
     agent_mode = solve.add_mutually_exclusive_group()
