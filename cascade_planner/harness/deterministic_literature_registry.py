@@ -42,6 +42,10 @@ from cascade_planner.harness.source_text_companion import (
 from cascade_planner.harness.source_condition_extraction import (
     extract_source_conditions,
 )
+from cascade_planner.harness.source_narrative import (
+    narrative_product_name_candidates,
+    source_name_resolution_candidates,
+)
 from cascade_planner.runtime.run_metrics import (
     current_run_metrics,
     run_metric_stage,
@@ -568,6 +572,7 @@ def _compile_step_binding(
                     procedure=procedure,
                     procedures=document_procedures,
                     source_declared_labels=source_declared_reactant_labels,
+                    source_aliases=dict(document.get("source_name_aliases") or {}),
                     resolve_structure=resolve_structure,
                     resolve_candidate_names=resolve_candidate_names,
                 )
@@ -962,11 +967,19 @@ def _source_parenthetical_name_aliases(
             r"(?i)\b(?:consisting\s+of|selected\s+from|including|wherein)\b",
             name,
         )[-1]
+        # PDF text layers often flatten a whole sentence before ``(ABBR)``.
+        # Keep the source-authored chemical phrase following the final action
+        # verb, e.g. ``... convert Monacolin J (MJ)`` -> ``Monacolin J``.
+        name = re.split(
+            r"(?i)\b(?:convert(?:ed|ing|s)?|produce(?:d|ing|s)?|"
+            r"prepare(?:d|s)?|synthesi[sz](?:ed|ing|es)?|called|using)\b",
+            name,
+        )[-1]
         name = re.split(r"(?i)\s*,\s*|\s+and\s+|\s+or\s+", name)[-1]
+        name = re.sub(r"(?i)^(?:and|or)\s+", "", name).strip()
         name = " ".join(name.split()).strip(" ,;.")
         if (
-            3 <= len(alias) <= 24
-            and "-" in alias
+            2 <= len(alias) <= 24
             and 5 <= len(name) <= 180
             and re.search(r"[A-Za-z]", name)
         ):
@@ -983,20 +996,28 @@ def _resolve_procedure_structure(
         return
     procedure["structure_parse_attempted"] = True
     name = str(procedure.get("name") or "")
-    try:
-        smiles = resolve_structure(name)
-    except (OSError, RuntimeError, ValueError):
-        smiles = ""
-    canonical = _canonical_smiles(smiles)
-    if not canonical:
-        procedure["structure_parse_accepted"] = False
+    candidates = [name, *narrative_product_name_candidates(name)]
+    for index, candidate in enumerate(dict.fromkeys(candidates)):
+        try:
+            smiles = resolve_structure(candidate)
+        except (OSError, RuntimeError, ValueError):
+            smiles = ""
+        canonical = _canonical_smiles(smiles)
+        if not canonical:
+            continue
+        procedure["structure_parse_accepted"] = True
+        procedure["canonical_smiles"] = canonical
+        procedure["structure_parser"] = "opsin_name_to_structure"
+        procedure["structure_recovery_mode"] = (
+            "source_heading_exact_name"
+            if index == 0
+            else "source_narrative_product_name"
+        )
+        procedure["parser_output_sha256"] = hashlib.sha256(
+            str(smiles).encode("utf-8")
+        ).hexdigest()
         return
-    procedure["structure_parse_accepted"] = True
-    procedure["canonical_smiles"] = canonical
-    procedure["structure_parser"] = "opsin_name_to_structure"
-    procedure["parser_output_sha256"] = hashlib.sha256(
-        str(smiles).encode("utf-8")
-    ).hexdigest()
+    procedure["structure_parse_accepted"] = False
 
 
 def _procedure_product_name_match_score(
@@ -1430,10 +1451,17 @@ def _match_reactant_in_procedure(
     procedure: dict[str, Any],
     procedures: list[dict[str, Any]],
     source_declared_labels: list[str],
+    source_aliases: Mapping[str, str],
     resolve_structure: StructureResolver,
     resolve_candidate_names: CandidateNameResolver,
 ) -> dict[str, Any]:
     procedure_text = str(procedure.get("procedure") or "")
+    source_heading_and_procedure = " ".join(
+        [
+            str(procedure.get("name") or ""),
+            procedure_text,
+        ]
+    )
     normalized_procedure = _name_key(procedure_text)
     for candidate in procedures:
         candidate_smiles = str(candidate.get("canonical_smiles") or "")
@@ -1472,8 +1500,9 @@ def _match_reactant_in_procedure(
         }
     declared_name_match = _match_source_declared_reactant_name(
         reactant,
-        source_text=procedure_text,
+        source_text=source_heading_and_procedure,
         source_declared_labels=source_declared_labels,
+        source_aliases=source_aliases,
         resolve_structure=resolve_structure,
         resolve_candidate_names=resolve_candidate_names,
     )
@@ -1821,6 +1850,7 @@ def _match_source_declared_reactant_name(
     *,
     source_text: str,
     source_declared_labels: list[str],
+    source_aliases: Mapping[str, str],
     resolve_structure: StructureResolver,
     resolve_candidate_names: CandidateNameResolver,
 ) -> dict[str, Any]:
@@ -1828,7 +1858,17 @@ def _match_source_declared_reactant_name(
     for raw_label in source_declared_labels:
         label = " ".join(str(raw_label or "").strip().split())
         label_key = _name_key(label).strip()
-        if len(label_key) < 8 or f" {label_key} " not in normalized_source:
+        alias_keys = {str(value).casefold() for value in source_aliases}
+        source_declared_short_alias = any(
+            label.casefold() == alias
+            or label.casefold().startswith(f"{alias} ")
+            or label.casefold().startswith(f"{alias}-")
+            for alias in alias_keys
+        )
+        if (
+            (len(label_key) < 8 and not source_declared_short_alias)
+            or f" {label_key} " not in normalized_source
+        ):
             continue
         parse_name = re.sub(
             r"\s*,?\s*(?:(?:hcl|hydrochloride)\s+salt|hydrochloride)\s*$",
@@ -1836,10 +1876,19 @@ def _match_source_declared_reactant_name(
             label,
             flags=re.IGNORECASE,
         ).strip()
-        try:
-            parsed = _canonical_smiles(resolve_structure(parse_name))
-        except (OSError, RuntimeError, ValueError):
-            parsed = ""
+        parsed = ""
+        resolved_name = ""
+        for candidate in source_name_resolution_candidates(
+            parse_name,
+            source_aliases,
+        ):
+            try:
+                parsed = _canonical_smiles(resolve_structure(candidate))
+            except (OSError, RuntimeError, ValueError):
+                parsed = ""
+            if parsed:
+                resolved_name = candidate
+                break
         if not parsed or _parent_identity(parsed) != _parent_identity(reactant):
             continue
         exact = parsed == reactant
@@ -1859,7 +1908,7 @@ def _match_source_declared_reactant_name(
                 else "source_declared_name_opsin_parent_plus_counterion"
             ),
             "matched_name_sha256": hashlib.sha256(
-                parse_name.encode("utf-8")
+                resolved_name.encode("utf-8")
             ).hexdigest(),
             "synthesis_smiles": synthesis_projection_smiles(parsed),
         }

@@ -124,10 +124,7 @@ def test_source_route_recovers_narrative_product_and_source_abbreviation() -> No
                     "ethanol and DMB-S-MMP was performed as described"
                 ),
                 "page_number": 20,
-                "procedure": (
-                    "Ethanol (1 mM) and neat DMB-S-MMP was added to final "
-                    "concentration of 2 mM. The reaction mixture was stirred."
-                ),
+                "procedure": "The reaction mixture was stirred and isolated.",
             }
         ],
     }
@@ -144,6 +141,97 @@ def test_source_route_recovers_narrative_product_and_source_abbreviation() -> No
         "narrative_product_name_advisory"
     )
     assert set(proposal["precursor_smiles"]) == {"CCO", "CC(=O)Cl"}
+
+
+def test_source_route_expands_leading_source_alias_with_chemical_suffix() -> None:
+    names = {
+        "simvastatin acid": "CCOC(C)=O",
+        "monacolin j acid": "CCO",
+        "acetyl chloride": "CC(=O)Cl",
+    }
+
+    def resolve(name: str) -> str:
+        value = names.get(name.casefold())
+        if not value:
+            raise RuntimeError("not found")
+        return value
+
+    document = {
+        "source_ref": "patent:SOURCE-ALIASES",
+        "source_artifact_sha256": "c" * 64,
+        "source_name_aliases": {
+            "mj": "Monacolin J",
+            "dmb-s-mmp": "acetyl chloride",
+        },
+        "procedures": [
+            {
+                "label": "90",
+                "name": (
+                    "Whole-cell synthesis of simvastatin acid from MJ acid "
+                    "and DMB-S-MMP was performed as described"
+                ),
+                "page_number": 21,
+                "procedure": "The reaction was monitored and isolated.",
+            }
+        ],
+    }
+
+    observation = compile_deterministic_source_route_observation(
+        document,
+        structure_resolver=resolve,
+        anchor_smiles=["CCOC(C)=O"],
+    )
+
+    assert observation["proposal_count"] == 1
+    proposal = observation["proposals"][0]
+    assert set(proposal["reactant_names"]) == {"MJ acid", "DMB-S-MMP"}
+    assert set(proposal["precursor_smiles"]) == {"CCO", "CC(=O)Cl"}
+
+
+def test_source_route_connects_source_hydroxy_acid_to_target_lactone() -> None:
+    names = {
+        "4-hydroxybutanoic acid": "OCCCC(=O)O",
+        "4-bromobutanoic acid": "O=C(O)CCCBr",
+        "water": "O",
+    }
+
+    def resolve(name: str) -> str:
+        value = names.get(name.casefold())
+        if not value:
+            raise RuntimeError("not found")
+        return value
+
+    document = {
+        "source_ref": "doi:10.1000/FORM-BRIDGE",
+        "source_artifact_sha256": "d" * 64,
+        "procedures": [
+            {
+                "label": "1",
+                "name": (
+                    "Synthesis of 4-hydroxybutanoic acid from "
+                    "4-bromobutanoic acid and water was performed"
+                ),
+                "page_number": 1,
+                "procedure": "The reaction mixture was isolated.",
+            }
+        ],
+    }
+
+    observation = compile_deterministic_source_route_observation(
+        document,
+        structure_resolver=resolve,
+        anchor_smiles=["O=C1OCCC1"],
+    )
+
+    assert observation["proposal_count"] == 2
+    bridge = next(
+        row
+        for row in observation["proposals"]
+        if row["proposal_id"].startswith("source-form-bridge:")
+    )
+    assert bridge["product_smiles"] == "O=C1CCCO1"
+    assert bridge["precursor_smiles"] == ["O=C(O)CCCO"]
+    assert bridge["semantics"]["structural_form_equivalence_only"] is True
 
 
 def test_discovered_source_route_uses_canonical_route_and_edge_ingestion(

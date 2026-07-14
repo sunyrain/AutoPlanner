@@ -26,6 +26,9 @@ from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisRunBudget,
 )
 from cascade_planner.interfaces.live_evidence import EvidenceConnector
+from cascade_planner.interfaces.patent_self_evolution import (
+    PatentSelfEvolutionSession,
+)
 from cascade_planner.interfaces.target_solver import (
     TargetSolveConfig,
     _acquire_evidence_stage,
@@ -57,6 +60,9 @@ class ValidationForkConfig:
     max_atom_mapping_reactions: int = 64
     max_live_stock_molecules: int = 32
     enable_live_benchmark_stock: bool = True
+    enable_patent_self_evolution: bool = True
+    self_evo_library_path: str = ""
+    max_self_evo_template_candidates: int = 12
     schema_version: str = "target_validation_fork_config.v1"
 
     def __post_init__(self) -> None:
@@ -64,6 +70,8 @@ class ValidationForkConfig:
             raise ValueError("validation_fork_mapping_limit_invalid")
         if self.max_live_stock_molecules < 1:
             raise ValueError("validation_fork_stock_limit_invalid")
+        if not 1 <= self.max_self_evo_template_candidates <= 64:
+            raise ValueError("validation_fork_self_evo_candidate_limit_invalid")
 
 
 def fork_target_validation(
@@ -159,6 +167,13 @@ def fork_target_validation(
         budget=derived_budget,
     )
     service = gateway._open(identity, run_dir=directory)
+    self_evo = PatentSelfEvolutionSession.create(
+        enabled=active.enable_patent_self_evolution,
+        configured_path=active.self_evo_library_path,
+        external_data_root=gateway.paths.external_data_root,
+        target_smiles=target_smiles,
+        max_candidates=active.max_self_evo_template_candidates,
+    )
     lineage_ref = service.kernel.artifacts.put_json(
         lineage,
         logical_name="target_validation_fork_lineage.json",
@@ -233,6 +248,14 @@ def fork_target_validation(
     stages.append(
         _stage("evidence_acquisition", evidence_stage["status"], evidence_stage)
     )
+    template_learning = self_evo.learn(service.graph_store.load())
+    stages.append(
+        _stage(
+            "patent_template_learning",
+            template_learning["status"],
+            template_learning,
+        )
+    )
     stock_stage = _audit_stock_stage(
         service,
         acceptance=acceptance,
@@ -301,6 +324,7 @@ def fork_target_validation(
         "accepted_expansion_count": service.kernel.state.accepted_expansion_count,
         "stop_decision": stop,
         "current_disposition": disposition,
+        "self_evolution": self_evo.report(),
         "portfolio_ref": closeout["portfolio_ref"],
         "workbench_ref": workbench["snapshot_ref"],
         "claim": claim,

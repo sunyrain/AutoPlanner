@@ -7,6 +7,7 @@ import hashlib
 from html import escape
 import json
 from pathlib import Path
+import re
 import shutil
 from typing import Any, Mapping
 from xml.etree import ElementTree
@@ -153,6 +154,7 @@ main{{max-width:1260px;margin:auto;padding:28px}}.metrics{{display:grid;grid-tem
 img{{width:100%;border-radius:10px;border:1px solid var(--line)}}.ok{{color:var(--green)}}.warn{{color:var(--amber)}}
 table{{width:100%;border-collapse:collapse}}td{{padding:9px;border-bottom:1px solid #edf0f5}}td:first-child{{color:var(--muted)}}.wide{{margin-top:16px}}.procedures{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}}.procedure{{padding:12px;border-radius:10px;background:#f7f9fd;border-left:3px solid var(--green)}}.procedure b{{display:block;margin-bottom:4px}}
 .links{{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}}a{{padding:8px 11px;border-radius:8px;background:#edf1ff;color:var(--blue);font-weight:700;text-decoration:none}}
+.routeCards{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}}.routeCard{{padding:14px;border:1px solid #dfe6f2;border-radius:12px;background:#f8faff}}.routeCard b{{display:block;margin-bottom:6px}}.routeCard code{{display:block;white-space:normal;overflow-wrap:anywhere;color:#42506a;font-size:11px}}.routeCard .condition{{margin-top:8px;color:var(--muted);font-size:12px}}
 @media(max-width:800px){{.metrics,.flow{{grid-template-columns:1fr 1fr}}.grid{{grid-template-columns:1fr}}}}
 </style></head><body><header><small>FRESH NETWORK · DIGEST BOUND · AUDITABLE</small>
 <h1>文献、专利与视觉提取实测</h1><p>该页只使用本轮从网络自动发现并下载的来源；元数据不授予证据等级，视觉结果不绕过 host 验证。</p></header>
@@ -182,14 +184,33 @@ def _validation_fork_panel(
         if isinstance(row, Mapping)
     )
     timings = dict(value.get("connector_elapsed_s") or {})
+    routes = "".join(
+        '<div class="routeCard">'
+        f'<b>{_h(row.get("label") or "来源路线")}</b>'
+        f'<code>{_h(row.get("reaction") or "")}</code>'
+        f'<div class="condition">{_h(row.get("conditions") or "条件待补")}</div>'
+        "</div>"
+        for row in value.get("source_routes") or []
+        if isinstance(row, Mapping)
+    )
+    exact_status = (
+        "已闭合"
+        if value.get("B3_exact_multi_source") is True
+        else (
+            "尚未闭合；当前 exact 反应已单独显示，不能冒充全路线多来源证明"
+        )
+    )
     return f"""<section class="panel wide"><h2>Simvastatin · 多信源零模型增量验证</h2>
 <table><tr><td>来源</td><td>{int(value.get('source_count') or 0)} 个：EPO 专利 + PMC 原始论文</td></tr>
 <tr><td>论文获取</td><td>{_h(_source_label(value.get('paper_acquisition','')))} · {_h(value.get('paper_pmcid',''))} · {_h(_source_label(value.get('paper_access_class','')))}</td></tr>
 <tr><td>抽取结果</td><td>{int(value.get('paper_procedure_count') or 0)} 个论文段落 + {int(value.get('patent_procedure_count') or 0)} 个专利段落</td></tr>
+<tr><td>来源路线</td><td>{int(value.get('source_route_proposal_count') or 0)} 条物化 · {int(value.get('source_route_host_accepted_count') or 0)} 条主机验证 · {int(value.get('source_route_exact_row_count') or 0)} 条 exact</td></tr>
+<tr><td>self-evo</td><td>{int(value.get('self_evo_template_count') or 0)} 个共享模板 · generation {int(value.get('self_evo_generation') or 0)}</td></tr>
+<tr><td>原始来源缓存</td><td>{'哈希复核后命中' if value.get('patent_source_cache_hit') else '本轮下载并冻结'}</td></tr>
 <tr><td>并行耗时</td><td>patent {float(timings.get('connector_1') or 0):.1f}s · paper {float(timings.get('connector_2') or 0):.1f}s</td></tr>
 <tr><td>模型 / 视觉</td><td class="ok">{int(value.get('model_invocations') or 0)} / {int(value.get('visual_invocations') or 0)}</td></tr>
-<tr><td>B3 exact multi-source</td><td class="warn">未闭合；来源反应与当前图的酸/内酯及酰基供体表示尚未同构</td></tr></table>
-<div class="procedures">{procedures}</div><div class="links"><a href="{_h(assets.get('paper_html',''))}">查看哈希冻结的 PMC HTML</a></div></section>"""
+<tr><td>B3 exact multi-source</td><td class="{'ok' if value.get('B3_exact_multi_source') else 'warn'}">{_h(exact_status)}</td></tr></table>
+<div class="routeCards">{routes}</div><div class="procedures">{procedures}</div><div class="links"><a href="{_h(assets.get('paper_html',''))}">查看哈希冻结的 PMC HTML</a></div></section>"""
 
 
 def _validation_fork_payload(
@@ -224,6 +245,39 @@ def _validation_fork_payload(
     store = artifact_store_root or report_path.parents[2] / "artifacts"
     receipt_path = store / str(receipt_ref.get("object_path") or "")
     receipt = _json(_file(receipt_path))
+    patent_receipt = next(
+        (
+            dict(row)
+            for row in receipt.get("child_receipts") or []
+            if isinstance(row, Mapping)
+            and str(row.get("provider_id") or "")
+            == "autoplanner.builtin_patent_evidence"
+        ),
+        {},
+    )
+    patent_audit = next(
+        (
+            dict(row)
+            for row in patent_receipt.get("audits") or []
+            if isinstance(row, Mapping)
+        ),
+        {},
+    )
+    route_observation = dict(patent_audit.get("source_route_observation") or {})
+    source_routes = [
+        _source_route_card(dict(row), target_name=str(dict(report.get("target") or {}).get("name") or "target"))
+        for row in route_observation.get("proposals") or []
+        if isinstance(row, Mapping)
+    ][:8]
+    self_evolution = dict(report.get("self_evolution") or {})
+    learning = next(
+        (
+            dict(row)
+            for row in reversed(self_evolution.get("learning_stages") or [])
+            if isinstance(row, Mapping)
+        ),
+        {},
+    )
     model_cost = dict(report.get("model_cost") or {})
     if int(model_cost.get("model_invocations") or 0) != 0:
         raise ValueError("validation_fork_model_usage_detected")
@@ -247,6 +301,26 @@ def _validation_fork_payload(
             "paper_sha256": paper_sha,
             "paper_procedure_count": len(paper.get("procedure_inventory") or []),
             "patent_procedure_count": len(patent.get("procedure_inventory") or []),
+            "source_route_proposal_count": int(
+                route_observation.get("proposal_count") or len(source_routes)
+            ),
+            "source_route_host_accepted_count": int(
+                dict(stage.get("validation") or {}).get(
+                    "accepted_validation_count"
+                )
+                or 0
+            ),
+            "source_route_exact_row_count": int(
+                patent_audit.get("source_route_exact_row_count") or 0
+            ),
+            "source_routes": source_routes,
+            "patent_source_cache_hit": any(
+                dict(row).get("cache_hit") is True
+                for row in dict(patent_audit.get("source_byte_cache") or {}).values()
+                if isinstance(row, Mapping)
+            ),
+            "self_evo_template_count": int(learning.get("template_count") or 0),
+            "self_evo_generation": int(learning.get("generation") or 0),
             "connector_elapsed_s": dict(receipt.get("child_elapsed_s") or {}),
             "model_invocations": int(model_cost.get("model_invocations") or 0),
             "visual_invocations": int(model_cost.get("visual_invocations") or 0),
@@ -257,6 +331,42 @@ def _validation_fork_payload(
         },
         paper_asset,
     )
+
+
+def _source_route_card(row: Mapping[str, Any], *, target_name: str) -> dict[str, str]:
+    origin = str(row.get("origin_kind") or "")
+    raw_product = str(row.get("product_name") or "")
+    product = _narrative_product_name(raw_product)
+    reactants = [
+        str(value)
+        for value in row.get("reactant_names") or []
+        if str(value).strip()
+    ]
+    if origin == "deterministic_source_form_bridge":
+        product = f"{target_name}（内酯）"
+        reactants = [f"{target_name} acid"]
+        label = "形式桥接 · 主机验证"
+    else:
+        label = "专利实验反应 · exact 来源行"
+    condition = dict(row.get("condition_candidate") or {})
+    condition_text = "；".join(
+        str(condition.get(key) or "").strip()
+        for key in ("temperature", "time", "addition_order", "workup")
+        if str(condition.get(key) or "").strip()
+    )
+    return {
+        "label": label,
+        "reaction": f"{' + '.join(reactants) or '来源中间体'} → {product}",
+        "conditions": condition_text or "确定性结构等价；无独立实验条件授权",
+    }
+
+
+def _narrative_product_name(value: str) -> str:
+    match = re.search(
+        r"(?i)\b(?:synthesis|preparation|production)\s+of\s+(.{2,180}?)\s+from\s+",
+        " ".join(str(value or "").split()),
+    )
+    return str(match.group(1) if match else value).strip(" .,:;()")
 
 
 def _metric(label: str, value: Any) -> str:

@@ -27,20 +27,81 @@ def materialize_pmc_repository_html(
 
     source_doi = doi(candidate)
     fulltext_cache_dir.mkdir(parents=True, exist_ok=True)
-    html_bytes, receipt = europe_pmc_repository_html(
-        source_doi,
-        timeout_s=config.timeout_s,
-        max_bytes=config.max_fulltext_bytes,
-        fetch=fetch,
+    html_bytes = b""
+    receipt: dict[str, Any] = {}
+    parser: _PmcArticleParser | None = None
+    for cached_path in sorted(fulltext_cache_dir.glob("fulltext-*.html")):
+        try:
+            cached = cached_path.read_bytes()
+        except OSError:
+            continue
+        if not 200 <= len(cached) <= config.max_fulltext_bytes:
+            continue
+        cached_parser = _parse_pmc_html(cached)
+        if cached_parser.citation_doi.casefold() != source_doi.casefold():
+            continue
+        html_bytes = cached
+        parser = cached_parser
+        receipt = {
+            "provider": "content_addressed_pmc_html_cache",
+            "pmcid": cached_parser.pmcid,
+            "doi": source_doi,
+            "html_sha256": hashlib.sha256(cached).hexdigest(),
+            "repository_fulltext": True,
+            "has_repository_fulltext": True,
+            "access_class": "free_repository_fulltext",
+            "cache_hit": True,
+        }
+        break
+    if not html_bytes:
+        html_bytes, receipt = europe_pmc_repository_html(
+            source_doi,
+            timeout_s=config.timeout_s,
+            max_bytes=config.max_fulltext_bytes,
+            fetch=fetch,
+        )
+        parser = _parse_pmc_html(html_bytes)
+        receipt = {**receipt, "cache_hit": False}
+    assert parser is not None
+    if parser.citation_doi.casefold() != source_doi.casefold():
+        raise ValueError("pmc_repository_html_doi_mismatch")
+    return _materialize_parsed_pmc_html(
+        parser=parser,
+        html_bytes=html_bytes,
+        receipt=receipt,
+        candidate=candidate,
+        request=request,
+        source_ref=source_ref,
+        source_doi=source_doi,
+        source_dir=source_dir,
+        fulltext_cache_dir=fulltext_cache_dir,
+        config=config,
     )
+
+
+def _parse_pmc_html(html_bytes: bytes) -> "_PmcArticleParser":
     parser = _PmcArticleParser()
     try:
         parser.feed(html_bytes.decode("utf-8", errors="strict"))
         parser.close()
     except (UnicodeDecodeError, ValueError) as exc:
         raise ValueError("pmc_repository_html_parse_failed") from exc
-    if parser.citation_doi.casefold() != source_doi.casefold():
-        raise ValueError("pmc_repository_html_doi_mismatch")
+    return parser
+
+
+def _materialize_parsed_pmc_html(
+    *,
+    parser: "_PmcArticleParser",
+    html_bytes: bytes,
+    receipt: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    request: Mapping[str, Any],
+    source_ref: str,
+    source_doi: str,
+    source_dir: Path,
+    fulltext_cache_dir: Path,
+    config: Any,
+) -> dict[str, Any]:
     html_sha = hashlib.sha256(html_bytes).hexdigest()
     cache_path = fulltext_cache_dir / f"fulltext-{html_sha[:16]}.html"
     _write_bytes_once(cache_path, html_bytes)
@@ -83,7 +144,6 @@ def materialize_pmc_repository_html(
         "acquisition_receipt": {
             **receipt,
             "cached_fulltext_path": str(cache_path),
-            "cache_hit": False,
         },
         "semantics": {
             "html_used_after_xml_before_pdf": True,
@@ -99,6 +159,7 @@ class _PmcArticleParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.citation_doi = ""
+        self.pmcid = ""
         self.sections: list[tuple[str, str]] = []
         self._ignored_depth = 0
         self._capture = ""
@@ -124,6 +185,10 @@ class _PmcArticleParser(HTMLParser):
                 value = value[4:].strip()
             if value.startswith("10."):
                 self.citation_doi = value
+        if lowered == "meta" and attributes.get("name", "").casefold() == (
+            "citation_pmcid"
+        ):
+            self.pmcid = attributes.get("content", "").strip().upper()
         if self._ignored_depth:
             return
         if lowered in {"h2", "h3", "h4", "p"}:

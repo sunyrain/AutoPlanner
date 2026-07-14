@@ -162,6 +162,50 @@ def test_builtin_patent_connector_freezes_independent_pdfs_and_emits_exact_rows(
     assert len(list(tmp_path.rglob("*.png"))) == 2
 
 
+def test_builtin_patent_connector_reuses_hashed_source_bytes_across_runs(
+    tmp_path: Path,
+) -> None:
+    fetch_count = 0
+
+    def fetch_pdf(_url: str, _timeout: float, _limit: int) -> bytes:
+        nonlocal fetch_count
+        fetch_count += 1
+        return _pdf_bytes()
+
+    connector = build_builtin_patent_evidence_connector(
+        BuiltinPatentEvidenceConfig(cache_dir=tmp_path, max_patents=1),
+        candidate_provider=lambda _queries: [
+            {
+                "publication_number": "US1234567A1",
+                "family_id": "family:one",
+                "title": "Process for preparation of ethyl acetate",
+                "snippet": "ethyl acetate synthesis",
+                "pdf_url": "https://source.invalid/one.pdf",
+            }
+        ],
+        bytes_fetcher=fetch_pdf,
+        registry_compiler=_compiler,
+        structure_resolver=lambda _name: "CCOC(C)=O",
+        candidate_name_resolver=lambda _smiles: ["ethyl acetate"],
+    )
+
+    first = connector(_request())
+    second_request = _request()
+    second_request["run_id"] = "blind-patent-independent-second-run"
+    second = connector(second_request)
+
+    assert fetch_count == 1
+    assert first["receipt"]["audits"][0]["source_byte_cache"]["pdf"][
+        "cache_hit"
+    ] is False
+    assert second["receipt"]["audits"][0]["source_byte_cache"]["pdf"][
+        "cache_hit"
+    ] is True
+    assert second["discovery"]["sources"][0]["source_byte_cache"]["pdf"][
+        "semantics"
+    ]["target_derived_extraction_is_not_shared"] is True
+
+
 def test_builtin_patent_connector_refuses_unvalidated_edges(tmp_path: Path) -> None:
     connector = build_builtin_patent_evidence_connector(
         BuiltinPatentEvidenceConfig(cache_dir=tmp_path),
@@ -205,6 +249,8 @@ def test_builtin_patent_connector_allows_authority_free_target_prefetch(
     source = result["discovery"]["sources"][0]
     assert source["pdf_sha256"]
     assert source["exact_row_count"] == 0
+    assert source["approved_exact_row_count"] == 0
+    assert source["source_route_exact_row_count"] == 0
 
 
 def test_builtin_patent_connector_returns_unbound_procedures_for_global_replan(
@@ -398,6 +444,7 @@ def test_builtin_patent_connector_ocr_closes_image_only_exact_row_without_model(
     discovery = result["discovery"]["sources"][0]
     assert discovery["ocr_audit"]["status"] == "completed"
     assert discovery["exact_row_count"] == 1
+    assert discovery["approved_exact_row_count"] == 1
     assert discovery["unresolved_edge_count"] == 0
 
 

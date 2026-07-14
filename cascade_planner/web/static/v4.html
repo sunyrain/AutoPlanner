@@ -42,6 +42,8 @@
     .panelHead { padding: 15px 17px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .panelHead h3 { font-size: 15px; margin: 0; }
     .panelHead span { color: var(--muted); font-size: 12px; }
+    .headTools { display:flex;align-items:center;gap:9px; }
+    .textButton { border:0;background:transparent;color:var(--brand);font-size:11px;font-weight:750;cursor:pointer;padding:3px; }
     form { padding: 16px 17px 18px; }
     label { display: block; margin: 11px 0 5px; color: #4e5a70; font-size: 12px; font-weight: 700; }
     label:first-child { margin-top: 0; }
@@ -96,7 +98,7 @@
     <nav class="topnav"><a href="/">经典界面</a><a href="/statins">他汀展示</a><a href="/api/v4/runs">运行 API</a></nav>
   </div></header>
   <main class="shell">
-    <section class="hero"><div><h2>全局规划，证据渐进闭合</h2><p>从任意陌生 SMILES 发起独立 campaign；Codex 规划路线骨架，ChemEnzy 展开局部前沿，文献系统与视觉提取补齐真实反应，验证器和库存系统负责最终闭合。</p></div><div class="live"><i></i>实时轮询已启用</div></section>
+    <section class="hero"><div><h2>先交付路线，再渐进闭合证据</h2><p>从任意陌生 SMILES 发起独立 campaign；Codex 先给出可审查的全局路线骨架，ChemEnzy 按需展开局部前沿。专利、论文、视觉、验证和库存随后异步提高可信度，不再阻塞首屏路线。</p></div><div class="live"><i></i>实时轮询已启用</div></section>
     <div class="layout">
       <section class="panel">
         <div class="panelHead"><h3>发起 target-only 请求</h3><span>异步执行</span></div>
@@ -132,7 +134,7 @@
         </form>
       </section>
       <section class="panel">
-        <div class="panelHead"><h3>运行队列与调用情况</h3><span id="jobCount">0 个任务</span></div>
+        <div class="panelHead"><h3>运行队列与调用情况</h3><div class="headTools"><span id="jobCount">0 个任务</span><button class="textButton" id="toggleHistory" type="button">显示全部历史</button></div></div>
         <div class="jobs" id="jobs"><div class="empty">尚未发起任务。输入任意 SMILES 后即可实时观察全流程。</div></div>
       </section>
     </div>
@@ -147,9 +149,11 @@
     const jobsEl = document.getElementById('jobs');
     const activeJobs = new Set();
     let knownJobs = [];
+    let showAllHistory = false;
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const number = value => Number(value || 0).toLocaleString('zh-CN');
     const duration = value => { const s=Math.max(0,Number(value||0)); return s<60?`${s.toFixed(1)}s`:`${Math.floor(s/60)}m ${Math.round(s%60)}s`; };
+    const deliveryLabel = value => ({initializing:'初始化',planning_routes:'规划路线',route_candidates_ready_proof_pending:'路线已可看 · 证明待补',route_candidates_ready_evidence_running:'路线已可看 · 取证中',proof_review_ready:'证据已返回 · 待复核',complete:'运行完成',failed:'运行失败',historical:'历史结果'})[value] || value || '等待路线';
     async function jsonFetch(url, options={}) { const response=await fetch(url,options); const data=await response.json(); if(!response.ok) throw new Error(data.reason||data.error||`HTTP ${response.status}`); return data; }
     function payload() { return {
       target_name: document.getElementById('targetName').value.trim() || 'blind target',
@@ -168,14 +172,16 @@
       try { const job=await jsonFetch('/api/v4/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())}); activeJobs.add(job.job_id); knownJobs.unshift(job); render(); status.textContent=`已启动 ${job.run_id}`; }
       catch(error) { status.textContent=error.message; } finally { button.disabled=false; }
     });
+    document.getElementById('toggleHistory').addEventListener('click', () => { showAllHistory=!showAllHistory; document.getElementById('toggleHistory').textContent=showAllHistory?'只看每个目标最新结果':'显示全部历史'; render(); });
     function metric(label,value){return `<div class="metric"><b>${esc(value)}</b><span>${esc(label)}</span></div>`;}
     function stageMetrics(stage){const m=stage.metrics||{}; if(stage.stage==='chemenzy_delegation') return ` · 请求 ${number(m.requests)} / 入队 ${number(m.queued)} / 拒绝 ${number(m.rejected)}`; if(stage.stage==='chemenzy_guided_frontier'||stage.stage==='chemenzy_stock_recovery') return ` · 前沿 ${number(m.frontiers)} / 实调 ${number(m.provider_calls)} / 候选 ${number(m.proposals)}`; if(stage.stage==='evidence_acquisition') return ` · 来源 ${number(m.sources)} / exact ${number(m.exact_rows)} / 视觉 ${number(m.visual_calls)}${m.hidden_s?` / 后台预取隐藏 ${duration(m.hidden_s)}`:''}`; return '';}
-    function renderJob(job) { const p=job.progress||{}; const cost=p.model_cost||job.result?.model_cost||{}; const portfolio=p.portfolio||{}; const stages=p.stages||[]; const links=job.run_id?`<a href="/api/v4/runs/${encodeURIComponent(job.run_id)}/workbench.html">路线工作台</a><a href="/api/v4/runs/${encodeURIComponent(job.run_id)}/status">状态 JSON</a>`:''; return `<article class="job">
+    function renderJob(job) { const p=job.progress||{}; const d=p.delivery||{}; const cost=p.model_cost||job.result?.model_cost||{}; const portfolio=p.portfolio||{}; const stages=p.stages||[]; const workbench=(job.run_id&&(d.workbench_available||job.status==='complete'||job.status==='historical'))?`<a href="/api/v4/runs/${encodeURIComponent(job.run_id)}/workbench.html">路线工作台</a>`:''; const links=job.run_id?`${workbench}<a href="/api/v4/runs/${encodeURIComponent(job.run_id)}/status">状态 JSON</a>`:''; const deliveryNote=d.route_candidates_available&&!d.proof_closure_complete?'路线候选已经可审查；文献、验证与库存仍在后台闭合。':''; return `<article class="job">
       <div class="jobTop"><div class="jobTitle"><b>${esc(job.target_name)}</b><small>${esc(job.run_id)}</small></div><span class="pill ${esc(job.status)}">${esc(job.status)}</span></div>
-      <div class="metrics">${metric('当前阶段',p.phase||job.phase)}${metric('耗时',duration(p.elapsed_s||job.elapsed_s))}${metric('模型调用',number(cost.model_invocations))}${metric('输入 token',number(cost.input_tokens))}${metric('路线',number(portfolio.route_count||job.result?.counts?.target_rooted_distinct_skeletons))}${metric('待办',number(portfolio.deficit_count||Object.values(p.frontier_counts||{}).reduce((a,b)=>a+b,0)))}</div>
+      <div class="metrics">${metric('交付状态',deliveryLabel(d.state))}${metric('耗时',duration(p.elapsed_s||job.elapsed_s))}${metric('模型调用',number(cost.model_invocations))}${metric('输入 token',number(cost.input_tokens))}${metric('路线',number(portfolio.route_count||job.result?.counts?.target_rooted_distinct_skeletons))}${metric('待办',number(portfolio.deficit_count||Object.values(p.frontier_counts||{}).reduce((a,b)=>a+b,0)))}</div>
       <div class="stageLine">${stages.length?stages.map((s,i)=>`<span class="stage ${esc(s.status)} ${i===stages.length-1?'current':''}">${esc(s.stage)} · ${esc(s.status)}${s.elapsed_s?` · ${duration(s.elapsed_s)}`:''}${stageMetrics(s)}</span>`).join(''):`<span class="stage current">${esc(p.phase||job.phase)}</span>`}</div>
-      <div class="jobFoot"><span class="${job.error?'error':''}">${esc(job.error||p.next_deficit_id||(p.time_to_first_route_s?`首个可审查路线 ${duration(p.time_to_first_route_s)}`:'运行状态由 canonical kernel 提供'))}</span><span class="links">${links}</span></div></article>`; }
-    function render(){ document.getElementById('jobCount').textContent=`${knownJobs.length} 个任务`; jobsEl.innerHTML=knownJobs.length?knownJobs.map(renderJob).join(''):'<div class="empty">尚未发起任务。输入任意 SMILES 后即可实时观察全流程。</div>'; }
+      <div class="jobFoot"><span class="${job.error?'error':''}">${esc(job.error||deliveryNote||p.next_deficit_id||(p.time_to_first_route_s?`首个可审查路线 ${duration(p.time_to_first_route_s)}`:'运行状态由 canonical kernel 提供'))}</span><span class="links">${links}</span></div></article>`; }
+    function visibleJobs(){if(showAllHistory)return knownJobs; const active=[]; const latest=new Map(); for(const row of knownJobs){if(['queued','running'].includes(row.status)){active.push(row);continue;} const key=String(row.target_name||row.run_id||row.job_id).toLowerCase(); if(!latest.has(key))latest.set(key,row);} return [...active,...latest.values()].sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));}
+    function render(){ const visible=visibleJobs(); document.getElementById('jobCount').textContent=showAllHistory?`${knownJobs.length} 个任务`:`${visible.length} 个最新目标 · 共 ${knownJobs.length} 次运行`; jobsEl.innerHTML=visible.length?visible.map(renderJob).join(''):'<div class="empty">尚未发起任务。输入任意 SMILES 后即可实时观察全流程。</div>'; }
     async function refresh() { try { const listed=await jsonFetch('/api/v4/jobs'); const ids=new Set(knownJobs.map(x=>x.job_id)); for(const row of listed.jobs||[]) if(!ids.has(row.job_id)) knownJobs.push(row); for(let i=0;i<knownJobs.length;i++){const row=knownJobs[i]; if(!row.progress||['queued','running'].includes(row.status)||activeJobs.has(row.job_id)){try{knownJobs[i]=await jsonFetch('/api/v4/jobs/'+encodeURIComponent(row.job_id)); if(!['queued','running'].includes(knownJobs[i].status)) activeJobs.delete(row.job_id);}catch(_){}}} knownJobs.sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))); render(); } catch(_) {} }
     refresh(); setInterval(refresh,2000);
   </script>

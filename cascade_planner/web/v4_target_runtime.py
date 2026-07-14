@@ -20,6 +20,9 @@ from cascade_planner.interfaces.target_solver import (
     DEFAULT_TARGET_DIRECTOR_MODEL,
     TargetSolveConfig,
 )
+from cascade_planner.interfaces.target_delivery import (
+    delivery_projection as _delivery_projection,
+)
 
 
 GatewayFactory = Callable[[], CampaignGateway]
@@ -229,6 +232,7 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
         "model_cost": {},
         "frontier_counts": {},
         "stages": [],
+        "delivery": _delivery_projection([], job_status=str(job.get("status") or "")),
     }
     if job.get("status") == "running" and job.get("started_at"):
         try:
@@ -316,6 +320,10 @@ def live_job_progress(factory: GatewayFactory, job: Mapping[str, Any]) -> dict[s
                     pass
         except (OSError, json.JSONDecodeError):
             pass
+    result["delivery"] = _delivery_projection(
+        list(result.get("stages") or []),
+        job_status=str(job.get("status") or ""),
+    )
     return result
 
 
@@ -378,6 +386,23 @@ def historical_job(run: Mapping[str, Any]) -> dict[str, Any]:
         },
         "frontier_counts": deficits,
         "stages": [],
+        "delivery": {
+            "state": "complete" if phase == "complete" else "historical",
+            "route_candidates_available": int(
+                graph.get("complete_route_count") or 0
+            )
+            > 0,
+            "proof_closure_complete": run.get("accepted") is True,
+            "evidence_stage_complete": int(
+                dict(run.get("evidence") or {}).get("exact_record_count") or 0
+            )
+            > 0,
+            "workbench_available": True,
+            "semantics": {
+                "historical_projection_only": True,
+                "route_candidates_do_not_imply_exact_evidence": True,
+            },
+        },
     }
     return {
         "job_id": f"solve:{run_id}",

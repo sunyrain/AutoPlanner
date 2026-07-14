@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Any, Callable, Iterable, Mapping
 
 import requests
@@ -201,6 +202,28 @@ def build_builtin_patent_evidence_connector(
         sources: list[dict[str, Any]] = []
         audits: list[dict[str, Any]] = []
         for candidate in candidates:
+            publication = str(candidate.get("publication_number") or "")
+            source_byte_audit: dict[str, Any] = {}
+
+            def cached_fetch(
+                kind: str,
+                upstream: BytesFetcher,
+            ) -> BytesFetcher:
+                def fetch_one(url: str, timeout_s: float, max_bytes: int) -> bytes:
+                    content, audit = _publication_source_bytes(
+                        cache_root,
+                        publication=publication,
+                        source_kind=kind,
+                        source_url=url,
+                        timeout_s=timeout_s,
+                        max_bytes=max_bytes,
+                        fetch=upstream,
+                    )
+                    source_byte_audit[kind] = audit
+                    return content
+
+                return fetch_one
+
             try:
                 source, audit = _extract_candidate(
                     candidate,
@@ -209,8 +232,8 @@ def build_builtin_patent_evidence_connector(
                     discovery_pdf_allowed=discovery_pdf_allowed,
                     output_dir=source_dir,
                     config=config,
-                    fetch=fetch,
-                    fetch_html=fetch_html,
+                    fetch=cached_fetch("pdf", fetch),
+                    fetch_html=cached_fetch("html", fetch_html),
                     compile_registry=compile_registry,
                     resolve_structure=resolve_structure,
                     resolve_names=resolve_names,
@@ -223,9 +246,11 @@ def build_builtin_patent_evidence_connector(
                         "publication_number": candidate["publication_number"],
                         "accepted": False,
                         "reason": f"{type(exc).__name__}:{str(exc)[:500]}",
+                        "source_byte_cache": source_byte_audit,
                     }
                 )
                 continue
+            audit["source_byte_cache"] = source_byte_audit
             audits.append(audit)
             if source:
                 sources.append(source)
@@ -242,6 +267,7 @@ def build_builtin_patent_evidence_connector(
                 "html_sha256": str(row.get("html_sha256") or ""),
                 "html_audit": dict(row.get("html_audit") or {}),
                 "pdf_sha256": str(row.get("pdf_sha256") or ""),
+                "source_byte_cache": dict(row.get("source_byte_cache") or {}),
                 "page_count": int(row.get("page_count") or 0),
                 "procedure_inventory": list(row.get("procedure_inventory") or [])[:64],
                 "source_route_observation": dict(
@@ -256,6 +282,15 @@ def build_builtin_patent_evidence_connector(
                 )[:8],
                 "exact_edge_ids": list(row.get("accepted_edge_ids") or [])[:128],
                 "exact_row_count": len(row.get("accepted_edge_ids") or []),
+                "approved_exact_row_count": int(
+                    row.get("approved_exact_row_count") or 0
+                ),
+                "source_route_exact_row_count": int(
+                    row.get("source_route_exact_row_count") or 0
+                ),
+                "source_route_exact_step_ids": list(
+                    row.get("source_route_exact_step_ids") or []
+                )[:128],
                 "unresolved_edge_count": int(row.get("rejected_edge_count") or 0),
             }
             for row in audits
@@ -374,6 +409,101 @@ def _run_scoped_candidates(
     row["content_sha256"] = _digest(row)
     _write_json_atomic(path, row)
     return candidates, False
+
+
+def _publication_source_bytes(
+    cache_root: Path,
+    *,
+    publication: str,
+    source_kind: str,
+    source_url: str,
+    timeout_s: float,
+    max_bytes: int,
+    fetch: BytesFetcher,
+) -> tuple[bytes, dict[str, Any]]:
+    """Reuse frozen public source bytes without sharing target-derived state."""
+
+    normalized_publication = "".join(re.findall(r"[A-Za-z0-9]+", publication)).upper()
+    if not normalized_publication:
+        raise ValueError("patent_source_cache_publication_invalid")
+    if source_kind not in {"html", "pdf"}:
+        raise ValueError("patent_source_cache_kind_invalid")
+    publication_key = hashlib.sha256(
+        normalized_publication.encode("utf-8")
+    ).hexdigest()[:24]
+    directory = cache_root / "_publication_source_cache" / publication_key
+    metadata_path = directory / f"{source_kind}.json"
+    metadata = _read_json_mapping(metadata_path)
+    cached_path = directory / str(metadata.get("file_name") or "")
+    supplied_sha256 = str(metadata.get("content_sha256") or "").lower()
+    if (
+        metadata.get("schema_version") == "patent_publication_source_cache.v1"
+        and str(metadata.get("publication") or "") == normalized_publication
+        and str(metadata.get("source_kind") or "") == source_kind
+        and supplied_sha256
+        and cached_path.parent.resolve() == directory.resolve()
+        and cached_path.is_file()
+    ):
+        try:
+            content = cached_path.read_bytes()
+        except OSError:
+            content = b""
+        if (
+            0 < len(content) <= max_bytes
+            and hashlib.sha256(content).hexdigest() == supplied_sha256
+            and (source_kind != "pdf" or content.startswith(b"%PDF-"))
+        ):
+            return content, {
+                "status": "reused",
+                "cache_hit": True,
+                "publication": normalized_publication,
+                "source_kind": source_kind,
+                "content_sha256": supplied_sha256,
+                "size_bytes": len(content),
+                "semantics": {
+                    "cache_contains_source_bytes_only": True,
+                    "target_derived_extraction_is_not_shared": True,
+                    "content_hash_revalidated": True,
+                },
+            }
+
+    content = fetch(source_url, timeout_s, max_bytes)
+    if not content or len(content) > max_bytes:
+        raise ValueError("patent_source_cache_content_size_invalid")
+    if source_kind == "pdf" and not content.startswith(b"%PDF-"):
+        raise ValueError("patent_pdf_signature_invalid")
+    content_sha256 = hashlib.sha256(content).hexdigest()
+    # Keep the byte cache out of user-visible PDF/HTML materialization scans;
+    # the typed metadata, signature check, and hash carry the source identity.
+    file_name = f"{source_kind}-{content_sha256[:24]}.source"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / file_name
+    if not path.is_file():
+        _write_bytes_atomic(path, content)
+    row = {
+        "schema_version": "patent_publication_source_cache.v1",
+        "publication": normalized_publication,
+        "source_kind": source_kind,
+        "source_url": source_url,
+        "file_name": file_name,
+        "content_sha256": content_sha256,
+        "size_bytes": len(content),
+        "semantics": {
+            "cache_contains_source_bytes_only": True,
+            "target_derived_extraction_is_not_shared": True,
+            "content_hash_must_be_revalidated_on_reuse": True,
+        },
+    }
+    _write_json_atomic(metadata_path, row)
+    return content, {
+        "status": "fetched",
+        "cache_hit": False,
+        "publication": normalized_publication,
+        "source_kind": source_kind,
+        "content_sha256": content_sha256,
+        "size_bytes": len(content),
+        "semantics": dict(row["semantics"]),
+    }
 
 
 def _cached_publication_pdf(
@@ -516,6 +646,7 @@ def _extract_candidate(
     ocr_audit: dict[str, Any] = {}
     pdf_registry: dict[str, Any] = {}
     source_route_observation: dict[str, Any] = {}
+    route_metadata: dict[str, dict[str, Any]] = {}
     html_materialization = dict(html_attempt.get("materialization") or {})
     if remaining_edges or (
         discovery_only
@@ -724,6 +855,14 @@ def _extract_candidate(
             accepted_ids.update(matched_current_edges)
 
     rows = list({str(row["step_id"]): row for row in rows}.values())
+    source_route_exact_step_ids = sorted(
+        {
+            str(row.get("step_id") or "")
+            for row in rows
+            if str(row.get("step_id") or "") in route_metadata
+        }
+        - {""}
+    )
     accepted_edges = sorted(accepted_ids)
     source = _structured_patent_source(
         candidate,
@@ -745,6 +884,9 @@ def _extract_candidate(
         "page_count": page_count,
         "accepted": bool(rows),
         "accepted_edge_ids": accepted_edges,
+        "approved_exact_row_count": len(rows),
+        "source_route_exact_row_count": len(source_route_exact_step_ids),
+        "source_route_exact_step_ids": source_route_exact_step_ids,
         "rejected_edge_count": max(0, len(edges) - len(accepted_edges)),
         "registry_audit_sha256": _digest(
             {

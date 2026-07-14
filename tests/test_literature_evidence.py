@@ -369,6 +369,25 @@ def test_literature_connector_uses_pmc_html_before_pdf_or_browser(
     assert result["receipt"]["queued_source_count"] == 0
     assert not any("doi.org" in url for url in calls)
 
+    def offline_fetch(_url: str, _timeout: float, _maximum: int) -> bytes:
+        raise OSError("network unavailable during deterministic replay")
+
+    cached_connector = build_builtin_literature_evidence_connector(
+        BuiltinLiteratureEvidenceConfig(
+            cache_dir=tmp_path / "cache",
+            seed_dois=("10.1128/AEM.02820-06",),
+            max_sources=1,
+        ),
+        searcher=lambda _query, _limit: [],
+        fetcher=offline_fetch,
+    )
+    cached = cached_connector(_request())
+    cached_source = cached["discovery"]["sources"][0]
+
+    assert cached_source["acquisition_method"] == "pmc_repository_fulltext_html"
+    assert cached_source["acquisition_receipt"]["cache_hit"] is True
+    assert cached["receipt"]["queued_source_count"] == 0
+
 
 def test_literature_connector_uses_structured_fulltext_and_original_figures_before_pdf(
     tmp_path: Path,

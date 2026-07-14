@@ -25,6 +25,14 @@ from cascade_planner.harness.deterministic_literature_registry import (
 from cascade_planner.harness.source_condition_extraction import (
     extract_source_conditions,
 )
+from cascade_planner.harness.source_form_bridge import (
+    build_lactone_form_bridge_proposals,
+)
+from cascade_planner.harness.source_narrative import (
+    narrative_product_name_candidates,
+    narrative_reactant_name_candidates,
+    source_name_resolution_candidates,
+)
 from cascade_planner.routes.admission import audit_retrosynthetic_candidate
 
 
@@ -155,9 +163,17 @@ def compile_deterministic_source_route_observation(
             _name_key(_clean_ingredient_name(value)).strip()
             for value in concentration_names
         }
+        heading_reactant_names = _narrative_heading_reactant_names(
+            procedure.get("name")
+        )
+        heading_reactant_keys = {
+            _name_key(_clean_ingredient_name(value)).strip()
+            for value in heading_reactant_names
+        }
         ingredient_names = [
             *source_amount_reagent_names(procedure_text),
             *concentration_names,
+            *heading_reactant_names,
         ]
         ingredients: list[dict[str, Any]] = []
         for raw_name in ingredient_names:
@@ -174,7 +190,11 @@ def compile_deterministic_source_route_observation(
                 ingredients.append(known)
                 continue
             name_role = _ingredient_role_from_name(name)
-            if name_role != "candidate_reactant" and key not in concentration_keys:
+            if (
+                name_role != "candidate_reactant"
+                and key not in concentration_keys
+                and key not in heading_reactant_keys
+            ):
                 # Conditions retain every source-authored name.  Nonstructural
                 # roles do not need a network name-to-structure request merely
                 # to be displayed as solvent/catalyst metadata.
@@ -201,7 +221,7 @@ def compile_deterministic_source_route_observation(
                     "name_key": _name_key(name),
                     "role": (
                         "candidate_reactant"
-                        if key in concentration_keys
+                        if key in concentration_keys or key in heading_reactant_keys
                         else _ingredient_role(name, synthesis_smiles)
                     ),
                 }
@@ -330,11 +350,18 @@ def compile_deterministic_source_route_observation(
             }
         )
 
+    anchor_values = tuple(anchor_smiles)
     anchors = {
         parent
-        for value in anchor_smiles
+        for value in anchor_values
         if (parent := _parent_identity(_canonical(value)))
     }
+    proposals.extend(
+        build_lactone_form_bridge_proposals(
+            proposals,
+            anchor_smiles=anchor_values,
+        )
+    )
     connected = _target_connected_proposals(proposals, anchors=anchors)
     route_key = "source-route-family:" + _digest(
         {
@@ -478,14 +505,7 @@ def _resolve_name(
     structure_resolver: StructureResolver,
     source_aliases: Mapping[str, str] | None = None,
 ) -> str:
-    attempts = [name]
-    expanded = str(dict(source_aliases or {}).get(name.casefold()) or "").strip()
-    if expanded and expanded.casefold() != name.casefold():
-        attempts = [
-            *_systematic_source_alias_candidates(name, expanded),
-            expanded,
-            *attempts,
-        ]
+    attempts = source_name_resolution_candidates(name, source_aliases)
     neutral = re.sub(
         r"\s+(?:hydrochloride\s+salt|hydrochloride)\s*$",
         "",
@@ -521,20 +541,6 @@ def _resolve_name(
     return ""
 
 
-def _systematic_source_alias_candidates(alias: str, expanded: str) -> list[str]:
-    """Normalize one narrow source-declared acyl-thioester abbreviation."""
-
-    alias_key = re.sub(r"[^a-z0-9]+", "-", alias.casefold()).strip("-")
-    name_key = re.sub(r"\s+", " ", expanded.casefold()).strip()
-    if (
-        alias_key.endswith("s-mmp")
-        and "dimethylbutyryl" in name_key
-        and "mercaptopropionate" in name_key.replace(" ", "")
-    ):
-        return ["methyl 3-(2,2-dimethylbutanoylthio)propanoate"]
-    return []
-
-
 def _recover_product_from_narrative_heading(
     procedure: Mapping[str, Any],
     *,
@@ -542,23 +548,7 @@ def _recover_product_from_narrative_heading(
 ) -> dict[str, Any]:
     """Recover the named product from a source-authored narrative heading."""
 
-    heading = " ".join(str(procedure.get("name") or "").split())
-    patterns = (
-        re.compile(
-            r"(?i)\b(?:chembiosynthesis|biosynthesis|synthesis|preparation|production)"
-            r"\s+of\s+(?P<name>.{3,180}?)"
-            r"(?=\s+(?:from|using|with|in|by|was|were)\b|[.;,]|$)"
-        ),
-        re.compile(
-            r"(?i)\bconversion\s+of\s+.{3,180}?\s+to\s+(?P<name>.{3,180}?)"
-            r"(?=\s+(?:using|with|in|by|was|were)\b|[.;,]|$)"
-        ),
-    )
-    candidates = [
-        " ".join(str(match.group("name") or "").split()).strip(" ,;.")
-        for pattern in patterns
-        if (match := pattern.search(heading)) is not None
-    ]
+    candidates = narrative_product_name_candidates(procedure.get("name"))
     for name in candidates:
         if not 3 <= len(name) <= 180 or not re.search(r"[A-Za-z]", name):
             continue
@@ -575,6 +565,27 @@ def _recover_product_from_narrative_heading(
             ).hexdigest(),
         }
     return {}
+
+
+def _narrative_heading_reactant_names(value: Any) -> list[str]:
+    """Recover only reactants explicitly named by a narrative source heading.
+
+    This is intentionally narrower than general NLP: the names must occur in
+    a source-authored ``product from A and B`` or ``conversion of A to B``
+    construction.  They remain L0 candidates and still require deterministic
+    structure resolution plus normal host admission.
+    """
+
+    names: list[str] = []
+    for raw_name in narrative_reactant_name_candidates(value):
+        name = _clean_ingredient_name(raw_name)
+        if (
+            2 <= len(name) <= 180
+            and re.search(r"[A-Za-z]", name)
+            and name.casefold() not in {item.casefold() for item in names}
+        ):
+            names.append(name)
+    return names[:6]
 
 
 def _source_concentration_reagent_names(source_text: str) -> list[str]:

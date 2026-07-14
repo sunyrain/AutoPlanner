@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 from cascade_planner.application import reaction_mapping
@@ -56,3 +59,39 @@ def test_empty_mapping_batch_does_not_initialize_rxnmapper(
     assert report["requested_count"] == 0
     assert report["mapped_count"] == 0
     assert report["elapsed_s"] == 0.0
+
+
+def test_default_mapper_reuses_one_locked_process_instance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instances = 0
+
+    class FakeMapper:
+        def __init__(self) -> None:
+            nonlocal instances
+            instances += 1
+
+        def get_attention_guided_atom_maps(
+            self,
+            values: list[str],
+        ) -> list[dict[str, str]]:
+            return [
+                {"mapped_rxn": "[CH3:1][OH:2]>>[CH2:1]=[O:2]"}
+                for _value in values
+            ]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "rxnmapper",
+        SimpleNamespace(RXNMapper=FakeMapper),
+    )
+    monkeypatch.setattr(reaction_mapping, "_RXNMAPPER_INSTANCE", None)
+    monkeypatch.setattr(reaction_mapping.metadata, "version", lambda _name: "test")
+
+    first = reaction_mapping._rxnmapper()
+    second = reaction_mapping._rxnmapper()
+
+    assert instances == 1
+    assert first._autoplanner_instance_reused is False
+    assert second._autoplanner_instance_reused is True
+    assert list(second(["CO>>C=O"]))[0]["mapped_rxn"].startswith("[CH3:1]")

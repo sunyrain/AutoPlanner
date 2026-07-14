@@ -25,7 +25,41 @@ def test_validation_fork_showcase_binds_frozen_html_and_zero_model_receipt(
     receipt = panel / "artifacts" / "objects" / "sha256" / "aa" / "receipt"
     _write_json(
         receipt,
-        {"child_elapsed_s": {"connector_1": 8.8, "connector_2": 9.8}},
+        {
+            "child_elapsed_s": {"connector_1": 8.8, "connector_2": 9.8},
+            "child_receipts": [
+                {
+                    "provider_id": "autoplanner.builtin_patent_evidence",
+                    "audits": [
+                        {
+                            "source_route_exact_row_count": 1,
+                            "source_byte_cache": {
+                                "pdf": {"cache_hit": True}
+                            },
+                            "source_route_observation": {
+                                "proposal_count": 1,
+                                "proposals": [
+                                    {
+                                        "origin_kind": "literature_source_route",
+                                        "product_name": (
+                                            "synthesis of ethyl acetate from "
+                                            "ethanol and acetic acid"
+                                        ),
+                                        "reactant_names": [
+                                            "ethanol",
+                                            "acetic acid",
+                                        ],
+                                        "condition_candidate": {
+                                            "temperature": "25 °C"
+                                        },
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
     )
     report = run_dir / "target-validation-fork-report.json"
     _write_json(
@@ -41,6 +75,7 @@ def test_validation_fork_showcase_binds_frozen_html_and_zero_model_receipt(
                         "receipt_ref": {
                             "object_path": "objects/sha256/aa/receipt"
                         },
+                        "validation": {"accepted_validation_count": 1},
                         "discovery": {
                             "sources": [
                                 {
@@ -70,6 +105,11 @@ def test_validation_fork_showcase_binds_frozen_html_and_zero_model_receipt(
                     },
                 }
             ],
+            "self_evolution": {
+                "learning_stages": [
+                    {"template_count": 1, "generation": 2}
+                ]
+            },
         },
     )
 
@@ -85,6 +125,11 @@ def test_validation_fork_showcase_binds_frozen_html_and_zero_model_receipt(
     assert payload["patent_procedure_count"] == 1
     assert payload["model_invocations"] == 0
     assert payload["connector_elapsed_s"]["connector_2"] == 9.8
+    assert payload["source_route_proposal_count"] == 1
+    assert payload["source_route_host_accepted_count"] == 1
+    assert payload["source_route_exact_row_count"] == 1
+    assert payload["patent_source_cache_hit"] is True
+    assert payload["self_evo_template_count"] == 1
     assert payload["B3_exact_multi_source"] is False
 
 
@@ -132,3 +177,41 @@ def test_blind_showcase_newer_target_panel_replaces_only_matching_target() -> No
     assert merged[0]["workbench"]["route_count"] == 4
     assert merged[0]["artifact_role"] == "latest_independent_blind_rerun"
     assert merged[1]["workbench"]["route_count"] == 5
+
+
+def test_blind_showcase_validation_overlay_keeps_original_codex_cost() -> None:
+    baseline = [
+        {
+            "target_name": "simvastatin",
+            "run_id": "blind-source",
+            "model_cost": {"model_invocations": 1, "input_tokens": 20_000},
+            "time_to_first_route_s": 12.0,
+            "full_pass_s": 80.0,
+            "chemenzy": {"provider_calls": 1},
+            "gates": {"B2": False},
+            "evidence": {"exact_rows": 0},
+        }
+    ]
+    validation = [
+        {
+            "target_name": "simvastatin",
+            "run_id": "validation-fork",
+            "model_cost": {"model_invocations": 0},
+            "time_to_first_route_s": 0.0,
+            "full_pass_s": 5.0,
+            "chemenzy": {"provider_calls": 0},
+            "gates": {"B2": True},
+            "evidence": {"exact_rows": 1},
+        }
+    ]
+
+    merged = blind_showcase._merge_validation_rows(baseline, validation)[0]
+
+    assert merged["run_id"] == "validation-fork"
+    assert merged["source_blind_run_id"] == "blind-source"
+    assert merged["model_cost"]["model_invocations"] == 1
+    assert merged["validation_model_cost"]["model_invocations"] == 0
+    assert merged["time_to_first_route_s"] == 12.0
+    assert merged["gates"]["B2"] is True
+    assert merged["evidence"]["exact_rows"] == 1
+    assert merged["artifact_role"] == "latest_zero_model_validation_fork"

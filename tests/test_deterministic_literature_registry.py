@@ -85,6 +85,22 @@ def test_source_declared_acyl_thioester_alias_is_preserved_for_resolution() -> N
     )
 
 
+def test_source_declared_short_chemical_alias_is_preserved_for_resolution() -> None:
+    aliases = _source_parenthetical_name_aliases(
+        [
+            {
+                "page_number": 1,
+                "text": (
+                    "E. coli expressing an acyltransferase was used to convert "
+                    "Monacolin J (MJ) acid."
+                ),
+            }
+        ]
+    )
+
+    assert aliases["mj"] == "Monacolin J"
+
+
 def test_extract_labeled_procedures_accepts_wrapped_patent_example_headings() -> None:
     rows = _extract_labeled_procedures(
         [
@@ -224,6 +240,69 @@ def test_epo_numbered_paragraph_can_authorize_exact_reaction(tmp_path: Path) -> 
     assert binding["parser_audit"]["reactant_match_modes"] == [
         "source_amount_name_opsin_exact_structure",
         "source_amount_name_opsin_exact_structure",
+    ]
+
+
+def test_narrative_heading_and_source_aliases_authorize_exact_reaction(
+    tmp_path: Path,
+) -> None:
+    pdf = tmp_path / "narrative-process.pdf"
+    pdf.write_bytes(b"%PDF- deterministic narrative process patent")
+    source_ref = "patent:EP0000002B1"
+    step = {
+        "step_id": "narrative-ethyl-acetate",
+        "product_name": (
+            "Whole-cell synthesis of ethyl acetate from ETOH and ACID "
+            "was performed as described"
+        ),
+        "product_smiles": "CCOC(C)=O",
+        "reactant_names": ["ETOH", "ACID"],
+        "reactant_smiles": ["CCO", "CC(=O)O"],
+        "source_ref": source_ref,
+        "source_evidence": [_evidence(pdf, source_ref=source_ref)],
+    }
+    pages = [
+        {
+            "page_number": 1,
+                "text": (
+                    "The process was performed using ethanol (ETOH) and "
+                    "acetic acid (ACID).\n[0090]\nWhole-cell synthesis of "
+                    "ethyl acetate from ETOH and ACID "
+                    "was performed as described. The reaction "
+                    "mixture was stirred, a 5 mL aliquot was added, and the "
+                    "product was isolated."
+            ),
+        }
+    ]
+
+    def resolve(name: str) -> str:
+        return {
+            "ethyl acetate": "CCOC(C)=O",
+            "ethanol": "CCO",
+            "acetic acid": "CC(=O)O",
+        }.get(name.casefold(), "")
+
+    with patch(
+        "cascade_planner.harness.deterministic_literature_registry."
+        "_materialized_source_evidence_valid",
+        return_value=True,
+    ):
+        audit = compile_deterministic_literature_step_registry(
+            [step],
+            registry_path=tmp_path / "registry.json",
+            structure_resolver=resolve,
+            candidate_name_resolver=lambda _smiles: [],
+            pdf_text_loader=lambda _path: pages,
+        )
+
+    assert audit["approved_binding_count"] == 1
+    binding = audit["records"][0]["binding"]
+    assert binding["parser_audit"]["product_match_mode"] == (
+        "source_heading_exact_structure"
+    )
+    assert binding["parser_audit"]["reactant_match_modes"] == [
+        "source_declared_name_opsin_exact_structure",
+        "source_declared_name_opsin_exact_structure",
     ]
 
 

@@ -144,6 +144,27 @@ def test_host_reapplied_acyl_substitution_reaches_l2_reaction_validated() -> Non
     )
 
 
+def test_host_reapplied_intramolecular_lactonization_reaches_l2() -> None:
+    proof = verify_reaction_step(
+        {
+            "step_id": "gamma_hydroxy_acid_lactonization",
+            "product_smiles": "O=C1OCCC1",
+            "reactant_smiles": ["O=C(O)CCCO"],
+            "atom_mapped_reaction_smiles": (
+                "O=[C:5]([CH2:4][CH2:3][CH2:2][OH:1])[OH:6]"
+                ">>[O:1]1[CH2:2][CH2:3][CH2:4][C:5](=[O:6])1"
+            ),
+        },
+        graph_and_stock_closed=False,
+    )
+
+    assert proof["accepted"] is True
+    assert proof["proof_level"] == "L2_reaction_validated"
+    assert proof["deterministic_transform_audit"]["transform_family"] == (
+        "intramolecular_lactonization"
+    )
+
+
 def test_host_reapplied_amine_to_isothiocyanate_reaches_l2() -> None:
     proof = verify_reaction_step(
         {

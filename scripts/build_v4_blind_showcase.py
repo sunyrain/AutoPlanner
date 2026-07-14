@@ -40,6 +40,15 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         metavar="LABEL=PATH",
     )
+    parser.add_argument(
+        "--target-validation-report",
+        action="append",
+        default=[],
+        help=(
+            "newer zero-model validation-fork report whose proof/workbench "
+            "projection is merged into the matching blind target card"
+        ),
+    )
     args = parser.parse_args(argv)
 
     status_path = Path(args.panel_status).expanduser().resolve()
@@ -60,12 +69,43 @@ def main(argv: list[str] | None = None) -> int:
                 artifact_role="latest_independent_blind_rerun",
             ),
         )
+    validation_paths = [
+        Path(value).expanduser().resolve()
+        for value in args.target_validation_report
+    ]
+    for validation_path in validation_paths:
+        validation_report = json.loads(
+            validation_path.read_text(encoding="utf-8")
+        )
+        target_name = str(
+            dict(validation_report.get("target") or {}).get("name") or ""
+        )
+        if not target_name:
+            raise ValueError("validation_fork_target_name_missing")
+        validation_rows = _compile_rows(
+            {
+                "output_root": str(status_path.parent),
+                "targets": {
+                    target_name: {
+                        "status": "completed",
+                        "run_id": str(validation_report.get("run_id") or ""),
+                        "report_path": str(validation_path),
+                    }
+                },
+            },
+            output_dir=output_dir,
+            artifact_role="latest_zero_model_validation_fork",
+        )
+        rows = _merge_validation_rows(rows, validation_rows)
     summary = _summary(panel, rows)
     payload = {
         "schema_version": "v4_blind_expert_showcase.v1",
         "generated_at": _utc_now(),
         "panel_status_path": str(status_path),
         "target_override_panel_paths": [str(path) for path in override_paths],
+        "target_validation_report_paths": [
+            str(path) for path in validation_paths
+        ],
         "summary": summary,
         "targets": rows,
         "demo_links": {
@@ -244,7 +284,14 @@ def _compile_rows(
                 },
                 "evidence": {
                     "status": str(evidence.get("status") or "not_recorded"),
-                    "sources": int(evidence.get("source_count") or 0),
+                    "sources": max(
+                        int(evidence.get("source_count") or 0),
+                        int(evidence.get("source_binding_count") or 0),
+                        len(
+                            dict(evidence.get("discovery") or {}).get("sources")
+                            or []
+                        ),
+                    ),
                     "exact_rows": int(evidence.get("exact_record_count") or 0),
                     "visual_calls": int(evidence.get("visual_invocations") or 0),
                 },
@@ -269,6 +316,46 @@ def _merge_target_rows(
         if name:
             merged[name] = row
     return sorted(merged.values(), key=lambda row: str(row.get("target_name") or ""))
+
+
+def _merge_validation_rows(
+    baseline: list[dict[str, Any]],
+    validation_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Overlay current host proof without erasing original blind-run cost."""
+
+    merged = {
+        str(row.get("target_name") or "").casefold(): dict(row)
+        for row in baseline
+    }
+    for validation in validation_rows:
+        name = str(validation.get("target_name") or "").casefold()
+        if not name:
+            continue
+        original = dict(merged.get(name) or {})
+        if not original:
+            merged[name] = dict(validation)
+            continue
+        current = {**original, **validation}
+        for field in (
+            "model_cost",
+            "time_to_first_route_s",
+            "full_pass_s",
+            "resume_elapsed_s",
+            "runtime_timing_semantics",
+            "chemenzy",
+        ):
+            current[field] = original.get(field)
+        current["source_blind_run_id"] = str(original.get("run_id") or "")
+        current["validation_model_cost"] = dict(
+            validation.get("model_cost") or {}
+        )
+        current["artifact_role"] = "latest_zero_model_validation_fork"
+        merged[name] = current
+    return sorted(
+        merged.values(),
+        key=lambda row: str(row.get("target_name") or ""),
+    )
 
 
 def _summary(panel: Mapping[str, Any], rows: list[Mapping[str, Any]]) -> dict[str, Any]:
@@ -355,9 +442,10 @@ def _target_card(row: Mapping[str, Any]) -> str:
         _origin_label(value) for value in workbench.get("origin_kinds") or []
     ) or "未记录"
     artifact_note = (
-        " · 最新独立盲跑"
-        if row.get("artifact_role") == "latest_independent_blind_rerun"
-        else ""
+        {
+            "latest_independent_blind_rerun": " · 最新独立盲跑",
+            "latest_zero_model_validation_fork": " · 最新零模型验证叉",
+        }.get(str(row.get("artifact_role") or ""), "")
     )
     gate_html = "".join(
         f'<span class="gate {"on" if gates.get(key) else ""}" title="{_h(_gate_label(key))}">{key}</span>'

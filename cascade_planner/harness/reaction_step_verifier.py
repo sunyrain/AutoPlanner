@@ -802,6 +802,76 @@ def _recognized_transform_family(
     broken_by_pair = {(left, right): order for left, right, order in broken}
     changed_pairs = set(formed_by_pair) & set(broken_by_pair)
 
+    # Intramolecular lactonization is one conservative ring-forming acyl
+    # substitution.  Require the new C--O bond to close within one reactant
+    # component, the carbon to remain a carbonyl centre, and every departing
+    # heavy atom/bond to be an oxygen at that same centre.  This also tolerates
+    # RXNMapper swapping the two symmetry-equivalent carboxyl oxygens.
+    lactone_ring_bonds = [
+        row for row in formed if row[:2] not in changed_pairs
+    ]
+    if (
+        int(atom_audit.get("net_ring_increase") or 0) == 1
+        and len(lactone_ring_bonds) == 1
+        and len(changed_pairs) <= 1
+        and edit_count <= 4
+    ):
+        new_bond = lactone_ring_bonds[0]
+        carbon, oxygen = _ordered_element_pair(
+            new_bond[:2], product_atoms, first_atomic_number=6
+        )
+        same_component = bool(
+            carbon
+            and product_atoms.get(oxygen) == 8
+            and new_bond[2] == "SINGLE"
+            and reactant_components.get(carbon) is not None
+            and reactant_components.get(carbon) == reactant_components.get(oxygen)
+        )
+        product_carbonyl = bool(
+            carbon
+            and any(
+                carbon in row[:2]
+                and row[2] == "DOUBLE"
+                and product_atoms.get(row[0] if row[1] == carbon else row[1]) == 8
+                for row in product_bonds
+            )
+        )
+        oxygen_was_tethered_alcohol = bool(
+            oxygen
+            and any(
+                oxygen in row[:2]
+                and row[2] == "SINGLE"
+                and reactant_atoms.get(row[0] if row[1] == oxygen else row[1]) == 6
+                for row in reactant_bonds
+            )
+        )
+        allowed_broken = all(
+            carbon in row[:2]
+            and reactant_atoms.get(row[0] if row[1] == carbon else row[1]) == 8
+            for row in broken
+        )
+        allowed_carboxyl_oxygen_permutation = all(
+            carbon in pair
+            and tuple(sorted(product_atoms.get(value, 0) for value in pair))
+            == (6, 8)
+            and {formed_by_pair[pair], broken_by_pair[pair]}
+            == {"SINGLE", "DOUBLE"}
+            for pair in changed_pairs
+        )
+        allowed_unmapped_departures = all(
+            retained == carbon and element == 8
+            for retained, element, _order in departing_unmapped_bonds
+        )
+        if (
+            same_component
+            and product_carbonyl
+            and oxygen_was_tethered_alcohol
+            and allowed_broken
+            and allowed_carboxyl_oxygen_permutation
+            and allowed_unmapped_departures
+        ):
+            return "intramolecular_lactonization"
+
     # A source-bound one-pot oxidative cascade may legitimately create several
     # peroxide/acetal rings.  It is recognized from the mapped structures, not
     # from a model-authored family label: the main scaffold must dominate, all

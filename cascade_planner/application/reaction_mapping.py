@@ -2,18 +2,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib import metadata
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+from threading import RLock
 import time
 from typing import Any, Callable, Iterable, Mapping
 
 
 REACTION_MAPPING_REPORT_SCHEMA = "local_reaction_mapping_report.v1"
 ReactionMapper = Callable[[list[str]], Iterable[str | Mapping[str, Any]]]
+
+
+_RXNMAPPER_INSTANCE: Any | None = None
+_RXNMAPPER_INIT_LOCK = RLock()
+_RXNMAPPER_RUN_LOCK = RLock()
 
 
 class ReactionMappingError(RuntimeError):
@@ -100,6 +107,12 @@ def map_reactions_locally(
             if mapper is not None
             else str(getattr(selected_mapper, "_autoplanner_python", sys.executable))
         ),
+        "mapper_version": str(
+            getattr(selected_mapper, "_autoplanner_version", "")
+        ),
+        "mapper_instance_reused": bool(
+            getattr(selected_mapper, "_autoplanner_instance_reused", False)
+        ),
         "requested_count": len(unique),
         "mapped_count": len(mapped),
         "failure_count": len(failures),
@@ -118,6 +131,8 @@ def map_reactions_locally(
 
 
 def _rxnmapper() -> ReactionMapper:
+    global _RXNMAPPER_INSTANCE
+
     try:
         from rxnmapper import RXNMapper
     except (ImportError, OSError) as exc:
@@ -125,16 +140,32 @@ def _rxnmapper() -> ReactionMapper:
         if isolated is not None:
             return isolated
         raise ReactionMappingError(f"rxnmapper_unavailable:{type(exc).__name__}") from exc
-    try:
-        model = RXNMapper()
-    except (OSError, RuntimeError, ValueError) as exc:
-        raise ReactionMappingError(f"rxnmapper_initialization_failed:{type(exc).__name__}") from exc
+    with _RXNMAPPER_INIT_LOCK:
+        reused = _RXNMAPPER_INSTANCE is not None
+        if _RXNMAPPER_INSTANCE is None:
+            try:
+                _RXNMAPPER_INSTANCE = RXNMapper()
+            except (OSError, RuntimeError, ValueError) as exc:
+                raise ReactionMappingError(
+                    f"rxnmapper_initialization_failed:{type(exc).__name__}"
+                ) from exc
+        model = _RXNMAPPER_INSTANCE
 
     def run(values: list[str]) -> Iterable[Mapping[str, Any]]:
-        return model.get_attention_guided_atom_maps(values)
+        # The attention mapper holds mutable model state.  One process-level
+        # instance removes repeated multi-second initialization while this
+        # lock keeps concurrent web jobs deterministic and isolated.
+        with _RXNMAPPER_RUN_LOCK:
+            return model.get_attention_guided_atom_maps(values)
 
-    run._autoplanner_backend = "rxnmapper"  # type: ignore[attr-defined]
+    run._autoplanner_backend = "rxnmapper_shared_process"  # type: ignore[attr-defined]
     run._autoplanner_python = sys.executable  # type: ignore[attr-defined]
+    run._autoplanner_instance_reused = reused  # type: ignore[attr-defined]
+    try:
+        version = metadata.version("rxnmapper")
+    except metadata.PackageNotFoundError:
+        version = ""
+    run._autoplanner_version = version  # type: ignore[attr-defined]
     return run
 
 

@@ -221,6 +221,9 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     validation_fork.add_argument("--max-map-reactions", type=int, default=64)
     validation_fork.add_argument("--max-stock-molecules", type=int, default=32)
     validation_fork.add_argument("--max-patent-sources", type=int, default=3)
+    validation_fork.add_argument("--no-patent-self-evo", action="store_true")
+    validation_fork.add_argument("--self-evo-library", default="")
+    validation_fork.add_argument("--max-self-evo-candidates", type=int, default=12)
     validation_fork.add_argument(
         "--max-literature-sources", type=int, choices=range(1, 9), default=3
     )
@@ -307,6 +310,9 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                 max_atom_mapping_reactions=args.max_map_reactions,
                 max_live_stock_molecules=args.max_stock_molecules,
                 enable_live_benchmark_stock=not args.no_live_benchmark_stock,
+                enable_patent_self_evolution=not args.no_patent_self_evo,
+                self_evo_library_path=args.self_evo_library,
+                max_self_evo_template_candidates=args.max_self_evo_candidates,
             ),
         )
         return result if args.full_output else _compact_validation_fork_result(result)

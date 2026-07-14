@@ -1241,6 +1241,11 @@ def test_validation_fork_replays_global_plan_and_uses_zero_model_calls(
         "B5_configured_portfolio_acceptance": True,
     }
     assert derived["current_disposition"]["state"] == "accepted"
+    assert derived["self_evolution"]["model_invocations"] == 0
+    assert any(
+        stage.get("learned_template_ids")
+        for stage in derived["self_evolution"]["learning_stages"]
+    )
     assert Path(derived["report_path"]).is_file()
 
 

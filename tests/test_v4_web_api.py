@@ -8,6 +8,7 @@ from flask import Flask
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.web.v4_api import create_v4_blueprint
+from cascade_planner.interfaces.target_delivery import delivery_projection
 
 
 def _gateway(tmp_path: Path) -> CampaignGateway:
@@ -52,6 +53,8 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert workbench.get_json()["snapshot"]["run_id"] == "web-example"
     assert b"/api/v4/runs" in index.data
     assert "逆合成控制台" in index.get_data(as_text=True)
+    assert "路线候选已经可审查" in index.get_data(as_text=True)
+    assert "只看每个目标最新结果" in index.get_data(as_text=True)
     assert b"<!doctype html>" in rendered.data.lower()
 
 
@@ -152,3 +155,19 @@ def test_v4_async_job_returns_immediately_and_exposes_completion() -> None:
 
     assert value["result"]["highest_contiguous_gate"] == "B1"
     assert value["result"]["model_cost"]["model_invocations"] == 1
+
+
+def test_v4_delivery_projection_exposes_routes_before_proof_closure() -> None:
+    delivery = delivery_projection(
+        [
+            {"stage": "global_campaign", "status": "completed"},
+            {"stage": "initial_workbench", "status": "completed"},
+            {"stage": "evidence_acquisition", "status": "running"},
+        ],
+        job_status="running",
+    )
+
+    assert delivery["state"] == "route_candidates_ready_evidence_running"
+    assert delivery["route_candidates_available"] is True
+    assert delivery["workbench_available"] is True
+    assert delivery["proof_closure_complete"] is False
