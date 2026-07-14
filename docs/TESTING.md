@@ -172,6 +172,11 @@ The central P0 tests must cover these failure boundaries:
   malformed raw structures, computational groups, bare citations, and another
   edge's source set cannot increase trusted-source width or corroboration, and a
   curation outbox cannot itself grant L3 authority;
+- primary patent HTML exact rows replay the official publication identity, full
+  HTML digest, selected paragraph range, and normalized text digest; snippets,
+  mirrors, wrong publications, and tampered bytes fail closed. Complete HTML
+  closure performs no PDF download/render, while partial closure sends only the
+  unresolved edge set to PDF fallback;
 - local OCR exact rows replay the same source/PDF/page-image/text/engine hashes;
   wrong source identity, tampered bytes, a mismatched evidence page, and
   non-allowlisted OCR engines all fail closed without a model call;

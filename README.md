@@ -51,8 +51,9 @@ python -m cascade_planner solve-target \
 ```
 
 默认只进行全局文本规划和确定性证据处理，视觉调用为 0。内置 patent connector
-会先读原生 PDF 文本；图像型页面仅在本机 `PATH` 中存在 Tesseract 时做零模型 OCR。
-只有确定性解析仍留有未解决反应边时，才可用
+先冻结官方 Google Patents 完整 HTML，再从哈希绑定的段落范围确定性重建产物和反应物；
+HTML 已闭合的边不会下载或渲染 PDF。只有未闭合边才依次回退到 PDF 原生文本、本机
+Tesseract OCR，最后才可用
 `--max-visual-invocations 1 --max-model-invocations 3` 显式准入一次稀疏页面视觉调用。
 视觉结果只回到下一次全局 replan 作为 L0 候选，不能直接获得 L2/L3 或库存证明。
 

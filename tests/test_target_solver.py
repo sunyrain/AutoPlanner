@@ -63,6 +63,29 @@ def _scanned_patent_pdf(label: str = "") -> bytes:
     return value
 
 
+def _patent_html(publication: str) -> bytes:
+    return f"""
+    <html><head><meta name="DC.relation" content="{publication}"></head>
+    <body>
+      <div id="p0001" class="description-paragraph">Example 1</div>
+      <div id="p0002" class="description-paragraph">
+        Ethyl acetate (T1). Ethanol and acetyl chloride were added. The
+        reaction mixture was stirred to afford T1.
+      </div>
+      <div id="p0003" class="description-paragraph">Example 2</div>
+      <div id="p0004" class="description-paragraph">
+        Ethyl acetate (T2). Ethanol and acetic acid were added. The reaction
+        mixture was stirred to afford T2.
+      </div>
+      <div id="p0005" class="description-paragraph">Example 3</div>
+      <div id="p0006" class="description-paragraph">
+        Ethyl acetate (T3). Ethanol and acetyl bromide were added. The
+        reaction mixture was stirred to afford T3.
+      </div>
+    </body></html>
+    """.encode()
+
+
 def _plan(context: Any, mode: str) -> dict[str, Any]:
     families = [
         ("family:chloride", "CC(=O)Cl", "acyl chloride substitution"),
@@ -901,4 +924,115 @@ def test_scanned_patent_ocr_closes_blind_route_and_zero_model_validation_fork(
     assert derived["model_cost"]["model_invocations"] == 0
     assert derived["model_cost"]["visual_invocations"] == 0
     assert derived["gates"]["gates"]["B3_exact_multi_source"] is True
+    assert derived["current_disposition"]["state"] == "accepted"
+
+
+def test_primary_patent_html_closes_blind_portfolio_without_pdf_or_visual_model(
+    tmp_path: Path,
+) -> None:
+    structures = {
+        "ethyl acetate": TARGET,
+        "ethanol": "CCO",
+        "acetyl chloride": "CC(=O)Cl",
+        "acetic acid": "CC(=O)O",
+        "acetyl bromide": "CC(=O)Br",
+    }
+    names = {value: [name] for name, value in structures.items()}
+    pdf_fetches = 0
+
+    def reject_pdf(_url: str, _timeout: float, _limit: int) -> bytes:
+        nonlocal pdf_fetches
+        pdf_fetches += 1
+        raise AssertionError("fully closed primary HTML must skip PDF")
+
+    def fetch_html(url: str, _timeout: float, _limit: int) -> bytes:
+        publication = url.rstrip("/").split("/")[-2]
+        return _patent_html(publication)
+
+    connector = build_builtin_patent_evidence_connector(
+        BuiltinPatentEvidenceConfig(
+            cache_dir=tmp_path / "html-patents",
+            max_patents=2,
+        ),
+        candidate_provider=lambda _queries: [
+            {
+                "publication_number": publication,
+                "family_id": family,
+                "title": "HTML preparation of ethyl acetate",
+                "snippet": "search metadata only",
+                "html_url": (
+                    f"https://patents.google.com/patent/{publication}/en"
+                ),
+                "pdf_url": f"https://source.invalid/{publication}.pdf",
+            }
+            for publication, family in (
+                ("US1234567A1", "family:html-one"),
+                ("WO7654321A1", "family:html-two"),
+            )
+        ],
+        bytes_fetcher=reject_pdf,
+        html_fetcher=fetch_html,
+        structure_resolver=lambda value: structures[str(value).casefold()],
+        candidate_name_resolver=lambda value: names.get(str(value), []),
+    )
+    gateway = CampaignGateway(_paths(tmp_path))
+    source = gateway.solve_target(
+        target_name="blind primary HTML patent target",
+        target_smiles=TARGET,
+        run_id="blind-primary-html-source",
+        acceptance=RetrosynthesisAcceptanceSpec(
+            minimum_complete_routes=2,
+            minimum_edge_proof_level=3,
+            stock_boundary="benchmark_search",
+            minimum_independent_source_groups=2,
+        ),
+        budget=RetrosynthesisRunBudget(
+            max_model_invocations=1,
+            max_total_input_tokens=10_000,
+            max_total_output_tokens=5_000,
+            max_total_wall_time_s=60,
+            max_visual_invocations=0,
+            max_accepted_expansions=8,
+            max_attempt_runs=24,
+        ),
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=connector,
+    )
+
+    assert pdf_fetches == 0
+    assert source["model_cost"]["model_invocations"] == 1
+    assert source["model_cost"]["visual_invocations"] == 0
+    assert source["gates"]["gates"]["B3_exact_multi_source"] is True
+    assert source["gates"]["gates"]["B5_configured_portfolio_acceptance"] is True
+    evidence = next(
+        stage
+        for stage in source["stages"]
+        if stage["stage"] == "evidence_acquisition"
+    )
+    assert evidence["detail"]["exact_record_count"] == 6
+    assert all(
+        row["html_sha256"] and not row["pdf_sha256"]
+        for row in evidence["detail"]["discovery"]["sources"]
+    )
+    assert list(tmp_path.rglob("*.pdf")) == []
+    assert list(tmp_path.rglob("*.png")) == []
+
+    derived = gateway.fork_target_validation(
+        source_run_id=source["run_id"],
+        run_id="blind-primary-html-validation",
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=connector,
+    )
+
+    assert pdf_fetches == 0
+    assert derived["model_cost"]["model_invocations"] == 0
+    assert derived["model_cost"]["visual_invocations"] == 0
     assert derived["current_disposition"]["state"] == "accepted"

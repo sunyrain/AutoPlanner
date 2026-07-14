@@ -47,8 +47,11 @@ python -m cascade_planner solve-target \
 ```
 
 正常成本是一轮 `gpt-5.5` low-reasoning 全局路线组合；本地物化、映射、验证、库存审计
-以及 PDF 原生文本/Tesseract OCR 都不调用模型。Tesseract 是可选本地二进制：若不在
-`PATH` 中，运行会记录 `local_ocr_engine_unavailable:tesseract`，不会暗中改用视觉模型。
+以及来源解析都不调用模型。专利证据按固定阶梯处理：官方 Google Patents 完整 HTML
+→ 仅未闭合边的 PDF 原生文本 → 仅低文本页的 Tesseract OCR → 可选稀疏视觉候选。
+HTML 字节、段落范围和规范化文字分别绑定哈希；搜索摘要不能成为 exact evidence。
+Tesseract 是可选本地二进制：若不在 `PATH` 中，运行会记录
+`local_ocr_engine_unavailable:tesseract`，不会暗中改用视觉模型。
 
 仅当来源页确实无法由确定性解析闭合时，可显式允许一次稀疏视觉调用：
 

@@ -1,4 +1,4 @@
-"""Deterministically bind exact literature reactions to source PDF pages.
+"""Deterministically bind exact literature reactions to replayable source text.
 
 Codex/vision output is only a proposal.  This module can approve a proposed
 edge only when an independent name-to-structure parser reconstructs the
@@ -34,6 +34,8 @@ from cascade_planner.harness.stitched_route import (
 )
 from cascade_planner.harness.source_text_companion import (
     materialize_source_text_companion_pages,
+    primary_html_companion,
+    source_text_companion_location,
     source_text_companion_matches_page,
     validate_source_text_companion_binding,
 )
@@ -45,7 +47,7 @@ from cascade_planner.runtime.run_metrics import (
 
 REGISTRY_SCHEMA = "trusted_literature_step_registry.v1"
 AUDIT_SCHEMA = "deterministic_literature_registry_audit.v1"
-PARSER_AUTHORITY_ID = "autoplanner.opsin_pubchem_source_text.v9"
+PARSER_AUTHORITY_ID = "autoplanner.opsin_pubchem_source_text.v10"
 DEFAULT_OPSIN_BASE_URL = "https://opsin.ch.cam.ac.uk/opsin"
 DEFAULT_PUBCHEM_BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 _MAX_HEADING_PARSE_ATTEMPTS_PER_EDGE = 16
@@ -155,6 +157,7 @@ def compile_deterministic_literature_step_registry(
             "all_candidate_reactants_must_be_source_resolved": True,
             "current_host_source_artifact_replay_required": True,
             "hash_bound_text_companion_allowed_for_image_only_pdf": True,
+            "hash_bound_primary_html_allowed_without_pdf": True,
         },
     }
     registry["content_sha256"] = _digest(registry)
@@ -188,6 +191,7 @@ def compile_deterministic_literature_step_registry(
             "opsin_reconstructs_source_heading": True,
             "pubchem_names_are_candidate_lookup_only": True,
             "source_pdf_page_and_image_are_digest_bound": True,
+            "primary_html_artifact_and_paragraph_range_are_digest_bound": True,
             "source_text_companion_is_replayed_when_used": True,
         },
     }
@@ -214,6 +218,7 @@ def _prior_approved_bindings(path: Path) -> list[dict[str, Any]]:
             continue
         binding = dict(raw)
         authority = dict(binding.get("authority") or {})
+        artifact_kind = str(binding.get("source_artifact_kind") or "pdf")
         if (
             binding.get("status") != "approved"
             or authority.get("type")
@@ -221,9 +226,18 @@ def _prior_approved_bindings(path: Path) -> list[dict[str, Any]]:
             or not str(authority.get("id") or "").strip()
             or not str(binding.get("binding_id") or "").strip()
             or not _is_sha256(binding.get("reaction_digest"))
-            or not _is_sha256(binding.get("source_pdf_sha256"))
+        ):
+            continue
+        if artifact_kind == "pdf" and (
+            not _is_sha256(binding.get("source_pdf_sha256"))
             or not _is_sha256(binding.get("image_sha256"))
         ):
+            continue
+        if artifact_kind == "html" and not _is_sha256(
+            binding.get("source_artifact_sha256")
+        ):
+            continue
+        if artifact_kind not in {"pdf", "html"}:
             continue
         if (
             authority.get("type") == "deterministic_structure_parser"
@@ -234,6 +248,10 @@ def _prior_approved_bindings(path: Path) -> list[dict[str, Any]]:
         if companion and not validate_source_text_companion_binding(
             companion,
             expected_source_ref=str(binding.get("source_ref") or ""),
+        ):
+            continue
+        if artifact_kind == "html" and not primary_html_companion(
+            dict(companion or {})
         ):
             continue
         out.append(binding)
@@ -261,6 +279,22 @@ def _compile_step_binding(
         for item in step.get("source_evidence") or []
         if isinstance(item, dict)
     ]
+    source_text_companions = [
+        dict(item)
+        for item in step.get("source_text_companions") or []
+        if isinstance(item, dict)
+    ]
+    primary_html_specs = [
+        row for row in source_text_companions if primary_html_companion(row)
+    ]
+    replayable_primary_html = []
+    for spec in primary_html_specs:
+        pages, binding, companion_reasons = materialize_source_text_companion_pages(
+            spec,
+            source_ref=source_ref,
+        )
+        if pages and binding and not companion_reasons:
+            replayable_primary_html.append(spec)
     reasons: list[str] = []
     if not product:
         reasons.append("product_smiles_invalid")
@@ -271,23 +305,21 @@ def _compile_step_binding(
     valid_evidence = [
         row for row in evidence if _materialized_source_evidence_valid(row)
     ]
-    if not valid_evidence:
-        reasons.append("materialized_source_evidence_not_replayable")
+    if not valid_evidence and not replayable_primary_html:
+        reasons.append("materialized_source_artifact_not_replayable")
     if reasons:
         return _rejected_record(step, step_index=step_index, reasons=reasons)
 
     documents: list[dict[str, Any]] = []
     seen_documents: set[str] = set()
-    source_text_companions = [
-        dict(item)
-        for item in step.get("source_text_companions") or []
-        if isinstance(item, dict)
+    supplemental_companions = [
+        row for row in source_text_companions if not primary_html_companion(row)
     ]
     for row in valid_evidence:
         pdf_path = Path(str(row.get("source_pdf_path") or "")).resolve()
         key = (
             f"{pdf_path}|{row.get('source_pdf_sha256')}|{source_ref}|"
-            f"{_digest(source_text_companions)}"
+            f"{_digest(supplemental_companions)}"
         )
         if key in seen_documents:
             continue
@@ -298,7 +330,18 @@ def _compile_step_binding(
                 source_ref=source_ref,
                 source_pdf_sha256=str(row.get("source_pdf_sha256") or ""),
                 load_pdf_text=load_pdf_text,
-                source_text_companions=source_text_companions,
+                source_text_companions=supplemental_companions,
+            )
+        documents.append(document_cache[key])
+    for spec in replayable_primary_html:
+        key = f"primary-html|{source_ref}|{_digest(spec)}"
+        if key in seen_documents:
+            continue
+        seen_documents.add(key)
+        if key not in document_cache:
+            document_cache[key] = _build_primary_html_document_index(
+                spec,
+                source_ref=source_ref,
             )
         documents.append(document_cache[key])
 
@@ -487,6 +530,28 @@ def _compile_step_binding(
             ),
             {},
         )
+        companion_binding = dict(
+            procedure.get("source_text_companion_binding") or {}
+        )
+        primary_html_document = document.get("source_artifact_kind") == "html"
+        source_location = (
+            source_text_companion_location(
+                companion_binding,
+                page_number=page_number,
+            )
+            if primary_html_document
+            else {}
+        )
+        source_artifact_matched = bool(
+            primary_html_document
+            and source_location
+            and validate_source_text_companion_binding(
+                companion_binding,
+                expected_source_ref=source_ref,
+            )
+            and str(companion_binding.get("artifact_sha256") or "")
+            == str(document.get("source_artifact_sha256") or "")
+        )
         diagnostic = {
             "product_label": str(procedure.get("label") or ""),
             "product_name": str(procedure.get("name") or ""),
@@ -494,22 +559,25 @@ def _compile_step_binding(
             "reactant_matches": reactant_matches,
             "all_reactants_matched": all_reactants_matched,
             "page_evidence_matched": bool(page_evidence),
+            "primary_html_artifact_matched": source_artifact_matched,
             "product_match_mode": product_match_mode,
             "source_label_reactants_materialized": bool(label_materialization),
         }
         candidate_diagnostics.append(diagnostic)
-        if not all_reactants_matched or not page_evidence:
+        if not all_reactants_matched or not (
+            page_evidence or source_artifact_matched
+        ):
             continue
-        companion_binding = dict(
-            procedure.get("source_text_companion_binding") or {}
-        )
-        companion_page_matched = source_text_companion_matches_page(
-            companion_binding,
-            page_number=page_number,
-            image_sha256=str(page_evidence.get("image_sha256") or "").lower(),
-            source_pdf_sha256=str(
-                page_evidence.get("source_pdf_sha256") or ""
-            ).lower(),
+        companion_page_matched = bool(
+            source_artifact_matched
+            or source_text_companion_matches_page(
+                companion_binding,
+                page_number=page_number,
+                image_sha256=str(page_evidence.get("image_sha256") or "").lower(),
+                source_pdf_sha256=str(
+                    page_evidence.get("source_pdf_sha256") or ""
+                ).lower(),
+            )
         )
         diagnostic["source_text_companion_page_matched"] = companion_page_matched
         if not companion_page_matched:
@@ -583,6 +651,7 @@ def _compile_step_binding(
             synthesis_product,
             synthesis_reactants,
         )
+        source_artifact_kind = "html" if primary_html_document else "pdf"
         binding_core = {
             "reaction_digest": reaction_digest,
             "source_candidate_reaction_digest": (
@@ -592,12 +661,27 @@ def _compile_step_binding(
                 source_formulation_reaction_digest
             ),
             "source_ref": source_ref,
-            "document_id": str(page_evidence.get("document_id") or ""),
+            "document_id": (
+                str(document.get("document_id") or "")
+                if primary_html_document
+                else str(page_evidence.get("document_id") or "")
+            ),
+            "source_artifact_kind": source_artifact_kind,
+            "source_artifact_sha256": (
+                str(document.get("source_artifact_sha256") or "")
+                if primary_html_document
+                else str(page_evidence.get("source_pdf_sha256") or "").lower()
+            ),
             "source_pdf_sha256": str(
                 page_evidence.get("source_pdf_sha256") or ""
             ).lower(),
-            "page_number": page_number,
+            "page_number": 0 if primary_html_document else page_number,
             "image_sha256": str(page_evidence.get("image_sha256") or "").lower(),
+            "source_location": (
+                source_location
+                if primary_html_document
+                else {"kind": "pdf_page", "page_number": page_number}
+            ),
             "synthesis_projection": {
                 "schema_version": "literature_synthesis_projection.v1",
                 "normalization_policy": (
@@ -641,9 +725,13 @@ def _compile_step_binding(
                 ],
                 "product_match_mode": product_match_mode,
                 "source_text_authority": (
-                    "hash_bound_source_text_companion"
-                    if companion_binding
-                    else "embedded_pdf_text"
+                    "hash_bound_primary_html"
+                    if primary_html_document
+                    else (
+                        "hash_bound_source_text_companion"
+                        if companion_binding
+                        else "embedded_pdf_text"
+                    )
                 ),
             },
         }
@@ -666,7 +754,7 @@ def _compile_step_binding(
         }
     rejection_reasons = [
         "candidate_reactants_not_all_source_resolved",
-        "exact_product_page_evidence_not_matched",
+        "exact_product_source_locator_not_matched",
     ]
     if any(
         row.get("element_inventory_deficit")
@@ -734,6 +822,8 @@ def _build_document_index(
     procedures = _extract_labeled_procedures(pages)
     return {
         "accepted": bool(procedures),
+        "source_artifact_kind": "pdf",
+        "source_artifact_sha256": source_pdf_sha256.lower(),
         "pdf_path": str(pdf_path),
         "source_ref": source_ref,
         "source_pdf_sha256": source_pdf_sha256.lower(),
@@ -745,6 +835,38 @@ def _build_document_index(
             if procedures
             else sorted(set([*reasons, "no_source_headings_extracted"]))
         ),
+    }
+
+
+def _build_primary_html_document_index(
+    companion: Mapping[str, Any],
+    *,
+    source_ref: str,
+) -> dict[str, Any]:
+    pages, binding, reasons = materialize_source_text_companion_pages(
+        companion,
+        source_ref=source_ref,
+    )
+    if reasons or not binding or not primary_html_companion(binding):
+        return {
+            "accepted": False,
+            "source_artifact_kind": "html",
+            "source_ref": source_ref,
+            "procedures": [],
+            "reasons": sorted(set(reasons or ["primary_html_binding_invalid"])),
+        }
+    procedures = _extract_labeled_procedures(pages)
+    artifact_sha256 = str(binding.get("artifact_sha256") or "").lower()
+    return {
+        "accepted": bool(procedures),
+        "source_artifact_kind": "html",
+        "source_artifact_sha256": artifact_sha256,
+        "document_id": f"html:{artifact_sha256[:24]}",
+        "source_ref": source_ref,
+        "source_text_companion_bindings": [binding],
+        "procedure_count": len(procedures),
+        "procedures": procedures,
+        "reasons": [] if procedures else ["no_source_headings_extracted"],
     }
 
 
@@ -1028,11 +1150,15 @@ def _source_procedure_inventory(
     """Expose bounded, non-authoritative source observations for replanning."""
 
     documents: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     for document in document_cache.values():
         source_ref = str(document.get("source_ref") or "")
         pdf_sha256 = str(document.get("source_pdf_sha256") or "")
-        identity = (source_ref, pdf_sha256)
+        artifact_kind = str(document.get("source_artifact_kind") or "pdf")
+        artifact_sha256 = str(
+            document.get("source_artifact_sha256") or pdf_sha256
+        )
+        identity = (source_ref, artifact_kind, artifact_sha256)
         if identity in seen:
             continue
         seen.add(identity)
@@ -1051,6 +1177,8 @@ def _source_procedure_inventory(
         documents.append(
             {
                 "source_ref": source_ref,
+                "source_artifact_kind": artifact_kind,
+                "source_artifact_sha256": artifact_sha256,
                 "source_pdf_sha256": pdf_sha256,
                 "procedure_count": len(procedures),
                 "procedures": procedures,

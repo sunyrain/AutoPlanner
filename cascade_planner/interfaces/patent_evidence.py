@@ -1,20 +1,16 @@
-"""Built-in, zero-model patent evidence acquisition.
+"""Built-in, zero-model, HTML-first patent evidence acquisition.
 
-The connector searches only for source material.  It freezes patent PDFs,
-renders hash-bound page images, and delegates exact chemistry reconstruction
-to the existing deterministic literature parser.  Search metadata, snippets,
-and Codex source hints never become exact evidence rows.
+The connector freezes complete publication HTML before considering PDF.  PDF
+text, local OCR, and sparse vision are progressively narrower fallbacks.
+Search metadata, snippets, and Codex source hints never become exact rows.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import html
 import json
 from pathlib import Path
-import re
 from typing import Any, Callable, Iterable, Mapping
-from urllib.parse import quote
 
 import requests
 
@@ -39,10 +35,19 @@ from cascade_planner.harness.source_ocr import (
     materialize_local_ocr_companion,
 )
 from cascade_planner.interfaces.live_evidence import LiveEvidenceConnectorError
+from cascade_planner.interfaces.patent_html_evidence import (
+    attempt_primary_patent_html,
+)
+from cascade_planner.interfaces.patent_source_discovery import (
+    evidence_queries,
+    fetch_bounded_bytes,
+    google_patent_candidate_provider,
+    select_independent_candidates,
+)
 
 
 BUILTIN_PATENT_PROVIDER_ID = "autoplanner.builtin_patent_evidence"
-BUILTIN_PATENT_PROVIDER_VERSION = "1.1.0"
+BUILTIN_PATENT_PROVIDER_VERSION = "1.2.0"
 SOURCE_DISCOVERY_OBSERVATION_SCHEMA = "source_discovery_observation.v1"
 PatentCandidateProvider = Callable[
     [Iterable[str]], Iterable[Mapping[str, Any]]
@@ -61,6 +66,10 @@ class BuiltinPatentEvidenceConfig:
     max_patents: int = 3
     max_pdf_bytes: int = 32_000_000
     max_pdf_pages: int = 80
+    enable_html_first: bool = True
+    max_html_bytes: int = 20_000_000
+    max_html_sections: int = 24
+    max_html_paragraphs: int = 256
     max_validated_edges: int = 32
     render_zoom: float = 0.75
     enable_local_ocr: bool = True
@@ -77,6 +86,12 @@ class BuiltinPatentEvidenceConfig:
             raise ValueError("patent_evidence_patent_limit_invalid")
         if self.max_pdf_bytes < 1_000 or self.max_pdf_pages < 1:
             raise ValueError("patent_evidence_pdf_limit_invalid")
+        if self.max_html_bytes < 10_000:
+            raise ValueError("patent_evidence_html_byte_limit_invalid")
+        if not 1 <= self.max_html_sections <= 64:
+            raise ValueError("patent_evidence_html_section_limit_invalid")
+        if not 8 <= self.max_html_paragraphs <= 1_024:
+            raise ValueError("patent_evidence_html_paragraph_limit_invalid")
         if not 1 <= self.max_validated_edges <= 128:
             raise ValueError("patent_evidence_edge_limit_invalid")
         if not 0.5 <= self.render_zoom <= 2.0:
@@ -90,6 +105,7 @@ def build_builtin_patent_evidence_connector(
     *,
     candidate_provider: PatentCandidateProvider | None = None,
     bytes_fetcher: BytesFetcher | None = None,
+    html_fetcher: BytesFetcher | None = None,
     registry_compiler: RegistryCompiler | None = None,
     structure_resolver: StructureResolver | None = None,
     candidate_name_resolver: CandidateNameResolver | None = None,
@@ -98,8 +114,9 @@ def build_builtin_patent_evidence_connector(
     """Build a bounded first-party connector for current validated edges."""
 
     cache_root = Path(config.cache_dir).expanduser().resolve()
-    search = candidate_provider or _google_patent_candidate_provider(config)
-    fetch = bytes_fetcher or _fetch_bounded_bytes
+    search = candidate_provider or google_patent_candidate_provider(config)
+    fetch = bytes_fetcher or fetch_bounded_bytes
+    fetch_html = html_fetcher or fetch
     compile_registry = registry_compiler or compile_deterministic_literature_step_registry
     resolver_cache: DeterministicResolverCache | None = None
     default_structure_resolver: StructureResolver | None = None
@@ -133,8 +150,8 @@ def build_builtin_patent_evidence_connector(
             raise LiveEvidenceConnectorError(
                 "builtin_patent_evidence_no_validated_edges"
             )
-        queries = _evidence_queries(request, limit=config.max_search_queries)
-        candidates = _select_independent_candidates(
+        queries = evidence_queries(request, limit=config.max_search_queries)
+        candidates = select_independent_candidates(
             search(queries),
             queries=queries,
             limit=config.max_patents,
@@ -162,6 +179,7 @@ def build_builtin_patent_evidence_connector(
                     output_dir=request_dir,
                     config=config,
                     fetch=fetch,
+                    fetch_html=fetch_html,
                     compile_registry=compile_registry,
                     resolve_structure=resolve_structure,
                     resolve_names=resolve_names,
@@ -188,6 +206,8 @@ def build_builtin_patent_evidence_connector(
                 "publication_number": str(row.get("publication_number") or ""),
                 "family_id": str(row.get("family_id") or ""),
                 "title": str(row.get("title") or "")[:1000],
+                "html_sha256": str(row.get("html_sha256") or ""),
+                "html_audit": dict(row.get("html_audit") or {}),
                 "pdf_sha256": str(row.get("pdf_sha256") or ""),
                 "page_count": int(row.get("page_count") or 0),
                 "procedure_inventory": list(row.get("procedure_inventory") or [])[:64],
@@ -200,7 +220,7 @@ def build_builtin_patent_evidence_connector(
                 "unresolved_edge_count": int(row.get("rejected_edge_count") or 0),
             }
             for row in audits
-            if str(row.get("pdf_sha256") or "")
+            if str(row.get("html_sha256") or row.get("pdf_sha256") or "")
         ]
         if not discovery_sources:
             detail = _digest({"audits": audits})[:16]
@@ -232,7 +252,9 @@ def build_builtin_patent_evidence_connector(
             "resolver_cache": resolver_cache_audit,
             "semantics": {
                 "search_metadata_is_not_evidence": True,
-                "pdf_and_page_hashes_are_frozen": True,
+                "primary_html_is_attempted_before_pdf": True,
+                "html_or_pdf_source_bytes_are_frozen": True,
+                "pdf_ocr_and_vision_are_unresolved_only_fallbacks": True,
                 "exact_rows_are_deterministically_reconstructed": True,
             },
         }
@@ -258,6 +280,7 @@ def _extract_candidate(
     output_dir: Path,
     config: BuiltinPatentEvidenceConfig,
     fetch: BytesFetcher,
+    fetch_html: BytesFetcher,
     compile_registry: RegistryCompiler,
     resolve_structure: StructureResolver,
     resolve_names: CandidateNameResolver,
@@ -268,168 +291,170 @@ def _extract_candidate(
     source_ref = f"patent:{publication}"
     patent_dir = output_dir / publication.lower()
     patent_dir.mkdir(parents=True, exist_ok=True)
-    content = fetch(
-        str(candidate["pdf_url"]),
-        config.timeout_s,
-        config.max_pdf_bytes,
-    )
-    if not content.startswith(b"%PDF-"):
-        raise ValueError("patent_pdf_signature_invalid")
-    pdf_sha256 = hashlib.sha256(content).hexdigest()
-    pdf_path = patent_dir / f"{publication}-{pdf_sha256[:16]}.pdf"
-    if not pdf_path.is_file():
-        _write_bytes_atomic(pdf_path, content)
-    page_count = _pdf_page_count(pdf_path)
-    if page_count < 1 or page_count > config.max_pdf_pages:
-        raise ValueError(f"patent_pdf_page_limit:{page_count}")
-    manifest = extract_literature_pdf_assets(
-        pdf_path=pdf_path,
-        output_dir=patent_dir / "materialized",
-        render_zoom=config.render_zoom,
-    )
-    if manifest.get("accepted") is not True or not manifest.get("rendered_pages"):
-        raise ValueError("patent_pdf_materialization_failed")
-    document_id = f"patent:{publication}"
-    manifest.update(
-        {
-            "source_ref": source_ref,
-            "source_binding_audit": {
-                "schema_version": "local_pdf_source_binding_audit.v1",
-                "accepted": True,
-                "source_ref": source_ref,
-                "matched_source_count": 1,
-                "matched_document_ids": [document_id],
-                "binding_method": "builtin_patent_publication_and_pdf_hash",
-            },
-        }
-    )
-    manifest_path = patent_dir / "materialized" / "literature_pdf_structure_evidence.json"
-    _write_json_atomic(manifest_path, manifest)
-    manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-    evidence = [
-        {
-            "schema_version": "materialized_source_evidence.v1",
-            "document_id": document_id,
-            "manifest_path": str(manifest_path),
-            "manifest_sha256": manifest_sha256,
-            "source_pdf_path": str(pdf_path),
-            "source_pdf_sha256": pdf_sha256,
-            "page_number": int(page["page_number"]),
-            "image_path": str(page["image_path"]),
-            "image_sha256": str(page["sha256"]),
-            "source_ref": source_ref,
-        }
-        for page in manifest["rendered_pages"]
-    ]
-    ocr_audit: dict[str, Any] = {}
-    if config.enable_local_ocr:
-        ocr_audit = materialize_local_ocr_companion(
-            pdf_path=pdf_path,
-            source_ref=source_ref,
-            rendered_pages=manifest["rendered_pages"],
-            output_dir=patent_dir / "ocr",
-            target_terms=target_terms,
-            config=LocalOcrConfig(
-                max_pages=min(config.max_ocr_pages, config.max_pdf_pages)
-            ),
-            runner=ocr_runner,
-        )
-    source_text_companions = (
-        [dict(ocr_audit["companion"])]
-        if isinstance(ocr_audit.get("companion"), Mapping)
-        and ocr_audit.get("companion")
-        else []
-    )
-    steps = []
-    for edge in edges:
-        product = str(edge.get("product_smiles") or "")
-        names = resolve_names(product)
-        steps.append(
-            {
-                "step_id": str(edge.get("edge_id") or edge.get("edge_digest") or ""),
-                "product_name": str(names[0]) if names else "",
-                "product_smiles": product,
-                "reactant_smiles": list(edge.get("precursor_smiles") or []),
-                "source_ref": source_ref,
-                "source_evidence": evidence,
-                "source_text_companions": source_text_companions,
-            }
-        )
-    registry_path = patent_dir / "deterministic-step-registry.json"
-    audit = dict(
-        compile_registry(
-            steps,
-            registry_path=registry_path,
-            structure_resolver=resolve_structure,
-            candidate_name_resolver=resolve_names,
+    html_attempt = (
+        attempt_primary_patent_html(
+            candidate,
+            edges=edges,
+            output_dir=patent_dir,
             timeout_s=config.timeout_s,
+            max_html_bytes=config.max_html_bytes,
+            max_html_sections=config.max_html_sections,
+            max_html_paragraphs=config.max_html_paragraphs,
+            fetch=fetch_html,
+            compile_registry=compile_registry,
+            resolve_structure=resolve_structure,
+            resolve_names=resolve_names,
+            target_terms=target_terms,
         )
+        if config.enable_html_first
+        else {"status": "disabled", "reason": "primary_patent_html_disabled"}
     )
-    rows = []
-    accepted_edges: list[str] = []
-    for record in audit.get("records") or []:
-        if not isinstance(record, Mapping) or record.get("accepted") is not True:
-            continue
-        binding = dict(record.get("binding") or {})
-        projection = dict(binding.get("synthesis_projection") or {})
-        product = str(projection.get("product_smiles") or "")
-        reactants = [str(value) for value in projection.get("reactant_smiles") or []]
-        if not product or not reactants:
-            continue
-        edge_id = str(record.get("step_id") or "")
-        rows.append(
-            {
-                "step_id": edge_id,
-                "product_smiles": product,
-                "reactant_smiles": reactants,
-                "relation_type": "exact",
-                "location_ref": f"{publication}:page:{int(binding.get('page_number') or 0)}",
-                "evidence_refs": [
-                    f"pdf_sha256:{pdf_sha256}",
-                    f"image_sha256:{str(binding.get('image_sha256') or '')}",
-                ],
-            }
-        )
-        accepted_edges.append(edge_id)
-    source = {}
-    if rows:
-        source = {
-            "binding": {
-                "source_kind": "patent",
-                "source_ref": source_ref,
-                "patent_publication": publication,
-                "patent_family": str(candidate.get("family_id") or ""),
-                "title": str(candidate.get("title") or publication),
-                "provenance": "builtin_deterministic_patent_pdf_extraction",
-                "discovered_by": BUILTIN_PATENT_PROVIDER_ID,
-            },
-            "extraction": {
-                "schema_version": "structured_exact_row_extraction.v1",
-                "extractor": {
-                    "producer_kind": "deterministic_structure_parser",
-                    "producer_id": PARSER_AUTHORITY_ID,
-                    "version": BUILTIN_PATENT_PROVIDER_VERSION,
-                },
-                "rows": rows,
-            },
-        }
-    procedure_inventory = [
-        dict(procedure)
-        for document in audit.get("source_procedure_inventory") or []
-        if isinstance(document, Mapping)
-        for procedure in document.get("procedures") or []
-        if isinstance(procedure, Mapping)
-    ][:64]
+    html_registry = dict(html_attempt.get("registry_audit") or {})
+    rows, accepted_edges = _exact_rows_from_registry(
+        html_registry,
+        publication=publication,
+    )
+    html_row_count = len(rows)
+    accepted_ids = set(accepted_edges)
+    remaining_edges = [
+        edge
+        for edge in edges
+        if str(edge.get("edge_id") or edge.get("edge_digest") or "")
+        not in accepted_ids
+    ]
+
+    pdf_sha256 = ""
+    page_count = 0
+    manifest: dict[str, Any] = {}
+    ocr_audit: dict[str, Any] = {}
+    pdf_registry: dict[str, Any] = {}
+    if remaining_edges:
+        pdf_url = str(candidate.get("pdf_url") or "").strip()
+        if not pdf_url:
+            if not rows:
+                raise ValueError("patent_pdf_fallback_url_missing")
+        else:
+            content = fetch(pdf_url, config.timeout_s, config.max_pdf_bytes)
+            if not content.startswith(b"%PDF-"):
+                raise ValueError("patent_pdf_signature_invalid")
+            pdf_sha256 = hashlib.sha256(content).hexdigest()
+            pdf_path = patent_dir / f"{publication}-{pdf_sha256[:16]}.pdf"
+            if not pdf_path.is_file():
+                _write_bytes_atomic(pdf_path, content)
+            page_count = _pdf_page_count(pdf_path)
+            if page_count < 1 or page_count > config.max_pdf_pages:
+                raise ValueError(f"patent_pdf_page_limit:{page_count}")
+            manifest = extract_literature_pdf_assets(
+                pdf_path=pdf_path,
+                output_dir=patent_dir / "materialized",
+                render_zoom=config.render_zoom,
+            )
+            if manifest.get("accepted") is not True or not manifest.get("rendered_pages"):
+                raise ValueError("patent_pdf_materialization_failed")
+            document_id = f"patent:{publication}"
+            manifest.update(
+                {
+                    "source_ref": source_ref,
+                    "source_binding_audit": {
+                        "schema_version": "local_pdf_source_binding_audit.v1",
+                        "accepted": True,
+                        "source_ref": source_ref,
+                        "matched_source_count": 1,
+                        "matched_document_ids": [document_id],
+                        "binding_method": "builtin_patent_publication_and_pdf_hash",
+                    },
+                }
+            )
+            manifest_path = (
+                patent_dir / "materialized" / "literature_pdf_structure_evidence.json"
+            )
+            _write_json_atomic(manifest_path, manifest)
+            manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+            evidence = [
+                {
+                    "schema_version": "materialized_source_evidence.v1",
+                    "document_id": document_id,
+                    "manifest_path": str(manifest_path),
+                    "manifest_sha256": manifest_sha256,
+                    "source_pdf_path": str(pdf_path),
+                    "source_pdf_sha256": pdf_sha256,
+                    "page_number": int(page["page_number"]),
+                    "image_path": str(page["image_path"]),
+                    "image_sha256": str(page["sha256"]),
+                    "source_ref": source_ref,
+                }
+                for page in manifest["rendered_pages"]
+            ]
+            if config.enable_local_ocr:
+                ocr_audit = materialize_local_ocr_companion(
+                    pdf_path=pdf_path,
+                    source_ref=source_ref,
+                    rendered_pages=manifest["rendered_pages"],
+                    output_dir=patent_dir / "ocr",
+                    target_terms=target_terms,
+                    config=LocalOcrConfig(
+                        max_pages=min(config.max_ocr_pages, config.max_pdf_pages)
+                    ),
+                    runner=ocr_runner,
+                )
+            companions = (
+                [dict(ocr_audit["companion"])]
+                if isinstance(ocr_audit.get("companion"), Mapping)
+                and ocr_audit.get("companion")
+                else []
+            )
+            steps = _pdf_registry_steps(
+                remaining_edges,
+                source_ref=source_ref,
+                evidence=evidence,
+                companions=companions,
+                resolve_names=resolve_names,
+            )
+            pdf_registry = dict(
+                compile_registry(
+                    steps,
+                    registry_path=patent_dir / "pdf-deterministic-step-registry.json",
+                    structure_resolver=resolve_structure,
+                    candidate_name_resolver=resolve_names,
+                    timeout_s=config.timeout_s,
+                )
+            )
+            pdf_rows, pdf_edges = _exact_rows_from_registry(
+                pdf_registry,
+                publication=publication,
+            )
+            rows.extend(pdf_rows)
+            accepted_edges.extend(pdf_edges)
+            accepted_ids.update(pdf_edges)
+
+    rows = list({str(row["step_id"]): row for row in rows}.values())
+    accepted_edges = sorted(accepted_ids)
+    source = _structured_patent_source(
+        candidate,
+        source_ref=source_ref,
+        rows=rows,
+        used_html=html_row_count > 0,
+        used_pdf=len(rows) > html_row_count,
+    )
+    procedure_inventory = _procedure_inventory(html_registry, pdf_registry)
+    html_materialization = dict(html_attempt.get("materialization") or {})
     return source, {
         "publication_number": publication,
         "family_id": str(candidate.get("family_id") or ""),
         "title": str(candidate.get("title") or publication),
+        "html_sha256": str(html_materialization.get("artifact_sha256") or ""),
+        "html_audit": _bounded_html_audit(html_attempt),
         "pdf_sha256": pdf_sha256,
         "page_count": page_count,
         "accepted": bool(rows),
-        "accepted_edge_ids": sorted(accepted_edges),
-        "rejected_edge_count": max(0, len(edges) - len(rows)),
-        "registry_audit_sha256": str(audit.get("content_sha256") or ""),
+        "accepted_edge_ids": accepted_edges,
+        "rejected_edge_count": max(0, len(edges) - len(accepted_edges)),
+        "registry_audit_sha256": _digest(
+            {
+                "html": str(html_registry.get("content_sha256") or ""),
+                "pdf": str(pdf_registry.get("content_sha256") or ""),
+            }
+        ),
         "procedure_inventory": procedure_inventory,
         "ocr_audit": _bounded_ocr_audit(ocr_audit),
         "visual_candidate_pages": _visual_candidate_pages(
@@ -438,6 +463,217 @@ def _extract_candidate(
             ocr_audit=ocr_audit,
         ),
     }
+
+
+def _pdf_registry_steps(
+    edges: Iterable[Mapping[str, Any]],
+    *,
+    source_ref: str,
+    evidence: Iterable[Mapping[str, Any]],
+    companions: Iterable[Mapping[str, Any]],
+    resolve_names: CandidateNameResolver,
+) -> list[dict[str, Any]]:
+    frozen_evidence = [dict(row) for row in evidence]
+    frozen_companions = [dict(row) for row in companions]
+    steps: list[dict[str, Any]] = []
+    for edge in edges:
+        product = str(edge.get("product_smiles") or "")
+        names = resolve_names(product)
+        steps.append(
+            {
+                "step_id": str(
+                    edge.get("edge_id") or edge.get("edge_digest") or ""
+                ),
+                "product_name": str(names[0]) if names else "",
+                "product_smiles": product,
+                "reactant_smiles": list(edge.get("precursor_smiles") or []),
+                "source_ref": source_ref,
+                "source_evidence": frozen_evidence,
+                "source_text_companions": frozen_companions,
+            }
+        )
+    return steps
+
+
+def _exact_rows_from_registry(
+    audit: Mapping[str, Any],
+    *,
+    publication: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    rows: list[dict[str, Any]] = []
+    edge_ids: list[str] = []
+    for record in audit.get("records") or []:
+        if not isinstance(record, Mapping) or record.get("accepted") is not True:
+            continue
+        binding = dict(record.get("binding") or {})
+        projection = dict(binding.get("synthesis_projection") or {})
+        product = str(projection.get("product_smiles") or "")
+        reactants = [
+            str(value)
+            for value in projection.get("reactant_smiles") or []
+            if str(value)
+        ]
+        edge_id = str(record.get("step_id") or "")
+        if not edge_id or not product or not reactants:
+            continue
+        artifact_kind = str(binding.get("source_artifact_kind") or "pdf")
+        source_location = dict(binding.get("source_location") or {})
+        evidence_refs: list[str] = []
+        if artifact_kind == "html":
+            start = str(source_location.get("start_element_id") or "")
+            end = str(source_location.get("end_element_id") or "")
+            location_ref = f"{publication}:html:{start}-{end}"
+            artifact_sha256 = str(
+                binding.get("source_artifact_sha256") or ""
+            )
+            text_sha256 = str(source_location.get("text_sha256") or "")
+            if artifact_sha256:
+                evidence_refs.append(f"html_sha256:{artifact_sha256}")
+            if text_sha256:
+                evidence_refs.append(f"text_sha256:{text_sha256}")
+        else:
+            page_number = int(binding.get("page_number") or 0)
+            location_ref = f"{publication}:page:{page_number}"
+            pdf_sha256 = str(
+                binding.get("source_pdf_sha256")
+                or binding.get("source_artifact_sha256")
+                or ""
+            )
+            image_sha256 = str(binding.get("image_sha256") or "")
+            if pdf_sha256:
+                evidence_refs.append(f"pdf_sha256:{pdf_sha256}")
+            if image_sha256:
+                evidence_refs.append(f"image_sha256:{image_sha256}")
+        rows.append(
+            {
+                "step_id": edge_id,
+                "product_smiles": product,
+                "reactant_smiles": reactants,
+                "relation_type": "exact",
+                "location_ref": location_ref,
+                "evidence_refs": evidence_refs,
+            }
+        )
+        edge_ids.append(edge_id)
+    return rows, edge_ids
+
+
+def _structured_patent_source(
+    candidate: Mapping[str, Any],
+    *,
+    source_ref: str,
+    rows: list[dict[str, Any]],
+    used_html: bool,
+    used_pdf: bool,
+) -> dict[str, Any]:
+    if not rows:
+        return {}
+    if used_html and used_pdf:
+        provenance = "builtin_patent_html_first_with_pdf_fallback"
+    elif used_html:
+        provenance = "builtin_deterministic_primary_patent_html"
+    else:
+        provenance = "builtin_deterministic_patent_pdf_extraction"
+    publication = str(candidate.get("publication_number") or "")
+    return {
+        "binding": {
+            "source_kind": "patent",
+            "source_ref": source_ref,
+            "patent_publication": publication,
+            "patent_family": str(candidate.get("family_id") or ""),
+            "title": str(candidate.get("title") or publication),
+            "provenance": provenance,
+            "discovered_by": BUILTIN_PATENT_PROVIDER_ID,
+        },
+        "extraction": {
+            "schema_version": "structured_exact_row_extraction.v1",
+            "extractor": {
+                "producer_kind": "deterministic_structure_parser",
+                "producer_id": PARSER_AUTHORITY_ID,
+                "version": BUILTIN_PATENT_PROVIDER_VERSION,
+            },
+            "rows": rows,
+        },
+    }
+
+
+def _procedure_inventory(
+    *audits: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, int, str]] = set()
+    for audit in audits:
+        for document in audit.get("source_procedure_inventory") or []:
+            if not isinstance(document, Mapping):
+                continue
+            artifact_kind = str(document.get("source_artifact_kind") or "pdf")
+            artifact_sha256 = str(
+                document.get("source_artifact_sha256")
+                or document.get("source_pdf_sha256")
+                or ""
+            )
+            for procedure in document.get("procedures") or []:
+                if not isinstance(procedure, Mapping):
+                    continue
+                row = dict(procedure)
+                identity = (
+                    artifact_kind,
+                    artifact_sha256,
+                    int(row.get("page_number") or 0),
+                    str(row.get("name") or "").casefold(),
+                )
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                rows.append(
+                    {
+                        **row,
+                        "source_artifact_kind": artifact_kind,
+                        "source_artifact_sha256": artifact_sha256,
+                    }
+                )
+                if len(rows) >= 64:
+                    return rows
+    return rows
+
+
+def _bounded_html_audit(value: Mapping[str, Any]) -> dict[str, Any]:
+    row = dict(value or {})
+    materialization = dict(row.get("materialization") or {})
+    bounded = {
+        key: row.get(key)
+        for key in (
+            "schema_version",
+            "status",
+            "reason",
+            "accepted_edge_ids",
+            "attempted_edge_count",
+            "model_invocations",
+            "visual_invocations",
+        )
+        if key in row
+    }
+    if materialization:
+        bounded["materialization"] = {
+            key: materialization.get(key)
+            for key in (
+                "schema_version",
+                "status",
+                "reasons",
+                "artifact_sha256",
+                "paragraph_count",
+                "selected_paragraph_count",
+                "section_count",
+                "content_sha256",
+            )
+            if key in materialization
+        }
+    registry = dict(row.get("registry_audit") or {})
+    if registry:
+        bounded["registry_content_sha256"] = str(
+            registry.get("content_sha256") or ""
+        )
+    return bounded
 
 
 def _bounded_ocr_audit(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -512,252 +748,6 @@ def _visual_candidate_pages(
             break
     return rows
 
-
-def _evidence_queries(request: Mapping[str, Any], *, limit: int) -> list[str]:
-    values = [str(request.get("target_name") or "").strip()]
-    values.extend(
-        str(row.get("query") or "").strip()
-        for row in request.get("source_tasks") or []
-        if isinstance(row, Mapping)
-    )
-    values.extend(
-        str(row.get("source_ref") or "").removeprefix("patent:").strip()
-        for row in request.get("source_hints") or []
-        if isinstance(row, Mapping)
-    )
-    out: list[str] = []
-    for value in values:
-        compact = " ".join(value.split())[:800]
-        if compact and compact.casefold() not in {row.casefold() for row in out}:
-            out.append(compact)
-        if len(out) >= limit:
-            break
-    return out
-
-
-def _google_patent_candidate_provider(
-    config: BuiltinPatentEvidenceConfig,
-) -> PatentCandidateProvider:
-    def search(queries: Iterable[str]) -> Iterable[Mapping[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        all_queries = [*config.seed_publications, *list(queries)]
-        for query in all_queries[: config.max_search_queries]:
-            explicit = _patent_publications(query)
-            rows.extend(_direct_pdf_candidates(query, explicit))
-            for publication in explicit:
-                direct = _resolve_google_patent_publication(
-                    publication,
-                    timeout_s=config.timeout_s,
-                )
-                if direct:
-                    rows.append(direct)
-            search_values = [*explicit, query]
-            for search_value in search_values:
-                nested = f"q=({search_value})"
-                for page in range(config.max_search_pages_per_query):
-                    if page:
-                        nested_page = f"{nested}&page={page}"
-                    else:
-                        nested_page = nested
-                    url = (
-                        "https://patents.google.com/xhr/query?url="
-                        + quote(nested_page, safe="")
-                    )
-                    response = requests.get(
-                        url,
-                        headers={"User-Agent": "AutoPlanner/1.0 patent-evidence"},
-                        timeout=config.timeout_s,
-                    )
-                    if response.status_code != 200:
-                        continue
-                    try:
-                        payload = response.json()
-                    except requests.JSONDecodeError:
-                        continue
-                    for cluster in dict(payload.get("results") or {}).get("cluster") or []:
-                        for result in dict(cluster).get("result") or []:
-                            patent = dict(dict(result).get("patent") or {})
-                            publication = _publication(patent.get("publication_number"))
-                            pdf = str(patent.get("pdf") or "").strip("/")
-                            if not publication or not pdf:
-                                continue
-                            family_seed = {
-                                "priority_date": patent.get("priority_date"),
-                                "assignee": patent.get("assignee"),
-                                "title": _plain_text(patent.get("title")),
-                            }
-                            rows.append(
-                                {
-                                    "publication_number": publication,
-                                    "title": _plain_text(patent.get("title")),
-                                    "snippet": _plain_text(patent.get("snippet")),
-                                    "priority_date": str(patent.get("priority_date") or ""),
-                                    "assignee": _plain_text(patent.get("assignee")),
-                                    "pdf_url": (
-                                        "https://patentimages.storage.googleapis.com/" + pdf
-                                    ),
-                                    "family_id": "search-family:" + _digest(family_seed)[:24],
-                                    "query": query,
-                                }
-                            )
-        return rows
-
-    return search
-
-
-def _direct_pdf_candidates(
-    query: str,
-    publications: Iterable[str],
-) -> list[dict[str, Any]]:
-    urls = re.findall(
-        r"https://patentimages\.storage\.googleapis\.com/[^\s;]+?\.pdf",
-        str(query or ""),
-        flags=re.IGNORECASE,
-    )
-    publication_rows = list(publications)
-    rows: list[dict[str, Any]] = []
-    for url in urls:
-        publication = next(
-            (
-                value
-                for value in publication_rows
-                if value.casefold() in url.casefold()
-            ),
-            _publication(Path(url).stem),
-        )
-        if not publication:
-            continue
-        rows.append(
-            {
-                "publication_number": publication,
-                "title": f"Patent {publication}",
-                "snippet": "direct primary patent PDF locator",
-                "pdf_url": url,
-                "family_id": f"publication:{publication}",
-                "query": query,
-            }
-        )
-    return rows
-
-
-def _resolve_google_patent_publication(
-    publication: str,
-    *,
-    timeout_s: float,
-) -> dict[str, Any]:
-    url = f"https://patents.google.com/patent/{publication}/en"
-    try:
-        response = requests.get(
-            url,
-            headers={"User-Agent": "AutoPlanner/1.0 patent-evidence"},
-            timeout=timeout_s,
-        )
-    except requests.RequestException:
-        return {}
-    if response.status_code != 200 or len(response.content) > 20_000_000:
-        return {}
-    text = response.text
-    pdf_match = re.search(
-        r'<meta\s+name="citation_pdf_url"\s+content="([^"]+)"',
-        text,
-        flags=re.IGNORECASE,
-    )
-    if not pdf_match:
-        return {}
-    title_match = re.search(
-        r'<meta\s+(?:scheme="[^\"]+"\s+)?name="DC\.title"\s+content="([^"]+)"',
-        text,
-        flags=re.IGNORECASE,
-    )
-    priority_match = re.search(
-        r'<meta\s+scheme="dateSubmitted"\s+content="([^"]+)"',
-        text,
-        flags=re.IGNORECASE,
-    )
-    title = _plain_text(title_match.group(1) if title_match else publication)
-    priority = str(priority_match.group(1) if priority_match else "")
-    family_seed = {"priority_date": priority, "title": title}
-    return {
-        "publication_number": publication,
-        "title": title,
-        "snippet": "resolved from primary patent publication page",
-        "priority_date": priority,
-        "pdf_url": html.unescape(pdf_match.group(1)),
-        "family_id": "publication-family:" + _digest(family_seed)[:24],
-        "query": publication,
-    }
-
-
-def _select_independent_candidates(
-    values: Iterable[Mapping[str, Any]],
-    *,
-    queries: Iterable[str],
-    limit: int,
-) -> list[dict[str, Any]]:
-    query_tokens = {
-        token
-        for query in queries
-        for token in re.findall(r"[a-z0-9]{4,}", query.casefold())
-        if token not in {"synthesis", "process", "preparation", "patent"}
-    }
-    candidates: list[tuple[int, dict[str, Any]]] = []
-    seen_publications: set[str] = set()
-    for raw in values:
-        row = dict(raw)
-        publication = _publication(row.get("publication_number"))
-        if not publication or publication in seen_publications:
-            continue
-        seen_publications.add(publication)
-        title = _plain_text(row.get("title")).casefold()
-        snippet = _plain_text(row.get("snippet")).casefold()
-        matched = sum(token in f"{title} {snippet}" for token in query_tokens)
-        process = sum(
-            term in title
-            for term in ("synthesis", "synthetic", "process", "preparation", "intermediate")
-        )
-        noise = sum(
-            term in title
-            for term in ("medical use", "combination", "formulation", "treatment")
-        )
-        explicit = int(publication.casefold() in {q.casefold() for q in queries})
-        score = 100 * explicit + 12 * matched + 8 * process - 8 * noise
-        candidates.append((score, {**row, "publication_number": publication}))
-    candidates.sort(key=lambda item: (-item[0], item[1]["publication_number"]))
-    selected: list[dict[str, Any]] = []
-    families: set[str] = set()
-    for _score, row in candidates:
-        family = str(row.get("family_id") or row["publication_number"])
-        if family in families:
-            continue
-        families.add(family)
-        selected.append(row)
-        if len(selected) >= limit:
-            break
-    return selected
-
-
-def _fetch_bounded_bytes(url: str, timeout_s: float, limit: int) -> bytes:
-    response = requests.get(
-        url,
-        headers={"User-Agent": "AutoPlanner/1.0 patent-evidence"},
-        timeout=timeout_s,
-        stream=True,
-        allow_redirects=True,
-    )
-    response.raise_for_status()
-    chunks: list[bytes] = []
-    total = 0
-    try:
-        for chunk in response.iter_content(64 * 1024):
-            total += len(chunk)
-            if total > limit:
-                raise LiveEvidenceConnectorError("patent_pdf_size_limit_exceeded")
-            chunks.append(bytes(chunk))
-    finally:
-        response.close()
-    return b"".join(chunks)
-
-
 def _pdf_page_count(path: Path) -> int:
     try:
         import fitz  # type: ignore
@@ -768,29 +758,6 @@ def _pdf_page_count(path: Path) -> int:
         return len(document)
     finally:
         document.close()
-
-
-def _patent_publications(value: str) -> list[str]:
-    return sorted(
-        {
-            _publication(match)
-            for match in re.findall(
-                r"\b[A-Z]{2}\s*\d{6,}[A-Z]\d?\b",
-                str(value or "").upper(),
-            )
-            if _publication(match)
-        }
-    )
-
-
-def _publication(value: Any) -> str:
-    text = re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
-    return text if re.fullmatch(r"[A-Z]{2}\d{6,}[A-Z]\d?", text) else ""
-
-
-def _plain_text(value: Any) -> str:
-    return " ".join(re.sub(r"<[^>]+>", " ", html.unescape(str(value or ""))).split())
-
 
 def _write_bytes_atomic(path: Path, content: bytes) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")

@@ -7,6 +7,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import urlparse
 
 from cascade_planner.harness.source_ocr import HASH_BOUND_OCR_FORMAT
 
@@ -14,6 +15,7 @@ from cascade_planner.harness.source_ocr import HASH_BOUND_OCR_FORMAT
 SOURCE_TEXT_COMPANION_SPEC_SCHEMA = "trusted_source_text_companion.v1"
 SOURCE_TEXT_COMPANION_BINDING_SCHEMA = "source_text_companion_binding.v1"
 GOOGLE_PATENTS_HTML_FORMAT = "google_patents_html.v1"
+PRIMARY_HTML_AUTHORITY_MODE = "primary_html"
 _MAX_COMPANION_BYTES = 100_000_000
 
 
@@ -57,6 +59,14 @@ def materialize_source_text_companion_pages(
         reasons.append("source_text_companion_source_url_not_https")
     if format_id != GOOGLE_PATENTS_HTML_FORMAT:
         reasons.append("source_text_companion_format_unsupported")
+    if spec.get("authority_mode") == PRIMARY_HTML_AUTHORITY_MODE and not (
+        official_google_patent_source(
+            document_identity=document_identity,
+            source_url=source_url,
+            source_ref=expected_source_ref,
+        )
+    ):
+        reasons.append("source_text_companion_primary_html_origin_invalid")
     if reasons:
         return [], {}, tuple(sorted(set(reasons)))
 
@@ -75,10 +85,8 @@ def materialize_source_text_companion_pages(
     if _identity_key(document_identity) not in _identity_key(artifact_text):
         return [], {}, ("source_text_companion_document_identity_not_found",)
 
-    parser = _GooglePatentParagraphParser()
     try:
-        parser.feed(artifact_text)
-        parser.close()
+        paragraphs = extract_google_patent_paragraphs(artifact_text)
     except (RuntimeError, ValueError):
         return [], {}, ("source_text_companion_html_parse_failed",)
     section_bindings: list[dict[str, Any]] = []
@@ -102,14 +110,14 @@ def materialize_source_text_companion_pages(
             reasons.append(f"source_text_companion_section_{index}_range_invalid")
             continue
         selected = [
-            parser.paragraphs[f"p{number:04d}"]
+            paragraphs[f"p{number:04d}"]
             for number in range(start_number, end_number + 1)
-            if parser.paragraphs.get(f"p{number:04d}")
+            if paragraphs.get(f"p{number:04d}")
         ]
         if (
             not selected
-            or f"p{start_number:04d}" not in parser.paragraphs
-            or f"p{end_number:04d}" not in parser.paragraphs
+            or f"p{start_number:04d}" not in paragraphs
+            or f"p{end_number:04d}" not in paragraphs
         ):
             reasons.append(f"source_text_companion_section_{index}_range_missing")
             continue
@@ -139,6 +147,8 @@ def materialize_source_text_companion_pages(
         "format": format_id,
         "sections": section_bindings,
     }
+    if spec.get("authority_mode") == PRIMARY_HTML_AUTHORITY_MODE:
+        binding["authority_mode"] = PRIMARY_HTML_AUTHORITY_MODE
     binding["content_sha256"] = _digest(binding)
     for page in page_rows:
         page["source_text_companion_binding"] = dict(binding)
@@ -194,6 +204,7 @@ def validate_source_text_companion_binding(
             "document_identity": binding.get("document_identity"),
             "source_url": binding.get("source_url"),
             "format": binding.get("format"),
+            "authority_mode": binding.get("authority_mode"),
             "sections": [
                 {
                     "page_number": row.get("page_number"),
@@ -209,6 +220,60 @@ def validate_source_text_companion_binding(
         source_ref=expected_source_ref,
     )
     return not reasons and replayed == binding
+
+
+def primary_html_companion(raw: Mapping[str, Any]) -> bool:
+    row = dict(raw) if isinstance(raw, Mapping) else {}
+    return bool(
+        row.get("format") == GOOGLE_PATENTS_HTML_FORMAT
+        and row.get("authority_mode") == PRIMARY_HTML_AUTHORITY_MODE
+    )
+
+
+def official_google_patent_source(
+    *,
+    document_identity: str,
+    source_url: str,
+    source_ref: str,
+) -> bool:
+    identity = str(document_identity or "").strip()
+    parsed = urlparse(str(source_url or ""))
+    return bool(
+        identity
+        and str(source_ref or "").strip().casefold()
+        == f"patent:{identity}".casefold()
+        and parsed.scheme == "https"
+        and (parsed.hostname or "").casefold() == "patents.google.com"
+        and parsed.path.rstrip("/").casefold()
+        == f"/patent/{identity}/en".casefold()
+    )
+
+
+def source_text_companion_location(
+    raw: Mapping[str, Any],
+    *,
+    page_number: int,
+) -> dict[str, Any]:
+    """Return the replay-bound HTML paragraph range for a synthetic text page."""
+
+    binding = dict(raw) if isinstance(raw, Mapping) else {}
+    if not primary_html_companion(binding):
+        return {}
+    matches = [
+        dict(row)
+        for row in binding.get("sections") or []
+        if isinstance(row, Mapping)
+        and int(row.get("page_number") or 0) == int(page_number)
+    ]
+    if len(matches) != 1:
+        return {}
+    section = matches[0]
+    return {
+        "kind": "html_paragraph_range",
+        "start_element_id": str(section.get("start_element_id") or ""),
+        "end_element_id": str(section.get("end_element_id") or ""),
+        "text_sha256": str(section.get("text_sha256") or ""),
+    }
 
 
 def source_text_companion_matches_page(
@@ -392,6 +457,13 @@ class _GooglePatentParagraphParser(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self._active_id:
             self._chunks.append(data)
+
+
+def extract_google_patent_paragraphs(value: str) -> dict[str, str]:
+    parser = _GooglePatentParagraphParser()
+    parser.feed(str(value or ""))
+    parser.close()
+    return dict(parser.paragraphs)
 
 
 def _paragraph_number(value: str) -> int | None:

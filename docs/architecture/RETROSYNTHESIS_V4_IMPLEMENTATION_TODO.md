@@ -308,6 +308,10 @@ Observed P4 deterministic-worker acceptance:
 - patent, paper/SI, curated registry, image extraction, and Codex claim records
   share one provenance schema; Codex translations remain advisory and cannot
   claim exact-source authority;
+- official patent HTML is frozen before PDF work; publication identity, full
+  artifact digest, selected paragraph range, and normalized text digest all
+  replay before deterministic product/reactant reconstruction. Only unresolved
+  edge IDs descend to PDF/native-text/OCR/optional-vision fallback;
 - exact rows emit material events recognized by `GlobalCampaignDirector`, so a
   newly arrived row resumes event-driven global planning rather than another
   blind local expansion;

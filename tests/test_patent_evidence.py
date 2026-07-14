@@ -43,6 +43,22 @@ def _image_only_pdf_bytes() -> bytes:
     return value
 
 
+def _patent_html_bytes(publication: str = "US1234567A1") -> bytes:
+    return f"""
+    <html><head><meta name="DC.relation" content="{publication}"></head>
+    <body>
+      <div id="p0001" class="description-paragraph">Example 1</div>
+      <div id="p0002" class="description-paragraph">
+        Ethyl acetate (T1). Ethanol and acetic acid were added and the
+        reaction mixture was stirred to afford T1 in 85 percent yield.
+      </div>
+      <div id="p0003" class="description-paragraph">
+        The product was isolated and characterized.
+      </div>
+    </body></html>
+    """.encode()
+
+
 def _request(*, validated: bool = True) -> dict[str, Any]:
     return {
         "schema_version": "evidence_acquisition_request.v1",
@@ -311,3 +327,215 @@ def test_builtin_patent_connector_ocr_closes_image_only_exact_row_without_model(
     assert discovery["ocr_audit"]["status"] == "completed"
     assert discovery["exact_row_count"] == 1
     assert discovery["unresolved_edge_count"] == 0
+
+
+def test_builtin_patent_connector_html_closes_edge_without_fetching_pdf(
+    tmp_path: Path,
+) -> None:
+    publication = "US1234567A1"
+
+    def pdf_must_not_be_fetched(*_args: Any) -> bytes:
+        raise AssertionError("PDF fallback must not run after HTML closure")
+
+    def html_must_not_be_refetched(*_args: Any) -> bytes:
+        raise AssertionError("prefetched publication HTML must be reused")
+
+    connector = build_builtin_patent_evidence_connector(
+        BuiltinPatentEvidenceConfig(cache_dir=tmp_path, max_patents=1),
+        candidate_provider=lambda _queries: [
+            {
+                "publication_number": publication,
+                "family_id": "family:html",
+                "title": "Preparation of ethyl acetate",
+                "snippet": "search metadata only",
+                "html_url": (
+                    f"https://patents.google.com/patent/{publication}/en"
+                ),
+                "_primary_html_bytes": _patent_html_bytes(),
+                "pdf_url": "https://source.invalid/must-not-run.pdf",
+            }
+        ],
+        bytes_fetcher=pdf_must_not_be_fetched,
+        html_fetcher=html_must_not_be_refetched,
+        structure_resolver=lambda name: {
+            "Ethyl acetate": "CCOC(C)=O",
+        }[name],
+        candidate_name_resolver=lambda smiles: {
+            "CCOC(C)=O": ["ethyl acetate"],
+            "CCO": ["ethanol"],
+            "CC(=O)O": ["acetic acid"],
+        }.get(smiles, []),
+    )
+
+    result = connector(_request())
+
+    source = result["document"]["sources"][0]
+    row = source["extraction"]["rows"][0]
+    discovery = result["discovery"]["sources"][0]
+    assert source["binding"]["provenance"] == (
+        "builtin_deterministic_primary_patent_html"
+    )
+    assert row["location_ref"].startswith(f"{publication}:html:p")
+    assert {value.split(":", 1)[0] for value in row["evidence_refs"]} == {
+        "html_sha256",
+        "text_sha256",
+    }
+    assert discovery["html_sha256"]
+    assert discovery["pdf_sha256"] == ""
+    assert discovery["exact_row_count"] == 1
+    assert list(tmp_path.rglob("*.pdf")) == []
+    assert list(tmp_path.rglob("*.png")) == []
+
+
+def test_builtin_patent_connector_pdf_fallback_receives_only_unresolved_html_edges(
+    tmp_path: Path,
+) -> None:
+    request = _request()
+    request["edges"].append(
+        {
+            "edge_id": "edge:second",
+            "edge_digest": "e" * 64,
+            "product_smiles": "CCO",
+            "precursor_smiles": ["CC=O"],
+            "current_host_reaction_validated": True,
+        }
+    )
+    compiled_step_ids: list[list[str]] = []
+    pdf_fetch_count = 0
+
+    def compiler(steps: list[dict[str, Any]], **_: Any) -> dict[str, Any]:
+        compiled_step_ids.append([str(step["step_id"]) for step in steps])
+        is_pdf = bool(steps and steps[0].get("source_evidence"))
+        selected = steps if is_pdf else steps[:1]
+        records = []
+        for step in selected:
+            if is_pdf:
+                evidence = dict(step["source_evidence"][0])
+                artifact = {
+                    "source_artifact_kind": "pdf",
+                    "source_pdf_sha256": evidence["source_pdf_sha256"],
+                    "page_number": evidence["page_number"],
+                    "image_sha256": evidence["image_sha256"],
+                }
+            else:
+                companion = dict(step["source_text_companions"][0])
+                section = dict(companion["sections"][0])
+                artifact = {
+                    "source_artifact_kind": "html",
+                    "source_artifact_sha256": companion["artifact_sha256"],
+                    "source_location": {
+                        "kind": "html_paragraph_range",
+                        "start_element_id": section["start_element_id"],
+                        "end_element_id": section["end_element_id"],
+                        "text_sha256": "f" * 64,
+                    },
+                }
+            records.append(
+                {
+                    "accepted": True,
+                    "step_id": step["step_id"],
+                    "binding": {
+                        **artifact,
+                        "synthesis_projection": {
+                            "product_smiles": step["product_smiles"],
+                            "reactant_smiles": sorted(step["reactant_smiles"]),
+                        },
+                    },
+                }
+            )
+        return {
+            "schema_version": "deterministic_literature_registry_audit.v1",
+            "content_sha256": "d" * 64,
+            "records": records,
+        }
+
+    def fetch_pdf(_url: str, _timeout: float, _limit: int) -> bytes:
+        nonlocal pdf_fetch_count
+        pdf_fetch_count += 1
+        return _pdf_bytes()
+
+    connector = build_builtin_patent_evidence_connector(
+        BuiltinPatentEvidenceConfig(cache_dir=tmp_path, max_patents=1),
+        candidate_provider=lambda _queries: [
+            {
+                "publication_number": "US1234567A1",
+                "family_id": "family:mixed",
+                "title": "Mixed source",
+                "html_url": (
+                    "https://patents.google.com/patent/US1234567A1/en"
+                ),
+                "pdf_url": "https://source.invalid/fallback.pdf",
+            }
+        ],
+        bytes_fetcher=fetch_pdf,
+        html_fetcher=lambda _url, _timeout, _limit: _patent_html_bytes(),
+        registry_compiler=compiler,
+        structure_resolver=lambda _name: "CCOC(C)=O",
+        candidate_name_resolver=lambda smiles: {
+            "CCOC(C)=O": ["ethyl acetate"],
+            "CCO": ["ethanol"],
+            "CC(=O)O": ["acetic acid"],
+            "CC=O": ["acetaldehyde"],
+        }.get(smiles, []),
+    )
+
+    result = connector(request)
+
+    assert compiled_step_ids == [
+        ["edge:ester", "edge:second"],
+        ["edge:second"],
+    ]
+    assert pdf_fetch_count == 1
+    source = result["document"]["sources"][0]
+    assert source["binding"]["provenance"] == (
+        "builtin_patent_html_first_with_pdf_fallback"
+    )
+    assert {row["step_id"] for row in source["extraction"]["rows"]} == {
+        "edge:ester",
+        "edge:second",
+    }
+    assert result["discovery"]["sources"][0]["unresolved_edge_count"] == 0
+
+
+def test_builtin_patent_connector_falls_back_when_html_registry_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    compiled_kinds: list[str] = []
+
+    def compiler(steps: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+        if not steps[0].get("source_evidence"):
+            compiled_kinds.append("html")
+            raise RuntimeError("temporary HTML resolver outage")
+        compiled_kinds.append("pdf")
+        return _compiler(steps, **kwargs)
+
+    connector = build_builtin_patent_evidence_connector(
+        BuiltinPatentEvidenceConfig(cache_dir=tmp_path, max_patents=1),
+        candidate_provider=lambda _queries: [
+            {
+                "publication_number": "US1234567A1",
+                "family_id": "family:fallback",
+                "title": "Preparation of ethyl acetate",
+                "html_url": (
+                    "https://patents.google.com/patent/US1234567A1/en"
+                ),
+                "pdf_url": "https://source.invalid/fallback.pdf",
+            }
+        ],
+        bytes_fetcher=lambda _url, _timeout, _limit: _pdf_bytes(),
+        html_fetcher=lambda _url, _timeout, _limit: _patent_html_bytes(),
+        registry_compiler=compiler,
+        structure_resolver=lambda _name: "CCOC(C)=O",
+        candidate_name_resolver=lambda _smiles: ["ethyl acetate"],
+    )
+
+    result = connector(_request())
+
+    assert compiled_kinds == ["html", "pdf"]
+    assert result["document"]["sources"][0]["binding"]["provenance"] == (
+        "builtin_deterministic_patent_pdf_extraction"
+    )
+    discovery = result["discovery"]["sources"][0]
+    assert discovery["html_audit"]["status"] == "failed"
+    assert discovery["pdf_sha256"]
+    assert discovery["exact_row_count"] == 1

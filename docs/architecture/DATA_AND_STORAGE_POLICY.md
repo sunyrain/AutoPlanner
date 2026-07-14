@@ -1,6 +1,6 @@
 # V4 data and storage policy
 
-Updated: 2026-07-13
+Updated: 2026-07-14
 
 The V4 runtime separates source code, immutable runtime objects, mutable query
 projections, external scientific data, models/vendor runtimes, and credentials.
@@ -30,7 +30,7 @@ This boundary is enforced by `RuntimePaths`, `ArtifactStore`, and `RunIndex`.
   endpoints. Successful entries are reused; failed entries expire and can only
   cause conservative rejection.
 - Source documents require their own digest/provenance binding. Merely placing
-  a PDF in the source root does not make it trusted evidence.
+  HTML or a PDF in the source root does not make it trusted evidence.
 
 ## Credential policy
 

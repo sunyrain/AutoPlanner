@@ -67,6 +67,10 @@ CLI 和 golden replay 默认模型预算为 0。
 5. 物质事件恢复同一 campaign，不创建第二个 expansion loop。
 6. 图按脏实体增量重算，并用 full-recompute oracle 校验。
 
+专利来源遵循同一条不可逆降级链：官方完整 HTML → 未闭合边的 PDF 原生文本 →
+低文本页本地 OCR → 显式准入的视觉 L0 候选。上一级已闭合的边不会进入下一级；
+搜索摘要、视觉识别和 Codex 转述都不能直接授予 exact-source authority。
+
 ## 多信源、可替换路线与 UI
 
 每条边分别记录 proposal origin、反应验证、精确来源、独立来源组和冲突。多个 Codex

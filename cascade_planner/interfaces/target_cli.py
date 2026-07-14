@@ -68,7 +68,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument(
         "--no-auto-patent-evidence",
         action="store_true",
-        help="disable the bounded built-in patent PDF evidence connector",
+        help="disable the bounded HTML-first built-in patent evidence connector",
     )
     solve.add_argument(
         "--evidence-endpoint",
@@ -110,7 +110,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         "--patent-publication",
         action="append",
         default=[],
-        help="optional primary patent publication or direct patent PDF URL seed",
+        help="optional patent publication, Google Patents URL, or direct PDF seed",
     )
 
     validation_fork = sub.add_parser(
@@ -134,7 +134,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         "--patent-publication",
         action="append",
         default=[],
-        help="optional primary patent publication or direct patent PDF URL seed",
+        help="optional patent publication, Google Patents URL, or direct PDF seed",
     )
 
     evidence = sub.add_parser(
