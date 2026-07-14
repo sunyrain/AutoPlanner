@@ -66,6 +66,16 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--no-replan", action="store_true")
     solve.add_argument("--no-live-benchmark-stock", action="store_true")
     solve.add_argument(
+        "--no-patent-self-evo",
+        action="store_true",
+        help="disable replay-gated cross-campaign patent reaction template memory",
+    )
+    solve.add_argument(
+        "--self-evo-library",
+        default="",
+        help="optional external patent template library path",
+    )
+    solve.add_argument(
         "--no-auto-patent-evidence",
         action="store_true",
         help="disable the bounded HTML-first built-in patent evidence connector",
@@ -106,6 +116,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--max-map-reactions", type=int, default=48)
     solve.add_argument("--max-stock-molecules", type=int, default=24)
     solve.add_argument("--max-patent-sources", type=int, default=3)
+    solve.add_argument("--max-self-evo-candidates", type=int, default=12)
     solve.add_argument(
         "--patent-publication",
         action="append",
@@ -266,12 +277,15 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             enable_web_search=not args.no_web_search,
             enable_replan=not args.no_replan,
             enable_live_benchmark_stock=not args.no_live_benchmark_stock,
+            enable_patent_self_evolution=not args.no_patent_self_evo,
+            self_evo_library_path=args.self_evo_library,
             enable_builtin_patent_evidence=(
                 evidence_connector is None and not args.no_auto_patent_evidence
             ),
             max_atom_mapping_reactions=args.max_map_reactions,
             max_live_stock_molecules=args.max_stock_molecules,
             max_patent_sources=args.max_patent_sources,
+            max_self_evo_template_candidates=args.max_self_evo_candidates,
             max_visual_evidence_pages=args.max_visual_pages,
         ),
     )
@@ -293,6 +307,19 @@ def _compact_target_result(result: Any) -> dict[str, Any]:
         "counts": dict(gates.get("counts") or {}),
         "claim": dict(row.get("claim") or {}),
         "current_disposition": dict(row.get("current_disposition") or {}),
+        "self_evolution": {
+            "enabled": dict(row.get("self_evolution") or {}).get("enabled") is True,
+            "library_path": str(
+                dict(row.get("self_evolution") or {}).get("library_path") or ""
+            ),
+            "learned_template_count": sum(
+                len(dict(value).get("learned_template_ids") or [])
+                for value in dict(row.get("self_evolution") or {}).get(
+                    "learning_stages"
+                )
+                or []
+            ),
+        },
         "model_cost": dict(row.get("model_cost") or {}),
         "resource_envelope": {
             "within_budget": resource.get("within_budget") is True,

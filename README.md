@@ -55,6 +55,12 @@ python -m cascade_planner solve-target \
 HTML 已闭合的边不会下载或渲染 PDF。只有未闭合边才依次回退到 PDF 原生文本、本机
 Tesseract OCR，最后才可用
 `--max-visual-invocations 1 --max-model-invocations 3` 显式准入一次稀疏页面视觉调用。
+
+通过专利 exact row 且当前 host 反应验证的反应会自动进入外部
+`data_external/self-evo/patent-reaction-template-library.json`。模板先在原始反应上重放，
+之后只作为下一批陌生 SMILES 的全局路线选项和 L0 前沿候选；所有复用边仍须重新物化、
+映射和验证。该链路不增加模型调用，可用 `--no-patent-self-evo` 禁用，或用
+`--self-evo-library PATH` 冻结 benchmark 的模板库快照。
 视觉结果只回到下一次全局 replan 作为 L0 候选，不能直接获得 L2/L3 或库存证明。
 
 注入已经审阅的全局路线计划并物化：

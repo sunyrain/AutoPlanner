@@ -83,8 +83,11 @@ _SKIP_PARTS = frozenset(
         ".ruff_cache",
         ".venv",
         "__pycache__",
+        ".autoplanner",
         "artifacts",
+        "data_external",
         "node_modules",
+        "results",
         "runtime",
         "runs",
     }

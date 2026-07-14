@@ -1036,3 +1036,142 @@ def test_primary_patent_html_closes_blind_portfolio_without_pdf_or_visual_model(
     assert derived["model_cost"]["model_invocations"] == 0
     assert derived["model_cost"]["visual_invocations"] == 0
     assert derived["current_disposition"]["state"] == "accepted"
+
+
+def test_patent_self_evolution_learns_then_guides_a_new_blind_target(
+    tmp_path: Path,
+) -> None:
+    library_path = tmp_path / "external-memory" / "patent-templates.json"
+    gateway = CampaignGateway(_paths(tmp_path))
+    source = gateway.solve_target(
+        target_name="unseen self evolution source",
+        target_smiles=TARGET,
+        run_id="blind-self-evo-source",
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+            self_evo_library_path=str(library_path),
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=_evidence_connector,
+    )
+
+    learned = {
+        template_id
+        for stage in source["self_evolution"]["learning_stages"]
+        for template_id in stage.get("learned_template_ids") or []
+    }
+    assert len(learned) == 3
+    assert source["self_evolution"]["model_invocations"] == 0
+
+    analogue = "CCCOC(C)=O"
+    director_calls = 0
+
+    def analogue_runner(
+        spec: AgentSpec,
+        context: Any,
+        mode: str,
+        config: Any,
+    ) -> AgentResult:
+        nonlocal director_calls
+        director_calls += 1
+        memory = context.evidence["self_evo_patent_template_memory"]
+        assert memory["generation"] >= 1
+        assert any(
+            candidate["precursor_smiles"] == ["CC(=O)Cl", "CCCO"]
+            for candidate in memory["candidates"]
+        )
+        plan = _plan(context, mode)
+        alternative_donors = ("CC(=O)Cl", "CC(=O)N", "CC(=O)S")
+        for family, donor in zip(
+            plan["route_families"],
+            alternative_donors,
+            strict=True,
+        ):
+            family["target_smiles"] = analogue
+            family["diversity_basis"] = donor
+        for skeleton, donor in zip(
+            plan["multi_step_skeletons"],
+            alternative_donors,
+            strict=True,
+        ):
+            skeleton["steps"][0]["product_smiles"] = analogue
+            skeleton["steps"][0]["precursor_smiles"] = ["CCCO", donor]
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=f"{spec.idempotency_key}:result",
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.SUCCEEDED,
+            output=plan,
+            usage={
+                "model_invocations": 1,
+                "input_tokens": 1000,
+                "output_tokens": 700,
+                "wall_time_s": 1.0,
+            },
+        )
+
+    def analogue_mapper(reactions: list[str]) -> list[str]:
+        mapped = []
+        for reaction in reactions:
+            if "CC(=O)Cl" in reaction:
+                leaving = "Cl"
+            elif "CC(=O)Br" in reaction:
+                leaving = "Br"
+            elif "CC(=O)O.CCCO" in reaction:
+                leaving = "OH"
+            else:
+                mapped.append("")
+                continue
+            mapped.append(
+                f"[CH3:1][C:2](=[O:3])[{leaving}:4]."
+                "[CH3:5][CH2:6][CH2:8][OH:7]>>"
+                "[CH3:1][C:2](=[O:3])[O:7][CH2:8][CH2:6][CH3:5]"
+            )
+        return mapped
+
+    derived = gateway.solve_target(
+        target_name="new blind propyl ester",
+        target_smiles=analogue,
+        run_id="blind-self-evo-derived",
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+            self_evo_library_path=str(library_path),
+        ),
+        director_runner=analogue_runner,
+        atom_mapper=analogue_mapper,
+        stock_catalog_builder=_catalog,
+    )
+    graph = gateway._open(
+        derived["run_id"],
+        run_dir=derived["run_dir"],
+    ).graph_store.load()
+
+    assert director_calls == 1
+    assert derived["model_cost"]["model_invocations"] == 1
+    assert derived["accepted_expansion_count"] == 5
+    assert any(
+        origin["origin_kind"] == "self_evo_patent_template"
+        for edge in graph["edges"].values()
+        for origin in edge.get("origin_records") or []
+    )
+    assert any(
+        proof.get("accepted") is True
+        for edge in graph["edges"].values()
+        if any(
+            origin.get("origin_kind") == "self_evo_patent_template"
+            for origin in edge.get("origin_records") or []
+        )
+        for proof in edge.get("reaction_proofs") or []
+    )

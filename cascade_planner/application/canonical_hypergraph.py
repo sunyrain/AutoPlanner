@@ -48,6 +48,7 @@ _ORIGIN_KINDS = {
     "literature",
     "manual",
     "host_product_grounded_repair",
+    "self_evo_patent_template",
 }
 
 
@@ -607,11 +608,24 @@ def _ingest_hypothesis(
     }
     graph["hypotheses"][hypothesis_id] = _with_digest(record)
     _ensure_molecules_for_audit(graph, audit, dirty=dirty)
+    if edge_id in graph["edges"]:
+        edge = dict(graph["edges"][edge_id])
+        edge["origin_records"] = _merge_by_digest(
+            edge.get("origin_records"),
+            [origin],
+        )
+        edge["route_family_ids"] = sorted(
+            {*edge.get("route_family_ids", []), route_id} - {""}
+        )
+        graph["edges"][edge_id] = _with_digest(edge)
+        dirty.add(edge_id)
     if route_id and route_id in graph["route_families"]:
         route = dict(graph["route_families"][route_id])
         route["hypothesis_ids"] = sorted(
             {*route.get("hypothesis_ids", []), hypothesis_id}
         )
+        if edge_id in graph["edges"]:
+            route["edge_ids"] = sorted({*route.get("edge_ids", []), edge_id})
         graph["route_families"][route_id] = _with_digest(route)
         dirty.add(route_id)
     dirty.add(hypothesis_id)

@@ -62,6 +62,7 @@ class ReactionStepProof:
     checks: dict[str, bool]
     reasons: tuple[str, ...] = field(default_factory=tuple)
     mapping_source: str = ""
+    mapped_reaction: str = ""
     atom_map_audit: dict[str, Any] = field(default_factory=dict)
     bond_change_audit: dict[str, Any] = field(default_factory=dict)
     deterministic_transform_audit: dict[str, Any] = field(default_factory=dict)
@@ -271,6 +272,10 @@ def verify_reaction_step(
         "checks": checks,
         "reasons": sorted(set(reasons)),
         "mapping_source": mapping_source,
+        # Retain the verifier-bound mapping so deterministic downstream
+        # template extraction can replay the exact reaction centre.  This is
+        # metadata inside the proof digest, never an independent authority.
+        "mapped_reaction": mapped_reaction,
         "atom_map_audit": atom_audit,
         "bond_change_audit": bond_audit,
         "deterministic_transform_audit": transform_audit,
@@ -291,6 +296,7 @@ def verify_reaction_step(
         checks=checks,
         reasons=tuple(proof_payload["reasons"]),
         mapping_source=mapping_source,
+        mapped_reaction=mapped_reaction,
         atom_map_audit=atom_audit,
         bond_change_audit=bond_audit,
         deterministic_transform_audit=transform_audit,

@@ -34,6 +34,9 @@ from cascade_planner.interfaces.live_evidence import (
     acquire_structured_evidence,
     compile_evidence_acquisition_request,
 )
+from cascade_planner.interfaces.patent_self_evolution import (
+    PatentSelfEvolutionSession,
+)
 from cascade_planner.interfaces.target_solver_stages import (
     InventorySnapshotBuilder,
     StockCatalogBuilder,
@@ -74,9 +77,12 @@ class TargetSolveConfig:
     enable_replan: bool = True
     enable_live_benchmark_stock: bool = True
     enable_builtin_patent_evidence: bool = False
+    enable_patent_self_evolution: bool = True
+    self_evo_library_path: str = ""
     max_atom_mapping_reactions: int = 48
     max_live_stock_molecules: int = 24
     max_patent_sources: int = 3
+    max_self_evo_template_candidates: int = 12
     max_visual_evidence_pages: int = 4
     max_director_output_tokens: int = 7_000
     max_director_wall_time_s: float = 360.0
@@ -91,6 +97,8 @@ class TargetSolveConfig:
             raise ValueError("target solver patent source limit is invalid")
         if not 1 <= self.max_visual_evidence_pages <= 8:
             raise ValueError("target solver visual evidence page limit is invalid")
+        if not 1 <= self.max_self_evo_template_candidates <= 64:
+            raise ValueError("target solver self-evolution candidate limit is invalid")
         if self.max_director_output_tokens < 1 or self.max_director_wall_time_s <= 0:
             raise ValueError("target solver director limits must be positive")
 
@@ -211,6 +219,13 @@ def solve_target(
         director_runner=director_runner,
         director_config=director_config,
     )
+    self_evo = PatentSelfEvolutionSession.create(
+        enabled=active.enable_patent_self_evolution,
+        configured_path=active.self_evo_library_path,
+        external_data_root=gateway.paths.external_data_root,
+        target_smiles=canonical,
+        max_candidates=active.max_self_evo_template_candidates,
+    )
     resolved_evidence_connector = evidence_connector
     if (
         resolved_evidence_connector is None
@@ -244,10 +259,20 @@ def solve_target(
             stages=stages,
             outcomes=outcomes,
         )
+    initial_template_retrieval = self_evo.start(service.graph_store.load())
+    stages.append(
+        _stage(
+            "patent_template_retrieval",
+            initial_template_retrieval["status"],
+            initial_template_retrieval,
+        )
+    )
+    initial_template_observation = self_evo.observation()
     if not outcomes:
         initial = _run_director_safely(
             service,
             mode="initial_architecture",
+            evidence_observations=initial_template_observation,
             idempotency_key="solve-target:director:initial",
         )
         outcomes.append(initial)
@@ -264,6 +289,8 @@ def solve_target(
             materialization,
         )
     )
+    template_reuse = self_evo.materialize(service)
+    stages.append(_stage("patent_template_reuse", template_reuse["status"], template_reuse))
     validation = validate_materialized_edges(
         service,
         atom_mapper=atom_mapper,
@@ -301,6 +328,32 @@ def solve_target(
         max_visual_pages=active.max_visual_evidence_pages,
     )
     stages.append(_stage("evidence_acquisition", evidence_stage["status"], evidence_stage))
+    template_learning = self_evo.learn(service.graph_store.load())
+    stages.append(
+        _stage("patent_template_learning", template_learning["status"], template_learning)
+    )
+    learned_template_reuse = self_evo.materialize(service)
+    stages.append(
+        _stage(
+            "post_learning_template_reuse",
+            learned_template_reuse["status"],
+            learned_template_reuse,
+        )
+    )
+    learned_template_validation: dict[str, Any] = {}
+    if dict(learned_template_reuse.get("execution") or {}).get("changed") is True:
+        learned_template_validation = validate_materialized_edges(
+            service,
+            atom_mapper=atom_mapper,
+            max_reactions=active.max_atom_mapping_reactions,
+        )
+        stages.append(
+            _stage(
+                "post_learning_template_validation",
+                learned_template_validation["status"],
+                learned_template_validation,
+            )
+        )
     stock_stage = _audit_stock_stage(
         service,
         acceptance=resolved_acceptance,
@@ -321,11 +374,14 @@ def solve_target(
     )
     material_events = _material_replan_events(
         materialization,
+        template_reuse,
         validation,
         repair_stage,
         repair_validation,
         source_stage,
         evidence_stage,
+        learned_template_reuse,
+        learned_template_validation,
         stock_stage,
     )
     replan_reasons = _replan_reasons(
@@ -341,7 +397,10 @@ def solve_target(
         )
         and len(outcomes) < 2
     )
-    evidence_observations = _evidence_observations(evidence_stage)
+    evidence_observations = {
+        **_evidence_observations(evidence_stage),
+        **self_evo.observation(dict(learned_template_reuse.get("retrieval") or {})),
+    }
     replan_prompt_context_bytes = 0
     if needs_replan:
         replan_context = service.compile_global_context(
@@ -401,6 +460,14 @@ def solve_target(
                     rematerialization,
                 )
             )
+            replan_template_reuse = self_evo.materialize(service)
+            stages.append(
+                _stage(
+                    "replan_patent_template_reuse",
+                    replan_template_reuse["status"],
+                    replan_template_reuse,
+                )
+            )
             revalidation = validate_materialized_edges(
                 service,
                 atom_mapper=atom_mapper,
@@ -443,6 +510,14 @@ def solve_target(
                     "replan_evidence_acquisition",
                     evidence_stage["status"],
                     evidence_stage,
+                )
+            )
+            replan_template_learning = self_evo.learn(service.graph_store.load())
+            stages.append(
+                _stage(
+                    "replan_patent_template_learning",
+                    replan_template_learning["status"],
+                    replan_template_learning,
                 )
             )
             stock_stage = _audit_stock_stage(
@@ -508,6 +583,7 @@ def solve_target(
         "accepted_expansion_count": service.kernel.state.accepted_expansion_count,
         "stop_decision": stop,
         "current_disposition": current_disposition,
+        "self_evolution": self_evo.report(),
         "portfolio_ref": closeout["portfolio_ref"],
         "workbench_ref": workbench["snapshot_ref"],
         "claim": claim,

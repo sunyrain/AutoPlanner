@@ -19,6 +19,9 @@
 | `retrosynthesis_replay_result.v1` | 重放阶段、指标和 digest 校验 | replay runner |
 | `autoplanner_campaign_gateway_result.v1` | CLI/API 操作包装 | campaign gateway |
 | `primary_patent_html_materialization.v1` | 官方专利 HTML、段落窗口与零模型审计 | patent HTML adapter |
+| `patent_reaction_template_library.v1` | 仓库外、跨 campaign、摘要绑定的专利模板记忆 | patent self-evolution |
+| `patent_reaction_template_record.v1` | 原例重放、来源支持和复用成败统计 | deterministic template learner |
+| `patent_template_retrieval.v1` | 交给全局 Director/统一准入链的 L0 模板候选 | deterministic template retriever |
 | `local_source_ocr_materialization.v1` | 本地 OCR 执行、覆盖率与零模型审计 | local OCR adapter |
 | `source_text_companion_binding.v1` | source/HTML 段落或 PDF/page image/OCR text 哈希重放绑定 | deterministic literature parser |
 | `visual_source_candidate_request.v1` | 至多一次、页图哈希绑定的视觉请求 | visual evidence adapter |

@@ -71,6 +71,15 @@ CLI 和 golden replay 默认模型预算为 0。
 低文本页本地 OCR → 显式准入的视觉 L0 候选。上一级已闭合的边不会进入下一级；
 搜索摘要、视觉识别和 Codex 转述都不能直接授予 exact-source authority。
 
+专利 self-evolution 是 proposal memory，不是第二套搜索状态。只有同时绑定可重放 patent
+exact row 和当前版本 accepted reaction proof 的边才会抽取局部 reaction-center SMARTS；
+抽取结果必须先重放原例，才以 digest-bound 记录写入仓库外模板库。下一 campaign 启动时，
+Codex 一次性看到这些候选并可在全局路线中组合；host 也可零模型地应用到 target/open leaves，
+但结果始终从 L0 重新进入统一 admission、mapping 和 reaction validation。失败复用会按规范边
+digest 去重回写，损坏的库则 fail closed，模板本身永不授予 L2/L3 或库存权威。
+为防止 blind benchmark 退化成答案记忆，模板不会应用到其 exact 训练样例产物；零成功且
+累计三条不同验证失败边的模板会自动隔离，只有新的已验证结果才能改变其统计。
+
 ## 多信源、可替换路线与 UI
 
 每条边分别记录 proposal origin、反应验证、精确来源、独立来源组和冲突。多个 Codex
