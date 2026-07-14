@@ -198,7 +198,96 @@ def test_event_idempotency_prevents_double_count_and_conflicts(
         status="completed",
     )
     assert replayed.event_id == settled.event_id
+    assert kernel.state.attempt_count == 0
+
+
+def test_only_proposal_tasks_consume_attempt_budget(tmp_path: Path) -> None:
+    kernel = _kernel(tmp_path, attempts=1)
+    kernel.start()
+    for kind in ("model", "evidence", "validation", "stock", "other"):
+        kernel.reserve_task(
+            task_id=kind,
+            kind=kind,
+            idempotency_key=f"reserve-{kind}",
+            input_revision=0,
+            uses_model=kind == "model",
+        )
+        kernel.settle_task(
+            task_id=kind,
+            idempotency_key=f"settle-{kind}",
+            status="completed",
+        )
+
+    assert kernel.state.attempt_count == 0
+    assert kernel.state.settled_task_count == 5
+
+    kernel.reserve_task(
+        task_id="proposal-1",
+        kind="proposal",
+        idempotency_key="reserve-proposal-1",
+        input_revision=0,
+    )
+    kernel.settle_task(
+        task_id="proposal-1",
+        idempotency_key="settle-proposal-1",
+        status="rejected",
+    )
     assert kernel.state.attempt_count == 1
+
+    kernel.reserve_task(
+        task_id="evidence-after-proposal-cap",
+        kind="evidence",
+        idempotency_key="reserve-evidence-after-proposal-cap",
+        input_revision=0,
+    )
+    with pytest.raises(RunKernelBudgetError, match="run_attempt_budget_exhausted"):
+        kernel.reserve_task(
+            task_id="proposal-2",
+            kind="proposal",
+            idempotency_key="reserve-proposal-2",
+            input_revision=0,
+        )
+
+
+def test_attempt_cap_does_not_stop_remaining_non_proposal_work(tmp_path: Path) -> None:
+    kernel = _kernel(tmp_path, attempts=1)
+    kernel.start()
+    kernel.reserve_task(
+        task_id="proposal",
+        kind="proposal",
+        idempotency_key="reserve-proposal",
+        input_revision=0,
+    )
+    kernel.settle_task(
+        task_id="proposal",
+        idempotency_key="settle-proposal",
+        status="rejected",
+    )
+    kernel.replace_deficits(
+        [
+            Deficit(
+                deficit_id="validation:edge",
+                kind="validation",
+                source_revision=0,
+                deterministic=True,
+                model_allowed=False,
+            ),
+            Deficit(
+                deficit_id="expansion:leaf",
+                kind="expansion",
+                source_revision=0,
+                deterministic=False,
+                model_allowed=True,
+            ),
+        ],
+        source_revision=0,
+        idempotency_key="replace-mixed-deficits",
+    )
+
+    decision = kernel.decide_stop()
+
+    assert decision.decision == "continue"
+    assert decision.terminal is False
 
 
 def test_stop_decision_requires_bound_acceptance_report(tmp_path: Path) -> None:

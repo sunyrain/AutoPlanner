@@ -96,7 +96,11 @@ def _command(
     )
 
 
-def _build_closed_graph(tmp_path: Path) -> tuple[RunKernel, dict]:
+def _build_closed_graph(
+    tmp_path: Path,
+    *,
+    split_route_families: bool = False,
+) -> tuple[RunKernel, dict]:
     acceptance = RetrosynthesisAcceptanceSpec(
         minimum_complete_routes=2,
         minimum_edge_proof_level=3,
@@ -125,14 +129,24 @@ def _build_closed_graph(tmp_path: Path) -> tuple[RunKernel, dict]:
     )
     kernel.start()
     store = CanonicalHypergraphStore(kernel)
+    route_family_ids = (
+        ("family:acyl-chloride", "family:acetic-acid")
+        if split_route_families
+        else (
+            "family:alternative-acyl-donors",
+            "family:alternative-acyl-donors",
+        )
+    )
+    route_families = tuple(
+        {
+            "route_family_id": family_id,
+            "strategic_disconnection": "late ester bond formation",
+        }
+        for family_id in dict.fromkeys(route_family_ids)
+    )
     store.apply(
         CanonicalIngestionBatch(
-            route_families=(
-                {
-                    "route_family_id": "family:alternative-acyl-donors",
-                    "strategic_disconnection": "late ester bond formation",
-                },
-            )
+            route_families=route_families
         ),
         idempotency_key="route-family",
     )
@@ -219,7 +233,7 @@ def _build_closed_graph(tmp_path: Path) -> tuple[RunKernel, dict]:
             "precursor_smiles": route["precursor_smiles"],
             "origin_kind": "template",
             "proposal_id": f"proposal:{index}",
-            "route_family_id": "family:alternative-acyl-donors",
+            "route_family_id": route_family_ids[index - 1],
         }
         for index, route in enumerate(ROUTES, start=1)
     )
@@ -473,3 +487,41 @@ def test_alternative_step_is_a_canonical_module_patch_not_a_route_copy(
     assert patch["semantics"]["patch_does_not_duplicate_entire_route"] is True
     assert same["accepted"] is False
     assert "replacement_edge_is_already_selected" in same["reasons"]
+
+
+def test_cross_family_same_product_edges_form_restitched_replacement_module(
+    tmp_path: Path,
+) -> None:
+    kernel, graph = _build_closed_graph(tmp_path, split_route_families=True)
+
+    portfolio = compile_proof_portfolio(
+        graph,
+        acceptance_spec=kernel.spec.acceptance,
+        config=PortfolioConfig(minimum_routes_to_show=2, maximum_routes_to_show=5),
+    )
+
+    assert len(portfolio["route_modules"]) == 1
+    module = portfolio["route_modules"][0]
+    assert module["route_family_id"] == ""
+    candidate_family_ids = sorted(
+        {route["route_family_id"] for route in portfolio["route_candidates"]}
+    )
+    assert len(candidate_family_ids) == 2
+    assert module["route_family_ids"] == candidate_family_ids
+    assert module["semantics"]["cross_family_replacement_supported"] is True
+    assert module["semantics"]["full_restitched_candidate_route_required"] is True
+    selections = {
+        route["route_id"]: route["module_selections"][module["module_id"]]
+        for route in portfolio["route_candidates"]
+    }
+    assert len(set(selections.values())) == 2
+    assert all(route["complete"] is True for route in portfolio["route_candidates"])
+
+    base, replacement = portfolio["selected_routes"]
+    patch = validate_module_replacement(
+        portfolio,
+        route_id=base["route_id"],
+        module_id=module["module_id"],
+        replacement_edge_id=selections[replacement["route_id"]],
+    )
+    assert patch["accepted"] is True

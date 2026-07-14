@@ -6,12 +6,18 @@ import html
 import json
 from pathlib import Path
 import re
-from typing import Any, Iterable, Mapping, Protocol
+from typing import Any, Callable, Iterable, Mapping, Protocol
 from urllib.parse import quote
 
 import requests
 
+from cascade_planner.interfaces.epo_family_discovery import (
+    epo_family_pdf_candidates,
+)
 from cascade_planner.interfaces.live_evidence import LiveEvidenceConnectorError
+
+
+HttpRequester = Callable[..., Any]
 
 
 class PatentSearchConfig(Protocol):
@@ -20,6 +26,7 @@ class PatentSearchConfig(Protocol):
     max_search_queries: int
     max_search_pages_per_query: int
     max_html_bytes: int
+    max_patents: int
 
 
 def evidence_queries(
@@ -27,17 +34,46 @@ def evidence_queries(
     *,
     limit: int,
 ) -> list[str]:
-    values = [str(request.get("target_name") or "").strip()]
-    values.extend(
-        str(row.get("query") or "").strip()
-        for row in request.get("source_tasks") or []
-        if isinstance(row, Mapping)
-    )
+    identity = dict(request.get("target_identity") or {})
+    structure_patents = [
+        str(value).strip()
+        for value in identity.get("patent_ids") or []
+        if str(value).strip()
+    ]
+    # Director source tasks express the actual transformation being audited.
+    # PubChem's structure-linked patent list is useful only as a fallback: it
+    # frequently contains formulation, medical-use and unrelated compound
+    # families.  Putting those identifiers first used to consume the entire
+    # bounded query budget before a precise process query was attempted.
+    values: list[str] = []
+    for row in request.get("source_tasks") or []:
+        if not isinstance(row, Mapping) or (
+            row.get("source_types")
+            and not any(
+                str(kind).casefold() in {"patent", "patents"}
+                for kind in row.get("source_types") or []
+            )
+        ):
+            continue
+        values.extend(
+            str(ref).strip()
+            for ref in row.get("source_refs") or []
+            if _patent_publications(str(ref))
+        )
+        if str(row.get("query") or "").strip():
+            values.append(str(row.get("query") or "").strip())
+    target_name = str(request.get("target_name") or "").strip()
+    if target_name:
+        values.append(f'"{target_name}" synthesis process')
     values.extend(
         str(row.get("source_ref") or "").removeprefix("patent:").strip()
         for row in request.get("source_hints") or []
         if isinstance(row, Mapping)
+        and str(row.get("source_kind") or "patent").casefold() == "patent"
     )
+    # For long structure-bound lists, older publication numbers remain the
+    # least noisy fallback, but no longer outrank route-specific source work.
+    values.extend(sorted(structure_patents, key=_structure_patent_rank)[:3])
     out: list[str] = []
     for value in values:
         compact = " ".join(value.split())[:800]
@@ -46,6 +82,15 @@ def evidence_queries(
         if len(out) >= limit:
             break
     return out
+
+
+def _structure_patent_rank(value: str) -> tuple[int, int, str]:
+    publication = _publication(value)
+    match = re.match(r"([A-Z]{2})(\d+)", publication)
+    if not match:
+        return (1, 10**15, publication)
+    number = int(match.group(2))
+    return (0, number, publication)
 
 
 def google_patent_candidate_provider(
@@ -58,6 +103,13 @@ def google_patent_candidate_provider(
             explicit = _patent_publications(query)
             rows.extend(_direct_pdf_candidates(query, explicit))
             for publication in explicit:
+                rows.extend(
+                    epo_family_pdf_candidates(
+                        publication,
+                        timeout_s=config.timeout_s,
+                        max_response_bytes=config.max_html_bytes,
+                    )
+                )
                 direct = _resolve_google_patent_publication(
                     publication,
                     timeout_s=config.timeout_s,
@@ -65,6 +117,28 @@ def google_patent_candidate_provider(
                 )
                 if direct:
                     rows.append(direct)
+                else:
+                    rows.extend(
+                        _pubchem_family_pdf_candidates(
+                            publication,
+                            timeout_s=config.timeout_s,
+                            max_response_bytes=config.max_html_bytes,
+                        )
+                    )
+            if explicit:
+                # The structure-bound publication has already gone through
+                # direct, EPO-family and PubChem-family resolution.  Repeating
+                # it through Google XHR adds no authority and is frequently
+                # throttled, so move to the next exact identifier instead.
+                if len(
+                    select_independent_candidates(
+                        rows,
+                        queries=all_queries,
+                        limit=max(1, int(config.max_patents)),
+                    )
+                ) >= max(1, int(config.max_patents)):
+                    break
+                continue
             search_values = [*explicit, query]
             for search_value in search_values:
                 nested = f"q=({search_value})"
@@ -131,7 +205,14 @@ def select_independent_candidates(
             for term in ("medical use", "combination", "formulation", "treatment")
         )
         explicit = int(publication.casefold() in explicit_queries)
-        score = 100 * explicit + 12 * matched + 8 * process - 8 * noise
+        source_priority = max(0, min(50, int(row.get("_source_priority") or 0)))
+        score = (
+            100 * explicit
+            + 12 * matched
+            + 8 * process
+            - 8 * noise
+            + source_priority
+        )
         normalized = {**row, "publication_number": publication}
         prior = by_publication.get(publication)
         if prior is None:
@@ -312,10 +393,175 @@ def _resolve_google_patent_publication(
     }
 
 
+def _pubchem_family_pdf_candidates(
+    publication: str,
+    *,
+    timeout_s: float,
+    max_response_bytes: int,
+    requester: HttpRequester = requests.get,
+) -> list[dict[str, Any]]:
+    """Resolve a blocked patent page through PubChem to an official EPO PDF."""
+    canonical = _publication(publication)
+    if not _hyphenated_publication(canonical):
+        try:
+            landing = requester(
+                f"https://pubchem.ncbi.nlm.nih.gov/patent/{publication}",
+                headers={"User-Agent": "AutoPlanner/1.0 patent-family-discovery"},
+                timeout=timeout_s,
+            )
+        except requests.RequestException:
+            return []
+        landing_bytes = bytes(landing.content)
+        if landing.status_code != 200 or len(landing_bytes) > max_response_bytes:
+            return []
+        match = re.search(
+            rb'<meta\s+name="ncbi_pubchem_publication_number"\s+content="([^"]+)"',
+            landing_bytes,
+            flags=re.IGNORECASE,
+        )
+        canonical = (
+            _publication(match.group(1).decode("ascii", errors="ignore"))
+            if match
+            else ""
+        )
+    if not canonical:
+        return []
+    root_payload = _pubchem_patent_payload(
+        canonical,
+        requester=requester,
+        timeout_s=timeout_s,
+        max_response_bytes=max_response_bytes,
+    )
+    if not root_payload:
+        return []
+    title = _plain_text(dict(root_payload.get("Record") or {}).get("RecordTitle"))
+    family_members = _pubchem_family_members(root_payload)
+    rows: list[dict[str, Any]] = []
+    for member in sorted(
+        family_members,
+        key=lambda value: (
+            not value.endswith(("B1", "B2")),
+            not value.endswith(("A1", "A2")),
+            value,
+        ),
+    )[:6]:
+        payload = _pubchem_patent_payload(
+            member,
+            requester=requester,
+            timeout_s=timeout_s,
+            max_response_bytes=max_response_bytes,
+        )
+        publication_date = _pubchem_publication_date(payload)
+        if not publication_date:
+            continue
+        parts = re.fullmatch(r"EP(\d{5,12})(A\d|B\d)", member)
+        if not parts:
+            continue
+        number, kind = parts.groups()
+        document_id = f"EP{number}NW{kind}"
+        rows.append(
+            {
+                "publication_number": member,
+                "title": title or f"Patent {member}",
+                "snippet": f"official EPO family member resolved from PubChem patent {canonical}",
+                "publication_date": publication_date,
+                "pdf_url": (
+                    "https://data.epo.org/publication-server/rest/v1.2/"
+                    f"publication-dates/{publication_date.replace('-', '')}/"
+                    f"patents/{document_id}/document.pdf"
+                ),
+                "html_url": "",
+                "family_id": f"pubchem-family:{canonical}",
+                "query": publication,
+                "source_authority": "pubchem_to_epo_publication_server",
+                "_source_priority": 25 if kind.startswith("B") else 15,
+            }
+        )
+        if len(rows) >= 2:
+            break
+    return rows
+
+
+def _pubchem_patent_payload(
+    publication: str,
+    *,
+    requester: HttpRequester,
+    timeout_s: float,
+    max_response_bytes: int,
+) -> dict[str, Any]:
+    token = _hyphenated_publication(publication)
+    if not token:
+        return {}
+    try:
+        response = requester(
+            "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/"
+            f"patent/{token}/JSON",
+            headers={"Accept": "application/json", "User-Agent": "AutoPlanner/1.0"},
+            timeout=timeout_s,
+        )
+    except requests.RequestException:
+        return {}
+    content = bytes(response.content)
+    if response.status_code != 200 or len(content) > max_response_bytes:
+        return {}
+    try:
+        value = response.json()
+    except (ValueError, requests.JSONDecodeError):
+        return {}
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _pubchem_family_members(payload: Mapping[str, Any]) -> list[str]:
+    values: list[str] = []
+    for section in _walk_mappings(payload):
+        if str(section.get("TOCHeading") or "") != "Patent Family":
+            continue
+        for information in section.get("Information") or []:
+            if not isinstance(information, Mapping):
+                continue
+            for row in dict(information.get("Value") or {}).get("StringWithMarkup") or []:
+                if not isinstance(row, Mapping):
+                    continue
+                publication = _publication(row.get("String"))
+                if publication.startswith("EP") and publication not in values:
+                    values.append(publication)
+        break
+    return values
+
+
+def _pubchem_publication_date(payload: Mapping[str, Any]) -> str:
+    for section in _walk_mappings(payload):
+        if str(section.get("TOCHeading") or "") != "Publication Date":
+            continue
+        for information in section.get("Information") or []:
+            if not isinstance(information, Mapping):
+                continue
+            values = dict(information.get("Value") or {}).get("DateISO8601") or []
+            if values:
+                value = str(values[0]).replace("/", "-")
+                return value if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) else ""
+    return ""
+
+
+def _walk_mappings(value: Any):
+    if isinstance(value, Mapping):
+        yield value
+        for child in value.values():
+            yield from _walk_mappings(child)
+    elif isinstance(value, list | tuple):
+        for child in value:
+            yield from _walk_mappings(child)
+
+
+def _hyphenated_publication(publication: str) -> str:
+    parsed = re.fullmatch(r"([A-Z]{2})(\d{5,12})([A-Z]\d?)", publication)
+    return "-".join(parsed.groups()) if parsed else ""
+
+
 def _patent_publications(value: str) -> list[str]:
     rows = re.findall(
         r"\b(?:US|WO|EP|CN|JP|KR|CA|AU|DE|GB)\s*[-/]?\s*"
-        r"\d{5,12}\s*[A-Z]\d?\b",
+        r"\d{5,12}(?:\s*[-/]?\s*[A-Z]\d?)?\b",
         str(value or "").upper(),
     )
     out: list[str] = []
@@ -328,7 +574,7 @@ def _patent_publications(value: str) -> list[str]:
 
 def _publication(value: Any) -> str:
     compact = re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
-    return compact if re.fullmatch(r"[A-Z]{2}\d{5,12}[A-Z]\d?", compact) else ""
+    return compact if re.fullmatch(r"[A-Z]{2}\d{5,12}(?:[A-Z]\d?)?", compact) else ""
 
 
 def _plain_text(value: Any) -> str:

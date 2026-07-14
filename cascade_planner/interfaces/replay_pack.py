@@ -186,6 +186,8 @@ def _run_plan_stage(
     result = service.apply_global_plan(
         pack["global_plan"],
         idempotency_key="replay:global-plan",
+        proposal_origin_kind="literature_replay",
+        proposal_origin_ref=f"replay_pack:{str(pack['content_sha256'])[:24]}",
     )
     stages.append(_stage("plan", "executed", int(result["changed"])))
 

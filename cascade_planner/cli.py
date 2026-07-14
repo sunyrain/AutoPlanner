@@ -284,7 +284,14 @@ def _read_object(path: Path) -> dict[str, Any]:
 
 def _emit(value: Any, *, stream: Any = None) -> None:
     stream = sys.stdout if stream is None else stream
-    json.dump(value, stream, ensure_ascii=False, indent=2, sort_keys=True)
+    encoding = str(getattr(stream, "encoding", "") or "").lower().replace("-", "")
+    json.dump(
+        value,
+        stream,
+        ensure_ascii=bool(encoding and encoding not in {"utf8", "utf8sig"}),
+        indent=2,
+        sort_keys=True,
+    )
     stream.write("\n")
 
 

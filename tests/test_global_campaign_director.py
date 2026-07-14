@@ -23,6 +23,9 @@ from cascade_planner.orchestration.global_campaign_director import (
     GlobalCampaignPlanValidationError,
     ReplayDirectorRunner,
     director_trigger_reasons,
+    director_prompt,
+    director_web_search_enabled,
+    repair_global_campaign_plan_contract,
     validate_global_campaign_plan,
 )
 from cascade_planner.runtime import AgentResult, AgentSpec, AgentState
@@ -345,7 +348,7 @@ def test_director_coordinates_global_families_through_one_kernel_call_and_cache(
     assert len(first.plan.multi_step_skeletons) == 2
     assert len(first.plan.shared_intermediates) == 1
     assert all(row["accepted"] is True for row in first.proposal_audits)
-    assert kernel.state.attempt_count == 1
+    assert kernel.state.attempt_count == 0
     assert kernel.state.model_totals["model_invocations"] == 1
     assert kernel.state.accepted_expansion_count == 0
 
@@ -568,6 +571,157 @@ def test_director_output_cannot_grant_scientific_authority(tmp_path: Path) -> No
         validate_global_campaign_plan(plan, context)
 
 
+def test_director_repairs_only_redundant_family_target_metadata(tmp_path: Path) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    raw["route_families"][0]["target_smiles"] = "CCOC(=O)O"
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+    )
+
+    assert repaired.route_families[0]["target_smiles"] == "CCOC(N)=O"
+    assert repairs[0]["route_family_id"] == raw["route_families"][0]["route_family_id"]
+    assert repairs[0]["semantics"]["chemistry_unchanged"] is True
+    assert validate_global_campaign_plan(repaired, context)
+
+
+def test_director_does_not_repair_family_without_exact_target_root(tmp_path: Path) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    family_id = raw["route_families"][0]["route_family_id"]
+    raw["route_families"][0]["target_smiles"] = "CCOC(=O)O"
+    for skeleton in raw["multi_step_skeletons"]:
+        if skeleton["route_family_id"] == family_id:
+            skeleton["steps"][0]["product_smiles"] = "CCO"
+
+    unrepaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+    )
+
+    assert repairs == ()
+    assert unrepaired.route_families[0]["target_smiles"] == "CCOC(=O)O"
+
+
+def test_director_removes_identity_leaf_marker_without_rewriting_chemistry(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    raw["multi_step_skeletons"][0]["steps"].append(
+        {
+            "step_id": "proposal:amide:stock-leaf",
+            "product_smiles": "CCO",
+            "precursor_smiles": ["CCO"],
+            "transformation_hypothesis": "commercially available",
+            "strategic_role": "terminal leaf marker",
+            "source_hints": [],
+            "required_validation": ["stock audit"],
+            "hypothesis_only": True,
+        }
+    )
+    raw["frontier_priorities"].append(
+        {
+            "priority_id": "priority:identity-leaf",
+            "proposal_id": "proposal:amide:stock-leaf",
+            "priority": 7,
+            "rationale": "leaf is commercially available",
+            "expected_portfolio_gain": "none",
+        }
+    )
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+    )
+
+    repaired_ids = {
+        step["step_id"]
+        for skeleton in repaired.multi_step_skeletons
+        for step in skeleton["steps"]
+    }
+    assert "proposal:amide:stock-leaf" not in repaired_ids
+    assert all(
+        row.get("proposal_id") != "proposal:amide:stock-leaf"
+        for row in repaired.frontier_priorities
+    )
+    assert any(row["reason"] == "identity_leaf_marker_removed" for row in repairs)
+    assert validate_global_campaign_plan(repaired, context)
+
+
+def test_director_completes_chemenzy_metadata_for_codex_selected_non_root_step(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    raw["frontier_priorities"].append(
+        {
+            "priority_id": "priority:shared-acid",
+            "proposal_id": "proposal:amide:2",
+            "priority": 9,
+            "rationale": "expand the selected shared intermediate locally",
+            "expected_portfolio_gain": "closes one upstream branch",
+        }
+    )
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+    )
+
+    priority = next(
+        row
+        for row in repaired.frontier_priorities
+        if row["priority_id"] == "priority:shared-acid"
+    )
+    assert priority["target_smiles"] == "CCOC(=O)O"
+    assert priority["provider_preferences"] == ["chemenzy"]
+    assert priority["route_family_ids"] == ["family:amide"]
+    assert any(
+        row["field"] == "frontier_priorities.provider_delegation"
+        for row in repairs
+    )
+    assert validate_global_campaign_plan(repaired, context)
+
+
+def test_director_resolves_chemenzy_request_to_shared_intermediate(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    raw["frontier_priorities"].append(
+        {
+            "priority_id": "priority:shared-ethanol",
+            "proposal_id": "shared:ethanol",
+            "priority": 9.5,
+            "rationale": "delegate the Codex-selected shared node",
+            "expected_portfolio_gain": "adds local alternatives",
+        }
+    )
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+    )
+
+    priority = next(
+        row
+        for row in repaired.frontier_priorities
+        if row["priority_id"] == "priority:shared-ethanol"
+    )
+    assert priority["target_smiles"] == "CCO"
+    assert priority["provider_preferences"] == ["chemenzy"]
+    assert priority["route_family_ids"] == ["family:amide", "family:ester"]
+    assert any(
+        row["reason"].endswith("shared_intermediate") for row in repairs
+    )
+    assert validate_global_campaign_plan(repaired, context)
+
+
 def test_concurrent_identical_context_invokes_runner_once(tmp_path: Path) -> None:
     kernel = _kernel(tmp_path)
     context = _context(kernel)
@@ -604,6 +758,34 @@ def test_replay_runner_is_model_free_and_schema_identical(tmp_path: Path) -> Non
     assert outcome.plan.to_dict()["schema_version"] == "global_campaign_plan.v1"
     assert len(replay.calls) == 1
     assert kernel.state.model_totals["model_invocations"] == 0
+
+
+def test_director_defers_web_tools_until_evidence_informed_replan(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    config = DirectorConfig(enable_web_search=True)
+
+    assert director_web_search_enabled(config, mode="initial_architecture") is False
+    assert director_web_search_enabled(config, mode="event_replan") is True
+    assert "Live search is deferred from this first-route pass" in director_prompt(
+        context,
+        mode="initial_architecture",
+        config=config,
+    )
+    assert "Live search is enabled" in director_prompt(
+        context,
+        mode="event_replan",
+        config=config,
+    )
+
+    opted_in = DirectorConfig(
+        enable_web_search=True,
+        enable_initial_web_search=True,
+    )
+    assert (
+        director_web_search_enabled(opted_in, mode="initial_architecture") is True
+    )
 
 
 def test_proposal_dispositions_preserve_superseded_and_ignored_history(

@@ -6,7 +6,7 @@ import json
 from typing import Any, Mapping
 
 
-CURRENT_REACTION_VALIDATOR_VERSION = "autoplanner.reaction_step_verifier.v7"
+CURRENT_REACTION_VALIDATOR_VERSION = "autoplanner.reaction_step_verifier.v8"
 REACTION_PROOF_VERSION_AUDIT_SCHEMA = "reaction_proof_version_audit.v1"
 
 

@@ -47,6 +47,7 @@ def build_replay_report(
         ),
         "accepted_expansion_count": service.kernel.state.accepted_expansion_count,
         "attempt_count": service.kernel.state.attempt_count,
+        "settled_task_count": service.kernel.state.settled_task_count,
         "model_invocations": int(
             service.kernel.state.model_totals.get("model_invocations") or 0
         ),

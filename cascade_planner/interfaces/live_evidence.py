@@ -8,11 +8,13 @@ proof; the connector cannot grant B3 by returning a boolean.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import time
 from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import urlsplit, urlunsplit
 
@@ -33,6 +35,128 @@ HttpRequester = Callable[..., tuple[int, bytes, Mapping[str, Any]]]
 
 class LiveEvidenceConnectorError(RuntimeError):
     """A configured evidence connector failed its bounded host contract."""
+
+
+def compose_evidence_connectors(
+    *connectors: EvidenceConnector,
+    max_sources: int = 16,
+) -> EvidenceConnector:
+    """Combine independent paper/patent providers behind one typed boundary."""
+
+    active = tuple(connector for connector in connectors if connector is not None)
+    if not active:
+        raise ValueError("evidence_connector_composition_empty")
+    if not 1 <= max_sources <= 64:
+        raise ValueError("evidence_connector_composition_limit_invalid")
+
+    def invoke(request: Mapping[str, Any]) -> Mapping[str, Any]:
+        documents: list[dict[str, Any]] = []
+        discovery_sources: list[dict[str, Any]] = []
+        receipts: list[dict[str, Any]] = []
+        failures: list[str] = []
+
+        def run_one(
+            indexed: tuple[int, EvidenceConnector],
+        ) -> tuple[int, dict[str, Any] | None, str, float]:
+            index, connector = indexed
+            started = time.monotonic()
+            try:
+                result = dict(connector(request))
+            except (LiveEvidenceConnectorError, OSError, RuntimeError, ValueError) as exc:
+                return (
+                    index,
+                    None,
+                    f"connector_{index}:{type(exc).__name__}:{str(exc)[:300]}",
+                    round(time.monotonic() - started, 3),
+                )
+            return index, result, "", round(time.monotonic() - started, 3)
+
+        indexed_connectors = list(enumerate(active, start=1))
+        if len(indexed_connectors) == 1:
+            completed = [run_one(indexed_connectors[0])]
+        else:
+            # Patent and paper acquisition are independent I/O-bound providers.
+            # Preserve provider order in the merged observation while reducing
+            # the critical path from the sum of their timeouts to the slowest
+            # provider timeout.
+            with ThreadPoolExecutor(
+                max_workers=min(4, len(indexed_connectors)),
+                thread_name_prefix="autoplanner-evidence",
+            ) as executor:
+                completed = list(executor.map(run_one, indexed_connectors))
+        child_elapsed_s: dict[str, float] = {}
+        for index, result, failure, elapsed_s in sorted(completed):
+            child_elapsed_s[f"connector_{index}"] = elapsed_s
+            if failure:
+                failures.append(failure)
+                continue
+            assert result is not None
+            if isinstance(result.get("document"), Mapping):
+                documents.extend(
+                    dict(row)
+                    for row in dict(result["document"]).get("sources") or []
+                    if isinstance(row, Mapping)
+                )
+            if isinstance(result.get("discovery"), Mapping):
+                discovery_sources.extend(
+                    dict(row)
+                    for row in dict(result["discovery"]).get("sources") or []
+                    if isinstance(row, Mapping)
+                )
+            if isinstance(result.get("receipt"), Mapping):
+                receipts.append(dict(result["receipt"]))
+        if not documents and not discovery_sources:
+            raise LiveEvidenceConnectorError(
+                "composed_evidence_connectors_unresolved:" + "|".join(failures)
+            )
+        output: dict[str, Any] = {
+            "receipt": {
+                "schema_version": EVIDENCE_CONNECTOR_RECEIPT_SCHEMA,
+                "provider_id": "autoplanner.composed_evidence",
+                "provider_version": "1.0",
+                "request_sha256": str(request.get("content_sha256") or ""),
+                "child_receipts": receipts,
+                "failures": failures,
+                "model_invocations": 0,
+                "parallel_connector_count": len(active),
+                "child_elapsed_s": child_elapsed_s,
+                "connector_wall_time_s": max(child_elapsed_s.values(), default=0.0),
+                "semantics": {
+                    "independent_connectors_run_concurrently": len(active) > 1,
+                    "merge_order_is_deterministic": True,
+                },
+            }
+        }
+        output["receipt"]["content_sha256"] = _digest(output["receipt"])
+        if documents:
+            output["document"] = {
+                "schema_version": "structured_evidence_import.v1",
+                "sources": documents[:128],
+            }
+        if discovery_sources:
+            discovery = {
+                "schema_version": SOURCE_DISCOVERY_OBSERVATION_SCHEMA,
+                "provider_id": "autoplanner.composed_evidence",
+                "request_sha256": str(request.get("content_sha256") or ""),
+                "sources": discovery_sources[:max_sources],
+                "semantics": {
+                    "providers_remain_independently_attributed": True,
+                    "composition_grants_no_scientific_authority": True,
+                },
+            }
+            discovery["content_sha256"] = _digest(discovery)
+            output["discovery"] = discovery
+        return output
+
+    setattr(
+        invoke,
+        "autoplanner_prefetch_safe",
+        all(
+            getattr(connector, "autoplanner_prefetch_safe", False) is True
+            for connector in active
+        ),
+    )
+    return invoke
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,8 +187,10 @@ def compile_evidence_acquisition_request(
     target_smiles: str,
     graph: Mapping[str, Any],
     source_frontier: Mapping[str, Any],
+    target_identity: Mapping[str, Any] | None = None,
     max_edges: int = 64,
     max_source_tasks: int = 24,
+    prefetch_mode: bool = False,
 ) -> dict[str, Any]:
     """Compile a bounded, answer-free request from current canonical state."""
 
@@ -114,6 +240,28 @@ def compile_evidence_acquisition_request(
         for row in detail.get("sources") or []
         if isinstance(row, Mapping) and str(row.get("source_ref") or "")
     ][:max_source_tasks]
+    identity = dict(target_identity or {})
+    identity_hints = {
+        "preferred_name": " ".join(
+            str(identity.get("preferred_name") or "").split()
+        )[:500],
+        "synonyms": [
+            " ".join(str(value).split())[:500]
+            for value in identity.get("synonyms") or []
+            if str(value).strip()
+        ][:12],
+        "patent_ids": [
+            str(value).strip()[:100]
+            for value in identity.get("patent_ids") or []
+            if str(value).strip()
+        ][:24],
+        "pubmed_ids": [
+            str(value).strip()[:100]
+            for value in identity.get("pubmed_ids") or []
+            if str(value).strip()
+        ][:24],
+        "resolved_from_input_structure": bool(identity),
+    }
     request = {
         "schema_version": EVIDENCE_ACQUISITION_REQUEST_SCHEMA,
         "run_id": str(run_id),
@@ -123,15 +271,20 @@ def compile_evidence_acquisition_request(
         "edges": edge_rows,
         "source_tasks": tasks,
         "source_hints": source_hints,
+        "target_identity": identity_hints,
         "limits": {
             "max_edges": max_edges,
             "max_source_tasks": max_source_tasks,
             "exact_structured_rows_only": True,
+            "source_fetch_policy": (
+                "html_first_no_pdf" if prefetch_mode else "full_fallback"
+            ),
         },
         "semantics": {
             "request_contains_no_dossier_or_replay_pack": True,
             "source_search_result_is_not_exact_evidence": True,
             "connector_cannot_grant_reaction_validation": True,
+            "prefetch_mode": bool(prefetch_mode),
         },
     }
     request["content_sha256"] = _digest(request)
@@ -310,6 +463,7 @@ def _bounded_source_task(value: Mapping[str, Any]) -> dict[str, Any]:
         "query": " ".join(str(row.get("query") or "").split())[:1000],
         "priority": max(0.0, min(1.0, float(row.get("priority") or 0.0))),
         "source_types": _bounded_strings(row.get("source_types") or [], 12, 120),
+        "source_refs": _bounded_strings(row.get("source_refs") or [], 12, 500),
         "target_claims": _bounded_strings(row.get("target_claims") or [], 16, 500),
         "affected_proposal_ids": _bounded_strings(
             row.get("affected_proposal_ids") or [], 32, 160
@@ -396,5 +550,6 @@ __all__ = [
     "LiveEvidenceConnectorError",
     "acquire_structured_evidence",
     "build_http_evidence_connector",
+    "compose_evidence_connectors",
     "compile_evidence_acquisition_request",
 ]

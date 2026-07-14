@@ -363,6 +363,8 @@ class RunState:
         row["semantics"] = {
             "state_is_rebuilt_from_events": True,
             "accepted_expansions_are_unique_ids": True,
+            "attempt_count_is_settled_proposal_tasks": True,
+            "settled_task_count_includes_all_task_kinds": True,
             "queue_empty_is_not_completion": True,
         }
         row["content_sha256"] = _digest(row)
@@ -963,8 +965,13 @@ class RunKernel:
     ) -> None:
         reasons: list[str] = []
         pending_count = len(state.in_flight_tasks)
-        if (
-            state.attempt_count + pending_count
+        pending_proposal_attempts = sum(
+            1
+            for row in state.in_flight_tasks.values()
+            if str(row.get("kind") or "") == "proposal"
+        )
+        if kind == "proposal" and (
+            state.attempt_count + pending_proposal_attempts
             >= self.spec.limits.model.max_attempt_runs
         ):
             reasons.append("run_attempt_budget_exhausted")
@@ -1040,7 +1047,18 @@ class RunKernel:
         budget = self.spec.limits.model
         totals = state.model_totals
         reasons: list[str] = []
-        if state.attempt_count >= budget.max_attempt_runs:
+        deficit_kinds = {
+            str(row.get("kind") or "")
+            for row in state.deficits
+            if str(row.get("kind") or "")
+        }
+        proposal_only_kinds = {"materialization", "expansion", "diversity"}
+        non_proposal_kinds = deficit_kinds - proposal_only_kinds - {"route_closure"}
+        if (
+            state.attempt_count >= budget.max_attempt_runs
+            and bool(deficit_kinds & proposal_only_kinds)
+            and not non_proposal_kinds
+        ):
             reasons.append("run_attempt_budget_exhausted")
         if state.settled_task_count >= self.spec.limits.max_total_tasks:
             reasons.append("run_total_task_budget_exhausted")
@@ -1314,7 +1332,8 @@ def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:
             if reservation is None:
                 raise RunKernelCorruptionError(f"task_settled_without_reservation:{task_id}")
             kind = str(reservation.get("kind") or "other")
-            state["attempt_count"] += 1
+            if kind == "proposal":
+                state["attempt_count"] += 1
             state["settled_task_count"] += 1
             state["task_wall_time_s"] = round(
                 float(state["task_wall_time_s"])

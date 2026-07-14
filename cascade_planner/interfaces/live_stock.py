@@ -6,6 +6,7 @@ produces ``benchmark_stock`` material and never a procurement observation.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -65,13 +66,14 @@ def build_pubchem_vendor_catalog(
     *,
     max_molecules: int = 24,
     max_vendors_per_molecule: int = 5,
+    max_workers: int = 8,
     timeout_s: float = 20.0,
     requester: JsonRequester | None = None,
     retrieved_at: str | None = None,
 ) -> dict[str, Any]:
     """Resolve a bounded leaf set and freeze PubChem vendor-category records."""
 
-    if max_molecules < 1 or max_vendors_per_molecule < 1:
+    if max_molecules < 1 or max_vendors_per_molecule < 1 or max_workers < 1:
         raise ValueError("live stock adapter limits must be positive")
     canonical_values = sorted(
         {
@@ -83,9 +85,7 @@ def build_pubchem_vendor_catalog(
     truncated = len(canonical_values) > max_molecules
     selected = canonical_values[:max_molecules]
     request_json = requester or _requests_json
-    members: list[dict[str, Any]] = []
-    misses: list[dict[str, Any]] = []
-    for canonical in selected:
+    def lookup(canonical: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         try:
             status, property_bytes, property_json = request_json(
                 "POST",
@@ -109,34 +109,47 @@ def build_pubchem_vendor_catalog(
                 raise LiveStockAdapterError(f"pubchem_category_lookup_failed:{status}")
             sources = _vendor_sources(category_json)
             if not sources:
-                misses.append(
-                    {
-                        "canonical_smiles": canonical,
-                        "cid": cid,
-                        "reason": "pubchem_chemical_vendor_category_empty",
-                    }
-                )
-                continue
-            offers = _bounded_vendor_offers(sources, limit=max_vendors_per_molecule)
-            members.append(
-                {
+                return None, {
                     "canonical_smiles": canonical,
                     "cid": cid,
-                    "vendor_count": len(sources),
-                    "vendors": offers,
-                    "source_url": category_url,
-                    "response_sha256": hashlib.sha256(category_bytes).hexdigest(),
-                    "identity_response_sha256": hashlib.sha256(property_bytes).hexdigest(),
+                    "reason": "pubchem_chemical_vendor_category_empty",
                 }
-            )
-        except (LiveStockAdapterError, OSError, TypeError, ValueError) as exc:
-            misses.append(
-                {
-                    "canonical_smiles": canonical,
-                    "cid": 0,
-                    "reason": f"{type(exc).__name__}:{exc}",
-                }
-            )
+            offers = _bounded_vendor_offers(sources, limit=max_vendors_per_molecule)
+            return {
+                "canonical_smiles": canonical,
+                "cid": cid,
+                "vendor_count": len(sources),
+                "vendors": offers,
+                "source_url": category_url,
+                "response_sha256": hashlib.sha256(category_bytes).hexdigest(),
+                "identity_response_sha256": hashlib.sha256(property_bytes).hexdigest(),
+            }, None
+        except (
+            LiveStockAdapterError,
+            OSError,
+            TypeError,
+            ValueError,
+            requests.RequestException,
+        ) as exc:
+            return None, {
+                "canonical_smiles": canonical,
+                "cid": 0,
+                "reason": f"{type(exc).__name__}:{exc}",
+            }
+
+    members: list[dict[str, Any]] = []
+    misses: list[dict[str, Any]] = []
+    worker_count = min(max_workers, len(selected)) if selected else 0
+    if worker_count:
+        with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="pubchem-stock",
+        ) as executor:
+            for member, miss in executor.map(lookup, selected):
+                if member is not None:
+                    members.append(member)
+                if miss is not None:
+                    misses.append(miss)
     timestamp = retrieved_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     body = {
         "schema_version": VERSIONED_BENCHMARK_CATALOG_SCHEMA,
@@ -161,6 +174,7 @@ def build_pubchem_vendor_catalog(
             "vendor_category_is_benchmark_membership_only": True,
             "not_real_time_inventory": True,
             "not_procurement_authority": True,
+            "bounded_parallel_lookup": True,
         },
     }
     body["content_sha256"] = _digest(body)

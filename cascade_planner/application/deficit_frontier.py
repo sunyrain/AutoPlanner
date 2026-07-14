@@ -28,6 +28,7 @@ class DeficitKind(str, Enum):
     VALIDATION = "validation"
     STOCK = "stock"
     CONFLICT = "conflict"
+    EXPANSION = "expansion"
     DIVERSITY = "diversity"
     ROUTE_CLOSURE = "route_closure"
 
@@ -37,9 +38,10 @@ _KIND_ORDER = {
     DeficitKind.VALIDATION: 1,
     DeficitKind.EVIDENCE: 2,
     DeficitKind.STOCK: 3,
-    DeficitKind.MATERIALIZATION: 4,
-    DeficitKind.ROUTE_CLOSURE: 5,
-    DeficitKind.DIVERSITY: 6,
+    DeficitKind.EXPANSION: 4,
+    DeficitKind.MATERIALIZATION: 5,
+    DeficitKind.ROUTE_CLOSURE: 6,
+    DeficitKind.DIVERSITY: 7,
 }
 
 
@@ -225,6 +227,61 @@ def compile_deficit_frontier(
                 )
             )
 
+    source_aliases = dict(graph.get("source_aliases") or {})
+    exact_binding_ids = {
+        str(
+            source_aliases.get(str(row.get("source_binding_id") or ""))
+            or row.get("source_binding_id")
+            or ""
+        )
+        for row in dict(graph.get("exact_records") or {}).values()
+        if isinstance(row, Mapping)
+    }
+    for source_id, raw in sorted(dict(graph.get("source_bindings") or {}).items()):
+        if not isinstance(raw, Mapping) or not affected(str(source_id)):
+            continue
+        source = dict(raw)
+        recomputed_entities.add(str(source_id))
+        if str(source_id) in exact_binding_ids:
+            continue
+        status = str(source.get("acquisition_status") or "discovered")
+        if status == "queued_for_authorized_browser":
+            reason = "source_waiting_authorized_pdf_acquisition"
+            model_allowed = False
+        elif int(source.get("visual_candidate_page_count") or 0) > 0:
+            reason = "source_material_requires_structure_or_procedure_extraction"
+            model_allowed = True
+        else:
+            reason = "source_requires_extractable_full_text"
+            model_allowed = False
+        items.append(
+            _item(
+                DeficitKind.EVIDENCE,
+                str(source_id),
+                entity_ids=(str(source_id),),
+                route_family_ids=_routes_for(route_index, str(source_id)),
+                deterministic=False,
+                model_allowed=model_allowed,
+                reason=reason,
+                score=_score(
+                    DeficitKind.EVIDENCE,
+                    selected=True,
+                    attempts=attempts.get(str(source_id), 0),
+                ),
+                metadata={
+                    "source_ref": str(source.get("source_ref") or ""),
+                    "acquisition_status": status,
+                    "source_pdf_sha256": str(
+                        source.get("source_pdf_sha256") or ""
+                    ),
+                    "proxy_request_id": str(source.get("proxy_request_id") or ""),
+                    "visual_candidate_page_count": int(
+                        source.get("visual_candidate_page_count") or 0
+                    ),
+                },
+            )
+        )
+
     for molecule_id, raw in sorted(dict(graph.get("molecules") or {}).items()):
         if not isinstance(raw, Mapping) or not affected(str(molecule_id)):
             continue
@@ -232,12 +289,84 @@ def compile_deficit_frontier(
         recomputed_entities.add(str(molecule_id))
         if (
             molecule_id == graph.get("target_molecule_id")
-            or molecule.get("is_leaf") is not True
             or molecule.get("stock_closed") is True
         ):
             continue
         routes = _routes_for(route_index, molecule_id)
         selected = bool(set(routes) & selected_routes)
+        active_stock_id = str(molecule.get("active_stock_observation_id") or "")
+        active_stock = dict(
+            dict(graph.get("stock_observations") or {}).get(active_stock_id) or {}
+        )
+        if (
+            molecule.get("provider_expansion_requested") is True
+            and active_stock.get("accepted") is not True
+        ):
+            items.append(
+                _item(
+                    DeficitKind.EXPANSION,
+                    str(molecule_id),
+                    entity_ids=(str(molecule_id),),
+                    route_family_ids=routes,
+                    deterministic=False,
+                    model_allowed=True,
+                    reason="codex_selected_frontier_requires_local_generation",
+                    score=_score(
+                        DeficitKind.EXPANSION,
+                        selected=selected,
+                        attempts=attempts.get(str(molecule_id), 0),
+                        route_diversity=min(
+                            1.0,
+                            float(molecule.get("provider_expansion_priority") or 0.0)
+                            / 10.0,
+                        ),
+                    ),
+                    metadata={
+                        "frontier_smiles": str(molecule.get("canonical_smiles") or ""),
+                        "provider_preferences": list(
+                            molecule.get("provider_preferences") or ["chemenzy"]
+                        ),
+                        "retron_hints": list(molecule.get("provider_retron_hints") or []),
+                        "provider_request_ids": list(
+                            molecule.get("provider_request_ids") or []
+                        ),
+                        "provider_request_rationale": str(
+                            molecule.get("provider_request_rationale") or ""
+                        ),
+                    },
+                )
+            )
+        # Codex may deliberately delegate a shared intermediate that already
+        # has one proposed upstream edge.  ChemEnzy's role is to add local
+        # alternatives around that node, so provider expansion is independent
+        # of leaf status.  Stock closure, by contrast, remains leaf-only.
+        if molecule.get("is_leaf") is not True:
+            continue
+        if active_stock_id and active_stock.get("accepted") is not True:
+            items.append(
+                _item(
+                    DeficitKind.EXPANSION,
+                    str(molecule_id),
+                    entity_ids=(str(molecule_id), active_stock_id),
+                    route_family_ids=routes,
+                    deterministic=False,
+                    model_allowed=True,
+                    reason="stock_rejected_leaf_requires_upstream_expansion",
+                    score=_score(
+                        DeficitKind.EXPANSION,
+                        selected=selected,
+                        attempts=attempts.get(str(molecule_id), 0),
+                    ),
+                    metadata={
+                        "frontier_smiles": str(
+                            molecule.get("canonical_smiles") or ""
+                        ),
+                        "provider_preferences": ["chemenzy", "codex_global_director"],
+                        "stock_observation_id": active_stock_id,
+                    },
+                )
+            )
+            continue
         items.append(
             _item(
                 DeficitKind.STOCK,
@@ -670,6 +799,7 @@ def _score(
         DeficitKind.EVIDENCE: (0.72, 0.70, 1.00, 0.85, 0.20, 0.35, 0.15),
         DeficitKind.VALIDATION: (0.85, 0.85, 0.55, 0.20, 0.15, 0.20, 0.18),
         DeficitKind.STOCK: (0.78, 0.90, 0.15, 0.10, 0.10, 0.10, 0.08),
+        DeficitKind.EXPANSION: (0.70, 0.68, 0.10, 0.10, 0.45, 0.42, 0.38),
         DeficitKind.CONFLICT: (0.92, 0.80, 0.75, 0.65, 0.20, 0.30, 0.45),
         DeficitKind.DIVERSITY: (0.50, 0.20, 0.10, 0.15, 1.00, 0.75, 0.55),
         DeficitKind.ROUTE_CLOSURE: (0.88, 0.75, 0.30, 0.20, 0.35, 0.15, 0.12),

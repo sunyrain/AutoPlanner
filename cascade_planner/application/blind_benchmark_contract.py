@@ -205,10 +205,16 @@ def audit_blind_preflight(
     }
     if manifest_path is not None:
         allowed.add(Path(manifest_path).resolve())
-    needles = {
-        "target_smiles": case.target_smiles,
-        "target_name": case.target_name.strip(),
-    }
+    needles = {"target_smiles": case.target_smiles}
+    target_name = case.target_name.strip()
+    if target_name.casefold() not in {
+        "blind target",
+        "blind molecule",
+        "opaque target",
+        "target",
+        "unknown target",
+    }:
+        needles["target_name"] = target_name
     matches: list[dict[str, Any]] = []
     if root.is_dir():
         for path in _tracked_files(root):

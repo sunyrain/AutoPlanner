@@ -144,7 +144,8 @@ def test_golden_runner_emits_model_free_stage_metrics(
     assert Path(result["artifacts"]["run_metrics"]).is_file()
     kernel_state = result["run_kernel"]["state"]
     assert kernel_state["status"] == "completed"
-    assert kernel_state["attempt_count"] == 6
+    assert kernel_state["attempt_count"] == 0
+    assert kernel_state["settled_task_count"] == 6
     assert kernel_state["accepted_expansion_count"] == 0
     assert kernel_state["semantics"]["state_is_rebuilt_from_events"] is True
     assert result["run_kernel"]["stop_decision"]["decision"] == "completed"

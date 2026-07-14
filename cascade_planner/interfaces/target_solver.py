@@ -1,13 +1,16 @@
 """Target-only, bounded V4 retrosynthesis campaign orchestration."""
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
 from pathlib import Path
 import re
-from typing import Any, Mapping, TYPE_CHECKING
+import time
+from typing import Any, Iterable, Mapping, TYPE_CHECKING
 
 from cascade_planner.application.blind_acceptance import (
     compile_blind_acceptance_report,
@@ -19,6 +22,8 @@ from cascade_planner.application.blind_benchmark_contract import (
     audit_blind_preflight,
     canonical_smiles,
 )
+from cascade_planner.application.campaign_context import CampaignContextTooLargeError
+from cascade_planner.application.canonical_hypergraph import molecule_identity
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
@@ -27,6 +32,11 @@ from cascade_planner.application.reaction_mapping import ReactionMapper
 from cascade_planner.application.proof_portfolio import compile_proof_portfolio
 from cascade_planner.interfaces.evidence_import import (
     ingest_structured_evidence_document,
+)
+from cascade_planner.interfaces.chemenzy_probe import (
+    ChemenzyProposalProvider,
+    run_chemenzy_guided_frontier_stage,
+    run_chemenzy_proposal_stage,
 )
 from cascade_planner.interfaces.live_evidence import (
     EvidenceConnector,
@@ -43,12 +53,19 @@ from cascade_planner.interfaces.target_solver_stages import (
     audit_authoritative_inventory_stock,
     audit_live_benchmark_stock,
     discover_director_source_hints,
+    ingest_source_discovery_observation,
+    materialize_discovered_source_routes,
     repair_rejected_precursor_typos,
     validate_materialized_edges,
+)
+from cascade_planner.interfaces.target_identity import (
+    TARGET_IDENTITY_PROVIDER_VERSION,
+    resolve_target_identity,
 )
 from cascade_planner.interfaces.visual_evidence import (
     VisualEvidenceProvider,
     acquire_visual_evidence_candidates,
+    materialize_visual_evidence_candidates,
 )
 from cascade_planner.orchestration.global_campaign_director import (
     DirectorConfig,
@@ -72,33 +89,68 @@ DEFAULT_TARGET_DIRECTOR_MODEL = "gpt-5.5"
 class TargetSolveConfig:
     model: str = DEFAULT_TARGET_DIRECTOR_MODEL
     reasoning_effort: str = "low"
+    execution_profile: str = "standard"
     use_coordinator: bool = False
     enable_web_search: bool = True
+    enable_initial_director_web_search: bool = False
     enable_replan: bool = True
     enable_live_benchmark_stock: bool = True
     enable_builtin_patent_evidence: bool = False
     enable_patent_self_evolution: bool = True
+    enable_chemenzy: bool = True
+    enable_target_chemenzy_baseline: bool = False
+    enable_guided_chemenzy: bool = True
+    enable_target_identity: bool = True
+    resolve_named_target_identity: bool = False
+    blind_audit_root: str = ""
+    chemenzy_env_prefix: str = ""
     self_evo_library_path: str = ""
     max_atom_mapping_reactions: int = 48
     max_live_stock_molecules: int = 24
     max_patent_sources: int = 3
     max_self_evo_template_candidates: int = 12
-    max_visual_evidence_pages: int = 4
-    max_director_output_tokens: int = 7_000
+    max_chemenzy_routes: int = 2
+    max_chemenzy_steps: int = 6
+    max_chemenzy_iterations: int = 10
+    chemenzy_expansion_topk: int = 20
+    chemenzy_timeout_s: float = 90.0
+    max_guided_chemenzy_frontiers: int = 1
+    max_guided_chemenzy_iterations: int = 4
+    guided_chemenzy_timeout_s: float = 60.0
+    max_visual_evidence_pages: int = 6
+    max_director_output_tokens: int = 9_000
     max_director_wall_time_s: float = 360.0
+    publish_intermediate_workbenches: bool = True
     schema_version: str = "target_solve_config.v1"
 
     def __post_init__(self) -> None:
         if self.reasoning_effort not in {"low", "medium", "high"}:
             raise ValueError("target solver reasoning effort is invalid")
+        if self.execution_profile not in {"fast", "standard", "proof"}:
+            raise ValueError("target solver execution profile is invalid")
         if self.max_atom_mapping_reactions < 1 or self.max_live_stock_molecules < 1:
             raise ValueError("target solver deterministic limits must be positive")
         if not 1 <= self.max_patent_sources <= 8:
             raise ValueError("target solver patent source limit is invalid")
-        if not 1 <= self.max_visual_evidence_pages <= 8:
+        if not 1 <= self.max_visual_evidence_pages <= 12:
             raise ValueError("target solver visual evidence page limit is invalid")
         if not 1 <= self.max_self_evo_template_candidates <= 64:
             raise ValueError("target solver self-evolution candidate limit is invalid")
+        if not 1 <= self.max_chemenzy_routes <= 4:
+            raise ValueError("target solver ChemEnzy route limit is invalid")
+        if min(
+            self.max_chemenzy_steps,
+            self.max_chemenzy_iterations,
+            self.chemenzy_expansion_topk,
+        ) < 1 or self.chemenzy_timeout_s <= 0:
+            raise ValueError("target solver ChemEnzy budget is invalid")
+        if not 1 <= self.max_guided_chemenzy_frontiers <= 2:
+            raise ValueError("target solver guided ChemEnzy frontier limit is invalid")
+        if (
+            self.max_guided_chemenzy_iterations < 1
+            or self.guided_chemenzy_timeout_s <= 0
+        ):
+            raise ValueError("target solver guided ChemEnzy budget is invalid")
         if self.max_director_output_tokens < 1 or self.max_director_wall_time_s <= 0:
             raise ValueError("target solver director limits must be positive")
 
@@ -121,6 +173,7 @@ def solve_target(
     inventory_snapshot_builder: InventorySnapshotBuilder | None = None,
     evidence_connector: EvidenceConnector | None = None,
     visual_evidence_provider: VisualEvidenceProvider | None = None,
+    chemenzy_provider: ChemenzyProposalProvider | None = None,
 ) -> dict[str, Any]:
     """Run or resume the real SMILES-only campaign path through one V4 kernel."""
 
@@ -146,8 +199,16 @@ def solve_target(
         max_attempt_runs=72,
         max_prompt_context_bytes=96_000,
     )
+    supplied_name = " ".join(str(target_name or "").split())
+    opaque_name = f"target-{hashlib.sha256(canonical.encode()).hexdigest()[:8]}"
+    campaign_name = (
+        supplied_name
+        if supplied_name.casefold()
+        not in {"", "blind target", "blind molecule", "opaque target", "target", "unknown target"}
+        else opaque_name
+    )
     identity = gateway._normalize_run_id(
-        run_id or gateway._new_run_id(target_name, canonical)
+        run_id or gateway._new_run_id(campaign_name, canonical)
     )
     directory = gateway._run_dir(identity, explicit=run_dir, require=False)
     case = BlindCase.from_dict(
@@ -157,7 +218,7 @@ def solve_target(
                 re.sub(r"[^A-Za-z0-9._-]+", "-", identity).strip(".-")[:80]
                 or f"blind-{hashlib.sha256(identity.encode()).hexdigest()[:12]}"
             ),
-            "target_name": str(target_name or f"target-{hashlib.sha256(canonical.encode()).hexdigest()[:8]}"),
+            "target_name": campaign_name,
             "target_smiles": canonical,
             "acceptance": _acceptance_input(resolved_acceptance),
             "budget": _budget_input(resolved_budget),
@@ -180,7 +241,11 @@ def solve_target(
         checkpoint = _empty_checkpoint(identity)
         preflight = audit_blind_preflight(
             case,
-            repository_root=gateway.paths.repository_root,
+            repository_root=(
+                Path(active.blind_audit_root).expanduser().resolve()
+                if active.blind_audit_root
+                else gateway.paths.repository_root
+            ),
             run_dir=directory,
             manifest_path=manifest_path,
         )
@@ -197,20 +262,64 @@ def solve_target(
         _write_json_atomic(preflight_path, preflight)
         _write_json_atomic(checkpoint_path, checkpoint)
 
+    director_profile = {
+        "fast": {
+            "minimum_route_families": 2,
+            "max_route_families": 2,
+            "max_skeletons": 2,
+            "max_steps_per_skeleton": 5,
+            "max_output_tokens": 3_800,
+            "max_tool_calls": 4,
+        },
+        "standard": {
+            "minimum_route_families": 3,
+            "max_route_families": 4,
+            "max_skeletons": 4,
+            "max_steps_per_skeleton": 8,
+            "max_output_tokens": 7_000,
+            "max_tool_calls": 12,
+        },
+        "proof": {
+            "minimum_route_families": 3,
+            "max_route_families": 4,
+            "max_skeletons": 4,
+            "max_steps_per_skeleton": 8,
+            "max_output_tokens": 9_000,
+            "max_tool_calls": 16,
+        },
+    }[active.execution_profile]
+    minimum_director_families = max(
+        director_profile["minimum_route_families"],
+        resolved_acceptance.minimum_complete_routes,
+    )
     director_config = DirectorConfig(
-        minimum_route_families=max(3, resolved_acceptance.minimum_complete_routes),
-        max_route_families=4,
-        max_skeletons=4,
-        max_steps_per_skeleton=8,
-        max_output_tokens=active.max_director_output_tokens,
-        max_wall_time_s=active.max_director_wall_time_s,
-        max_tool_calls=16,
+        minimum_route_families=minimum_director_families,
+        max_route_families=max(
+            director_profile["max_route_families"],
+            minimum_director_families,
+        ),
+        max_skeletons=max(
+            director_profile["max_skeletons"],
+            minimum_director_families,
+        ),
+        max_steps_per_skeleton=director_profile["max_steps_per_skeleton"],
+        max_output_tokens=min(
+            active.max_director_output_tokens,
+            director_profile["max_output_tokens"],
+            resolved_budget.max_total_output_tokens,
+        ),
+        max_wall_time_s=min(
+            active.max_director_wall_time_s,
+            resolved_budget.max_total_wall_time_s,
+        ),
+        max_tool_calls=director_profile["max_tool_calls"],
         max_initial_architecture_calls=1,
         max_event_replan_calls=1,
         max_final_portfolio_synthesis_calls=1,
         model=active.model,
         reasoning_effort=active.reasoning_effort,
         enable_web_search=active.enable_web_search,
+        enable_initial_web_search=active.enable_initial_director_web_search,
         use_coordinator=active.use_coordinator,
     )
     service = gateway._open(
@@ -259,6 +368,60 @@ def solve_target(
             stages=stages,
             outcomes=outcomes,
         )
+    target_identity = _target_identity_stage(
+        service,
+        stages=stages,
+        target_name=case.target_name,
+        target_smiles=canonical,
+        enabled=active.enable_target_identity,
+        resolve_named=active.resolve_named_target_identity,
+    )
+    identity_stage = _stage(
+        "target_identity", target_identity["status"], target_identity
+    )
+    identity_indices = [
+        index
+        for index, row in enumerate(stages)
+        if row.get("stage") == "target_identity"
+    ]
+    if identity_indices:
+        stages[identity_indices[-1]] = identity_stage
+    else:
+        stages.append(identity_stage)
+    resolved_target_name = str(
+        dict(target_identity.get("identity") or {}).get("preferred_name")
+        or case.target_name
+    )
+    evidence_prefetch_executor: ThreadPoolExecutor | None = None
+    evidence_prefetch_future: Future[dict[str, Any]] | None = None
+    if (
+        not outcomes
+        and resolved_evidence_connector is not None
+        and getattr(
+            resolved_evidence_connector,
+            "autoplanner_prefetch_safe",
+            False,
+        )
+        is True
+    ):
+        prefetch_request = compile_evidence_acquisition_request(
+            run_id=service.kernel.spec.run_id,
+            target_name=resolved_target_name,
+            target_smiles=service.kernel.spec.target_smiles,
+            graph=service.graph_store.load(),
+            source_frontier={},
+            target_identity=dict(target_identity.get("identity") or {}),
+            prefetch_mode=True,
+        )
+        evidence_prefetch_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="autoplanner-evidence-prefetch",
+        )
+        evidence_prefetch_future = evidence_prefetch_executor.submit(
+            _run_evidence_prefetch,
+            prefetch_request,
+            resolved_evidence_connector,
+        )
     initial_template_retrieval = self_evo.start(service.graph_store.load())
     stages.append(
         _stage(
@@ -268,11 +431,60 @@ def solve_target(
         )
     )
     initial_template_observation = self_evo.observation()
+    prior_chemenzy_stages = [
+        row for row in stages if row.get("stage") == "chemenzy_baseline"
+    ]
+    retry_chemenzy = _should_retry_chemenzy_timeout(
+        prior_chemenzy_stages,
+        resume=resume,
+        requested_timeout_s=active.chemenzy_timeout_s,
+    )
+    if not prior_chemenzy_stages or retry_chemenzy:
+        _mark_stage_running(
+            checkpoint_path,
+            identity,
+            stages,
+            outcomes,
+            "chemenzy_baseline",
+            enabled=(active.enable_chemenzy and active.enable_target_chemenzy_baseline),
+        )
+        chemenzy_stage = run_chemenzy_proposal_stage(
+            service,
+            target_name=case.target_name,
+            target_smiles=canonical,
+            enabled=(
+                active.enable_chemenzy and active.enable_target_chemenzy_baseline
+            ),
+            provider=chemenzy_provider,
+            env_prefix=active.chemenzy_env_prefix or None,
+            vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
+            max_routes=active.max_chemenzy_routes,
+            max_steps=active.max_chemenzy_steps,
+            max_iterations=active.max_chemenzy_iterations,
+            expansion_topk=active.chemenzy_expansion_topk,
+            timeout_s=active.chemenzy_timeout_s,
+        )
+        stages.append(_stage("chemenzy_baseline", chemenzy_stage["status"], chemenzy_stage))
+        _checkpoint(checkpoint_path, identity, stages, outcomes)
+    chemenzy_observation = _chemenzy_director_observation(stages)
     if not outcomes:
+        _mark_stage_running(
+            checkpoint_path,
+            identity,
+            stages,
+            outcomes,
+            "global_campaign",
+            model=active.model,
+            mode="initial_architecture",
+        )
         initial = _run_director_safely(
             service,
             mode="initial_architecture",
-            evidence_observations=initial_template_observation,
+            evidence_observations={
+                **dict(initial_template_observation),
+                "target_identity": target_identity,
+                "chemenzy_provider_observation": chemenzy_observation,
+            },
             idempotency_key="solve-target:director:initial",
         )
         outcomes.append(initial)
@@ -314,11 +526,161 @@ def solve_target(
             )
         )
 
+    # Publish an honest, provisional projection as soon as the global Codex
+    # architecture has been materialized and host-validated.  Evidence,
+    # ChemEnzy frontier work and stock closure continue below, but a user no
+    # longer waits for every external timeout before seeing the first route.
+    if active.publish_intermediate_workbenches:
+        preview = service.publish_workbench(
+            campaign_summary={
+                "state": "initial_architecture_available",
+                "provisional": True,
+                "phase": "evidence_and_local_expansion_pending",
+                "model_cost": dict(service.kernel.state.model_totals),
+                "semantics": {
+                    "visible_before_full_closeout": True,
+                    "not_a_completed_route_claim": True,
+                },
+            }
+        )
+        snapshot = dict(preview.get("snapshot") or {})
+        stages.append(
+            _stage(
+                "initial_workbench",
+                "completed",
+                {
+                    "snapshot_ref": dict(preview.get("snapshot_ref") or {}),
+                    "route_count": int(
+                        dict(snapshot.get("portfolio") or {}).get("route_count") or 0
+                    ),
+                    "graph_revision": service.kernel.state.graph_revision,
+                    "provisional": True,
+                },
+            )
+        )
+        _checkpoint(checkpoint_path, identity, stages, outcomes)
+
+    delegation_audit = _chemenzy_delegation_audit(
+        outcomes,
+        service.graph_store.load(),
+    )
+    stages.append(
+        _stage(
+            "chemenzy_delegation",
+            delegation_audit["status"],
+            delegation_audit,
+        )
+    )
+
+    # Codex owns the global route architecture.  ChemEnzy is delegated only
+    # canonical subtargets selected in that architecture, before source search
+    # and stock closure make those local expansions more expensive to revisit.
+    prior_attempted_frontiers = _attempted_chemenzy_frontiers(stages)
+    prior_guided = _latest_stage(stages, "chemenzy_guided_frontier")
+    prior_guided_status = str(prior_guided.get("status") or "")
+    reuse_guided = prior_guided_status in {
+        "completed",
+        "unresolved",
+        "not_needed",
+        "reused",
+    } or len(prior_attempted_frontiers) >= active.max_guided_chemenzy_frontiers
+    if (
+        prior_guided_status == "not_needed"
+        and int(delegation_audit.get("queued_count") or 0) > 0
+        and len(prior_attempted_frontiers)
+        < active.max_guided_chemenzy_frontiers
+    ):
+        reuse_guided = False
+    if reuse_guided:
+        prior_detail = dict(prior_guided.get("detail") or {})
+        guided_stage = {
+            **prior_detail,
+            "status": "reused",
+            "reused_from_status": prior_guided_status or "frontier_budget_already_spent",
+            "new_proposal_count": 0,
+            "semantics": {
+                **dict(prior_detail.get("semantics") or {}),
+                "resume_does_not_repeat_provider_call": True,
+            },
+        }
+    else:
+        _mark_stage_running(
+            checkpoint_path,
+            identity,
+            stages,
+            outcomes,
+            "chemenzy_guided_frontier",
+            enabled=active.enable_chemenzy and active.enable_guided_chemenzy,
+        )
+        guided_stage = run_chemenzy_guided_frontier_stage(
+            service,
+            target_name=case.target_name,
+            root_target_smiles=canonical,
+            enabled=active.enable_chemenzy and active.enable_guided_chemenzy,
+            provider=chemenzy_provider,
+            env_prefix=active.chemenzy_env_prefix or None,
+            vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
+            max_frontiers=active.max_guided_chemenzy_frontiers,
+            max_routes=1,
+            max_steps=min(4, active.max_chemenzy_steps),
+            max_iterations=active.max_guided_chemenzy_iterations,
+            expansion_topk=min(10, active.chemenzy_expansion_topk),
+            timeout_s=active.guided_chemenzy_timeout_s,
+            exclude_frontier_smiles=tuple(sorted(prior_attempted_frontiers)),
+        )
+        guided_stage["new_proposal_count"] = int(
+            guided_stage.get("proposal_count") or 0
+        )
+    stages.append(
+        _stage("chemenzy_guided_frontier", guided_stage["status"], guided_stage)
+    )
+    guided_materialization: dict[str, Any] = {}
+    guided_validation: dict[str, Any] = {}
+    guided_stock: dict[str, Any] = {}
+    if int(
+        guided_stage.get("new_proposal_count", guided_stage.get("proposal_count"))
+        or 0
+    ) > 0:
+        guided_materialization = service.execute_frontier_materialization(
+            idempotency_key=(
+                "solve-target:guided-materialize:"
+                f"{service.kernel.state.graph_revision}"
+            )
+        )
+        stages.append(
+            _stage(
+                "guided_materialization",
+                "completed" if guided_materialization.get("changed") else "reused_or_empty",
+                guided_materialization,
+            )
+        )
+        guided_validation = validate_materialized_edges(
+            service,
+            atom_mapper=atom_mapper,
+            max_reactions=active.max_atom_mapping_reactions,
+        )
+        stages.append(
+            _stage("guided_reaction_validation", guided_validation["status"], guided_validation)
+        )
+
     # Evidence discovery and leaf stock audit deliberately precede the only
     # optional replan.  Their host-owned observations therefore enter the next
     # CampaignContext instead of making the director repeat a blind first pass.
     source_stage = discover_director_source_hints(service, outcomes)
+    evidence_prefetch = _resolve_evidence_prefetch(
+        evidence_prefetch_future,
+        evidence_prefetch_executor,
+    )
+    source_stage = _merge_prefetched_source_hints(source_stage, evidence_prefetch)
     stages.append(_stage("source_frontier", source_stage["status"], source_stage))
+    _mark_stage_running(
+        checkpoint_path,
+        identity,
+        stages,
+        outcomes,
+        "evidence_acquisition",
+        visual_enabled=visual_evidence_provider is not None,
+    )
     evidence_stage = _acquire_evidence_stage(
         service,
         source_stage=source_stage,
@@ -326,6 +688,17 @@ def solve_target(
         atom_mapper=atom_mapper,
         visual_provider=visual_evidence_provider,
         max_visual_pages=active.max_visual_evidence_pages,
+        target_name=resolved_target_name,
+        target_identity=dict(target_identity.get("identity") or {}),
+    )
+    evidence_stage["prefetch"] = evidence_prefetch
+    evidence_stage["latency_hidden_by_global_s"] = min(
+        float(evidence_prefetch.get("elapsed_s") or 0.0),
+        float(
+            dict(_latest_stage(stages, "global_campaign")).get("elapsed_s")
+            or service.kernel.state.model_totals.get("wall_time_s")
+            or 0.0
+        ),
     )
     stages.append(_stage("evidence_acquisition", evidence_stage["status"], evidence_stage))
     template_learning = self_evo.learn(service.graph_store.load())
@@ -354,6 +727,14 @@ def solve_target(
                 learned_template_validation,
             )
         )
+    _mark_stage_running(
+        checkpoint_path,
+        identity,
+        stages,
+        outcomes,
+        "stock",
+        boundary=resolved_acceptance.stock_boundary,
+    )
     stock_stage = _audit_stock_stage(
         service,
         acceptance=resolved_acceptance,
@@ -362,6 +743,85 @@ def solve_target(
         inventory_builder=inventory_snapshot_builder,
     )
     stages.append(_stage("stock", stock_stage["status"], stock_stage))
+
+    # A stock rejection can reveal a new upstream-search deficit that did not
+    # exist during Codex's initial delegation pass.  Spend only the unused
+    # guided-frontier allowance and never repeat an already attempted subtarget.
+    recovery_stage: dict[str, Any] = {}
+    recovery_materialization: dict[str, Any] = {}
+    recovery_validation: dict[str, Any] = {}
+    recovery_stock: dict[str, Any] = {}
+    attempted_guided_frontiers = {
+        *_attempted_chemenzy_frontiers(stages),
+        *(
+            str(value)
+            for value in guided_stage.get("frontier_smiles") or []
+            if str(value)
+        ),
+    }
+    remaining_guided = max(
+        0,
+        active.max_guided_chemenzy_frontiers - len(attempted_guided_frontiers),
+    )
+    if remaining_guided:
+        recovery_stage = run_chemenzy_guided_frontier_stage(
+            service,
+            target_name=case.target_name,
+            root_target_smiles=canonical,
+            enabled=active.enable_chemenzy and active.enable_guided_chemenzy,
+            provider=chemenzy_provider,
+            env_prefix=active.chemenzy_env_prefix or None,
+            vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
+            max_frontiers=remaining_guided,
+            max_routes=1,
+            max_steps=min(4, active.max_chemenzy_steps),
+            max_iterations=active.max_guided_chemenzy_iterations,
+            expansion_topk=min(10, active.chemenzy_expansion_topk),
+            timeout_s=active.guided_chemenzy_timeout_s,
+            exclude_frontier_smiles=tuple(
+                sorted(attempted_guided_frontiers)
+            ),
+        )
+        stages.append(
+            _stage("chemenzy_stock_recovery", recovery_stage["status"], recovery_stage)
+        )
+    if int(recovery_stage.get("proposal_count") or 0) > 0:
+        recovery_materialization = service.execute_frontier_materialization(
+            idempotency_key=(
+                "solve-target:recovery-materialize:"
+                f"{service.kernel.state.graph_revision}"
+            )
+        )
+        stages.append(
+            _stage(
+                "recovery_materialization",
+                "completed"
+                if recovery_materialization.get("changed")
+                else "reused_or_empty",
+                recovery_materialization,
+            )
+        )
+        recovery_validation = validate_materialized_edges(
+            service,
+            atom_mapper=atom_mapper,
+            max_reactions=active.max_atom_mapping_reactions,
+        )
+        stages.append(
+            _stage(
+                "recovery_reaction_validation",
+                recovery_validation["status"],
+                recovery_validation,
+            )
+        )
+        recovery_stock = _audit_stock_stage(
+            service,
+            acceptance=resolved_acceptance,
+            config=active,
+            catalog_builder=stock_catalog_builder,
+            inventory_builder=inventory_snapshot_builder,
+        )
+        stages.append(_stage("recovery_stock", recovery_stock["status"], recovery_stock))
+        stock_stage = recovery_stock
 
     provisional = service.closeout(
         idempotency_key=f"solve-target:provisional:{service.kernel.state.graph_revision}"
@@ -383,6 +843,14 @@ def solve_target(
         learned_template_reuse,
         learned_template_validation,
         stock_stage,
+        guided_stage,
+        guided_materialization,
+        guided_validation,
+        guided_stock,
+        recovery_stage,
+        recovery_materialization,
+        recovery_validation,
+        recovery_stock,
     )
     replan_reasons = _replan_reasons(
         provisional_gates,
@@ -402,25 +870,44 @@ def solve_target(
         **self_evo.observation(dict(learned_template_reuse.get("retrieval") or {})),
     }
     replan_prompt_context_bytes = 0
-    if needs_replan:
-        replan_context = service.compile_global_context(
-            material_events=material_events,
-            evidence_observations=evidence_observations,
-        )
-        replan_prompt_context_bytes = len(
-            director_prompt(
-                replan_context,
-                mode="event_replan",
-                config=director_config,
-            ).encode("utf-8")
-        )
+    replan_guard = _replan_budget_guard(
+        model_cost=service.kernel.state.model_totals,
+        budget=resolved_budget,
+        config=active,
+    )
+    if needs_replan and replan_guard["accepted"]:
+        try:
+            replan_context = service.compile_global_context(
+                material_events=material_events,
+                evidence_observations=evidence_observations,
+            )
+            replan_prompt_context_bytes = len(
+                director_prompt(
+                    replan_context,
+                    mode="event_replan",
+                    config=director_config,
+                ).encode("utf-8")
+            )
+            replan_guard = _replan_budget_guard(
+                model_cost=service.kernel.state.model_totals,
+                budget=resolved_budget,
+                config=active,
+                prompt_context_bytes=replan_prompt_context_bytes,
+            )
+        except CampaignContextTooLargeError as exc:
+            replan_guard = {
+                **replan_guard,
+                "accepted": False,
+                "reasons": ["campaign_context_exceeds_bounded_replan_budget"],
+                "context_error": str(exc)[:2_000],
+                "semantics": {
+                    **dict(replan_guard.get("semantics") or {}),
+                    "optional_replan_failure_does_not_abort_campaign": True,
+                },
+            }
     replan_guard = {
-        **_replan_budget_guard(
-            model_cost=service.kernel.state.model_totals,
-            budget=resolved_budget,
-            config=active,
-            prompt_context_bytes=replan_prompt_context_bytes,
-        ),
+        **replan_guard,
+        "prompt_context_bytes": replan_prompt_context_bytes,
         "trigger_reasons": list(replan_reasons),
     }
     if needs_replan:
@@ -432,6 +919,15 @@ def solve_target(
             )
         )
     if needs_replan and replan_guard["accepted"]:
+        _mark_stage_running(
+            checkpoint_path,
+            identity,
+            stages,
+            outcomes,
+            "global_replan",
+            model=active.model,
+            mode="event_replan",
+        )
         replan = _run_director_safely(
             service,
             mode="event_replan",
@@ -497,6 +993,14 @@ def solve_target(
             stages.append(
                 _stage("replan_source_frontier", source_stage["status"], source_stage)
             )
+            _mark_stage_running(
+                checkpoint_path,
+                identity,
+                stages,
+                outcomes,
+                "replan_evidence_acquisition",
+                visual_enabled=visual_evidence_provider is not None,
+            )
             evidence_stage = _acquire_evidence_stage(
                 service,
                 source_stage=source_stage,
@@ -504,6 +1008,8 @@ def solve_target(
                 atom_mapper=atom_mapper,
                 visual_provider=visual_evidence_provider,
                 max_visual_pages=active.max_visual_evidence_pages,
+                target_name=resolved_target_name,
+                target_identity=dict(target_identity.get("identity") or {}),
             )
             stages.append(
                 _stage(
@@ -529,8 +1035,27 @@ def solve_target(
             )
             stages.append(_stage("replan_stock", stock_stage["status"], stock_stage))
 
+    _mark_stage_running(
+        checkpoint_path,
+        identity,
+        stages,
+        outcomes,
+        "closeout",
+    )
     closeout = service.closeout(
         idempotency_key=f"solve-target:closeout:{service.kernel.state.graph_revision}"
+    )
+    stages.append(
+        _stage(
+            "closeout",
+            "completed",
+            {
+                "portfolio_accepted": closeout["portfolio"].get("accepted") is True,
+                "selected_route_count": len(
+                    closeout["portfolio"].get("selected_routes") or []
+                ),
+            },
+        )
     )
     gates = compile_blind_acceptance_report(
         preflight=preflight,
@@ -771,6 +1296,193 @@ def _audit_stock_stage(
     }
 
 
+def _target_identity_stage(
+    service: Any,
+    *,
+    stages: Iterable[Mapping[str, Any]],
+    target_name: str,
+    target_smiles: str,
+    enabled: bool,
+    resolve_named: bool = False,
+) -> dict[str, Any]:
+    generic = _target_name_requires_identity_resolution(target_name)
+    prior = next(
+        (
+            dict(row.get("detail") or {})
+            for row in reversed(list(stages))
+            if row.get("stage") == "target_identity"
+        ),
+        {},
+    )
+    stale_opaque_skip = (
+        generic
+        and prior.get("status") == "not_needed"
+        and re.fullmatch(
+            r"target-[0-9a-f]{8}",
+            str(dict(prior.get("identity") or {}).get("preferred_name") or "").lower(),
+        )
+        is not None
+    )
+    stale_provider_version = (
+        generic
+        and prior.get("status") == "completed"
+        and prior.get("provider_id") == "pubchem.pug_rest"
+        and prior.get("provider_version") != TARGET_IDENTITY_PROVIDER_VERSION
+    )
+    if prior and not stale_opaque_skip and not stale_provider_version:
+        return prior
+    if not enabled:
+        return {
+            "stage": "target_identity",
+            "status": "disabled",
+            "reason": "target_identity_disabled",
+        }
+    if not generic and not resolve_named:
+        return {
+            "stage": "target_identity",
+            "status": "not_needed",
+            "identity": {"preferred_name": target_name},
+            "semantics": {"user_supplied_name_not_treated_as_evidence": True},
+        }
+    result = resolve_target_identity(target_smiles)
+    artifact = service.kernel.artifacts.put_json(
+        result,
+        logical_name="target_identity_observation.json",
+        producer="autoplanner.target_identity",
+    )
+    return {
+        **result,
+        "stage": "target_identity",
+        "artifact_ref": artifact.to_dict(),
+    }
+
+
+def _target_name_requires_identity_resolution(value: str) -> bool:
+    normalized = " ".join(str(value or "").lower().split())
+    return normalized in {
+        "blind target",
+        "target",
+        "unknown target",
+        "smiles-only target",
+    } or re.fullmatch(r"target-[0-9a-f]{8}", normalized) is not None
+
+
+def _latest_stage(
+    stages: Iterable[Mapping[str, Any]],
+    stage_name: str,
+) -> dict[str, Any]:
+    return next(
+        (
+            dict(row)
+            for row in reversed(list(stages))
+            if row.get("stage") == stage_name
+        ),
+        {},
+    )
+
+
+def _attempted_chemenzy_frontiers(
+    stages: Iterable[Mapping[str, Any]],
+) -> set[str]:
+    return {
+        str(value)
+        for row in stages
+        if row.get("stage")
+        in {"chemenzy_guided_frontier", "chemenzy_stock_recovery"}
+        for value in dict(row.get("detail") or {}).get("frontier_smiles") or []
+        if str(value)
+    }
+
+
+def _chemenzy_delegation_audit(
+    outcomes: Iterable[Mapping[str, Any]],
+    graph: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Explain whether Codex's local-provider intent reached the one frontier."""
+
+    molecules = dict(graph.get("molecules") or {})
+    expansion_ids = {
+        str(row.get("object_id") or "")
+        for row in dict(graph.get("deficit_frontier") or {}).get("items") or []
+        if isinstance(row, Mapping) and row.get("kind") == "expansion"
+    }
+    requests: list[dict[str, Any]] = []
+    for outcome in outcomes:
+        plan = dict(outcome.get("plan") or {})
+        for raw in plan.get("frontier_priorities") or []:
+            if not isinstance(raw, Mapping):
+                continue
+            row = dict(raw)
+            identifiers = " ".join(
+                str(row.get(key) or "").lower()
+                for key in ("priority_id", "proposal_id", "rationale")
+            )
+            providers = {
+                str(value).strip().lower()
+                for value in row.get("provider_preferences") or []
+                if str(value).strip()
+            }
+            if "chemenzy" not in providers and "chemenzy" not in identifiers:
+                continue
+            molecule_id, canonical = molecule_identity(row.get("target_smiles"))
+            molecule = dict(molecules.get(molecule_id) or {})
+            if not canonical:
+                disposition = "provider_target_missing"
+            elif not molecule:
+                disposition = "selected_step_not_host_admitted"
+            elif molecule_id in expansion_ids:
+                disposition = "queued_on_canonical_frontier"
+            elif molecule.get("stock_closed") is True:
+                disposition = "already_stock_closed"
+            elif molecule.get("provider_expansion_requested") is not True:
+                disposition = "provider_annotation_not_admitted"
+            else:
+                disposition = "request_not_actionable"
+            requests.append(
+                {
+                    "priority_id": str(row.get("priority_id") or ""),
+                    "proposal_id": str(row.get("proposal_id") or ""),
+                    "target_smiles": canonical,
+                    "disposition": disposition,
+                }
+            )
+    queued = sum(
+        row["disposition"] == "queued_on_canonical_frontier" for row in requests
+    )
+    rejected = sum(
+        row["disposition"]
+        in {
+            "provider_target_missing",
+            "selected_step_not_host_admitted",
+            "provider_annotation_not_admitted",
+        }
+        for row in requests
+    )
+    status = (
+        "queued"
+        if queued and not rejected
+        else "partial"
+        if queued
+        else "rejected"
+        if requests
+        else "not_requested"
+    )
+    return {
+        "schema_version": "chemenzy_delegation_audit.v1",
+        "stage": "chemenzy_delegation",
+        "status": status,
+        "request_count": len(requests),
+        "queued_count": queued,
+        "rejected_count": rejected,
+        "requests": requests,
+        "semantics": {
+            "codex_selection_is_not_host_admission": True,
+            "rejected_skeleton_never_reaches_provider": True,
+            "provider_enablement_does_not_claim_invocation": True,
+        },
+    }
+
+
 def _acquire_evidence_stage(
     service: Any,
     *,
@@ -778,7 +1490,9 @@ def _acquire_evidence_stage(
     connector: EvidenceConnector | None,
     atom_mapper: ReactionMapper | None,
     visual_provider: VisualEvidenceProvider | None = None,
-    max_visual_pages: int = 4,
+    max_visual_pages: int = 6,
+    target_name: str = "",
+    target_identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if connector is None:
         return {
@@ -789,12 +1503,14 @@ def _acquire_evidence_stage(
         }
     request = compile_evidence_acquisition_request(
         run_id=service.kernel.spec.run_id,
-        target_name=service.kernel.spec.target_name,
+        target_name=target_name or service.kernel.spec.target_name,
         target_smiles=service.kernel.spec.target_smiles,
         graph=service.graph_store.load(),
         source_frontier=source_stage,
+        target_identity=target_identity,
     )
     visual_stage: dict[str, Any] = {}
+    source_route_stage: dict[str, Any] = {}
     try:
         acquired = acquire_structured_evidence(request, connector=connector)
         receipt = dict(acquired.get("receipt") or {})
@@ -813,6 +1529,14 @@ def _acquire_evidence_stage(
                 logical_name="source_discovery_observation.json",
                 producer="autoplanner.live_evidence.discovery",
             ).to_dict()
+        discovery_ingestion = ingest_source_discovery_observation(
+            service,
+            discovery,
+        )
+        source_route_stage = materialize_discovered_source_routes(
+            service,
+            discovery,
+        )
         visual_stage = acquire_visual_evidence_candidates(
             service,
             evidence_request=request,
@@ -820,8 +1544,52 @@ def _acquire_evidence_stage(
             provider=visual_provider,
             max_pages=max_visual_pages,
         )
+        visual_materialization = materialize_visual_evidence_candidates(
+            service,
+            observation=dict(visual_stage.get("observation") or {}),
+        )
+        visual_validation: dict[str, Any] = {}
+        if dict(visual_materialization.get("execution") or {}).get("changed") is True:
+            visual_validation = validate_materialized_edges(
+                service,
+                atom_mapper=atom_mapper,
+            )
+        visual_stage = {
+            **visual_stage,
+            "materialization": visual_materialization,
+            "validation": visual_validation,
+            "material_events": sorted(
+                {
+                    *[
+                        str(value)
+                        for value in visual_stage.get("material_events") or []
+                        if str(value)
+                    ],
+                    *[
+                        str(value)
+                        for value in visual_materialization.get("material_events") or []
+                        if str(value)
+                    ],
+                    *(
+                        ["visual_literature_chain_host_validated"]
+                        if int(visual_validation.get("accepted_validation_count") or 0)
+                        else []
+                    ),
+                }
+            ),
+        }
         document = acquired.get("document")
         if document is None:
+            source_route_validation: dict[str, Any] = {}
+            if dict(source_route_stage.get("execution") or {}).get("changed") is True:
+                source_route_validation = validate_materialized_edges(
+                    service,
+                    atom_mapper=atom_mapper,
+                )
+            source_route_stage = {
+                **source_route_stage,
+                "validation": source_route_validation,
+            }
             return {
                 "stage": "evidence_acquisition",
                 "status": "discovered_unbound",
@@ -829,6 +1597,8 @@ def _acquire_evidence_stage(
                 "receipt_ref": receipt_ref,
                 "discovery_ref": discovery_ref,
                 "discovery": discovery,
+                "discovery_ingestion": discovery_ingestion,
+                "source_route": source_route_stage,
                 "visual_evidence": visual_stage,
                 "source_count": len(discovery.get("sources") or []),
                 "exact_record_count": 0,
@@ -845,6 +1615,11 @@ def _acquire_evidence_stage(
                         *[
                             str(value)
                             for value in visual_stage.get("material_events") or []
+                            if str(value)
+                        ],
+                        *[
+                            str(value)
+                            for value in source_route_stage.get("material_events") or []
                             if str(value)
                         ],
                     }
@@ -880,6 +1655,8 @@ def _acquire_evidence_stage(
         "receipt_ref": receipt_ref,
         "discovery_ref": discovery_ref,
         "discovery": discovery,
+        "discovery_ingestion": discovery_ingestion,
+        "source_route": source_route_stage,
         "visual_evidence": visual_stage,
         "source_count": imported["source_count"],
         "exact_record_count": imported["exact_record_count"],
@@ -901,6 +1678,11 @@ def _acquire_evidence_stage(
                     if str(value)
                 ),
                 *(
+                    str(value)
+                    for value in source_route_stage.get("material_events") or []
+                    if str(value)
+                ),
+                *(
                     ["exact_rows_added"]
                     if int(imported.get("exact_record_count") or 0)
                     else []
@@ -913,6 +1695,97 @@ def _acquire_evidence_stage(
             "receipt_grants_no_scientific_authority": True,
         },
     }
+
+
+def _run_evidence_prefetch(
+    request: Mapping[str, Any],
+    connector: EvidenceConnector,
+) -> dict[str, Any]:
+    """Discover and warm source caches while the one global model call runs."""
+
+    started = time.monotonic()
+    try:
+        acquired = acquire_structured_evidence(request, connector=connector)
+    except (LiveEvidenceConnectorError, OSError, RuntimeError, ValueError) as exc:
+        return {
+            "status": "unresolved",
+            "elapsed_s": round(time.monotonic() - started, 3),
+            "request_sha256": str(request.get("content_sha256") or ""),
+            "reason": f"{type(exc).__name__}:{str(exc)[:500]}",
+            "discovery": {},
+            "semantics": {
+                "runs_concurrently_with_global_director": True,
+                "failure_does_not_abort_campaign": True,
+            },
+        }
+    discovery = dict(acquired.get("discovery") or {})
+    return {
+        "status": "completed" if discovery else "no_discovery",
+        "elapsed_s": round(time.monotonic() - started, 3),
+        "request_sha256": str(request.get("content_sha256") or ""),
+        "source_count": len(discovery.get("sources") or []),
+        "discovery": discovery,
+        "receipt": dict(acquired.get("receipt") or {}),
+        "semantics": {
+            "runs_concurrently_with_global_director": True,
+            "prefetch_grants_no_evidence_authority": True,
+            "full_edge_bound_extraction_still_required": True,
+        },
+    }
+
+
+def _resolve_evidence_prefetch(
+    future: Future[dict[str, Any]] | None,
+    executor: ThreadPoolExecutor | None,
+) -> dict[str, Any]:
+    if future is None:
+        return {
+            "status": "not_started",
+            "elapsed_s": 0.0,
+            "discovery": {},
+        }
+    try:
+        return dict(future.result(timeout=180.0))
+    except Exception as exc:  # bounded optional latency-hiding optimization
+        return {
+            "status": "unresolved",
+            "elapsed_s": 0.0,
+            "reason": f"{type(exc).__name__}:{str(exc)[:500]}",
+            "discovery": {},
+            "semantics": {"failure_does_not_abort_campaign": True},
+        }
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _merge_prefetched_source_hints(
+    source_stage: Mapping[str, Any],
+    prefetch: Mapping[str, Any],
+) -> dict[str, Any]:
+    row = dict(source_stage)
+    discovery = dict(prefetch.get("discovery") or {})
+    merged: dict[str, dict[str, Any]] = {}
+    for source in [
+        *(row.get("sources") or []),
+        *(discovery.get("sources") or []),
+    ]:
+        if not isinstance(source, Mapping):
+            continue
+        source_row = dict(source)
+        source_ref = str(source_row.get("source_ref") or "")
+        if not source_ref:
+            continue
+        merged.setdefault(source_ref, source_row)
+    row["sources"] = [merged[key] for key in sorted(merged)]
+    row["traceable_source_hint_count"] = len(row["sources"])
+    row["status"] = "completed" if row["sources"] else str(row.get("status") or "unresolved")
+    row["prefetch"] = {
+        key: value
+        for key, value in prefetch.items()
+        if key not in {"discovery", "receipt"}
+    }
+    return row
 
 
 def _replan_budget_guard(
@@ -1032,13 +1905,182 @@ def _evidence_observations(stage: Mapping[str, Any]) -> dict[str, Any]:
     if not discovery:
         return {}
     visual = dict(dict(stage.get("visual_evidence") or {}).get("observation") or {})
+    raw_sources = [
+        dict(value)
+        for value in discovery.get("sources") or []
+        if isinstance(value, Mapping)
+    ]
+    ranked_sources = sorted(
+        raw_sources,
+        key=lambda row: (
+            -int(row.get("exact_row_count") or 0),
+            -int(row.get("source_route_proposal_count") or 0),
+            -len(row.get("procedure_inventory") or []),
+            str(row.get("source_ref") or row.get("publication_number") or ""),
+        ),
+    )
+    selected_sources = ranked_sources[:4]
     return {
         "schema_version": "campaign_evidence_observations.v1",
-        "source_discovery": discovery,
+        "source_discovery": {
+            "schema_version": str(discovery.get("schema_version") or ""),
+            "provider_id": str(discovery.get("provider_id") or ""),
+            "request_sha256": str(discovery.get("request_sha256") or ""),
+            "content_sha256": str(discovery.get("content_sha256") or ""),
+            "source_count": len(raw_sources),
+            "selected_source_count": len(selected_sources),
+            "omitted_source_count": max(0, len(raw_sources) - len(selected_sources)),
+            "sources": [
+                _source_replan_observation(value) for value in selected_sources
+            ],
+            "semantics": {
+                "bounded_chemistry_event_projection": True,
+                "raw_source_documents_omitted": True,
+                "source_text_grants_no_authority": True,
+            },
+        },
         "visual_source_candidates": visual,
         "semantics": {
             "untrusted_source_text_data_only": True,
             "grants_no_scientific_authority": True,
+            "projection_is_for_source_consistent_replanning": True,
+        },
+    }
+
+
+def _source_replan_observation(source: Mapping[str, Any]) -> dict[str, Any]:
+    row = dict(source)
+    procedures = [
+        _procedure_replan_observation(value)
+        for value in row.get("procedure_inventory") or []
+        if isinstance(value, Mapping)
+    ][:6]
+    route = _source_route_replan_observation(
+        dict(row.get("source_route_observation") or {})
+    )
+    return {
+        **{
+            key: row[key]
+            for key in (
+                "source_kind",
+                "source_ref",
+                "publication_number",
+                "family_id",
+                "doi",
+                "pmid",
+                "pmcid",
+                "title",
+                "acquisition_method",
+                "source_fulltext_sha256",
+                "html_sha256",
+                "pdf_sha256",
+                "page_count",
+                "exact_row_count",
+                "unresolved_edge_count",
+                "source_route_proposal_count",
+            )
+            if key in row
+        },
+        "procedure_count": len(row.get("procedure_inventory") or []),
+        "procedure_inventory": procedures,
+        "source_route_observation": route,
+        "semantics": {
+            "procedure_text_is_untrusted_source_data": True,
+            "route_proposals_require_normal_host_validation": True,
+        },
+    }
+
+
+def _procedure_replan_observation(value: Mapping[str, Any]) -> dict[str, Any]:
+    row = dict(value)
+    excerpt = str(
+        row.get("procedure_excerpt")
+        or row.get("procedure")
+        or row.get("text")
+        or ""
+    )
+    return {
+        **{
+            key: row[key]
+            for key in (
+                "label",
+                "name",
+                "page_number",
+                "section",
+                "source_artifact_kind",
+                "source_artifact_sha256",
+                "visual_expected",
+            )
+            if key in row
+        },
+        "procedure_excerpt": " ".join(excerpt.split())[:1_200],
+    }
+
+
+def _source_route_replan_observation(value: Mapping[str, Any]) -> dict[str, Any]:
+    if not value:
+        return {}
+    proposals = [
+        dict(row)
+        for row in value.get("proposals") or []
+        if isinstance(row, Mapping)
+    ]
+    diagnostics = [
+        dict(row)
+        for row in value.get("diagnostics") or []
+        if isinstance(row, Mapping)
+    ]
+    return {
+        "schema_version": str(value.get("schema_version") or ""),
+        "source_ref": str(value.get("source_ref") or ""),
+        "route_family": dict(value.get("route_family") or {}),
+        "proposal_count": int(value.get("proposal_count") or len(proposals)),
+        "resolved_procedure_count": int(
+            value.get("resolved_procedure_count") or 0
+        ),
+        "unconnected_proposal_count": int(
+            value.get("unconnected_proposal_count") or 0
+        ),
+        "proposals": [
+            {
+                **{
+                    key: row[key]
+                    for key in (
+                        "proposal_id",
+                        "source_ref",
+                        "source_location",
+                        "product_name",
+                        "product_smiles",
+                        "precursor_smiles",
+                        "reactant_names",
+                        "transformation_hypothesis",
+                        "condition_candidate",
+                        "product_structure_recovery_mode",
+                        "admission_audit",
+                    )
+                    if key in row
+                }
+            }
+            for row in proposals[:8]
+        ],
+        "diagnostics": [
+            {
+                key: row[key]
+                for key in (
+                    "label",
+                    "product_name",
+                    "status",
+                    "reasons",
+                    "selected_precursor_count",
+                    "element_deficit",
+                )
+                if key in row
+            }
+            for row in diagnostics[:8]
+        ],
+        "semantics": {
+            "source_route_is_observation_not_proof": True,
+            "source_consistent_alternative_should_be_replanned_when_needed": True,
         },
     }
 
@@ -1049,21 +2091,32 @@ def _claim(
     resource_envelope: Mapping[str, Any],
 ) -> dict[str, Any]:
     values = dict(gates.get("gates") or {})
+    accepted = bool(
+        values.get("B5_configured_portfolio_acceptance") is True
+        and resource_envelope.get("within_budget") is True
+    )
+    acceptance_profile = {
+        "benchmark_search": "exploration_closed",
+        "procurement": "procurement_closed",
+        "in_house": "in_house_closed",
+    }.get(acceptance.stock_boundary, "configured_boundary_closed")
     return {
         "generated_route_portfolio": values.get("B2_host_validated_routes") is True,
         "exact_multi_source_grade": values.get("B3_exact_multi_source") is True,
         "configured_stock_boundary_closed": values.get("B4_stock_boundary") is True,
-        "accepted_under_configured_policy": (
-            values.get("B5_configured_portfolio_acceptance") is True
-            and resource_envelope.get("within_budget") is True
-        ),
+        "accepted_under_configured_policy": accepted,
+        "acceptance_profile": acceptance_profile,
+        "achieved_profile": acceptance_profile if accepted else "unresolved",
         "procurement_ready": bool(
             acceptance.stock_boundary == "procurement"
             and values.get("B5_configured_portfolio_acceptance") is True
             and resource_envelope.get("within_budget") is True
         ),
         "within_resource_budget": resource_envelope.get("within_budget") is True,
+        "condition_complete": False,
+        "process_ready": False,
         "no_unqualified_solved_claim": True,
+        "no_unqualified_complete_claim": True,
     }
 
 
@@ -1179,11 +2232,60 @@ def _resource_envelope(
 
 
 def _stage(name: str, status: str, detail: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    return {
+    now = _utc_now()
+    row = {
         "stage": name,
         "status": str(status),
         "detail": _bounded_detail(dict(detail or {})),
     }
+    if status == "running":
+        row["started_at"] = now
+    else:
+        row["completed_at"] = now
+    return row
+
+
+def _chemenzy_director_observation(
+    stages: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    stage = next(
+        (
+            dict(value)
+            for value in reversed(list(stages))
+            if value.get("stage") == "chemenzy_baseline"
+        ),
+        {},
+    )
+    detail = dict(stage.get("detail") or {})
+    return {
+        "schema_version": "chemenzy_director_observation.v1",
+        "provider_id": "chemenzy",
+        "status": str(stage.get("status") or "not_run"),
+        "provider_capability": dict(detail.get("provider_capability") or {}),
+        "route_count": int(detail.get("route_count") or 0),
+        "host_admitted_route_count": int(
+            detail.get("host_admitted_route_count") or 0
+        ),
+        "selected_proposal_route_count": int(
+            detail.get("selected_proposal_route_count") or 0
+        ),
+        "proposal_count": int(detail.get("proposal_count") or 0),
+        "route_admission": list(detail.get("route_admission") or []),
+        "semantics": {
+            "provider_result_is_proposal_only": True,
+            "topology_contains_exact_seed_steps": True,
+            "director_should_reason_over_seed_as_a_global_route": True,
+        },
+    }
+
+
+def _chemenzy_vendor_root(configured_root: Path) -> Path:
+    """Bind discovery to this gateway instead of process cwd global state."""
+
+    direct = configured_root.resolve()
+    if (direct / "retro_planner").is_dir():
+        return direct
+    return direct / "ChemEnzyRetroPlanner"
 
 
 def _bounded_detail(value: Any, *, depth: int = 0) -> Any:
@@ -1215,11 +2317,59 @@ def _bounded_detail(value: Any, *, depth: int = 0) -> Any:
 
 
 def _deduplicate_stages(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    rows: dict[tuple[str, str], dict[str, Any]] = {}
-    for row in values:
-        key = (str(row.get("stage") or ""), _digest(row.get("detail") or {}))
-        rows[key] = row
-    return list(rows.values())
+    # The RunKernel event chain and content-addressed artifacts retain full
+    # history.  Checkpoints/reports are current projections and must not append
+    # megabytes of near-identical stage payload on every resume.
+    rows: dict[str, tuple[int, dict[str, Any]]] = {}
+    for index, row in enumerate(values):
+        name = str(row.get("stage") or "")
+        key = name or f"unnamed:{_digest(row.get('detail') or {})}"
+        current = dict(row)
+        previous = dict(rows.get(key, (-1, {}))[1])
+        if (
+            previous.get("status") == "running"
+            and current.get("status") != "running"
+            and previous.get("started_at")
+        ):
+            current["started_at"] = previous["started_at"]
+            elapsed_s = _elapsed_between(
+                str(previous["started_at"]),
+                str(current.get("completed_at") or _utc_now()),
+            )
+            if elapsed_s is not None:
+                current["elapsed_s"] = elapsed_s
+        rows[key] = (index, current)
+    return [row for _, row in sorted(rows.values(), key=lambda value: value[0])]
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _elapsed_between(started_at: str, completed_at: str) -> float | None:
+    try:
+        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        completed = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return round(max(0.0, (completed - started).total_seconds()), 3)
+
+
+def _should_retry_chemenzy_timeout(
+    stages: Iterable[Mapping[str, Any]],
+    *,
+    resume: bool,
+    requested_timeout_s: float,
+) -> bool:
+    """Retry only an earlier timeout and only with a genuinely larger window."""
+
+    rows = list(stages)
+    if not resume or not rows or rows[-1].get("status") != "timeout":
+        return False
+    detail = dict(rows[-1].get("detail") or {})
+    limits = dict(detail.get("limits") or {})
+    previous_timeout_s = float(limits.get("timeout_s") or 0.0)
+    return requested_timeout_s > previous_timeout_s
 
 
 def _run_director_safely(
@@ -1277,10 +2427,24 @@ def _checkpoint(
             "schema_version": TARGET_SOLVE_CHECKPOINT_SCHEMA,
             "run_id": run_id,
             "complete": complete,
-            "stages": stages,
+            "stages": _deduplicate_stages(stages),
             "director_outcomes": outcomes,
         },
     )
+
+
+def _mark_stage_running(
+    path: Path,
+    run_id: str,
+    stages: list[dict[str, Any]],
+    outcomes: list[dict[str, Any]],
+    name: str,
+    **detail: Any,
+) -> None:
+    """Persist a small live stage marker before one potentially slow call."""
+
+    stages.append(_stage(name, "running", detail))
+    _checkpoint(path, run_id, stages, outcomes)
 
 
 def _read_checkpoint(path: Path) -> dict[str, Any]:

@@ -6,17 +6,21 @@ read model, then computes entity deltas between revisions.  It owns no
 scientific state and cannot promote a hypothesis or proof level.
 """
 from __future__ import annotations
-
 import hashlib
 import json
 from typing import Any, Mapping
-
-
+from cascade_planner.application.route_workbench_inspectors import (
+    PROOF_VECTOR_SCHEMA as PROOF_VECTOR_SCHEMA,
+    edge_inspector as _edge_inspector,
+    edge_proof_vector as _edge_proof_vector,
+    molecule_inspector as _molecule_inspector,
+    route_inspector as _route_inspector,
+    route_proof_vector as _route_proof_vector,
+)
 ROUTE_WORKBENCH_SCHEMA = "retrosynthesis_route_workbench.v1"
 ROUTE_WORKBENCH_DELTA_SCHEMA = "retrosynthesis_route_workbench_delta.v1"
 MAX_VISIBLE_ROUTES = 5
 MAX_VISIBLE_HYPOTHESES = 48
-
 PROOF_VISUALS: dict[int, dict[str, str]] = {
     0: {"name": "L0_hypothesis", "color": "#e76f51", "tone": "proposal"},
     1: {"name": "L1_structural_materialized", "color": "#8b5cf6", "tone": "materialized"},
@@ -24,12 +28,8 @@ PROOF_VISUALS: dict[int, dict[str, str]] = {
     3: {"name": "L3_exact_source", "color": "#0f9f8f", "tone": "supported"},
     4: {"name": "L4_procurement_ready", "color": "#16a34a", "tone": "closed"},
 }
-
-
 class RouteWorkbenchProjectionError(ValueError):
     """The graph/portfolio pair cannot form one authoritative UI revision."""
-
-
 def compile_route_workbench(
     graph: Mapping[str, Any],
     portfolio: Mapping[str, Any],
@@ -44,15 +44,21 @@ def compile_route_workbench(
     edges = dict(graph.get("edges") or {})
     edge_proofs = dict(portfolio.get("edge_proofs") or {})
     leaf_proofs = dict(portfolio.get("leaf_proofs") or {})
+    proof_policy = dict(portfolio.get("proof_policy") or {})
+    stock_boundary = str(proof_policy.get("stock_boundary") or "unknown")
     selected = [
         dict(value)
         for value in portfolio.get("selected_routes") or []
         if isinstance(value, Mapping)
     ][:MAX_VISIBLE_ROUTES]
+    replacement_routes, replacement_records = _replacement_rows(
+        portfolio,
+        selected_routes=selected,
+    )
 
     selected_edge_ids = {
         str(edge_id)
-        for route in selected
+        for route in [*selected, *replacement_routes.values()]
         for edge_id in route.get("edge_ids") or []
         if str(edge_id) in edges
     }
@@ -98,9 +104,25 @@ def compile_route_workbench(
             route,
             edge_rows=edge_rows,
             deficits=deficit_rows,
+            stock_boundary=stock_boundary,
         )
         for route in selected
         if str(route.get("route_id") or "")
+    }
+    replacement_route_rows = {
+        route_id: {
+            **_route_row(
+                route,
+                edge_rows=edge_rows,
+                deficits=deficit_rows,
+                stock_boundary=stock_boundary,
+            ),
+            "listed": False,
+            "replacement_projection": True,
+            "underlying_route_id": str(route.get("underlying_route_id") or ""),
+            "base_route_id": str(route.get("base_route_id") or ""),
+        }
+        for route_id, route in replacement_routes.items()
     }
     hypotheses = _hypothesis_rows(graph)
     modules = _module_rows(portfolio, selected_route_ids=set(route_rows))
@@ -135,6 +157,12 @@ def compile_route_workbench(
             "default_route_id": next(iter(route_rows), ""),
             "route_count": len(route_rows),
             "accepted": portfolio.get("accepted") is True,
+            "stock_boundary": stock_boundary,
+            "closure_profile": _closure_profile(
+                accepted=portfolio.get("accepted") is True,
+                stock_boundary=stock_boundary,
+            ),
+            "process_ready": False,
             "closeout": _copy_json(portfolio.get("closeout") or {}),
             "metrics": _copy_json(portfolio.get("metrics") or {}),
             "display_limit": MAX_VISIBLE_ROUTES,
@@ -142,6 +170,19 @@ def compile_route_workbench(
         "campaign_summary": _campaign_summary(campaign_summary),
         "views": views,
         "routes": route_rows,
+        "replacement_routes": replacement_route_rows,
+        "replacement_validation": {
+            "schema_version": "route_replacement_validation.v1",
+            "candidate_count": len(replacement_records),
+            "validated_count": sum(
+                row.get("accepted") is True for row in replacement_records
+            ),
+            "records": replacement_records,
+            "semantics": {
+                "full_candidate_route_was_restitched": True,
+                "module_patch_alone_never_grants_acceptance": True,
+            },
+        },
         "molecules": molecule_rows,
         "edges": edge_rows,
         "hypotheses": hypotheses,
@@ -175,8 +216,11 @@ def compile_route_workbench(
             "default_is_bounded_portfolio": True,
             "shared_intermediates_are_not_duplicated": True,
             "hypotheses_are_not_routes": True,
+            "replacement_preview_requires_complete_restitched_route": True,
             "aggregate_counts_never_grant_completion": True,
             "campaign_gates_are_measurements_only": True,
+            "configured_boundary_closure_is_not_process_readiness": True,
+            "benchmark_search_is_exploration_only": True,
         },
     }
     payload["content_sha256"] = _digest(payload)
@@ -197,7 +241,14 @@ def compile_route_workbench_delta(
     if previous_row and previous_row.get("run_id") != current.get("run_id"):
         raise RouteWorkbenchProjectionError("route_workbench_delta_run_mismatch")
 
-    collections = ("routes", "molecules", "edges", "hypotheses", "modules")
+    collections = (
+        "routes",
+        "replacement_routes",
+        "molecules",
+        "edges",
+        "hypotheses",
+        "modules",
+    )
     upserts: dict[str, dict[str, Any]] = {}
     removals: dict[str, list[str]] = {}
     for name in collections:
@@ -224,6 +275,7 @@ def compile_route_workbench_delta(
             "shared_intermediates",
             "layout",
             "inspectors",
+            "replacement_validation",
         )
     )
     payload = {
@@ -249,6 +301,7 @@ def compile_route_workbench_delta(
                     "shared_intermediates",
                     "layout",
                     "inspectors",
+                    "replacement_validation",
                 )
             }
             if metadata_changed
@@ -366,6 +419,9 @@ def _edge_row(
         badges.append("exact-source")
     if proof.get("conflict_ids"):
         badges.append("conflict")
+    proof_vector = _edge_proof_vector(edge=edge, proof=proof, graph=graph)
+    if proof_vector["conditions"] == "missing":
+        badges.append("conditions-missing")
     return {
         "edge_id": edge_id,
         "product_molecule_id": str(edge.get("product_molecule_id") or ""),
@@ -379,6 +435,8 @@ def _edge_row(
         "origin_kinds": origins,
         "source_kinds": source_kinds,
         "badges": sorted(set(badges)),
+        "proof_vector": proof_vector,
+        "condition_status": proof_vector["conditions"],
     }
 
 
@@ -387,10 +445,16 @@ def _route_row(
     *,
     edge_rows: Mapping[str, Mapping[str, Any]],
     deficits: list[dict[str, Any]],
+    stock_boundary: str,
 ) -> dict[str, Any]:
     route_id = str(route.get("route_id") or "")
     level = max(0, min(4, int(route.get("minimum_edge_proof_level") or 0)))
-    if route.get("complete") is True:
+    configured_boundary_closed = route.get("complete") is True
+    closure_profile = _closure_profile(
+        accepted=configured_boundary_closed,
+        stock_boundary=stock_boundary,
+    )
+    if configured_boundary_closed:
         stage = "stock_closed"
     elif route.get("all_edges_proven") is True and level >= 2:
         stage = "reaction_validated"
@@ -417,6 +481,17 @@ def _route_row(
     badges.extend(f"source:{value}" for value in source_kinds)
     if route.get("pareto_optimal") is True:
         badges.append("pareto")
+    selected_edge_rows = [
+        dict(edge_rows.get(str(edge_id)) or {})
+        for edge_id in route.get("edge_ids") or []
+    ]
+    route_proof_vector = _route_proof_vector(
+        selected_edge_rows,
+        independent_source_groups=route.get("independent_source_groups") or [],
+        closure_profile=closure_profile,
+    )
+    if route_proof_vector["conditions"] == "missing":
+        badges.append("conditions-missing")
     return {
         "route_id": route_id,
         "route_family_id": str(route.get("route_family_id") or ""),
@@ -432,6 +507,16 @@ def _route_row(
         "root_edge_ids": [str(value) for value in route.get("root_edge_ids") or []],
         "module_selections": dict(route.get("module_selections") or {}),
         "complete": route.get("complete") is True,
+        "configured_boundary_closed": configured_boundary_closed,
+        "stock_boundary": stock_boundary,
+        "closure_profile": closure_profile,
+        "search_closed": closure_profile == "exploration_closed",
+        "procurement_closed": closure_profile == "procurement_closed",
+        "process_ready": False,
+        "condition_complete": (
+            route_proof_vector["condition_completeness"] == "complete"
+        ),
+        "proof_vector": route_proof_vector,
         "stock_closure_rate": float(route.get("stock_closure_rate") or 0.0),
         "independent_source_groups": list(route.get("independent_source_groups") or []),
         "risk_score": float(route.get("risk_score") or 0.0),
@@ -439,6 +524,16 @@ def _route_row(
         "deficit_count": len(route_deficits),
         "badges": sorted(set(badges)),
     }
+
+
+def _closure_profile(*, accepted: bool, stock_boundary: str) -> str:
+    if not accepted:
+        return "unresolved"
+    return {
+        "benchmark_search": "exploration_closed",
+        "procurement": "procurement_closed",
+        "in_house": "in_house_closed",
+    }.get(stock_boundary, "configured_boundary_closed")
 
 
 def _hypothesis_rows(graph: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -485,13 +580,135 @@ def _module_rows(
         for value in portfolio.get("selected_routes") or []
         if isinstance(value, Mapping) and str(value.get("route_id") or "") in selected_route_ids
     }
-    return {
-        str(value["module_id"]): _copy_json(value)
-        for value in portfolio.get("route_modules") or []
-        if isinstance(value, Mapping)
-        and str(value.get("module_id") or "")
-        and str(value.get("route_family_id") or "") in selected_families
+    rows: dict[str, dict[str, Any]] = {}
+    for value in portfolio.get("route_modules") or []:
+        if not isinstance(value, Mapping) or not str(value.get("module_id") or ""):
+            continue
+        family_ids = {
+            str(item) for item in value.get("route_family_ids") or [] if str(item)
+        }
+        if not family_ids and str(value.get("route_family_id") or ""):
+            family_ids.add(str(value["route_family_id"]))
+        if selected_families.isdisjoint(family_ids):
+            continue
+        rows[str(value["module_id"])] = _copy_json(value)
+    return rows
+
+
+def _replacement_rows(
+    portfolio: Mapping[str, Any],
+    *,
+    selected_routes: list[dict[str, Any]],
+    limit: int = 24,
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Project only full proof-stitched alternatives for interactive preview."""
+
+    modules = {
+        str(row.get("module_id") or ""): dict(row)
+        for row in portfolio.get("route_modules") or []
+        if isinstance(row, Mapping) and str(row.get("module_id") or "")
     }
+    candidates = [
+        dict(row)
+        for row in portfolio.get("route_candidates") or []
+        if isinstance(row, Mapping) and str(row.get("route_id") or "")
+    ]
+    projected: dict[str, dict[str, Any]] = {}
+    records: list[dict[str, Any]] = []
+    for base in selected_routes:
+        base_route_id = str(base.get("route_id") or "")
+        base_family_id = str(base.get("route_family_id") or "")
+        selections = {
+            str(key): str(value)
+            for key, value in dict(base.get("module_selections") or {}).items()
+            if str(key) and str(value)
+        }
+        for module_id, current_edge_id in sorted(selections.items()):
+            module = modules.get(module_id, {})
+            module_family_ids = {
+                str(value)
+                for value in module.get("route_family_ids") or []
+                if str(value)
+            }
+            if not module_family_ids and str(module.get("route_family_id") or ""):
+                module_family_ids.add(str(module["route_family_id"]))
+            if base_family_id not in module_family_ids:
+                continue
+            for alternative in module.get("alternatives") or []:
+                if not isinstance(alternative, Mapping):
+                    continue
+                replacement_edge_id = str(alternative.get("edge_id") or "")
+                if not replacement_edge_id or replacement_edge_id == current_edge_id:
+                    continue
+                matches = [
+                    candidate
+                    for candidate in candidates
+                    if str(candidate.get("route_family_id") or "")
+                    in module_family_ids
+                    and str(
+                        dict(candidate.get("module_selections") or {}).get(module_id)
+                        or ""
+                    )
+                    == replacement_edge_id
+                ]
+                matches.sort(
+                    key=lambda row: (
+                        row.get("complete") is not True,
+                        row.get("all_edges_proven") is not True,
+                        row.get("all_leaves_stock_closed") is not True,
+                        float(row.get("risk_score") or 0.0),
+                        str(row.get("route_id") or ""),
+                    )
+                )
+                candidate = matches[0] if matches else {}
+                accepted = bool(
+                    candidate
+                    and candidate.get("complete") is True
+                    and candidate.get("all_edges_proven") is True
+                    and candidate.get("all_leaves_stock_closed") is True
+                )
+                key = {
+                    "base_route_id": base_route_id,
+                    "module_id": module_id,
+                    "replacement_edge_id": replacement_edge_id,
+                }
+                replacement_id = "replacement:" + _digest(key)[:24]
+                replacement_route_id = "replacement-route:" + _digest(
+                    {**key, "candidate": candidate.get("route_id")}
+                )[:24]
+                reasons: list[str] = []
+                if not candidate:
+                    reasons.append("full_restitched_route_missing")
+                elif candidate.get("complete") is not True:
+                    reasons.append("replacement_route_not_boundary_closed")
+                if candidate and candidate.get("all_edges_proven") is not True:
+                    reasons.append("replacement_route_reaction_proof_incomplete")
+                if candidate and candidate.get("all_leaves_stock_closed") is not True:
+                    reasons.append("replacement_route_stock_closure_incomplete")
+                if accepted:
+                    projected[replacement_route_id] = {
+                        **candidate,
+                        "route_id": replacement_route_id,
+                        "underlying_route_id": str(candidate.get("route_id") or ""),
+                        "base_route_id": base_route_id,
+                        "replacement_id": replacement_id,
+                    }
+                records.append(
+                    {
+                        "replacement_id": replacement_id,
+                        "base_route_id": base_route_id,
+                        "base_edge_id": current_edge_id,
+                        "module_id": module_id,
+                        "replacement_edge_id": replacement_edge_id,
+                        "underlying_route_id": str(candidate.get("route_id") or ""),
+                        "replacement_route_id": replacement_route_id if accepted else "",
+                        "accepted": accepted,
+                        "reasons": sorted(set(reasons)),
+                    }
+                )
+                if len(records) >= limit:
+                    return projected, records
+    return projected, records
 
 
 def _shared_intermediate_rows(
@@ -522,7 +739,10 @@ def _views(
         "hypotheses": {"label": "Disconnection hypotheses", "route_ids": []},
         "expanded": {"label": "Expanded routes", "route_ids": []},
         "reaction_validated": {"label": "Reaction-validated routes", "route_ids": []},
-        "stock_closed": {"label": "Stock-closed routes", "route_ids": []},
+        "stock_closed": {"label": "Configured-boundary-closed routes", "route_ids": []},
+        "condition_complete": {"label": "Condition-complete routes", "route_ids": []},
+        "procurement_closed": {"label": "Procurement-closed routes", "route_ids": []},
+        "process_ready": {"label": "Process-ready routes", "route_ids": []},
     }
     stages["hypotheses"]["hypothesis_ids"] = list(hypotheses)
     for route_id, route in routes.items():
@@ -531,6 +751,12 @@ def _views(
             stages["stock_closed"]["route_ids"].append(route_id)
         if stage in {"reaction_validated", "stock_closed"}:
             stages["reaction_validated"]["route_ids"].append(route_id)
+        if route.get("condition_complete") is True:
+            stages["condition_complete"]["route_ids"].append(route_id)
+        if route.get("procurement_closed") is True:
+            stages["procurement_closed"]["route_ids"].append(route_id)
+        if route.get("process_ready") is True:
+            stages["process_ready"]["route_ids"].append(route_id)
         stages["expanded"]["route_ids"].append(route_id)
     for value in stages.values():
         value["count"] = len(value.get("route_ids") or value.get("hypothesis_ids") or [])
@@ -578,68 +804,6 @@ def _stable_layout(
     }
 
 
-def _route_inspector(
-    route: Mapping[str, Any],
-    *,
-    edge_rows: Mapping[str, Mapping[str, Any]],
-) -> dict[str, Any]:
-    return {
-        "stage": route.get("stage"),
-        "proof_level": route.get("proof_level"),
-        "stock_closure_rate": route.get("stock_closure_rate"),
-        "risk_score": route.get("risk_score"),
-        "independent_source_groups": list(route.get("independent_source_groups") or []),
-        "edge_badges": {
-            edge_id: list(dict(edge_rows.get(edge_id) or {}).get("badges") or [])
-            for edge_id in route.get("edge_ids") or []
-        },
-    }
-
-
-def _edge_inspector(
-    edge_id: str,
-    *,
-    graph: Mapping[str, Any],
-    proof: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    proof_row = dict(proof or {})
-    edge = dict(dict(graph.get("edges") or {}).get(edge_id) or {})
-    source_ids = [str(value) for value in proof_row.get("source_binding_ids") or []]
-    record_ids = [str(value) for value in proof_row.get("exact_record_ids") or []]
-    conflict_ids = [str(value) for value in proof_row.get("conflict_ids") or []]
-    return {
-        "proof": _copy_json(proof_row),
-        "reaction_proofs": _copy_json(edge.get("reaction_proofs") or []),
-        "sources": [
-            _copy_json(dict(graph.get("source_bindings") or {}).get(value) or {})
-            for value in source_ids
-        ],
-        "exact_records": [
-            _copy_json(dict(graph.get("exact_records") or {}).get(value) or {})
-            for value in record_ids
-        ],
-        "conflicts": [
-            _copy_json(dict(graph.get("conflicts") or {}).get(value) or {})
-            for value in conflict_ids
-        ],
-        "provenance": _copy_json(edge.get("origin_records") or []),
-        "rejection_reasons": list(proof_row.get("reasons") or []),
-    }
-
-
-def _molecule_inspector(molecule_id: str, *, graph: Mapping[str, Any]) -> dict[str, Any]:
-    molecule = dict(dict(graph.get("molecules") or {}).get(molecule_id) or {})
-    observation_ids = [str(value) for value in molecule.get("stock_observation_ids") or []]
-    return {
-        "canonical_smiles": str(molecule.get("canonical_smiles") or ""),
-        "stock_closed": molecule.get("stock_closed") is True,
-        "stock_observations": [
-            _copy_json(dict(graph.get("stock_observations") or {}).get(value) or {})
-            for value in observation_ids
-        ],
-    }
-
-
 def _copy_json(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
 
@@ -659,6 +823,7 @@ def _digest(value: Any) -> str:
 __all__ = [
     "MAX_VISIBLE_ROUTES",
     "PROOF_VISUALS",
+    "PROOF_VECTOR_SCHEMA",
     "ROUTE_WORKBENCH_DELTA_SCHEMA",
     "ROUTE_WORKBENCH_SCHEMA",
     "RouteWorkbenchProjectionError",

@@ -23,6 +23,10 @@ from cascade_planner.application.proof_policy import (
     stitch_edge_proof,
     validate_canonical_graph_entities,
 )
+from cascade_planner.application.proof_portfolio_replacements import (
+    compile_replacement_modules,
+    validate_module_replacement,
+)
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
 )
@@ -58,7 +62,6 @@ def compile_proof_portfolio(
     }
     leaf_proof_cache: dict[str, dict[str, Any]] = {}
     candidates: list[dict[str, Any]] = []
-    route_modules: list[dict[str, Any]] = []
     for family_id, raw in sorted(dict(graph.get("route_families") or {}).items()):
         if (
             not isinstance(raw, Mapping)
@@ -67,7 +70,7 @@ def compile_proof_portfolio(
         ):
             continue
         family = dict(raw)
-        variants, modules = enumerate_family_variants(
+        variants, _family_modules = enumerate_family_variants(
             graph,
             family_id=str(family_id),
             family=family,
@@ -76,7 +79,6 @@ def compile_proof_portfolio(
             leaf_proof_cache=leaf_proof_cache,
             limit=active.maximum_variants_per_family,
         )
-        route_modules.extend(modules)
         if not variants:
             variants = [RouteSubroute(frozenset(), frozenset(), ())]
         candidates.extend(
@@ -93,6 +95,11 @@ def compile_proof_portfolio(
         )
 
     candidates = deduplicate_edge_sets(candidates)
+    route_modules, candidates = compile_replacement_modules(
+        graph,
+        candidates=candidates,
+        edge_proofs=edge_proofs,
+    )
     pareto_ids = {str(value["route_id"]) for value in pareto_front(candidates)}
     candidates = [
         with_content_digest(
@@ -231,67 +238,6 @@ def publish_proof_portfolio(
         "portfolio_ref": ref.to_dict(),
         "acceptance_report": acceptance_report,
     }
-
-
-def validate_module_replacement(
-    portfolio: Mapping[str, Any],
-    *,
-    route_id: str,
-    module_id: str,
-    replacement_edge_id: str,
-) -> dict[str, Any]:
-    module = next(
-        (
-            dict(value)
-            for value in portfolio.get("route_modules") or []
-            if value.get("module_id") == module_id
-        ),
-        {},
-    )
-    route = next(
-        (
-            dict(value)
-            for value in portfolio.get("route_candidates") or []
-            if value.get("route_id") == route_id
-        ),
-        {},
-    )
-    alternatives = {
-        str(value.get("edge_id") or "") for value in module.get("alternatives") or []
-    }
-    current = str(dict(route.get("module_selections") or {}).get(module_id) or "")
-    reasons: list[str] = []
-    if not module:
-        reasons.append("replacement_module_missing")
-    if not route:
-        reasons.append("replacement_route_missing")
-    if replacement_edge_id not in alternatives:
-        reasons.append("replacement_edge_not_in_module")
-    if replacement_edge_id == current:
-        reasons.append("replacement_edge_is_already_selected")
-    if module and route and not current:
-        reasons.append("replacement_module_not_used_by_route")
-    if module and route and module.get("route_family_id") != route.get(
-        "route_family_id"
-    ):
-        reasons.append("replacement_module_route_family_mismatch")
-    patch = {
-        "schema_version": "route_module_replacement_patch.v1",
-        "route_id": route_id,
-        "module_id": module_id,
-        "product_molecule_id": str(module.get("product_molecule_id") or ""),
-        "remove_edge_id": current,
-        "add_edge_id": replacement_edge_id,
-        "accepted": not reasons,
-        "reasons": sorted(set(reasons)),
-        "semantics": {
-            "patch_reuses_canonical_subgraph": True,
-            "patch_does_not_duplicate_entire_route": True,
-            "replacement_requires_reproof": True,
-        },
-    }
-    patch["content_sha256"] = _digest(patch)
-    return patch
 
 
 def _digest(value: Any) -> str:

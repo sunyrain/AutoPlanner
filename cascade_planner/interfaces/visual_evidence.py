@@ -8,17 +8,20 @@ from pathlib import Path
 import re
 from typing import Any, Callable, Mapping
 
-from rdkit import Chem
-
 from cascade_planner.application.run_kernel import RunKernelError
-from cascade_planner.harness.reaction_step_verifier import canonical_reaction_digest
+from cascade_planner.application.retrosynthesis_workers import (
+    materialization_commands_for_proposals,
+)
 from cascade_planner.harness.visual_literature_chain_agent import (
     run_visual_literature_chain_agent,
+)
+from cascade_planner.interfaces.visual_observation_normalization import (
+    VISUAL_EVIDENCE_OBSERVATION_SCHEMA as VISUAL_EVIDENCE_OBSERVATION_SCHEMA,
+    normalize_visual_observation as _normalize_visual_observation,
 )
 
 
 VISUAL_EVIDENCE_REQUEST_SCHEMA = "visual_source_candidate_request.v1"
-VISUAL_EVIDENCE_OBSERVATION_SCHEMA = "visual_source_candidate_observation.v1"
 VisualEvidenceProvider = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 
 
@@ -32,7 +35,7 @@ class CodexVisualEvidenceConfig:
     model: str = "gpt-5.5"
     reasoning_effort: str = "low"
     timeout_s: float = 240.0
-    max_pages: int = 4
+    max_pages: int = 6
     max_steps: int = 16
 
     def __post_init__(self) -> None:
@@ -40,7 +43,7 @@ class CodexVisualEvidenceConfig:
             raise ValueError("visual_evidence_model_missing")
         if self.reasoning_effort not in {"low", "medium", "high"}:
             raise ValueError("visual_evidence_reasoning_effort_invalid")
-        if self.timeout_s <= 0 or not 1 <= self.max_pages <= 8:
+        if self.timeout_s <= 0 or not 1 <= self.max_pages <= 12:
             raise ValueError("visual_evidence_execution_limit_invalid")
         if not 1 <= self.max_steps <= 32:
             raise ValueError("visual_evidence_step_limit_invalid")
@@ -125,7 +128,7 @@ def acquire_visual_evidence_candidates(
     evidence_request: Mapping[str, Any],
     discovery: Mapping[str, Any],
     provider: VisualEvidenceProvider | None,
-    max_pages: int = 4,
+    max_pages: int = 6,
     max_steps: int = 16,
 ) -> dict[str, Any]:
     """Run at most one visual task and return only host-normalized hypotheses."""
@@ -243,7 +246,7 @@ def compile_visual_evidence_request(
     discovery: Mapping[str, Any],
     max_pages: int,
 ) -> dict[str, Any]:
-    if not 1 <= max_pages <= 8:
+    if not 1 <= max_pages <= 12:
         raise ValueError("visual_evidence_page_limit_invalid")
     if str(discovery.get("request_sha256") or "") != str(
         evidence_request.get("content_sha256") or ""
@@ -254,8 +257,18 @@ def compile_visual_evidence_request(
         if not isinstance(source, Mapping):
             continue
         publication_number = str(source.get("publication_number") or "").strip()
-        source_pdf_sha256 = str(source.get("pdf_sha256") or "").strip().lower()
-        if not publication_number or not _is_sha256(source_pdf_sha256):
+        source_kind = str(source.get("source_kind") or "").strip().lower()
+        source_ref = _source_ref(source)
+        source_pdf_sha256 = str(
+            source.get("source_pdf_sha256") or source.get("pdf_sha256") or ""
+        ).strip().lower()
+        source_fulltext_sha256 = str(
+            source.get("source_fulltext_sha256")
+            or source.get("fulltext_xml_sha256")
+            or ""
+        ).strip().lower()
+        source_artifact_sha256 = source_fulltext_sha256 or source_pdf_sha256
+        if not source_ref or not _is_sha256(source_artifact_sha256):
             continue
         exact_row_count = int(source.get("exact_row_count") or 0)
         unresolved_edge_count = int(source.get("unresolved_edge_count") or 0)
@@ -290,15 +303,27 @@ def compile_visual_evidence_request(
         labels = [
             str(row.get("label") or "")
             for row in source.get("procedure_inventory") or []
-            if isinstance(row, Mapping) and str(row.get("label") or "").strip()
+            if isinstance(row, Mapping)
+            and row.get("visual_expected") is not False
+            and str(row.get("label") or "").strip()
         ]
         candidates.append(
             {
-                "source_ref": f"patent:{publication_number}",
+                "source_ref": source_ref,
+                "source_kind": source_kind or _source_kind(source_ref),
                 "publication_number": publication_number,
+                "doi": str(source.get("doi") or "")[:500],
+                "pmid": str(source.get("pmid") or "")[:100],
                 "family_id": str(source.get("family_id") or ""),
                 "title": str(source.get("title") or "")[:1000],
                 "source_pdf_sha256": source_pdf_sha256,
+                "source_fulltext_sha256": source_fulltext_sha256,
+                "source_artifact_sha256": source_artifact_sha256,
+                "source_artifact_kind": (
+                    "europe_pmc_fulltext_xml"
+                    if source_fulltext_sha256
+                    else "pdf"
+                ),
                 "expected_labels": list(dict.fromkeys(labels))[:24],
                 "pages": pages,
                 "exact_row_count": exact_row_count,
@@ -311,7 +336,7 @@ def compile_visual_evidence_request(
         key=lambda row: (
             -int(row["unresolved_edge_count"]),
             int(row["exact_row_count"] > 0),
-            str(row["publication_number"]),
+            str(row["source_ref"]),
         )
     )
     request = {
@@ -333,80 +358,98 @@ def compile_visual_evidence_request(
     return request
 
 
-def _normalize_visual_observation(
-    request: Mapping[str, Any],
+def materialize_visual_evidence_candidates(
+    service: Any,
     *,
-    result: Mapping[str, Any],
-    max_steps: int,
+    observation: Mapping[str, Any],
 ) -> dict[str, Any]:
-    if str(result.get("request_sha256") or "") != str(request.get("content_sha256") or ""):
-        raise VisualEvidenceError("visual_provider_request_digest_mismatch")
-    source = dict(request.get("source") or {})
-    current_edges = {
-        canonical_reaction_digest(
-            _canonical_smiles(row.get("product_smiles")),
-            _canonical_reactants(row.get("precursor_smiles")),
-        ): str(row.get("edge_id") or "")
-        for row in request.get("edges") or []
-        if isinstance(row, Mapping)
-        and _canonical_smiles(row.get("product_smiles"))
-        and _canonical_reactants(row.get("precursor_smiles"))
-    }
-    chain = dict(result.get("candidate_chain") or {})
-    steps = []
-    for index, raw in enumerate(chain.get("steps") or [], start=1):
-        if not isinstance(raw, Mapping):
-            continue
-        row = dict(raw)
-        product = _canonical_smiles(row.get("product_smiles"))
-        reactants = _canonical_reactants(row.get("reactant_smiles"))
-        if not product or not reactants:
-            continue
-        reaction_digest = canonical_reaction_digest(product, reactants)
-        steps.append(
+    """Admit a visually extracted literature chain as L0/L1 proposals.
+
+    Page-bound visual extraction is useful chemistry generation, but it is not
+    deterministic source proof.  Every step therefore goes through the same
+    host materialization gates as ChemEnzy/Codex and remains below L3 until an
+    independent structured extractor or curator supplies exact rows.
+    """
+
+    steps = [
+        dict(row)
+        for row in observation.get("candidate_steps") or []
+        if isinstance(row, Mapping) and row.get("admission_eligible") is True
+    ]
+    if not steps:
+        return _materialization_stage("not_needed", reason="visual_candidate_steps_missing")
+    graph = service.graph_store.load()
+    existing = [
+        str(row.get("edge_digest") or "")
+        for row in dict(graph.get("edges") or {}).values()
+        if isinstance(row, Mapping) and str(row.get("edge_digest") or "")
+    ]
+    source_ref = str(observation.get("source_ref") or "")
+    proposals = []
+    for row in steps:
+        condition = dict(row.get("condition_candidate") or {})
+        proposals.append(
             {
-                "candidate_id": f"visual:{_digest({'source': source.get('source_ref'), 'reaction': reaction_digest})[:24]}",
-                "product_smiles": product,
-                "precursor_smiles": reactants,
-                "product_label": str(row.get("product_label") or "")[:300],
-                "reactant_labels": [
-                    str(value)[:300]
-                    for value in row.get("reactant_labels") or []
-                    if str(value).strip()
-                ][:12],
-                "source_locator": str(row.get("source_locator") or "")[:500],
-                "reaction_digest": reaction_digest,
-                "matched_current_edge_id": current_edges.get(reaction_digest, ""),
-                "relation_type": "visual_candidate",
-                "allowed_use": "global_replan_hypothesis_only",
-                "host_smiles_parse_accepted": True,
-                "grants_exact_evidence": False,
+                "product_smiles": str(row.get("product_smiles") or ""),
+                "precursor_smiles": list(row.get("precursor_smiles") or []),
+                "origin_kind": "literature_visual_extraction",
+                "origin_ref": source_ref,
+                "proposal_id": str(row.get("candidate_id") or ""),
+                "transformation_hypothesis": (
+                    "page-bound literature structure-chain extraction"
+                ),
+                "condition_predictions": (
+                    [
+                        {
+                            **condition,
+                            "source_ref": source_ref,
+                            "source_locator": str(row.get("source_locator") or ""),
+                            "authority_scope": "model_extracted_source_condition_candidate",
+                            "not_reaction_proof": True,
+                        }
+                    ]
+                    if condition
+                    else []
+                ),
             }
         )
-        if len(steps) >= max_steps:
-            break
-    observation = {
-        "schema_version": VISUAL_EVIDENCE_OBSERVATION_SCHEMA,
-        "request_sha256": str(request.get("content_sha256") or ""),
-        "source_ref": str(source.get("source_ref") or ""),
-        "source_pdf_sha256": str(source.get("source_pdf_sha256") or ""),
-        "page_bindings": [dict(row) for row in source.get("pages") or []],
-        "provider_receipt": dict(result.get("provider_receipt") or {}),
-        "provider_status": str(result.get("provider_status") or ""),
-        "candidate_steps": steps,
-        "candidate_step_count": len(steps),
-        "matched_current_edge_count": sum(
-            bool(row["matched_current_edge_id"]) for row in steps
-        ),
-        "semantics": {
-            "model_output_is_advisory": True,
-            "host_canonicalization_is_not_source_verification": True,
-            "deterministic_source_parser_must_independently_reconstruct_exact_rows": True,
-            "observation_cannot_grant_L2_L3_or_stock": True,
+    revision = service.kernel.revision
+    commands = materialization_commands_for_proposals(
+        proposals,
+        run_id=service.kernel.spec.run_id,
+        input_revision=revision.graph_revision,
+        dependency_revisions={
+            "graph_revision": revision.graph_revision,
+            "evidence_revision": revision.evidence_revision,
         },
-    }
-    observation["content_sha256"] = _digest(observation)
-    return observation
+        existing_edge_digests=existing,
+    )
+    if not commands:
+        return _materialization_stage(
+            "reused_or_empty",
+            reason="visual_chain_already_materialized_or_ineligible",
+            proposal_count=len(proposals),
+        )
+    execution = service.execute_commands(
+        commands,
+        idempotency_key=f"visual-chain:{str(observation.get('content_sha256') or '')}",
+    )
+    return _materialization_stage(
+        "completed" if execution.get("changed") else "partial",
+        proposal_count=len(proposals),
+        command_count=len(commands),
+        execution=execution,
+        material_events=(
+            ["visual_literature_chain_materialized"]
+            if execution.get("changed")
+            else []
+        ),
+        semantics={
+            "visual_chain_enters_canonical_hypergraph": True,
+            "visual_chain_grants_exact_evidence": False,
+            "host_validation_still_required": True,
+        },
+    )
 
 
 def _validate_request_digest(request: Mapping[str, Any]) -> None:
@@ -416,6 +459,34 @@ def _validate_request_digest(request: Mapping[str, Any]) -> None:
         or str(request.get("content_sha256") or "") != _digest(body)
     ):
         raise VisualEvidenceError("visual_evidence_request_invalid")
+
+
+def _source_ref(source: Mapping[str, Any]) -> str:
+    explicit = str(source.get("source_ref") or "").strip()
+    if explicit:
+        return explicit[:500]
+    doi = str(source.get("doi") or "").strip()
+    if doi:
+        return f"doi:{doi.removeprefix('https://doi.org/').removeprefix('http://doi.org/')}"[:500]
+    pmid = str(source.get("pmid") or "").strip()
+    if pmid:
+        return f"pmid:{pmid}"[:500]
+    publication = str(source.get("publication_number") or "").strip()
+    return f"patent:{publication}" if publication else ""
+
+
+def _source_kind(source_ref: str) -> str:
+    prefix = str(source_ref).split(":", 1)[0].lower()
+    return "paper_si" if prefix in {"doi", "pmid", "pmc"} else prefix
+
+
+def _materialization_stage(status: str, *, reason: str = "", **values: Any) -> dict[str, Any]:
+    return {
+        "stage": "visual_chain_materialization",
+        "status": status,
+        "reason": reason,
+        **values,
+    }
 
 
 def _normalized_usage(value: Any) -> dict[str, Any]:
@@ -431,17 +502,6 @@ def _normalized_usage(value: Any) -> dict[str, Any]:
         "output_tokens": max(0, int(row.get("output_tokens") or 0)),
         "wall_time_s": max(0.0, float(row.get("wall_time_s") or 0.0)),
     }
-
-
-def _canonical_smiles(value: Any) -> str:
-    molecule = Chem.MolFromSmiles(str(value or "").strip())
-    return Chem.MolToSmiles(molecule, isomericSmiles=True) if molecule is not None else ""
-
-
-def _canonical_reactants(value: Any) -> list[str]:
-    values = [value] if isinstance(value, str) else list(value or [])
-    result = sorted(_canonical_smiles(row) for row in values)
-    return result if result and all(result) else []
 
 
 def _stage(status: str, *, reason: str = "", **values: Any) -> dict[str, Any]:
@@ -488,4 +548,5 @@ __all__ = [
     "acquire_visual_evidence_candidates",
     "build_codex_visual_evidence_provider",
     "compile_visual_evidence_request",
+    "materialize_visual_evidence_candidates",
 ]

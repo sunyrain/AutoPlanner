@@ -242,11 +242,18 @@ class ChemEnzyProposalProvider:
     descriptor = ProviderDescriptor(
         provider_id="autoplanner.chemenzy_proposals",
         kind=ProviderKind.PROPOSAL,
-        version="1.0.0",
-        input_schemas=("chemenzy_proposal_request.v1",),
+        version="1.1.0",
+        input_schemas=(
+            "chemenzy_proposal_request.v1",
+            "chemenzy_proposal_request.v2",
+        ),
         output_schemas=("retrosynthesis_candidate_batch.v1",),
         correlation_group="computational:chem_enzy",
-        capabilities=("one_step_retrosynthesis", "multi_step_route_proposals"),
+        capabilities=(
+            "one_step_retrosynthesis",
+            "multi_step_route_proposals",
+            "guided_frontier_request_contract",
+        ),
     )
 
     def __init__(self, runner: Any) -> None:

@@ -136,9 +136,18 @@ class RetrosynthesisCampaignService:
         plan: Mapping[str, Any],
         *,
         idempotency_key: str,
+        proposal_origin_kind: str = "manual",
+        proposal_origin_ref: str = "",
     ) -> dict[str, Any]:
+        trusted_plan = {
+            key: value
+            for key, value in dict(plan).items()
+            if key not in {"_proposal_origin_kind", "_proposal_origin_ref"}
+        }
+        trusted_plan["_proposal_origin_kind"] = str(proposal_origin_kind).lower()
+        trusted_plan["_proposal_origin_ref"] = str(proposal_origin_ref)
         return self.apply_batch(
-            CanonicalIngestionBatch(global_plans=(dict(plan),)),
+            CanonicalIngestionBatch(global_plans=(trusted_plan,)),
             idempotency_key=idempotency_key,
         )
 
@@ -166,6 +175,12 @@ class RetrosynthesisCampaignService:
             self.apply_global_plan(
                 {**outcome.plan.to_dict(), "_host_admitted_proposal_ids": admitted_ids},
                 idempotency_key=f"{idempotency_key}:plan",
+                proposal_origin_kind="codex_global_director",
+                proposal_origin_ref=(
+                    f"director_task:{outcome.task_id}"
+                    if outcome.task_id
+                    else f"director_context:{outcome.context_sha256}"
+                ),
             )
         return outcome
 

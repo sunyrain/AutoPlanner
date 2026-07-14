@@ -11,6 +11,9 @@ from cascade_planner.interfaces.replay_pack import (
     run_replay_pack,
     with_replay_pack_digest,
 )
+from cascade_planner.orchestration.retrosynthesis_service import (
+    RetrosynthesisCampaignService,
+)
 from cascade_planner.runtime.paths import RuntimePaths
 
 
@@ -64,10 +67,23 @@ def test_nirmatrelvir_pack_replays_two_complete_routes_without_models(
             "patent:WO2021250648A1",
         ],
         "accepted_expansion_count": 12,
-        "attempt_count": 29,
+        "attempt_count": 12,
+        "settled_task_count": 29,
         "model_invocations": 0,
         "visual_invocations": 0,
     }
+    replay_service = RetrosynthesisCampaignService.open(
+        paths.runtime_root,
+        result["run_dir"],
+        artifact_store_root=paths.artifact_store_root,
+        run_index_path=paths.run_index_path,
+    )
+    proposal_origins = {
+        origin["origin_kind"]
+        for hypothesis in replay_service.graph_store.load()["hypotheses"].values()
+        for origin in hypothesis["origin_records"]
+    }
+    assert proposal_origins == {"literature_replay"}
     repeated = run_replay_pack(
         _PACK,
         paths=paths,
@@ -80,13 +96,13 @@ def test_nirmatrelvir_pack_replays_two_complete_routes_without_models(
 
 
 @pytest.mark.parametrize(
-    ("stop_after", "expected_attempts"),
+    ("stop_after", "expected_tasks"),
     (("materialization", 12), ("evidence", 16)),
 )
 def test_replay_resumes_and_reconstructs_same_science(
     tmp_path: Path,
     stop_after: str,
-    expected_attempts: int,
+    expected_tasks: int,
 ) -> None:
     paths = _paths(tmp_path)
     interrupted = run_replay_pack(
@@ -98,7 +114,10 @@ def test_replay_resumes_and_reconstructs_same_science(
 
     assert interrupted["interrupted"] is True
     assert interrupted["status"] == "paused"
-    assert interrupted["observed"]["attempt_count"] == expected_attempts
+    assert interrupted["observed"]["attempt_count"] == 12
+    assert (
+        interrupted["observed"]["settled_task_count"] == expected_tasks
+    )
 
     resumed = run_replay_pack(_PACK, paths=paths, run_id="resumable")
     fresh = run_replay_pack(

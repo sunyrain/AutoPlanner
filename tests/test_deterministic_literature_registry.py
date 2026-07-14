@@ -10,6 +10,7 @@ import fitz
 from cascade_planner.harness.deterministic_literature_registry import (
     PARSER_AUTHORITY_ID,
     _extract_labeled_procedures,
+    _source_parenthetical_name_aliases,
     compile_deterministic_literature_step_registry,
 )
 from cascade_planner.harness.reaction_step_verifier import (
@@ -66,6 +67,24 @@ def test_extract_labeled_procedures_keeps_heading_and_forward_procedure() -> Non
     assert "T1 was treated" in rows[1]["procedure"]
 
 
+def test_source_declared_acyl_thioester_alias_is_preserved_for_resolution() -> None:
+    aliases = _source_parenthetical_name_aliases(
+        [
+            {
+                "page_number": 1,
+                "text": (
+                    "The substrate was alpha-dimethylbutyryl-S-methyl-"
+                    "mercaptopropionate (DMB-S-MMP)."
+                ),
+            }
+        ]
+    )
+
+    assert aliases["dmb-s-mmp"].endswith(
+        "dimethylbutyryl-S-methyl-mercaptopropionate"
+    )
+
+
 def test_extract_labeled_procedures_accepts_wrapped_patent_example_headings() -> None:
     rows = _extract_labeled_procedures(
         [
@@ -92,6 +111,23 @@ def test_extract_labeled_procedures_accepts_wrapped_patent_example_headings() ->
     assert "1-bromo-2-butyne" in rows[1]["procedure"]
 
 
+def test_pdf_soft_hyphens_and_embedded_glyph_confusion_are_normalized() -> None:
+    rows = _extract_labeled_procedures(
+        [
+            {
+                "page_number": 11,
+                "text": (
+                    "[0031]\n(R)-methyl pro-\npanoate carboxamicle (I). A flask "
+                    "was charged with substrate (2.0 g, 4 mmol), and the "
+                    "reaction mixture was stirred."
+                ),
+            }
+        ]
+    )
+
+    assert rows[0]["name"] == "(R)-methyl propanoate carboxamide"
+
+
 def test_extract_labeled_procedures_rejects_patent_cover_metadata() -> None:
     rows = _extract_labeled_procedures(
         [
@@ -109,6 +145,85 @@ def test_extract_labeled_procedures_rejects_patent_cover_metadata() -> None:
 
     assert [(row["label"], row["name"]) for row in rows] == [
         ("1", "ethyl acetate")
+    ]
+
+
+def test_extracts_bounded_epo_numbered_experimental_paragraphs() -> None:
+    rows = _extract_labeled_procedures(
+        [
+            {
+                "page_number": 11,
+                "text": (
+                    "[0017]\nThe synthesis provides fragment A. The reaction "
+                    "mixture was stirred without a source-authored amount.\n"
+                    "[0018]\nEthyl acetate. Ethanol (4.6 g, 100 mmol) and "
+                    "acetic acid were added. The reaction mixture was stirred "
+                    "to afford the title compound.\n"
+                    "[0019]\nAcetaldehyde. Ethanol (2.3 g, 50 mmol) was "
+                    "treated with oxidant and afforded acetaldehyde."
+                ),
+            }
+        ]
+    )
+
+    experimental = [row for row in rows if row.get("declaration_only") is not True]
+    assert [(row["label"], row["name"]) for row in experimental] == [
+        ("0018", "Ethyl acetate"),
+        ("0019", "Acetaldehyde"),
+    ]
+    assert "Acetaldehyde" not in experimental[0]["procedure"]
+
+
+def test_epo_numbered_paragraph_can_authorize_exact_reaction(tmp_path: Path) -> None:
+    pdf = tmp_path / "epo-process.pdf"
+    pdf.write_bytes(b"%PDF- deterministic EPO process patent")
+    evidence = _evidence(pdf, source_ref="patent:EP0000001B1")
+    evidence["page_number"] = 4
+    step = {
+        "step_id": "epo-ethyl-acetate",
+        "product_smiles": "CCOC(C)=O",
+        "reactant_smiles": ["CCO", "CC(=O)O"],
+        "source_ref": "patent:EP0000001B1",
+        "source_evidence": [evidence],
+    }
+    pages = [
+        {
+            "page_number": 4,
+            "text": (
+                "[0045]\nEthyl acetate. Ethanol (4.6 g, 100 mmol) and "
+                "acetic acid (6.0 g, 100 mmol) were added. The reaction mixture was stirred "
+                "to afford ethyl acetate.\n"
+                "[0046]\nUnrelated product. Water (2 mL) was added and the "
+                "reaction mixture was stirred."
+            ),
+        }
+    ]
+
+    with patch(
+        "cascade_planner.harness.deterministic_literature_registry."
+        "_materialized_source_evidence_valid",
+        return_value=True,
+    ):
+        audit = compile_deterministic_literature_step_registry(
+            [step],
+            registry_path=tmp_path / "registry.json",
+                structure_resolver=lambda name: {
+                    "Ethyl acetate": "CCOC(C)=O",
+                    "Ethanol": "CCO",
+                    "ethanol": "CCO",
+                "acetic acid": "CC(=O)O",
+            }.get(name, ""),
+            candidate_name_resolver=lambda _smiles: [],
+            pdf_text_loader=lambda _path: pages,
+        )
+
+    assert audit["approved_binding_count"] == 1
+    binding = audit["records"][0]["binding"]
+    assert binding["parser_audit"]["product_label"] == "0045"
+    assert binding["source_location"]["page_number"] == 4
+    assert binding["parser_audit"]["reactant_match_modes"] == [
+        "source_amount_name_opsin_exact_structure",
+        "source_amount_name_opsin_exact_structure",
     ]
 
 

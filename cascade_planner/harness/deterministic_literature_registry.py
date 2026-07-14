@@ -39,6 +39,9 @@ from cascade_planner.harness.source_text_companion import (
     source_text_companion_matches_page,
     validate_source_text_companion_binding,
 )
+from cascade_planner.harness.source_condition_extraction import (
+    extract_source_conditions,
+)
 from cascade_planner.runtime.run_metrics import (
     current_run_metrics,
     run_metric_stage,
@@ -47,7 +50,7 @@ from cascade_planner.runtime.run_metrics import (
 
 REGISTRY_SCHEMA = "trusted_literature_step_registry.v1"
 AUDIT_SCHEMA = "deterministic_literature_registry_audit.v1"
-PARSER_AUTHORITY_ID = "autoplanner.opsin_pubchem_source_text.v10"
+PARSER_AUTHORITY_ID = "autoplanner.opsin_pubchem_source_text.v13"
 DEFAULT_OPSIN_BASE_URL = "https://opsin.ch.cam.ac.uk/opsin"
 DEFAULT_PUBCHEM_BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 _MAX_HEADING_PARSE_ATTEMPTS_PER_EDGE = 16
@@ -79,6 +82,58 @@ def build_deterministic_literature_resolvers(
             persistent_cache=persistent_cache,
         ),
     )
+
+
+def extract_deterministic_source_document(
+    pdf_path: str | Path,
+    *,
+    source_ref: str,
+    source_pdf_sha256: str,
+    structure_resolver: StructureResolver,
+    pdf_text_loader: PdfTextLoader | None = None,
+    source_text_companions: Iterable[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """Replay one frozen PDF into structure-resolved procedure observations.
+
+    This is deliberately an observation API, not an exact-row shortcut.  It
+    exposes the same hash-checked document index used by the trusted registry
+    so source-first route proposals can enter the normal V4 materialization
+    and reaction-validation path without reviving blackboard state.
+    """
+
+    document = _build_document_index(
+        Path(pdf_path).expanduser().resolve(),
+        source_ref=str(source_ref or "").strip().lower(),
+        source_pdf_sha256=str(source_pdf_sha256 or "").strip().lower(),
+        load_pdf_text=pdf_text_loader or _load_pdf_page_text,
+        source_text_companions=[
+            dict(row) for row in source_text_companions if isinstance(row, Mapping)
+        ],
+    )
+    procedures: list[dict[str, Any]] = []
+    for raw in document.get("procedures") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        row = dict(raw)
+        if row.get("declaration_only") is not True:
+            _resolve_procedure_structure(
+                row,
+                resolve_structure=structure_resolver,
+            )
+        procedures.append(row)
+    return {
+        **document,
+        "procedures": procedures,
+        "resolved_procedure_count": sum(
+            row.get("structure_parse_accepted") is True for row in procedures
+        ),
+        "semantics": {
+            "source_document_hash_replayed": True,
+            "procedure_structures_are_observations": True,
+            "grants_no_reaction_proof": True,
+            "normal_v4_admission_required": True,
+        },
+    }
 
 
 def compile_deterministic_literature_step_registry(
@@ -701,6 +756,12 @@ def _compile_step_binding(
                 "reactant_smiles": sorted(source_reactants),
                 "reaction_digest": source_formulation_reaction_digest,
             },
+            "source_conditions": extract_source_conditions(
+                str(procedure.get("procedure") or ""),
+                source_amount_names=_source_amount_reagent_names(
+                    str(procedure.get("procedure") or "")
+                ),
+            ),
         }
         if companion_binding:
             binding_core["source_text_companion"] = companion_binding
@@ -828,6 +889,7 @@ def _build_document_index(
         "source_ref": source_ref,
         "source_pdf_sha256": source_pdf_sha256.lower(),
         "source_text_companion_bindings": companion_bindings,
+        "source_name_aliases": _source_parenthetical_name_aliases(pages),
         "procedure_count": len(procedures),
         "procedures": procedures,
         "reasons": (
@@ -864,10 +926,52 @@ def _build_primary_html_document_index(
         "document_id": f"html:{artifact_sha256[:24]}",
         "source_ref": source_ref,
         "source_text_companion_bindings": [binding],
+        "source_name_aliases": _source_parenthetical_name_aliases(pages),
         "procedure_count": len(procedures),
         "procedures": procedures,
         "reasons": [] if procedures else ["no_source_headings_extracted"],
     }
+
+
+def _source_parenthetical_name_aliases(
+    page_texts: Iterable[Mapping[str, Any]],
+) -> dict[str, str]:
+    """Recover source-authored ``long chemical name (ABBR)`` declarations.
+
+    These aliases are observations only.  The expanded name still has to pass
+    the configured deterministic name-to-structure resolver before it can
+    become even an L0 route proposal.
+    """
+
+    text = _compact_source_text(
+        " ".join(
+            str(row.get("text") or "")
+            for row in page_texts
+            if isinstance(row, Mapping)
+        )
+    )
+    pattern = re.compile(
+        r"(?P<name>[A-Za-zαβγΑΒΓ][A-Za-z0-9αβγΑΒΓ'’\-, ]{4,180}?)"
+        r"\s*\((?P<alias>[A-Z][A-Z0-9-]{1,24})\)",
+    )
+    aliases: dict[str, str] = {}
+    for match in pattern.finditer(text):
+        alias = str(match.group("alias") or "").strip()
+        name = str(match.group("name") or "").strip(" ,;.")
+        name = re.split(
+            r"(?i)\b(?:consisting\s+of|selected\s+from|including|wherein)\b",
+            name,
+        )[-1]
+        name = re.split(r"(?i)\s*,\s*|\s+and\s+|\s+or\s+", name)[-1]
+        name = " ".join(name.split()).strip(" ,;.")
+        if (
+            3 <= len(alias) <= 24
+            and "-" in alias
+            and 5 <= len(name) <= 180
+            and re.search(r"[A-Za-z]", name)
+        ):
+            aliases.setdefault(alias.casefold(), name)
+    return dict(sorted(aliases.items()))
 
 
 def _resolve_procedure_structure(
@@ -1031,15 +1135,75 @@ def _extract_labeled_procedures(
                 "name": name,
             }
         )
+    # EPO publications commonly encode experimental examples as numbered
+    # paragraphs rather than ``Example`` headings::
+    #
+    #   [0031]
+    #   Product chemical name. A flask was charged with ...
+    #
+    # Keep the paragraph boundary explicit so a product procedure can never
+    # borrow reagent names from a later patent paragraph.  Requiring both a
+    # procedural verb and a source-authored amount rejects narrative sections.
+    paragraph_markers = list(
+        re.finditer(r"(?m)^\s*\[(?P<label>\d{3,5})\]\s*", full_text)
+    )
+    for index, marker in enumerate(paragraph_markers):
+        paragraph_end = (
+            paragraph_markers[index + 1].start()
+            if index + 1 < len(paragraph_markers)
+            else len(full_text)
+        )
+        body = full_text[marker.end() : paragraph_end]
+        declaration_match = re.match(
+            r"\s*(?P<name>.{3,1000}?)\.\s+(?P<procedure>.+)",
+            body,
+            flags=re.DOTALL,
+        )
+        if declaration_match is None:
+            continue
+        name = _clean_source_name(str(declaration_match.group("name") or ""))
+        procedure = _compact_source_text(
+            str(declaration_match.group("procedure") or "")
+        )
+        if (
+            len(name) < 3
+            or len(name) > 1000
+            or not re.search(r"[A-Za-z]", name)
+            or _document_metadata_heading(name)
+            or not _procedure_like(procedure)
+            or not _source_authored_amount_present(procedure)
+        ):
+            continue
+        name_start = marker.end() + declaration_match.start("name")
+        name_end = marker.end() + declaration_match.end("name") + 1
+        if any(
+            int(row["heading_start"]) <= name_start < int(row["end"])
+            for row in heading_candidates
+        ):
+            continue
+        heading_candidates.append(
+            {
+                "start": name_start,
+                "end": name_end,
+                "heading_start": marker.start(),
+                "procedure_end": paragraph_end,
+                "label": str(marker.group("label") or ""),
+                "name": name,
+            }
+        )
     heading_candidates.sort(
         key=lambda row: (int(row["start"]), int(row["end"]))
     )
     out: list[dict[str, Any]] = []
     for index, heading in enumerate(heading_candidates):
-        procedure_end = (
+        next_heading_start = (
             int(heading_candidates[index + 1]["heading_start"])
             if index + 1 < len(heading_candidates)
             else len(full_text)
+        )
+        procedure_end = min(
+            int(heading.get("procedure_end") or len(full_text)),
+            next_heading_start,
         )
         procedure = _compact_source_text(
             full_text[int(heading["end"]) : procedure_end]
@@ -1315,6 +1479,34 @@ def _match_reactant_in_procedure(
     )
     if declared_name_match:
         return declared_name_match
+    for source_name in _source_amount_reagent_names(procedure_text):
+        try:
+            parsed = _canonical_smiles(resolve_structure(source_name))
+        except (OSError, RuntimeError, ValueError):
+            parsed = ""
+        if not parsed or _parent_identity(parsed) != _parent_identity(reactant):
+            continue
+        exact = parsed == reactant
+        if not exact and not _counterions_confirmed(
+            reactant,
+            f"{source_name} {procedure_text}",
+            resolve_candidate_names=resolve_candidate_names,
+            parent_smiles=parsed,
+        ):
+            continue
+        return {
+            "accepted": True,
+            "reactant_smiles": reactant,
+            "match_mode": (
+                "source_amount_name_opsin_exact_structure"
+                if exact
+                else "source_amount_name_opsin_parent_plus_counterion"
+            ),
+            "synthesis_smiles": synthesis_projection_smiles(parsed),
+            "matched_name_sha256": hashlib.sha256(
+                source_name.encode("utf-8")
+            ).hexdigest(),
+        }
     try:
         names = resolve_candidate_names(reactant)
     except (OSError, RuntimeError, ValueError):
@@ -1344,6 +1536,133 @@ def _match_reactant_in_procedure(
         "match_mode": "unresolved",
         "reasons": ["reactant_not_resolved_in_product_procedure"],
     }
+
+
+def _source_amount_reagent_names(source_text: str) -> list[str]:
+    """Extract bounded source-authored names immediately followed by amounts."""
+
+    text = _compact_source_text(source_text)
+    amount = re.compile(
+        r"\(\s*(?:[^()]{1,80}?,\s*)?"
+        r"\d+(?:\.\d+)?\s*(?:mg|g|kg|ml|l|mmoles?|mmol|moles?|mol)\b",
+        flags=re.IGNORECASE,
+    )
+    out: list[str] = []
+    previous_end = 0
+    for match in amount.finditer(text):
+        raw_segment = text[previous_end : match.start()].strip(" ,;.")[-1000:]
+        segment = _source_amount_chemical_name(raw_segment)
+        if (
+            3 <= len(segment) <= 1000
+            and re.search(r"[A-Za-z]", segment)
+            and not _procedural_name_fragment(segment)
+            and segment.casefold() not in {row.casefold() for row in out}
+        ):
+            out.append(segment)
+        closing = text.find(")", match.end())
+        previous_end = closing + 1 if closing >= 0 else match.end()
+    return out[:32]
+
+
+def source_amount_reagent_names(source_text: str) -> list[str]:
+    """Public bounded view of source-authored amount/name observations."""
+
+    return _source_amount_reagent_names(source_text)
+
+
+def _source_amount_chemical_name(value: str) -> str:
+    """Return the chemical-name tail before one source-authored amount.
+
+    Patent prose often places a full operation between two parenthesised
+    amounts (``... cooled to 0 C. A solution of substrate (5 g)``).  Taking
+    that whole interval as a name made OPSIN see procedural sentences instead
+    of chemicals.  Keep only the text after the last explicit addition or
+    solution-introduction boundary, then remove narrow list/preposition noise.
+    """
+
+    segment = " ".join(str(value or "").split()).strip(" ,;.")
+    if not segment:
+        return ""
+    boundaries = re.compile(
+        r"(?:"
+        r"(?:a|the)\s+(?:(?:cold|stirred|clear|resulting)\s*(?:\([^)]*\))?\s+)*"
+        r"(?:solution|suspension|mixture)\s+of|"
+        r"(?:was|were|is|are|was\s+then|were\s+then|then\s+was|then\s+were)\s+"
+        r"(?:(?:carefully|slowly|quickly|dropwise)\s+)?"
+        r"(?:added|charged\s+with|treated\s+with|dissolved\s+in|"
+        r"suspended\s+in|diluted\s+with|washed\s+with|extracted\s+with|"
+        r"recrystallized\s+from)|"
+        r"(?:followed\s+by|charged\s+with|treated\s+with|"
+        r"addition\s+of|added)"
+        r")\s+",
+        flags=re.IGNORECASE,
+    )
+    matches = list(boundaries.finditer(segment))
+    if matches:
+        segment = segment[matches[-1].end() :]
+    else:
+        # A sentence boundary is safe only when no stronger chemical
+        # introduction was found.  Decimal points are not followed by space
+        # plus an uppercase word and therefore remain intact.
+        sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z(])", segment)
+        segment = sentences[-1]
+    previous = ""
+    while segment != previous:
+        previous = segment
+        segment = re.sub(
+            r"^(?:and|then|to|into|in|with)\s+",
+            "",
+            segment,
+            flags=re.IGNORECASE,
+        )
+        segment = re.sub(
+            r"^(?:(?:a|the)\s+)?(?:flame[- ]dried\s+)?"
+            r"(?:\d+(?:\.\d+)?\s*[mMkK]?[lL]\s+)?"
+            r"(?:three[- ]neck\s+)?(?:round[- ]bottom\s+)?"
+            r"(?:flask|bottle|vessel)\b.*?\b"
+            r"(?:with|added|was\s+charged(?:\s+with)?)\s+",
+            "",
+            segment,
+            flags=re.IGNORECASE,
+        )
+        segment = re.sub(
+            r"^(?:in\s+)?(?:a\s+)?\d*\s*(?:neck\s+)?flask\b.*?"
+            r"(?:stirrer|thermometer)\s*,\s*",
+            "",
+            segment,
+            flags=re.IGNORECASE,
+        )
+        segment = re.sub(
+            r"^.*?\b(?:mechanical\s+stirrer|thermometer)\s*,\s*",
+            "",
+            segment,
+            flags=re.IGNORECASE,
+        )
+        segment = re.sub(
+            r"^(?:the\s+)?(?:resulting\s+)?(?:white\s+)?"
+            r"(?:mixture|solution|suspension)\b.*?,\s*",
+            "",
+            segment,
+            flags=re.IGNORECASE,
+        )
+    return segment.strip(" ,;.")
+
+
+def _procedural_name_fragment(value: str) -> bool:
+    key = _name_key(value)
+    return any(
+        marker in key
+        for marker in (
+            " reaction mixture ",
+            " resulting mixture ",
+            " was stirred ",
+            " was cooled ",
+            " was heated ",
+            " was filtered ",
+            " after stirring ",
+            " after cooling ",
+        )
+    )
 
 
 def _counterions_confirmed(
@@ -1764,6 +2083,7 @@ def _load_pdf_page_text(path: Path) -> list[dict[str, Any]]:
 
 def _clean_source_name(value: str) -> str:
     text = re.sub(r"AUTOPLANNER_PAGE_\d+", " ", str(value or ""))
+    text = re.sub(r"(?<=[A-Za-z])-\s*\n\s*(?=[a-z])", "", text)
     text = re.sub(r"-\s*\n\s*", "-", text)
     text = re.sub(r"(?<=\d)\s*\n\s*(?=(?:yl|amine|amide)\b)", "-", text)
     text = re.sub(r"\s*\n\s*", " ", text)
@@ -1783,12 +2103,26 @@ def _clean_source_name(value: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
+    text = re.sub(
+        r"\s*\((?:I|II|III|IV|V|VI|VII|VIII|IX|X)\)\s*$",
+        "",
+        text,
+    )
+    text = re.sub(r"\bcarboxamicle\b", "carboxamide", text, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", text).strip(" .,:;\t\r\n")
 
 
 def _compact_source_text(value: str) -> str:
     text = re.sub(r"AUTOPLANNER_PAGE_\d+", " ", str(value or ""))
+    text = re.sub(r"(?<=[A-Za-z])-\s*\n\s*(?=[a-z])", "", text)
     text = re.sub(r"-\s*\n\s*", "-", text)
+    text = re.sub(r"\bcarboxamicle\b", "carboxamide", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\bpropanoa(?=\s+hydrochloride\b)",
+        "propanoate",
+        text,
+        flags=re.IGNORECASE,
+    )
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -1803,6 +2137,17 @@ def _procedure_like(value: str) -> bool:
             " afforded ",
             " provided ",
             " was treated ",
+            " was charged ",
+        )
+    )
+
+
+def _source_authored_amount_present(value: str) -> bool:
+    return bool(
+        re.search(
+            r"\b\d+(?:\.\d+)?\s*(?:mg|g|kg|ml|l|mmoles?|mmol|moles?|mol)\b",
+            str(value or ""),
+            flags=re.IGNORECASE,
         )
     )
 

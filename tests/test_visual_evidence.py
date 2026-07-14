@@ -17,6 +17,7 @@ from cascade_planner.interfaces.visual_evidence import (
     acquire_visual_evidence_candidates,
     build_codex_visual_evidence_provider,
     compile_visual_evidence_request,
+    materialize_visual_evidence_candidates,
 )
 from cascade_planner.orchestration.retrosynthesis_service import (
     RetrosynthesisCampaignService,
@@ -163,6 +164,213 @@ def test_visual_candidate_is_one_call_host_normalized_and_never_exact(
     assert repeated["status"] == "budget_blocked"
     assert repeated["reason"] == "campaign_visual_evidence_call_already_admitted"
     assert calls == 1
+
+
+def test_visual_reference_annotation_cannot_masquerade_as_reaction_conditions(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    evidence_request, discovery = _inputs(tmp_path)
+
+    stage = acquire_visual_evidence_candidates(
+        service,
+        evidence_request=evidence_request,
+        discovery=discovery,
+        provider=lambda request: {
+            "request_sha256": request["content_sha256"],
+            "provider_status": "completed",
+            "provider_receipt": {"provider_id": "tests.reference-only"},
+            "usage": {
+                "model_invocations": 1,
+                "visual_invocations": 1,
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "wall_time_s": 0.1,
+            },
+            "candidate_chain": {
+                "steps": [
+                    {
+                        "product_smiles": TARGET,
+                        "reactant_smiles": ["CCO", "CC(=O)O"],
+                        "condition_candidate": {
+                            "source_type": "exact",
+                            "condition_status": "evidence_backed",
+                            "condition_text_transcribed": "ref. 78,80",
+                            "source_excerpt": "ref. 78,80",
+                        },
+                    }
+                ]
+            },
+        },
+    )
+
+    condition = stage["observation"]["candidate_steps"][0][
+        "condition_candidate"
+    ]
+    assert condition == {
+        "schema_version": "visual_condition_candidate.v1",
+        "source_reference_annotation": "ref. 78,80",
+        "condition_status": "reference_citation_only",
+        "source_type": "visual_hypothesis",
+        "grants_exact_evidence": False,
+    }
+
+
+def test_paper_pdf_visual_chain_enters_canonical_graph_without_becoming_l3(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    evidence_request, discovery = _inputs(tmp_path)
+    source = discovery["sources"][0]
+    source.pop("publication_number")
+    source["source_kind"] = "paper_si"
+    source["source_ref"] = "doi:10.1000/visual-route"
+    source["doi"] = "10.1000/visual-route"
+    source["source_pdf_sha256"] = source.pop("pdf_sha256")
+
+    request = compile_visual_evidence_request(
+        evidence_request=evidence_request,
+        discovery=discovery,
+        max_pages=2,
+    )
+    assert request["source"]["source_ref"] == "doi:10.1000/visual-route"
+    assert request["source"]["source_kind"] == "paper_si"
+
+    stage = acquire_visual_evidence_candidates(
+        service,
+        evidence_request=evidence_request,
+        discovery=discovery,
+        provider=lambda request: {
+            "request_sha256": request["content_sha256"],
+            "provider_status": "completed",
+            "provider_receipt": {"provider_id": "tests.paper-vision"},
+            "usage": {
+                "model_invocations": 1,
+                "visual_invocations": 1,
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "wall_time_s": 0.1,
+            },
+            "candidate_chain": {
+                "steps": [
+                    {
+                        "product_smiles": TARGET,
+                        "reactant_smiles": ["CCO", "CC(=O)O"],
+                        "source_locator": "Scheme 2, page 1",
+                        "conditions": {"solvent": "toluene", "temperature_c": 80},
+                    }
+                ]
+            },
+        },
+    )
+    materialized = materialize_visual_evidence_candidates(
+        service,
+        observation=stage["observation"],
+    )
+
+    assert materialized["status"] == "completed"
+    graph = service.graph_store.load()
+    assert len(graph["edges"]) == 1
+    edge = next(iter(graph["edges"].values()))
+    assert edge["origin_records"][0]["origin_kind"] == "literature_visual_extraction"
+    assert edge["condition_predictions"][0]["solvent"] == "toluene"
+    assert edge["exact_record_ids"] == []
+    assert graph["exact_records"] == {}
+
+
+def test_visual_chain_with_wrong_root_formula_cannot_create_disconnected_route(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    evidence_request, discovery = _inputs(tmp_path)
+    stage = acquire_visual_evidence_candidates(
+        service,
+        evidence_request=evidence_request,
+        discovery=discovery,
+        provider=lambda request: {
+            "request_sha256": request["content_sha256"],
+            "provider_status": "completed",
+            "provider_receipt": {"provider_id": "tests.wrong-root"},
+            "usage": {
+                "model_invocations": 1,
+                "visual_invocations": 1,
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "wall_time_s": 0.1,
+            },
+            "candidate_chain": {
+                "steps": [
+                    {
+                        "product_smiles": "CCOC(=O)CO",
+                        "reactant_smiles": ["CCO", "O=CC(=O)O"],
+                        "source_locator": "Scheme 4",
+                    }
+                ]
+            },
+        },
+    )
+
+    observation = stage["observation"]
+    assert observation["candidate_step_count"] == 1
+    assert observation["admission_eligible_step_count"] == 0
+    assert observation["chain_admission_accepted"] is False
+    assert observation["chain_admission_reasons"] == [
+        "visual_chain_root_not_target_connected"
+    ]
+    materialized = materialize_visual_evidence_candidates(
+        service,
+        observation=observation,
+    )
+    assert materialized["status"] == "not_needed"
+    assert service.graph_store.load()["edges"] == {}
+
+
+def test_visual_chain_can_anchor_to_existing_frontier_as_replacement_module(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    evidence_request, discovery = _inputs(tmp_path)
+    evidence_request["edges"].append(
+        {
+            "edge_id": "edge:frontier",
+            "product_smiles": "CCO",
+            "precursor_smiles": ["CC"],
+            "current_host_reaction_validated": True,
+        }
+    )
+    stage = acquire_visual_evidence_candidates(
+        service,
+        evidence_request=evidence_request,
+        discovery=discovery,
+        provider=lambda request: {
+            "request_sha256": request["content_sha256"],
+            "provider_status": "completed",
+            "provider_receipt": {"provider_id": "tests.frontier-anchor"},
+            "usage": {
+                "model_invocations": 1,
+                "visual_invocations": 1,
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "wall_time_s": 0.1,
+            },
+            "candidate_chain": {
+                "steps": [
+                    {
+                        "product_smiles": "OCC",
+                        "reactant_smiles": ["C", "CO"],
+                        "source_locator": "Scheme 7",
+                    }
+                ]
+            },
+        },
+    )
+
+    observation = stage["observation"]
+    assert observation["chain_admission_accepted"] is True
+    assert observation["frontier_anchored_step_count"] == 1
+    assert observation["candidate_steps"][0]["root_anchor"] == (
+        "canonical_frontier_identity"
+    )
 
 
 def test_visual_budget_zero_prevents_provider_call(tmp_path: Path) -> None:

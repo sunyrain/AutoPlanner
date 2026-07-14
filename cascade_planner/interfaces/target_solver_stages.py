@@ -1,9 +1,15 @@
 """Deterministic stages used by the target-only campaign orchestrator."""
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
+import hashlib
+import json
 from typing import Any, Callable, Iterable, Mapping
 
+from cascade_planner.application.canonical_hypergraph import (
+    CanonicalIngestionBatch,
+)
 from cascade_planner.application.proof_policy import (
     stock_boundary_matches,
 )
@@ -33,6 +39,18 @@ from cascade_planner.source_locators import canonical_traceable_source_ref
 
 StockCatalogBuilder = Callable[..., Mapping[str, Any]]
 InventorySnapshotBuilder = Callable[..., Mapping[str, Any]]
+
+
+def _stable_digest(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def validate_materialized_edges(
@@ -140,6 +158,42 @@ def validate_materialized_edges(
         )
     )
     rejected_ids = sorted(set(edge_by_id) - set(accepted_ids))
+    mapping_failures = {
+        str(row.get("reaction_smiles") or ""): str(row.get("reason") or "")
+        for row in mapping.get("failures") or []
+        if isinstance(row, Mapping)
+    }
+    rejection_diagnostics: list[dict[str, Any]] = []
+    rejection_reason_counts: Counter[str] = Counter()
+    for edge_id in rejected_ids:
+        edge = dict(updated["edges"].get(edge_id) or edge_by_id.get(edge_id) or {})
+        reaction = (
+            ".".join(str(value) for value in edge.get("precursor_smiles") or [])
+            + ">>"
+            + str(edge.get("product_smiles") or "")
+        )
+        proofs = active_reaction_proofs(edge.get("reaction_proofs") or [])
+        reasons = {
+            str(reason)
+            for proof in proofs
+            if proof.get("accepted") is not True
+            for reason in proof.get("reasons") or []
+            if str(reason).strip()
+        }
+        if reaction not in mapped:
+            reasons.add(mapping_failures.get(reaction) or "reaction_mapping_missing")
+        if not reasons:
+            reasons.add("reaction_validation_not_accepted")
+        rejection_reason_counts.update(reasons)
+        rejection_diagnostics.append(
+            {
+                "edge_id": edge_id,
+                "product_smiles": str(edge.get("product_smiles") or ""),
+                "precursor_smiles": list(edge.get("precursor_smiles") or []),
+                "route_family_ids": list(edge.get("route_family_ids") or []),
+                "reasons": sorted(reasons),
+            }
+        )
     return {
         "stage": "reaction_validation",
         "status": (
@@ -153,6 +207,13 @@ def validate_materialized_edges(
         "rejected_validation_count": len(rejected_ids),
         "accepted_edge_ids": accepted_ids,
         "rejected_edge_ids": rejected_ids,
+        "rejection_diagnostics": rejection_diagnostics,
+        "rejection_reason_counts": dict(
+            sorted(
+                rejection_reason_counts.items(),
+                key=lambda row: (-row[1], row[0]),
+            )
+        ),
         "mapping": mapping,
         "execution": execution,
     }
@@ -348,6 +409,242 @@ def discover_director_source_hints(
     }
 
 
+def ingest_source_discovery_observation(
+    service: RetrosynthesisCampaignService,
+    discovery: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Persist connector-discovered source lifecycle through normal workers."""
+
+    sources = [
+        dict(value)
+        for value in discovery.get("sources") or []
+        if isinstance(value, Mapping)
+    ]
+    if not sources:
+        return {
+            "stage": "source_discovery_ingestion",
+            "status": "not_needed",
+            "source_count": 0,
+            "execution": {"executed_command_count": 0, "material_events": []},
+        }
+    graph = service.graph_store.load()
+    execution = service.execute_commands(
+        (
+            _command(
+                service,
+                "discover_sources",
+                {
+                    "sources": sources,
+                    "existing_exact_records": list(
+                        dict(graph.get("exact_records") or {}).values()
+                    ),
+                    "existing_edge_digests": [
+                        str(edge.get("edge_digest") or "")
+                        for edge in dict(graph.get("edges") or {}).values()
+                        if isinstance(edge, Mapping)
+                    ],
+                },
+                task_kind="evidence",
+                suffix=f"connector-{str(discovery.get('content_sha256') or '')[:20]}",
+            ),
+        ),
+        idempotency_key=(
+            "solve-target:connector-source-discovery:"
+            f"{str(discovery.get('content_sha256') or '')}"
+        ),
+        include_scheduled=False,
+    )
+    return {
+        "stage": "source_discovery_ingestion",
+        "status": "completed" if execution.get("changed") else "reused",
+        "source_count": len(sources),
+        "execution": execution,
+        "semantics": {
+            "source_lifecycle_entered_canonical_graph": True,
+            "discovery_grants_no_exact_evidence": True,
+        },
+    }
+
+
+def materialize_discovered_source_routes(
+    service: RetrosynthesisCampaignService,
+    discovery: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Admit target-connected source DAGs through the one V4 proposal path."""
+
+    observations: list[dict[str, Any]] = []
+    rejected_observations: list[dict[str, Any]] = []
+    for source in discovery.get("sources") or []:
+        if not isinstance(source, Mapping):
+            continue
+        raw = source.get("source_route_observation")
+        if not isinstance(raw, Mapping) or not raw:
+            continue
+        observation = dict(raw)
+        supplied = str(observation.pop("content_sha256", "") or "")
+        reasons: list[str] = []
+        if observation.get("schema_version") != (
+            "deterministic_source_route_observation.v1"
+        ):
+            reasons.append("source_route_observation_schema_invalid")
+        if not supplied or supplied != _stable_digest(observation):
+            reasons.append("source_route_observation_digest_invalid")
+        proposals = [
+            dict(row)
+            for row in observation.get("proposals") or []
+            if isinstance(row, Mapping)
+        ]
+        if not proposals or len(proposals) > 64:
+            reasons.append("source_route_proposal_count_invalid")
+        if reasons:
+            rejected_observations.append(
+                {
+                    "source_ref": str(source.get("source_ref") or ""),
+                    "reasons": sorted(set(reasons)),
+                }
+            )
+            continue
+        observation["content_sha256"] = supplied
+        observations.append(observation)
+    if not observations:
+        return {
+            "stage": "source_route_materialization",
+            "status": "not_needed" if not rejected_observations else "rejected",
+            "observation_count": 0,
+            "proposal_count": 0,
+            "rejected_observations": rejected_observations,
+            "execution": {"executed_command_count": 0, "material_events": []},
+        }
+
+    route_families: dict[str, dict[str, Any]] = {}
+    hypotheses: list[dict[str, Any]] = []
+    proposals: list[dict[str, Any]] = []
+    for observation in observations:
+        route_family = dict(observation.get("route_family") or {})
+        alias = str(route_family.get("route_family_id") or "")
+        if not alias:
+            continue
+        route_families[alias] = route_family
+        for raw in observation.get("proposals") or []:
+            if not isinstance(raw, Mapping):
+                continue
+            row = dict(raw)
+            condition = dict(row.get("condition_candidate") or {})
+            proposal = {
+                **row,
+                "origin_kind": "literature_source_route",
+                "route_family_id": alias,
+                "condition_predictions": (
+                    [
+                        {
+                            **condition,
+                            "source_ref": str(row.get("source_ref") or ""),
+                            "source_location": dict(row.get("source_location") or {}),
+                            "authority_scope": (
+                                "source_text_condition_candidate"
+                            ),
+                            "not_reaction_proof": True,
+                        }
+                    ]
+                    if condition
+                    else []
+                ),
+            }
+            proposals.append(proposal)
+            hypotheses.append(
+                {
+                    "step_id": str(
+                        row.get("proposal_id") or row.get("step_id") or ""
+                    ),
+                    "product_smiles": str(row.get("product_smiles") or ""),
+                    "precursor_smiles": list(
+                        row.get("precursor_smiles")
+                        or row.get("reactant_smiles")
+                        or []
+                    ),
+                    "origin_kind": "literature_source_route",
+                    "origin_ref": str(row.get("source_ref") or ""),
+                    "route_family_id": alias,
+                    "transformation_hypothesis": str(
+                        row.get("transformation_hypothesis") or ""
+                    ),
+                    "condition_predictions": proposal["condition_predictions"],
+                    "frontier_priority": 0.95,
+                }
+            )
+    if not proposals:
+        return {
+            "stage": "source_route_materialization",
+            "status": "rejected",
+            "observation_count": len(observations),
+            "proposal_count": 0,
+            "reason": "source_route_family_or_proposals_missing",
+            "rejected_observations": rejected_observations,
+            "execution": {"executed_command_count": 0, "material_events": []},
+        }
+
+    observation_identity = _stable_digest(
+        sorted(str(row.get("content_sha256") or "") for row in observations)
+    )
+    family_ingestion = service.apply_batch(
+        CanonicalIngestionBatch(
+            route_families=tuple(route_families.values()),
+            hypotheses=tuple(hypotheses),
+        ),
+        idempotency_key=f"source-route-families:{observation_identity}",
+    )
+    graph = service.graph_store.load()
+    commands = materialization_commands_for_proposals(
+        proposals,
+        run_id=service.kernel.spec.run_id,
+        input_revision=service.kernel.state.graph_revision,
+        dependency_revisions={
+            "graph_revision": service.kernel.state.graph_revision,
+            "evidence_revision": service.kernel.state.evidence_revision,
+        },
+        existing_edge_digests=(
+            str(edge.get("edge_digest") or "")
+            for edge in dict(graph.get("edges") or {}).values()
+            if isinstance(edge, Mapping)
+        ),
+    )
+    execution = (
+        service.execute_commands(
+            commands,
+            idempotency_key=f"source-route-materialize:{observation_identity}",
+            include_scheduled=False,
+        )
+        if commands
+        else {"changed": False, "executed_command_count": 0, "material_events": []}
+    )
+    return {
+        "stage": "source_route_materialization",
+        "status": (
+            "completed"
+            if execution.get("changed") or family_ingestion.get("changed")
+            else "reused_or_empty"
+        ),
+        "observation_count": len(observations),
+        "route_family_count": len(route_families),
+        "proposal_count": len(proposals),
+        "materialization_command_count": len(commands),
+        "rejected_observations": rejected_observations,
+        "family_ingestion": family_ingestion,
+        "execution": execution,
+        "material_events": (
+            ["target_connected_source_route_materialized"]
+            if execution.get("changed") or family_ingestion.get("changed")
+            else []
+        ),
+        "semantics": {
+            "canonical_hypergraph_is_only_state_authority": True,
+            "source_route_is_proposal_not_proof": True,
+            "existing_edges_gain_route_membership_without_duplicate_expansion": True,
+            "reaction_validation_required": True,
+        },
+    }
+
+
 def audit_live_benchmark_stock(
     service: RetrosynthesisCampaignService,
     *,
@@ -380,14 +677,16 @@ def audit_live_benchmark_stock(
             "max_molecules": max_molecules,
             "execution": {"executed_command_count": 0},
         }
-    if candidate_ids and all(
-        _has_recent_boundary_audit(
+    pending_candidate_ids = [
+        molecule_id
+        for molecule_id in candidate_ids
+        if not _has_recent_boundary_audit(
             graph,
             molecule_id,
             required="benchmark_search",
         )
-        for molecule_id in candidate_ids
-    ):
+    ]
+    if candidate_ids and not pending_candidate_ids:
         closed_leaf_count = sum(
             _has_boundary_observation(
                 graph,
@@ -419,7 +718,7 @@ def audit_live_benchmark_stock(
         }
     candidate_smiles = [
         graph["molecules"][molecule_id]["canonical_smiles"]
-        for molecule_id in candidate_ids
+        for molecule_id in pending_candidate_ids
     ]
     builder = catalog_builder or build_pubchem_vendor_catalog
     catalog = dict(builder(candidate_smiles, max_molecules=max_molecules))
@@ -442,7 +741,7 @@ def audit_live_benchmark_stock(
                             "leaf_id": molecule_id,
                             "smiles": graph["molecules"][molecule_id]["canonical_smiles"],
                         }
-                        for molecule_id in candidate_ids
+                        for molecule_id in pending_candidate_ids
                     ],
                     "catalog_artifact_sha256": ref["sha256"],
                     "as_of": timestamp,
@@ -455,11 +754,33 @@ def audit_live_benchmark_stock(
         ),
         idempotency_key=f"solve-target:benchmark-stock:{service.kernel.state.graph_revision}",
     )
+    updated = service.graph_store.load()
+    closed_leaf_count = sum(
+        _has_boundary_observation(
+            updated,
+            molecule_id,
+            required="benchmark_search",
+        )
+        for molecule_id in leaf_ids
+    )
+    closed_candidate_count = sum(
+        _has_boundary_observation(
+            updated,
+            molecule_id,
+            required="benchmark_search",
+        )
+        for molecule_id in candidate_ids
+    )
     return {
         "stage": "benchmark_stock",
-        "status": "completed" if not catalog.get("misses") else "partial",
+        "status": (
+            "completed"
+            if closed_candidate_count == len(candidate_ids)
+            else "partial"
+        ),
         "selected_leaf_count": len(leaf_ids),
         "selected_stock_candidate_count": len(candidate_ids),
+        "newly_queried_candidate_count": len(pending_candidate_ids),
         "internal_stock_candidate_count": selection[
             "internal_stock_candidate_count"
         ],
@@ -475,7 +796,9 @@ def audit_live_benchmark_stock(
             )
         },
         "member_count": len(catalog.get("members") or []),
-        "miss_count": len(catalog.get("misses") or []),
+        "stock_closed_leaf_count": closed_leaf_count,
+        "stock_closed_candidate_count": closed_candidate_count,
+        "miss_count": len(candidate_ids) - closed_candidate_count,
         "execution": execution,
     }
 
@@ -808,6 +1131,7 @@ __all__ = [
     "audit_authoritative_inventory_stock",
     "audit_live_benchmark_stock",
     "discover_director_source_hints",
+    "ingest_source_discovery_observation",
     "repair_rejected_precursor_typos",
     "validate_materialized_edges",
 ]

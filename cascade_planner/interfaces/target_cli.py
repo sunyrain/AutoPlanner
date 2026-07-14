@@ -11,6 +11,7 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 from cascade_planner.interfaces.live_evidence import (
     HttpEvidenceConnectorConfig,
     build_http_evidence_connector,
+    compose_evidence_connectors,
 )
 from cascade_planner.interfaces.live_stock import load_versioned_inventory_snapshot
 from cascade_planner.interfaces.target_solver import (
@@ -31,10 +32,22 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         help="run a fresh bounded Codex campaign from only an arbitrary target SMILES",
     )
     solve.add_argument("--target-smiles", required=True)
-    solve.add_argument("--target-name", default="blind target")
+    solve.add_argument(
+        "--target-name",
+        default="",
+        help="optional public identity; omitted targets receive an opaque hash label",
+    )
     solve.add_argument("--run-id")
     solve.add_argument("--run-dir")
     solve.add_argument("--manifest", help="target-only manifest allowed by blind preflight")
+    solve.add_argument(
+        "--blind-audit-root",
+        default="",
+        help=(
+            "fresh isolated benchmark root scanned for answer leakage; defaults "
+            "to the source repository"
+        ),
+    )
     solve.add_argument("--resume", action="store_true")
     solve.add_argument(
         "--full-output",
@@ -51,6 +64,15 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         choices=("low", "medium", "high"),
         default="low",
     )
+    solve.add_argument(
+        "--execution-profile",
+        choices=("fast", "standard", "proof"),
+        default="standard",
+        help=(
+            "fast returns a compact two-family architecture; standard is the "
+            "balanced default; proof permits the largest bounded dossier"
+        ),
+    )
     agent_mode = solve.add_mutually_exclusive_group()
     agent_mode.add_argument(
         "--coordinator",
@@ -63,8 +85,47 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         help="compatibility flag; one bounded global director is already the default",
     )
     solve.add_argument("--no-web-search", action="store_true")
+    solve.add_argument(
+        "--initial-director-web-search",
+        action="store_true",
+        help=(
+            "also give the latency-critical first Codex architecture pass web "
+            "tools; normally source connectors prefetch in parallel and web "
+            "search is reserved for evidence-informed replanning"
+        ),
+    )
+    solve.add_argument("--no-target-identity", action="store_true")
     solve.add_argument("--no-replan", action="store_true")
     solve.add_argument("--no-live-benchmark-stock", action="store_true")
+    solve.add_argument(
+        "--no-chemenzy",
+        action="store_true",
+        help="disable guided ChemEnzy local expansion",
+    )
+    solve.add_argument(
+        "--target-chemenzy-baseline",
+        action="store_true",
+        help="diagnostic only: also run ChemEnzy on the final target before Codex",
+    )
+    solve.add_argument(
+        "--chemenzy-env-prefix",
+        default="",
+        help=(
+            "isolated ChemEnzy environment prefix; otherwise use "
+            "CHEMENZY_ENV_PREFIX, repository default, then bounded Conda discovery"
+        ),
+    )
+    solve.add_argument("--chemenzy-max-routes", type=int, choices=range(1, 5), default=2)
+    solve.add_argument("--chemenzy-max-steps", type=int, default=6)
+    solve.add_argument("--chemenzy-iterations", type=int, default=10)
+    solve.add_argument("--chemenzy-expansion-topk", type=int, default=20)
+    solve.add_argument("--chemenzy-timeout-s", type=float, default=90.0)
+    solve.add_argument("--no-guided-chemenzy", action="store_true")
+    solve.add_argument(
+        "--guided-chemenzy-frontiers", type=int, choices=range(1, 3), default=1
+    )
+    solve.add_argument("--guided-chemenzy-iterations", type=int, default=4)
+    solve.add_argument("--guided-chemenzy-timeout-s", type=float, default=60.0)
     solve.add_argument(
         "--no-patent-self-evo",
         action="store_true",
@@ -79,6 +140,11 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         "--no-auto-patent-evidence",
         action="store_true",
         help="disable the bounded HTML-first built-in patent evidence connector",
+    )
+    solve.add_argument(
+        "--no-auto-literature-evidence",
+        action="store_true",
+        help="disable bounded Crossref/DOI/PDF primary-paper discovery",
     )
     solve.add_argument(
         "--evidence-endpoint",
@@ -110,18 +176,31 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         default=0,
         help="opt in to at most one sparse Codex page-vision call; default is zero",
     )
-    solve.add_argument("--max-visual-pages", type=int, choices=range(1, 9), default=4)
+    solve.add_argument("--max-visual-pages", type=int, choices=range(1, 13), default=6)
     solve.add_argument("--max-accepted-expansions", type=int, default=32)
     solve.add_argument("--max-attempt-runs", type=int, default=72)
     solve.add_argument("--max-map-reactions", type=int, default=48)
     solve.add_argument("--max-stock-molecules", type=int, default=24)
     solve.add_argument("--max-patent-sources", type=int, default=3)
+    solve.add_argument("--max-literature-sources", type=int, choices=range(1, 9), default=3)
     solve.add_argument("--max-self-evo-candidates", type=int, default=12)
     solve.add_argument(
         "--patent-publication",
         action="append",
         default=[],
         help="optional patent publication, Google Patents URL, or direct PDF seed",
+    )
+    solve.add_argument(
+        "--literature-doi",
+        action="append",
+        default=[],
+        help="optional DOI seed for reproducible paper-route extraction",
+    )
+    solve.add_argument(
+        "--literature-pdf",
+        action="append",
+        default=[],
+        help="optional local primary-paper/SI PDF seed",
     )
 
     validation_fork = sub.add_parser(
@@ -205,20 +284,47 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
                 token_env=args.evidence_token_env,
             )
         )
-    elif not args.no_auto_patent_evidence:
-        from cascade_planner.interfaces.patent_evidence import (
-            BuiltinPatentEvidenceConfig,
-            build_builtin_patent_evidence_connector,
-        )
-
-        evidence_connector = build_builtin_patent_evidence_connector(
-            BuiltinPatentEvidenceConfig(
-                cache_dir=gateway.paths.external_data_root / "patent-evidence",
-                seed_publications=tuple(args.patent_publication),
-                max_patents=args.max_patent_sources,
-                max_validated_edges=args.max_map_reactions,
+    else:
+        builtin_connectors = []
+        if not args.no_auto_patent_evidence:
+            from cascade_planner.interfaces.patent_evidence import (
+                BuiltinPatentEvidenceConfig,
+                build_builtin_patent_evidence_connector,
             )
-        )
+
+            builtin_connectors.append(
+                build_builtin_patent_evidence_connector(
+                    BuiltinPatentEvidenceConfig(
+                        cache_dir=gateway.paths.external_data_root / "patent-evidence",
+                        seed_publications=tuple(args.patent_publication),
+                        max_patents=args.max_patent_sources,
+                        max_validated_edges=args.max_map_reactions,
+                    )
+                )
+            )
+        if not args.no_auto_literature_evidence:
+            from cascade_planner.interfaces.literature_evidence import (
+                BuiltinLiteratureEvidenceConfig,
+                build_builtin_literature_evidence_connector,
+            )
+
+            builtin_connectors.append(
+                build_builtin_literature_evidence_connector(
+                    BuiltinLiteratureEvidenceConfig(
+                        cache_dir=gateway.paths.external_data_root / "literature-evidence",
+                        seed_dois=tuple(args.literature_doi),
+                        seed_pdfs=tuple(args.literature_pdf),
+                        max_sources=args.max_literature_sources,
+                        max_visual_pages=args.max_visual_pages,
+                    )
+                )
+            )
+        if builtin_connectors:
+            evidence_connector = (
+                builtin_connectors[0]
+                if len(builtin_connectors) == 1
+                else compose_evidence_connectors(*builtin_connectors)
+            )
     inventory_snapshot_builder = None
     if args.inventory_snapshot:
         if args.stock_boundary != "procurement":
@@ -273,10 +379,21 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
         config=TargetSolveConfig(
             model=args.model,
             reasoning_effort=args.reasoning_effort,
+            execution_profile=args.execution_profile,
             use_coordinator=args.coordinator and not args.single_agent,
             enable_web_search=not args.no_web_search,
+            enable_initial_director_web_search=(
+                args.initial_director_web_search and not args.no_web_search
+            ),
+            enable_target_identity=not args.no_target_identity,
+            resolve_named_target_identity=not args.no_target_identity,
+            blind_audit_root=args.blind_audit_root,
             enable_replan=not args.no_replan,
             enable_live_benchmark_stock=not args.no_live_benchmark_stock,
+            enable_chemenzy=not args.no_chemenzy,
+            enable_target_chemenzy_baseline=args.target_chemenzy_baseline,
+            enable_guided_chemenzy=not args.no_guided_chemenzy,
+            chemenzy_env_prefix=args.chemenzy_env_prefix,
             enable_patent_self_evolution=not args.no_patent_self_evo,
             self_evo_library_path=args.self_evo_library,
             enable_builtin_patent_evidence=(
@@ -286,6 +403,14 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             max_live_stock_molecules=args.max_stock_molecules,
             max_patent_sources=args.max_patent_sources,
             max_self_evo_template_candidates=args.max_self_evo_candidates,
+            max_chemenzy_routes=args.chemenzy_max_routes,
+            max_chemenzy_steps=args.chemenzy_max_steps,
+            max_chemenzy_iterations=args.chemenzy_iterations,
+            chemenzy_expansion_topk=args.chemenzy_expansion_topk,
+            chemenzy_timeout_s=args.chemenzy_timeout_s,
+            max_guided_chemenzy_frontiers=args.guided_chemenzy_frontiers,
+            max_guided_chemenzy_iterations=args.guided_chemenzy_iterations,
+            guided_chemenzy_timeout_s=args.guided_chemenzy_timeout_s,
             max_visual_evidence_pages=args.max_visual_pages,
         ),
     )

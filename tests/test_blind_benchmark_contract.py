@@ -117,6 +117,26 @@ def test_preflight_requires_fresh_run_and_target_absence(tmp_path: Path) -> None
     ]
 
 
+def test_preflight_does_not_treat_generic_blind_label_as_leaked_identity(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "readme.md").write_text(
+        "Every blind target starts from only a SMILES.", encoding="utf-8"
+    )
+    case = BlindCase.from_dict(_case(target_name="blind target"))
+
+    report = audit_blind_preflight(
+        case,
+        repository_root=repository,
+        run_dir=tmp_path / "fresh-run",
+    )
+
+    assert report["accepted"] is True
+    assert report["repository_matches"] == []
+
+
 def test_manifest_is_the_only_allowed_target_occurrence(tmp_path: Path) -> None:
     repository = tmp_path / "repository"
     repository.mkdir()

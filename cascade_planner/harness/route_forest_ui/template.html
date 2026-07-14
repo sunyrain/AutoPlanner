@@ -186,8 +186,15 @@ __STYLES__
               </div>
               <div id="graphFilterBar" class="graph-filter-bar" role="toolbar" aria-label="证明层级与选中邻域筛选"></div>
               <div class="graph-options-grid">
+                <label class="compact-select" for="routeDirectionSelect">
+                  <span>路线方向</span>
+                  <select id="routeDirectionSelect">
+                    <option value="retrosynthesis">逆合成：目标 → 原料</option>
+                    <option value="synthesis">正合成：原料 → 目标</option>
+                  </select>
+                </label>
                 <label class="compact-select" for="orientationSelect">
-                  <span>方向</span>
+                  <span>画布布局</span>
                   <select id="orientationSelect">
                     <option value="horizontal">从左到右</option>
                     <option value="vertical">从上到下</option>
@@ -217,6 +224,13 @@ __STYLES__
                     <option value="minimal">仅层级</option>
                   </select>
                 </label>
+                <label class="compact-select" for="auxiliarySelect">
+                  <span>辅助投入</span>
+                  <select id="auxiliarySelect">
+                    <option value="collapsed">折叠试剂与小分子</option>
+                    <option value="shown">显示全部投入</option>
+                  </select>
+                </label>
               </div>
             </div>
           </details>
@@ -224,7 +238,7 @@ __STYLES__
           <details id="legendPopover" class="legend-popover">
             <summary>
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="18" cy="12" r="2"></circle></svg>
-              <span>证明等级图例</span>
+              <span>路线语义图例</span>
             </summary>
             <div class="legend-card" role="list" aria-label="L0 到 L4 证明等级图例">
               <div class="legend-intro">
@@ -239,6 +253,17 @@ __STYLES__
               <div class="legend-row tier-l0-materialized" role="listitem"><span class="trust-swatch trust-pattern--dotted"></span><span><strong>L0</strong> 结构已具象化</span></div>
               <div class="legend-row tier-l0-advisory" role="listitem"><span class="trust-swatch trust-pattern--dotted"></span><span><strong>L0</strong> 探索建议</span></div>
               <div class="legend-row tier-l0-rejected" role="listitem"><span class="trust-swatch trust-pattern--crosshatched"></span><span><strong>L0</strong> 已拒绝</span></div>
+              <div class="legend-intro legend-intro--section">
+                <strong>方案生产者（反应卡左色条）</strong>
+                <span>谁提出路线，不等于谁证明路线。</span>
+              </div>
+              <div class="legend-row" role="listitem"><span class="origin-swatch origin-codex"></span><span><strong>蓝</strong> Codex 全局规划</span></div>
+              <div class="legend-row" role="listitem"><span class="origin-swatch origin-chemenzy"></span><span><strong>紫</strong> ChemEnzy 搜索</span></div>
+              <div class="legend-row" role="listitem"><span class="origin-swatch origin-literature"></span><span><strong>青</strong> 文献抽取 / 重放</span></div>
+              <div class="legend-intro legend-intro--section">
+                <strong>证据来源（卡片文字）</strong>
+                <span>专利、论文/SI 与登记库独立显示；它们再由主机验证升级 L0–L4。</span>
+              </div>
             </div>
           </details>
         </div>

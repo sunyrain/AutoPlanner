@@ -1,9 +1,9 @@
 """Thin V4 HTTP and Web UI adapter over :mod:`campaign_gateway`."""
 from __future__ import annotations
 
-import html
-from typing import Any, Callable
-from urllib.parse import quote
+from pathlib import Path
+from threading import RLock, Thread
+from typing import Any, Callable, Mapping
 
 from flask import Blueprint, Response, jsonify, request
 
@@ -11,12 +11,19 @@ from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
 )
-from cascade_planner.harness.v4_route_workbench import (
-    render_v4_route_workbench_html,
-)
+from cascade_planner.harness.v4_route_workbench import render_v4_route_workbench_html
 from cascade_planner.interfaces.campaign_gateway import (
     CampaignGateway,
     CampaignGatewayError,
+)
+from cascade_planner.web.v4_target_runtime import (
+    historical_job as _historical_job,
+    job_projection as _job_projection,
+    live_job_progress as _live_job_progress,
+    new_run_id as _new_run_id,
+    run_target_job as _run_target_job,
+    solve_target_request as _solve_target_request,
+    utc_now as _utc_now,
 )
 
 
@@ -28,6 +35,8 @@ def create_v4_blueprint(
 ) -> Blueprint:
     blueprint = Blueprint("autoplanner_v4", __name__)
     factory = gateway_factory or CampaignGateway
+    jobs: dict[str, dict[str, Any]] = {}
+    jobs_lock = RLock()
 
     @blueprint.errorhandler(CampaignGatewayError)
     def campaign_error(exc: CampaignGatewayError):
@@ -41,24 +50,8 @@ def create_v4_blueprint(
 
     @blueprint.get("/v4")
     def v4_index() -> Response:
-        rows = factory().list_runs(limit=100)["runs"]
-        items = "".join(
-            "<li><a href='/api/v4/runs/"
-            + quote(str(row["run_id"]), safe="")
-            + "/workbench.html'>"
-            + html.escape(str(row.get("target_name") or row["run_id"]))
-            + "</a> <small>"
-            + html.escape(str(row.get("status") or ""))
-            + "</small></li>"
-            for row in rows
-        )
-        body = f"""<!doctype html>
-<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AutoPlanner V4 runs</title>
-<style>body{{font:16px/1.55 system-ui;margin:3rem auto;max-width:70rem;padding:0 1.5rem;color:#172033}}a{{color:#3659d9}}li{{margin:.7rem 0}}small{{color:#68738a}}</style>
-<h1>AutoPlanner V4</h1><p>每个页面都直接投影同一 RunKernel、超图、frontier 与 proof portfolio。</p>
-<ul>{items or '<li>暂无运行。请使用 python -m cascade_planner run 创建。</li>'}</ul></html>"""
-        return Response(body, mimetype="text/html")
+        console_path = Path(__file__).resolve().parent / "static" / "v4.html"
+        return Response(console_path.read_text(encoding="utf-8"), mimetype="text/html")
 
     @blueprint.get("/api/v4/runs")
     def list_runs():
@@ -97,6 +90,86 @@ def create_v4_blueprint(
         )
         return jsonify(result), 201
 
+    @blueprint.post("/api/v4/solve-target")
+    def solve_target():
+        payload = _payload()
+        result = _solve_target_request(factory(), payload)
+        return jsonify(result), 200 if payload.get("resume") is True else 201
+
+    @blueprint.post("/api/v4/jobs")
+    def start_target_job():
+        payload = _payload()
+        if not str(payload.get("target_smiles") or "").strip():
+            raise ValueError("target_smiles_is_required")
+        run_id = str(payload.get("run_id") or "") or _new_run_id(
+            str(payload.get("target_name") or "target")
+        )
+        job_id = f"solve:{run_id}"
+        payload = {**payload, "run_id": run_id}
+        now = _utc_now()
+        with jobs_lock:
+            existing = jobs.get(job_id)
+            if existing and existing.get("status") in {"queued", "running"}:
+                return jsonify(_job_projection(existing)), 200
+            jobs[job_id] = {
+                "job_id": job_id,
+                "run_id": run_id,
+                "target_name": str(payload.get("target_name") or "blind target"),
+                "status": "queued",
+                "phase": "queued",
+                "created_at": now,
+                "started_at": "",
+                "finished_at": "",
+                "updated_at": now,
+                "elapsed_s": 0.0,
+                "error": "",
+                "result": {},
+            }
+            row = dict(jobs[job_id])
+        Thread(
+            target=_run_target_job,
+            args=(factory, payload, job_id, jobs, jobs_lock),
+            daemon=True,
+            name=f"autoplanner-{run_id[:32]}",
+        ).start()
+        return jsonify(_job_projection(row)), 202
+
+    @blueprint.get("/api/v4/jobs")
+    def list_target_jobs():
+        with jobs_lock:
+            rows = [_job_projection(value) for value in jobs.values()]
+        known_run_ids = {str(row.get("run_id") or "") for row in rows}
+        for run in factory().list_runs(limit=30).get("runs") or []:
+            if not isinstance(run, Mapping):
+                continue
+            run_id = str(run.get("run_id") or "")
+            if run_id and run_id not in known_run_ids:
+                rows.append(_historical_job(run))
+        rows.sort(key=lambda value: str(value.get("created_at") or ""), reverse=True)
+        return jsonify({"jobs": rows})
+
+    @blueprint.get("/api/v4/jobs/<path:job_id>")
+    def target_job_status(job_id: str):
+        with jobs_lock:
+            row = dict(jobs.get(job_id) or {})
+        if not row:
+            run_id = job_id.removeprefix("solve:")
+            historical = next(
+                (
+                    value
+                    for value in factory().list_runs(limit=100).get("runs") or []
+                    if isinstance(value, Mapping)
+                    and str(value.get("run_id") or "") == run_id
+                ),
+                None,
+            )
+            if historical is None:
+                return jsonify({"error": "job_not_found", "job_id": job_id}), 404
+            row = _historical_job(historical)
+        return jsonify(
+            {**_job_projection(row), "progress": _live_job_progress(factory, row)}
+        )
+
     @blueprint.get("/api/v4/runs/<run_id>/status")
     def run_status(run_id: str):
         return jsonify(factory().status(run_id))
@@ -120,9 +193,7 @@ def create_v4_blueprint(
             raise ValueError("global_plan_must_be_an_object")
         return jsonify(
             factory().apply_plan(
-                run_id,
-                plan,
-                materialize=payload.get("materialize") is True,
+                run_id, plan, materialize=payload.get("materialize") is True
             )
         )
 
@@ -136,9 +207,7 @@ def create_v4_blueprint(
 
     @blueprint.get("/api/v4/runs/<run_id>/benchmark")
     def benchmark_run(run_id: str):
-        return jsonify(
-            factory().benchmark(run_id, iterations=_query_int("iterations", 3))
-        )
+        return jsonify(factory().benchmark(run_id, iterations=_query_int("iterations", 3)))
 
     @blueprint.get("/api/v4/runs/<run_id>/workbench")
     def workbench(run_id: str):
@@ -147,10 +216,7 @@ def create_v4_blueprint(
     @blueprint.get("/api/v4/runs/<run_id>/workbench.html")
     def workbench_html(run_id: str) -> Response:
         snapshot = factory().workbench(run_id)["snapshot"]
-        return Response(
-            render_v4_route_workbench_html(snapshot),
-            mimetype="text/html",
-        )
+        return Response(render_v4_route_workbench_html(snapshot), mimetype="text/html")
 
     return blueprint
 
@@ -162,7 +228,7 @@ def _payload() -> dict[str, Any]:
     return value
 
 
-def _int(value: dict[str, Any], key: str, default: int) -> int:
+def _int(value: Mapping[str, Any], key: str, default: int) -> int:
     try:
         return int(value.get(key, default))
     except (TypeError, ValueError) as exc:

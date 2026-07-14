@@ -23,18 +23,18 @@ from cascade_planner.harness.v4_workbench_authority import (
     retrosynthesis_control,
     selected_route_proof,
 )
+from cascade_planner.harness.v4_route_display import compile_route_display_rows
+from cascade_planner.harness.v4_route_evidence_projection import (
+    PROOF_TIER as _PROOF_TIER,
+    closure_label as _closure_label,
+    condition_summary as _condition_summary,
+    conditions as _conditions,
+    replacement_validation_projection as _replacement_validation_projection,
+    trust_vector as _trust_vector,
+)
 
 
 V4_WORKBENCH_ADAPTER_SCHEMA = "v4_route_workbench_adapter.v1"
-
-_PROOF_TIER = {
-    0: "L0_advisory",
-    1: "L0_materialized",
-    2: "L2_reaction_validated",
-    3: "L3_precedent_supported",
-    4: "L4_procurement_ready",
-}
-
 
 def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
     """Adapt one bounded V4 read model to the offline route-workbench shell."""
@@ -55,20 +55,38 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
     graph_edges: list[dict[str, Any]] = []
     branch_views: list[dict[str, Any]] = []
     authority_edges: list[dict[str, Any]] = []
+    step_id_by_branch_edge: dict[tuple[str, str], str] = {}
 
     routes = dict(source.get("routes") or {})
+    replacement_routes = dict(source.get("replacement_routes") or {})
     edge_rows = dict(source.get("edges") or {})
     edge_inspectors = dict(dict(source.get("inspectors") or {}).get("edges") or {})
-    for route_index, (route_id, route_value) in enumerate(routes.items()):
+    route_entries = [
+        (route_id, route_value, False) for route_id, route_value in routes.items()
+    ] + [
+        (route_id, route_value, True)
+        for route_id, route_value in replacement_routes.items()
+    ]
+    for route_index, (route_id, route_value, is_replacement) in enumerate(
+        route_entries
+    ):
         route = dict(route_value)
         branch_id = str(route_id)
         step_ids: list[str] = []
         branch_node_ids: set[str] = set()
-        for edge_index, canonical_edge_id in enumerate(route.get("edge_ids") or []):
+        display_rows = compile_route_display_rows(
+            route.get("edge_ids") or [],
+            edge_rows=edge_rows,
+            edge_inspectors=edge_inspectors,
+            nodes_by_id=nodes_by_id,
+        )
+        for display in display_rows:
+            canonical_edge_id = str(display["edge_id"])
             edge = dict(edge_rows.get(str(canonical_edge_id)) or {})
             if not edge:
                 continue
             step_id = _stable_id("step", branch_id, str(canonical_edge_id))
+            step_id_by_branch_edge[(branch_id, str(canonical_edge_id))] = step_id
             reaction_graph_id = _reaction_graph_id(step_id)
             product_id = str(edge.get("product_molecule_id") or "")
             raw_precursor_ids = [
@@ -77,6 +95,16 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             precursor_ids, precursor_multiplicity = _project_stoichiometric_inputs(
                 raw_precursor_ids
             )
+            main_precursor_ids = [
+                value
+                for value in precursor_ids
+                if value in set(display["main_precursor_ids"])
+            ]
+            auxiliary_precursor_ids = [
+                value
+                for value in precursor_ids
+                if value in set(display["auxiliary_precursor_ids"])
+            ]
             if product_id not in nodes_by_id or any(value not in nodes_by_id for value in precursor_ids):
                 continue
             proof_level = int(edge.get("proof_level") or 0)
@@ -91,6 +119,17 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                 if isinstance(value, Mapping)
             ]
             conditions = _conditions(exact_records)
+            proof_vector = dict(
+                inspector.get("proof_vector") or edge.get("proof_vector") or {}
+            )
+            condition_status = str(
+                inspector.get("condition_status")
+                or edge.get("condition_status")
+                or "missing"
+            )
+            condition_completeness = str(
+                proof_vector.get("condition_completeness") or "missing"
+            )
             repeated_inputs = [
                 row for row in precursor_multiplicity if int(row["count"]) > 1
             ]
@@ -111,11 +150,25 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                 "frontier_exact_edge_signature": str(canonical_edge_id),
                 "branch_id": branch_id,
                 "from_node_ids": precursor_ids,
+                "main_from_node_ids": main_precursor_ids,
+                "auxiliary_from_node_ids": auxiliary_precursor_ids,
                 "precursor_multiplicity": precursor_multiplicity,
                 "stoichiometric_input_count": len(raw_precursor_ids),
                 "to_node_ids": [product_id],
                 "reaction_class": str(route.get("strategy") or "Retrosynthetic step"),
+                "display_label": str(display["display_label"]),
+                "stage_label": str(display["stage_label"]),
+                "synthesis_stage": int(display["synthesis_stage"]),
+                "source_step_labels": list(display["source_step_labels"]),
+                "producer_kinds": list(display["producer_kinds"]),
+                "producer_label": str(display["producer_label"]),
+                "evidence_kinds": list(display["evidence_kinds"]),
+                "evidence_label": str(display["evidence_label"]),
                 "conditions": conditions,
+                "condition_status": condition_status,
+                "condition_completeness": condition_completeness,
+                "condition_summary": _condition_summary(condition_status),
+                "proof_vector": proof_vector,
                 "proof_tier": tier,
                 "proof_level": tier,
                 "source_refs": sorted(
@@ -154,7 +207,10 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                 "node_type": "reaction",
                 "reaction_step_id": step_id,
                 "branch_id": branch_id,
-                "label": f"Step {edge_index + 1}",
+                "label": str(display["display_label"]),
+                "producer_label": str(display["producer_label"]),
+                "evidence_label": str(display["evidence_label"]),
+                "producer_kinds": list(display["producer_kinds"]),
                 "proof_tier": tier,
             }
             for precursor_id in precursor_ids:
@@ -166,6 +222,11 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                         source_id=_molecule_graph_id(precursor_id),
                         target_id=reaction_graph_id,
                         direction="input",
+                        visual_role=(
+                            "auxiliary"
+                            if precursor_id in auxiliary_precursor_ids
+                            else "main"
+                        ),
                     )
                 )
             graph_edges.append(
@@ -191,7 +252,25 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                     },
                 }
             )
-        branch = _route_branch(route, branch_id=branch_id, step_ids=step_ids, primary=route_index == 0)
+        branch = _route_branch(
+            route,
+            branch_id=branch_id,
+            step_ids=step_ids,
+            primary=route_index == 0 and not is_replacement,
+        )
+        if is_replacement:
+            branch.update(
+                {
+                    "kind": "validated_replacement_route",
+                    "listed": False,
+                    "is_primary": False,
+                    "reaction_validated": route.get("stage")
+                    in {"reaction_validated", "stock_closed"},
+                    "proof_eligible": route.get("complete") is True,
+                    "synthesis_class": "validated_replacement",
+                    "not_parent_route_proof": True,
+                }
+            )
         branches.append(branch)
         branch_views.append(
             {
@@ -199,9 +278,13 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                 "step_ids": step_ids,
                 "topological_step_ids": step_ids,
                 "root_molecule_node_ids": list(route.get("leaf_molecule_ids") or []),
-                "dependencies": [str(value) for value in route.get("edge_ids") or []],
+                "dependencies": [str(value["edge_id"]) for value in display_rows],
                 "acyclic": True,
-                "all_leaves_stock_bound": route.get("complete") is True,
+                "all_leaves_configured_boundary_closed": route.get("complete") is True,
+                "all_leaves_stock_bound": bool(
+                    route.get("complete") is True
+                    and route.get("stock_boundary") in {"procurement", "in_house"}
+                ),
             }
         )
 
@@ -224,6 +307,21 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
     selected_route_proof_value = selected_route_proof(source)
     route_count = len(routes)
     complete_count = sum(dict(value).get("complete") is True for value in routes.values())
+    search_closed_count = sum(
+        dict(value).get("closure_profile") == "exploration_closed"
+        for value in routes.values()
+    )
+    procurement_closed_count = sum(
+        dict(value).get("closure_profile") == "procurement_closed"
+        for value in routes.values()
+    )
+    process_ready_count = sum(
+        dict(value).get("process_ready") is True for value in routes.values()
+    )
+    replacement_validation = _replacement_validation_projection(
+        source,
+        step_id_by_branch_edge=step_id_by_branch_edge,
+    )
     forest = {
         "schema_version": "explored_route_forest.v1",
         "case_id": str(source.get("run_id") or ""),
@@ -235,6 +333,10 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             "branches": len(branches),
             "portfolio_routes": route_count,
             "complete_portfolio_routes": complete_count,
+            "configured_boundary_closed_routes": complete_count,
+            "exploration_closed_routes": search_closed_count,
+            "procurement_closed_routes": procurement_closed_count,
+            "process_ready_routes": process_ready_count,
             "molecules": len(nodes_by_id),
             "reactions": len(steps),
         },
@@ -245,7 +347,7 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             "status": "display_projection",
             "primary_branch_id": primary_id,
             "proof_level": "v4_proof_portfolio" if portfolio_accepted else "",
-            "advisory_only": not portfolio_accepted,
+            "advisory_only": dict(source.get("portfolio") or {}).get("process_ready") is not True,
             "display_tiebreak_only": True,
         },
         "nodes": list(nodes_by_id.values()),
@@ -257,6 +359,7 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             "schema_version": "molecule_reaction_dependency_graph.v1",
             "graph_kind": "canonical_v4_portfolio_projection",
             "direction": "precursors_to_target",
+            "default_display_direction": "retrosynthesis",
             "acyclic": True,
             "nodes": list(graph_nodes.values()),
             "edges": graph_edges,
@@ -275,6 +378,8 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             "default_group_visible_count": 5,
             "default_view": "current_portfolio_route",
             "all_exploration_requires_explicit_expand": True,
+            "default_route_direction": "retrosynthesis",
+            "auxiliary_inputs_collapsed": True,
         },
         "artifact_revision": {
             "schema_version": "route_forest_source_revision_context.v1",
@@ -288,11 +393,15 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             "bounded_portfolio": True,
             "omitted_route_count": 0,
         },
-        "replacement_validation": {"records": []},
+        "replacement_validation": replacement_validation,
         "route_portfolio_projection": {
             "schema_version": "proof_stitched_route_portfolio.v1",
             "selected_route_ids": list(routes),
             "accepted": dict(source.get("portfolio") or {}).get("accepted") is True,
+            "closure_profile": str(
+                dict(source.get("portfolio") or {}).get("closure_profile") or "unresolved"
+            ),
+            "process_ready": dict(source.get("portfolio") or {}).get("process_ready") is True,
         },
         "evidence_index": {
             "edge_inspectors": dict(dict(source.get("inspectors") or {}).get("edges") or {}),
@@ -441,6 +550,7 @@ def _graph_edge(
     source_id: str,
     target_id: str,
     direction: str,
+    visual_role: str = "main",
 ) -> dict[str, Any]:
     return {
         "edge_id": _stable_id("dependency", branch_id, step_id, direction, molecule_id),
@@ -450,6 +560,7 @@ def _graph_edge(
         "reaction_step_id": step_id,
         "molecule_node_id": molecule_id,
         "branch_id": branch_id,
+        "visual_role": visual_role,
     }
 
 
@@ -462,6 +573,8 @@ def _route_branch(
 ) -> dict[str, Any]:
     level = max(0, min(4, int(route.get("proof_level") or 0)))
     complete = route.get("complete") is True
+    closure_profile = str(route.get("closure_profile") or "unresolved")
+    process_ready = route.get("process_ready") is True
     source_refs = [
         str(value)[7:]
         for value in route.get("badges") or []
@@ -474,10 +587,14 @@ def _route_branch(
         "listed": True,
         "is_primary": primary,
         "step_ids": step_ids,
-        "solved": complete,
+        "solved": process_ready,
         "complete": complete,
-        "executable": complete,
-        "advisory_only": not complete,
+        "configured_boundary_closed": complete,
+        "closure_profile": closure_profile,
+        "completion_label": _closure_label(closure_profile),
+        "executable": process_ready,
+        "process_ready": process_ready,
+        "advisory_only": not process_ready,
         "not_parent_route_proof": not complete,
         "proof_tier": _PROOF_TIER[level],
         "confidence": "high" if level >= 3 else "medium" if level >= 2 else "low",
@@ -598,39 +715,6 @@ def _append_hypothesis_branches(
                 "all_leaves_stock_bound": False,
             }
         )
-
-
-def _trust_vector(edge: Mapping[str, Any], sources: list[Mapping[str, Any]]) -> dict[str, Any]:
-    level = int(edge.get("proof_level") or 0)
-    source_groups = {
-        str(value.get("independence_group") or value.get("source_ref") or "")
-        for value in sources
-        if str(value.get("independence_group") or value.get("source_ref") or "")
-    }
-    return {
-        "proof_tier": _PROOF_TIER[max(0, min(4, level))],
-        "identity": 1.0,
-        "connectivity": 1.0 if level >= 1 else 0.5,
-        "source_independence": min(1.0, len(source_groups) / 2),
-        "stock": 1.0 if level >= 4 else 0.0,
-        "conditions": 1.0 if level >= 3 else 0.0,
-        "forward_feasibility": 1.0 if level >= 2 else 0.0,
-        "trusted_source_group_count": len(source_groups),
-        "corroborated": len(source_groups) >= 2,
-    }
-
-
-def _conditions(records: list[Mapping[str, Any]]) -> list[dict[str, str]]:
-    for record in records:
-        raw = record.get("conditions")
-        if not isinstance(raw, Mapping):
-            continue
-        return [
-            {"label": str(key).replace("_", " "), "value": str(value)}
-            for key, value in sorted(raw.items())
-            if value not in (None, "", [], {})
-        ]
-    return []
 
 
 def _stable_id(prefix: str, *parts: str) -> str:

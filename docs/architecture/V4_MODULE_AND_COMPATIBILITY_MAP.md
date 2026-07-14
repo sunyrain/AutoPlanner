@@ -18,6 +18,12 @@ Blackboards, legacy campaign JSON, legacy frontier queues, and `RouteForest`
 are read/write-compatible historical implementations; none is an authority for
 a V4 run. New features must enter through the path above.
 
+Working legacy capabilities are migrated according to
+[`BLACKBOARD_CAPABILITY_MIGRATION.md`](BLACKBOARD_CAPABILITY_MIGRATION.md).
+Freezing the legacy controller does not authorize deleting or duplicating its
+validated ChemEnzy, literature, PDF, vision, evidence, stock, or self-evolution
+capabilities before their V4 acceptance tests pass.
+
 ## Ownership split
 
 | Concern | V4 owner | Frozen compatibility owner |

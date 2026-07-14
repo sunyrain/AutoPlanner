@@ -406,16 +406,28 @@ def _compact_canonical_hypergraph(graph: Mapping[str, Any]) -> dict[str, Any]:
             if isinstance(value, Mapping)
         },
         "hypotheses": {
-            str(key): _fields(
-                value,
-                (
+            str(key): {
+                **_fields(
+                    value,
+                    (
                     "frontier_priority",
                     "precursor_smiles",
                     "product_smiles",
                     "route_family_ids",
                     "status",
+                    ),
                 ),
-            )
+                "origin_kinds": sorted(
+                    {
+                        str(origin.get("origin_kind") or "")
+                        for origin in dict(value).get("origin_records") or []
+                        if isinstance(origin, Mapping) and origin.get("origin_kind")
+                    }
+                ),
+                "condition_prediction_count": len(
+                    dict(value).get("condition_predictions") or []
+                ),
+            }
             for key, value in dict(graph.get("hypotheses") or {}).items()
         },
         "route_families": {
@@ -443,10 +455,16 @@ def _compact_canonical_hypergraph(graph: Mapping[str, Any]) -> dict[str, Any]:
             str(key): _fields(
                 value,
                 (
+                    "acquisition_status",
+                    "exact_row_count_observed",
+                    "independence_group",
+                    "proxy_request_id",
                     "source_group",
                     "source_kind",
+                    "source_pdf_sha256",
                     "source_ref",
                     "title",
+                    "visual_candidate_page_count",
                 ),
             )
             for key, value in dict(graph.get("source_bindings") or {}).items()

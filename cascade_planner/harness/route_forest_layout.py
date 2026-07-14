@@ -414,6 +414,12 @@ def build_branch_lane_projection(
                 "listed": branch.get("listed") is not False,
                 "solved": branch.get("solved") is True,
                 "executable": branch.get("executable") is True,
+                "configured_boundary_closed": (
+                    branch.get("configured_boundary_closed") is True
+                ),
+                "closure_profile": str(branch.get("closure_profile") or "unresolved"),
+                "completion_label": str(branch.get("completion_label") or ""),
+                "process_ready": branch.get("process_ready") is True,
                 "advisory_only": branch.get("advisory_only") is not False,
                 "synthesis_class": str(branch.get("synthesis_class") or "unspecified"),
                 "source_refs": sorted(_dedupe_strings(branch.get("source_refs") or [])),
@@ -435,6 +441,9 @@ def build_branch_lane_projection(
                 "dependency_count": len(view.get("dependencies") or []),
                 "acyclic": view.get("acyclic") is not False,
                 "all_leaves_stock_bound": all_leaves_stock_bound,
+                "all_leaves_configured_boundary_closed": (
+                    view.get("all_leaves_configured_boundary_closed") is True
+                ),
             }
         )
 

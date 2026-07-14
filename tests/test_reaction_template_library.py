@@ -126,6 +126,41 @@ def test_patent_library_learns_idempotently_and_retrieves_only_as_l0_proposal(
     assert exact_target_retrieval["exact_example_exclusion_count"] == 1
 
 
+def test_record_revisions_merge_into_one_richer_logical_example(tmp_path: Path) -> None:
+    graph = _learning_graph()
+    original = dict(graph["exact_records"]["exact:ester"])
+    richer = {
+        **original,
+        "record_id": "exact:ester-with-conditions",
+        "conditions": {
+            "reagents": ["acetyl chloride"],
+            "solvent": ["dichloromethane"],
+            "temperature": "room temperature",
+            "time": "2 h",
+        },
+        "condition_completeness": {"complete": True},
+        "procedure_authority_scope": "source_exact_reaction_procedure",
+    }
+    richer["content_sha256"] = _digest(
+        {key: value for key, value in richer.items() if key != "content_sha256"}
+    )
+    graph["exact_records"][richer["record_id"]] = richer
+    edge = next(iter(graph["edges"].values()))
+    edge["exact_record_ids"] = ["exact:ester", richer["record_id"]]
+    path = tmp_path / "self-evo.json"
+
+    first = synchronize_patent_template_library(path, graph)
+    second = synchronize_patent_template_library(path, graph)
+    template = next(iter(load_patent_template_library(path)["templates"].values()))
+
+    assert first["status"] == "completed"
+    assert second["status"] == "reused_or_empty"
+    assert template["example_count"] == 1
+    example = next(iter(template["examples"].values()))
+    assert example["record_id"] == richer["record_id"]
+    assert example["condition_completeness"]["complete"] is True
+
+
 def test_non_patent_failed_or_tampered_examples_never_learn(tmp_path: Path) -> None:
     for label, graph, reason in (
         ("paper", _learning_graph(source_ref="doi:10.1000/example"), "not_patent"),

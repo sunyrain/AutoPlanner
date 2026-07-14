@@ -57,6 +57,92 @@ def _kernel(tmp_path: Path) -> RunKernel:
     return kernel
 
 
+def test_rejected_stock_leaf_becomes_provider_expansion_deficit() -> None:
+    frontier = compile_deficit_frontier(
+        {
+            "scientific_sha256": "fixture",
+            "target_molecule_id": "molecule:target",
+            "molecules": {
+                "molecule:target": {
+                    "canonical_smiles": "CCOC(C)=O",
+                    "is_leaf": False,
+                    "stock_closed": False,
+                },
+                "molecule:leaf": {
+                    "canonical_smiles": "CC(=O)Cl",
+                    "is_leaf": True,
+                    "stock_closed": False,
+                    "active_stock_observation_id": "stock:miss",
+                },
+            },
+            "stock_observations": {
+                "stock:miss": {"accepted": False, "reasons": ["catalog_miss"]}
+            },
+            "route_families": {
+                "route:acyl": {"selected": True, "closed": False, "edge_ids": []}
+            },
+            "dependency_index": {
+                "routes_by_entity": {"molecule:leaf": ["route:acyl"]}
+            },
+            "edges": {},
+            "hypotheses": {},
+            "conflicts": {},
+        }
+    )
+
+    expansion = next(
+        row for row in frontier["items"] if row["kind"] == "expansion"
+    )
+    assert expansion["model_allowed"] is True
+    assert expansion["deterministic"] is False
+    assert expansion["metadata"]["frontier_smiles"] == "CC(=O)Cl"
+    assert expansion["metadata"]["provider_preferences"][0] == "chemenzy"
+    assert frontier["summary"]["by_kind"]["stock"] == 0
+
+
+def test_discovered_source_lifecycle_becomes_evidence_deficit() -> None:
+    binding = normalize_source_binding(
+        {
+            "source_kind": "paper_si",
+            "source_ref": "doi:10.1000/restricted",
+            "title": "restricted route paper",
+            "acquisition_status": "queued_for_authorized_browser",
+            "proxy_request_id": "pdfreq-one",
+        }
+    )
+    frontier = compile_deficit_frontier(
+        {
+            "scientific_sha256": "fixture",
+            "target_molecule_id": "molecule:target",
+            "molecules": {
+                "molecule:target": {
+                    "canonical_smiles": "CC",
+                    "is_leaf": True,
+                    "stock_closed": False,
+                }
+            },
+            "source_bindings": {binding["binding_id"]: binding},
+            "exact_records": {},
+            "stock_observations": {},
+            "route_families": {},
+            "dependency_index": {"routes_by_entity": {}},
+            "edges": {},
+            "hypotheses": {},
+            "conflicts": {},
+        }
+    )
+
+    item = next(
+        value
+        for value in frontier["items"]
+        if value["object_id"] == binding["binding_id"]
+    )
+    assert item["kind"] == "evidence"
+    assert item["reason"] == "source_waiting_authorized_pdf_acquisition"
+    assert item["metadata"]["proxy_request_id"] == "pdfreq-one"
+    assert item["model_allowed"] is False
+
+
 def _plan() -> dict:
     return {
         "schema_version": "global_campaign_plan.v1",
@@ -221,6 +307,96 @@ def test_global_codex_plan_enters_real_frontier_then_materializes_once(
     assert graph["deficit_frontier"]["summary"]["by_kind"]["materialization"] == 0
     assert graph["deficit_frontier"]["summary"]["by_kind"]["validation"] == 1
     assert kernel.state.graph_revision == 2
+
+
+def test_codex_provider_delegation_becomes_one_canonical_expansion_deficit(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    plan = _plan()
+    plan["frontier_priorities"] = [
+        {
+            "priority_id": "priority:chemenzy:ethanol",
+            "target_smiles": "OCC",
+            "provider_preferences": ["chemenzy"],
+            "retron_hints": ["alcohol feedstock alternatives"],
+            "priority": 9,
+            "rationale": "compare a local upstream module",
+        }
+    ]
+
+    graph = store.apply(
+        CanonicalIngestionBatch(global_plans=(plan,)),
+        idempotency_key="plan-with-provider-frontier",
+    )["graph"]
+
+    molecule_id, _ = molecule_identity("CCO")
+    molecule = graph["molecules"][molecule_id]
+    expansion = next(
+        item
+        for item in graph["deficit_frontier"]["items"]
+        if item["kind"] == "expansion" and item["object_id"] == molecule_id
+    )
+    assert molecule["provider_expansion_requested"] is True
+    assert molecule["provider_preferences"] == ["chemenzy"]
+    assert expansion["reason"] == "codex_selected_frontier_requires_local_generation"
+    assert expansion["metadata"]["frontier_smiles"] == "CCO"
+    assert graph["deficit_frontier"]["semantics"][
+        "frontier_is_not_scientific_authority"
+    ] is True
+
+
+def test_codex_can_delegate_a_non_leaf_shared_intermediate(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    plan = _plan()
+    plan["multi_step_skeletons"][0]["steps"].append(
+        {
+            "step_id": "step:ethanol",
+            "product_smiles": "CCO",
+            "precursor_smiles": ["CC=O"],
+            "transformation_hypothesis": "carbonyl reduction",
+        }
+    )
+    plan["frontier_priorities"] = [
+        {
+            "priority_id": "priority:chemenzy:acid",
+            "target_smiles": "CCO",
+            "provider_preferences": ["chemenzy"],
+            "retron_hints": ["alternative acid construction"],
+            "priority": 9,
+            "rationale": "compare upstream modules around a shared node",
+        }
+    ]
+
+    graph = store.apply(
+        CanonicalIngestionBatch(global_plans=(plan,)),
+        idempotency_key="plan-with-non-leaf-provider-frontier",
+    )["graph"]
+    runtime = WorkerRuntime(kernel, build_retrosynthesis_worker_handlers())
+    results = tuple(
+        runtime.execute(command)
+        for command in store.frontier_materialization_commands()
+    )
+    graph = store.apply(
+        CanonicalIngestionBatch(worker_results=results),
+        worker_runtime=runtime,
+        idempotency_key="materialize-non-leaf-provider-frontier",
+    )["graph"]
+
+    molecule_id, _ = molecule_identity("CCO")
+    molecule = graph["molecules"][molecule_id]
+    assert molecule["is_leaf"] is False
+    expansion = next(
+        item
+        for item in graph["deficit_frontier"]["items"]
+        if item["kind"] == "expansion" and item["object_id"] == molecule_id
+    )
+    assert expansion["reason"] == "codex_selected_frontier_requires_local_generation"
+    assert expansion["metadata"]["frontier_smiles"] == "CCO"
 
 
 def test_one_ingestion_path_deduplicates_edges_and_preserves_all_origins(
@@ -503,6 +679,14 @@ def test_worker_facts_merge_order_independently_without_false_route_closure(
 
     assert len(edge["reaction_proofs"]) == 1
     assert len(edge["exact_record_ids"]) == 1
+    exact = graph["exact_records"][edge["exact_record_ids"][0]]
+    assert exact["procedure_authority_scope"] == "source_exact_reaction_procedure"
+    assert exact["condition_completeness"]["complete"] is False
+    assert set(exact["condition_completeness"]["missing_required_groups"]) == {
+        "agents",
+        "solvent",
+        "time",
+    }
     assert len(edge["independent_source_groups"]) == 1
     assert {row["origin_kind"] for row in edge["origin_records"]} == {
         "codex_global_director",

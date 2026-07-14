@@ -175,6 +175,38 @@ def test_builtin_patent_connector_refuses_unvalidated_edges(tmp_path: Path) -> N
         connector(_request(validated=False))
 
 
+def test_builtin_patent_connector_allows_authority_free_target_prefetch(
+    tmp_path: Path,
+) -> None:
+    request = _request()
+    request["edges"] = []
+    connector = build_builtin_patent_evidence_connector(
+        BuiltinPatentEvidenceConfig(cache_dir=tmp_path, max_patents=1),
+        candidate_provider=lambda _queries: [
+            {
+                "publication_number": "US1234567A1",
+                "family_id": "family:one",
+                "title": "Process for preparation of ethyl acetate",
+                "snippet": "ethyl acetate synthesis",
+                "pdf_url": "https://source.invalid/one.pdf",
+            }
+        ],
+        bytes_fetcher=lambda _url, _timeout, _limit: _pdf_bytes(),
+        registry_compiler=_compiler,
+    )
+
+    result = connector(request)
+
+    assert "document" not in result
+    assert result["receipt"]["accepted_source_count"] == 0
+    assert result["receipt"]["semantics"][
+        "target_only_prefetch_grants_no_evidence_authority"
+    ] is True
+    source = result["discovery"]["sources"][0]
+    assert source["pdf_sha256"]
+    assert source["exact_row_count"] == 0
+
+
 def test_builtin_patent_connector_returns_unbound_procedures_for_global_replan(
     tmp_path: Path,
 ) -> None:
@@ -274,6 +306,46 @@ def test_builtin_patent_connector_reuses_persistent_default_resolver_cache(
         "flushed": False,
         "entry_count": 0,
     }
+
+
+def test_builtin_patent_connector_reuses_run_scoped_search_pdf_and_render(
+    tmp_path: Path,
+) -> None:
+    calls = {"search": 0, "fetch": 0}
+
+    def candidates(_queries: Any) -> list[dict[str, Any]]:
+        calls["search"] += 1
+        return [
+            {
+                "publication_number": "US1234567A1",
+                "family_id": "family:one",
+                "title": "Preparation of ethyl acetate",
+                "snippet": "source material",
+                "pdf_url": "https://source.invalid/one.pdf",
+            }
+        ]
+
+    def fetch(_url: str, _timeout: float, _limit: int) -> bytes:
+        calls["fetch"] += 1
+        return _pdf_bytes()
+
+    connector = build_builtin_patent_evidence_connector(
+        BuiltinPatentEvidenceConfig(cache_dir=tmp_path, max_patents=1),
+        candidate_provider=candidates,
+        bytes_fetcher=fetch,
+        registry_compiler=_compiler,
+        structure_resolver=lambda _name: "CCOC(C)=O",
+        candidate_name_resolver=lambda _smiles: ["ethyl acetate"],
+    )
+
+    connector(_request())
+    replayed = connector(_request())
+
+    assert calls == {"search": 1, "fetch": 1}
+    assert replayed["receipt"]["candidate_cache_hit"] is True
+    audit = replayed["receipt"]["audits"][0]
+    assert audit["pdf_cache_hit"] is True
+    assert audit["manifest_cache_hit"] is True
 
 
 def test_builtin_patent_connector_ocr_closes_image_only_exact_row_without_model(

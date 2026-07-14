@@ -542,6 +542,68 @@ def test_arbitrary_digest_cannot_forge_trusted_precedent() -> None:
     assert proof["checks"]["trusted_precedent_bound"] is False
 
 
+def _canonical_exact_record(*, product: str = "CCO") -> dict:
+    row = {
+        "schema_version": "exact_source_reaction_record.v1",
+        "record_id": "exact:ethanol-source-row",
+        "relation_type": "exact",
+        "authority_scope": "source_exact_structure_observation",
+        "procedure_authority_scope": "source_exact_reaction_procedure",
+        "not_reaction_validation": True,
+        "edge_digest": "a" * 64,
+        "source_binding_id": "source:ethanol-paper",
+        "source_ref": "doi:10.1000/exact-ethanol-row",
+        "product_smiles": product,
+        "reactant_smiles": ["CC", "O"],
+        "extraction_artifact_sha256": "b" * 64,
+        "location_refs": ["paper:page:3", f"pdf_sha256:{'c' * 64}"],
+        "extractor": {
+            "producer_id": "fixture.deterministic_structure_parser.v1",
+            "producer_kind": "deterministic_structure_parser",
+            "version": "1.0.0",
+        },
+    }
+    row["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            row,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return row
+
+
+def test_hash_bound_exact_source_row_and_mapping_reach_l3() -> None:
+    proof = verify_reaction_step(
+        _mapped_ethanol_step(),
+        exact_source_records=[_canonical_exact_record()],
+    )
+
+    assert proof["accepted"] is True
+    assert proof["proof_level"] == "L3_precedent_supported"
+    assert proof["checks"]["trusted_precedent_bound"] is True
+    assert proof["trusted_precedent_binding"]["binding_id"] == (
+        "exact:ethanol-source-row"
+    )
+
+
+def test_tampered_or_structure_mismatched_exact_row_cannot_grant_l3() -> None:
+    tampered = _canonical_exact_record()
+    tampered["source_ref"] = "doi:10.1000/tampered-after-hash"
+    mismatched = _canonical_exact_record(product="CC=O")
+
+    for row in (tampered, mismatched):
+        proof = verify_reaction_step(
+            _mapped_ethanol_step(),
+            exact_source_records=[row],
+        )
+        assert proof["accepted"] is False
+        assert proof["proof_level"] == "L2_mapping_consistent"
+        assert proof["checks"]["trusted_precedent_bound"] is False
+
+
 def test_exact_registry_and_materialized_evidence_reach_l3(monkeypatch) -> None:
     monkeypatch.setenv(
         "AUTOPLANNER_TRUSTED_LITERATURE_STEP_REGISTRY",

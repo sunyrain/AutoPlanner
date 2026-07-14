@@ -1,5 +1,11 @@
 # Retrosynthesis V4 implementation TODO
 
+> Historical delivery record. Its checked boxes mean that a repository
+> capability was implemented and tested; they do not prove that the current
+> target-only product path is integrated or process-ready. The forward-looking,
+> end-to-end acceptance plan is
+> [IDEAL_RETROSYNTHESIS_ARCHITECTURE_AND_TODO.md](IDEAL_RETROSYNTHESIS_ARCHITECTURE_AND_TODO.md).
+
 Status: P0-P10.4 and P10.6 implemented; bounded P10.5 real-model A/B remains
 an explicit opt-in experiment
 

@@ -62,7 +62,7 @@ def test_request_contains_bounded_current_edges_and_source_tasks() -> None:
                         {
                             "accepted": True,
                             "validator_version": (
-                                "autoplanner.reaction_step_verifier.v7"
+                                "autoplanner.reaction_step_verifier.v8"
                             ),
                         }
                     ],
@@ -81,11 +81,18 @@ def test_request_contains_bounded_current_edges_and_source_tasks() -> None:
                 }
             ]
         },
+        target_identity={
+            "preferred_name": "ethyl acetate",
+            "patent_ids": ["WO-EXACT-1"],
+            "pubmed_ids": ["123"],
+        },
     )
 
     assert request["edges"][0]["current_host_reaction_validated"] is True
     assert request["source_tasks"][0]["query"] == "exact ester patent"
     assert request["target_name"] == "ethyl acetate"
+    assert request["target_identity"]["patent_ids"] == ["WO-EXACT-1"]
+    assert request["target_identity"]["resolved_from_input_structure"] is True
     assert request["source_tasks"][0]["priority"] == 1.0
     assert len(request["content_sha256"]) == 64
 

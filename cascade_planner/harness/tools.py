@@ -4332,119 +4332,15 @@ def _ranked_pdf_visual_paths(
 ) -> list[str]:
     """Select page assets by explicit intent, text focus, then spread coverage."""
 
-    rendered = [
-        dict(row)
-        for row in pdf_evidence.get("rendered_pages") or []
-        if isinstance(row, dict) and str(row.get("image_path") or "").strip()
-    ]
-    crops = [
-        dict(row)
-        for row in pdf_evidence.get("scheme_crops") or []
-        if isinstance(row, dict) and str(row.get("image_path") or "").strip()
-    ]
-    rendered.sort(key=lambda row: (_pdf_asset_page_number(row), str(row.get("image_path") or "")))
-    crops.sort(key=lambda row: (_pdf_asset_page_number(row), str(row.get("image_path") or "")))
-    rendered_by_page: dict[int, list[dict[str, Any]]] = {}
-    crops_by_page: dict[int, list[dict[str, Any]]] = {}
-    for row in rendered:
-        rendered_by_page.setdefault(_pdf_asset_page_number(row), []).append(row)
-    for row in crops:
-        crops_by_page.setdefault(_pdf_asset_page_number(row), []).append(row)
+    from cascade_planner.harness.literature_page_selection import (
+        select_pdf_visual_paths,
+    )
 
-    selected: list[str] = []
-    seen: set[str] = set()
-
-    def full() -> bool:
-        return max_images > 0 and len(selected) >= max_images
-
-    def append(row: dict[str, Any]) -> None:
-        path = str(row.get("image_path") or "").strip()
-        if not path or path in seen or full():
-            return
-        seen.add(path)
-        selected.append(path)
-
-    def append_page_primary(page_number: int) -> None:
-        page_crops = crops_by_page.get(page_number) or []
-        page_renders = rendered_by_page.get(page_number) or []
-        if page_crops:
-            append(page_crops[0])
-        elif page_renders:
-            append(page_renders[0])
-
-    def append_page_remainder(page_number: int) -> None:
-        for row in crops_by_page.get(page_number) or []:
-            append(row)
-        for row in rendered_by_page.get(page_number) or []:
-            append(row)
-
-    if explicit_page_numbers:
-        for page_number in explicit_page_numbers:
-            append_page_primary(page_number)
-        for page_number in explicit_page_numbers:
-            append_page_remainder(page_number)
-        return selected
-
-    priority_pages = _pdf_focus_page_numbers(pdf_evidence)
-    if max_images > 2 and len(priority_pages) > max_images:
-        priority_head_count = max(1, max_images - 2)
-    else:
-        priority_head_count = len(priority_pages)
-    priority_head = priority_pages[:priority_head_count]
-    for page_number in priority_head:
-        append_page_primary(page_number)
-    route_context_pages: list[int] = []
-    for row in pdf_evidence.get("page_relevance") or []:
-        if not isinstance(row, dict):
-            continue
-        try:
-            page_number = int(row.get("page_number") or 0)
-            context_score = int(row.get("route_context_score") or 0)
-        except (TypeError, ValueError, OverflowError):
-            continue
-        if (
-            page_number > 0
-            and context_score > 0
-            and page_number not in priority_head
-            and page_number not in route_context_pages
-        ):
-            route_context_pages.append(page_number)
-    for page_number in route_context_pages:
-        append_page_primary(page_number)
-    remaining_focus_rows: list[dict[str, Any]] = []
-    for page_number in sorted(priority_pages[priority_head_count:]):
-        page_crops = crops_by_page.get(page_number) or []
-        page_renders = rendered_by_page.get(page_number) or []
-        if page_crops:
-            remaining_focus_rows.append(page_crops[0])
-        elif page_renders:
-            remaining_focus_rows.append(page_renders[0])
-    for row in _evenly_spread_rows(
-        remaining_focus_rows,
-        max(0, max_images - len(selected)) if max_images > 0 else len(remaining_focus_rows),
-    ):
-        append(row)
-    for page_number in priority_head:
-        append_page_remainder(page_number)
-
-    for row in crops_by_page.get(0) or []:
-        append(row)
-
-    remaining_pages = [
-        row
-        for row in rendered
-        if str(row.get("image_path") or "").strip() not in seen
-    ]
-    if max_images <= 0:
-        spread = remaining_pages
-    else:
-        spread = _evenly_spread_rows(remaining_pages, max_images - len(selected))
-    for row in spread:
-        append(row)
-
-    for row in crops:
-        append(row)
-    return selected
+    return select_pdf_visual_paths(
+        pdf_evidence,
+        explicit_page_numbers=explicit_page_numbers,
+        max_images=max_images,
+    )
 
 
 def _pdf_focus_page_numbers(pdf_evidence: dict[str, Any]) -> list[int]:

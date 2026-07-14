@@ -46,6 +46,9 @@ _ORIGIN_KINDS = {
     "chemenzy",
     "template",
     "literature",
+    "literature_visual_extraction",
+    "literature_source_route",
+    "literature_replay",
     "manual",
     "host_product_grounded_repair",
     "self_evo_patent_template",
@@ -209,6 +212,9 @@ class CanonicalHypergraphStore:
                     {
                         "product_smiles": hypothesis["product_smiles"],
                         "precursor_smiles": hypothesis["precursor_smiles"],
+                        "condition_predictions": list(
+                            hypothesis.get("condition_predictions") or []
+                        ),
                         **dict(origin),
                     }
                 )
@@ -451,6 +457,12 @@ def _ingest_global_plan(
     dirty: set[str],
     rejected: list[dict[str, Any]],
 ) -> None:
+    proposal_origin_kind = str(
+        plan.get("_proposal_origin_kind") or "codex_global_director"
+    ).lower()
+    if proposal_origin_kind not in _ORIGIN_KINDS:
+        proposal_origin_kind = "manual"
+    proposal_origin_ref = str(plan.get("_proposal_origin_ref") or "")
     admitted_marker = plan.get("_host_admitted_proposal_ids")
     admitted_ids = (
         {str(value) for value in admitted_marker if str(value)}
@@ -502,7 +514,8 @@ def _ingest_global_plan(
                     "route_family_id": alias,
                     "canonical_route_family_id": route_id,
                     "skeleton_id": str(skeleton.get("skeleton_id") or ""),
-                    "origin_kind": "codex_global_director",
+                    "origin_kind": proposal_origin_kind,
+                    "origin_ref": proposal_origin_ref,
                     "frontier_priority": priorities.get(
                         str(step.get("step_id") or ""),
                         0.0,
@@ -512,6 +525,72 @@ def _ingest_global_plan(
                 dirty=dirty,
                 rejected=rejected,
             )
+    _ingest_provider_frontier_requests(graph, plan, dirty=dirty)
+
+
+def _ingest_provider_frontier_requests(
+    graph: dict[str, Any],
+    plan: Mapping[str, Any],
+    *,
+    dirty: set[str],
+) -> None:
+    """Annotate canonical molecules selected by Codex for local expansion.
+
+    The annotation is a scheduling request, not a second frontier and not a
+    chemistry fact.  ``compile_deficit_frontier`` remains the only queue.
+    """
+
+    target_id = str(graph.get("target_molecule_id") or "")
+    for raw in plan.get("frontier_priorities") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        providers = sorted(
+            {
+                str(value).strip().lower()
+                for value in raw.get("provider_preferences") or []
+                if str(value).strip().lower() == "chemenzy"
+            }
+        )
+        if not providers:
+            continue
+        molecule_id, canonical = molecule_identity(raw.get("target_smiles"))
+        if (
+            not molecule_id
+            or molecule_id == target_id
+            or molecule_id not in graph["molecules"]
+        ):
+            continue
+        molecule = dict(graph["molecules"][molecule_id])
+        molecule["provider_expansion_requested"] = True
+        molecule["provider_expansion_priority"] = max(
+            float(molecule.get("provider_expansion_priority") or 0.0),
+            float(raw.get("priority") or 0.0),
+        )
+        molecule["provider_preferences"] = sorted(
+            {*molecule.get("provider_preferences", []), *providers}
+        )
+        molecule["provider_retron_hints"] = sorted(
+            {
+                *molecule.get("provider_retron_hints", []),
+                *(
+                    str(value).strip()
+                    for value in raw.get("retron_hints") or []
+                    if str(value).strip()
+                ),
+            }
+        )
+        molecule["provider_request_ids"] = sorted(
+            {
+                *molecule.get("provider_request_ids", []),
+                str(raw.get("priority_id") or ""),
+            }
+            - {""}
+        )
+        molecule["provider_request_rationale"] = str(
+            raw.get("rationale") or molecule.get("provider_request_rationale") or ""
+        )[:1000]
+        graph["molecules"][molecule_id] = _with_digest(molecule)
+        dirty.add(molecule_id)
 
 
 def _ingest_route_family(
@@ -603,6 +682,12 @@ def _ingest_hypothesis(
         "frontier_priority": max(
             float(existing.get("frontier_priority") or 0.0),
             float(row.get("frontier_priority") or 0.0),
+        ),
+        # Predictions are retained as weak annotations only.  They do not
+        # enter reaction_proofs and therefore cannot raise an edge proof tier.
+        "condition_predictions": _merge_json_rows(
+            existing.get("condition_predictions"),
+            row.get("condition_predictions"),
         ),
         "admission_audit_sha256": _digest(audit),
     }
@@ -700,6 +785,10 @@ def _ingest_candidate(
             set(existing.get("independent_source_groups") or [])
         ),
         "reaction_proofs": list(existing.get("reaction_proofs") or []),
+        "condition_predictions": _merge_json_rows(
+            existing.get("condition_predictions"),
+            row.get("condition_predictions"),
+        ),
         "status": "materialized",
         "admission_audit_sha256": _digest(audit),
     }
@@ -1320,6 +1409,20 @@ def _merge_by_digest(existing: Any, incoming: Iterable[Mapping[str, Any]]) -> li
     for value in incoming:
         row = dict(value)
         rows[str(row.get("origin_sha256") or _digest(row))] = row
+    return [rows[key] for key in sorted(rows)]
+
+
+def _merge_json_rows(existing: Any, incoming: Any) -> list[dict[str, Any]]:
+    """Merge annotation rows by content without granting them authority."""
+
+    rows: dict[str, dict[str, Any]] = {}
+    for value in [*(existing or []), *(incoming or [])]:
+        if not isinstance(value, Mapping):
+            continue
+        row = dict(value)
+        row.setdefault("authority_scope", "model_predicted_condition")
+        row.setdefault("not_reaction_proof", True)
+        rows[_digest(row)] = row
     return [rows[key] for key in sorted(rows)]
 
 

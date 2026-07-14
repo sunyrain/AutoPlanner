@@ -55,6 +55,13 @@
     L1_graph_stock_closed: '#a16207', L1_graph_and_stock_closed: '#a16207',
     L0_materialized: '#7c3aed', L0_advisory: '#ea580c', L0_rejected: '#be123c'
   };
+  const PRODUCER_CLASS = {
+    chemenzy: 'producer-chemenzy', codex: 'producer-codex',
+    codex_global_director: 'producer-codex', literature: 'producer-literature',
+    literature_replay: 'producer-literature', self_evo_patent_template: 'producer-self-evo',
+    template: 'producer-template', manual: 'producer-manual',
+    host_product_grounded_repair: 'producer-host'
+  };
   const graph = forest.dependency_graph || {};
   const layout = forest.dependency_layout || {};
   const lanesProjection = forest.branch_lanes || {};
@@ -90,6 +97,14 @@
     kindFilters: new Set(Array.isArray(persisted.kindFilters) ? persisted.kindFilters.filter(kind => allKinds.includes(kind)) : allKinds),
     edgeFilter: oneOf(persisted.edgeFilter, ['all', 'selected'], 'all'),
     orientation: oneOf(persisted.orientation, ['horizontal', 'vertical'], 'horizontal'),
+    routeDirection: oneOf(
+      persisted.routeDirection,
+      ['synthesis', 'retrosynthesis'],
+      oneOf(forest.display_policy?.default_route_direction, ['synthesis', 'retrosynthesis'], 'synthesis')
+    ),
+    showAuxiliary: Object.hasOwn(persisted, 'showAuxiliary')
+      ? persisted.showAuxiliary === true
+      : forest.display_policy?.auxiliary_inputs_collapsed !== true,
     density: oneOf(persisted.density, ['comfortable', 'compact', 'overview'], 'comfortable'),
     edgeStyle: oneOf(persisted.edgeStyle, ['trust', 'simple', 'contrast'], 'trust'),
     labelMode: oneOf(persisted.labelMode, ['semantic', 'full', 'minimal'], 'semantic'),
@@ -261,6 +276,7 @@
       proofFilters: [...state.proofFilters],
       kindFilters: [...state.kindFilters], edgeFilter: state.edgeFilter,
       orientation: state.orientation, density: state.density, edgeStyle: state.edgeStyle,
+      routeDirection: state.routeDirection, showAuxiliary: state.showAuxiliary,
       labelMode: state.labelMode, layoutPreset: state.layoutPreset, theme: state.theme,
       navOpen: state.navOpen, inspectorOpen: state.inspectorOpen,
       navWidth: state.navWidth, inspectorWidth: state.inspectorWidth
@@ -272,6 +288,13 @@
   function tierOfStep(step) { return step?.trust_vector?.proof_tier || 'L0_advisory'; }
   function tierClass(tier) { return TIER_CLASS[tier] || 'tier-l0-advisory'; }
   function tierLabel(tier) { return PROOF_LABEL[tier] || tier || '未分级'; }
+  function isRetrosynthesis() { return state.routeDirection === 'retrosynthesis'; }
+  function producerClass(step) {
+    return PRODUCER_CLASS[(step?.producer_kinds || [])[0]] || 'producer-unknown';
+  }
+  function visibleEdges(values) {
+    return state.showAuxiliary ? values : values.filter(row => row.visual_role !== 'auxiliary');
+  }
   function targetName() {
     const raw = String(forest.target?.name || forest.case_id || '目标分子');
     return raw.replace(/(?:[\s_-]+full)?[\s_-]+rerun(?:[\s_-].*)?$/i, '').replaceAll('_', ' ');
@@ -832,7 +855,7 @@
     const partialBadge = partialProgress
       ? `<span class="branch-badge branch-badge--partial-expanded" title="${esc(partialReason)}">部分展开 ${esc(partialProgress.matched)}/${esc(partialProgress.required)}</span>`
       : '';
-    const stateLabel = lane.solved && lane.executable && !lane.advisory_only
+    const stateLabel = lane.completion_label || (lane.solved && lane.executable && !lane.advisory_only
       ? '完整父路线'
       : lane.kind === 'proof_eligible_portfolio_route' ? '完整 portfolio'
         : stageMembershipIsAuthoritative(lane, 'stock')
@@ -840,7 +863,7 @@
           : stageMembershipIsAuthoritative(lane, 'reaction') ? '反应已验证'
             : stageMembershipIsAuthoritative(lane, 'expanded') ? '全路径已展开'
               : stageEvidence.suggestion?.member === true ? '断键建议'
-                : partialProgress ? '探索中' : '阶段证据未绑定';
+                : partialProgress ? '探索中' : '阶段证据未绑定');
     return `<button class="branch-card ${tierClass(lane.proof_tier)}${selected ? ' is-selected' : ''}" type="button"
       data-branch-id="${esc(lane.branch_id)}" aria-current="${selected ? 'true' : 'false'}" tabindex="-1">
       <span class="branch-card-title">${esc(lane.title || lane.branch_id)}</span>
@@ -882,6 +905,8 @@
       kinds: [...state.kindFilters].sort(),
       edge: state.edgeFilter,
       orientation: effectiveOrientation(),
+      routeDirection: state.routeDirection,
+      showAuxiliary: state.showAuxiliary,
       mobile: matchMedia('(max-width: 639px)').matches,
       density: state.density,
       showAll: state.showAllOverview,
@@ -917,7 +942,7 @@
   function buildSharedModel(rawLanes) {
     const lanes = effectiveLaneRows(rawLanes);
     const branchIds = new Set(lanes.map(row => row.branch_id));
-    let edges = (graph.edges || []).filter(edge => branchIds.has(edge.branch_id));
+    let edges = visibleEdges((graph.edges || []).filter(edge => branchIds.has(edge.branch_id)));
     edges = edges.filter(edge => state.proofFilters.has(tierOfStep(steps.get(edge.reaction_step_id))));
     const includedIds = new Set(edges.flatMap(edge => [edge.source_graph_node_id, edge.target_graph_node_id]));
     const nodes = [...includedIds].map(id => graphNodes.get(id)).filter(Boolean);
@@ -931,7 +956,8 @@
       buckets.get(key).push({ node, logical });
     }
     const positions = new Map();
-    const layerEntries = [...buckets.entries()].sort((a, b) => a[0] - b[0]);
+    const layerEntries = [...buckets.entries()].sort((a, b) =>
+      isRetrosynthesis() ? b[0] - a[0] : a[0] - b[0]);
     const largestLayer = Math.max(1, ...layerEntries.map(([, bucket]) => bucket.length));
     const sampleSize = nodeSize({ node_type: 'molecule' }, metrics.nodeScale);
     const cellWidth = sampleSize.w + Math.max(18, metrics.componentGap);
@@ -976,7 +1002,9 @@
     const renderedEdges = [];
     const decorations = [];
     const tiles = lanes.map(lane => {
-      const localRows = (lane.node_layout || []).slice().sort((a, b) => Number(a.layer) - Number(b.layer)
+      const localEdges = visibleEdges((lane.edge_ids || []).map(edgeId => edgeById.get(edgeId)).filter(Boolean));
+      const visibleNodeIds = new Set(localEdges.flatMap(edge => [edge.source_graph_node_id, edge.target_graph_node_id]));
+      const localRows = (lane.node_layout || []).filter(row => visibleNodeIds.has(row.graph_node_id)).slice().sort((a, b) => Number(a.layer) - Number(b.layer)
         || Number(a.order) - Number(b.order) || stableTextCompare(a.graph_node_id, b.graph_node_id));
       const byLayer = new Map();
       for (const row of localRows) {
@@ -985,7 +1013,7 @@
       }
       const maxLayerRows = Math.max(1, ...[...byLayer.values()].map(rows => rows.length));
       const maximumNode = nodeSize({ node_type: 'molecule' }, metrics.nodeScale);
-      const maximumLayer = Math.max(0, Number(lane.max_layer || 0));
+      const maximumLayer = Math.max(0, ...localRows.map(row => Number(row.layer || 0)));
       const tileWidth = orientation === 'vertical'
         ? 40 + (maxLayerRows - 1) * metrics.rowGap + maximumNode.w
         : 92 + maximumLayer * metrics.layerGap + maximumNode.w;
@@ -1000,13 +1028,14 @@
           if (!node) return;
           const instanceId = `${lane.branch_id}::${node.graph_node_id}`;
           const size = nodeSize(node, metrics.nodeScale);
+          const displayLayer = isRetrosynthesis() ? maximumLayer - layerIndex : layerIndex;
           const position = orientation === 'vertical'
-            ? { x: 20 + rowIndex * metrics.rowGap, y: 52 + layerIndex * metrics.layerGap, ...size }
-            : { x: 52 + layerIndex * metrics.layerGap, y: 52 + rowIndex * metrics.rowGap, ...size };
+            ? { x: 20 + rowIndex * metrics.rowGap, y: 52 + displayLayer * metrics.layerGap, ...size }
+            : { x: 52 + displayLayer * metrics.layerGap, y: 52 + rowIndex * metrics.rowGap, ...size };
           relativePositions.set(instanceId, position);
         });
       }
-      return { lane, byLayer, relativePositions, w: tileWidth, h: tileHeight };
+      return { lane, localEdges, byLayer, relativePositions, w: tileWidth, h: tileHeight };
     });
     const averageWidth = tiles.reduce((sum, tile) => sum + tile.w, 0) / Math.max(1, tiles.length);
     const averageHeight = tiles.reduce((sum, tile) => sum + tile.h, 0) / Math.max(1, tiles.length);
@@ -1031,9 +1060,7 @@
           positions.set(instanceId, { ...relative, x: relative.x + originX, y: relative.y + originY });
           instances.push({ instanceId, graphNodeId, branchId: lane.branch_id, node });
         }
-        for (const edgeId of lane.edge_ids || []) {
-          const edge = edgeById.get(edgeId);
-          if (!edge) continue;
+        for (const edge of tile.localEdges) {
           renderedEdges.push({
             ...edge,
             sourceInstanceId: `${lane.branch_id}::${edge.source_graph_node_id}`,
@@ -1139,8 +1166,10 @@
   }
 
   function edgeSvg(edge, positions) {
-    const source = positions.get(edge.sourceInstanceId);
-    const target = positions.get(edge.targetInstanceId);
+    const forwardSource = positions.get(edge.sourceInstanceId);
+    const forwardTarget = positions.get(edge.targetInstanceId);
+    const source = isRetrosynthesis() ? forwardTarget : forwardSource;
+    const target = isRetrosynthesis() ? forwardSource : forwardTarget;
     if (!source || !target) return '';
     const step = steps.get(edge.reaction_step_id);
     const tier = edge.trust_vector?.proof_tier || tierOfStep(step);
@@ -1153,7 +1182,7 @@
     const dash = simple ? '' : String(visual.dash_pattern || '');
     const path = edgePath(source, target, state.edgeStyle !== 'trust');
     const markerId = simple ? 'arrow-neutral' : `arrow-${tierClass(tier)}`;
-    return `<path class="graph-edge dependency-edge trust-edge ${tierClass(tier)}" data-edge-id="${esc(edge.edge_id)}" data-branch-id="${esc(edge.branch_id)}" data-reaction-step-id="${esc(edge.reaction_step_id)}" data-source-instance-id="${esc(edge.sourceInstanceId)}" data-target-instance-id="${esc(edge.targetInstanceId)}" d="${path}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" stroke-dasharray="${esc(dash)}" marker-end="url(#${markerId})"><title>${esc(`${tierLabel(tier)} · ${edge.edge_type || '显式依赖'} · ${edge.branch_id || ''}`)}</title></path>`;
+    return `<path class="graph-edge dependency-edge trust-edge ${tierClass(tier)}${edge.visual_role === 'auxiliary' ? ' is-auxiliary' : ''}" data-edge-id="${esc(edge.edge_id)}" data-branch-id="${esc(edge.branch_id)}" data-reaction-step-id="${esc(edge.reaction_step_id)}" data-source-instance-id="${esc(edge.sourceInstanceId)}" data-target-instance-id="${esc(edge.targetInstanceId)}" d="${path}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" stroke-dasharray="${esc(dash)}" marker-end="url(#${markerId})"><title>${esc(`${tierLabel(tier)} · ${edge.visual_role === 'auxiliary' ? '辅助投入' : edge.edge_type || '显式依赖'} · ${edge.branch_id || ''}`)}</title></path>`;
   }
 
   function edgePath(source, target, orthogonal) {
@@ -1191,11 +1220,16 @@
     const textY = structureSvg ? position.y + position.h - 13 : position.y + (lines.length > 1 ? 27 : 34);
     const selected = node.graph_node_id === state.selectedGraphNodeId || (reaction && node.reaction_step_id === state.selectedStepId);
     const semanticLabel = reaction ? tierLabel(tier) : (node.role || '分子中间体');
-    return `<g class="graph-node dependency-${reaction ? 'reaction graph-node--reaction' : 'molecule graph-node--molecule'} ${nodeTierClass}${selected ? ' is-selected' : ''}" data-graph-node-id="${esc(node.graph_node_id)}" data-node-type="${esc(node.node_type)}" data-node-role="${esc(node.role || '')}" data-branch-id="${esc(instance.branchId)}" data-instance-id="${esc(instance.instanceId)}" ${reaction ? `data-route-step="${esc(node.reaction_step_id)}"` : ''} tabindex="${selected ? '0' : '-1'}" role="button" aria-label="${esc(`${reaction ? '反应' : '分子'}：${fullLabel}，${semanticLabel}`)}">
+    const originClass = reaction ? producerClass(step) : '';
+    const reactionMeta = reaction
+      ? middleEllipsis(`${step?.producer_label || '来源未标记'} · ${tierLabel(tier)}`, 25)
+      : '';
+    return `<g class="graph-node dependency-${reaction ? 'reaction graph-node--reaction' : 'molecule graph-node--molecule'} ${nodeTierClass} ${originClass}${selected ? ' is-selected' : ''}" data-graph-node-id="${esc(node.graph_node_id)}" data-node-type="${esc(node.node_type)}" data-node-role="${esc(node.role || '')}" data-branch-id="${esc(instance.branchId)}" data-instance-id="${esc(instance.instanceId)}" ${reaction ? `data-route-step="${esc(node.reaction_step_id)}"` : ''} tabindex="${selected ? '0' : '-1'}" role="button" aria-label="${esc(`${reaction ? '反应' : '分子'}：${fullLabel}，${semanticLabel}`)}">
       <title>${esc(fullLabel)}</title><rect class="node-surface" x="${position.x}" y="${position.y}" width="${position.w}" height="${position.h}" rx="${reaction ? 12 : 24}"></rect>
+      ${reaction ? `<rect class="reaction-origin-stripe" x="${position.x}" y="${position.y + 6}" width="5" height="${position.h - 12}" rx="2.5"></rect>` : ''}
       ${structureSvg ? `<foreignObject class="node-depiction" x="${position.x + 7}" y="${position.y + 7}" width="${position.w - 14}" height="${position.h - 39}"><div xmlns="http://www.w3.org/1999/xhtml" class="node-depiction-frame">${structureSvg}</div></foreignObject>` : ''}
       <text class="node-label" x="${textX}" y="${textY}">${svgTextLines(lines, textX, textY)}</text>
-      ${reaction && state.labelMode !== 'minimal' ? `<text class="graph-node-tier node-meta" x="${textX}" y="${position.y + position.h - 10}">${esc(tierLabel(tier))}</text>` : ''}</g>`;
+      ${reaction && state.labelMode !== 'minimal' ? `<text class="graph-node-tier node-meta" x="${textX}" y="${position.y + position.h - 10}">${esc(reactionMeta)}</text>` : ''}</g>`;
   }
 
   function applyGraphSelection() {
@@ -1507,9 +1541,10 @@
     const sourceCount = Number(bindingSet.independent_trusted_source_group_count || 0);
     const corroborated = bindingSet.corroborated === true;
     const conditions = (step.conditions || []).map(row => `<div class="condition-line"><span class="condition-label">${esc(row.label || '条件')}</span><span class="condition-value">${esc(row.value || '')}</span></div>`).join('');
-    return `<article><header><p class="detail-kind">反应步骤 · ${esc(tierLabel(tierOfStep(step)))}</p><h3 class="detail-title">${esc(step.label || step.step_id)}</h3></header>
+    return `<article><header><p class="detail-kind">${esc(step.display_label || '反应步骤')} · ${esc(tierLabel(tierOfStep(step)))}</p><h3 class="detail-title">${esc(step.reaction_class || step.label || step.step_id)}</h3></header>
       ${state.activeReplacement ? `<div class="notice replacement-preview-notice"><strong>完整替换路线预览</strong><span>该分支已由后端 AND/OR 对 connectivity、stock 与 reaction proof 整路重验；预览不等于父路线证明。</span><button class="detail-action" type="button" data-replacement-reset>恢复原路线</button></div>` : ''}
-      <section class="detail-section"><h3>反应连接</h3><p class="v">${esc(nodeNames(step.from_node_ids))} → ${esc(nodeNames(step.to_node_ids))}</p></section>
+      <section class="detail-section"><h3>来源分解</h3><div class="kv"><span class="k">方案生产者</span><span class="v">${esc(step.producer_label || '来源未标记')}</span></div><div class="kv"><span class="k">证据载体</span><span class="v">${esc(step.evidence_label || '无精确证据')}</span></div><div class="kv"><span class="k">主机验证</span><span class="v">${esc(tierLabel(tierOfStep(step)))}</span></div></section>
+      <section class="detail-section"><h3>反应连接</h3><p class="v">${esc(nodeNames(step.main_from_node_ids || step.from_node_ids))} → ${esc(nodeNames(step.to_node_ids))}</p>${(step.auxiliary_from_node_ids || []).length ? `<div class="kv"><span class="k">辅助试剂/小分子</span><span class="v">${esc(nodeNames(step.auxiliary_from_node_ids))}</span></div>` : ''}</section>
       <section class="detail-section"><h3>条件</h3><div class="condition-list">${conditions || `<div class="empty">${esc(step.condition_summary || '条件未记录')}</div>`}</div></section>
       <section class="detail-section"><h3>Trust vector</h3><div class="trust-grid">${['identity','connectivity','source_independence','stock','conditions','forward_feasibility'].map(key => `<div class="trust-cell ${tierClass(tierOfStep(step))}" style="--trust-value:${clamp(Number(trust[key] || 0), 0, 1)}"><strong>${esc(key)}</strong><span>${Number(trust[key] || 0).toFixed(2)}</span></div>`).join('')}</div></section>
       <section class="detail-section"><h3>逐边可信绑定</h3><div class="kv"><span class="k">可信独立来源</span><span class="v">${esc(sourceCount)}</span></div><div class="kv"><span class="k">多信源佐证</span><span class="v">${corroborated ? '是' : '否'}</span></div><div class="trace-list">${trustedSources || '<div class="empty">尚无可信精确绑定；引用不会自动升级证明。</div>'}</div></section>
@@ -1524,9 +1559,12 @@
   }
   function branchOverview(branch) {
     const lane = laneByBranch.get(branch.branch_id) || {};
+    const executionLabel = lane.process_ready
+      ? '工艺候选可执行'
+      : lane.completion_label || (branch.solved && branch.executable ? '已验证' : '探索建议');
     return `<article><header><p class="detail-kind">路线分支 · ${esc(tierLabel(lane.proof_tier))}</p><h3 class="detail-title">${esc(branch.title || branch.branch_id)}</h3></header>
       <div class="notice">${esc(branch.summary || branch.recommendation || '没有路线摘要。')}</div>
-      <section class="detail-section"><div class="kv"><span class="k">步骤</span><span class="v">${esc((lane.step_ids || []).length)}</span></div><div class="kv"><span class="k">DAG</span><span class="v">${lane.acyclic === false ? '检测到环路' : '无环'}</span></div><div class="kv"><span class="k">执行状态</span><span class="v">${branch.solved && branch.executable ? '已验证' : '探索建议'}</span></div></section></article>`;
+      <section class="detail-section"><div class="kv"><span class="k">步骤</span><span class="v">${esc((lane.step_ids || []).length)}</span></div><div class="kv"><span class="k">DAG</span><span class="v">${lane.acyclic === false ? '检测到环路' : '无环'}</span></div><div class="kv"><span class="k">闭合档位</span><span class="v">${esc(executionLabel)}</span></div></section></article>`;
   }
   function nodeNames(ids) {
     return (ids || []).map(id => moleculeNodes.get(id)?.label || moleculeNodes.get(id)?.smiles || id).join(' + ') || '未记录';
@@ -1649,6 +1687,8 @@
     element('themeToggle').setAttribute('aria-pressed', String(state.theme === 'dark'));
     element('layoutPreset').value = state.layoutPreset;
     element('orientationSelect').value = state.orientation;
+    element('routeDirectionSelect').value = state.routeDirection;
+    element('auxiliarySelect').value = state.showAuxiliary ? 'shown' : 'collapsed';
     element('densitySelect').value = state.density;
     element('edgeStyleSelect').value = state.edgeStyle;
     element('labelModeSelect').value = state.labelMode;
@@ -1781,6 +1821,8 @@
       const target = event.target;
       if (target.id === 'layoutPreset') state.layoutPreset = target.value;
       else if (target.id === 'orientationSelect') state.orientation = target.value;
+      else if (target.id === 'routeDirectionSelect') state.routeDirection = target.value;
+      else if (target.id === 'auxiliarySelect') state.showAuxiliary = target.value === 'shown';
       else if (target.id === 'densitySelect') state.density = target.value;
       else if (target.id === 'edgeStyleSelect') state.edgeStyle = target.value;
       else if (target.id === 'labelModeSelect') state.labelMode = target.value;

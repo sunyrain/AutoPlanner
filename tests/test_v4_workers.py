@@ -787,4 +787,4 @@ def test_runtime_timeout_and_stale_revision_are_deterministic(tmp_path: Path) ->
     assert timed_out.failure_reasons == ("worker_timeout_exceeded",)
     assert stale.status == "stale"
     assert "worker_input_graph_revision_stale" in stale.failure_reasons
-    assert kernel.state.attempt_count == 1
+    assert kernel.state.attempt_count == 0

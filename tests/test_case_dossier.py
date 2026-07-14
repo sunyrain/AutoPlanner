@@ -133,7 +133,8 @@ def test_case_dossier_compiles_and_replays_through_canonical_pipeline(
     assert pack["expected"]["stock_terminal_count"] == 1
     assert result["accepted"] is True
     assert result["observed"]["hyperedge_count"] == 1
-    assert result["observed"]["attempt_count"] == 5
+    assert result["observed"]["attempt_count"] == 1
+    assert result["observed"]["settled_task_count"] == 5
     assert result["observed"]["model_invocations"] == 0
 
 
@@ -220,5 +221,6 @@ def test_checked_in_artemisinin_case_closes_with_two_procurement_boundaries(
     }
     assert result["accepted"] is True
     assert result["observed"]["complete_route_count"] == 2
-    assert result["observed"]["attempt_count"] == 9
+    assert result["observed"]["attempt_count"] == 2
+    assert result["observed"]["settled_task_count"] == 9
     assert result["observed"]["model_invocations"] == 0

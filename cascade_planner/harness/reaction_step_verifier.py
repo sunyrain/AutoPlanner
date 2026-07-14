@@ -13,8 +13,8 @@ The proof levels are deliberately monotonic:
 reactant atoms is internally consistent, but remains advisory
 ``L2_reaction_validated`` a host-derived deterministic transform was reapplied
 and its reaction centre matched a conservative built-in family
-``L3`` mapping consistency plus an exact precedent revalidated against the
-trusted registry and materialized source evidence
+``L3`` mapping consistency plus an exact precedent revalidated against either
+the trusted registry or a hash-bound canonical exact-source record
 ``L4`` L3 plus complete conditions and procurement evidence
 
 No boolean supplied inside a candidate step is treated as authority.  Every L2
@@ -87,6 +87,7 @@ def verify_reaction_step(
     procurement_binding: Mapping[str, Any] | None = None,
     trusted_stock_providers: Mapping[str, Any] | None = None,
     source_supported_multicentre: bool = False,
+    exact_source_records: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Materialize and independently validate one reaction edge."""
     raw = dict(step or {})
@@ -179,7 +180,12 @@ def verify_reaction_step(
 
     reaction_digest = canonical_reaction_digest(product, reactants)
     provided_precedent = dict(trusted_precedent_binding or {})
-    derived_precedent = _trusted_precedent_from_step(raw)
+    derived_precedent = _trusted_precedent_from_exact_source_records(
+        exact_source_records or (),
+        expected_product=product,
+        expected_reactants=reactants,
+        expected_reaction_digest=reaction_digest,
+    ) or _trusted_precedent_from_step(raw)
     precedent = derived_precedent
     if provided_precedent and not _same_trusted_precedent(
         provided_precedent,
@@ -1448,6 +1454,93 @@ def _trusted_precedent_from_step(step: Mapping[str, Any]) -> dict[str, Any]:
     if not is_validated_source_detail_literature_step(row):
         return {}
     return dict(_trusted_literature_step_precedent(row) or {})
+
+
+def _trusted_precedent_from_exact_source_records(
+    records: Iterable[Mapping[str, Any]],
+    *,
+    expected_product: str,
+    expected_reactants: tuple[str, ...],
+    expected_reaction_digest: str,
+) -> dict[str, Any]:
+    """Revalidate canonical exact rows without trusting caller booleans.
+
+    An exact row is still not reaction validation by itself.  It can only act
+    as the precedent half of L3 after the independent atom-map audit succeeds.
+    """
+
+    candidates: list[dict[str, Any]] = []
+    expected_reactant_multiset = sorted(expected_reactants)
+    for raw in records:
+        row = dict(raw) if isinstance(raw, Mapping) else {}
+        supplied_digest = str(row.get("content_sha256") or "").lower()
+        body = {key: value for key, value in row.items() if key != "content_sha256"}
+        extractor = dict(row.get("extractor") or {})
+        producer_kind = str(extractor.get("producer_kind") or "")
+        authority = (
+            producer_kind
+            if producer_kind in {"human_curator", "deterministic_structure_parser"}
+            else ""
+        )
+        product = _canonical_smiles(row.get("product_smiles"))
+        reactants = sorted(
+            value
+            for value in (
+                _canonical_smiles(item)
+                for item in row.get("reactant_smiles") or []
+            )
+            if value
+        )
+        location_refs = [str(value) for value in row.get("location_refs") or []]
+        hash_bound_location = any(
+            item.startswith(("pdf_sha256:", "image_sha256:"))
+            and _is_sha256(item.split(":", 1)[1].lower())
+            for item in location_refs
+        )
+        page_bound_location = any("page:" in item.lower() for item in location_refs)
+        source_ref = str(row.get("source_ref") or "").strip()
+        if not (
+            row.get("schema_version") == "exact_source_reaction_record.v1"
+            and row.get("relation_type") == "exact"
+            and row.get("authority_scope") == "source_exact_structure_observation"
+            and row.get("procedure_authority_scope")
+            == "source_exact_reaction_procedure"
+            and row.get("not_reaction_validation") is True
+            and authority
+            and str(extractor.get("producer_id") or "").strip()
+            and str(row.get("record_id") or "").strip()
+            and str(row.get("source_binding_id") or "").strip()
+            and source_ref
+            and _is_sha256(str(row.get("edge_digest") or "").lower())
+            and _is_sha256(
+                str(row.get("extraction_artifact_sha256") or "").lower()
+            )
+            and hash_bound_location
+            and page_bound_location
+            and _is_sha256(supplied_digest)
+            and supplied_digest == _digest(body)
+            and product == expected_product
+            and reactants == expected_reactant_multiset
+            and canonical_reaction_digest(product, reactants)
+            == expected_reaction_digest
+        ):
+            continue
+        candidates.append(
+            {
+                "schema_version": "trusted_precedent_binding.v1",
+                "accepted": True,
+                "authority": authority,
+                "authority_id": str(extractor["producer_id"]),
+                "binding_id": str(row["record_id"]),
+                "reaction_digest": expected_reaction_digest,
+                "source_ref": source_ref,
+            }
+        )
+    return (
+        sorted(candidates, key=lambda value: str(value["binding_id"]))[0]
+        if candidates
+        else {}
+    )
 
 
 def _same_trusted_precedent(

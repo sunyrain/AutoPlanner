@@ -189,6 +189,8 @@ def fork_target_validation(
             idempotency_key=(
                 f"validation-fork:plan:{index}:{_digest(replay_plan)[:24]}"
             ),
+            proposal_origin_kind="codex_global_director",
+            proposal_origin_ref=f"validation_fork:director_outcome:{index}",
         )
         stages.append(_stage("plan_replay", "completed", replay))
 

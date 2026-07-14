@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import hashlib
 from io import BytesIO
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import fitz
@@ -16,8 +17,12 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.interfaces.target_solver import (
     TargetSolveConfig,
+    _chemenzy_delegation_audit,
+    _evidence_observations,
+    _should_retry_chemenzy_timeout,
     _current_disposition,
 )
+from cascade_planner.application.canonical_hypergraph import molecule_identity
 from cascade_planner.interfaces.patent_evidence import (
     BuiltinPatentEvidenceConfig,
     build_builtin_patent_evidence_connector,
@@ -27,6 +32,137 @@ from cascade_planner.runtime.paths import RuntimePaths
 
 
 TARGET = "CCOC(C)=O"
+
+
+def test_evidence_replan_projection_is_bounded_and_chemistry_focused() -> None:
+    sources = []
+    for index in range(7):
+        sources.append(
+            {
+                "source_ref": f"patent:US{index}",
+                "publication_number": f"US{index}",
+                "title": f"Source {index}",
+                "source_route_proposal_count": 1 if index == 6 else 0,
+                "procedure_inventory": [
+                    {
+                        "label": f"Example {item}",
+                        "name": f"Intermediate {item}",
+                        "page_number": item,
+                        "procedure_excerpt": "A source-authored reaction " * 100,
+                    }
+                    for item in range(10)
+                ],
+                "source_route_observation": {
+                    "schema_version": "deterministic_source_route_observation.v1",
+                    "source_ref": f"patent:US{index}",
+                    "proposal_count": 1,
+                    "proposals": [
+                        {
+                            "proposal_id": f"source-step:{index}",
+                            "product_smiles": TARGET,
+                            "precursor_smiles": ["CCO", "CC(=O)O"],
+                            "condition_candidate": {"temperature_c": 25},
+                        }
+                    ],
+                },
+            }
+        )
+
+    projected = _evidence_observations(
+        {
+            "discovery": {
+                "schema_version": "source_discovery_observation.v1",
+                "provider_id": "tests",
+                "sources": sources,
+            }
+        }
+    )["source_discovery"]
+
+    assert projected["source_count"] == 7
+    assert projected["selected_source_count"] == 4
+    assert projected["omitted_source_count"] == 3
+    assert projected["sources"][0]["source_ref"] == "patent:US6"
+    assert len(projected["sources"][0]["procedure_inventory"]) == 6
+    assert (
+        len(
+            projected["sources"][0]["procedure_inventory"][0][
+                "procedure_excerpt"
+            ]
+        )
+        <= 1_200
+    )
+    assert projected["sources"][0]["source_route_observation"]["proposals"][0][
+        "product_smiles"
+    ] == TARGET
+
+
+def test_chemenzy_timeout_retry_requires_resume_and_larger_window() -> None:
+    stages = [
+        {
+            "stage": "chemenzy_baseline",
+            "status": "timeout",
+            "detail": {"limits": {"timeout_s": 90.0}},
+        }
+    ]
+
+    assert _should_retry_chemenzy_timeout(
+        stages, resume=True, requested_timeout_s=300.0
+    )
+    assert not _should_retry_chemenzy_timeout(
+        stages, resume=True, requested_timeout_s=90.0
+    )
+    assert not _should_retry_chemenzy_timeout(
+        stages, resume=False, requested_timeout_s=300.0
+    )
+
+
+def test_chemenzy_delegation_audit_distinguishes_rejected_and_queued() -> None:
+    molecule_id, canonical = molecule_identity("CCO")
+    outcomes = [
+        {
+            "plan": {
+                "frontier_priorities": [
+                    {
+                        "priority_id": "chemenzy:one",
+                        "proposal_id": "step:one",
+                        "target_smiles": "CCO",
+                        "provider_preferences": ["chemenzy"],
+                    }
+                ]
+            }
+        }
+    ]
+
+    rejected = _chemenzy_delegation_audit(
+        outcomes,
+        {"molecules": {}, "deficit_frontier": {"items": []}},
+    )
+    assert rejected["status"] == "rejected"
+    assert rejected["requests"][0]["disposition"] == (
+        "selected_step_not_host_admitted"
+    )
+
+    queued = _chemenzy_delegation_audit(
+        outcomes,
+        {
+            "molecules": {
+                molecule_id: {
+                    "canonical_smiles": canonical,
+                    "provider_expansion_requested": True,
+                }
+            },
+            "deficit_frontier": {
+                "items": [
+                    {
+                        "kind": "expansion",
+                        "object_id": molecule_id,
+                    }
+                ]
+            },
+        },
+    )
+    assert queued["status"] == "queued"
+    assert queued["queued_count"] == 1
 
 
 def _paths(tmp_path: Path) -> RuntimePaths:
@@ -413,6 +549,10 @@ def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
     assert result["claim"]["generated_route_portfolio"] is True
     assert result["claim"]["exact_multi_source_grade"] is False
     assert result["claim"]["procurement_ready"] is False
+    assert result["claim"]["acceptance_profile"] == "exploration_closed"
+    assert result["claim"]["achieved_profile"] == "exploration_closed"
+    assert result["claim"]["condition_complete"] is False
+    assert result["claim"]["process_ready"] is False
     assert result["current_disposition"]["state"] == "accepted"
     assert Path(result["report_path"]).is_file()
 
@@ -476,8 +616,9 @@ def test_target_solver_reports_provider_failure_without_replan_or_false_closure(
             "mode": "initial_architecture",
             "context_sha256": "",
             "plan": None,
-            "proposal_audits": [],
-            "reasons": [
+                "proposal_audits": [],
+                "contract_repairs": [],
+                "reasons": [
                 "GlobalCampaignDirectorError",
                 "director_child_failed:provider_unavailable",
             ],
@@ -494,6 +635,240 @@ def test_target_solver_reports_provider_failure_without_replan_or_false_closure(
     )
     assert result["claim"]["accepted_under_configured_policy"] is False
     assert Path(result["report_path"]).is_file()
+
+
+def test_initial_director_limits_are_capped_by_run_budget(tmp_path: Path) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    observed: list[Any] = []
+
+    def recording_runner(
+        spec: AgentSpec, context: Any, mode: str, config: Any
+    ) -> AgentResult:
+        observed.append(config)
+        return _runner(spec, context, mode, config)
+
+    gateway.solve_target(
+        target_name="director budget cap",
+        target_smiles=TARGET,
+        run_id="director-budget-cap",
+        budget=RetrosynthesisRunBudget(
+            max_model_invocations=1,
+            max_total_input_tokens=10_000,
+            max_total_output_tokens=600,
+            max_total_wall_time_s=30.0,
+            max_accepted_expansions=16,
+            max_attempt_runs=32,
+        ),
+        config=TargetSolveConfig(
+            enable_chemenzy=False,
+            enable_web_search=False,
+            enable_replan=False,
+            enable_live_benchmark_stock=False,
+        ),
+        director_runner=recording_runner,
+    )
+
+    assert observed[0].max_output_tokens == 600
+    assert observed[0].max_wall_time_s == 30.0
+
+
+def test_fast_execution_profile_bounds_global_dossier(tmp_path: Path) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    observed: list[Any] = []
+
+    def recording_runner(
+        spec: AgentSpec, context: Any, mode: str, config: Any
+    ) -> AgentResult:
+        observed.append(config)
+        return _runner(spec, context, mode, config)
+
+    gateway.solve_target(
+        target_name="fast profile",
+        target_smiles=TARGET,
+        run_id="fast-profile",
+        config=TargetSolveConfig(
+            execution_profile="fast",
+            enable_chemenzy=False,
+            enable_web_search=False,
+            enable_replan=False,
+            enable_live_benchmark_stock=False,
+        ),
+        director_runner=recording_runner,
+    )
+
+    assert observed[0].minimum_route_families == 2
+    assert observed[0].max_route_families == 2
+    assert observed[0].max_skeletons == 2
+    assert observed[0].max_steps_per_skeleton == 5
+    assert observed[0].max_output_tokens == 3_800
+    assert observed[0].max_tool_calls == 4
+
+
+def test_target_solver_ingests_bounded_chemenzy_proposals_before_codex(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    director_contexts: list[Any] = []
+
+    def recording_runner(
+        spec: AgentSpec, context: Any, mode: str, config: Any
+    ) -> AgentResult:
+        director_contexts.append(context)
+        return _runner(spec, context, mode, config)
+
+    def chemenzy_provider(**_kwargs: Any) -> dict[str, Any]:
+        return {
+            "status": "completed",
+            "routes": [
+                {
+                    "solved": True,
+                    "steps": [
+                        {
+                            "product_smiles": TARGET,
+                            "reactant_smiles": ["CCO", "CC(=O)Cl"],
+                            "source_model": "fixture-chem-enzy",
+                            "condition_predictions": [
+                                {
+                                    "temperature_c": 25,
+                                    "solvent": "dichloromethane",
+                                    "source": "fixture-condition-model",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+    result = gateway.solve_target(
+        target_name="ChemEnzy plus Codex target",
+        target_smiles=TARGET,
+        run_id="blind-chemenzy-codex",
+        config=TargetSolveConfig(
+            enable_chemenzy=True,
+            enable_target_chemenzy_baseline=True,
+            enable_web_search=False,
+            enable_replan=False,
+            enable_live_benchmark_stock=False,
+        ),
+        director_runner=recording_runner,
+        chemenzy_provider=chemenzy_provider,
+    )
+
+    stage = next(
+        value for value in result["stages"] if value["stage"] == "chemenzy_baseline"
+    )
+    assert stage["detail"]["proposal_count"] == 1
+    assert stage["detail"]["provider_envelope"]["accepted"] is True
+    assert stage["detail"]["provider_envelope"]["provider_kind"] == "proposal"
+    assert stage["detail"]["provider_envelope"]["no_solved_claim"] is True
+    assert stage["detail"]["provider_envelope"]["normalized_candidate_count"] == 1
+    assert stage["detail"]["provider_registration"]["trust"]["trusted"] is True
+    chemenzy_observation = director_contexts[0].evidence[
+        "chemenzy_provider_observation"
+    ]
+    assert chemenzy_observation["selected_proposal_route_count"] == 1
+    assert chemenzy_observation["proposal_count"] == 1
+    assert chemenzy_observation["semantics"]["director_should_reason_over_seed_as_a_global_route"] is True
+    assert any(
+        "chemenzy" in row.get("origin_kinds", [])
+        for row in director_contexts[0].topology["hypotheses"].values()
+    )
+    service = gateway._open(result["run_id"], run_dir=Path(result["run_dir"]))
+    origins = {
+        origin["origin_kind"]
+        for edge in service.graph_store.load()["edges"].values()
+        for origin in edge["origin_records"]
+    }
+    assert {"chemenzy", "codex_global_director"} <= origins
+    chem_enzy_edge = next(
+        edge
+        for edge in service.graph_store.load()["edges"].values()
+        if any(
+            origin["origin_kind"] == "chemenzy"
+            for origin in edge["origin_records"]
+        )
+    )
+    assert chem_enzy_edge["condition_predictions"][0]["temperature_c"] == 25
+    assert (
+        chem_enzy_edge["condition_predictions"][0]["authority_scope"]
+        == "model_predicted_condition"
+    )
+    assert chem_enzy_edge["condition_predictions"][0]["not_reaction_proof"] is True
+
+
+def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    requests: list[dict[str, Any]] = []
+
+    def chemenzy_provider(**kwargs: Any) -> dict[str, Any]:
+        request = dict(kwargs["request"])
+        requests.append(request)
+        if request["mode"] == "seed":
+            return {"status": "completed", "routes": []}
+        frontier = request["frontier_smiles"][0]
+        assert frontier == "CCO"
+        return {
+            "status": "completed",
+            "routes": [
+                {
+                    "steps": [
+                        {
+                            "product": frontier,
+                            "main_reactant": "C",
+                            "aux_reactants": ["CO"],
+                            "source_model": "fixture-guided-chemenzy",
+                        }
+                    ]
+                }
+            ],
+        }
+
+    result = gateway.solve_target(
+        target_name="guided stock miss",
+        target_smiles=TARGET,
+        run_id="guided-stock-miss",
+        config=TargetSolveConfig(
+            enable_web_search=False,
+            enable_replan=False,
+            enable_builtin_patent_evidence=False,
+        ),
+        director_runner=_runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_partial_catalog,
+        chemenzy_provider=chemenzy_provider,
+    )
+
+    strategic = next(
+        stage
+        for stage in result["stages"]
+        if stage["stage"] == "chemenzy_guided_frontier"
+    )
+    assert strategic["status"] == "not_needed"
+    guided = next(
+        stage
+        for stage in result["stages"]
+        if stage["stage"] == "chemenzy_stock_recovery"
+    )
+    assert guided["status"] == "completed"
+    assert guided["detail"]["frontier_count"] == 1
+    assert guided["detail"]["proposal_count"] == 1
+    assert [request["mode"] for request in requests] == ["guided_frontier"]
+    assert requests[0]["route_family_ids"]
+    assert requests[0]["forbidden_smiles"] == [TARGET]
+    service = gateway._open(result["run_id"], run_dir=Path(result["run_dir"]))
+    guided_edge = next(
+        edge
+        for edge in service.graph_store.load()["edges"].values()
+        if edge["product_smiles"] == "CCO"
+    )
+    assert guided_edge["precursor_smiles"] == ["C", "CO"]
+    assert any(
+        origin["origin_kind"] == "chemenzy"
+        for origin in guided_edge["origin_records"]
+    )
 
 
 def test_resume_reuses_fresh_negative_stock_audits_without_spending_attempts(
@@ -581,6 +956,55 @@ def test_target_solver_ingests_connector_rows_before_stock_and_closeout(
     )
     assert evidence_stage["status"] == "completed"
     assert evidence_stage["detail"]["exact_record_count"] == 6
+
+
+def test_target_solver_overlaps_safe_evidence_prefetch_with_global_director(
+    tmp_path: Path,
+) -> None:
+    prefetch_started = Event()
+    director_started = Event()
+
+    def connector(request: Any) -> dict[str, Any]:
+        if not request["edges"]:
+            prefetch_started.set()
+            assert director_started.wait(timeout=2.0)
+            return _discovery_only_connector(request)
+        return _evidence_connector(request)
+
+    setattr(connector, "autoplanner_prefetch_safe", True)
+
+    def runner(
+        spec: AgentSpec, context: Any, mode: str, config: Any
+    ) -> AgentResult:
+        assert prefetch_started.wait(timeout=2.0)
+        director_started.set()
+        return _runner(spec, context, mode, config)
+
+    gateway = CampaignGateway(_paths(tmp_path))
+    result = gateway.solve_target(
+        target_name="prefetched evidence target",
+        target_smiles=TARGET,
+        run_id="prefetched-evidence-overlap",
+        config=TargetSolveConfig(
+            use_coordinator=False,
+            enable_web_search=False,
+            enable_replan=False,
+        ),
+        director_runner=runner,
+        atom_mapper=_mapper,
+        stock_catalog_builder=_catalog,
+        evidence_connector=connector,
+    )
+
+    evidence_stage = next(
+        stage for stage in result["stages"] if stage["stage"] == "evidence_acquisition"
+    )
+    prefetch = evidence_stage["detail"]["prefetch"]
+    assert prefetch["status"] == "completed"
+    assert prefetch["discovery"]["sources"][0]["publication_number"] == (
+        "US7654321A1"
+    )
+    assert evidence_stage["detail"]["latency_hidden_by_global_s"] >= 0.0
 
 
 def test_target_solver_replans_globally_from_unbound_source_discovery(
@@ -1160,7 +1584,10 @@ def test_patent_self_evolution_learns_then_guides_a_new_blind_target(
 
     assert director_calls == 1
     assert derived["model_cost"]["model_invocations"] == 1
-    assert derived["accepted_expansion_count"] == 5
+    # The three Codex-selected families consume three unique proposals.  The
+    # self-evo memory annotates the matching selected edge but must not spend
+    # two more expansions on unselected target-level template applications.
+    assert derived["accepted_expansion_count"] == 3
     assert any(
         origin["origin_kind"] == "self_evo_patent_template"
         for edge in graph["edges"].values()

@@ -1,0 +1,77 @@
+{
+  "schema_version": "blind_retrosynthesis_manifest.v1",
+  "cases": [
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-atorvastatin-v4",
+      "target_name": "atorvastatin",
+      "target_smiles": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CC[C@@H](O)C[C@@H](O)CC(=O)O",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 1, "max_total_input_tokens": 55000, "max_total_output_tokens": 10000, "max_total_wall_time_s": 420, "max_accepted_expansions": 40, "max_attempt_runs": 96, "max_prompt_context_bytes": 96000}
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-cerivastatin-v4",
+      "target_name": "cerivastatin",
+      "target_smiles": "COCc1c(C(C)C)nc(C(C)C)c(/C=C/[C@@H](O)C[C@@H](O)CC(=O)O)c1-c1ccc(F)cc1",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 1, "max_total_input_tokens": 55000, "max_total_output_tokens": 10000, "max_total_wall_time_s": 420, "max_accepted_expansions": 40, "max_attempt_runs": 96, "max_prompt_context_bytes": 96000}
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-fluvastatin-v4",
+      "target_name": "fluvastatin",
+      "target_smiles": "CC(C)n1c(/C=C/[C@H](O)C[C@H](O)CC(=O)O)c(-c2ccc(F)cc2)c2ccccc21",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 1, "max_total_input_tokens": 55000, "max_total_output_tokens": 10000, "max_total_wall_time_s": 420, "max_accepted_expansions": 40, "max_attempt_runs": 96, "max_prompt_context_bytes": 96000}
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-lovastatin-v4",
+      "target_name": "lovastatin",
+      "target_smiles": "CC[C@H](C)C(=O)O[C@H]1C[C@@H](C)C=C2C=C[C@H](C)[C@H](CC[C@@H]3C[C@@H](O)CC(=O)O3)[C@H]21",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 1, "max_total_input_tokens": 55000, "max_total_output_tokens": 10000, "max_total_wall_time_s": 420, "max_accepted_expansions": 40, "max_attempt_runs": 96, "max_prompt_context_bytes": 96000}
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-mevastatin-v4",
+      "target_name": "mevastatin",
+      "target_smiles": "CC[C@H](C)C(=O)O[C@H]1CCC=C2C=C[C@H](C)[C@H](CC[C@@H]3C[C@@H](O)CC(=O)O3)[C@H]21",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 1, "max_total_input_tokens": 55000, "max_total_output_tokens": 10000, "max_total_wall_time_s": 420, "max_accepted_expansions": 40, "max_attempt_runs": 96, "max_prompt_context_bytes": 96000}
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-pitavastatin-v4",
+      "target_name": "pitavastatin",
+      "target_smiles": "O=C(O)C[C@H](O)C[C@H](O)/C=C/c1c(C2CC2)nc2ccccc2c1-c1ccc(F)cc1",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 1, "max_total_input_tokens": 55000, "max_total_output_tokens": 10000, "max_total_wall_time_s": 420, "max_accepted_expansions": 40, "max_attempt_runs": 96, "max_prompt_context_bytes": 96000}
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-pravastatin-v4",
+      "target_name": "pravastatin",
+      "target_smiles": "CC[C@H](C)C(=O)O[C@H]1C[C@H](O)C=C2C=C[C@H](C)[C@H](CC[C@@H](O)C[C@@H](O)CC(=O)O)[C@H]21",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 1, "max_total_input_tokens": 55000, "max_total_output_tokens": 10000, "max_total_wall_time_s": 420, "max_accepted_expansions": 40, "max_attempt_runs": 96, "max_prompt_context_bytes": 96000}
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-rosuvastatin-v4",
+      "target_name": "rosuvastatin",
+      "target_smiles": "CC(C)c1nc(N(C)S(C)(=O)=O)nc(-c2ccc(F)cc2)c1/C=C/[C@@H](O)C[C@@H](O)CC(=O)O",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 1, "max_total_input_tokens": 55000, "max_total_output_tokens": 10000, "max_total_wall_time_s": 420, "max_accepted_expansions": 40, "max_attempt_runs": 96, "max_prompt_context_bytes": 96000}
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-simvastatin-v4",
+      "target_name": "simvastatin",
+      "target_smiles": "CCC(C)(C)C(=O)O[C@H]1C[C@@H](C)C=C2C=C[C@H](C)[C@H](CC[C@@H]3C[C@@H](O)CC(=O)O3)[C@H]21",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 1, "max_total_input_tokens": 55000, "max_total_output_tokens": 10000, "max_total_wall_time_s": 420, "max_accepted_expansions": 40, "max_attempt_runs": 96, "max_prompt_context_bytes": 96000}
+    }
+  ]
+}

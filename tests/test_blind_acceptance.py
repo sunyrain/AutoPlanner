@@ -93,6 +93,39 @@ def test_blind_acceptance_prunes_only_rejected_tail_expansion() -> None:
     assert report["routes"][0]["pruned_rejected_tail_step_ids"] == ["step:tail"]
 
 
+def test_canonical_source_route_counts_without_director_skeleton_alias() -> None:
+    """Exact-source DAGs materialised after Codex remain real B1/B2 routes."""
+
+    precursors = ["CCO", "CC(=O)Cl"]
+    edge_id, edge = _validated_edge(TARGET, precursors)
+    portfolio = _portfolio()
+    portfolio["selected_routes"] = [
+        {
+            "route_id": "route:source",
+            "route_family_id": "route-family:source",
+            "edge_ids": [edge_id],
+        }
+    ]
+
+    report = compile_blind_acceptance_report(
+        preflight=_preflight(),
+        director_outcomes=[],
+        graph={
+            "target_molecule_id": molecule_identity(TARGET)[0],
+            "edges": {edge_id: edge},
+            "molecules": {},
+            "stock_observations": {},
+        },
+        portfolio=portfolio,
+    )
+
+    assert report["counts"]["target_rooted_distinct_skeletons"] == 1
+    assert report["counts"]["reaction_validated_skeletons"] == 1
+    assert report["gates"]["B1_global_multi_route"] is True
+    assert report["gates"]["B2_host_validated_routes"] is True
+    assert report["routes"][0]["route_origin"] == "canonical_hypergraph"
+
+
 def test_blind_acceptance_rejects_disconnected_route_after_middle_pruning() -> None:
     root = _step("step:root", TARGET, ["CCO", "CC(=O)Cl"])
     rejected_middle = _step("step:middle", "CC(=O)Cl", ["CC(=O)O", "Cl"])

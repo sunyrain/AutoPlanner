@@ -10,6 +10,9 @@ from cascade_planner.application.reaction_template_extraction import (
     apply_retro_template,
     extract_retro_template,
 )
+from cascade_planner.application.reaction_template_examples import (
+    merge_template_example,
+)
 from cascade_planner.application.reaction_template_store import (
     DEFAULT_TEMPLATE_LIBRARY_NAME,
     TEMPLATE_LIBRARY_SCHEMA,
@@ -65,23 +68,19 @@ def synchronize_patent_template_library(
                     continue
                 template_id = str(extraction["template_id"])
                 existing = dict(templates.get(template_id) or {})
-                examples = {
+                existing_examples = {
                     str(key): dict(value)
                     for key, value in dict(existing.get("examples") or {}).items()
                 }
-                if record_id in examples:
+                examples, examples_changed = merge_template_example(
+                    existing_examples,
+                    exact=exact,
+                    edge_id=str(edge_id),
+                    edge=edge,
+                    proof=proof,
+                )
+                if not examples_changed:
                     continue
-                examples[record_id] = {
-                    "record_id": record_id,
-                    "edge_id": str(edge_id),
-                    "edge_digest": str(edge.get("edge_digest") or ""),
-                    "proof_digest": str(proof.get("proof_digest") or ""),
-                    "source_ref": str(exact.get("source_ref") or ""),
-                    "independence_group": str(exact.get("independence_group") or ""),
-                    "location_refs": list(exact.get("location_refs") or []),
-                    "product_smiles": str(edge.get("product_smiles") or ""),
-                    "precursor_smiles": list(edge.get("precursor_smiles") or []),
-                }
                 record = _template_record(
                     extraction,
                     examples=examples,
@@ -141,6 +140,19 @@ def retrieve_patent_template_candidates(
         str(edge.get("edge_digest") or "")
         for edge in dict(graph.get("edges") or {}).values()
     }
+    route_aliases = {
+        str(route_id): tuple(
+            sorted(str(alias) for alias in route.get("aliases") or [] if str(alias))
+        )
+        for route_id, route in dict(graph.get("route_families") or {}).items()
+    }
+    existing_routes_by_digest: dict[str, set[str]] = {}
+    for edge in dict(graph.get("edges") or {}).values():
+        digest = str(edge.get("edge_digest") or "")
+        for route_id in edge.get("route_family_ids") or []:
+            existing_routes_by_digest.setdefault(digest, set()).update(
+                route_aliases.get(str(route_id), ())
+            )
     proposals: list[dict[str, Any]] = []
     rejected = 0
     exact_example_exclusions = 0
@@ -171,7 +183,18 @@ def retrieve_patent_template_candidates(
                         "precursor_smiles": audit["precursor_smiles_multiset"],
                     }
                 )[:24]
-                for alias in aliases or ("",):
+                routed_aliases = (
+                    tuple(
+                        sorted(
+                            existing_routes_by_digest.get(
+                                str(audit["edge_digest"]), set()
+                            )
+                        )
+                    )
+                    if existing_edge_match
+                    else aliases
+                )
+                for alias in routed_aliases or ("",):
                     proposals.append(
                         {
                             "proposal_id": proposal_id,
@@ -359,21 +382,22 @@ def _frontier_products(
 ) -> list[tuple[str, tuple[str, ...]]]:
     products: dict[str, set[str]] = {}
     _, target = molecule_identity(target_smiles)
-    target_aliases = {
-        str(alias)
-        for route in dict(graph.get("route_families") or {}).values()
-        for alias in route.get("aliases") or []
-        if str(alias)
-    }
     if target:
-        products[target] = target_aliases
+        # Target-level templates are global options for Codex.  Assigning one
+        # automatically to every existing family contaminates unrelated route
+        # strategies and spends expansion budget before global selection.
+        products[target] = set()
     molecules = dict(graph.get("molecules") or {})
     for route in dict(graph.get("route_families") or {}).values():
         aliases = {str(value) for value in route.get("aliases") or [] if str(value)}
         for molecule_id in route.get("leaf_molecule_ids") or []:
             molecule = dict(molecules.get(molecule_id) or {})
             smiles = str(molecule.get("canonical_smiles") or "")
-            if smiles and molecule.get("stock_closed") is not True:
+            if (
+                smiles
+                and molecule.get("stock_closed") is not True
+                and molecule.get("provider_expansion_requested") is True
+            ):
                 products.setdefault(smiles, set()).update(aliases)
     return [
         (smiles, tuple(sorted(aliases)))
@@ -433,6 +457,7 @@ def _retrieval_report(status: str, path: Path, *, reason: str = "") -> dict[str,
             "suggestions_are_not_evidence": True,
             "normal_candidate_gate_required": True,
             "exact_training_example_products_are_excluded": True,
+            "target_candidates_require_codex_route_selection": True,
             "no_model_calls": True,
         },
     }

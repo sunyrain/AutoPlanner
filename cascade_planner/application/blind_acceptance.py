@@ -29,7 +29,14 @@ def compile_blind_acceptance_report(
     """Measure route generation, evidence, stock, and acceptance independently."""
 
     outcomes = [dict(value) for value in director_outcomes if isinstance(value, Mapping)]
-    skeletons = _expected_skeletons(outcomes, graph=graph)
+    # The canonical graph is allowed to gain routes after the initial Codex
+    # dossier: exact-source DAG materialisation and guided local providers are
+    # both first-class route producers.  Measuring B1/B2 from the original
+    # director JSON alone therefore under-counts real, target-rooted routes.
+    skeletons = [
+        *_expected_skeletons(outcomes, graph=graph),
+        *_portfolio_skeletons(portfolio),
+    ]
     minimum_routes = int(
         dict(dict(preflight.get("case") or {}).get("acceptance") or {}).get(
             "minimum_complete_routes"
@@ -103,39 +110,8 @@ def compile_blind_acceptance_report(
             }
         )
     distinct_rows = _distinct_edge_sets(route_rows)
-    selected_routes = [
-        dict(value)
-        for value in portfolio.get("selected_routes") or []
-        if isinstance(value, Mapping)
-    ]
-    canonical_evidence_closed = sum(
-        bool(route.get("edge_ids"))
-        and all(
-            _edge_validated(dict(edges.get(str(edge_id)) or {}))
-            and len(
-                {
-                    str(value)
-                    for value in dict(edges.get(str(edge_id)) or {}).get(
-                        "independent_source_groups"
-                    )
-                    or []
-                    if str(value)
-                }
-            )
-            >= minimum_sources
-            and not _edge_has_unresolved_source_conflict(
-                dict(edges.get(str(edge_id)) or {}),
-                graph=graph,
-            )
-            for edge_id in route.get("edge_ids") or []
-        )
-        for route in selected_routes
-    )
-    canonical_stock_closed = sum(
-        bool(route.get("leaf_molecule_ids"))
-        and route.get("all_leaves_stock_closed") is True
-        for route in selected_routes
-    )
+    canonical_evidence_closed = sum(row["evidence_closed"] for row in distinct_rows)
+    canonical_stock_closed = sum(row["stock_closed"] for row in distinct_rows)
     counts = {
         "target_rooted_distinct_skeletons": len(distinct_rows),
         "materialized_skeletons": sum(row["materialized"] for row in distinct_rows),
@@ -178,6 +154,8 @@ def compile_blind_acceptance_report(
         ),
         "semantics": {
             "gates_are_independent_measurements": True,
+            "B1_and_B2_measure_canonical_target_rooted_routes": True,
+            "post_director_source_and_provider_routes_are_counted": True,
             "B2_is_not_evidence_grade": True,
             "B3_is_not_stock_grade": True,
             "B5_uses_configured_acceptance_policy": True,
@@ -280,6 +258,47 @@ def _expected_skeletons(
                 "edge_replacements": edge_replacements,
             }
     return [values[key] for key in sorted(values)]
+
+
+def _portfolio_skeletons(portfolio: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Project proof-stitched graph routes into the B1/B2 measurement input.
+
+    Portfolio rows are already compiled from the canonical hypergraph.  The
+    acceptance pass still re-walks their edges from the target below, so a
+    disconnected or stale row cannot gain route authority merely by appearing
+    in the portfolio projection.
+    """
+
+    rows: list[dict[str, Any]] = []
+    for value in portfolio.get("selected_routes") or []:
+        if not isinstance(value, Mapping):
+            continue
+        edge_ids = sorted(
+            {
+                str(edge_id)
+                for edge_id in value.get("edge_ids") or []
+                if str(edge_id)
+            }
+        )
+        if not edge_ids:
+            continue
+        route_id = str(value.get("route_id") or "")
+        rows.append(
+            {
+                "plan_id": "",
+                "mode": "canonical_portfolio",
+                "route_family_id": str(value.get("route_family_id") or ""),
+                "skeleton_id": route_id,
+                "route_id": route_id,
+                "edge_ids": edge_ids,
+                "steps": [],
+                "pruned_rejected_tail_step_ids": [],
+                "pruned_after_replacement_edge_ids": [],
+                "edge_replacements": [],
+                "route_origin": "canonical_hypergraph",
+            }
+        )
+    return rows
 
 
 def _target_rooted_connected_steps(

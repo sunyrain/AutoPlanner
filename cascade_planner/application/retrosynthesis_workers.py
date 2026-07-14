@@ -73,6 +73,13 @@ _CONDITION_KEYS = (
     "time",
     "yield",
     "yield_percent",
+    "atmosphere",
+    "pressure",
+    "concentration",
+    "addition_order",
+    "workup",
+    "purification",
+    "scale",
 )
 _TRUSTED_EXTRACTION_PRODUCERS = {
     "deterministic_structure_parser",
@@ -249,6 +256,7 @@ def materialization_commands_for_proposals(
                 "product_smiles": product,
                 "precursor_smiles": precursors,
                 "reagent_smiles": _string_list(row.get("reagent_smiles")),
+                "condition_predictions": [],
                 "existing_edge_digests": existing,
                 "ancestor_smiles": sorted(
                     {
@@ -281,6 +289,10 @@ def materialization_commands_for_proposals(
                     row.get("transformation_hypothesis") or ""
                 ),
             }
+        )
+        payload["condition_predictions"] = _merge_annotation_rows(
+            payload.get("condition_predictions"),
+            row.get("condition_predictions"),
         )
     commands: list[WorkerCommand] = []
     for identity, payload in sorted(grouped.items()):
@@ -398,6 +410,9 @@ def materialize_candidate_worker(
         "product_smiles": str(audit.get("product_smiles") or ""),
         "precursor_smiles": list(audit.get("precursor_smiles_multiset") or []),
         "reagent_smiles": sorted(canonical_reagents),
+        "condition_predictions": _merge_annotation_rows(
+            (), payload.get("condition_predictions")
+        ),
         "reaction_smiles": (
             ".".join(audit.get("precursor_smiles_multiset") or [])
             + ">>"
@@ -424,6 +439,18 @@ def materialize_candidate_worker(
         # precursor count.  Rejected work reports no expansion ids.
         "accepted_expansion_ids": [edge_digest] if accepted else [],
     }
+
+
+def _merge_annotation_rows(existing: Any, incoming: Any) -> list[dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for value in [*(existing or []), *(incoming or [])]:
+        if not isinstance(value, Mapping):
+            continue
+        row = dict(value)
+        row.setdefault("authority_scope", "model_predicted_condition")
+        row.setdefault("not_reaction_proof", True)
+        rows[_digest(row)] = row
+    return [rows[key] for key in sorted(rows)]
 
 
 def validate_reaction_worker(
@@ -478,6 +505,7 @@ def validate_reaction_worker(
             exact_source_records,
             str(candidate.get("edge_digest") or ""),
         ),
+        exact_source_records=exact_source_records,
     )
     validated = proof.get("accepted") is True
     state = proof_state(
@@ -600,6 +628,22 @@ def normalize_source_binding(value: Mapping[str, Any]) -> dict[str, Any]:
         "title": " ".join(str(row.get("title") or row.get("source_title") or "").split()),
         "provenance": provenance,
         "discovered_by": str(row.get("discovered_by") or "deterministic_worker"),
+        "acquisition_status": str(
+            row.get("acquisition_status") or "discovered"
+        ),
+        "source_pdf_sha256": str(
+            row.get("source_pdf_sha256") or row.get("pdf_sha256") or ""
+        ).lower(),
+        "source_pdf_path": str(row.get("source_pdf_path") or ""),
+        "proxy_request_id": str(row.get("proxy_request_id") or ""),
+        "visual_candidate_page_count": len(
+            [
+                value
+                for value in row.get("visual_candidate_pages") or []
+                if isinstance(value, Mapping)
+            ]
+        ),
+        "exact_row_count_observed": max(0, int(row.get("exact_row_count") or 0)),
         "usable_for_extraction": usable and source_kind != "codex_claim",
         "authority_scope": (
             "model_advisory_claim"
@@ -610,6 +654,7 @@ def normalize_source_binding(value: Mapping[str, Any]) -> dict[str, Any]:
             "discovery_is_not_exact_evidence": True,
             "locator_is_not_support": True,
             "independence_is_host_derived": True,
+            "acquisition_lifecycle_is_not_proof": True,
         },
     }
     binding["content_sha256"] = _digest(binding)
@@ -824,9 +869,14 @@ def extract_exact_source_worker(
             "reactant_smiles": audit["precursor_smiles_multiset"],
             "source_binding_id": binding["binding_id"],
             "source_ref": binding["source_ref"],
+            "route_family_id": str(row.get("route_family_id") or ""),
             "independence_group": binding["independence_group"],
             "location_refs": location_refs,
             "conditions": conditions,
+            "condition_completeness": _condition_completeness(conditions),
+            "procedure_authority_scope": (
+                "source_exact_reaction_procedure" if conditions else ""
+            ),
             "relation_type": "exact",
             "provenance": binding["provenance"],
             "extraction_artifact_sha256": extraction_sha256,
@@ -889,6 +939,7 @@ def extract_exact_source_worker(
                 "origin_kind": "literature",
                 "origin_ref": row["source_ref"],
                 "proposal_id": row["record_id"],
+                "route_family_id": str(row.get("route_family_id") or ""),
             }
             for row in accepted
             if str(row.get("edge_digest") or "") not in existing_edge_digests
@@ -1407,6 +1458,36 @@ def _normalized_conditions(value: Any) -> dict[str, Any]:
         key: _json_value(row[key])
         for key in sorted(row)
         if key in _CONDITION_KEYS and row[key] not in (None, "", [])
+    }
+
+
+def _condition_completeness(conditions: Mapping[str, Any]) -> dict[str, Any]:
+    """Audit whether source-located conditions are operationally complete."""
+
+    present = {
+        str(key)
+        for key, value in dict(conditions).items()
+        if value not in (None, "", [])
+    }
+    required_groups = {
+        "agents": {"reagents", "catalyst"},
+        "solvent": {"solvent"},
+        "temperature": {"temperature", "temperature_c"},
+        "time": {"time"},
+    }
+    missing = sorted(
+        name
+        for name, alternatives in required_groups.items()
+        if not (present & alternatives)
+    )
+    return {
+        "schema_version": "reaction_condition_completeness.v1",
+        "complete": not missing,
+        "missing_required_groups": missing,
+        "present_fields": sorted(present),
+        "yield_reported": bool(present & {"yield", "yield_percent"}),
+        "workup_reported": "workup" in present,
+        "purification_reported": "purification" in present,
     }
 
 

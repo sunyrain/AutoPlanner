@@ -70,6 +70,8 @@ def test_v4_service_owns_one_kernel_graph_frontier_and_closeout(
 
     planned = service.apply_global_plan(_plan(), idempotency_key="plan")
     assert planned["changed"] is True
+    hypothesis = next(iter(service.graph_store.load()["hypotheses"].values()))
+    assert hypothesis["origin_records"][0]["origin_kind"] == "manual"
     assert service.kernel.state.graph_revision == 1
     assert {row["kind"] for row in service.kernel.state.deficits} >= {
         "materialization",

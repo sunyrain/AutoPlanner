@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 
-from cascade_planner.cli import build_parser, main
+from cascade_planner.cli import _emit, build_parser, main
 
 
 def _storage_args(tmp_path: Path) -> list[str]:
@@ -19,6 +20,16 @@ def _storage_args(tmp_path: Path) -> list[str]:
         "--run-index-path",
         str(tmp_path / "index.sqlite3"),
     ]
+
+
+def test_emit_escapes_unicode_for_non_utf8_windows_stream() -> None:
+    buffer = io.BytesIO()
+    stream = io.TextIOWrapper(buffer, encoding="gbk")
+
+    _emit({"title": "RÉCEPTEURS"}, stream=stream)
+    stream.flush()
+
+    assert json.loads(buffer.getvalue().decode("gbk"))["title"] == "RÉCEPTEURS"
 
 
 def test_cli_run_status_validate_replay_benchmark_export_and_gc(

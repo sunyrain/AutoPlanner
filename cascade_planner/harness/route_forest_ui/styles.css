@@ -1723,6 +1723,8 @@ body.is-resizing * {
   border-radius: var(--radius-card);
   background: var(--surface-raised);
   box-shadow: var(--shadow-overlay);
+  max-height: min(680px, calc(100vh - 160px));
+  overflow-y: auto;
 }
 
 .legend-intro {
@@ -1732,6 +1734,21 @@ body.is-resizing * {
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--divider);
 }
+
+.legend-intro--section {
+  margin-top: var(--space-2);
+}
+
+.origin-swatch {
+  width: 40px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--origin-color, var(--text-muted));
+}
+
+.origin-codex { --origin-color: #2563eb; }
+.origin-chemenzy { --origin-color: #7c3aed; }
+.origin-literature { --origin-color: #0f766e; }
 
 .legend-intro strong {
   font-size: 12px;
@@ -2015,6 +2032,12 @@ body.is-resizing * {
   transition: opacity var(--motion-fast) ease, stroke-width var(--motion-fast) ease;
 }
 
+.graph-edge.is-auxiliary {
+  stroke: color-mix(in srgb, var(--text-muted) 72%, transparent) !important;
+  stroke-dasharray: 3 5 !important;
+  opacity: 0.58;
+}
+
 .dependency-edge.is-dimmed,
 .trust-edge.is-dimmed,
 .graph-edge.is-dimmed {
@@ -2070,6 +2093,24 @@ body.is-resizing * {
 .graph-node--reaction .node-surface {
   fill: color-mix(in srgb, var(--tier-tint, var(--surface-subtle)) 72%, var(--surface-raised));
   stroke: color-mix(in srgb, var(--tier-color, var(--border-strong)) 70%, var(--border));
+}
+
+.graph-node--reaction {
+  --origin-color: #64748b;
+}
+
+.graph-node--reaction.producer-codex { --origin-color: #2563eb; }
+.graph-node--reaction.producer-chemenzy { --origin-color: #7c3aed; }
+.graph-node--reaction.producer-literature { --origin-color: #0f766e; }
+.graph-node--reaction.producer-self-evo { --origin-color: #c2410c; }
+.graph-node--reaction.producer-template { --origin-color: #a16207; }
+.graph-node--reaction.producer-manual { --origin-color: #475569; }
+.graph-node--reaction.producer-host { --origin-color: #be123c; }
+
+.reaction-origin-stripe {
+  fill: var(--origin-color);
+  stroke: none;
+  pointer-events: none;
 }
 
 .dependency-reaction:hover rect,
