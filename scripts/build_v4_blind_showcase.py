@@ -62,13 +62,13 @@ def main(argv: list[str] | None = None) -> int:
             "implemented": [
                 "快速首轮只生成 2 条完整路线族，每条最多 5 步，输出上限 3,800 tokens。",
                 "初始 Codex 默认不携带联网工具；HTML/XML 证据预取与全局规划并行。",
-                "延迟隐藏阶段执行 HTML-first，不盲目下载 PDF。",
+                "Europe PMC 先检索论文/专利元数据；Google Patent 限流时转 EPO 官方家族。",
                 "证据只允许触发 1 次增量重规划，且只传入排名最高的 4 个来源。",
-                "Simvastatin 样例的证据上下文由 21,250 降至 9,130 bytes（减少 57.0%）。",
+                "视觉提取最多一次、禁止修复重试，输出仅作为 L0/L1 候选。",
             ],
             "next_acceptance": (
-                "使用 1 个全新复杂目标验证：90 秒内发布 host-validated 首骨架，"
-                "Codex 最多 2 次，默认视觉调用 0 次。"
+                "使用全新复杂目标验收：90 秒内发布首批全局路线骨架；"
+                "Codex 最多 2 次，默认视觉调用 0 次，证据闭合异步进行。"
             ),
             "measured_after_revision": False,
         },
@@ -158,9 +158,34 @@ def _compile_rows(panel: Mapping[str, Any], *, output_dir: Path) -> list[dict[st
             fallback=timing,
         )
         workbench_file = ""
+        workbench_metrics: dict[str, Any] = {}
         if run_id:
             try:
                 snapshot = gateway.workbench(run_id)["snapshot"]
+                replacement = dict(snapshot.get("replacement_validation") or {})
+                origins = {
+                    str(kind)
+                    for edge in dict(snapshot.get("edges") or {}).values()
+                    if isinstance(edge, Mapping)
+                    for kind in edge.get("origin_kinds") or []
+                    if str(kind)
+                }
+                workbench_metrics = {
+                    "route_count": len(snapshot.get("routes") or {}),
+                    "molecule_count": len(snapshot.get("molecules") or {}),
+                    "edge_count": len(snapshot.get("edges") or {}),
+                    "module_count": len(snapshot.get("modules") or {}),
+                    "replacement_candidate_count": int(
+                        replacement.get("candidate_count") or 0
+                    ),
+                    "validated_replacement_count": int(
+                        replacement.get("validated_count") or 0
+                    ),
+                    "replacement_route_count": len(
+                        snapshot.get("replacement_routes") or {}
+                    ),
+                    "origin_kinds": sorted(origins),
+                }
                 workbench_file = f"{_slug(str(target_name))}-workbench.html"
                 (output_dir / workbench_file).write_text(
                     render_v4_route_workbench_html(snapshot),
@@ -199,6 +224,7 @@ def _compile_rows(panel: Mapping[str, Any], *, output_dir: Path) -> list[dict[st
                 },
                 "attempt_count": int(report.get("attempt_count") or state.get("attempt_count") or 0),
                 "accepted_expansions": int(report.get("accepted_expansion_count") or state.get("accepted_expansion_count") or 0),
+                "workbench": workbench_metrics,
                 "workbench_file": workbench_file,
                 "report_path": str(report_path) if report_path.is_file() else "",
                 "error": str(state.get("error") or "")[:500],
@@ -237,6 +263,19 @@ def _summary(panel: Mapping[str, Any], rows: list[Mapping[str, Any]]) -> dict[st
             gate: sum(dict(row.get("gates") or {}).get(gate) is True for row in completed)
             for gate in ("B0", "B1", "B2", "B3", "B4", "B5")
         },
+        "route_count": sum(
+            int(dict(row.get("workbench") or {}).get("route_count") or 0)
+            for row in completed
+        ),
+        "validated_replacement_count": sum(
+            int(
+                dict(row.get("workbench") or {}).get(
+                    "validated_replacement_count"
+                )
+                or 0
+            )
+            for row in completed
+        ),
     }
 
 
@@ -260,7 +299,7 @@ def _render(payload: Mapping[str, Any]) -> str:
 :root{{--ink:#172033;--muted:#6d778c;--line:#dfe4ee;--panel:#fff;--bg:#f4f6fa;--blue:#3e5eea;--green:#18856f;--amber:#a76913;--red:#bb4554}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 Inter,"PingFang SC","Microsoft YaHei",sans-serif}}header{{padding:38px clamp(20px,5vw,72px) 28px;background:linear-gradient(135deg,#17213d,#273c87 68%,#386fc5);color:#fff}}header small{{letter-spacing:.16em;text-transform:uppercase;opacity:.68}}h1{{font-size:clamp(28px,4vw,48px);line-height:1.08;margin:10px 0}}header p{{max-width:850px;color:#dce4ff}}main{{max-width:1500px;margin:auto;padding:24px}}.summary{{display:grid;grid-template-columns:repeat(6,minmax(110px,1fr));gap:10px;margin-top:-46px}}.metric,.card,.architecture,.revision{{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 30px #15254b0c}}.metric{{padding:16px}}.metric b{{display:block;font-size:23px}}.metric span,.muted{{color:var(--muted);font-size:12px}}.demo-links{{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 0}}.architecture{{margin:14px 0;padding:18px;display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}.architecture div{{border-left:3px solid #6f84e8;padding:5px 12px}}.architecture b{{display:block}}.revision{{margin:0 0 22px;padding:18px;display:grid;grid-template-columns:minmax(210px,.7fr) minmax(360px,1.8fr);gap:22px;border-color:#e6d5a9;background:linear-gradient(135deg,#fffdf7,#fff)}}.revision h2{{margin:0 0 6px}}.revision ul{{margin:0;padding-left:20px}}.revision li+li{{margin-top:4px}}.baseline{{color:var(--amber);font-weight:700}}.slo{{margin-top:10px;padding:9px 11px;border-radius:8px;background:#f4f7ff;color:#334886}}.grid{{display:grid;grid-template-columns:repeat(3,minmax(300px,1fr));gap:14px}}.card{{padding:17px;min-width:0}}.top{{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}}h2{{font-size:20px;margin:0}}code{{font-size:10px;color:#7a8499;word-break:break-all}}.pill{{font-size:11px;border-radius:99px;padding:4px 8px;background:#eef1f6;color:#58657a}}.gates{{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin:14px 0}}.gate{{text-align:center;padding:7px 2px;border-radius:7px;background:#f1f2f5;color:#8a93a4;font-weight:800}}.gate.on{{background:#e7f6f1;color:var(--green)}}.facts{{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}}.fact{{background:#f7f8fb;border-radius:8px;padding:8px}}.fact b{{display:block}}.provider{{margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:9px}}.provider strong{{color:var(--blue)}}.links{{display:flex;gap:8px;flex-wrap:wrap}}a{{color:var(--blue);text-decoration:none;font-weight:700}}a.button{{background:#edf1ff;border-radius:8px;padding:7px 10px}}.warn{{color:var(--amber)}}.error{{color:var(--red);font-size:11px;word-break:break-all}}footer{{padding:28px;color:var(--muted);text-align:center}}@media(max-width:1000px){{.summary{{grid-template-columns:repeat(3,1fr)}}.architecture{{grid-template-columns:1fr 1fr}}.revision{{grid-template-columns:1fr}}.grid{{grid-template-columns:1fr 1fr}}}}@media(max-width:650px){{.summary,.grid{{grid-template-columns:1fr}}.architecture{{grid-template-columns:1fr}}}}
 </style></head><body>
 <header><small>Target-only · isolated · auditable</small><h1>V4 全新分子盲测工作台</h1><p>输入仅含目标名称与唯一 SMILES；无本地案卷、DOI、专利号、PDF 或既有路线种子。这里分开呈现全局规划、局部候选、确定性验证、证据和库存，不用“分支数”冒充完成度。</p></header>
-<main><section class="summary">{_metric('已生成报告',f"{summary['report_count']} / {summary['target_count']}")}{_metric('Codex 实调',summary['codex_calls'])}{_metric('ChemEnzy 实调',summary['chemenzy_calls'])}{_metric('中位首路线',_duration(summary['median_time_to_first_route_s']))}{_metric('中位完整首轮',_duration(summary['median_full_pass_s']))}{_metric('B1 / B3 / B5',f"{gate_counts.get('B1',0)} / {gate_counts.get('B3',0)} / {gate_counts.get('B5',0)}")}</section>
+<main><section class="summary">{_metric('已生成报告',f"{summary['report_count']} / {summary['target_count']}")}{_metric('当前主路线',summary['route_count'])}{_metric('已验证替换',summary['validated_replacement_count'])}{_metric('Codex / ChemEnzy',f"{summary['codex_calls']} / {summary['chemenzy_calls']}")}{_metric('中位首路线',_duration(summary['median_time_to_first_route_s']))}{_metric('B1 / B3 / B5',f"{gate_counts.get('B1',0)} / {gate_counts.get('B3',0)} / {gate_counts.get('B5',0)}")}</section>
 <nav class="demo-links"><a class="button" href="{_h(demo_links.get('console_url',''))}">打开实时控制台</a>{supplemental_links}</nav>
 <section class="architecture"><div><b>Codex</b><span class="muted">一次总揽路线族、战略断键与局部前沿</span></div><div><b>ChemEnzy</b><span class="muted">只展开 host 接纳的子目标或库存缺口</span></div><div><b>Evidence</b><span class="muted">HTML-first，PDF 回退，视觉稀疏触发</span></div><div><b>Host verifier</b><span class="muted">守恒、映射、循环、原子突变与条件</span></div><div><b>Inventory</b><span class="muted">逐叶审计，闭合与可采购分离</span></div></section>
 <section class="revision"><div><h2>冷启动性能说明</h2><p class="baseline">上方秒数是不可变的旧冷跑基线，不是优化后的实测成绩。</p><p class="muted">{_h(revision.get('benchmark_semantics',''))}</p></div><div><ul>{implemented}</ul><div class="slo"><b>下一验收门：</b> {_h(revision.get('next_acceptance',''))}</div></div></section>
@@ -273,6 +312,10 @@ def _target_card(row: Mapping[str, Any]) -> str:
     chem = dict(row.get("chemenzy") or {})
     evidence = dict(row.get("evidence") or {})
     cost = dict(row.get("model_cost") or {})
+    workbench = dict(row.get("workbench") or {})
+    origins = ", ".join(
+        _origin_label(value) for value in workbench.get("origin_kinds") or []
+    ) or "未记录"
     gate_html = "".join(
         f'<span class="gate {"on" if gates.get(key) else ""}" title="{_h(_gate_label(key))}">{key}</span>'
         for key in ("B0", "B1", "B2", "B3", "B4", "B5")
@@ -282,7 +325,17 @@ def _target_card(row: Mapping[str, Any]) -> str:
         if row.get("workbench_file")
         else '<span class="warn">工作台待生成</span>'
     )
-    return f"""<article class="card"><div class="top"><div><h2>{_h(row['target_name'])}</h2><code>{_h(row.get('run_id',''))}</code></div><span class="pill">{_h(row.get('claim','unresolved'))}</span></div><div class="gates">{gate_html}</div><div class="facts">{_fact('首个路线',_duration(row.get('time_to_first_route_s',0)))}{_fact('完整首轮',_duration(row.get('full_pass_s',0)))}{_fact('Codex',f"{int(cost.get('model_invocations') or 0)} 次")}{_fact('路线骨架',counts.get('target_rooted_distinct_skeletons',0))}{_fact('反应验证',counts.get('reaction_validated_skeletons',0))}{_fact('库存闭合',counts.get('stock_closed_skeletons',0))}</div><div class="provider"><strong>ChemEnzy</strong> · 实调 {int(chem.get('provider_calls') or 0)} · 候选 {int(chem.get('proposals') or 0)} · 委派 { _h(chem.get('delegation_status','')) }<br><span class="muted">Codex 输入 {int(cost.get('input_tokens') or 0):,} token · Evidence 来源 {int(evidence.get('sources') or 0)} · exact rows {int(evidence.get('exact_rows') or 0)} · visual {int(evidence.get('visual_calls') or 0)}</span></div><div class="links">{link}</div>{f'<p class="error">{_h(row["error"])}</p>' if row.get('error') else ''}</article>"""
+    return f"""<article class="card"><div class="top"><div><h2>{_h(row['target_name'])}</h2><code>{_h(row.get('run_id',''))}</code></div><span class="pill">{_h(row.get('claim','unresolved'))}</span></div><div class="gates">{gate_html}</div><div class="facts">{_fact('首个路线',_duration(row.get('time_to_first_route_s',0)))}{_fact('完整首轮',_duration(row.get('full_pass_s',0)))}{_fact('Codex',f"{int(cost.get('model_invocations') or 0)} 次")}{_fact('当前主路线',workbench.get('route_count',0))}{_fact('已验证替换',workbench.get('validated_replacement_count',0))}{_fact('反应验证',counts.get('reaction_validated_skeletons',0))}</div><div class="provider"><strong>ChemEnzy</strong> · 实调 {int(chem.get('provider_calls') or 0)} · 候选 {int(chem.get('proposals') or 0)} · 委派 { _h(chem.get('delegation_status','')) }<br><span class="muted">来源引擎：{_h(origins)} · 分子 {int(workbench.get('molecule_count') or 0)} · 反应边 {int(workbench.get('edge_count') or 0)} · 库存闭合 {counts.get('stock_closed_skeletons',0)}</span><br><span class="muted">Codex 输入 {int(cost.get('input_tokens') or 0):,} token · Evidence 来源 {int(evidence.get('sources') or 0)} · exact rows {int(evidence.get('exact_rows') or 0)} · visual {int(evidence.get('visual_calls') or 0)}</span></div><div class="links">{link}</div>{f'<p class="error">{_h(row["error"])} </p>' if row.get('error') else ''}</article>"""
+
+
+def _origin_label(value: Any) -> str:
+    return {
+        "codex_global_director": "Codex 全局规划",
+        "chemenzy": "ChemEnzy 局部展开",
+        "literature_visual_extraction": "文献视觉提取",
+        "patent_template_reuse": "专利 self-evo",
+        "source_route_observation": "文献确定性提取",
+    }.get(str(value), str(value))
 
 
 def _supplemental_link(value: str, *, output_dir: Path) -> dict[str, str]:

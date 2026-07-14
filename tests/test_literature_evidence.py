@@ -19,6 +19,7 @@ from cascade_planner.interfaces.literature_search import (
     europe_pmc_metadata_search,
     europe_pmc_open_access_fulltext,
     europe_pmc_open_access_pdf,
+    europe_pmc_repository_html,
     primary_literature_search,
 )
 from cascade_planner.harness.local_pdf_proxy import (
@@ -75,6 +76,7 @@ def test_europe_pmc_metadata_search_normalizes_papers_and_patents() -> None:
                             "doi": "10.1128/AEM.02820-06",
                             "pmcid": "PMC1855665",
                             "isOpenAccess": "Y",
+                            "inPMC": "Y",
                             "title": "Efficient synthesis of simvastatin",
                         },
                         {
@@ -94,6 +96,8 @@ def test_europe_pmc_metadata_search_normalizes_papers_and_patents() -> None:
 
     assert rows[0]["doi"] == "10.1128/AEM.02820-06"
     assert rows[0]["is_open_access"] is True
+    assert rows[0]["has_repository_fulltext"] is True
+    assert rows[0]["access_class"] == "open_access"
     assert rows[1]["publication_number"] == "WO2011044496"
     assert rows[1]["source_ref"] == "patent:WO2011044496"
 
@@ -231,6 +235,141 @@ def test_europe_pmc_resolver_returns_structured_fulltext_and_figure_archive() ->
     assert receipt["archive_error"] == ""
 
 
+def test_europe_pmc_resolver_accepts_free_pmc_fulltext_without_oa_licence() -> None:
+    xml = b"""<?xml version="1.0"?><article><front><article-meta>
+    <article-id pub-id-type="doi">10.1128/aem.02820-06</article-id>
+    </article-meta></front><body><p>full text</p></body></article>"""
+
+    def fetch(url: str, _timeout: float, _maximum: int) -> bytes:
+        if "search?" in url:
+            return json.dumps(
+                {
+                    "resultList": {
+                        "result": [
+                            {
+                                "doi": "10.1128/aem.02820-06",
+                                "pmcid": "PMC1855665",
+                                "isOpenAccess": "N",
+                                "inEPMC": "Y",
+                                "inPMC": "Y",
+                            }
+                        ]
+                    }
+                }
+            ).encode()
+        if "fullTextXML" in url:
+            return xml
+        raise OSError("figure archive unavailable")
+
+    fulltext, archive, receipt = europe_pmc_open_access_fulltext(
+        "10.1128/AEM.02820-06",
+        timeout_s=5.0,
+        max_bytes=1_000_000,
+        fetch=fetch,
+    )
+
+    assert fulltext == xml
+    assert archive == b""
+    assert receipt["pmcid"] == "PMC1855665"
+    assert receipt["open_access"] is False
+    assert receipt["repository_fulltext"] is True
+    assert receipt["access_class"] == "free_repository_fulltext"
+
+
+def test_europe_pmc_repository_html_preserves_non_oa_access_semantics() -> None:
+    html = b"""<!doctype html><html><head>
+    <meta name="citation_doi" content="10.1128/AEM.02820-06"></head>
+    <body><main><h2>Materials and methods</h2><p>Simvastatin was purified
+    after the reaction mixture was incubated for two hours.</p></main></body></html>"""
+
+    def fetch(url: str, _timeout: float, _maximum: int) -> bytes:
+        if "search?" in url:
+            return json.dumps(
+                {
+                    "resultList": {
+                        "result": [
+                            {
+                                "doi": "10.1128/aem.02820-06",
+                                "pmcid": "PMC1855665",
+                                "isOpenAccess": "N",
+                                "inPMC": "Y",
+                            }
+                        ]
+                    }
+                }
+            ).encode()
+        assert url == "https://pmc.ncbi.nlm.nih.gov/articles/PMC1855665/"
+        return html
+
+    content, receipt = europe_pmc_repository_html(
+        "10.1128/AEM.02820-06",
+        timeout_s=5.0,
+        max_bytes=1_000_000,
+        fetch=fetch,
+    )
+
+    assert content == html
+    assert receipt["open_access"] is False
+    assert receipt["repository_fulltext"] is True
+    assert receipt["html_sha256"] == hashlib.sha256(html).hexdigest()
+
+
+def test_literature_connector_uses_pmc_html_before_pdf_or_browser(
+    tmp_path: Path,
+) -> None:
+    html = b"""<!doctype html><html><head>
+    <meta name="citation_doi" content="10.1128/AEM.02820-06"></head><body>
+    <h2>Materials and methods</h2><h3>Synthesis of DMB-S-MMP</h3>
+    <p>Dimethylbutyryl chloride was added slowly at 0 degrees C and the
+    reaction mixture was stirred for 2 h, purified by chromatography, and
+    isolated in 81 percent yield for simvastatin production.</p></body></html>"""
+    calls: list[str] = []
+
+    def fetch(url: str, _timeout: float, _maximum: int) -> bytes:
+        calls.append(url)
+        if "search?" in url:
+            return json.dumps(
+                {
+                    "resultList": {
+                        "result": [
+                            {
+                                "doi": "10.1128/aem.02820-06",
+                                "pmcid": "PMC1855665",
+                                "isOpenAccess": "N",
+                                "inEPMC": "Y",
+                            }
+                        ]
+                    }
+                }
+            ).encode()
+        if "fullTextXML" in url:
+            raise OSError("legacy deposit has no Europe PMC XML")
+        if "pmc.ncbi.nlm.nih.gov" in url:
+            return html
+        raise AssertionError("PDF and browser fallback must not run")
+
+    connector = build_builtin_literature_evidence_connector(
+        BuiltinLiteratureEvidenceConfig(
+            cache_dir=tmp_path / "cache",
+            seed_dois=("10.1128/AEM.02820-06",),
+            max_sources=1,
+        ),
+        searcher=lambda _query, _limit: [],
+        fetcher=fetch,
+    )
+
+    result = connector(_request())
+
+    source = result["discovery"]["sources"][0]
+    assert source["acquisition_method"] == "pmc_repository_fulltext_html"
+    assert source["pmcid"] == "PMC1855665"
+    assert source["procedure_inventory"][0]["source_artifact_kind"] == (
+        "pmc_fulltext_html"
+    )
+    assert result["receipt"]["queued_source_count"] == 0
+    assert not any("doi.org" in url for url in calls)
+
+
 def test_literature_connector_uses_structured_fulltext_and_original_figures_before_pdf(
     tmp_path: Path,
 ) -> None:
@@ -290,9 +429,7 @@ def test_literature_connector_uses_structured_fulltext_and_original_figures_befo
     result = connector(request)
 
     source = result["discovery"]["sources"][0]
-    assert source["acquisition_method"] == (
-        "europe_pmc_open_access_fulltext_xml"
-    )
+    assert source["acquisition_method"] == "europe_pmc_structured_fulltext_xml"
     assert source["source_fulltext_sha256"] == hashlib.sha256(xml).hexdigest()
     assert source["source_pdf_sha256"] == ""
     assert source["procedure_inventory"][0]["source_artifact_kind"] == (

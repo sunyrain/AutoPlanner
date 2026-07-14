@@ -216,15 +216,25 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     validation_fork.add_argument("--run-dir")
     validation_fork.add_argument("--no-live-benchmark-stock", action="store_true")
     validation_fork.add_argument("--no-auto-patent-evidence", action="store_true")
+    validation_fork.add_argument("--no-auto-literature-evidence", action="store_true")
     validation_fork.add_argument("--full-output", action="store_true")
     validation_fork.add_argument("--max-map-reactions", type=int, default=64)
     validation_fork.add_argument("--max-stock-molecules", type=int, default=32)
     validation_fork.add_argument("--max-patent-sources", type=int, default=3)
     validation_fork.add_argument(
+        "--max-literature-sources", type=int, choices=range(1, 9), default=3
+    )
+    validation_fork.add_argument(
         "--patent-publication",
         action="append",
         default=[],
         help="optional patent publication, Google Patents URL, or direct PDF seed",
+    )
+    validation_fork.add_argument(
+        "--literature-doi",
+        action="append",
+        default=[],
+        help="optional DOI discovered by the source frontier for reproducible XML-first validation",
     )
 
     evidence = sub.add_parser(
@@ -244,21 +254,49 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             import_path=args.input,
         )
     if args.command == "fork-validation":
-        evidence_connector = None
+        evidence_connectors = []
         if not args.no_auto_patent_evidence:
             from cascade_planner.interfaces.patent_evidence import (
                 BuiltinPatentEvidenceConfig,
                 build_builtin_patent_evidence_connector,
             )
 
-            evidence_connector = build_builtin_patent_evidence_connector(
-                BuiltinPatentEvidenceConfig(
-                    cache_dir=gateway.paths.external_data_root / "patent-evidence",
-                    seed_publications=tuple(args.patent_publication),
-                    max_patents=args.max_patent_sources,
-                    max_validated_edges=args.max_map_reactions,
+            evidence_connectors.append(
+                build_builtin_patent_evidence_connector(
+                    BuiltinPatentEvidenceConfig(
+                        cache_dir=gateway.paths.external_data_root / "patent-evidence",
+                        seed_publications=tuple(args.patent_publication),
+                        max_patents=args.max_patent_sources,
+                        max_validated_edges=args.max_map_reactions,
+                    )
                 )
             )
+        if not args.no_auto_literature_evidence:
+            from cascade_planner.interfaces.literature_evidence import (
+                BuiltinLiteratureEvidenceConfig,
+                build_builtin_literature_evidence_connector,
+            )
+
+            evidence_connectors.append(
+                build_builtin_literature_evidence_connector(
+                    BuiltinLiteratureEvidenceConfig(
+                        cache_dir=(
+                            gateway.paths.external_data_root / "literature-evidence"
+                        ),
+                        seed_dois=tuple(args.literature_doi),
+                        max_sources=args.max_literature_sources,
+                    )
+                )
+            )
+        evidence_connector = (
+            None
+            if not evidence_connectors
+            else (
+                evidence_connectors[0]
+                if len(evidence_connectors) == 1
+                else compose_evidence_connectors(*evidence_connectors)
+            )
+        )
         result = gateway.fork_target_validation(
             source_run_id=args.source_run_id,
             source_run_dir=args.source_run_dir,

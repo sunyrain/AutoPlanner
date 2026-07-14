@@ -101,6 +101,7 @@ FOCUSED_LINE_BUDGETS = {
     "cascade_planner/interfaces/literature_evidence.py": 450,
     "cascade_planner/interfaces/literature_candidates.py": 180,
     "cascade_planner/interfaces/literature_fulltext.py": 400,
+    "cascade_planner/interfaces/literature_html.py": 300,
     "cascade_planner/interfaces/literature_materialization.py": 280,
     "cascade_planner/interfaces/visual_evidence.py": 700,
     "cascade_planner/interfaces/visual_observation_normalization.py": 320,

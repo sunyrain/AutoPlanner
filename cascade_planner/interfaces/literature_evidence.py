@@ -38,7 +38,7 @@ from cascade_planner.interfaces.live_evidence import (
 
 
 BUILTIN_LITERATURE_PROVIDER_ID = "autoplanner.builtin_literature_evidence"
-BUILTIN_LITERATURE_PROVIDER_VERSION = "1.2"
+BUILTIN_LITERATURE_PROVIDER_VERSION = "1.3"
 PaperSearch = Callable[[str, int], Iterable[Mapping[str, Any]]]
 BytesFetcher = Callable[[str, float, int], bytes]
 

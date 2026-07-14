@@ -104,14 +104,28 @@ def europe_pmc_metadata_search(
         doi = str(record.get("doi") or "").strip()
         if not doi:
             continue
+        is_open_access = str(record.get("isOpenAccess") or "").upper() == "Y"
+        has_repository_fulltext = bool(str(record.get("pmcid") or "").strip()) and (
+            str(record.get("inEPMC") or "").upper() == "Y"
+            or str(record.get("inPMC") or "").upper() == "Y"
+            or is_open_access
+        )
         rows.append(
             {
                 "doi": doi,
                 "title": title or doi,
                 "pmid": str(record.get("pmid") or ""),
                 "pmcid": str(record.get("pmcid") or ""),
-                "is_open_access": (
-                    str(record.get("isOpenAccess") or "").upper() == "Y"
+                "is_open_access": is_open_access,
+                "has_repository_fulltext": has_repository_fulltext,
+                "access_class": (
+                    "open_access"
+                    if is_open_access
+                    else (
+                        "free_repository_fulltext"
+                        if has_repository_fulltext
+                        else "metadata_only"
+                    )
                 ),
                 "source_kind": "paper_si",
                 "metadata_provider": "europe_pmc",
@@ -164,7 +178,7 @@ def _literature_rank(
     row: Mapping[str, Any],
     *,
     target: str,
-) -> tuple[int, int, int, str]:
+) -> tuple[int, int, int, int, str]:
     title = html.unescape(str(row.get("title") or "")).casefold()
     target_text = target.casefold()
     exact = int(
@@ -197,7 +211,17 @@ def _literature_rank(
             "cancer",
         )
     )
-    return (-exact, -target_match, -(route_terms - noise), title)
+    repository_access = int(
+        row.get("is_open_access") is True
+        or row.get("has_repository_fulltext") is True
+    )
+    return (
+        -exact,
+        -target_match,
+        -(route_terms - noise),
+        -repository_access,
+        title,
+    )
 
 
 def citation_pdf_url(
@@ -235,7 +259,7 @@ def europe_pmc_open_access_pdf(
     in memory with explicit entry and decompression limits.
     """
 
-    normalized, record, search_url, search_bytes = _europe_pmc_open_access_record(
+    normalized, record, search_url, search_bytes = _europe_pmc_fulltext_record(
         doi,
         timeout_s=timeout_s,
         max_bytes=max_bytes,
@@ -259,7 +283,7 @@ def europe_pmc_open_access_pdf(
         "archive_member": member,
         "pdf_sha256": hashlib.sha256(pdf).hexdigest(),
         "license": str(record.get("license") or ""),
-        "open_access": True,
+        **_europe_pmc_access_receipt(record),
     }
 
 
@@ -272,7 +296,7 @@ def europe_pmc_open_access_fulltext(
 ) -> tuple[bytes, bytes, dict[str, Any]]:
     """Resolve exact DOI to structured OA XML and its original figure archive."""
 
-    normalized, record, search_url, search_bytes = _europe_pmc_open_access_record(
+    normalized, record, search_url, search_bytes = _europe_pmc_fulltext_record(
         doi,
         timeout_s=timeout_s,
         max_bytes=max_bytes,
@@ -311,11 +335,51 @@ def europe_pmc_open_access_fulltext(
         "archive_sha256": hashlib.sha256(archive).hexdigest() if archive else "",
         "archive_error": archive_error,
         "license": str(record.get("license") or ""),
-        "open_access": True,
+        **_europe_pmc_access_receipt(record),
     }
 
 
-def _europe_pmc_open_access_record(
+def europe_pmc_repository_html(
+    doi: str,
+    *,
+    timeout_s: float,
+    max_bytes: int,
+    fetch: BytesFetcher,
+) -> tuple[bytes, dict[str, Any]]:
+    """Resolve an exact DOI to bounded full article HTML hosted by PMC.
+
+    Older PMC deposits can expose free repository HTML while correctly
+    reporting ``isOpenAccess=N`` because their licence is not an OA licence.
+    Repository availability and reuse rights are therefore recorded
+    separately; this function grants no evidence authority by itself.
+    """
+
+    normalized, record, search_url, search_bytes = _europe_pmc_fulltext_record(
+        doi,
+        timeout_s=timeout_s,
+        max_bytes=max_bytes,
+        fetch=fetch,
+    )
+    pmcid = str(record["pmcid"]).strip().upper()
+    html_url = f"https://pmc.ncbi.nlm.nih.gov/articles/{quote(pmcid, safe='')}/"
+    content = fetch(html_url, timeout_s, max_bytes)
+    prefix = content[:4_096].lower()
+    if len(content) < 200 or b"<html" not in prefix:
+        raise ValueError("pmc_repository_html_invalid")
+    return content, {
+        "provider": "ncbi_pmc",
+        "pmcid": pmcid,
+        "doi": normalized,
+        "search_url": search_url,
+        "html_url": html_url,
+        "search_sha256": hashlib.sha256(search_bytes).hexdigest(),
+        "html_sha256": hashlib.sha256(content).hexdigest(),
+        "license": str(record.get("license") or ""),
+        **_europe_pmc_access_receipt(record),
+    }
+
+
+def _europe_pmc_fulltext_record(
     doi: str,
     *,
     timeout_s: float,
@@ -340,11 +404,28 @@ def _europe_pmc_open_access_record(
         if isinstance(row, Mapping)
         and str(row.get("doi") or "").strip().lower() == normalized
         and str(row.get("pmcid") or "").strip()
-        and str(row.get("isOpenAccess") or "").upper() == "Y"
+        and (
+            str(row.get("isOpenAccess") or "").upper() == "Y"
+            or str(row.get("inEPMC") or "").upper() == "Y"
+            or str(row.get("inPMC") or "").upper() == "Y"
+        )
     ]
     if not records:
-        raise ValueError("europe_pmc_exact_open_access_record_missing")
+        raise ValueError("europe_pmc_exact_repository_fulltext_record_missing")
     return normalized, records[0], search_url, search_bytes
+
+
+def _europe_pmc_access_receipt(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Separate repository availability from the publication's OA licence."""
+
+    open_access = str(record.get("isOpenAccess") or "").upper() == "Y"
+    return {
+        "open_access": open_access,
+        "repository_fulltext": True,
+        "access_class": (
+            "open_access" if open_access else "free_repository_fulltext"
+        ),
+    }
 
 
 def _pdf_from_bounded_zip(
@@ -434,6 +515,7 @@ __all__ = [
     "europe_pmc_metadata_search",
     "europe_pmc_open_access_fulltext",
     "europe_pmc_open_access_pdf",
+    "europe_pmc_repository_html",
     "fetch_bytes",
     "primary_literature_search",
 ]

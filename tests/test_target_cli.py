@@ -48,9 +48,7 @@ def test_target_cli_visual_evidence_is_explicitly_opt_in_and_bounded() -> None:
     commands = parser.add_subparsers(dest="command")
     add_target_commands(commands)
 
-    default = parser.parse_args(
-        ["solve-target", "--target-smiles", "CCOC(C)=O"]
-    )
+    default = parser.parse_args(["solve-target", "--target-smiles", "CCOC(C)=O"])
     opted_in = parser.parse_args(
         [
             "solve-target",
@@ -101,3 +99,31 @@ def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
     assert configured.chemenzy_iterations == 7
     assert configured.chemenzy_expansion_topk == 12
     assert configured.chemenzy_timeout_s == 45.0
+
+
+def test_validation_fork_supports_parallel_patent_and_literature_sources() -> None:
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command")
+    add_target_commands(commands)
+    args = parser.parse_args(
+        [
+            "fork-validation",
+            "source-run",
+            "--patent-publication",
+            "EP2486129B1",
+            "--literature-doi",
+            "10.1128/AEM.02820-06",
+            "--max-patent-sources",
+            "1",
+            "--max-literature-sources",
+            "2",
+        ]
+    )
+
+    assert args.source_run_id == "source-run"
+    assert args.patent_publication == ["EP2486129B1"]
+    assert args.literature_doi == ["10.1128/AEM.02820-06"]
+    assert args.max_patent_sources == 1
+    assert args.max_literature_sources == 2
+    assert args.no_auto_patent_evidence is False
+    assert args.no_auto_literature_evidence is False

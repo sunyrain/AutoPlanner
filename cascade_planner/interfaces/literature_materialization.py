@@ -25,6 +25,7 @@ from cascade_planner.interfaces.literature_candidates import (
 from cascade_planner.interfaces.literature_fulltext import (
     materialize_europe_pmc_fulltext,
 )
+from cascade_planner.interfaces.literature_html import materialize_pmc_repository_html
 from cascade_planner.interfaces.literature_search import (
     citation_pdf_url,
     europe_pmc_open_access_pdf,
@@ -66,6 +67,20 @@ def materialize_candidate(
             )
         except (OSError, RuntimeError, ValueError, requests.RequestException) as exc:
             structured_failure = f"{type(exc).__name__}:{str(exc)[:300]}"
+        try:
+            return materialize_pmc_repository_html(
+                candidate,
+                request=request,
+                source_ref=source_ref,
+                source_dir=source_dir,
+                fulltext_cache_dir=output_dir.parent / "_source_fulltext_cache" / slug,
+                config=config,
+                fetch=fetch,
+            )
+        except (OSError, RuntimeError, ValueError, requests.RequestException) as exc:
+            structured_failure += (
+                f"|pmc_html:{type(exc).__name__}:{str(exc)[:300]}"
+            )
     content = b""
     acquisition_method = ""
     acquisition_receipt: dict[str, Any] = {}

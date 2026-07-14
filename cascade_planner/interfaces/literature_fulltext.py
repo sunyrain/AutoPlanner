@@ -142,12 +142,13 @@ def materialize_europe_pmc_fulltext(
         "unresolved_edge_count": len(request.get("edges") or []) or 1,
         "focus_page_numbers": [int(row["page_number"]) for row in figures],
         "acquisition_status": "materialized",
-        "acquisition_method": "europe_pmc_open_access_fulltext_xml",
+        "acquisition_method": "europe_pmc_structured_fulltext_xml",
         "acquisition_receipt": receipt,
         "semantics": {
             "structured_fulltext_used_before_pdf": True,
             "original_figure_assets_used_without_pdf_rendering": True,
             "source_material_grants_no_exact_reaction_authority": True,
+            "repository_access_is_distinct_from_open_access_licence": True,
         },
     }
 
@@ -333,4 +334,6 @@ def _write_json_atomic(path: Path, value: Mapping[str, Any]) -> None:
     temporary.replace(path)
 
 
-__all__ = ["materialize_europe_pmc_fulltext"]
+__all__ = [
+    "materialize_europe_pmc_fulltext",
+]
