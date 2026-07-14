@@ -29,6 +29,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--console-url", default="http://127.0.0.1:8878/v4")
     parser.add_argument(
+        "--target-override-panel",
+        action="append",
+        default=[],
+        help="newer independent blind panel whose matching target replaces the baseline card",
+    )
+    parser.add_argument(
         "--supplemental-showcase",
         action="append",
         default=[],
@@ -40,12 +46,26 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     panel = json.loads(status_path.read_text(encoding="utf-8"))
-    rows = _compile_rows(panel, output_dir=output_dir)
+    rows = _compile_rows(panel, output_dir=output_dir, artifact_role="baseline")
+    override_paths = [
+        Path(value).expanduser().resolve() for value in args.target_override_panel
+    ]
+    for override_path in override_paths:
+        override_panel = json.loads(override_path.read_text(encoding="utf-8"))
+        rows = _merge_target_rows(
+            rows,
+            _compile_rows(
+                override_panel,
+                output_dir=output_dir,
+                artifact_role="latest_independent_blind_rerun",
+            ),
+        )
     summary = _summary(panel, rows)
     payload = {
         "schema_version": "v4_blind_expert_showcase.v1",
         "generated_at": _utc_now(),
         "panel_status_path": str(status_path),
+        "target_override_panel_paths": [str(path) for path in override_paths],
         "summary": summary,
         "targets": rows,
         "demo_links": {
@@ -93,7 +113,12 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _compile_rows(panel: Mapping[str, Any], *, output_dir: Path) -> list[dict[str, Any]]:
+def _compile_rows(
+    panel: Mapping[str, Any],
+    *,
+    output_dir: Path,
+    artifact_role: str = "baseline",
+) -> list[dict[str, Any]]:
     panel_root = Path(str(panel.get("output_root") or "")).resolve()
     paths = RuntimePaths.discover(
         repository_root=ROOT,
@@ -196,6 +221,7 @@ def _compile_rows(panel: Mapping[str, Any], *, output_dir: Path) -> list[dict[st
         rows.append(
             {
                 "target_name": str(target_name),
+                "artifact_role": artifact_role,
                 "status": str(state.get("status") or ("completed" if report else "queued")),
                 "run_id": run_id,
                 "claim": str(dict(report.get("claim") or {}).get("achieved_profile") or state.get("claim") or "unresolved"),
@@ -231,6 +257,18 @@ def _compile_rows(panel: Mapping[str, Any], *, output_dir: Path) -> list[dict[st
             }
         )
     return sorted(rows, key=lambda row: row["target_name"])
+
+
+def _merge_target_rows(
+    baseline: list[dict[str, Any]],
+    overrides: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged = {str(row.get("target_name") or "").casefold(): row for row in baseline}
+    for row in overrides:
+        name = str(row.get("target_name") or "").casefold()
+        if name:
+            merged[name] = row
+    return sorted(merged.values(), key=lambda row: str(row.get("target_name") or ""))
 
 
 def _summary(panel: Mapping[str, Any], rows: list[Mapping[str, Any]]) -> dict[str, Any]:
@@ -316,6 +354,11 @@ def _target_card(row: Mapping[str, Any]) -> str:
     origins = ", ".join(
         _origin_label(value) for value in workbench.get("origin_kinds") or []
     ) or "未记录"
+    artifact_note = (
+        " · 最新独立盲跑"
+        if row.get("artifact_role") == "latest_independent_blind_rerun"
+        else ""
+    )
     gate_html = "".join(
         f'<span class="gate {"on" if gates.get(key) else ""}" title="{_h(_gate_label(key))}">{key}</span>'
         for key in ("B0", "B1", "B2", "B3", "B4", "B5")
@@ -325,7 +368,7 @@ def _target_card(row: Mapping[str, Any]) -> str:
         if row.get("workbench_file")
         else '<span class="warn">工作台待生成</span>'
     )
-    return f"""<article class="card"><div class="top"><div><h2>{_h(row['target_name'])}</h2><code>{_h(row.get('run_id',''))}</code></div><span class="pill">{_h(row.get('claim','unresolved'))}</span></div><div class="gates">{gate_html}</div><div class="facts">{_fact('首个路线',_duration(row.get('time_to_first_route_s',0)))}{_fact('完整首轮',_duration(row.get('full_pass_s',0)))}{_fact('Codex',f"{int(cost.get('model_invocations') or 0)} 次")}{_fact('当前主路线',workbench.get('route_count',0))}{_fact('已验证替换',workbench.get('validated_replacement_count',0))}{_fact('反应验证',counts.get('reaction_validated_skeletons',0))}</div><div class="provider"><strong>ChemEnzy</strong> · 实调 {int(chem.get('provider_calls') or 0)} · 候选 {int(chem.get('proposals') or 0)} · 委派 { _h(chem.get('delegation_status','')) }<br><span class="muted">来源引擎：{_h(origins)} · 分子 {int(workbench.get('molecule_count') or 0)} · 反应边 {int(workbench.get('edge_count') or 0)} · 库存闭合 {counts.get('stock_closed_skeletons',0)}</span><br><span class="muted">Codex 输入 {int(cost.get('input_tokens') or 0):,} token · Evidence 来源 {int(evidence.get('sources') or 0)} · exact rows {int(evidence.get('exact_rows') or 0)} · visual {int(evidence.get('visual_calls') or 0)}</span></div><div class="links">{link}</div>{f'<p class="error">{_h(row["error"])} </p>' if row.get('error') else ''}</article>"""
+    return f"""<article class="card"><div class="top"><div><h2>{_h(row['target_name'])}</h2><code>{_h(row.get('run_id',''))}{_h(artifact_note)}</code></div><span class="pill">{_h(row.get('claim','unresolved'))}</span></div><div class="gates">{gate_html}</div><div class="facts">{_fact('首个路线',_duration(row.get('time_to_first_route_s',0)))}{_fact('完整首轮',_duration(row.get('full_pass_s',0)))}{_fact('Codex',f"{int(cost.get('model_invocations') or 0)} 次")}{_fact('当前主路线',workbench.get('route_count',0))}{_fact('已验证替换',workbench.get('validated_replacement_count',0))}{_fact('反应验证',counts.get('reaction_validated_skeletons',0))}</div><div class="provider"><strong>ChemEnzy</strong> · 实调 {int(chem.get('provider_calls') or 0)} · 候选 {int(chem.get('proposals') or 0)} · 委派 { _h(chem.get('delegation_status','')) }<br><span class="muted">来源引擎：{_h(origins)} · 分子 {int(workbench.get('molecule_count') or 0)} · 反应边 {int(workbench.get('edge_count') or 0)} · 库存闭合 {counts.get('stock_closed_skeletons',0)}</span><br><span class="muted">Codex 输入 {int(cost.get('input_tokens') or 0):,} token · Evidence 来源 {int(evidence.get('sources') or 0)} · exact rows {int(evidence.get('exact_rows') or 0)} · visual {int(evidence.get('visual_calls') or 0)}</span></div><div class="links">{link}</div>{f'<p class="error">{_h(row["error"])} </p>' if row.get('error') else ''}</article>"""
 
 
 def _origin_label(value: Any) -> str:

@@ -111,3 +111,24 @@ def test_blind_showcase_uses_current_routes_and_validated_replacements() -> None
     assert summary["validated_replacement_count"] == 3
     assert summary["gate_counts"]["B1"] == 1
     assert blind_showcase._origin_label("chemenzy") == "ChemEnzy 局部展开"
+
+
+def test_blind_showcase_newer_target_panel_replaces_only_matching_target() -> None:
+    baseline = [
+        {"target_name": "lovastatin", "workbench": {"route_count": 0}},
+        {"target_name": "simvastatin", "workbench": {"route_count": 5}},
+    ]
+    override = [
+        {
+            "target_name": "lovastatin",
+            "artifact_role": "latest_independent_blind_rerun",
+            "workbench": {"route_count": 4},
+        }
+    ]
+
+    merged = blind_showcase._merge_target_rows(baseline, override)
+
+    assert [row["target_name"] for row in merged] == ["lovastatin", "simvastatin"]
+    assert merged[0]["workbench"]["route_count"] == 4
+    assert merged[0]["artifact_role"] == "latest_independent_blind_rerun"
+    assert merged[1]["workbench"]["route_count"] == 5
