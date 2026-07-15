@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -48,13 +49,27 @@ def materialize_pmc_repository_html(
         cached_parser = parse_pmc_html(cached)
         if cached_parser.citation_doi.casefold() != source_doi.casefold():
             continue
+        cached_sha = hashlib.sha256(cached).hexdigest()
+        cached_receipt = _cached_receipt(cached_path, html_sha256=cached_sha)
+        pmcid = str(
+            cached_parser.pmcid
+            or cached_receipt.get("pmcid")
+            or candidate.get("pmcid")
+            or ""
+        ).strip().upper()
         html_bytes = cached
         parser = cached_parser
         receipt = {
             "provider": "content_addressed_pmc_html_cache",
-            "pmcid": cached_parser.pmcid,
+            "pmcid": pmcid,
             "doi": source_doi,
-            "html_sha256": hashlib.sha256(cached).hexdigest(),
+            "html_sha256": cached_sha,
+            "html_url": str(cached_receipt.get("html_url") or "")
+            or (
+                f"https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/"
+                if pmcid
+                else ""
+            ),
             "repository_fulltext": True,
             "has_repository_fulltext": True,
             "access_class": "free_repository_fulltext",
@@ -133,6 +148,16 @@ def _materialize_parsed_pmc_html(
     html_sha = hashlib.sha256(html_bytes).hexdigest()
     cache_path = fulltext_cache_dir / f"fulltext-{html_sha[:16]}.html"
     _write_bytes_once(cache_path, html_bytes)
+    _write_receipt_once(
+        cache_path.with_suffix(".receipt.json"),
+        {
+            "schema_version": "pmc_html_cache_receipt.v1",
+            "html_sha256": html_sha,
+            "doi": source_doi,
+            "pmcid": str(receipt.get("pmcid") or ""),
+            "html_url": str(receipt.get("html_url") or ""),
+        },
+    )
     materialized = source_dir / "materialized-fulltext"
     materialized.mkdir(parents=True, exist_ok=True)
     html_path = materialized / f"fulltext-{html_sha[:16]}.html"
@@ -188,6 +213,40 @@ def _write_bytes_once(path: Path, content: bytes) -> None:
         return
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_bytes(content)
+    temporary.replace(path)
+
+
+def _cached_receipt(path: Path, *, html_sha256: str) -> dict[str, Any]:
+    receipt_path = path.with_suffix(".receipt.json")
+    try:
+        value = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    if not isinstance(value, Mapping):
+        return {}
+    receipt = dict(value)
+    if str(receipt.get("html_sha256") or "") != html_sha256:
+        return {}
+    return receipt
+
+
+def _write_receipt_once(path: Path, value: Mapping[str, Any]) -> None:
+    encoded = (
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    )
+    if path.is_file():
+        try:
+            current = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            current = {}
+        if (
+            isinstance(current, Mapping)
+            and str(current.get("html_sha256") or "")
+            == str(value.get("html_sha256") or "")
+        ):
+            return
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(encoded, encoding="utf-8")
     temporary.replace(path)
 
 

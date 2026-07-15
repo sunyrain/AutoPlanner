@@ -438,6 +438,10 @@ def test_literature_connector_uses_pmc_html_before_pdf_or_browser(
 
     assert cached_source["acquisition_method"] == "pmc_repository_fulltext_html"
     assert cached_source["acquisition_receipt"]["cache_hit"] is True
+    assert cached_source["pmcid"] == "PMC1855665"
+    assert cached_source["acquisition_receipt"]["html_url"] == (
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC1855665/"
+    )
     assert cached["receipt"]["queued_source_count"] == 0
 
 

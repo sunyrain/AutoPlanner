@@ -269,6 +269,7 @@ def _compile_rows(
                     "max_route_steps": max(
                         (
                             len(dict(route).get("steps") or [])
+                            or len(dict(route).get("edge_ids") or [])
                             for route in dict(snapshot.get("routes") or {}).values()
                             if isinstance(route, Mapping)
                         ),
