@@ -445,6 +445,107 @@ def test_literature_connector_uses_pmc_html_before_pdf_or_browser(
     assert cached["receipt"]["queued_source_count"] == 0
 
 
+def test_cached_pmc_html_keeps_identity_for_late_exact_route_binding(
+    tmp_path: Path,
+) -> None:
+    doi = "10.1000/ethyl-acetate"
+    pmcid = "PMC123456"
+    excerpt = (
+        "Acetic acid (60 mg, 1 mmol) and ethanol (46 mg, 1 mmol) were added "
+        "to a flask. The reaction mixture was stirred at 25 C for 2 h and "
+        "purified to yield ethyl acetate."
+    )
+    html = (
+        '<!doctype html><html><head><meta name="citation_doi" '
+        f'content="{doi}"></head><body><h2>Materials and methods</h2>'
+        "<h3>Synthesis of ethyl acetate from acetic acid and ethanol</h3>"
+        f"<p>{excerpt}</p></body></html>"
+    ).encode()
+
+    def fetch(url: str, _timeout: float, _maximum: int) -> bytes:
+        if "search?" in url:
+            return json.dumps(
+                {
+                    "resultList": {
+                        "result": [
+                            {
+                                "doi": doi,
+                                "pmcid": pmcid,
+                                "isOpenAccess": "N",
+                                "inPMC": "Y",
+                            }
+                        ]
+                    }
+                }
+            ).encode()
+        if "fullTextXML" in url:
+            raise OSError("no structured XML")
+        if "pmc.ncbi.nlm.nih.gov" in url:
+            return html
+        raise AssertionError(f"unexpected URL: {url}")
+
+    structures = {
+        "ethyl acetate": "CCOC(C)=O",
+        "acetic acid": "CC(=O)O",
+        "ethanol": "CCO",
+    }
+    names = {value: [key] for key, value in structures.items()}
+    connector = build_builtin_literature_evidence_connector(
+        BuiltinLiteratureEvidenceConfig(
+            cache_dir=tmp_path / "cache",
+            seed_dois=(doi,),
+            max_sources=1,
+        ),
+        searcher=lambda _query, _limit: [],
+        fetcher=fetch,
+        structure_resolver=lambda name: structures.get(name.casefold(), ""),
+        candidate_name_resolver=lambda smiles: names.get(smiles, []),
+    )
+    prefetch_request = {
+        "target_name": "ethyl acetate",
+        "target_smiles": "CCOC(C)=O",
+        "edges": [],
+        "source_tasks": [],
+    }
+    first = connector(prefetch_request)
+    assert "document" not in first
+
+    def offline_fetch(_url: str, _timeout: float, _maximum: int) -> bytes:
+        raise OSError("cache replay must not access the network")
+
+    replay = build_builtin_literature_evidence_connector(
+        BuiltinLiteratureEvidenceConfig(
+            cache_dir=tmp_path / "cache",
+            seed_dois=(doi,),
+            max_sources=1,
+        ),
+        searcher=lambda _query, _limit: [],
+        fetcher=offline_fetch,
+        structure_resolver=lambda name: structures.get(name.casefold(), ""),
+        candidate_name_resolver=lambda smiles: names.get(smiles, []),
+    )
+    result = replay(
+        {
+            **prefetch_request,
+            "edges": [
+                {
+                    "edge_id": "edge:ethyl-acetate",
+                    "product_smiles": "CCOC(C)=O",
+                    "precursor_smiles": ["CC(=O)O", "CCO"],
+                    "current_host_reaction_validated": True,
+                }
+            ],
+        }
+    )
+
+    source = result["discovery"]["sources"][0]
+    assert source["pmcid"] == pmcid
+    assert source["exact_row_count"] == 1
+    assert result["document"]["sources"][0]["extraction"]["rows"][0][
+        "relation_type"
+    ] == "exact"
+
+
 def test_literature_connector_uses_isolated_browser_after_pmc_challenge(
     tmp_path: Path,
     monkeypatch: Any,

@@ -117,29 +117,30 @@ def main(argv: list[str] | None = None) -> int:
         },
         "runtime_revision": {
             "benchmark_semantics": (
-                "目标卡片来自不可变的真实冷跑 artifact；其中墙钟时间早于下列延迟优化。"
+                "目标卡片来自不可变的 blind-run artifact；路线闭合、条件完整和采购闭合分别计数。"
             ),
             "implemented": [
-                "快速首轮只生成 2 条完整路线族，每条最多 5 步，输出上限 3,800 tokens。",
-                "初始 Codex 默认不携带联网工具；HTML/XML 证据预取与全局规划并行。",
-                "Europe PMC 先检索论文/专利元数据；Google Patent 限流时转 EPO 官方家族。",
-                "证据只允许触发 1 次增量重规划，且只传入排名最高的 4 个来源。",
-                "视觉提取最多一次、禁止修复重试，输出仅作为 L0/L1 候选。",
-                "PMC HTML 程序段可直接生成 hash-bound 路线并经确定性 registry 晋升 exact row。",
-                "Simvastatin 零模型验证叉：全新来源 79.0 秒；相同来源缓存重放 17.0 秒。",
+                "Codex 首轮总揽路线族和战略断键，证据到达后最多再做 1 次全局重规划。",
+                "ChemEnzy 只处理 Codex/host 接纳的非平凡前沿，并保留库存缺口恢复额度。",
+                "Europe PMC/专利采用 HTML/XML 优先、PDF 回退；视觉只在确有图像页时稀疏触发。",
+                "文献路线先进入 canonical hypergraph，再经原子映射和反应验证晋升。",
+                "PMC 缓存重放保留 PMCID、官方 URL 和内容哈希，避免 exact 条件降级。",
+                "工作台区分路线骨架、反应验证、benchmark 边界、采购闭合和工艺就绪。",
             ],
             "next_acceptance": (
-                "使用全新复杂目标验收：90 秒内发布首批全局路线骨架；"
-                "Codex 最多 2 次，默认视觉调用 0 次，证据闭合异步进行。"
+                "在同一版本上完成 9 个 statin 的独立 blind panel；逐目标审计路线深度、"
+                "来源反应、exact 条件、ChemEnzy 调用、替换路线和边界类型。"
             ),
             "measured_after_revision": True,
             "validation_measurement": {
-                "target": "simvastatin",
-                "fresh_source_wall_time_s": 78.959,
-                "cached_replay_wall_time_s": 16.958,
-                "model_invocations": 0,
-                "visual_invocations": 0,
-                "scope": "evidence_validation_fork_not_initial_global_planning",
+                "target_count": summary["target_count"],
+                "report_count": summary["report_count"],
+                "codex_calls": summary["codex_calls"],
+                "chemenzy_calls": summary["chemenzy_calls"],
+                "visual_calls": summary["visual_calls"],
+                "condition_complete_edge_count": summary[
+                    "condition_complete_edge_count"
+                ],
             },
         },
         "semantics": {
@@ -251,8 +252,13 @@ def _compile_rows(
                     for kind in edge.get("origin_kinds") or []
                     if str(kind)
                 }
+                route_values = [
+                    dict(route)
+                    for route in dict(snapshot.get("routes") or {}).values()
+                    if isinstance(route, Mapping)
+                ]
                 workbench_metrics = {
-                    "route_count": len(snapshot.get("routes") or {}),
+                    "route_count": len(route_values),
                     "molecule_count": len(snapshot.get("molecules") or {}),
                     "edge_count": len(snapshot.get("edges") or {}),
                     "module_count": len(snapshot.get("modules") or {}),
@@ -270,10 +276,21 @@ def _compile_rows(
                         (
                             len(dict(route).get("steps") or [])
                             or len(dict(route).get("edge_ids") or [])
-                            for route in dict(snapshot.get("routes") or {}).values()
-                            if isinstance(route, Mapping)
+                            for route in route_values
                         ),
                         default=0,
+                    ),
+                    "exploration_closed_route_count": sum(
+                        route.get("closure_profile") == "exploration_closed"
+                        for route in route_values
+                    ),
+                    "procurement_closed_route_count": sum(
+                        route.get("closure_profile") == "procurement_closed"
+                        for route in route_values
+                    ),
+                    "process_ready_route_count": sum(
+                        route.get("process_ready") is True
+                        for route in route_values
                     ),
                     "condition_complete_edge_count": sum(
                         dict(dict(edge).get("proof_vector") or {}).get(
@@ -544,7 +561,7 @@ def _target_card(row: Mapping[str, Any]) -> str:
             f'{int(validation_cost.get("input_tokens") or 0):,} 输入 token'
             "</span>"
         )
-    return f"""<article class="card"><div class="top"><div><h2>{_h(row['target_name'])}</h2><code>{_h(row.get('run_id',''))}{_h(artifact_note)}</code></div><span class="pill">{_h(row.get('claim','unresolved'))}</span></div><div class="gates">{gate_html}</div><div class="facts">{_fact('首个路线',_duration(row.get('time_to_first_route_s',0)))}{_fact('最长路线',f"{int(workbench.get('max_route_steps') or 0)} 步")}{_fact('Codex',f"{int(cost.get('model_invocations') or 0)} 次")}{_fact('当前主路线',workbench.get('route_count',0))}{_fact('完整条件边',workbench.get('condition_complete_edge_count',0))}{_fact('已验证替换',workbench.get('validated_replacement_count',0))}</div><div class="provider"><strong>ChemEnzy</strong> · 实调 {int(chem.get('provider_calls') or 0)} · 候选 {int(chem.get('proposals') or 0)} · 委派 { _h(chem.get('delegation_status','')) }<br><span class="muted">来源引擎：{_h(origins)} · 分子 {int(workbench.get('molecule_count') or 0)} · 反应边 {int(workbench.get('edge_count') or 0)} · 库存闭合 {counts.get('stock_closed_skeletons',0)}</span><br><span class="muted">证据轮次 {int(evidence.get('passes') or 0)} · 来源 {int(evidence.get('sources') or 0)} · 文献路线 {int(evidence.get('source_route_validated') or 0)}/{int(evidence.get('source_route_proposals') or 0)} 验证 · exact rows {int(evidence.get('exact_rows') or 0)} · visual {int(evidence.get('visual_calls') or 0)}</span>{validation_note}</div><div class="links">{link}</div>{f'<p class="error">{_h(row["error"])} </p>' if row.get('error') else ''}</article>"""
+    return f"""<article class="card"><div class="top"><div><h2>{_h(row['target_name'])}</h2><code>{_h(row.get('run_id',''))}{_h(artifact_note)}</code></div><span class="pill">{_h(row.get('claim','unresolved'))}</span></div><div class="gates">{gate_html}</div><div class="facts">{_fact('首个路线',_duration(row.get('time_to_first_route_s',0)))}{_fact('最长路线',f"{int(workbench.get('max_route_steps') or 0)} 步")}{_fact('Codex',f"{int(cost.get('model_invocations') or 0)} 次")}{_fact('当前主路线',workbench.get('route_count',0))}{_fact('完整条件边',workbench.get('condition_complete_edge_count',0))}{_fact('已验证替换',workbench.get('validated_replacement_count',0))}</div><div class="provider"><strong>ChemEnzy</strong> · 实调 {int(chem.get('provider_calls') or 0)} · 候选 {int(chem.get('proposals') or 0)} · 委派 { _h(chem.get('delegation_status','')) }<br><span class="muted">边界状态：采购闭合 {int(workbench.get('procurement_closed_route_count') or 0)} · benchmark/探索闭合 {int(workbench.get('exploration_closed_route_count') or 0)} · 工艺就绪 {int(workbench.get('process_ready_route_count') or 0)}</span><br><span class="muted">来源引擎：{_h(origins)} · 分子 {int(workbench.get('molecule_count') or 0)} · 反应边 {int(workbench.get('edge_count') or 0)} · 库存闭合 {counts.get('stock_closed_skeletons',0)}</span><br><span class="muted">证据轮次 {int(evidence.get('passes') or 0)} · 来源 {int(evidence.get('sources') or 0)} · 文献路线 {int(evidence.get('source_route_validated') or 0)}/{int(evidence.get('source_route_proposals') or 0)} 验证 · exact rows {int(evidence.get('exact_rows') or 0)} · visual {int(evidence.get('visual_calls') or 0)}</span>{validation_note}</div><div class="links">{link}</div>{f'<p class="error">{_h(row["error"])} </p>' if row.get('error') else ''}</article>"""
 
 
 def _origin_label(value: Any) -> str:
