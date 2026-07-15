@@ -125,12 +125,22 @@ def main(argv: list[str] | None = None) -> int:
                 "Europe PMC 先检索论文/专利元数据；Google Patent 限流时转 EPO 官方家族。",
                 "证据只允许触发 1 次增量重规划，且只传入排名最高的 4 个来源。",
                 "视觉提取最多一次、禁止修复重试，输出仅作为 L0/L1 候选。",
+                "PMC HTML 程序段可直接生成 hash-bound 路线并经确定性 registry 晋升 exact row。",
+                "Simvastatin 零模型验证叉：全新来源 79.0 秒；相同来源缓存重放 17.0 秒。",
             ],
             "next_acceptance": (
                 "使用全新复杂目标验收：90 秒内发布首批全局路线骨架；"
                 "Codex 最多 2 次，默认视觉调用 0 次，证据闭合异步进行。"
             ),
-            "measured_after_revision": False,
+            "measured_after_revision": True,
+            "validation_measurement": {
+                "target": "simvastatin",
+                "fresh_source_wall_time_s": 78.959,
+                "cached_replay_wall_time_s": 16.958,
+                "model_invocations": 0,
+                "visual_invocations": 0,
+                "scope": "evidence_validation_fork_not_initial_global_planning",
+            },
         },
         "semantics": {
             "unresolved_is_not_failure": True,
@@ -286,12 +296,12 @@ def _compile_rows(
                     "status": str(evidence.get("status") or "not_recorded"),
                     "sources": max(
                         int(evidence.get("source_count") or 0),
-                        int(evidence.get("source_binding_count") or 0),
                         len(
                             dict(evidence.get("discovery") or {}).get("sources")
                             or []
                         ),
                     ),
+                    "bindings": int(evidence.get("source_binding_count") or 0),
                     "exact_rows": int(evidence.get("exact_record_count") or 0),
                     "visual_calls": int(evidence.get("visual_invocations") or 0),
                 },
@@ -427,7 +437,7 @@ def _render(payload: Mapping[str, Any]) -> str:
 <main><section class="summary">{_metric('已生成报告',f"{summary['report_count']} / {summary['target_count']}")}{_metric('当前主路线',summary['route_count'])}{_metric('已验证替换',summary['validated_replacement_count'])}{_metric('Codex / ChemEnzy',f"{summary['codex_calls']} / {summary['chemenzy_calls']}")}{_metric('中位首路线',_duration(summary['median_time_to_first_route_s']))}{_metric('B1 / B3 / B5',f"{gate_counts.get('B1',0)} / {gate_counts.get('B3',0)} / {gate_counts.get('B5',0)}")}</section>
 <nav class="demo-links"><a class="button" href="{_h(demo_links.get('console_url',''))}">打开实时控制台</a>{supplemental_links}</nav>
 <section class="architecture"><div><b>Codex</b><span class="muted">一次总揽路线族、战略断键与局部前沿</span></div><div><b>ChemEnzy</b><span class="muted">只展开 host 接纳的子目标或库存缺口</span></div><div><b>Evidence</b><span class="muted">HTML-first，PDF 回退，视觉稀疏触发</span></div><div><b>Host verifier</b><span class="muted">守恒、映射、循环、原子突变与条件</span></div><div><b>Inventory</b><span class="muted">逐叶审计，闭合与可采购分离</span></div></section>
-<section class="revision"><div><h2>冷启动性能说明</h2><p class="baseline">上方秒数是不可变的旧冷跑基线，不是优化后的实测成绩。</p><p class="muted">{_h(revision.get('benchmark_semantics',''))}</p></div><div><ul>{implemented}</ul><div class="slo"><b>下一验收门：</b> {_h(revision.get('next_acceptance',''))}</div></div></section>
+<section class="revision"><div><h2>冷启动性能说明</h2><p class="baseline">上方首路线秒数仍是不可变的旧冷跑基线；证据验证优化已另行实测。</p><p class="muted">{_h(revision.get('benchmark_semantics',''))}</p></div><div><ul>{implemented}</ul><div class="slo"><b>下一验收门：</b> {_h(revision.get('next_acceptance',''))}</div></div></section>
 <section class="grid">{cards}</section></main><footer>Generated {_h(payload['generated_at'])} · 所有 unresolved 均保留真实缺口，不自动升级为 solved。</footer></body></html>"""
 
 

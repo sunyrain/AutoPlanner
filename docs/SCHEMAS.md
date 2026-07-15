@@ -24,6 +24,7 @@
 | `patent_template_retrieval.v1` | 交给全局 Director/统一准入链的 L0 模板候选 | deterministic template retriever |
 | `local_source_ocr_materialization.v1` | 本地 OCR 执行、覆盖率与零模型审计 | local OCR adapter |
 | `source_text_companion_binding.v1` | source/HTML 段落或 PDF/page image/OCR text 哈希重放绑定 | deterministic literature parser |
+| `structured_fulltext_html.v1` | PMC 全文 HTML、操作性实验段落、段落文本哈希与官方来源 URL 的可重放 companion | literature evidence connector |
 | `visual_source_candidate_request.v1` | 至多一次、页图哈希绑定的视觉请求 | visual evidence adapter |
 | `visual_source_candidate_observation.v1` | 仅供全局 replan 的 L0 视觉候选 | host-normalized visual adapter |
 | `autoplanner_repository_audit.v1` | 当前跟踪树只读审计 | repository audit |

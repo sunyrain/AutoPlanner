@@ -37,6 +37,7 @@ from cascade_planner.harness.source_text_companion import (
     primary_html_companion,
     source_text_companion_location,
     source_text_companion_matches_page,
+    structured_fulltext_companion,
     validate_source_text_companion_binding,
 )
 from cascade_planner.harness.source_condition_extraction import (
@@ -922,7 +923,31 @@ def _build_primary_html_document_index(
             "procedures": [],
             "reasons": sorted(set(reasons or ["primary_html_binding_invalid"])),
         }
-    procedures = _extract_labeled_procedures(pages)
+    procedures = (
+        [
+            {
+                "label": str(row.get("label") or ""),
+                "name": str(row.get("name") or ""),
+                "narrative_context": " ".join(
+                    [
+                        str(row.get("name") or ""),
+                        str(row.get("text") or ""),
+                    ]
+                ).strip(),
+                "procedure": str(row.get("text") or ""),
+                "page_number": int(row.get("page_number") or 0),
+                "source_text_companion_binding": dict(
+                    row.get("source_text_companion_binding") or {}
+                ),
+            }
+            for row in pages
+            if isinstance(row, Mapping)
+            and int(row.get("page_number") or 0) > 0
+            and str(row.get("text") or "")
+        ]
+        if structured_fulltext_companion(binding)
+        else _extract_labeled_procedures(pages)
+    )
     artifact_sha256 = str(binding.get("artifact_sha256") or "").lower()
     return {
         "accepted": bool(procedures),
@@ -987,6 +1012,14 @@ def _source_parenthetical_name_aliases(
     return dict(sorted(aliases.items()))
 
 
+def source_parenthetical_name_aliases(
+    page_texts: Iterable[Mapping[str, Any]],
+) -> dict[str, str]:
+    """Expose bounded source-declared aliases to route materializers."""
+
+    return _source_parenthetical_name_aliases(page_texts)
+
+
 def _resolve_procedure_structure(
     procedure: dict[str, Any],
     *,
@@ -996,7 +1029,8 @@ def _resolve_procedure_structure(
         return
     procedure["structure_parse_attempted"] = True
     name = str(procedure.get("name") or "")
-    candidates = [name, *narrative_product_name_candidates(name)]
+    narrative = str(procedure.get("narrative_context") or name)
+    candidates = [name, *narrative_product_name_candidates(narrative)]
     for index, candidate in enumerate(dict.fromkeys(candidates)):
         try:
             smiles = resolve_structure(candidate)

@@ -97,6 +97,10 @@ python -m cascade_planner fork-validation target-blind-001 \
 客户端返回 reCAPTCHA shell 时，系统只对 `https://pmc.ncbi.nlm.nih.gov` 启动一次隔离、
 无凭据、无用户 profile 的 Playwright context；最终跳转 host、HTTP 状态、字节上限和正文
 DOI 都必须再次通过校验。挑战页和最终 HTML 分别绑定 SHA-256，之后可从内容缓存重放。
+对包含操作性实验段落的 PMC HTML，系统会过滤 Abstract/Figure/Discussion，解析来源内缩写、
+产物和投料名称，先生成 target-connected source route，再用冻结 HTML、段落文本哈希和
+OPSIN/PubChem registry 独立重建结构。只有 registry 与 host validation 都通过时才产生
+exact row；论文标题、摘要和检索片段本身仍不授予证据等级。
 
 需要校园网或人工已登录浏览器才能获取的 PDF 仍进入显式本机队列，不会把 cookie 或凭据
 传给服务端。可只处理当前 case/source，避免混入旧请求：

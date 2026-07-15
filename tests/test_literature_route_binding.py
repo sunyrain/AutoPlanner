@@ -1,0 +1,134 @@
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+from cascade_planner.harness.source_text_companion import (
+    PRIMARY_HTML_AUTHORITY_MODE,
+    SOURCE_TEXT_COMPANION_SPEC_SCHEMA,
+    STRUCTURED_FULLTEXT_HTML_FORMAT,
+    materialize_source_text_companion_pages,
+    validate_source_text_companion_binding,
+)
+from cascade_planner.interfaces.literature_route_binding import (
+    bind_materialized_literature_source,
+)
+from cascade_planner.interfaces.evidence_import import (
+    validate_structured_evidence_document,
+)
+
+
+def _fixture(tmp_path: Path) -> tuple[Path, str, str]:
+    excerpt = (
+        "Acetic acid (60 mg, 1 mmol) and ethanol (46 mg, 1 mmol) were added "
+        "to a flask. The reaction mixture was stirred at 25 C for 2 h and "
+        "purified to yield ethyl acetate."
+    )
+    html = (
+        "<!doctype html><html><body><p>PMC123</p>"
+        "<h2>Synthesis of ethyl acetate from acetic acid and ethanol</h2>"
+        f"<p>{excerpt}</p></body></html>"
+    ).encode()
+    path = tmp_path / "fulltext.html"
+    path.write_bytes(html)
+    return path, hashlib.sha256(html).hexdigest(), excerpt
+
+
+def test_structured_fulltext_companion_is_hash_replayable(tmp_path: Path) -> None:
+    path, digest, excerpt = _fixture(tmp_path)
+    spec = {
+        "schema_version": SOURCE_TEXT_COMPANION_SPEC_SCHEMA,
+        "artifact_path": str(path),
+        "artifact_sha256": digest,
+        "document_identity": "PMC123",
+        "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC123/",
+        "format": STRUCTURED_FULLTEXT_HTML_FORMAT,
+        "authority_mode": PRIMARY_HTML_AUTHORITY_MODE,
+        "sections": [
+            {
+                "page_number": 1,
+                "label": "html-section-1",
+                "name": "Synthesis of ethyl acetate from acetic acid and ethanol",
+                "text": excerpt,
+                "text_sha256": hashlib.sha256(excerpt.encode()).hexdigest(),
+            }
+        ],
+    }
+
+    pages, binding, reasons = materialize_source_text_companion_pages(
+        spec,
+        source_ref="doi:10.1000/example",
+    )
+
+    assert reasons == ()
+    assert pages[0]["name"].startswith("Synthesis of ethyl acetate")
+    assert validate_source_text_companion_binding(
+        binding,
+        expected_source_ref="doi:10.1000/example",
+    )
+
+
+def test_paper_procedure_compiles_route_and_exact_row(tmp_path: Path) -> None:
+    path, digest, excerpt = _fixture(tmp_path)
+    structures = {
+        "ethyl acetate": "CCOC(C)=O",
+        "acetic acid": "CC(=O)O",
+        "ethanol": "CCO",
+    }
+
+    def resolve_structure(name: str) -> str:
+        return structures.get(" ".join(name.casefold().split()), "")
+
+    names = {value: [key] for key, value in structures.items()}
+    source = {
+        "source_kind": "paper_si",
+        "source_ref": "doi:10.1000/example",
+        "doi": "10.1000/example",
+        "pmcid": "PMC123",
+        "title": "A preparation of ethyl acetate",
+        "source_fulltext_sha256": digest,
+        "fulltext_html_path": str(path),
+        "visual_candidate_pages": [],
+        "procedure_inventory": [
+            {
+                "label": "html-section-1",
+                "name": "Synthesis of ethyl acetate from acetic acid and ethanol",
+                "page_number": 1,
+                "procedure_excerpt": excerpt,
+            }
+        ],
+        "acquisition_receipt": {
+            "html_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC123/",
+            "pmcid": "PMC123",
+        },
+    }
+    request = {
+        "edges": [
+            {
+                "edge_id": "edge:existing",
+                "product_smiles": "CCOC(C)=O",
+                "precursor_smiles": ["CC(=O)O", "CCO"],
+                "current_host_reaction_validated": True,
+            }
+        ]
+    }
+
+    enriched, structured, audit = bind_materialized_literature_source(
+        source,
+        request=request,
+        output_dir=tmp_path / "registry",
+        structure_resolver=resolve_structure,
+        candidate_name_resolver=lambda smiles: names.get(smiles, []),
+        timeout_s=1.0,
+        provider_version="test",
+    )
+
+    assert audit["status"] == "completed"
+    assert enriched["source_route_proposal_count"] == 1
+    assert enriched["exact_row_count"] == 1
+    assert structured["extraction"]["rows"][0]["relation_type"] == "exact"
+    assert structured["binding"]["source_ref"] == "doi:10.1000/example"
+    validated = validate_structured_evidence_document(
+        {"schema_version": "structured_evidence_import.v1", "sources": [structured]}
+    )
+    assert len(validated["sources"]) == 1

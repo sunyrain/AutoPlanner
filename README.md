@@ -55,6 +55,8 @@ python -m cascade_planner solve-target \
 HTML 已闭合的边不会下载或渲染 PDF。只有未闭合边才依次回退到 PDF 原生文本、本机
 Tesseract OCR，最后才可用
 `--max-visual-invocations 1 --max-model-invocations 3` 显式准入一次稀疏页面视觉调用。
+Europe PMC/PMC 论文通道同样可把哈希冻结的操作性 HTML 段落编译为来源路线，并经独立
+名称结构解析、原子盘点和 host validation 生成 exact row；这一路径默认模型/视觉调用均为 0。
 
 通过专利 exact row 且当前 host 反应验证的反应会自动进入外部
 `data_external/self-evo/patent-reaction-template-library.json`。模板先在原始反应上重放，

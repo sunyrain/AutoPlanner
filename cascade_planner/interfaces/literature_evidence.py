@@ -10,6 +10,17 @@ from typing import Any, Callable, Iterable, Mapping
 
 import requests
 
+from cascade_planner.harness.deterministic_literature_registry import (
+    DEFAULT_OPSIN_BASE_URL,
+    DEFAULT_PUBCHEM_BASE_URL,
+    PARSER_AUTHORITY_ID,
+    CandidateNameResolver,
+    StructureResolver,
+    build_deterministic_literature_resolvers,
+)
+from cascade_planner.harness.deterministic_resolver_cache import (
+    DeterministicResolverCache,
+)
 from cascade_planner.harness.local_pdf_proxy import (
     local_pdf_proxy_download_manifest_path,
     local_pdf_proxy_request_queue_path,
@@ -31,6 +42,9 @@ from cascade_planner.interfaces.literature_candidates import (
 from cascade_planner.interfaces.literature_materialization import (
     materialize_candidate as _materialize_candidate,
 )
+from cascade_planner.interfaces.literature_route_binding import (
+    bind_materialized_literature_source,
+)
 from cascade_planner.interfaces.literature_search import fetch_bytes, primary_literature_search
 from cascade_planner.interfaces.live_evidence import (
     LiveEvidenceConnectorError,
@@ -39,7 +53,7 @@ from cascade_planner.interfaces.live_evidence import (
 
 
 BUILTIN_LITERATURE_PROVIDER_ID = "autoplanner.builtin_literature_evidence"
-BUILTIN_LITERATURE_PROVIDER_VERSION = "1.4"
+BUILTIN_LITERATURE_PROVIDER_VERSION = "1.5"
 PaperSearch = Callable[[str, int], Iterable[Mapping[str, Any]]]
 BytesFetcher = Callable[[str, float, int], bytes]
 
@@ -84,6 +98,8 @@ def build_builtin_literature_evidence_connector(
     *,
     searcher: PaperSearch | None = None,
     fetcher: BytesFetcher | None = None,
+    structure_resolver: StructureResolver | None = None,
+    candidate_name_resolver: CandidateNameResolver | None = None,
 ) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
     """Build a metadata-first connector using XML before bounded PDF fallback."""
     cache_root = Path(config.cache_dir).expanduser().resolve()
@@ -94,6 +110,26 @@ def build_builtin_literature_evidence_connector(
     )
     search = searcher or primary_literature_search
     fetch = fetcher or fetch_bytes
+    resolver_cache: DeterministicResolverCache | None = None
+    default_structure_resolver: StructureResolver | None = None
+    default_name_resolver: CandidateNameResolver | None = None
+
+    def default_resolvers() -> tuple[StructureResolver, CandidateNameResolver]:
+        nonlocal resolver_cache, default_structure_resolver, default_name_resolver
+        if default_structure_resolver is None or default_name_resolver is None:
+            resolver_cache = DeterministicResolverCache(
+                cache_root / "resolver-cache",
+                authority_id=PARSER_AUTHORITY_ID,
+                opsin_base_url=DEFAULT_OPSIN_BASE_URL,
+                pubchem_base_url=DEFAULT_PUBCHEM_BASE_URL,
+            )
+            default_structure_resolver, default_name_resolver = (
+                build_deterministic_literature_resolvers(
+                    timeout_s=config.timeout_s,
+                    persistent_cache=resolver_cache,
+                )
+            )
+        return default_structure_resolver, default_name_resolver
 
     def invoke(request: Mapping[str, Any]) -> Mapping[str, Any]:
         request_sha = str(request.get("content_sha256") or "")
@@ -141,6 +177,7 @@ def build_builtin_literature_evidence_connector(
         request_dir = cache_root / request_sha[:24]
         request_dir.mkdir(parents=True, exist_ok=True)
         sources: list[dict[str, Any]] = []
+        structured_sources: list[dict[str, Any]] = []
         pending_sources: list[dict[str, Any]] = []
         audits: list[dict[str, Any]] = []
         remaining = iter(candidates)
@@ -227,6 +264,34 @@ def build_builtin_literature_evidence_connector(
                         )
                     continue
                 assert source is not None
+                route_binding: dict[str, Any] = {
+                    "status": "not_needed",
+                    "model_invocations": 0,
+                }
+                if _route_binding_eligible(source, request=request):
+                    default_structure, default_names = default_resolvers()
+                    source, structured, route_binding = (
+                        bind_materialized_literature_source(
+                            source,
+                            request=request,
+                            output_dir=(
+                                request_dir
+                                / hashlib.sha256(
+                                    str(source.get("source_ref") or "").encode()
+                                ).hexdigest()[:20]
+                            ),
+                            structure_resolver=(
+                                structure_resolver or default_structure
+                            ),
+                            candidate_name_resolver=(
+                                candidate_name_resolver or default_names
+                            ),
+                            timeout_s=config.timeout_s,
+                            provider_version=BUILTIN_LITERATURE_PROVIDER_VERSION,
+                        )
+                    )
+                    if structured:
+                        structured_sources.append(structured)
                 audits.append(
                     {
                         "source_ref": source["source_ref"],
@@ -240,6 +305,7 @@ def build_builtin_literature_evidence_connector(
                         "fulltext_sha256": str(source.get("source_fulltext_sha256") or ""),
                         "pdf_sha256": str(source.get("source_pdf_sha256") or ""),
                         "visual_page_count": len(source["visual_candidate_pages"]),
+                        "route_binding": route_binding,
                     }
                 )
                 sources.append(source)
@@ -288,9 +354,18 @@ def build_builtin_literature_evidence_connector(
             "parallel_search": len(queries) > 1,
             "parallel_materialization": config.max_workers > 1,
             "model_invocations": 0,
+            "resolver_cache": (
+                resolver_cache.flush() if resolver_cache is not None else None
+            ),
         }
         receipt["content_sha256"] = _digest(receipt)
-        return {"discovery": discovery, "receipt": receipt}
+        result: dict[str, Any] = {"discovery": discovery, "receipt": receipt}
+        if structured_sources:
+            result["document"] = {
+                "schema_version": "structured_evidence_import.v1",
+                "sources": structured_sources,
+            }
+        return result
 
     setattr(invoke, "autoplanner_prefetch_safe", True)
     return invoke
@@ -302,6 +377,23 @@ def _digest(value: Any) -> str:
             value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode()
     ).hexdigest()
+
+
+def _route_binding_eligible(
+    source: Mapping[str, Any],
+    *,
+    request: Mapping[str, Any],
+) -> bool:
+    return bool(
+        source.get("procedure_inventory")
+        and source.get("source_fulltext_sha256")
+        and any(
+            isinstance(row, Mapping)
+            and row.get("current_host_reaction_validated") is True
+            and str(row.get("product_smiles") or "")
+            for row in request.get("edges") or []
+        )
+    )
 
 
 __all__ = [

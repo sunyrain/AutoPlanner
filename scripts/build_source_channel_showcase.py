@@ -280,7 +280,31 @@ def _validation_fork_payload(
         ),
         {},
     )
-    route_observation = dict(patent_audit.get("source_route_observation") or {})
+    route_observations = [
+        (source, dict(source.get("source_route_observation") or {}))
+        for source in sources
+        if isinstance(source.get("source_route_observation"), Mapping)
+        and source.get("source_route_observation")
+        and _route_observation_usable(source.get("source_route_observation") or {})
+    ]
+    patent_route_observation = dict(
+        patent_audit.get("source_route_observation") or {}
+    )
+    if patent_route_observation and not any(
+        source.get("source_kind") == "patent"
+        for source, _observation in route_observations
+    ):
+        route_observations.append(
+            (
+                {
+                    "source_kind": "patent",
+                    "source_route_exact_step_ids": list(
+                        patent_audit.get("source_route_exact_step_ids") or []
+                    ),
+                },
+                patent_route_observation,
+            )
+        )
     source_route_stage = dict(stage.get("source_route") or {})
     source_route_validation = dict(
         source_route_stage.get("validation") or stage.get("validation") or {}
@@ -289,10 +313,34 @@ def _validation_fork_payload(
     visual_observation = dict(visual_stage.get("observation") or {})
     visual_materialization = dict(visual_stage.get("materialization") or {})
     visual_validation = dict(visual_stage.get("validation") or {})
-    source_routes = [
-        _source_route_card(dict(row), target_name=str(dict(report.get("target") or {}).get("name") or "target"))
-        for row in route_observation.get("proposals") or []
+    observed_source_routes = [
+        _source_route_card(
+            dict(row),
+            target_name=str(
+                dict(report.get("target") or {}).get("name") or "target"
+            ),
+            source_kind=str(source.get("source_kind") or ""),
+            exact_step_ids={
+                str(value)
+                for value in source.get("source_route_exact_step_ids") or []
+                if str(value)
+            },
+        )
+        for source, observation in route_observations
+        for row in observation.get("proposals") or []
         if isinstance(row, Mapping)
+    ][:8]
+    exact_source_routes = _exact_source_route_cards(
+        stage,
+        artifact_store_root=store,
+    )
+    source_routes = [
+        *exact_source_routes,
+        *[
+            row
+            for row in observed_source_routes
+            if "主机验证" in str(row.get("label") or "")
+        ],
     ][:8]
     self_evolution = dict(report.get("self_evolution") or {})
     learning = next(
@@ -329,14 +377,23 @@ def _validation_fork_payload(
             "paper_procedure_count": len(paper.get("procedure_inventory") or []),
             "patent_procedure_count": len(patent.get("procedure_inventory") or []),
             "source_route_proposal_count": int(
-                route_observation.get("proposal_count") or len(source_routes)
+                sum(
+                    int(observation.get("proposal_count") or 0)
+                    for _source, observation in route_observations
+                )
             ),
             "source_route_host_accepted_count": int(
                 source_route_validation.get("accepted_validation_count")
                 or 0
             ),
             "source_route_exact_row_count": int(
-                patent_audit.get("source_route_exact_row_count") or 0
+                max(
+                    sum(
+                        int(source.get("source_route_exact_row_count") or 0)
+                        for source in sources
+                    ),
+                    int(patent_audit.get("source_route_exact_row_count") or 0),
+                )
             ),
             "source_routes": source_routes,
             "visual_candidate_count": int(
@@ -374,7 +431,13 @@ def _validation_fork_payload(
     )
 
 
-def _source_route_card(row: Mapping[str, Any], *, target_name: str) -> dict[str, str]:
+def _source_route_card(
+    row: Mapping[str, Any],
+    *,
+    target_name: str,
+    source_kind: str,
+    exact_step_ids: set[str],
+) -> dict[str, str]:
     origin = str(row.get("origin_kind") or "")
     raw_product = str(row.get("product_name") or "")
     product = _narrative_product_name(raw_product)
@@ -388,8 +451,11 @@ def _source_route_card(row: Mapping[str, Any], *, target_name: str) -> dict[str,
         reactants = [f"{target_name} acid"]
         label = "形式桥接 · 主机验证"
     else:
-        label = "专利实验反应 · exact 来源行"
-    condition = dict(row.get("condition_candidate") or {})
+        source_label = "论文" if source_kind == "paper_si" else "专利"
+        exact = str(row.get("proposal_id") or row.get("step_id") or "") in exact_step_ids
+        label = f"{source_label}实验反应 · {'exact 来源行' if exact else '主机验证候选'}"
+    raw_condition = row.get("condition_candidate")
+    condition = dict(raw_condition) if isinstance(raw_condition, Mapping) else {}
     condition_text = "；".join(
         str(condition.get(key) or "").strip()
         for key in ("temperature", "time", "addition_order", "workup")
@@ -400,6 +466,77 @@ def _source_route_card(row: Mapping[str, Any], *, target_name: str) -> dict[str,
         "reaction": f"{' + '.join(reactants) or '来源中间体'} → {product}",
         "conditions": condition_text or "确定性结构等价；无独立实验条件授权",
     }
+
+
+def _route_observation_usable(value: Mapping[str, Any]) -> bool:
+    proposals = [
+        dict(row)
+        for row in value.get("proposals") or []
+        if isinstance(row, Mapping)
+    ]
+    return bool(
+        proposals
+        and any(
+            str(row.get("product_smiles") or "") != "<depth-limited>"
+            for row in proposals
+        )
+    )
+
+
+def _exact_source_route_cards(
+    stage: Mapping[str, Any],
+    *,
+    artifact_store_root: Path,
+) -> list[dict[str, str]]:
+    validation = dict(stage.get("validation") or {})
+    execution = dict(validation.get("execution") or {})
+    graph_ref = dict(execution.get("graph_ref") or {})
+    object_path = str(graph_ref.get("object_path") or "")
+    if not object_path:
+        return []
+    try:
+        graph = _json(_file(artifact_store_root / object_path))
+    except ValueError:
+        return []
+    records = [
+        dict(row)
+        for row in dict(graph.get("exact_records") or {}).values()
+        if isinstance(row, Mapping)
+    ]
+    cards: list[dict[str, str]] = []
+    for row in records:
+        source_ref = str(row.get("source_ref") or "")
+        source_label = "论文" if source_ref.casefold().startswith("doi:") else "专利"
+        conditions = dict(row.get("conditions") or {})
+        condition_text = "；".join(
+            _condition_value(conditions.get(key))
+            for key in ("solvent", "temperature", "time", "addition_order", "workup")
+            if _condition_value(conditions.get(key))
+        )
+        reactants = [
+            str(value) for value in row.get("reactant_smiles") or [] if str(value)
+        ]
+        product = str(row.get("product_smiles") or "")
+        if not reactants or not product:
+            continue
+        cards.append(
+            {
+                "label": f"{source_label}实验反应 · exact 来源行",
+                "reaction": f"{' + '.join(reactants)} → {product}",
+                "conditions": condition_text or "exact 结构已绑定；条件仍不完整",
+            }
+        )
+    return cards[:8]
+
+
+def _condition_value(value: Any) -> str:
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value if str(item))
+    if isinstance(value, Mapping):
+        return ", ".join(
+            f"{key}: {item}" for key, item in value.items() if str(item)
+        )
+    return str(value or "").strip()
 
 
 def _narrative_product_name(value: str) -> str:

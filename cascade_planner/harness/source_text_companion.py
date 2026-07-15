@@ -15,6 +15,7 @@ from cascade_planner.harness.source_ocr import HASH_BOUND_OCR_FORMAT
 SOURCE_TEXT_COMPANION_SPEC_SCHEMA = "trusted_source_text_companion.v1"
 SOURCE_TEXT_COMPANION_BINDING_SCHEMA = "source_text_companion_binding.v1"
 GOOGLE_PATENTS_HTML_FORMAT = "google_patents_html.v1"
+STRUCTURED_FULLTEXT_HTML_FORMAT = "structured_fulltext_html.v1"
 PRIMARY_HTML_AUTHORITY_MODE = "primary_html"
 _MAX_COMPANION_BYTES = 100_000_000
 
@@ -42,6 +43,15 @@ def materialize_source_text_companion_pages(
         and format_id == HASH_BOUND_OCR_FORMAT
     ):
         return _materialize_hash_bound_ocr_pages(
+            spec,
+            expected_source_ref=expected_source_ref,
+        )
+    if (
+        spec.get("schema_version") == SOURCE_TEXT_COMPANION_SPEC_SCHEMA
+        and expected_source_ref
+        and format_id == STRUCTURED_FULLTEXT_HTML_FORMAT
+    ):
+        return _materialize_structured_fulltext_pages(
             spec,
             expected_source_ref=expected_source_ref,
         )
@@ -196,6 +206,30 @@ def validate_source_text_companion_binding(
                 if isinstance(row, Mapping)
             ],
         }
+    elif binding.get("format") == STRUCTURED_FULLTEXT_HTML_FORMAT:
+        spec = {
+            "schema_version": SOURCE_TEXT_COMPANION_SPEC_SCHEMA,
+            "artifact_path": binding.get("artifact_path"),
+            "artifact_sha256": binding.get("artifact_sha256"),
+            "document_identity": binding.get("document_identity"),
+            "source_url": binding.get("source_url"),
+            "format": binding.get("format"),
+            "authority_mode": binding.get("authority_mode"),
+            "sections": [
+                {
+                    key: row.get(key)
+                    for key in (
+                        "page_number",
+                        "label",
+                        "name",
+                        "text",
+                        "text_sha256",
+                    )
+                }
+                for row in binding.get("sections") or []
+                if isinstance(row, Mapping)
+            ],
+        }
     else:
         spec = {
             "schema_version": SOURCE_TEXT_COMPANION_SPEC_SCHEMA,
@@ -225,7 +259,16 @@ def validate_source_text_companion_binding(
 def primary_html_companion(raw: Mapping[str, Any]) -> bool:
     row = dict(raw) if isinstance(raw, Mapping) else {}
     return bool(
-        row.get("format") == GOOGLE_PATENTS_HTML_FORMAT
+        row.get("format")
+        in {GOOGLE_PATENTS_HTML_FORMAT, STRUCTURED_FULLTEXT_HTML_FORMAT}
+        and row.get("authority_mode") == PRIMARY_HTML_AUTHORITY_MODE
+    )
+
+
+def structured_fulltext_companion(raw: Mapping[str, Any]) -> bool:
+    row = dict(raw) if isinstance(raw, Mapping) else {}
+    return bool(
+        row.get("format") == STRUCTURED_FULLTEXT_HTML_FORMAT
         and row.get("authority_mode") == PRIMARY_HTML_AUTHORITY_MODE
     )
 
@@ -268,6 +311,14 @@ def source_text_companion_location(
     if len(matches) != 1:
         return {}
     section = matches[0]
+    if structured_fulltext_companion(binding):
+        label = str(section.get("label") or f"section-{page_number}")
+        return {
+            "kind": "structured_fulltext_section",
+            "start_element_id": label,
+            "end_element_id": label,
+            "text_sha256": str(section.get("text_sha256") or ""),
+        }
     return {
         "kind": "html_paragraph_range",
         "start_element_id": str(section.get("start_element_id") or ""),
@@ -297,6 +348,171 @@ def source_text_companion_matches_page(
     ]
     return len(matches) == 1 and str(matches[0].get("image_sha256") or "") == str(
         image_sha256 or ""
+    )
+
+
+def _materialize_structured_fulltext_pages(
+    spec: Mapping[str, Any],
+    *,
+    expected_source_ref: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any], tuple[str, ...]]:
+    """Replay selected PMC full-text sections against frozen HTML bytes."""
+
+    artifact_path = Path(str(spec.get("artifact_path") or "")).expanduser()
+    artifact_sha256 = str(spec.get("artifact_sha256") or "").strip().lower()
+    source_url = str(spec.get("source_url") or "").strip()
+    document_identity = str(spec.get("document_identity") or "").strip()
+    reasons: list[str] = []
+    if not artifact_path.is_file():
+        reasons.append("structured_fulltext_artifact_missing")
+    if not _is_sha256(artifact_sha256):
+        reasons.append("structured_fulltext_artifact_sha256_invalid")
+    if not _official_pmc_source(
+        document_identity=document_identity,
+        source_url=source_url,
+    ):
+        reasons.append("structured_fulltext_origin_invalid")
+    if not expected_source_ref.startswith(("doi:", "pmid:", "pmcid:")):
+        reasons.append("structured_fulltext_source_ref_invalid")
+    sections = [
+        dict(row)
+        for row in spec.get("sections") or []
+        if isinstance(row, Mapping)
+    ]
+    if not 1 <= len(sections) <= 64:
+        reasons.append("structured_fulltext_section_count_invalid")
+    if reasons:
+        return [], {}, tuple(sorted(set(reasons)))
+    try:
+        artifact_bytes = artifact_path.read_bytes()
+    except OSError:
+        return [], {}, ("structured_fulltext_artifact_unreadable",)
+    if (
+        len(artifact_bytes) > _MAX_COMPANION_BYTES
+        or hashlib.sha256(artifact_bytes).hexdigest() != artifact_sha256
+    ):
+        return [], {}, ("structured_fulltext_artifact_digest_mismatch",)
+    try:
+        artifact_paragraphs = _html_paragraphs(artifact_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return [], {}, ("structured_fulltext_artifact_parse_failed",)
+    normalized_paragraphs = [_normalized_text(value) for value in artifact_paragraphs]
+    bound_sections: list[dict[str, Any]] = []
+    page_rows: list[dict[str, Any]] = []
+    seen_pages: set[int] = set()
+    for index, section in enumerate(sections, start=1):
+        page_number = int(section.get("page_number") or 0)
+        label = str(section.get("label") or f"section-{index}").strip()
+        name = " ".join(str(section.get("name") or label).split())
+        text = " ".join(str(section.get("text") or "").split())
+        text_sha256 = str(section.get("text_sha256") or "").strip().lower()
+        if (
+            page_number <= 0
+            or page_number in seen_pages
+            or not label
+            or not name
+            or not 40 <= len(text) <= 20_000
+            or hashlib.sha256(text.encode("utf-8")).hexdigest() != text_sha256
+            or not any(
+                _normalized_text(text) in paragraph
+                for paragraph in normalized_paragraphs
+            )
+        ):
+            reasons.append(f"structured_fulltext_section_{index}_invalid")
+            continue
+        seen_pages.add(page_number)
+        bound_sections.append(
+            {
+                "page_number": page_number,
+                "label": label,
+                "name": name,
+                "text": text,
+                "text_sha256": text_sha256,
+            }
+        )
+        page_rows.append(
+            {
+                "page_number": page_number,
+                "label": label,
+                "name": name,
+                "text": text,
+            }
+        )
+    if reasons or not bound_sections:
+        return [], {}, tuple(sorted(set(reasons or ["structured_fulltext_sections_missing"])))
+    binding: dict[str, Any] = {
+        "schema_version": SOURCE_TEXT_COMPANION_BINDING_SCHEMA,
+        "source_ref": expected_source_ref,
+        "document_identity": document_identity,
+        "source_url": source_url,
+        "artifact_path": str(artifact_path.resolve()),
+        "artifact_sha256": artifact_sha256,
+        "format": STRUCTURED_FULLTEXT_HTML_FORMAT,
+        "authority_mode": PRIMARY_HTML_AUTHORITY_MODE,
+        "sections": bound_sections,
+    }
+    binding["content_sha256"] = _digest(binding)
+    for page in page_rows:
+        page["source_text_companion_binding"] = dict(binding)
+    return page_rows, binding, ()
+
+
+class _PmcReplayHtmlParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.paragraphs: list[str] = []
+        self._ignored_depth = 0
+        self._capture = False
+        self._parts: list[str] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        del attrs
+        lowered = tag.casefold()
+        if lowered in {"script", "style"}:
+            self._ignored_depth += 1
+        elif not self._ignored_depth and lowered == "p":
+            self._capture = True
+            self._parts = []
+
+    def handle_endtag(self, tag: str) -> None:
+        lowered = tag.casefold()
+        if lowered in {"script", "style"} and self._ignored_depth:
+            self._ignored_depth -= 1
+        elif not self._ignored_depth and lowered == "p" and self._capture:
+            text = " ".join("".join(self._parts).split())
+            if text:
+                self.paragraphs.append(text)
+            self._capture = False
+            self._parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._capture and not self._ignored_depth:
+            self._parts.append(data)
+
+
+def _html_paragraphs(value: str) -> list[str]:
+    parser = _PmcReplayHtmlParser()
+    parser.feed(value)
+    parser.close()
+    return parser.paragraphs
+
+
+def _normalized_text(value: Any) -> str:
+    return " ".join(str(value or "").casefold().split())
+
+
+def _official_pmc_source(*, document_identity: str, source_url: str) -> bool:
+    identity = str(document_identity or "").strip().casefold()
+    parsed = urlparse(str(source_url or ""))
+    return bool(
+        identity.startswith("pmc")
+        and parsed.scheme == "https"
+        and (parsed.hostname or "").casefold() == "pmc.ncbi.nlm.nih.gov"
+        and f"/articles/{identity}/" in parsed.path.casefold()
     )
 
 

@@ -74,6 +74,14 @@ _CATALYST_OR_BASE_TERMS = {
     "tetrabutylammonium chloride",
     "triethylamine",
 }
+_NON_ATOM_DONOR_TERMS = {
+    "escherichia coli",
+    "e. coli",
+    "hepes",
+    "hplc",
+    "iptg",
+    "lovd",
+}
 
 
 def compile_deterministic_source_route_observation(
@@ -164,7 +172,7 @@ def compile_deterministic_source_route_observation(
             for value in concentration_names
         }
         heading_reactant_names = _narrative_heading_reactant_names(
-            procedure.get("name")
+            procedure.get("narrative_context") or procedure.get("name")
         )
         heading_reactant_keys = {
             _name_key(_clean_ingredient_name(value)).strip()
@@ -181,6 +189,8 @@ def compile_deterministic_source_route_observation(
             if not name:
                 continue
             key = _name_key(name).strip()
+            if any(term == key or term in key for term in _NON_ATOM_DONOR_TERMS):
+                continue
             known = _known_product_ingredient(
                 name,
                 product_rows=product_rows,
@@ -303,7 +313,7 @@ def compile_deterministic_source_route_observation(
                 "source_ref": source_ref,
                 "source_artifact_sha256": artifact_sha256,
                 "source_location": {
-                    "kind": "pdf_page",
+                    "kind": str(document.get("source_location_kind") or "pdf_page"),
                     "page_number": page_number,
                     "label": str(procedure.get("label") or ""),
                 },
@@ -548,7 +558,9 @@ def _recover_product_from_narrative_heading(
 ) -> dict[str, Any]:
     """Recover the named product from a source-authored narrative heading."""
 
-    candidates = narrative_product_name_candidates(procedure.get("name"))
+    candidates = narrative_product_name_candidates(
+        procedure.get("narrative_context") or procedure.get("name")
+    )
     for name in candidates:
         if not 3 <= len(name) <= 180 or not re.search(r"[A-Za-z]", name):
             continue
