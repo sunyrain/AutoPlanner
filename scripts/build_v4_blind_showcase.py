@@ -141,6 +141,9 @@ def main(argv: list[str] | None = None) -> int:
                 "condition_complete_edge_count": summary[
                     "condition_complete_edge_count"
                 ],
+                "condition_supported_edge_count": summary[
+                    "condition_supported_edge_count"
+                ],
             },
         },
         "semantics": {
@@ -297,6 +300,22 @@ def _compile_rows(
                             "condition_completeness"
                         )
                         == "complete"
+                        for edge in dict(snapshot.get("edges") or {}).values()
+                        if isinstance(edge, Mapping)
+                    ),
+                    "condition_supported_edge_count": sum(
+                        dict(dict(edge).get("proof_vector") or {}).get(
+                            "condition_completeness"
+                        )
+                        in {"partial", "complete"}
+                        for edge in dict(snapshot.get("edges") or {}).values()
+                        if isinstance(edge, Mapping)
+                    ),
+                    "condition_source_exact_edge_count": sum(
+                        dict(dict(edge).get("proof_vector") or {}).get(
+                            "conditions"
+                        )
+                        == "source_exact"
                         for edge in dict(snapshot.get("edges") or {}).values()
                         if isinstance(edge, Mapping)
                     ),
@@ -486,6 +505,15 @@ def _summary(panel: Mapping[str, Any], rows: list[Mapping[str, Any]]) -> dict[st
             )
             for row in completed
         ),
+        "condition_supported_edge_count": sum(
+            int(
+                dict(row.get("workbench") or {}).get(
+                    "condition_supported_edge_count"
+                )
+                or 0
+            )
+            for row in completed
+        ),
         "source_route_validated_count": sum(
             int(
                 dict(row.get("evidence") or {}).get(
@@ -518,7 +546,7 @@ def _render(payload: Mapping[str, Any]) -> str:
 :root{{--ink:#172033;--muted:#6d778c;--line:#dfe4ee;--panel:#fff;--bg:#f4f6fa;--blue:#3e5eea;--green:#18856f;--amber:#a76913;--red:#bb4554}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 Inter,"PingFang SC","Microsoft YaHei",sans-serif}}header{{padding:38px clamp(20px,5vw,72px) 28px;background:linear-gradient(135deg,#17213d,#273c87 68%,#386fc5);color:#fff}}header small{{letter-spacing:.16em;text-transform:uppercase;opacity:.68}}h1{{font-size:clamp(28px,4vw,48px);line-height:1.08;margin:10px 0}}header p{{max-width:850px;color:#dce4ff}}main{{max-width:1500px;margin:auto;padding:24px}}.summary{{display:grid;grid-template-columns:repeat(6,minmax(110px,1fr));gap:10px;margin-top:-46px}}.metric,.card,.architecture,.revision{{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 8px 30px #15254b0c}}.metric{{padding:16px}}.metric b{{display:block;font-size:23px}}.metric span,.muted{{color:var(--muted);font-size:12px}}.demo-links{{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 0}}.architecture{{margin:14px 0;padding:18px;display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}.architecture div{{border-left:3px solid #6f84e8;padding:5px 12px}}.architecture b{{display:block}}.revision{{margin:0 0 22px;padding:18px;display:grid;grid-template-columns:minmax(210px,.7fr) minmax(360px,1.8fr);gap:22px;border-color:#e6d5a9;background:linear-gradient(135deg,#fffdf7,#fff)}}.revision h2{{margin:0 0 6px}}.revision ul{{margin:0;padding-left:20px}}.revision li+li{{margin-top:4px}}.baseline{{color:var(--amber);font-weight:700}}.slo{{margin-top:10px;padding:9px 11px;border-radius:8px;background:#f4f7ff;color:#334886}}.grid{{display:grid;grid-template-columns:repeat(3,minmax(300px,1fr));gap:14px}}.card{{padding:17px;min-width:0}}.top{{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}}h2{{font-size:20px;margin:0}}code{{font-size:10px;color:#7a8499;word-break:break-all}}.pill{{font-size:11px;border-radius:99px;padding:4px 8px;background:#eef1f6;color:#58657a}}.gates{{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin:14px 0}}.gate{{text-align:center;padding:7px 2px;border-radius:7px;background:#f1f2f5;color:#8a93a4;font-weight:800}}.gate.on{{background:#e7f6f1;color:var(--green)}}.facts{{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}}.fact{{background:#f7f8fb;border-radius:8px;padding:8px}}.fact b{{display:block}}.provider{{margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:9px}}.provider strong{{color:var(--blue)}}.links{{display:flex;gap:8px;flex-wrap:wrap}}a{{color:var(--blue);text-decoration:none;font-weight:700}}a.button{{background:#edf1ff;border-radius:8px;padding:7px 10px}}.warn{{color:var(--amber)}}.error{{color:var(--red);font-size:11px;word-break:break-all}}footer{{padding:28px;color:var(--muted);text-align:center}}@media(max-width:1000px){{.summary{{grid-template-columns:repeat(3,1fr)}}.architecture{{grid-template-columns:1fr 1fr}}.revision{{grid-template-columns:1fr}}.grid{{grid-template-columns:1fr 1fr}}}}@media(max-width:650px){{.summary,.grid{{grid-template-columns:1fr}}.architecture{{grid-template-columns:1fr}}}}
 </style></head><body>
 <header><small>Target-only · isolated · auditable</small><h1>V4 全新分子盲测工作台</h1><p>输入仅含目标名称与唯一 SMILES；无本地案卷、DOI、专利号、PDF 或既有路线种子。这里分开呈现全局规划、局部候选、确定性验证、证据和库存，不用“分支数”冒充完成度。</p></header>
-<main><section class="summary">{_metric('已生成报告',f"{summary['report_count']} / {summary['target_count']}")}{_metric('当前主路线',summary['route_count'])}{_metric('条件完整边',summary['condition_complete_edge_count'])}{_metric('文献验证边',summary['source_route_validated_count'])}{_metric('Codex / ChemEnzy',f"{summary['codex_calls']} / {summary['chemenzy_calls']}")}{_metric('B1 / B3 / B5',f"{gate_counts.get('B1',0)} / {gate_counts.get('B3',0)} / {gate_counts.get('B5',0)}")}</section>
+<main><section class="summary">{_metric('已生成报告',f"{summary['report_count']} / {summary['target_count']}")}{_metric('当前主路线',summary['route_count'])}{_metric('条件边 完整 / 有记录',f"{summary['condition_complete_edge_count']} / {summary['condition_supported_edge_count']}")}{_metric('文献验证边',summary['source_route_validated_count'])}{_metric('Codex / ChemEnzy',f"{summary['codex_calls']} / {summary['chemenzy_calls']}")}{_metric('B1 / B3 / B5',f"{gate_counts.get('B1',0)} / {gate_counts.get('B3',0)} / {gate_counts.get('B5',0)}")}</section>
 <nav class="demo-links"><a class="button" href="{_h(demo_links.get('console_url',''))}">打开实时控制台</a>{supplemental_links}</nav>
 <section class="architecture"><div><b>Codex</b><span class="muted">一次总揽路线族、战略断键与局部前沿</span></div><div><b>ChemEnzy</b><span class="muted">只展开 host 接纳的子目标或库存缺口</span></div><div><b>Evidence</b><span class="muted">HTML-first，PDF 回退，视觉稀疏触发</span></div><div><b>Host verifier</b><span class="muted">守恒、映射、循环、原子突变与条件</span></div><div><b>Inventory</b><span class="muted">逐叶审计，闭合与可采购分离</span></div></section>
 <section class="revision"><div><h2>冷启动性能说明</h2><p class="baseline">上方首路线秒数仍是不可变的旧冷跑基线；证据验证优化已另行实测。</p><p class="muted">{_h(revision.get('benchmark_semantics',''))}</p></div><div><ul>{implemented}</ul><div class="slo"><b>下一验收门：</b> {_h(revision.get('next_acceptance',''))}</div></div></section>
@@ -561,7 +589,11 @@ def _target_card(row: Mapping[str, Any]) -> str:
             f'{int(validation_cost.get("input_tokens") or 0):,} 输入 token'
             "</span>"
         )
-    return f"""<article class="card"><div class="top"><div><h2>{_h(row['target_name'])}</h2><code>{_h(row.get('run_id',''))}{_h(artifact_note)}</code></div><span class="pill">{_h(row.get('claim','unresolved'))}</span></div><div class="gates">{gate_html}</div><div class="facts">{_fact('首个路线',_duration(row.get('time_to_first_route_s',0)))}{_fact('最长路线',f"{int(workbench.get('max_route_steps') or 0)} 步")}{_fact('Codex',f"{int(cost.get('model_invocations') or 0)} 次")}{_fact('当前主路线',workbench.get('route_count',0))}{_fact('完整条件边',workbench.get('condition_complete_edge_count',0))}{_fact('已验证替换',workbench.get('validated_replacement_count',0))}</div><div class="provider"><strong>ChemEnzy</strong> · 实调 {int(chem.get('provider_calls') or 0)} · 候选 {int(chem.get('proposals') or 0)} · 委派 { _h(chem.get('delegation_status','')) }<br><span class="muted">边界状态：采购闭合 {int(workbench.get('procurement_closed_route_count') or 0)} · benchmark/探索闭合 {int(workbench.get('exploration_closed_route_count') or 0)} · 工艺就绪 {int(workbench.get('process_ready_route_count') or 0)}</span><br><span class="muted">来源引擎：{_h(origins)} · 分子 {int(workbench.get('molecule_count') or 0)} · 反应边 {int(workbench.get('edge_count') or 0)} · 库存闭合 {counts.get('stock_closed_skeletons',0)}</span><br><span class="muted">证据轮次 {int(evidence.get('passes') or 0)} · 来源 {int(evidence.get('sources') or 0)} · 文献路线 {int(evidence.get('source_route_validated') or 0)}/{int(evidence.get('source_route_proposals') or 0)} 验证 · exact rows {int(evidence.get('exact_rows') or 0)} · visual {int(evidence.get('visual_calls') or 0)}</span>{validation_note}</div><div class="links">{link}</div>{f'<p class="error">{_h(row["error"])} </p>' if row.get('error') else ''}</article>"""
+    condition_fact = (
+        f"{int(workbench.get('condition_complete_edge_count') or 0)} / "
+        f"{int(workbench.get('condition_supported_edge_count') or 0)}"
+    )
+    return f"""<article class="card"><div class="top"><div><h2>{_h(row['target_name'])}</h2><code>{_h(row.get('run_id',''))}{_h(artifact_note)}</code></div><span class="pill">{_h(row.get('claim','unresolved'))}</span></div><div class="gates">{gate_html}</div><div class="facts">{_fact('首个路线',_duration(row.get('time_to_first_route_s',0)))}{_fact('最长路线',f"{int(workbench.get('max_route_steps') or 0)} 步")}{_fact('Codex',f"{int(cost.get('model_invocations') or 0)} 次")}{_fact('当前主路线',workbench.get('route_count',0))}{_fact('条件 完整 / 有记录',condition_fact)}{_fact('已验证替换',workbench.get('validated_replacement_count',0))}</div><div class="provider"><strong>ChemEnzy</strong> · 实调 {int(chem.get('provider_calls') or 0)} · 候选 {int(chem.get('proposals') or 0)} · 委派 { _h(chem.get('delegation_status','')) }<br><span class="muted">边界状态：采购闭合 {int(workbench.get('procurement_closed_route_count') or 0)} · benchmark/探索闭合 {int(workbench.get('exploration_closed_route_count') or 0)} · 工艺就绪 {int(workbench.get('process_ready_route_count') or 0)}</span><br><span class="muted">来源引擎：{_h(origins)} · 分子 {int(workbench.get('molecule_count') or 0)} · 反应边 {int(workbench.get('edge_count') or 0)} · 库存闭合 {counts.get('stock_closed_skeletons',0)}</span><br><span class="muted">证据轮次 {int(evidence.get('passes') or 0)} · 来源 {int(evidence.get('sources') or 0)} · 文献路线 {int(evidence.get('source_route_validated') or 0)}/{int(evidence.get('source_route_proposals') or 0)} 验证 · exact rows {int(evidence.get('exact_rows') or 0)} · visual {int(evidence.get('visual_calls') or 0)}</span>{validation_note}</div><div class="links">{link}</div>{f'<p class="error">{_h(row["error"])} </p>' if row.get('error') else ''}</article>"""
 
 
 def _origin_label(value: Any) -> str:
