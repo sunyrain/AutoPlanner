@@ -1986,7 +1986,7 @@ def _evidence_observations(stage: Mapping[str, Any]) -> dict[str, Any]:
                 "source_text_grants_no_authority": True,
             },
         },
-        "visual_source_candidates": visual,
+        "visual_source_candidates": _visual_replan_observation(visual),
         "semantics": {
             "untrusted_source_text_data_only": True,
             "grants_no_scientific_authority": True,
@@ -2001,7 +2001,7 @@ def _source_replan_observation(source: Mapping[str, Any]) -> dict[str, Any]:
         _procedure_replan_observation(value)
         for value in row.get("procedure_inventory") or []
         if isinstance(value, Mapping)
-    ][:6]
+    ][:3]
     route = _source_route_replan_observation(
         dict(row.get("source_route_observation") or {})
     )
@@ -2060,7 +2060,86 @@ def _procedure_replan_observation(value: Mapping[str, Any]) -> dict[str, Any]:
             )
             if key in row
         },
-        "procedure_excerpt": " ".join(excerpt.split())[:1_200],
+        "procedure_excerpt": " ".join(excerpt.split())[:700],
+    }
+
+
+def _visual_replan_observation(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Project visual hypotheses without paths, hashes, or duplicated prose.
+
+    The frozen observation remains in the artifact store.  Codex only needs
+    connectivity, admission diagnostics, and concise conditions to decide
+    whether a source-consistent route family should be proposed.
+    """
+
+    if not value:
+        return {}
+    row = dict(value)
+    steps = [
+        dict(item)
+        for item in row.get("candidate_steps") or []
+        if isinstance(item, Mapping)
+    ]
+    projected_steps = []
+    for step in steps[:8]:
+        condition = dict(step.get("condition_candidate") or {})
+        projected_steps.append(
+            {
+                **{
+                    key: step[key]
+                    for key in (
+                        "candidate_id",
+                        "admission_eligible",
+                        "allowed_use",
+                        "chain_rejection_reasons",
+                        "grants_exact_evidence",
+                        "matched_current_edge_id",
+                        "precursor_smiles",
+                        "product_label",
+                        "product_smiles",
+                        "root_anchor",
+                        "source_locator",
+                    )
+                    if key in step
+                },
+                "condition_candidate": {
+                    key: condition[key]
+                    for key in (
+                        "condition_status",
+                        "duration",
+                        "reagent",
+                        "reported_yield",
+                        "solvent",
+                        "source_grounding",
+                        "temperature",
+                    )
+                    if key in condition
+                },
+            }
+        )
+    return {
+        **{
+            key: row[key]
+            for key in (
+                "schema_version",
+                "source_ref",
+                "source_artifact_kind",
+                "provider_status",
+                "candidate_step_count",
+                "admission_eligible_step_count",
+                "frontier_anchored_step_count",
+                "matched_current_edge_count",
+                "chain_admission_accepted",
+                "chain_admission_reasons",
+            )
+            if key in row
+        },
+        "candidate_steps": projected_steps,
+        "omitted_candidate_step_count": max(0, len(steps) - len(projected_steps)),
+        "semantics": {
+            "visual_hypotheses_are_not_proof": True,
+            "full_observation_is_content_addressed_outside_prompt": True,
+        },
     }
 
 

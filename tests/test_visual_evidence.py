@@ -471,6 +471,30 @@ def test_visual_request_skips_already_closed_source_and_tampered_image(
         max_pages=4,
     )
 
+
+def test_visual_request_skips_source_without_named_target_or_frontier_bridge(
+    tmp_path: Path,
+) -> None:
+    evidence_request, discovery = _inputs(tmp_path)
+    discovery["sources"][0].update(
+        {
+            "title": "Hydroxy azetidinones used with enzyme inhibitors",
+            "procedure_inventory": [
+                {
+                    "label": "Example 1",
+                    "name": "Preparation of an unrelated azetidinone",
+                    "page_number": 1,
+                }
+            ],
+        }
+    )
+
+    assert not compile_visual_evidence_request(
+        evidence_request=evidence_request,
+        discovery=discovery,
+        max_pages=4,
+    )
+
     discovery["request_sha256"] = "c" * 64
     assert not compile_visual_evidence_request(
         evidence_request=evidence_request,

@@ -522,6 +522,29 @@ def _compact_proof_portfolio(portfolio: Mapping[str, Any]) -> dict[str, Any]:
         "stock_closure_rate",
         "unproven_edge_ids",
     )
+    raw_candidates = [
+        value
+        for value in portfolio.get("route_candidates") or []
+        if isinstance(value, Mapping)
+    ]
+    raw_selected = [
+        value
+        for value in portfolio.get("selected_routes") or []
+        if isinstance(value, Mapping)
+    ]
+    selected_identities = {
+        _route_identity(value) for value in raw_selected
+    }
+    alternative_candidates = [
+        value
+        for value in raw_candidates
+        if _route_identity(value) not in selected_identities
+    ]
+    raw_deficits = [
+        value
+        for value in portfolio.get("deficits") or []
+        if isinstance(value, Mapping)
+    ]
     return {
         "schema_version": str(portfolio.get("schema_version") or ""),
         "graph_revision": int(portfolio.get("graph_revision") or 0),
@@ -554,16 +577,22 @@ def _compact_proof_portfolio(portfolio: Mapping[str, Any]) -> dict[str, Any]:
             )
             for key, value in dict(portfolio.get("leaf_proofs") or {}).items()
         },
+        # Selected routes used to be serialized twice: once in
+        # ``route_candidates`` and again in ``selected_routes``.  A replan
+        # needs every distinct edge set, not two copies of the same route.
         "route_candidates": [
             _fields(value, route_fields)
-            for value in portfolio.get("route_candidates") or []
-            if isinstance(value, Mapping)
+            for value in alternative_candidates
         ],
         "selected_routes": [
             _fields(value, route_fields)
-            for value in portfolio.get("selected_routes") or []
-            if isinstance(value, Mapping)
+            for value in raw_selected
         ],
+        "route_candidate_count": len(raw_candidates),
+        "selected_route_count": len(raw_selected),
+        "selected_candidate_duplicate_count": (
+            len(raw_candidates) - len(alternative_candidates)
+        ),
         "route_modules": [
             _fields(
                 value,
@@ -577,18 +606,34 @@ def _compact_proof_portfolio(portfolio: Mapping[str, Any]) -> dict[str, Any]:
             for value in portfolio.get("route_modules") or []
             if isinstance(value, Mapping)
         ],
-        "deficits": [
-            _compact_deficit(value)
-            for value in portfolio.get("deficits") or []
-            if isinstance(value, Mapping)
-        ],
+        # The same deficit rows already exist in the canonical frontier and
+        # the RunKernel deficit queue.  Keep a digest/count here so the
+        # portfolio remains auditable without tripling prompt volume.
+        "deficit_summary": {
+            "count": len(raw_deficits),
+            "content_sha256": _digest(
+                [_compact_deficit(value) for value in raw_deficits]
+            ),
+        },
         "metrics": _compact(portfolio.get("metrics") or {}),
         "closeout": _compact(portfolio.get("closeout") or {}),
         "semantics": {
             "all_route_edge_sets_preserved": True,
+            "selected_routes_not_duplicated_in_candidates": True,
+            "deficit_rows_projected_by_canonical_frontier": True,
             "verbose_proof_payloads_omitted": True,
         },
     }
+
+
+def _route_identity(value: Mapping[str, Any]) -> str:
+    edge_ids = sorted(str(edge_id) for edge_id in value.get("edge_ids") or [])
+    if edge_ids:
+        return "edges:" + _digest(edge_ids)
+    route_id = str(value.get("route_id") or "").strip()
+    if route_id:
+        return f"id:{route_id}"
+    return "anonymous:" + _digest(_compact(value))
 
 
 def _fields(value: Any, names: tuple[str, ...]) -> dict[str, Any]:
@@ -606,14 +651,21 @@ def _compact_deficit_frontier(value: Any) -> dict[str, Any]:
         if isinstance(raw_items, (list, tuple))
         else []
     )
+    projected_items = [
+        _compact_deficit(item)
+        for item in items[:8]
+        if isinstance(item, Mapping)
+    ]
     return {
         "schema_version": str(row.get("schema_version") or ""),
         "summary": _compact(row.get("summary") or {}),
-        "items": [
-            _compact_deficit(item)
-            for item in items
-            if isinstance(item, Mapping)
-        ],
+        "item_count": len(items),
+        "items": projected_items,
+        "omitted_item_count": max(0, len(items) - len(projected_items)),
+        "semantics": {
+            "priority_order_preserved": True,
+            "full_queue_remains_in_run_kernel": True,
+        },
     }
 
 

@@ -83,7 +83,7 @@ def test_evidence_replan_projection_is_bounded_and_chemistry_focused() -> None:
     assert projected["selected_source_count"] == 4
     assert projected["omitted_source_count"] == 3
     assert projected["sources"][0]["source_ref"] == "patent:US6"
-    assert len(projected["sources"][0]["procedure_inventory"]) == 6
+    assert len(projected["sources"][0]["procedure_inventory"]) == 3
     assert (
         len(
             projected["sources"][0]["procedure_inventory"][0][

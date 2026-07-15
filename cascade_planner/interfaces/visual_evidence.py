@@ -278,6 +278,12 @@ def compile_visual_evidence_request(
         unresolved_edge_count = int(source.get("unresolved_edge_count") or 0)
         if unresolved_edge_count <= 0 and exact_row_count > 0:
             continue
+        target_relevance = _visual_source_target_relevance(
+            source,
+            evidence_request=evidence_request,
+        )
+        if target_relevance["accepted"] is not True:
+            continue
         pages = []
         for page in source.get("visual_candidate_pages") or []:
             if not isinstance(page, Mapping):
@@ -392,6 +398,7 @@ def compile_visual_evidence_request(
                     source.get("source_route_proposal_count") or len(route_rows)
                 ),
                 "procedure_count": len(source.get("procedure_inventory") or []),
+                "target_relevance": target_relevance,
             }
         )
     if not candidates:
@@ -422,6 +429,99 @@ def compile_visual_evidence_request(
     }
     request["content_sha256"] = _digest(request)
     return request
+
+
+def _visual_source_target_relevance(
+    source: Mapping[str, Any],
+    *,
+    evidence_request: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Require a source-to-target bridge before spending a visual call.
+
+    Search results mentioning a therapeutic class are common patent noise.
+    They may remain frozen source observations, but vision is reserved for a
+    named-target match, an exact current edge, or a source-route proposal that
+    is structurally connected to the target/frontier.
+    """
+
+    target_name = " ".join(
+        str(evidence_request.get("target_name") or "").split()
+    ).casefold()
+    generic_name = (
+        not target_name
+        or target_name in {"target", "blind target"}
+        or "blind" in target_name
+        or bool(re.fullmatch(r"target-[0-9a-f]{8,64}", target_name))
+    )
+    identity = dict(evidence_request.get("target_identity") or {})
+    name_terms = {
+        target_name,
+        " ".join(str(identity.get("preferred_name") or "").split()).casefold(),
+        *(
+            " ".join(str(value).split()).casefold()
+            for value in identity.get("synonyms") or []
+        ),
+    } - {""}
+    searchable = " ".join(
+        [
+            str(source.get("title") or ""),
+            *[
+                str(item.get("name") or item.get("label") or "")
+                for item in source.get("procedure_inventory") or []
+                if isinstance(item, Mapping)
+            ],
+        ]
+    ).casefold()
+    named_match = any(term in searchable for term in name_terms)
+    exact_match = bool(
+        int(source.get("exact_row_count") or 0)
+        or source.get("exact_edge_ids")
+        or int(source.get("source_route_exact_row_count") or 0)
+    )
+    target_smiles = str(evidence_request.get("target_smiles") or "")
+    frontier_products = {
+        target_smiles,
+        *(
+            str(edge.get("product_smiles") or "")
+            for edge in evidence_request.get("edges") or []
+            if isinstance(edge, Mapping)
+        ),
+    } - {""}
+    proposals = [
+        dict(value)
+        for value in dict(source.get("source_route_observation") or {}).get(
+            "proposals"
+        )
+        or []
+        if isinstance(value, Mapping)
+    ]
+    connected_route = any(
+        str(proposal.get("product_smiles") or "") in frontier_products
+        or str(proposal.get("root_anchor") or "").strip()
+        for proposal in proposals
+    )
+    accepted = bool(generic_name or named_match or exact_match or connected_route)
+    reasons = [
+        reason
+        for condition, reason in (
+            (generic_name, "generic_target_name_cannot_support_text_filter"),
+            (named_match, "named_target_mentioned_in_source"),
+            (exact_match, "source_matches_current_exact_edge"),
+            (connected_route, "source_route_connects_to_target_frontier"),
+        )
+        if condition
+    ]
+    if not accepted:
+        reasons.append("source_has_no_target_or_frontier_bridge")
+    return {
+        "schema_version": "visual_source_target_relevance.v1",
+        "accepted": accepted,
+        "reasons": reasons,
+        "semantics": {
+            "search_result_presence_is_not_relevance": True,
+            "rejected_source_bytes_remain_frozen_for_audit": True,
+        },
+    }
 
 
 def materialize_visual_evidence_candidates(
