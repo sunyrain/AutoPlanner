@@ -82,8 +82,12 @@ def build_codex_visual_evidence_provider(
                     for value in source.get("expected_labels") or []
                     if str(value).strip()
                 ],
-                route_sequence_hint="",
-                text_snippets=[],
+                route_sequence_hint=str(source.get("route_sequence_hint") or ""),
+                text_snippets=[
+                    dict(value)
+                    for value in source.get("text_snippets") or []
+                    if isinstance(value, Mapping)
+                ],
                 key_path=output_dir / "ambient-auth-does-not-read-key",
                 base_url="",
                 model=config.model,
@@ -307,6 +311,60 @@ def compile_visual_evidence_request(
             and row.get("visual_expected") is not False
             and str(row.get("label") or "").strip()
         ]
+        selected_page_numbers = {
+            int(row.get("page_number") or 0) for row in pages
+        }
+        text_snippets = []
+        for raw in source.get("procedure_inventory") or []:
+            if not isinstance(raw, Mapping):
+                continue
+            row = dict(raw)
+            page_number = int(row.get("page_number") or 0)
+            excerpt = " ".join(
+                str(
+                    row.get("procedure_excerpt")
+                    or row.get("procedure")
+                    or row.get("text")
+                    or ""
+                ).split()
+            )
+            if (
+                not excerpt
+                or (selected_page_numbers and page_number not in selected_page_numbers)
+            ):
+                continue
+            text_snippets.append(
+                {
+                    "compound_label": str(row.get("label") or row.get("name") or "")[:200],
+                    "page_number": page_number,
+                    "snippet": excerpt[:1_200],
+                }
+            )
+            if len(text_snippets) >= 12:
+                break
+        route_rows = [
+            dict(row)
+            for row in dict(source.get("source_route_observation") or {}).get(
+                "proposals"
+            )
+            or []
+            if isinstance(row, Mapping)
+        ]
+        route_sequence_hint = " -> ".join(
+            str(
+                row.get("product_name")
+                or dict(row.get("source_location") or {}).get("label")
+                or row.get("proposal_id")
+                or ""
+            )[:160]
+            for row in route_rows[:16]
+            if str(
+                row.get("product_name")
+                or dict(row.get("source_location") or {}).get("label")
+                or row.get("proposal_id")
+                or ""
+            ).strip()
+        )
         candidates.append(
             {
                 "source_ref": source_ref,
@@ -325,15 +383,23 @@ def compile_visual_evidence_request(
                     else "pdf"
                 ),
                 "expected_labels": list(dict.fromkeys(labels))[:24],
+                "text_snippets": text_snippets,
+                "route_sequence_hint": route_sequence_hint[:2_000],
                 "pages": pages,
                 "exact_row_count": exact_row_count,
                 "unresolved_edge_count": unresolved_edge_count,
+                "source_route_proposal_count": int(
+                    source.get("source_route_proposal_count") or len(route_rows)
+                ),
+                "procedure_count": len(source.get("procedure_inventory") or []),
             }
         )
     if not candidates:
         return {}
     candidates.sort(
         key=lambda row: (
+            -int(row["source_route_proposal_count"]),
+            -int(row["procedure_count"]),
             -int(row["unresolved_edge_count"]),
             int(row["exact_row_count"] > 0),
             str(row["source_ref"]),

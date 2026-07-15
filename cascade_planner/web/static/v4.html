@@ -98,7 +98,7 @@
     <nav class="topnav"><a href="/">经典界面</a><a href="/statins">他汀展示</a><a href="/api/v4/runs">运行 API</a></nav>
   </div></header>
   <main class="shell">
-    <section class="hero"><div><h2>先交付路线，再渐进闭合证据</h2><p>从任意陌生 SMILES 发起独立 campaign；Codex 先给出可审查的全局路线骨架，ChemEnzy 按需展开局部前沿。专利、论文、视觉、验证和库存随后异步提高可信度，不再阻塞首屏路线。</p></div><div class="live"><i></i>实时轮询已启用</div></section>
+    <section class="hero"><div><h2>从陌生 SMILES 到可审计的多路线案卷</h2><p>Codex 总揽全局路线与替换策略，ChemEnzy 递归展开高价值前沿；专利、论文、HTML/PDF、视觉、确定性验证和库存围绕同一 canonical campaign 持续闭合。</p></div><div class="live"><i></i>每 2 秒同步内核进度</div></section>
     <div class="layout">
       <section class="panel">
         <div class="panelHead"><h3>发起 target-only 请求</h3><span>异步执行</span></div>
@@ -110,24 +110,27 @@
             <div><label for="reasoning">推理强度</label><select id="reasoning"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></div>
           </div>
           <div class="row">
-            <div><label for="profile">执行档位</label><select id="profile"><option value="fast" selected>快速首屏（2 条完整骨架）</option><option value="standard">标准扩展</option><option value="proof">深度证明</option></select></div>
-            <div><label for="modelCalls">模型调用上限</label><input id="modelCalls" type="number" min="1" max="4" value="2"></div>
+            <div><label for="profile">执行档位</label><select id="profile"><option value="fast">快速首屏</option><option value="standard" selected>标准 campaign（推荐）</option><option value="proof">深度证明</option></select></div>
+            <div><label for="modelCalls">模型调用上限</label><input id="modelCalls" type="number" min="1" max="4" value="3"></div>
           </div>
           <div class="row">
-            <div><label for="visualPages">视觉页数上限</label><input id="visualPages" type="number" min="1" max="6" value="2"></div>
-            <div><label>交付策略</label><div style="padding:9px 0;color:var(--muted);font-size:11px">先展示路线，再按缺口闭合证据</div></div>
+            <div><label for="visualPages">视觉页数上限</label><input id="visualPages" type="number" min="1" max="12" value="6"></div>
+            <div><label>交付策略</label><div style="padding:9px 0;color:var(--muted);font-size:11px">首屏骨架 → 局部展开 → 来源闭合 → 全局复盘</div></div>
           </div>
           <div class="checks">
             <label class="check"><input id="chemenzy" type="checkbox" checked> ChemEnzy 局部展开</label>
             <label class="check"><input id="patent" type="checkbox" checked> 自动专利检索</label>
             <label class="check"><input id="literature" type="checkbox" checked> 自动论文检索</label>
-            <label class="check"><input id="visual" type="checkbox"> 稀疏视觉提取</label>
+            <label class="check"><input id="visual" type="checkbox" checked> 稀疏视觉提取</label>
             <label class="check"><input id="selfEvo" type="checkbox" checked> self-evo 学习</label>
             <label class="check"><input id="replan" type="checkbox" checked> 证据后增量规划</label>
+            <label class="check"><input id="initialWeb" type="checkbox" checked> Codex 首轮全局检索</label>
           </div>
           <details class="advanced"><summary>高级预算与 ChemEnzy 参数</summary>
-            <div class="row"><div><label for="expansions">成功扩展上限</label><input id="expansions" type="number" value="32" min="4"></div><div><label for="attempts">尝试上限</label><input id="attempts" type="number" value="72" min="8"></div></div>
+            <div class="row"><div><label for="expansions">成功扩展上限</label><input id="expansions" type="number" value="64" min="4"></div><div><label for="attempts">尝试上限</label><input id="attempts" type="number" value="128" min="8"></div></div>
             <div class="row"><div><label for="chemRoutes">局部路线数</label><input id="chemRoutes" type="number" value="2" min="1" max="4"></div><div><label for="chemIterations">局部迭代数</label><input id="chemIterations" type="number" value="10" min="1"></div></div>
+            <div class="row"><div><label for="guidedFrontiers">递归前沿数</label><input id="guidedFrontiers" type="number" value="3" min="1" max="6"></div><div><label for="guidedIterations">每前沿迭代数</label><input id="guidedIterations" type="number" value="6" min="1"></div></div>
+            <div class="row"><div><label for="patentSources">专利来源上限</label><input id="patentSources" type="number" value="3" min="1" max="8"></div><div><label for="literatureSources">论文来源上限</label><input id="literatureSources" type="number" value="4" min="1" max="8"></div></div>
           </details>
           <button class="primary" id="submitButton" type="submit">启动独立逆合成</button>
           <div id="formStatus" role="status"></div>
@@ -164,9 +167,11 @@
       max_model_invocations: Number(document.getElementById('modelCalls').value), max_visual_invocations: document.getElementById('visual').checked ? 1 : 0,
       max_visual_evidence_pages: Number(document.getElementById('visualPages').value), enable_chemenzy: document.getElementById('chemenzy').checked,
       enable_auto_patent_evidence: document.getElementById('patent').checked, enable_auto_literature_evidence: document.getElementById('literature').checked,
-      enable_patent_self_evolution: document.getElementById('selfEvo').checked, enable_replan: document.getElementById('replan').checked,
+      enable_patent_self_evolution: document.getElementById('selfEvo').checked, enable_replan: document.getElementById('replan').checked, enable_initial_director_web_search: document.getElementById('initialWeb').checked,
       max_accepted_expansions: Number(document.getElementById('expansions').value), max_attempt_runs: Number(document.getElementById('attempts').value),
-      max_chemenzy_routes: Number(document.getElementById('chemRoutes').value), max_chemenzy_iterations: Number(document.getElementById('chemIterations').value)
+      max_chemenzy_routes: Number(document.getElementById('chemRoutes').value), max_chemenzy_iterations: Number(document.getElementById('chemIterations').value),
+      max_guided_chemenzy_frontiers: Number(document.getElementById('guidedFrontiers').value), max_guided_chemenzy_iterations: Number(document.getElementById('guidedIterations').value),
+      max_patent_sources: Number(document.getElementById('patentSources').value), max_literature_sources: Number(document.getElementById('literatureSources').value)
     }; }
     document.getElementById('solveForm').addEventListener('submit', async event => {
       event.preventDefault(); const status=document.getElementById('formStatus'); const button=document.getElementById('submitButton'); button.disabled=true; status.textContent='正在创建独立 campaign…';
@@ -175,7 +180,7 @@
     });
     document.getElementById('toggleHistory').addEventListener('click', () => { showAllHistory=!showAllHistory; document.getElementById('toggleHistory').textContent=showAllHistory?'只看每个目标最新结果':'显示全部历史'; render(); });
     function metric(label,value){return `<div class="metric"><b>${esc(value)}</b><span>${esc(label)}</span></div>`;}
-    function stageMetrics(stage){const m=stage.metrics||{}; if(stage.stage==='chemenzy_delegation') return ` · 请求 ${number(m.requests)} / 入队 ${number(m.queued)} / 拒绝 ${number(m.rejected)}`; if(stage.stage==='chemenzy_guided_frontier'||stage.stage==='chemenzy_stock_recovery') return ` · 前沿 ${number(m.frontiers)} / 实调 ${number(m.provider_calls)} / 候选 ${number(m.proposals)}`; if(stage.stage==='evidence_acquisition') return ` · 来源 ${number(m.sources)} / exact ${number(m.exact_rows)} / 视觉 ${number(m.visual_calls)}${m.hidden_s?` / 后台预取隐藏 ${duration(m.hidden_s)}`:''}`; return '';}
+    function stageMetrics(stage){const m=stage.metrics||{}; if(stage.stage==='chemenzy_delegation') return ` · 请求 ${number(m.requests)} / 入队 ${number(m.queued)} / 拒绝 ${number(m.rejected)}`; if(stage.stage==='chemenzy_guided_frontier'||stage.stage==='chemenzy_stock_recovery') return ` · 前沿 ${number(m.frontiers)} / 实调 ${number(m.provider_calls)} / 候选 ${number(m.proposals)}`; if(stage.stage==='evidence_acquisition'||stage.stage==='replan_evidence_acquisition') return ` · 来源 ${number(m.sources)} / 文献路线 ${number(m.source_route_proposals)} / 验证 ${number(m.source_route_validated)} / exact ${number(m.exact_rows)} / 视觉 ${number(m.visual_calls)}${m.hidden_s?` / 预取隐藏 ${duration(m.hidden_s)}`:''}`; return '';}
     function renderJob(job) { const p=job.progress||{}; const d=p.delivery||{}; const cost=p.model_cost||job.result?.model_cost||{}; const portfolio=p.portfolio||{}; const stages=p.stages||[]; const historical=job.status==='historical'; const workbench=(job.run_id&&(d.workbench_available||job.status==='complete'||historical))?`<a href="/api/v4/runs/${encodeURIComponent(job.run_id)}/workbench.html">路线工作台</a>`:''; const links=job.run_id?`${workbench}<a href="/api/v4/runs/${encodeURIComponent(job.run_id)}/status">状态 JSON</a>`:''; const deliveryNote=historical?'这是已停止执行的历史快照；路线策略验收不等于反应证据闭合，请在工作台核对可信度。':(d.route_candidates_available&&!d.proof_closure_complete?'路线候选已经可审查；文献、验证与库存仍在后台闭合。':''); const historicalPhase=`历史快照 · 内核记录 ${p.campaign_status||'unknown'}（未在执行）`; return `<article class="job">
       <div class="jobTop"><div class="jobTitle"><b>${esc(job.target_name)}</b><small>${esc(job.run_id)}</small></div><span class="pill ${esc(job.status)}">${esc(jobStatusLabel(job.status))}</span></div>
       <div class="metrics">${metric('交付状态',deliveryLabel(d.state))}${metric('耗时',duration(p.elapsed_s||job.elapsed_s))}${metric('模型调用',number(cost.model_invocations))}${metric('输入 token',number(cost.input_tokens))}${metric('路线',number(portfolio.route_count||job.result?.counts?.target_rooted_distinct_skeletons))}${metric('待办',number(portfolio.deficit_count||Object.values(p.frontier_counts||{}).reduce((a,b)=>a+b,0)))}</div>

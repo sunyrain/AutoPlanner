@@ -158,7 +158,9 @@ def test_blind_showcase_uses_current_routes_and_validated_replacements() -> None
             "workbench": {
                 "route_count": 5,
                 "validated_replacement_count": 3,
+                "condition_complete_edge_count": 2,
             },
+            "evidence": {"source_route_validated": 4},
         }
     ]
 
@@ -166,6 +168,8 @@ def test_blind_showcase_uses_current_routes_and_validated_replacements() -> None
 
     assert summary["route_count"] == 5
     assert summary["validated_replacement_count"] == 3
+    assert summary["condition_complete_edge_count"] == 2
+    assert summary["source_route_validated_count"] == 4
     assert summary["gate_counts"]["B1"] == 1
     assert blind_showcase._origin_label("chemenzy") == "ChemEnzy 局部展开"
 

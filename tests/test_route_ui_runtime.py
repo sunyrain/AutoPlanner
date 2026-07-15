@@ -92,6 +92,20 @@ def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
     assert "fitGraph({ readable: preferReadableFocus() })" in script
 
 
+def test_reaction_nodes_expose_condition_source_without_opening_inspector() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
+
+    assert "function inlineConditionText(step)" in script
+    assert "来源条件已绑定 · 字段待展开" in script
+    assert "预测条件 · 非文献事实" in script
+    assert "条件待取证" in script
+    assert 'class="reaction-condition-meta ${conditionClass}"' in script
+    assert ".reaction-condition-meta.is-source-exact" in styles
+    assert ".reaction-condition-meta.is-model-predicted" in styles
+    assert ".reaction-condition-meta.is-missing" in styles
+
+
 def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
     tmp_path: Path,
 ) -> None:

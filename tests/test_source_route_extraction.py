@@ -307,6 +307,7 @@ def test_discovered_source_route_uses_canonical_route_and_edge_ingestion(
     assert result["status"] == "completed"
     assert result["proposal_count"] == 2
     assert result["materialization_command_count"] == 2
+    assert len(result["materialized_edge_ids"]) == 2
     assert len(graph["route_families"]) == 1
     route = next(iter(graph["route_families"].values()))
     assert len(route["edge_ids"]) == 2
@@ -319,4 +320,5 @@ def test_discovered_source_route_uses_canonical_route_and_edge_ingestion(
     replay = materialize_discovered_source_routes(service, discovery)
     assert replay["status"] == "reused_or_empty"
     assert replay["materialization_command_count"] == 0
+    assert replay["materialized_edge_ids"] == result["materialized_edge_ids"]
     assert service.kernel.state.accepted_expansion_count == 2

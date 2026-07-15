@@ -122,9 +122,9 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--chemenzy-timeout-s", type=float, default=90.0)
     solve.add_argument("--no-guided-chemenzy", action="store_true")
     solve.add_argument(
-        "--guided-chemenzy-frontiers", type=int, choices=range(1, 3), default=1
+        "--guided-chemenzy-frontiers", type=int, choices=range(1, 7), default=3
     )
-    solve.add_argument("--guided-chemenzy-iterations", type=int, default=4)
+    solve.add_argument("--guided-chemenzy-iterations", type=int, default=6)
     solve.add_argument("--guided-chemenzy-timeout-s", type=float, default=60.0)
     solve.add_argument(
         "--no-patent-self-evo",

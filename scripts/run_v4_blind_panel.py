@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
             "target_name_and_smiles_only": True,
             "no_local_pdf_doi_patent_or_route_seed": True,
             "isolated_runtime_and_external_evidence_root": True,
-            "one_global_codex_call_per_target": True,
+            "one_initial_and_at_most_one_evidence_replan_per_target": True,
         },
     }
     _write_json(status_path, state)
@@ -164,7 +164,7 @@ def _run_case(
         reasoning_effort,
         "--execution-profile",
         execution_profile,
-        "--no-replan",
+        "--initial-director-web-search",
         "--minimum-complete-routes",
         "2",
         "--minimum-edge-proof-level",
@@ -172,35 +172,35 @@ def _run_case(
         "--minimum-source-groups",
         "2",
         "--max-model-invocations",
-        "1",
+        "3" if visual else "2",
         "--max-input-tokens",
-        "55000",
+        "90000",
         "--max-output-tokens",
-        "10000",
+        "22000",
         "--max-model-wall-time-s",
-        "420",
+        "900",
         "--max-accepted-expansions",
-        "40",
+        "64",
         "--max-attempt-runs",
-        "96",
+        "128",
         "--max-map-reactions",
         "64",
         "--max-stock-molecules",
         "32",
         "--max-patent-sources",
-        "2",
-        "--max-literature-sources",
         "3",
-        "--guided-chemenzy-frontiers",
-        "1",
-        "--guided-chemenzy-iterations",
+        "--max-literature-sources",
         "4",
+        "--guided-chemenzy-frontiers",
+        "3",
+        "--guided-chemenzy-iterations",
+        "6",
         "--guided-chemenzy-timeout-s",
         "60",
         "--max-visual-invocations",
         "1" if visual else "0",
         "--max-visual-pages",
-        "2",
+        "6",
     ]
     if can_resume:
         command.append("--resume")
@@ -262,6 +262,22 @@ def _summarize_report(
         in {"chemenzy_guided_frontier", "chemenzy_stock_recovery"}
     ]
     guided = chemenzy_stages[0] if chemenzy_stages else {}
+    evidence_stages = [
+        dict(row.get("detail") or {})
+        for row in stages
+        if isinstance(row, Mapping)
+        and row.get("stage")
+        in {"evidence_acquisition", "replan_evidence_acquisition"}
+    ]
+    source_routes = [
+        dict(row.get("source_route") or {}) for row in evidence_stages
+    ]
+    global_stages = [
+        row
+        for row in stages
+        if isinstance(row, Mapping)
+        and row.get("stage") in {"global_campaign", "global_replan"}
+    ]
     return {
         "status": "completed",
         "claim": str(claim.get("achieved_profile") or "unresolved"),
@@ -305,6 +321,38 @@ def _summarize_report(
             "initial_delegation_status": str(guided.get("status") or ""),
             "stock_recovery_used": any(
                 row.get("status") == "completed" for row in chemenzy_stages[1:]
+            ),
+        },
+        "campaign": {
+            "global_pass_count": len(global_stages),
+            "evidence_replan_ran": any(
+                row.get("stage") == "global_replan" for row in global_stages
+            ),
+        },
+        "evidence": {
+            "pass_count": len(evidence_stages),
+            "source_count": sum(
+                int(row.get("source_count") or 0) for row in evidence_stages
+            ),
+            "exact_record_count": sum(
+                int(row.get("exact_record_count") or 0)
+                for row in evidence_stages
+            ),
+            "visual_invocation_count": sum(
+                int(row.get("visual_invocations") or 0)
+                for row in evidence_stages
+            ),
+            "source_route_proposal_count": sum(
+                int(row.get("proposal_count") or 0) for row in source_routes
+            ),
+            "source_route_host_accepted_count": sum(
+                int(
+                    dict(row.get("validation") or {}).get(
+                        "accepted_validation_count"
+                    )
+                    or 0
+                )
+                for row in source_routes
             ),
         },
         "stage_timings": {

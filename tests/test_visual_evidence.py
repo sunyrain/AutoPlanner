@@ -88,7 +88,15 @@ def _inputs(tmp_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
                 "exact_row_count": 0,
                 "unresolved_edge_count": 1,
                 "procedure_inventory": [
-                    {"label": "T1", "name": "ethyl acetate", "page_number": 1}
+                    {
+                        "label": "T1",
+                        "name": "ethyl acetate",
+                        "page_number": 1,
+                        "procedure_excerpt": (
+                            "Ethanol and acetic acid were heated at reflux "
+                            "to afford ethyl acetate."
+                        ),
+                    }
                 ],
                 "visual_candidate_pages": [
                     {
@@ -101,6 +109,65 @@ def _inputs(tmp_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         ],
     }
     return evidence_request, discovery
+
+
+def test_visual_request_prefers_route_rich_source_and_carries_page_text(
+    tmp_path: Path,
+) -> None:
+    evidence_request, discovery = _inputs(tmp_path)
+    rich = discovery["sources"][0]
+    rich["source_ref"] = "patent:RICH1"
+    rich["source_route_proposal_count"] = 1
+    rich["source_route_observation"] = {
+        "proposals": [
+            {
+                "proposal_id": "source-route:T1",
+                "product_name": "ethyl acetate T1",
+            }
+        ]
+    }
+    poor = {
+        **rich,
+        "source_ref": "patent:POOR1",
+        "publication_number": "POOR1",
+        "unresolved_edge_count": 99,
+        "procedure_inventory": [],
+        "source_route_proposal_count": 0,
+        "source_route_observation": {},
+    }
+    discovery["sources"] = [poor, rich]
+
+    request = compile_visual_evidence_request(
+        evidence_request=evidence_request,
+        discovery=discovery,
+        max_pages=2,
+    )
+
+    assert request["source"]["source_ref"] == "patent:RICH1"
+    assert request["source"]["text_snippets"][0]["compound_label"] == "T1"
+    assert "Ethanol and acetic acid" in request["source"]["text_snippets"][0][
+        "snippet"
+    ]
+    assert request["source"]["route_sequence_hint"] == "ethyl acetate T1"
+
+    captured: dict[str, Any] = {}
+
+    def runner(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "status": "completed",
+            "usage": {"model_invocations": 1, "visual_invocations": 1},
+            "candidate_chain": {"steps": []},
+        }
+
+    provider = build_codex_visual_evidence_provider(
+        CodexVisualEvidenceConfig(cache_dir=tmp_path / "visual", max_pages=2),
+        runner=runner,
+    )
+    provider(request)
+
+    assert captured["route_sequence_hint"] == "ethyl acetate T1"
+    assert captured["text_snippets"][0]["compound_label"] == "T1"
 
 
 def test_visual_candidate_is_one_call_host_normalized_and_never_exact(

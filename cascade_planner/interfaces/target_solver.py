@@ -114,8 +114,8 @@ class TargetSolveConfig:
     max_chemenzy_iterations: int = 10
     chemenzy_expansion_topk: int = 20
     chemenzy_timeout_s: float = 90.0
-    max_guided_chemenzy_frontiers: int = 1
-    max_guided_chemenzy_iterations: int = 4
+    max_guided_chemenzy_frontiers: int = 3
+    max_guided_chemenzy_iterations: int = 6
     guided_chemenzy_timeout_s: float = 60.0
     max_visual_evidence_pages: int = 6
     max_director_output_tokens: int = 9_000
@@ -144,7 +144,7 @@ class TargetSolveConfig:
             self.chemenzy_expansion_topk,
         ) < 1 or self.chemenzy_timeout_s <= 0:
             raise ValueError("target solver ChemEnzy budget is invalid")
-        if not 1 <= self.max_guided_chemenzy_frontiers <= 2:
+        if not 1 <= self.max_guided_chemenzy_frontiers <= 6:
             raise ValueError("target solver guided ChemEnzy frontier limit is invalid")
         if (
             self.max_guided_chemenzy_iterations < 1
@@ -612,6 +612,14 @@ def solve_target(
             "chemenzy_guided_frontier",
             enabled=active.enable_chemenzy and active.enable_guided_chemenzy,
         )
+        # Keep at least one local-expansion slot for leaves revealed by the
+        # first validation/stock pass.  Spending the whole allowance on the
+        # director's initial frontier made every new upstream leaf terminal.
+        initial_guided_limit = (
+            active.max_guided_chemenzy_frontiers - 1
+            if active.max_guided_chemenzy_frontiers > 1
+            else 1
+        )
         guided_stage = run_chemenzy_guided_frontier_stage(
             service,
             target_name=case.target_name,
@@ -620,9 +628,9 @@ def solve_target(
             provider=chemenzy_provider,
             env_prefix=active.chemenzy_env_prefix or None,
             vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
-            max_frontiers=active.max_guided_chemenzy_frontiers,
+            max_frontiers=initial_guided_limit,
             max_routes=1,
-            max_steps=min(4, active.max_chemenzy_steps),
+            max_steps=active.max_chemenzy_steps,
             max_iterations=active.max_guided_chemenzy_iterations,
             expansion_topk=min(10, active.chemenzy_expansion_topk),
             timeout_s=active.guided_chemenzy_timeout_s,
@@ -774,7 +782,7 @@ def solve_target(
             vendor_root=_chemenzy_vendor_root(gateway.paths.vendor_root),
             max_frontiers=remaining_guided,
             max_routes=1,
-            max_steps=min(4, active.max_chemenzy_steps),
+            max_steps=active.max_chemenzy_steps,
             max_iterations=active.max_guided_chemenzy_iterations,
             expansion_topk=min(10, active.chemenzy_expansion_topk),
             timeout_s=active.guided_chemenzy_timeout_s,
@@ -1635,6 +1643,45 @@ def _acquire_evidence_stage(
             document=dict(document),
             atom_mapper=atom_mapper,
         )
+        # Structured import validates every pending edge in one canonical
+        # batch.  Scope its receipt back to the source-route edge IDs instead
+        # of attributing unrelated Codex/ChemEnzy validations to literature.
+        shared_validation = dict(imported.get("validation") or {})
+        source_edge_ids = {
+            str(value)
+            for value in source_route_stage.get("materialized_edge_ids") or []
+            if str(value)
+        }
+        accepted_source_ids = sorted(
+            source_edge_ids.intersection(
+                str(value)
+                for value in shared_validation.get("accepted_edge_ids") or []
+            )
+        )
+        rejected_source_ids = sorted(
+            source_edge_ids.intersection(
+                str(value)
+                for value in shared_validation.get("rejected_edge_ids") or []
+            )
+        )
+        source_route_stage = {
+            **source_route_stage,
+            "validation": {
+                "status": str(shared_validation.get("status") or ""),
+                "accepted_validation_count": len(accepted_source_ids),
+                "rejected_validation_count": len(rejected_source_ids),
+                "accepted_edge_ids": accepted_source_ids,
+                "rejected_edge_ids": rejected_source_ids,
+                "rejection_diagnostics": [
+                    dict(value)
+                    for value in shared_validation.get("rejection_diagnostics")
+                    or []
+                    if isinstance(value, Mapping)
+                    and str(value.get("edge_id") or "") in source_edge_ids
+                ],
+            },
+            "validation_shared_with_structured_import": True,
+        }
     except (LiveEvidenceConnectorError, ValueError) as exc:
         return {
             "stage": "evidence_acquisition",

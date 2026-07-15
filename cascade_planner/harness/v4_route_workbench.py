@@ -580,6 +580,26 @@ def _route_branch(
     complete = route.get("complete") is True
     closure_profile = str(route.get("closure_profile") or "unresolved")
     process_ready = route.get("process_ready") is True
+    proof_vector = dict(route.get("proof_vector") or {})
+    condition_status = str(proof_vector.get("conditions") or "missing")
+    condition_complete = route.get("condition_complete") is True
+    route_state_label = (
+        "工艺候选可执行"
+        if process_ready
+        else "采购闭合 · 条件待补"
+        if closure_profile in {"procurement_closed", "in_house_closed"}
+        else "搜索边界闭合 · 非采购路线"
+        if closure_profile == "exploration_closed"
+        else "反应已验证 · 叶节点未闭合"
+        if level >= 2
+        else "路线骨架 · 待递归展开"
+    )
+    condition_label = {
+        "source_exact": "来源条件",
+        "source_recorded_unverified": "来源条件候选",
+        "model_predicted": "预测条件",
+        "missing": "条件缺失",
+    }.get(condition_status, "条件状态未知")
     source_refs = [
         str(value)[7:]
         for value in route.get("badges") or []
@@ -597,6 +617,11 @@ def _route_branch(
         "configured_boundary_closed": complete,
         "closure_profile": closure_profile,
         "completion_label": _closure_label(closure_profile),
+        "route_state_label": route_state_label,
+        "condition_status": condition_status,
+        "condition_label": condition_label,
+        "condition_complete": condition_complete,
+        "full_synthesis_claim": process_ready,
         "executable": process_ready,
         "process_ready": process_ready,
         "advisory_only": not process_ready,

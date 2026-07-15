@@ -359,7 +359,8 @@ def run_chemenzy_guided_frontier_stage(
         "results": results,
         "material_events": ["guided_provider_proposals_added"] if proposal_count else [],
         "semantics": {
-            "single_canonical_frontier": True,
+            "canonical_frontier_queue": True,
+            "frontier_batch_is_bounded": True,
             "one_bounded_pass": True,
             "provider_result_requires_host_materialization": True,
             "enabled_does_not_imply_invoked": True,

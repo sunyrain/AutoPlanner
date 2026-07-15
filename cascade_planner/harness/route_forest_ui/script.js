@@ -295,6 +295,26 @@
       ? (step.retrosynthesis_display_label || step.retrosynthesis_label || step.display_label || step.step_id)
       : (step.display_label || step.stage_label || step.step_id);
   }
+  function inlineConditionText(step) {
+    const rows = Array.isArray(step?.conditions) ? step.conditions : [];
+    const priority = ['reagents', 'agents', 'catalyst', 'solvent', 'temperature', 'temperature c', 'time', 'yield', 'yield percent', 'workup', 'addition order'];
+    const ranked = rows
+      .filter(row => row && String(row.value || '').trim())
+      .sort((left, right) => {
+        const a = priority.indexOf(String(left.label || '').toLowerCase());
+        const b = priority.indexOf(String(right.label || '').toLowerCase());
+        return (a < 0 ? priority.length : a) - (b < 0 ? priority.length : b);
+      });
+    if (ranked.length) {
+      const summary = ranked.slice(0, 2).map(row => `${row.label || '条件'} ${row.value}`).join(' · ');
+      const prefix = step.condition_status === 'model_predicted' ? '预测' : '来源';
+      return `${prefix} · ${middleEllipsis(summary, 34)}`;
+    }
+    if (step?.condition_status === 'source_exact') return '来源条件已绑定 · 字段待展开';
+    if (step?.condition_status === 'source_recorded_unverified') return '来源条件候选 · 待核验';
+    if (step?.condition_status === 'model_predicted') return '预测条件 · 非文献事实';
+    return '条件待取证';
+  }
   function producerClass(step) {
     return PRODUCER_CLASS[(step?.producer_kinds || [])[0]] || 'producer-unknown';
   }
@@ -861,7 +881,7 @@
     const partialBadge = partialProgress
       ? `<span class="branch-badge branch-badge--partial-expanded" title="${esc(partialReason)}">部分展开 ${esc(partialProgress.matched)}/${esc(partialProgress.required)}</span>`
       : '';
-    const stateLabel = lane.completion_label || (lane.solved && lane.executable && !lane.advisory_only
+    const stateLabel = lane.route_state_label || lane.completion_label || (lane.solved && lane.executable && !lane.advisory_only
       ? '完整父路线'
       : lane.kind === 'proof_eligible_portfolio_route' ? '完整 portfolio'
         : stageMembershipIsAuthoritative(lane, 'stock')
@@ -873,7 +893,7 @@
     return `<button class="branch-card ${tierClass(lane.proof_tier)}${selected ? ' is-selected' : ''}" type="button"
       data-branch-id="${esc(lane.branch_id)}" aria-current="${selected ? 'true' : 'false'}" tabindex="-1">
       <span class="branch-card-title">${esc(lane.title || lane.branch_id)}</span>
-      <span class="branch-card-meta">${esc((lane.step_ids || []).length)} 步 · ${esc(tierLabel(lane.proof_tier))}</span>
+      <span class="branch-card-meta">${esc((lane.step_ids || []).length)} 步 · ${esc(tierLabel(lane.proof_tier))} · ${esc(lane.condition_label || '条件状态未知')}</span>
       <span class="branch-card-badges">${lane.is_primary ? `<span class="branch-badge">${forest.primary_selection?.display_tiebreak_only ? '展示锚点' : '主分支'}</span>` : ''}<span class="branch-badge">${esc(stateLabel)}</span>${partialBadge}<span class="branch-badge">${esc(synthesisLabel(branch.synthesis_class))}</span></span>
     </button>`;
   }
@@ -1087,9 +1107,9 @@
     const mobileCurrent = state.mode === 'current' && matchMedia('(max-width: 639px)').matches;
     const base = state.mode === 'current'
       ? (mobileCurrent
-        ? (reaction ? { w: 136, h: 62 } : { w: 158, h: 118 })
-        : (reaction ? { w: 154, h: 68 } : { w: 220, h: 144 }))
-      : (reaction ? { w: 166, h: 70 } : { w: 194, h: 78 });
+        ? (reaction ? { w: 148, h: 76 } : { w: 158, h: 118 })
+        : (reaction ? { w: 176, h: 84 } : { w: 220, h: 144 }))
+      : (reaction ? { w: 182, h: 86 } : { w: 194, h: 78 });
     return { w: Math.round(base.w * scale), h: Math.round(base.h * scale) };
   }
 
@@ -1230,12 +1250,20 @@
     const reactionMeta = reaction
       ? middleEllipsis(`${step?.producer_label || '来源未标记'} · ${tierLabel(tier)}`, 25)
       : '';
+    const conditionMeta = reaction ? inlineConditionText(step) : '';
+    const conditionClass = step?.condition_status === 'source_exact'
+      ? 'is-source-exact'
+      : step?.condition_status === 'model_predicted'
+        ? 'is-model-predicted'
+        : step?.condition_status === 'source_recorded_unverified'
+          ? 'is-source-candidate'
+          : 'is-missing';
     return `<g class="graph-node dependency-${reaction ? 'reaction graph-node--reaction' : 'molecule graph-node--molecule'} ${nodeTierClass} ${originClass}${selected ? ' is-selected' : ''}" data-graph-node-id="${esc(node.graph_node_id)}" data-node-type="${esc(node.node_type)}" data-node-role="${esc(node.role || '')}" data-branch-id="${esc(instance.branchId)}" data-instance-id="${esc(instance.instanceId)}" ${reaction ? `data-route-step="${esc(node.reaction_step_id)}"` : ''} tabindex="${selected ? '0' : '-1'}" role="button" aria-label="${esc(`${reaction ? '反应' : '分子'}：${fullLabel}，${semanticLabel}`)}">
       <title>${esc(fullLabel)}</title><rect class="node-surface" x="${position.x}" y="${position.y}" width="${position.w}" height="${position.h}" rx="${reaction ? 12 : 24}"></rect>
       ${reaction ? `<rect class="reaction-origin-stripe" x="${position.x}" y="${position.y + 6}" width="5" height="${position.h - 12}" rx="2.5"></rect>` : ''}
       ${structureSvg ? `<foreignObject class="node-depiction" x="${position.x + 7}" y="${position.y + 7}" width="${position.w - 14}" height="${position.h - 39}"><div xmlns="http://www.w3.org/1999/xhtml" class="node-depiction-frame">${structureSvg}</div></foreignObject>` : ''}
       <text class="node-label" x="${textX}" y="${textY}">${svgTextLines(lines, textX, textY)}</text>
-      ${reaction && state.labelMode !== 'minimal' ? `<text class="graph-node-tier node-meta" x="${textX}" y="${position.y + position.h - 10}">${esc(reactionMeta)}</text>` : ''}</g>`;
+      ${reaction && state.labelMode !== 'minimal' ? `<text class="graph-node-tier node-meta" x="${textX}" y="${position.y + position.h - 24}">${esc(reactionMeta)}</text><text class="reaction-condition-meta ${conditionClass}" x="${textX}" y="${position.y + position.h - 9}">${esc(conditionMeta)}</text>` : ''}</g>`;
   }
 
   function applyGraphSelection() {
@@ -1567,10 +1595,10 @@
     const lane = laneByBranch.get(branch.branch_id) || {};
     const executionLabel = lane.process_ready
       ? '工艺候选可执行'
-      : lane.completion_label || (branch.solved && branch.executable ? '已验证' : '探索建议');
+      : lane.route_state_label || lane.completion_label || (branch.solved && branch.executable ? '已验证' : '探索建议');
     return `<article><header><p class="detail-kind">路线分支 · ${esc(tierLabel(lane.proof_tier))}</p><h3 class="detail-title">${esc(branch.title || branch.branch_id)}</h3></header>
       <div class="notice">${esc(branch.summary || branch.recommendation || '没有路线摘要。')}</div>
-      <section class="detail-section"><div class="kv"><span class="k">步骤</span><span class="v">${esc((lane.step_ids || []).length)}</span></div><div class="kv"><span class="k">DAG</span><span class="v">${lane.acyclic === false ? '检测到环路' : '无环'}</span></div><div class="kv"><span class="k">闭合档位</span><span class="v">${esc(executionLabel)}</span></div></section></article>`;
+      <section class="detail-section"><div class="kv"><span class="k">步骤</span><span class="v">${esc((lane.step_ids || []).length)}</span></div><div class="kv"><span class="k">DAG</span><span class="v">${lane.acyclic === false ? '检测到环路' : '无环'}</span></div><div class="kv"><span class="k">路线状态</span><span class="v">${esc(executionLabel)}</span></div><div class="kv"><span class="k">条件状态</span><span class="v">${esc(lane.condition_label || '条件状态未知')}</span></div><div class="kv"><span class="k">完整合成声明</span><span class="v">${lane.full_synthesis_claim ? '是' : '否；仍是骨架或未闭合路线'}</span></div></section></article>`;
   }
   function nodeNames(ids) {
     return (ids || []).map(id => moleculeNodes.get(id)?.label || moleculeNodes.get(id)?.smiles || id).join(' + ') || '未记录';

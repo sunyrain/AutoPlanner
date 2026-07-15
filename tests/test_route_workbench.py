@@ -353,6 +353,13 @@ def test_v4_workbench_adapter_renders_bounded_routes_and_separate_hypotheses() -
     assert all("stock" in value["stage_memberships"] for value in portfolio_lanes)
     assert all(value["solved"] is False for value in forest["branches"] if value["kind"] == "proof_eligible_portfolio_route")
     assert all(value["executable"] is False for value in forest["branches"] if value["kind"] == "proof_eligible_portfolio_route")
+    assert all(
+        value["route_state_label"] == "搜索边界闭合 · 非采购路线"
+        for value in forest["branches"]
+        if value["kind"] == "proof_eligible_portfolio_route"
+    )
+    assert all(value["full_synthesis_claim"] is False for value in portfolio_lanes)
+    assert all(value["condition_label"] == "条件缺失" for value in portfolio_lanes)
     assert all(value["completion_label"] == "搜索边界闭合" for value in forest["branches"] if value["kind"] == "proof_eligible_portfolio_route")
     route_steps = [
         value for value in forest["steps"] if value.get("branch_id") == "route:0"

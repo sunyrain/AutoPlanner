@@ -617,6 +617,28 @@ def materialize_discovered_source_routes(
         if commands
         else {"changed": False, "executed_command_count": 0, "material_events": []}
     )
+    materialized_graph = service.graph_store.load()
+    source_family_aliases = set(route_families)
+    source_family_ids = {
+        str(route_id)
+        for route_id, raw_route in dict(
+            materialized_graph.get("route_families") or {}
+        ).items()
+        if isinstance(raw_route, Mapping)
+        and source_family_aliases.intersection(
+            str(value) for value in raw_route.get("aliases") or []
+        )
+    }
+    materialized_edge_ids = sorted(
+        str(edge_id)
+        for edge_id, raw_edge in dict(
+            materialized_graph.get("edges") or {}
+        ).items()
+        if isinstance(raw_edge, Mapping)
+        and source_family_ids.intersection(
+            str(value) for value in raw_edge.get("route_family_ids") or []
+        )
+    )
     return {
         "stage": "source_route_materialization",
         "status": (
@@ -627,6 +649,7 @@ def materialize_discovered_source_routes(
         "observation_count": len(observations),
         "route_family_count": len(route_families),
         "proposal_count": len(proposals),
+        "materialized_edge_ids": materialized_edge_ids,
         "materialization_command_count": len(commands),
         "rejected_observations": rejected_observations,
         "family_ingestion": family_ingestion,

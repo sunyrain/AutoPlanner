@@ -2207,9 +2207,21 @@ body.is-resizing * {
   font-weight: 500 !important;
 }
 
+.reaction-condition-meta {
+  fill: var(--text-muted) !important;
+  font-size: 9.5px !important;
+  font-weight: 560 !important;
+}
+
+.reaction-condition-meta.is-source-exact { fill: #0f766e !important; }
+.reaction-condition-meta.is-source-candidate { fill: #0369a1 !important; }
+.reaction-condition-meta.is-model-predicted { fill: #7c3aed !important; }
+.reaction-condition-meta.is-missing { fill: #9a3412 !important; }
+
 .graph-viewport[data-label-mode="semantic"][data-zoom-band="overview"] .node-label,
 .graph-viewport[data-label-mode="semantic"][data-zoom-band="overview"] .node-meta,
-.graph-viewport[data-label-mode="semantic"][data-zoom-band="medium"] .node-meta {
+.graph-viewport[data-label-mode="semantic"][data-zoom-band="medium"] .node-meta,
+.graph-viewport[data-label-mode="semantic"][data-zoom-band="overview"] .reaction-condition-meta {
   display: none;
 }
 

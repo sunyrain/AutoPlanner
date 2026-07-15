@@ -111,7 +111,11 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
     assert config.max_chemenzy_iterations == 4
     assert config.chemenzy_expansion_topk == 9
     assert config.chemenzy_timeout_s == 45.0
-    assert config.execution_profile == "fast"
+    assert config.max_guided_chemenzy_frontiers == 3
+    assert config.max_guided_chemenzy_iterations == 6
+    assert config.execution_profile == "standard"
+    assert config.enable_initial_director_web_search is True
+    assert config.max_visual_evidence_pages == 6
     assert captured["budget"].max_model_invocations == 1
 
 

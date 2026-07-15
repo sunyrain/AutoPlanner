@@ -30,6 +30,7 @@ GatewayFactory = Callable[[], CampaignGateway]
 
 def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any]:
     max_visual_invocations = _int(payload, "max_visual_invocations", 0)
+    execution_profile = str(payload.get("execution_profile") or "standard")
     evidence_connector = _web_evidence_connector(gateway, payload)
     visual_provider = _web_visual_provider(
         gateway, payload, enabled=max_visual_invocations > 0
@@ -50,23 +51,29 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             stock_boundary=str(payload.get("stock_boundary") or "benchmark_search"),
         ),
         budget=RetrosynthesisRunBudget(
-            max_model_invocations=_int(payload, "max_model_invocations", 2),
-            max_total_input_tokens=_int(payload, "max_input_tokens", 50_000),
-            max_total_output_tokens=_int(payload, "max_output_tokens", 14_000),
-            max_total_wall_time_s=float(payload.get("max_model_wall_time_s", 720.0)),
+            max_model_invocations=_int(
+                payload,
+                "max_model_invocations",
+                3 if max_visual_invocations else 2,
+            ),
+            max_total_input_tokens=_int(payload, "max_input_tokens", 90_000),
+            max_total_output_tokens=_int(payload, "max_output_tokens", 22_000),
+            max_total_wall_time_s=float(payload.get("max_model_wall_time_s", 900.0)),
             max_visual_invocations=max_visual_invocations,
-            max_accepted_expansions=_int(payload, "max_accepted_expansions", 32),
-            max_attempt_runs=_int(payload, "max_attempt_runs", 72),
+            max_accepted_expansions=_int(payload, "max_accepted_expansions", 64),
+            max_attempt_runs=_int(payload, "max_attempt_runs", 128),
             max_prompt_context_bytes=96_000,
         ),
         config=TargetSolveConfig(
             model=str(payload.get("model") or DEFAULT_TARGET_DIRECTOR_MODEL),
             reasoning_effort=str(payload.get("reasoning_effort") or "low"),
-            execution_profile=str(payload.get("execution_profile") or "fast"),
+            execution_profile=execution_profile,
             use_coordinator=_bool(payload, "use_coordinator", False),
             enable_web_search=_bool(payload, "enable_web_search", True),
             enable_initial_director_web_search=_bool(
-                payload, "enable_initial_director_web_search", False
+                payload,
+                "enable_initial_director_web_search",
+                execution_profile in {"standard", "proof"},
             ),
             enable_target_identity=_bool(payload, "enable_target_identity", True),
             resolve_named_target_identity=_bool(
@@ -103,15 +110,15 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             chemenzy_expansion_topk=_int(payload, "chemenzy_expansion_topk", 20),
             chemenzy_timeout_s=float(payload.get("chemenzy_timeout_s", 90.0)),
             max_guided_chemenzy_frontiers=_int(
-                payload, "max_guided_chemenzy_frontiers", 1
+                payload, "max_guided_chemenzy_frontiers", 3
             ),
             max_guided_chemenzy_iterations=_int(
-                payload, "max_guided_chemenzy_iterations", 4
+                payload, "max_guided_chemenzy_iterations", 6
             ),
             guided_chemenzy_timeout_s=float(
                 payload.get("guided_chemenzy_timeout_s", 60.0)
             ),
-            max_visual_evidence_pages=_int(payload, "max_visual_evidence_pages", 2),
+            max_visual_evidence_pages=_int(payload, "max_visual_evidence_pages", 6),
         ),
     )
 
@@ -152,9 +159,9 @@ def _web_evidence_connector(gateway: Any, payload: Mapping[str, Any]) -> Any:
                 BuiltinLiteratureEvidenceConfig(
                     cache_dir=paths.external_data_root / "literature-evidence",
                     seed_dois=tuple(_string_list(payload.get("literature_dois"))),
-                    max_sources=_int(dict(payload), "max_literature_sources", 3),
+                    max_sources=_int(dict(payload), "max_literature_sources", 4),
                     max_visual_pages=_int(
-                        dict(payload), "max_visual_evidence_pages", 2
+                        dict(payload), "max_visual_evidence_pages", 6
                     ),
                 )
             )
@@ -184,7 +191,7 @@ def _web_visual_provider(
             cache_dir=paths.external_data_root / "visual-evidence",
             model=str(payload.get("model") or DEFAULT_TARGET_DIRECTOR_MODEL),
             reasoning_effort=str(payload.get("reasoning_effort") or "low"),
-            max_pages=_int(dict(payload), "max_visual_evidence_pages", 2),
+            max_pages=_int(dict(payload), "max_visual_evidence_pages", 6),
         )
     )
 
@@ -346,12 +353,18 @@ def _stage_progress_metrics(row: Mapping[str, Any]) -> dict[str, int | float]:
             "queued": int(detail.get("queued_count") or 0),
             "rejected": int(detail.get("rejected_count") or 0),
         }
-    if stage == "evidence_acquisition":
+    if stage in {"evidence_acquisition", "replan_evidence_acquisition"}:
         prefetch = dict(detail.get("prefetch") or {})
+        source_route = dict(detail.get("source_route") or {})
+        source_validation = dict(source_route.get("validation") or {})
         return {
             "sources": int(detail.get("source_count") or 0),
             "exact_rows": int(detail.get("exact_record_count") or 0),
             "visual_calls": int(detail.get("visual_invocations") or 0),
+            "source_route_proposals": int(source_route.get("proposal_count") or 0),
+            "source_route_validated": int(
+                source_validation.get("accepted_validation_count") or 0
+            ),
             "prefetch_s": round(float(prefetch.get("elapsed_s") or 0.0), 3),
             "hidden_s": round(
                 float(detail.get("latency_hidden_by_global_s") or 0.0), 3
