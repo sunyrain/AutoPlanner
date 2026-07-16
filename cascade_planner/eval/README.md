@@ -13,6 +13,32 @@ These support conservative product/material sanity checks and batch audit
 refreshes. They do not promote a learned ranker and should not load retired v4
 learned-value artifacts by default.
 
+## Classic Multistep Blind Panel
+
+`build_classic_multistep_benchmark.py` freezes a deterministic 20-target
+PaRoutes set-n1/set-n5 panel. The checked-in manifest contains opaque labels,
+canonical SMILES, generic acceptance criteria, and budgets only. Reference
+routes and sampling strata are evaluator-only artifacts and must not be passed
+to a planner.
+
+Run the full target-only V4 panel with a host-compatible ChemEnzy prefix:
+
+```powershell
+python scripts/run_v4_blind_panel.py `
+  --manifest benchmarks/paroutes_v4_multistep20.json `
+  --output-root results/shared/paroutes_v4_multistep20_v4_full `
+  --workers 2 `
+  --execution-profile standard `
+  --chemenzy-env-prefix D:\conda\envs\py312
+```
+
+The benchmark reports runtime completion, route retention, host acceptance,
+split-specific PaRoutes stock closure, evidence/condition status, and reference
+recovery independently. A low-confidence or partially validated route remains
+visible with warnings; it is not relabeled as accepted, but it is also not
+erased as though no route were found. Route length is descriptive and a shorter
+valid closed route is allowed.
+
 The current verifier-first / chosen-only adapter mainline mostly lives outside
 this package:
 
