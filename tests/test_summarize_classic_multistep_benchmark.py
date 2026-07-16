@@ -23,6 +23,7 @@ def test_summary_separates_retained_low_confidence_route_from_acceptance(
             "cases": [
                 {
                     "case_id": "case-1",
+                    "target_name": "opaque target 1",
                     "split": "n1",
                     "depth_stratum": "llr_5_6",
                     "target_smiles": "CCO",
@@ -78,6 +79,37 @@ def test_summary_separates_retained_low_confidence_route_from_acceptance(
             ]
         },
     )
+    v4_panel = _write(
+        tmp_path / "panel-status.json",
+        {
+            "target_count": 1,
+            "targets": {
+                "opaque target 1": {
+                    "status": "completed",
+                    "claim": "unresolved",
+                    "accepted_under_configured_policy": False,
+                    "elapsed_s": 12.5,
+                    "gate_summary": {
+                        "B0": True,
+                        "B1": True,
+                        "B2": False,
+                        "B3": False,
+                        "B4": True,
+                        "B5": False,
+                    },
+                    "route_counts": {
+                        "target_rooted_distinct_skeletons": 3,
+                        "reaction_validated_skeletons": 0,
+                        "stock_closed_skeletons": 2,
+                    },
+                    "chemenzy": {
+                        "provider_invocation_count": 1,
+                        "proposal_count": 4,
+                    },
+                }
+            },
+        },
+    )
 
     report = summarize_classic_multistep_benchmark(
         reference_pack=reference,
@@ -86,6 +118,7 @@ def test_summary_separates_retained_low_confidence_route_from_acceptance(
         output_json=tmp_path / "summary.json",
         output_md=tmp_path / "summary.md",
         output_html=tmp_path / "index.html",
+        v4_panel_status=v4_panel,
     )
 
     row = report["targets"][0]
@@ -99,6 +132,12 @@ def test_summary_separates_retained_low_confidence_route_from_acceptance(
     }
     assert "target_smiles" not in row
     assert report["semantics"]["low_confidence_routes_are_retained_with_warnings"]
+    v4 = report["aggregates"]["v4_panel"]
+    assert v4["completion_rate"] == 1.0
+    assert v4["gate_pass_rates_over_completed"]["B1"] == 1.0
+    assert v4["gate_pass_rates_over_completed"]["B2"] == 0.0
+    assert v4["total_stock_closed_skeletons"] == 2
     rendered = (tmp_path / "index.html").read_text(encoding="utf-8")
     assert "低可信路线保留" in rendered
+    assert "完整 V4 target-only 盲测" in rendered
     assert "must-not-leak" not in rendered

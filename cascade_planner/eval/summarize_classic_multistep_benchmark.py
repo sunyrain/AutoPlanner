@@ -27,11 +27,14 @@ def summarize_classic_multistep_benchmark(
     output_json: Path,
     output_md: Path | None = None,
     output_html: Path | None = None,
+    v4_panel_status: Path | None = None,
 ) -> dict[str, Any]:
     reference = _read_json(reference_pack)
     cases = [dict(row) for row in reference.get("cases") or []]
     run_payloads = {split: _read_json(path) for split, path in runs.items()}
     proxy_payloads = {split: _read_json(path) for split, path in proxies.items()}
+    v4_panel = _read_json(v4_panel_status) if v4_panel_status else {}
+    v4_targets = dict(v4_panel.get("targets") or {})
     rows: list[dict[str, Any]] = []
     for case in cases:
         split = str(case.get("split") or "")
@@ -40,7 +43,14 @@ def summarize_classic_multistep_benchmark(
         proxy = _proxy_by_id(
             proxy_payloads.get(split, {}), str(case.get("case_id") or "")
         )
-        rows.append(_case_row(case, target, proxy))
+        rows.append(
+            _case_row(
+                case,
+                target,
+                proxy,
+                dict(v4_targets.get(str(case.get("target_name") or "")) or {}),
+            )
+        )
 
     aggregates = {
         "overall": _aggregate(rows),
@@ -54,6 +64,7 @@ def summarize_classic_multistep_benchmark(
             )
             for stratum in sorted({row["depth_stratum"] for row in rows})
         },
+        "v4_panel": _aggregate_v4(rows, v4_panel),
     }
     report = {
         "schema_version": SCHEMA_VERSION,
@@ -100,6 +111,7 @@ def _case_row(
     case: Mapping[str, Any],
     target: Mapping[str, Any],
     proxy: Mapping[str, Any],
+    v4_state: Mapping[str, Any],
 ) -> dict[str, Any]:
     chem_enzy = dict(target.get("chem_enzy") or {})
     cascade = dict(target.get("cascade_search") or {})
@@ -144,6 +156,7 @@ def _case_row(
         ),
         "cascade_search_elapsed_s": round(float(cascade.get("elapsed_s") or 0.0), 3),
         "warning_counts": dict(sorted(failures.items())),
+        "v4": _v4_case_row(v4_state),
     }
 
 
@@ -177,6 +190,82 @@ def _aggregate(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
             3,
         ),
         "warning_counts": dict(sorted(warnings.items())),
+    }
+
+
+def _v4_case_row(state: Mapping[str, Any]) -> dict[str, Any]:
+    gates = dict(state.get("gate_summary") or {})
+    counts = dict(state.get("route_counts") or {})
+    chemenzy = dict(state.get("chemenzy") or {})
+    return {
+        "status": str(state.get("status") or "not_run"),
+        "claim": str(state.get("claim") or ""),
+        "accepted_under_configured_policy": (
+            state.get("accepted_under_configured_policy") is True
+        ),
+        "elapsed_s": round(float(state.get("elapsed_s") or 0.0), 3),
+        "gates": {key: gates.get(key) is True for key in ("B0", "B1", "B2", "B3", "B4", "B5")},
+        "target_rooted_distinct_skeletons": int(
+            counts.get("target_rooted_distinct_skeletons") or 0
+        ),
+        "reaction_validated_skeletons": int(
+            counts.get("reaction_validated_skeletons") or 0
+        ),
+        "stock_closed_skeletons": int(counts.get("stock_closed_skeletons") or 0),
+        "chem_enzy_provider_calls": int(
+            chemenzy.get("provider_invocation_count") or 0
+        ),
+        "chem_enzy_proposals": int(chemenzy.get("proposal_count") or 0),
+    }
+
+
+def _aggregate_v4(
+    rows: list[Mapping[str, Any]], panel: Mapping[str, Any]
+) -> dict[str, Any]:
+    states = [dict(row.get("v4") or {}) for row in rows]
+    completed = [row for row in states if row.get("status") == "completed"]
+    target_count = int(panel.get("target_count") or len(rows)) if panel else 0
+    if not panel:
+        return {
+            "available": False,
+            "target_count": 0,
+            "completed_count": 0,
+            "completion_rate": 0.0,
+        }
+    gate_rates = {
+        key: round(
+            sum(dict(row.get("gates") or {}).get(key) is True for row in completed)
+            / max(len(completed), 1),
+            6,
+        )
+        for key in ("B0", "B1", "B2", "B3", "B4", "B5")
+    }
+    return {
+        "available": True,
+        "target_count": target_count,
+        "completed_count": len(completed),
+        "failed_count": sum(row.get("status") == "failed" for row in states),
+        "completion_rate": round(len(completed) / max(target_count, 1), 6),
+        "accepted_rate_over_completed": round(
+            sum(row.get("accepted_under_configured_policy") is True for row in completed)
+            / max(len(completed), 1),
+            6,
+        ),
+        "gate_pass_rates_over_completed": gate_rates,
+        "total_target_rooted_distinct_skeletons": sum(
+            int(row.get("target_rooted_distinct_skeletons") or 0)
+            for row in completed
+        ),
+        "total_reaction_validated_skeletons": sum(
+            int(row.get("reaction_validated_skeletons") or 0)
+            for row in completed
+        ),
+        "total_stock_closed_skeletons": sum(
+            int(row.get("stock_closed_skeletons") or 0) for row in completed
+        ),
+        "total_chem_enzy_provider_calls": sum(
+            int(row.get("chem_enzy_provider_calls") or 0) for row in completed
+        ),
     }
 
 
@@ -262,6 +351,24 @@ def _markdown(report: Mapping[str, Any]) -> str:
             f"{row['benchmark_stock_closed_rate']:.1%} | {row['top10_exact_reference_route_rate']:.1%} | "
             f"{row['avg_top10_best_reference_leaf_overlap']:.1%} |"
         )
+    v4 = dict(dict(report.get("aggregates") or {}).get("v4_panel") or {})
+    if v4.get("available"):
+        gate_rates = dict(v4.get("gate_pass_rates_over_completed") or {})
+        lines.extend(
+            [
+                "",
+                "## Full V4 blind panel",
+                "",
+                f"- Completed: `{v4.get('completed_count', 0)}/{v4.get('target_count', 0)}`",
+                f"- B1 structural route: `{gate_rates.get('B1', 0):.1%}`",
+                f"- B2 reaction validation: `{gate_rates.get('B2', 0):.1%}`",
+                f"- B3 exact evidence: `{gate_rates.get('B3', 0):.1%}`",
+                f"- B4 configured stock boundary: `{gate_rates.get('B4', 0):.1%}`",
+                f"- Retained skeletons: `{v4.get('total_target_rooted_distinct_skeletons', 0)}`",
+                f"- Reaction-validated skeletons: `{v4.get('total_reaction_validated_skeletons', 0)}`",
+                f"- Stock-closed skeletons: `{v4.get('total_stock_closed_skeletons', 0)}`",
+            ]
+        )
     lines.extend(["", "## Warnings", ""])
     for warning, count in dict(overall.get("warning_counts") or {}).items():
         lines.append(f"- `{warning}`: {count}")
@@ -298,6 +405,23 @@ def _html(report: Mapping[str, Any]) -> str:
         "</tr>"
         for row in report.get("targets") or []
     )
+    v4 = dict(aggregates.get("v4_panel") or {})
+    v4_gate_rates = dict(v4.get("gate_pass_rates_over_completed") or {})
+    v4_target_rows = "".join(
+        "<tr>"
+        f"<td>{escape(str(row.get('case_id') or ''))}</td>"
+        f"<td>{escape(str(dict(row.get('v4') or {{}}).get('status') or 'not_run'))}</td>"
+        f"<td>{_mark_gate(row, 'B1')}</td>"
+        f"<td>{_mark_gate(row, 'B2')}</td>"
+        f"<td>{_mark_gate(row, 'B3')}</td>"
+        f"<td>{_mark_gate(row, 'B4')}</td>"
+        f"<td>{int(dict(row.get('v4') or {{}}).get('target_rooted_distinct_skeletons') or 0)}</td>"
+        f"<td>{int(dict(row.get('v4') or {{}}).get('reaction_validated_skeletons') or 0)}</td>"
+        f"<td>{int(dict(row.get('v4') or {{}}).get('stock_closed_skeletons') or 0)}</td>"
+        f"<td>{float(dict(row.get('v4') or {{}}).get('elapsed_s') or 0):.1f}s</td>"
+        "</tr>"
+        for row in report.get("targets") or []
+    )
     cards = (
         ("目标完成", "runtime_completion_rate"),
         ("ChemEnzy 找到路线", "chem_enzy_route_found_rate"),
@@ -310,6 +434,27 @@ def _html(report: Mapping[str, Any]) -> str:
         f"<article><b>{float(overall.get(key) or 0):.0%}</b><span>{escape(label)}</span></article>"
         for label, key in cards
     )
+    v4_html = ""
+    if v4.get("available"):
+        v4_cards = (
+            ("V4 完成", float(v4.get("completion_rate") or 0.0)),
+            ("B1 结构路线", float(v4_gate_rates.get("B1") or 0.0)),
+            ("B2 反应验证", float(v4_gate_rates.get("B2") or 0.0)),
+            ("B3 精确证据", float(v4_gate_rates.get("B3") or 0.0)),
+            ("B4 库存边界", float(v4_gate_rates.get("B4") or 0.0)),
+            (
+                "V4 策略接纳",
+                float(v4.get("accepted_rate_over_completed") or 0.0),
+            ),
+        )
+        v4_card_html = "".join(
+            f"<article><b>{value:.0%}</b><span>{escape(label)}</span></article>"
+            for label, value in v4_cards
+        )
+        v4_html = f"""
+<section><h2>完整 V4 target-only 盲测</h2><div class="cards">{v4_card_html}</div>
+<p>已完成 {int(v4.get('completed_count') or 0)}/{int(v4.get('target_count') or 0)}；结构骨架、反应验证、精确证据和库存边界独立计数。</p>
+<table><thead><tr><th>Case</th><th>状态</th><th>B1</th><th>B2</th><th>B3</th><th>B4</th><th>骨架</th><th>验证骨架</th><th>库存闭合</th><th>耗时</th></tr></thead><tbody>{v4_target_rows}</tbody></table></section>"""
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PaRoutes 多步盲测 20</title><style>
@@ -326,6 +471,7 @@ table{{border-collapse:collapse;width:100%;min-width:760px}}th,td{{padding:10px 
 <p class="note">运行时、路线保留、Host 接纳、基准库存闭合与参考路线重合分别报告。低可信路线不会因为条件或中间证据缺口而消失。</p>
 <div class="cards">{card_html}</div>
 <section><h2>按数据集分层</h2><table><thead><tr><th>Split</th><th>n</th><th>找到路线</th><th>保留</th><th>接纳</th><th>库闭合</th><th>精确参考</th><th>叶节点重合</th></tr></thead><tbody>{split_rows}</tbody></table></section>
+{v4_html}
 <section><h2>逐目标结果（不展示参考答案）</h2><table><thead><tr><th>Case</th><th>Split</th><th>参考 LLR</th><th>ChemEnzy</th><th>保留</th><th>接纳</th><th>库闭合</th><th>叶节点重合</th><th>警示</th></tr></thead><tbody>{target_rows}</tbody></table></section>
 <p>参考比较忽略 atom-map 标签；当前为展平代理指标，不冒充 PaRoutes 官方树级评价。</p>
 </main></body></html>"""
@@ -333,6 +479,13 @@ table{{border-collapse:collapse;width:100%;min-width:760px}}th,td{{padding:10px 
 
 def _mark(value: Any) -> str:
     return '<span class="yes">是</span>' if value is True else '<span class="no">否</span>'
+
+
+def _mark_gate(row: Mapping[str, Any], gate: str) -> str:
+    v4 = dict(row.get("v4") or {})
+    if v4.get("status") != "completed":
+        return "—"
+    return _mark(dict(v4.get("gates") or {}).get(gate) is True)
 
 
 def _parse_bindings(values: Iterable[str]) -> dict[str, Path]:
@@ -353,6 +506,7 @@ def main() -> None:
     parser.add_argument("--output-json", required=True)
     parser.add_argument("--output-md")
     parser.add_argument("--output-html")
+    parser.add_argument("--v4-panel-status")
     args = parser.parse_args()
     report = summarize_classic_multistep_benchmark(
         reference_pack=Path(args.reference_pack),
@@ -361,6 +515,9 @@ def main() -> None:
         output_json=Path(args.output_json),
         output_md=Path(args.output_md) if args.output_md else None,
         output_html=Path(args.output_html) if args.output_html else None,
+        v4_panel_status=(
+            Path(args.v4_panel_status) if args.v4_panel_status else None
+        ),
     )
     print(json.dumps(report["aggregates"]["overall"], ensure_ascii=False, indent=2))
 
