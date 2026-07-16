@@ -681,7 +681,7 @@ def solve_target(
             max_frontiers=initial_guided_limit,
             max_routes=1,
             max_steps=active.max_chemenzy_steps,
-            max_iterations=active.max_guided_chemenzy_iterations,
+            max_iterations=min(24, active.max_guided_chemenzy_iterations),
             expansion_topk=min(80, active.chemenzy_expansion_topk),
             timeout_s=active.guided_chemenzy_timeout_s,
             exclude_frontier_smiles=tuple(sorted(prior_attempted_frontiers)),
@@ -838,7 +838,7 @@ def solve_target(
             max_frontiers=remaining_guided,
             max_routes=1,
             max_steps=active.max_chemenzy_steps,
-            max_iterations=active.max_guided_chemenzy_iterations,
+            max_iterations=min(24, active.max_guided_chemenzy_iterations),
             expansion_topk=min(80, active.chemenzy_expansion_topk),
             timeout_s=active.guided_chemenzy_timeout_s,
             exclude_frontier_smiles=tuple(

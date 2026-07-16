@@ -1070,6 +1070,7 @@ def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
             enable_replan=False,
             enable_builtin_patent_evidence=False,
             chemenzy_expansion_topk=180,
+            max_guided_chemenzy_iterations=60,
         ),
         director_runner=_runner,
         atom_mapper=_mapper,
@@ -1093,6 +1094,7 @@ def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
     assert guided["detail"]["proposal_count"] == 1
     assert [request["mode"] for request in requests] == ["guided_frontier"]
     assert limits_seen[0]["expansion_topk"] == 80
+    assert limits_seen[0]["max_iterations"] == 24
     assert requests[0]["route_family_ids"]
     assert requests[0]["forbidden_smiles"] == [TARGET]
     service = gateway._open(result["run_id"], run_dir=Path(result["run_dir"]))
