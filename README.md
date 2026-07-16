@@ -121,9 +121,10 @@ python -m cascade_planner serve
 默认 `--server auto` 会优先使用 Waitress；当前环境未安装 Waitress 时自动回退到 Flask，不会因可选
 服务器缺失而使页面无法启动。
 
-打开 `http://127.0.0.1:7860/v4` 进入统一工作区：展示案例、后端运行索引和路线 Workbench
-共用一个查看器；`/v4/console` 从任意 SMILES 发起独立 campaign，`/v4/showcase` 提供全屏
-演示。CLI、V4 API 和 Web workbench 共用 `CampaignGateway` 与
+打开 `http://127.0.0.1:7860/v4` 进入唯一主页面：从任意 SMILES 发起逆合成 campaign、
+查看实时和历史运行、打开路线 Workbench，以及切换展示案例和 benchmark 审计，均在同一页面
+完成。旧的 `/v4/console`、`/v4/showcase`、`/agent`、`/statins` 和 `/showcase` 仅作兼容
+重定向。CLI、V4 API 和 Web workbench 共用 `CampaignGateway` 与
 `RetrosynthesisCampaignService`。页面每 2 秒读取 canonical checkpoint，并分别显示路线
 结构闭合、证据待补、模型/视觉调用和历史快照；历史内核记录为 `running` 不代表进程仍在执行。
 

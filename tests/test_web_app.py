@@ -311,12 +311,8 @@ class WebAppTest(unittest.TestCase):
                 page = self.app.get("/showcase")
                 response = self.app.get("/api/showcase")
 
-        self.assertEqual(page.status_code, 200, page.data)
-        self.assertIn(b"/api/v4/showcase", page.data)
-        self.assertIn(b".empty[hidden]{display:none}", page.data)
-        self.assertIn(b"openStatins", page.data)
-        self.assertIn("他汀路线就绪度".encode(), page.data)
-        self.assertIn(b"NO_CONDITION_OBSERVATIONS", page.data)
+        self.assertEqual(page.status_code, 302, page.data)
+        self.assertEqual(page.headers["Location"], "/v4#routes")
         self.assertEqual(response.status_code, 200, response.data)
         payload = response.get_json()
         self.assertTrue(payload["ok"])
@@ -652,50 +648,33 @@ class WebAppTest(unittest.TestCase):
         self.assertIn("insufficient_retrosynthesis_progress", diagnosis)
         self.assertIn("no_solved_route_within_depth_range", diagnosis)
 
-    def test_web_static_payload_includes_rule_verifier_gate_toggle(self):
-        app_js = (web_app.STATIC_DIR / "app.js").read_text(encoding="utf-8")
-        index_html = (web_app.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    def test_only_unified_workspace_page_remains(self):
+        workspace = (web_app.STATIC_DIR / "workspace.html").read_text(encoding="utf-8")
 
-        self.assertIn('id="enable-rule-verifier-gate"', index_html)
-        self.assertIn("enable_rule_verifier_gate", app_js)
-        self.assertIn("cascadeVerifierGateSummary", app_js)
-        self.assertIn('id="enable-learned-verifier-annotation"', index_html)
-        self.assertIn("enable_learned_verifier_annotation", app_js)
-        self.assertIn("learnedVerifierAnnotationSummary", app_js)
-        self.assertIn('id="product-audit-filter-mode"', index_html)
-        self.assertIn('value="risk_guarded" selected', index_html)
-        self.assertIn("product_audit_filter_mode: auditMode", app_js)
-        self.assertIn('auditMode !== "off"', app_js)
-        self.assertIn('id="proposal-gate-mode"', index_html)
-        self.assertIn('value="hard_reject" selected', index_html)
-        self.assertIn("proposal_gate_mode: proposalGateMode", app_js)
-        self.assertIn('proposalGateMode !== "off"', app_js)
-        self.assertIn('id="one-step-model-mode"', index_html)
-        self.assertIn("selectedOneStepModels", app_js)
-        self.assertIn("one_step_models: oneStepModels", app_js)
-        self.assertIn("renderTemplateRelevanceStatus", app_js)
-        self.assertIn('value="template_available" selected', index_html)
+        for obsolete in (
+            "index.html",
+            "app.js",
+            "styles.css",
+            "agent.html",
+            "agent.js",
+            "agent.css",
+            "statins.html",
+            "showcase.html",
+            "v4.html",
+        ):
+            self.assertFalse((web_app.STATIC_DIR / obsolete).exists(), obsolete)
+        self.assertIn("AutoPlanner · 统一工作区", workspace)
+        self.assertIn('id="solveForm"', workspace)
+        self.assertIn("fetch(url", workspace)
+        self.assertIn("'/api/v4/jobs'", workspace)
+        self.assertIn('data-tab="routes"', workspace)
+        self.assertIn('data-tab="runs"', workspace)
+        self.assertIn('data-tab="audits"', workspace)
 
-    def test_agent_workbench_describes_complete_trust_dag_and_validated_replacements(self):
-        agent_html = (web_app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
-        agent_js = (web_app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
-
-        self.assertIn("全路径依赖图、可信度与安全备选", agent_html)
-        self.assertIn("颜色表示 proof tier", agent_html)
-        self.assertIn("线宽表示独立支持", agent_html)
-        self.assertIn("已通过后端 AND/OR", agent_html)
-        self.assertIn("整路线重验的替换分支可预览", agent_html)
-        self.assertIn("接口比较仅作诊断", agent_html)
-        self.assertIn("预览不建立父路线证明", agent_html)
-        self.assertIn('value="standard" selected', agent_html)
-        self.assertIn("最多 8 次有效扩展", agent_html)
-        self.assertIn("不代表商业可采购", agent_html)
-        self.assertIn("const RUN_PROFILES", agent_js)
-        self.assertIn('run_profile: $("run-profile").value || "standard"', agent_js)
-
+    def test_legacy_agent_workbench_redirects_to_unified_routes(self):
         response = self.app.get("/agent")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("20260711-science-workbench-v3", response.get_data(as_text=True))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/v4#routes")
 
     def test_codex_profiles_and_server_owned_benchmark_stock_are_explicit(self):
         self.assertEqual(web_app.CODEX_RUN_PROFILES["standard"]["rounds"], 4)
@@ -719,86 +698,34 @@ class WebAppTest(unittest.TestCase):
         self.assertEqual(standard_budget.max_codex_research_runs, 1)
         self.assertEqual(standard_budget.max_scout_calls, 1)
         self.assertEqual(standard_budget.max_visual_calls, 1)
-        agent_html = (web_app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
-        agent_js = (web_app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
-        self.assertIn('id="codex-team-attempts"', agent_html)
-        self.assertIn("codex_agent_team_max_attempt_runs", agent_js)
-        self.assertIn('id="closure-objective"', agent_html)
-        self.assertIn('value="benchmark_search" selected', agent_html)
-        self.assertIn('id="exploration-mode"', agent_html)
-        self.assertIn('value="exhaustive" selected', agent_html)
-        self.assertIn("codex_agent_team_closure_objective", agent_js)
-        self.assertIn("codex_agent_team_exploration_mode", agent_js)
-        self.assertIn('id="research-runs"', agent_html)
-        self.assertIn('max_codex_research_runs: Number($("research-runs").value || 0)', agent_js)
         catalog = web_app._trusted_benchmark_stock_catalog()
         self.assertEqual(catalog["name"], "PaRoutes_n1")
         self.assertEqual(catalog["boundary_type"], "benchmark_stock")
         self.assertIs(catalog["commercial_orderability_claimed"], False)
         self.assertTrue(Path(catalog["artifact"]).is_file())
 
-    def test_agent_workbench_layout_accessibility_and_embed_contracts(self):
-        agent_html = (web_app.STATIC_DIR / "agent.html").read_text(encoding="utf-8")
-        agent_css = (web_app.STATIC_DIR / "agent.css").read_text(encoding="utf-8")
-        agent_js = (web_app.STATIC_DIR / "agent.js").read_text(encoding="utf-8")
+    def test_unified_workspace_layout_accessibility_and_embed_contracts(self):
+        workspace = (web_app.STATIC_DIR / "workspace.html").read_text(encoding="utf-8")
 
         for control_id in (
-            "toggle-controls",
-            "toggle-activity",
-            "focus-route",
-            "mobile-view-route",
-            "mobile-view-controls",
-            "mobile-view-activity",
+            "collapseLibrary",
+            "restoreLibrary",
+            "collapseRail",
+            "restoreRail",
+            "launchFocus",
+            "submitButton",
         ):
-            self.assertIn(f'id="{control_id}"', agent_html)
-        self.assertIn('class="skip-link"', agent_html)
-        self.assertIn('role="tablist"', agent_html)
-        self.assertIn('aria-controls="controls-panel"', agent_html)
-        self.assertIn('aria-controls="activity-panel"', agent_html)
-        self.assertIn('aria-live="polite"', agent_html)
-        self.assertIn("<fieldset", agent_html)
-        self.assertIn("<legend>", agent_html)
-
-        self.assertIn('sandbox="allow-scripts"', agent_html)
-        self.assertNotIn('sandbox="allow-scripts allow-same-origin"', agent_html)
-        self.assertIn("&embed=1", agent_js)
-        self.assertIn("parent_token=", agent_js)
-        self.assertIn("autoplanner.route_forest.ready.v1", agent_js)
-        self.assertIn("handleRouteFrameMessage", agent_js)
-        self.assertIn("ROUTE_HANDSHAKE_TIMEOUT_MS", agent_js)
-        self.assertIn('message.integrity_status !== "verified"', agent_js)
-        self.assertNotIn('message.integrity_status === "invalid"', agent_js)
-        self.assertNotIn("contentDocument", agent_js)
-        self.assertNotIn("verifyRouteFile", agent_js)
-        self.assertIn('api("/api/route-examples")', agent_js)
-        self.assertIn("routeExamplesToken", agent_js)
-        self.assertIn("inputRevision !== state.routeInputRevision", agent_js)
-        self.assertIn("Boolean(state.currentJobId)", agent_js)
-        self.assertIn('if (!preserveRouteInput) input.value = "";', agent_js)
-        self.assertIn('$("existing-route").value = routePath;', agent_js)
-        self.assertIn("loadRouteExamples({ preserveRouteInput: restored })", agent_js)
-        self.assertIn('method: "HEAD"', agent_js)
-        self.assertIn("此 checkout 暂无本地路线图", agent_js)
-
-        self.assertIn('const LAYOUT_KEY = "autoplanner.agent.layout.v2"', agent_js)
-        self.assertIn("localStorage.setItem(LAYOUT_KEY", agent_js)
-        self.assertIn("controls-collapsed", agent_css)
-        self.assertIn("activity-collapsed", agent_css)
-        self.assertIn('@media (max-width: 1240px)', agent_css)
-        self.assertIn('@media (max-width: 900px)', agent_css)
-        self.assertIn('@media (max-width: 640px)', agent_css)
-        self.assertIn('@media (prefers-reduced-motion: reduce)', agent_css)
-        self.assertIn(":focus-visible", agent_css)
-        self.assertNotIn("min-width: 1180px", agent_css)
-
-        self.assertIn('id="target-name" value="paclitaxel"', agent_html)
-        self.assertIn('data-sample="artemisinin"', agent_html)
-        self.assertIn('id="demo-route" aria-describedby="existing-route-hint" disabled', agent_html)
-        self.assertIn('id="existing-route" value=""', agent_html)
-        self.assertNotIn("results/shared/full_rerun_advisory_visual_20260702", agent_html)
-        self.assertNotIn("results/shared/paclitaxel_architecture_v2_20260710", agent_html)
-        self.assertNotIn("bufotalin solved mixed route", agent_html)
-        self.assertNotIn("atorvastatin_online_zero_20260704", agent_html)
+            self.assertIn(f'id="{control_id}"', workspace)
+        self.assertIn('role="tablist"', workspace)
+        self.assertIn('aria-live="polite"', workspace)
+        self.assertIn('sandbox="allow-scripts allow-same-origin"', workspace)
+        self.assertIn("library-collapsed", workspace)
+        self.assertIn("rail-collapsed", workspace)
+        self.assertIn('@media(max-width:820px)', workspace)
+        self.assertIn("localStorage.setItem(shellStorageKey", workspace)
+        self.assertIn("max_visual_evidence_pages", workspace)
+        self.assertIn("enable_patent_self_evolution", workspace)
+        self.assertIn("max_guided_chemenzy_frontiers", workspace)
 
     def test_missing_template_relevance_selection_is_rejected_before_search(self):
         missing_model = "template_relevance.autoplanner_missing_for_test"

@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from flask import Blueprint, Response, abort, jsonify, request
+from flask import Blueprint, Response, abort, jsonify, redirect, request
 
 from cascade_planner.web.workspace_catalog import compile_showcase_catalog
 
@@ -48,14 +48,16 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
         row["status_url"] = f"/api/v4/runs/{run_id}/status" if run_id else ""
     catalog = showcase_catalog()
     return {
-        "schema_version": "autoplanner.workspace.v1",
+        "schema_version": "autoplanner.workspace.v2",
         "ok": backend["available"] or catalog["ok"],
         "backend": backend,
         "backend_error": error,
         "entrypoints": {
-            "workspace": "/v4",
-            "console": "/v4/console",
-            "showcase": "/v4/showcase",
+            "primary_page": "/v4",
+            "launch": "/v4#new-task",
+            "routes": "/v4#routes",
+            "runs": "/v4#runs",
+            "audits": "/v4#audits",
             "runs_api": "/api/v4/runs",
             "jobs_api": "/api/v4/jobs",
         },
@@ -63,6 +65,7 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
         "showcase": catalog,
         "semantics": {
             "canonical_backend_is_the_only_run_authority": True,
+            "one_user_facing_page": True,
             "showcase_artifacts_are_read_only": True,
             "workbench_is_rendered_from_the_same_gateway_read_model": True,
         },
@@ -76,11 +79,23 @@ def register_workspace_routes(blueprint: Blueprint, gateway_factory: Any) -> Non
 
     @blueprint.get("/v4/console")
     def v4_console() -> Response:
-        return static_html("v4.html")
+        return redirect("/v4#new-task", code=302)
 
     @blueprint.get("/v4/showcase")
     def v4_showcase() -> Response:
-        return static_html("showcase.html")
+        return redirect("/v4#routes", code=302)
+
+    @blueprint.get("/agent")
+    def legacy_agent_workbench() -> Response:
+        return redirect("/v4#routes", code=302)
+
+    @blueprint.get("/statins")
+    def legacy_statin_showcase() -> Response:
+        return redirect("/v4#audits", code=302)
+
+    @blueprint.get("/showcase")
+    def legacy_presentation_showcase() -> Response:
+        return redirect("/v4#routes", code=302)
 
     @blueprint.get("/api/v4/workspace")
     def v4_workspace():

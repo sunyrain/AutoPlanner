@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from flask import Flask, Response, abort, jsonify, request, send_from_directory
+from flask import Flask, Response, abort, jsonify, redirect, request
 from rdkit import Chem, RDLogger
 from rdkit.Chem.Draw import rdMolDraw2D
 
@@ -151,19 +151,7 @@ def create_app() -> Flask:
 
     @app.get("/")
     def index():
-        return send_from_directory(STATIC_DIR, "index.html")
-
-    @app.get("/agent")
-    def agent_workbench():
-        return send_from_directory(STATIC_DIR, "agent.html")
-
-    @app.get("/statins")
-    def statins_showcase():
-        return send_from_directory(STATIC_DIR, "statins.html")
-
-    @app.get("/showcase")
-    def presentation_showcase():
-        return send_from_directory(STATIC_DIR, "showcase.html")
+        return redirect("/v4", code=302)
 
     @app.get("/api/status")
     def status():

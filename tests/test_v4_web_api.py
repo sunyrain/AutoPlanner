@@ -99,14 +99,22 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     index = client.get("/v4")
     console = client.get("/v4/console")
     showcase = client.get("/v4/showcase")
+    legacy_agent = client.get("/agent")
+    legacy_statins = client.get("/statins")
+    legacy_showcase = client.get("/showcase")
     workspace = client.get("/api/v4/workspace")
 
     assert status.status_code == 200
     assert workbench.status_code == 200
     assert rendered.status_code == 200
     assert index.status_code == 200
-    assert console.status_code == 200
-    assert showcase.status_code == 200
+    assert console.status_code == 302
+    assert console.headers["Location"] == "/v4#new-task"
+    assert showcase.status_code == 302
+    assert showcase.headers["Location"] == "/v4#routes"
+    assert legacy_agent.headers["Location"] == "/v4#routes"
+    assert legacy_statins.headers["Location"] == "/v4#audits"
+    assert legacy_showcase.headers["Location"] == "/v4#routes"
     assert workspace.status_code == 200
     assert workspace.get_json()["backend"]["available"] is True
     assert workspace.get_json()["runs"][0]["run_id"] == "web-example"
@@ -121,16 +129,17 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert program_audit.get_json()["run_count"] == 1
     assert program_audit.get_json()["semantics"]["read_only"] is True
     assert b"/api/v4/runs" in index.data
-    assert "统一工作区" in index.get_data(as_text=True)
-    assert "路线候选已经可审查" in index.get_data(as_text=True)
+    assert "AutoPlanner · 统一工作区" in index.get_data(as_text=True)
+    assert "路线候选可供审查，不代表证据、库存或工艺已经闭合" in index.get_data(as_text=True)
     assert "/api/v4/workspace" in index.get_data(as_text=True)
     assert 'id="collapseLibrary"' in index.get_data(as_text=True)
     assert 'id="restoreLibrary"' in index.get_data(as_text=True)
     assert 'id="collapseRail"' in index.get_data(as_text=True)
     assert "library-collapsed" in index.get_data(as_text=True)
     assert "rail-collapsed" in index.get_data(as_text=True)
-    assert "V4 运行控制台" in console.get_data(as_text=True)
-    assert "只看每个目标最新结果" in console.get_data(as_text=True)
+    assert 'id="solveForm"' in index.get_data(as_text=True)
+    assert "启动逆合成" in index.get_data(as_text=True)
+    assert "'/api/v4/jobs'" in index.get_data(as_text=True)
     assert b"<!doctype html>" in rendered.data.lower()
 
 
