@@ -1,4 +1,5 @@
 """Evidence, trust, and replacement projections for the V4 route adapter."""
+
 from __future__ import annotations
 
 from typing import Any, Mapping
@@ -36,9 +37,7 @@ def replacement_validation_projection(
         base_branch_id = str(row.get("base_route_id") or "")
         replacement_branch_id = str(row.get("replacement_route_id") or "")
         base_step_id = str(
-            step_id_by_branch_edge.get(
-                (base_branch_id, str(row.get("base_edge_id") or "")), ""
-            )
+            step_id_by_branch_edge.get((base_branch_id, str(row.get("base_edge_id") or "")), "")
         )
         candidate_step_id = str(
             step_id_by_branch_edge.get(
@@ -71,9 +70,7 @@ def replacement_validation_projection(
                 "connectivity_revalidated": validated,
                 "stock_closure_revalidated": validated,
                 "reaction_proof_revalidated": validated,
-                "reasons": sorted(
-                    set(str(reason) for reason in reasons if str(reason))
-                ),
+                "reasons": sorted(set(str(reason) for reason in reasons if str(reason))),
             }
         )
     return {
@@ -85,9 +82,7 @@ def replacement_validation_projection(
     }
 
 
-def trust_vector(
-    edge: Mapping[str, Any], sources: list[Mapping[str, Any]]
-) -> dict[str, Any]:
+def trust_vector(edge: Mapping[str, Any], sources: list[Mapping[str, Any]]) -> dict[str, Any]:
     level = int(edge.get("proof_level") or 0)
     proof_vector = dict(edge.get("proof_vector") or {})
     source_groups = {
@@ -111,9 +106,7 @@ def trust_vector(
         "stock": 1.0 if level >= 4 else 0.0,
         "conditions": {
             "source_exact": (
-                1.0
-                if proof_vector.get("condition_completeness") == "complete"
-                else 0.75
+                1.0 if proof_vector.get("condition_completeness") == "complete" else 0.75
             ),
             "source_recorded_unverified": 0.65,
             "model_predicted": 0.3,
@@ -122,67 +115,6 @@ def trust_vector(
         "trusted_source_group_count": len(source_groups),
         "corroborated": len(source_groups) >= 2,
     }
-
-
-def conditions(records: list[Mapping[str, Any]]) -> list[dict[str, str]]:
-    for record in records:
-        raw = record.get("conditions")
-        if not isinstance(raw, Mapping) or not raw:
-            continue
-        return [
-            {"label": str(key).replace("_", " "), "value": str(value)}
-            for key, value in sorted(raw.items())
-            if value not in (None, "", [], {})
-        ]
-    return []
-
-
-def predicted_conditions(records: list[Mapping[str, Any]]) -> list[dict[str, str]]:
-    """Project the highest-ranked model proposal without merging alternatives.
-
-    A backend condition table contains mutually exclusive ranked rows.  The
-    compact ``conditions`` field is used for the route-card summary, so only
-    the first non-empty row belongs there.  The complete ranked table remains
-    available on ``condition_predictions`` for the reaction inspector.
-    """
-
-    aliases = (
-        ("reagents", ("Reagent", "reagent", "reagents", "reagent_smiles")),
-        ("catalyst", ("Catalyst", "catalyst", "catalysts")),
-        ("solvent", ("Solvent", "solvent", "solvents", "solvent_smiles")),
-        (
-            "temperature",
-            ("Temperature", "temperature", "temperature_c", "temp_c"),
-        ),
-        ("time", ("Time", "time", "duration")),
-        ("pH", ("pH", "ph", "PH")),
-    )
-    for record in records:
-        if not isinstance(record, Mapping):
-            continue
-        rows: list[dict[str, str]] = []
-        for label, keys in aliases:
-            value = next(
-                (
-                    record.get(key)
-                    for key in keys
-                    if record.get(key) not in (None, "", [], {})
-                ),
-                None,
-            )
-            if value is None:
-                continue
-            if label == "temperature":
-                try:
-                    value = f"{float(value):.1f} °C"
-                except (TypeError, ValueError):
-                    value = str(value)
-            elif isinstance(value, (list, tuple)):
-                value = ", ".join(str(item) for item in value if str(item))
-            rows.append({"label": label, "value": str(value)})
-        if rows:
-            return rows
-    return []
 
 
 def condition_summary(status: str) -> str:
@@ -236,8 +168,6 @@ __all__ = [
     "PROOF_TIER",
     "closure_label",
     "condition_summary",
-    "conditions",
-    "predicted_conditions",
     "literature_counts",
     "replacement_validation_projection",
     "trust_vector",

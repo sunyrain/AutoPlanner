@@ -1,4 +1,5 @@
 """Display the canonical V4 read model without reconstructing route truth."""
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -27,12 +28,11 @@ from cascade_planner.harness.v4_planned_route_branches import (
 from cascade_planner.harness.v4_route_evidence_projection import (
     PROOF_TIER as _PROOF_TIER,
     condition_summary as _condition_summary,
-    conditions as _conditions,
-    predicted_conditions as _predicted_conditions,
     literature_counts as _literature_counts,
     replacement_validation_projection as _replacement_validation_projection,
     trust_vector as _trust_vector,
 )
+from cascade_planner.harness import v4_route_condition_projection as _condition_projection
 from cascade_planner.harness.v4_route_graph_projection import (
     graph_edge as _graph_edge,
     molecule_graph_id as _molecule_graph_id,
@@ -43,6 +43,7 @@ from cascade_planner.harness.v4_route_graph_projection import (
 
 
 V4_WORKBENCH_ADAPTER_SCHEMA = "v4_route_workbench_adapter.v1"
+
 
 def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
     """Adapt one bounded V4 read model to the offline route-workbench shell."""
@@ -69,15 +70,10 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
     replacement_routes = dict(source.get("replacement_routes") or {})
     edge_rows = dict(source.get("edges") or {})
     edge_inspectors = dict(dict(source.get("inspectors") or {}).get("edges") or {})
-    route_entries = [
-        (route_id, route_value, False) for route_id, route_value in routes.items()
-    ] + [
-        (route_id, route_value, True)
-        for route_id, route_value in replacement_routes.items()
+    route_entries = [(route_id, route_value, False) for route_id, route_value in routes.items()] + [
+        (route_id, route_value, True) for route_id, route_value in replacement_routes.items()
     ]
-    for route_index, (route_id, route_value, is_replacement) in enumerate(
-        route_entries
-    ):
+    for route_index, (route_id, route_value, is_replacement) in enumerate(route_entries):
         route = dict(route_value)
         branch_id = str(route_id)
         step_ids: list[str] = []
@@ -97,29 +93,27 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             step_id_by_branch_edge[(branch_id, str(canonical_edge_id))] = step_id
             reaction_graph_id = _reaction_graph_id(step_id)
             product_id = str(edge.get("product_molecule_id") or "")
-            raw_precursor_ids = [
-                str(value) for value in edge.get("precursor_molecule_ids") or []
-            ]
+            raw_precursor_ids = [str(value) for value in edge.get("precursor_molecule_ids") or []]
             precursor_ids, precursor_multiplicity = _project_stoichiometric_inputs(
                 raw_precursor_ids
             )
             main_precursor_ids = [
-                value
-                for value in precursor_ids
-                if value in set(display["main_precursor_ids"])
+                value for value in precursor_ids if value in set(display["main_precursor_ids"])
             ]
             auxiliary_precursor_ids = [
-                value
-                for value in precursor_ids
-                if value in set(display["auxiliary_precursor_ids"])
+                value for value in precursor_ids if value in set(display["auxiliary_precursor_ids"])
             ]
-            if product_id not in nodes_by_id or any(value not in nodes_by_id for value in precursor_ids):
+            if product_id not in nodes_by_id or any(
+                value not in nodes_by_id for value in precursor_ids
+            ):
                 continue
             proof_level = int(edge.get("proof_level") or 0)
             tier = _PROOF_TIER[max(0, min(4, proof_level))]
             inspector = dict(edge_inspectors.get(str(canonical_edge_id)) or {})
             source_bindings = [
-                dict(value) for value in inspector.get("sources") or [] if isinstance(value, Mapping)
+                dict(value)
+                for value in inspector.get("sources") or []
+                if isinstance(value, Mapping)
             ]
             exact_records = [
                 dict(value)
@@ -139,37 +133,21 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             if proof_level == 1 and source_observation_records:
                 tier = "L1_source_reported"
             rejection_reasons = list(inspector.get("rejection_reasons") or [])
-            if (
-                proof_level == 0
-                and "historical_atom_balance_violation" in rejection_reasons
-            ):
+            if proof_level == 0 and "historical_atom_balance_violation" in rejection_reasons:
                 tier = "L0_rejected"
             condition_records = [*procedure_records, *source_observation_records]
-            conditions = _conditions(condition_records or exact_records)
-            condition_predictions = [
-                dict(value)
-                for value in inspector.get("condition_predictions") or []
-                if isinstance(value, Mapping)
-            ]
-            if not conditions:
-                conditions = _predicted_conditions(condition_predictions)
-            proof_vector = dict(
-                inspector.get("proof_vector") or edge.get("proof_vector") or {}
+            conditions, condition_predictions = _condition_projection.route_conditions(
+                inspector, condition_records or exact_records
             )
+            proof_vector = dict(inspector.get("proof_vector") or edge.get("proof_vector") or {})
             condition_status = str(
-                inspector.get("condition_status")
-                or edge.get("condition_status")
-                or "missing"
+                inspector.get("condition_status") or edge.get("condition_status") or "missing"
             )
-            condition_completeness = str(
-                proof_vector.get("condition_completeness") or "missing"
-            )
+            condition_completeness = str(proof_vector.get("condition_completeness") or "missing")
             route_innovations = [
                 dict(value)
                 for value in (
-                    inspector.get("route_innovations")
-                    or edge.get("route_innovations")
-                    or []
+                    inspector.get("route_innovations") or edge.get("route_innovations") or []
                 )
                 if isinstance(value, Mapping)
             ]
@@ -180,9 +158,7 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                     if str(value.get("kind") or "")
                 }
             )
-            repeated_inputs = [
-                row for row in precursor_multiplicity if int(row["count"]) > 1
-            ]
+            repeated_inputs = [row for row in precursor_multiplicity if int(row["count"]) > 1]
             if repeated_inputs:
                 conditions.append(
                     {
@@ -213,9 +189,7 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                 "synthesis_stage": int(display["synthesis_stage"]),
                 "retrosynthesis_stage": int(display["retrosynthesis_stage"]),
                 "retrosynthesis_label": str(display["retrosynthesis_label"]),
-                "retrosynthesis_display_label": str(
-                    display["retrosynthesis_display_label"]
-                ),
+                "retrosynthesis_display_label": str(display["retrosynthesis_display_label"]),
                 "source_step_labels": list(display["source_step_labels"]),
                 "producer_kinds": list(display["producer_kinds"]),
                 "producer_label": str(display["producer_label"]),
@@ -232,9 +206,7 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                 "condition_summary": _condition_summary(condition_status),
                 "procedure_records": procedure_records,
                 "source_observation_records": source_observation_records,
-                "inactive_fact_count": int(
-                    inspector.get("inactive_fact_count") or 0
-                ),
+                "inactive_fact_count": int(inspector.get("inactive_fact_count") or 0),
                 "inactive_facts": list(inspector.get("inactive_facts") or []),
                 "proof_vector": proof_vector,
                 "proof_tier": tier,
@@ -248,10 +220,7 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                     {
                         str(location)
                         for value in (condition_records or exact_records)
-                        for location in (
-                            value.get("location_refs")
-                            or [value.get("location_ref")]
-                        )
+                        for location in (value.get("location_refs") or [value.get("location_ref")])
                         if str(location or "")
                     }
                 ),
@@ -262,21 +231,14 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                         "independent_source_group": str(value.get("independence_group") or ""),
                     }
                     for value in source_bindings
-                    if dict(inspector.get("proof") or {}).get(
-                        "exact_source_bound"
-                    )
-                    is True
+                    if dict(inspector.get("proof") or {}).get("exact_source_bound") is True
                 ],
                 "conflicts": list(inspector.get("conflicts") or []),
                 "rejection_reasons": rejection_reasons,
-                "validation_findings": list(
-                    inspector.get("validation_findings") or []
-                ),
+                "validation_findings": list(inspector.get("validation_findings") or []),
                 "route_innovations": route_innovations,
                 "innovation_kinds": innovation_kinds,
-                "innovation_proof_gate": dict(
-                    inspector.get("innovation_proof_gate") or {}
-                ),
+                "innovation_proof_gate": dict(inspector.get("innovation_proof_gate") or {}),
                 "trust_vector": trust_vector,
                 "visual_encoding": {
                     "color": (
@@ -314,9 +276,7 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                         target_id=reaction_graph_id,
                         direction="input",
                         visual_role=(
-                            "auxiliary"
-                            if precursor_id in auxiliary_precursor_ids
-                            else "main"
+                            "auxiliary" if precursor_id in auxiliary_precursor_ids else "main"
                         ),
                     )
                 )
@@ -410,12 +370,10 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
     route_count = len(routes)
     complete_count = sum(dict(value).get("complete") is True for value in routes.values())
     search_closed_count = sum(
-        dict(value).get("closure_profile") == "exploration_closed"
-        for value in routes.values()
+        dict(value).get("closure_profile") == "exploration_closed" for value in routes.values()
     )
     procurement_closed_count = sum(
-        dict(value).get("closure_profile") == "procurement_closed"
-        for value in routes.values()
+        dict(value).get("closure_profile") == "procurement_closed" for value in routes.values()
     )
     literature_grounded_count = sum(
         dict(value).get("literature_grounded") is True for value in routes.values()
@@ -423,9 +381,7 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
     condition_complete_count = sum(
         dict(value).get("condition_complete") is True for value in routes.values()
     )
-    process_ready_count = sum(
-        dict(value).get("process_ready") is True for value in routes.values()
-    )
+    process_ready_count = sum(dict(value).get("process_ready") is True for value in routes.values())
     replacement_validation = _replacement_validation_projection(
         source,
         step_id_by_branch_edge=step_id_by_branch_edge,
@@ -448,10 +404,7 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
             "condition_complete_routes": condition_complete_count,
             "process_ready_routes": process_ready_count,
             "declared_graph_closed_programs": int(
-                dict(source.get("route_closure") or {}).get(
-                    "graph_closed_program_count"
-                )
-                or 0
+                dict(source.get("route_closure") or {}).get("graph_closed_program_count") or 0
             ),
             "molecules": len(nodes_by_id),
             "reactions": len(steps),
@@ -522,13 +475,13 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
         },
         "evidence_index": {
             "edge_inspectors": dict(dict(source.get("inspectors") or {}).get("edges") or {}),
-            "molecule_inspectors": dict(dict(source.get("inspectors") or {}).get("molecules") or {}),
+            "molecule_inspectors": dict(
+                dict(source.get("inspectors") or {}).get("molecules") or {}
+            ),
             "rejections": list(dict(source.get("inspectors") or {}).get("rejections") or []),
             "conflicts": dict(dict(source.get("inspectors") or {}).get("conflicts") or {}),
         },
-        "run_trace": {
-            "literature_counts": _literature_counts(routes, edge_inspectors)
-        },
+        "run_trace": {"literature_counts": _literature_counts(routes, edge_inspectors)},
         "design_notes": [
             "V4 read model only; canonical graph and proof portfolio remain authoritative.",
             "Default route display is bounded to two to five portfolio routes.",
@@ -578,9 +531,7 @@ def _node(molecule_id: str, value: Mapping[str, Any]) -> dict[str, Any]:
         "stock_closed": value.get("stock_closed") is True,
         "stock_observation_id": str(value.get("stock_observation_id") or ""),
         "stock_authority_scope": str(value.get("stock_authority_scope") or ""),
-        "stock_observation_accepted": (
-            value.get("stock_observation_accepted") is True
-        ),
+        "stock_observation_accepted": (value.get("stock_observation_accepted") is True),
         "inactive_fact_count": int(value.get("inactive_fact_count") or 0),
         "inactive_facts": list(value.get("inactive_facts") or []),
     }
@@ -619,8 +570,7 @@ def _project_stoichiometric_inputs(
             counts[molecule_id] = 0
         counts[molecule_id] += 1
     return unique, [
-        {"molecule_node_id": molecule_id, "count": counts[molecule_id]}
-        for molecule_id in unique
+        {"molecule_node_id": molecule_id, "count": counts[molecule_id]} for molecule_id in unique
     ]
 
 
@@ -709,9 +659,7 @@ def _append_hypothesis_branches(
                 "evidence_refs": [],
                 "route_innovations": route_innovations,
                 "innovation_kinds": innovation_kinds,
-                "rejection_reasons": list(
-                    hypothesis.get("admission_reasons") or []
-                ),
+                "rejection_reasons": list(hypothesis.get("admission_reasons") or []),
                 "trust_vector": _trust_vector({"proof_level": 0}, []),
                 "visual_encoding": {
                     "color": "#be123c" if admission_rejected else "#e76f51",

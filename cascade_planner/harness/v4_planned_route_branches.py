@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping
 
 from cascade_planner.harness.v4_route_branch import route_branch
+from cascade_planner.harness.v4_route_condition_projection import (
+    source_conditions as conditions,
+)
 from cascade_planner.harness.v4_route_evidence_projection import (
     PROOF_TIER,
     condition_summary,
-    conditions,
     trust_vector,
 )
 from cascade_planner.harness.v4_route_graph_projection import (
