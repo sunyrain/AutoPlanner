@@ -682,7 +682,7 @@ def solve_target(
             max_routes=1,
             max_steps=active.max_chemenzy_steps,
             max_iterations=active.max_guided_chemenzy_iterations,
-            expansion_topk=active.chemenzy_expansion_topk,
+            expansion_topk=min(80, active.chemenzy_expansion_topk),
             timeout_s=active.guided_chemenzy_timeout_s,
             exclude_frontier_smiles=tuple(sorted(prior_attempted_frontiers)),
             search_preset="thorough",
@@ -839,7 +839,7 @@ def solve_target(
             max_routes=1,
             max_steps=active.max_chemenzy_steps,
             max_iterations=active.max_guided_chemenzy_iterations,
-            expansion_topk=active.chemenzy_expansion_topk,
+            expansion_topk=min(80, active.chemenzy_expansion_topk),
             timeout_s=active.guided_chemenzy_timeout_s,
             exclude_frontier_smiles=tuple(
                 sorted(attempted_guided_frontiers)

@@ -1035,10 +1035,12 @@ def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
 ) -> None:
     gateway = CampaignGateway(_paths(tmp_path))
     requests: list[dict[str, Any]] = []
+    limits_seen: list[dict[str, Any]] = []
 
     def chemenzy_provider(**kwargs: Any) -> dict[str, Any]:
         request = dict(kwargs["request"])
         requests.append(request)
+        limits_seen.append(dict(kwargs["limits"]))
         if request["mode"] == "seed":
             return {"status": "completed", "routes": []}
         frontier = request["frontier_smiles"][0]
@@ -1067,6 +1069,7 @@ def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
             enable_web_search=False,
             enable_replan=False,
             enable_builtin_patent_evidence=False,
+            chemenzy_expansion_topk=180,
         ),
         director_runner=_runner,
         atom_mapper=_mapper,
@@ -1089,6 +1092,7 @@ def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(
     assert guided["detail"]["frontier_count"] == 1
     assert guided["detail"]["proposal_count"] == 1
     assert [request["mode"] for request in requests] == ["guided_frontier"]
+    assert limits_seen[0]["expansion_topk"] == 80
     assert requests[0]["route_family_ids"]
     assert requests[0]["forbidden_smiles"] == [TARGET]
     service = gateway._open(result["run_id"], run_dir=Path(result["run_dir"]))

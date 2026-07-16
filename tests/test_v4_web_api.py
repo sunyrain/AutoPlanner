@@ -589,6 +589,34 @@ def test_v4_solve_target_maps_chemenzy_controls_to_shared_config() -> None:
     assert captured["budget"].max_model_invocations == 1
 
 
+def test_v4_proof_profile_keeps_depth_but_uses_a_returnable_search_width() -> None:
+    captured: dict = {}
+
+    class RecordingGateway:
+        def solve_target(self, **kwargs):
+            captured.update(kwargs)
+            return {"schema_version": "fixture", "run_id": "proof-budget"}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(RecordingGateway))
+    response = app.test_client().post(
+        "/api/v4/solve-target",
+        json={
+            "run_id": "proof-budget",
+            "target_name": "proof target",
+            "target_smiles": "CCO",
+            "execution_profile": "proof",
+        },
+    )
+
+    assert response.status_code == 201
+    config = captured["config"]
+    assert config.max_chemenzy_steps == 20
+    assert config.max_chemenzy_iterations == 60
+    assert config.chemenzy_expansion_topk == 120
+    assert config.chemenzy_timeout_s == 1200.0
+
+
 def test_v4_async_job_returns_immediately_and_exposes_completion() -> None:
     class RecordingGateway:
         def solve_target(self, **kwargs):

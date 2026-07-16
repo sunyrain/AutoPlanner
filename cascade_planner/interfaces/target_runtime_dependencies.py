@@ -7,7 +7,7 @@ from typing import Any, Mapping
 CHEMENZY_PROFILE_DEFAULTS = {
     "fast": {"steps": 8, "iterations": 20, "topk": 50, "timeout": 180.0},
     "standard": {"steps": 14, "iterations": 60, "topk": 100, "timeout": 600.0},
-    "proof": {"steps": 20, "iterations": 120, "topk": 180, "timeout": 1200.0},
+    "proof": {"steps": 20, "iterations": 60, "topk": 120, "timeout": 1200.0},
 }
 
 
