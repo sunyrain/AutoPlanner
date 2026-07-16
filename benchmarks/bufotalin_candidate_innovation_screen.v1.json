@@ -7,7 +7,7 @@
   ],
   "candidate_projection_sha256": "db3399b9e088c355f0d11ba4658e8cf3fdb5fd33c6f3990c0881178cc645f8e2",
   "capability_audit_sha256": "5c381a779c53ebb67f296aa2ce39b1e9815a7aca3bfeee10b1eb6ef0ad170a2d",
-  "content_sha256": "7418909b2fd20941b562864149bb41244708f7c9762780abb5c9dd43cc6dc7d8",
+  "content_sha256": "d60522e9b83dc4e189289a6dbbedeba9d3ede7194eab827ee0092dbfe68fbb80",
   "counts": {
     "enzyme_candidates": 5,
     "mechanism_candidates": 0,
@@ -38,7 +38,7 @@
                 "edge:paper:28"
               ]
             },
-            "candidate_id": "route-innovation:6c9d4028cd0f7e5d7302c2a1",
+            "candidate_id": "route-innovation:86c5907c06df45d007c86cc3",
             "candidate_kind": "enzyme_window",
             "capability_id": "hsdh:delta4-3-ketosteroid-to-3-hydroxysteroid",
             "match_audit": {
@@ -86,7 +86,7 @@
                   "NADPH"
                 ]
               },
-              "content_sha256": "6b21275e8169e50472f6c671d6547979f97d68b2f4a0feab8b35fe818d71ce9e",
+              "content_sha256": "967df7647fe8b1fd1c63d1a95d615c45fa5d6ef37934c9a18522450915a30f74",
               "enzyme": {
                 "candidate_ids": [
                   "Ct3alpha-HSDH",
@@ -99,7 +99,7 @@
                 "ec_numbers": []
               },
               "evidence_grade": "low_until_biocatalysis_validated",
-              "innovation_id": "innovation:8e5f7ee51f4ee948eec7d8f1",
+              "innovation_id": "innovation:f7d8979f4e2e747a26b3ebb4",
               "kind": "biocatalytic_superstep",
               "l2_requires_biocatalysis_validation": true,
               "not_exact_source_evidence": true,
@@ -141,7 +141,7 @@
                 "edge:paper:33"
               ]
             },
-            "candidate_id": "route-innovation:535460af228d881808056096",
+            "candidate_id": "route-innovation:9c86bc95d7a3c126682b3404",
             "candidate_kind": "enzyme_window",
             "capability_id": "lipase:polycyclic-steroid-selective-acylation",
             "match_audit": {
@@ -180,7 +180,7 @@
               "chemical_step_equivalent_count": 1,
               "cofactor_regenerations": {},
               "cofactor_requirements": {},
-              "content_sha256": "2e14d6cde2856daa5ac56fb817d8cd52813627e4e7685069580f41afb96f8bbd",
+              "content_sha256": "e1876e754c113e5c54c6b8eb7b1363490f280cf17ff9d4e523b97cb09b1759c3",
               "enzyme": {
                 "candidate_ids": [],
                 "classes": [
@@ -190,7 +190,7 @@
                 "ec_numbers": []
               },
               "evidence_grade": "low_until_biocatalysis_validated",
-              "innovation_id": "innovation:7dd862ab34d70f0a89f1e70a",
+              "innovation_id": "innovation:786732fae64ab612963b2ca2",
               "kind": "biocatalytic_step",
               "l2_requires_biocatalysis_validation": true,
               "not_exact_source_evidence": true,
@@ -227,7 +227,7 @@
                 "edge:paper:32"
               ]
             },
-            "candidate_id": "route-innovation:c9cab53c35882e1587d1d95c",
+            "candidate_id": "route-innovation:29b11bcc7ed1217e3f569b88",
             "candidate_kind": "enzyme_window",
             "capability_id": "sdr:polycyclic-steroid-ketone-screen",
             "match_audit": {
@@ -275,7 +275,7 @@
                   "NADPH"
                 ]
               },
-              "content_sha256": "94d977c2965326a4d56bca2f8010f0be0bf9949c103cf092571b5836f7750c49",
+              "content_sha256": "cc82d6eda156776ab931babd77c4a3241286304b097c41fba03f165bc04e7d0f",
               "enzyme": {
                 "candidate_ids": [
                   "Is2-SDR"
@@ -287,7 +287,7 @@
                 "ec_numbers": []
               },
               "evidence_grade": "low_until_biocatalysis_validated",
-              "innovation_id": "innovation:95491e4419ef4b34fd702282",
+              "innovation_id": "innovation:e2b563c1c89a97c7daf03c35",
               "kind": "biocatalytic_step",
               "l2_requires_biocatalysis_validation": true,
               "not_exact_source_evidence": true,
@@ -324,7 +324,7 @@
                 "edge:planner:4"
               ]
             },
-            "candidate_id": "route-innovation:e0e07fa2cf3d40235efab801",
+            "candidate_id": "route-innovation:ee4a4389d5e87c7cb873f160",
             "candidate_kind": "enzyme_window",
             "capability_id": "sdr:polycyclic-steroid-ketone-screen",
             "match_audit": {
@@ -371,7 +371,7 @@
                   "NADPH"
                 ]
               },
-              "content_sha256": "fcc9378e35eb3b584795f989b34d90adaad11a603317c6a839b124fd91ff621c",
+              "content_sha256": "16d31498dff97170c5f9ff16a06d9e1c627e7f154340d429c685ea6c68f8dde3",
               "enzyme": {
                 "candidate_ids": [
                   "Is2-SDR"
@@ -383,7 +383,7 @@
                 "ec_numbers": []
               },
               "evidence_grade": "low_until_biocatalysis_validated",
-              "innovation_id": "innovation:d9a7987ee6089e7f9a4ed90c",
+              "innovation_id": "innovation:d596a498a77cfe7e2f0f5aca",
               "kind": "biocatalytic_step",
               "l2_requires_biocatalysis_validation": true,
               "not_exact_source_evidence": true,
@@ -421,7 +421,7 @@
                 "edge:paper:23"
               ]
             },
-            "candidate_id": "route-innovation:582bb1da7b99a577b320de4b",
+            "candidate_id": "route-innovation:60be5657f1dee6db581f9dd7",
             "candidate_kind": "enzyme_window",
             "capability_id": "sdr:polycyclic-steroid-ketone-screen",
             "match_audit": {
@@ -468,7 +468,7 @@
                   "NADPH"
                 ]
               },
-              "content_sha256": "73dd75ba9ff1896f89c754aab178bdb7617ac5cdb05a90509eb992d507407b4f",
+              "content_sha256": "e859b6066b609ff4cb0c8d37ecf3ef9bbcceff8220ee0ac2458150f9854cf559",
               "enzyme": {
                 "candidate_ids": [
                   "Is2-SDR"
@@ -480,7 +480,7 @@
                 "ec_numbers": []
               },
               "evidence_grade": "low_until_biocatalysis_validated",
-              "innovation_id": "innovation:18bad3ad49ff5e1f1741d2c7",
+              "innovation_id": "innovation:7cc487be1094bc31da30419e",
               "kind": "biocatalytic_step",
               "l2_requires_biocatalysis_validation": true,
               "not_exact_source_evidence": true,
@@ -507,15 +507,15 @@
             ]
           }
         ],
-        "content_sha256": "65c7be8d68cbaa56150f1d4cb009f0aceb3e61e46dba0ca4f5e07cff28c3c43a",
+        "content_sha256": "fa92b3a28139cc11c19b48d455c9a7e062f32a5315cbd969ad37444bf43689dc",
         "execution_program_draft_candidate_ids": [],
         "ingestion_hypotheses": [],
         "program_draft_candidate_ids": [
-          "route-innovation:535460af228d881808056096",
-          "route-innovation:582bb1da7b99a577b320de4b",
-          "route-innovation:6c9d4028cd0f7e5d7302c2a1",
-          "route-innovation:c9cab53c35882e1587d1d95c",
-          "route-innovation:e0e07fa2cf3d40235efab801"
+          "route-innovation:29b11bcc7ed1217e3f569b88",
+          "route-innovation:60be5657f1dee6db581f9dd7",
+          "route-innovation:86c5907c06df45d007c86cc3",
+          "route-innovation:9c86bc95d7a3c126682b3404",
+          "route-innovation:ee4a4389d5e87c7cb873f160"
         ],
         "rejected": [],
         "route_family_id": "candidate-family:route:bufotalin-20-step-reported-candidate",
