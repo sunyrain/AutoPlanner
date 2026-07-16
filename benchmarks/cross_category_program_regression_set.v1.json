@@ -1,6 +1,6 @@
 {
   "audit_date": "2026-07-16",
-  "content_sha256": "7e8f5da89cb93272897656e805aedf425fb0c7813daeff70e792696d5700b156",
+  "content_sha256": "d345e8581103b2ed1b5f4f282f9238d0015dc40a2b647eaac233c815b470c01a",
   "cases": [
     {
       "artifact": "config/examples/nirmatrelvir_v4_replay_pack.json",
@@ -103,8 +103,8 @@
   "enzyme_screen_controls": [
     {
       "artifact": "benchmarks/bufotalin_candidate_innovation_screen.v1.json",
-      "artifact_file_sha256": "ff4eb6dbf311ff5b5b6719bf2c7a63d2a8c8b23f892405e63c944367613ba33c",
-      "artifact_sha256": "7418909b2fd20941b562864149bb41244708f7c9762780abb5c9dd43cc6dc7d8",
+      "artifact_file_sha256": "faa9d07e25167d5c8032b2560618cacd9050b5953f7b202afa524f1b7fe5aac1",
+      "artifact_sha256": "d60522e9b83dc4e189289a6dbbedeba9d3ede7194eab827ee0092dbfe68fbb80",
       "control_kind": "positive",
       "enzyme_candidate_count": 5,
       "maximum_replaced_chemical_steps": 6,
