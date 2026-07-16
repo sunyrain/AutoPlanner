@@ -18,6 +18,7 @@ from cascade_planner.interfaces.literature_candidates import (
 )
 from cascade_planner.interfaces.live_evidence import compose_evidence_connectors
 from cascade_planner.interfaces import literature_html
+from cascade_planner.interfaces import literature_evidence
 from cascade_planner.interfaces.visual_evidence import compile_visual_evidence_request
 from cascade_planner.interfaces.literature_search import (
     europe_pmc_metadata_search,
@@ -508,6 +509,46 @@ def test_literature_connector_uses_pmc_html_before_pdf_or_browser(
         "https://pmc.ncbi.nlm.nih.gov/articles/PMC1855665/"
     )
     assert cached["receipt"]["queued_source_count"] == 0
+
+
+def test_configured_seed_precedes_ranked_request_hints(tmp_path: Path, monkeypatch: Any) -> None:
+    def materialize(candidate: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        source_ref = f"doi:{candidate['doi']}"
+        return {
+            "source_kind": "paper_si",
+            "source_ref": source_ref,
+            "title": candidate.get("title") or source_ref,
+            "source_fulltext_sha256": "f" * 64,
+            "source_pdf_sha256": "",
+            "visual_candidate_pages": [],
+            "procedure_inventory": [],
+            "exact_row_count": 0,
+        }
+
+    monkeypatch.setattr(literature_evidence, "_materialize_candidate", materialize)
+    connector = build_builtin_literature_evidence_connector(
+        BuiltinLiteratureEvidenceConfig(
+            cache_dir=tmp_path / "cache",
+            seed_dois=("10.1000/explicit-seed",),
+            max_sources=1,
+        ),
+        searcher=lambda _query, _limit: [],
+        fetcher=lambda _url, _timeout, _maximum: b"",
+    )
+    request = {
+        **_request(),
+        "source_hints": [
+            {
+                "source_kind": "paper_si",
+                "source_ref": "doi:10.1000/ranked-hint",
+                "title": "Synthesis of bufotalin",
+            }
+        ],
+    }
+
+    result = connector(request)
+
+    assert result["discovery"]["sources"][0]["source_ref"] == ("doi:10.1000/explicit-seed")
 
 
 def test_cached_pmc_html_keeps_identity_for_late_exact_route_binding(

@@ -1,4 +1,5 @@
 """Bounded primary-paper discovery with delegated source materialization."""
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -134,11 +135,9 @@ def build_builtin_literature_evidence_connector(
     def invoke(request: Mapping[str, Any]) -> Mapping[str, Any]:
         request_sha = str(request.get("content_sha256") or "")
         queries = _queries(request, limit=config.max_queries)
-        pinned_candidates = [
-            *_seed_candidates(config),
-            *_request_source_candidates(request),
-        ]
-        candidates = list(pinned_candidates)
+        seed_candidates = _dedupe_candidates(_seed_candidates(config))
+        request_candidates = _dedupe_candidates(_request_source_candidates(request))
+        candidates = list(request_candidates)
 
         def run_search(query: str) -> tuple[list[dict[str, Any]], str]:
             try:
@@ -165,13 +164,17 @@ def build_builtin_literature_evidence_connector(
             for query, (rows, failure) in zip(queries, searched, strict=True)
         ]
         candidates.extend(_interleave_candidates(query_candidates))
-        candidates = _target_relevant_candidates(
+        ranked_candidates = _target_relevant_candidates(
             _dedupe_candidates(candidates),
             target_name=str(request.get("target_name") or ""),
-            pinned_source_refs=(
-                _candidate_source_ref(row) for row in pinned_candidates
-            ),
-        )[: config.max_sources * 3]
+            pinned_source_refs=(_candidate_source_ref(row) for row in request_candidates),
+        )
+        # Configured seeds are explicit acquisition inputs.  Keep them ahead
+        # of ranked discovery/request hints so a busy source frontier cannot
+        # silently consume the bounded source budget before the seeds run.
+        candidates = _dedupe_candidates([*seed_candidates, *ranked_candidates])[
+            : config.max_sources * 3
+        ]
         if not candidates:
             raise LiveEvidenceConnectorError("builtin_literature_no_candidates")
         request_dir = cache_root / request_sha[:24]
@@ -270,25 +273,19 @@ def build_builtin_literature_evidence_connector(
                 }
                 if _route_binding_eligible(source, request=request):
                     default_structure, default_names = default_resolvers()
-                    source, structured, route_binding = (
-                        bind_materialized_literature_source(
-                            source,
-                            request=request,
-                            output_dir=(
-                                request_dir
-                                / hashlib.sha256(
-                                    str(source.get("source_ref") or "").encode()
-                                ).hexdigest()[:20]
-                            ),
-                            structure_resolver=(
-                                structure_resolver or default_structure
-                            ),
-                            candidate_name_resolver=(
-                                candidate_name_resolver or default_names
-                            ),
-                            timeout_s=config.timeout_s,
-                            provider_version=BUILTIN_LITERATURE_PROVIDER_VERSION,
-                        )
+                    source, structured, route_binding = bind_materialized_literature_source(
+                        source,
+                        request=request,
+                        output_dir=(
+                            request_dir
+                            / hashlib.sha256(
+                                str(source.get("source_ref") or "").encode()
+                            ).hexdigest()[:20]
+                        ),
+                        structure_resolver=(structure_resolver or default_structure),
+                        candidate_name_resolver=(candidate_name_resolver or default_names),
+                        timeout_s=config.timeout_s,
+                        provider_version=BUILTIN_LITERATURE_PROVIDER_VERSION,
                     )
                     if structured:
                         structured_sources.append(structured)
@@ -344,9 +341,7 @@ def build_builtin_literature_evidence_connector(
             "authorized_proxy": {
                 "output_dir": str(proxy_root),
                 "request_queue_path": str(local_pdf_proxy_request_queue_path(proxy_root)),
-                "download_manifest_path": str(
-                    local_pdf_proxy_download_manifest_path(proxy_root)
-                ),
+                "download_manifest_path": str(local_pdf_proxy_download_manifest_path(proxy_root)),
                 "credentials_stored": False,
             },
             "audits": audits,
@@ -354,9 +349,7 @@ def build_builtin_literature_evidence_connector(
             "parallel_search": len(queries) > 1,
             "parallel_materialization": config.max_workers > 1,
             "model_invocations": 0,
-            "resolver_cache": (
-                resolver_cache.flush() if resolver_cache is not None else None
-            ),
+            "resolver_cache": (resolver_cache.flush() if resolver_cache is not None else None),
         }
         receipt["content_sha256"] = _digest(receipt)
         result: dict[str, Any] = {"discovery": discovery, "receipt": receipt}
@@ -373,9 +366,7 @@ def build_builtin_literature_evidence_connector(
 
 def _digest(value: Any) -> str:
     return hashlib.sha256(
-        json.dumps(
-            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode()
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
 
 
