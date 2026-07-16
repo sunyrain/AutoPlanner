@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from threading import Event
 import time
 
 from flask import Flask
@@ -628,6 +630,65 @@ def test_v4_async_job_returns_immediately_and_exposes_completion() -> None:
 
     assert value["result"]["highest_contiguous_gate"] == "B1"
     assert value["result"]["model_cost"]["model_invocations"] == 1
+
+
+def test_v4_job_list_projects_the_live_checkpoint_stage(tmp_path: Path) -> None:
+    run_dir = tmp_path / "active-run"
+    checkpoint = run_dir / ".autoplanner" / "target-solver-checkpoint.json"
+    release = Event()
+
+    class LiveGateway:
+        def solve_target(self, **kwargs):
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint.write_text(
+                json.dumps(
+                    {
+                        "stages": [
+                            {"stage": "chemenzy_baseline", "status": "running"}
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            release.wait(2)
+            return {"run_id": kwargs["run_id"], "gates": {}, "claim": {}}
+
+        def status(self, _run_id):
+            return {
+                "run_dir": str(run_dir),
+                "status": {
+                    "status": "running",
+                    "portfolio": {},
+                    "frontier": [],
+                    "stop_decision": {},
+                },
+            }
+
+        def list_runs(self, **_kwargs):
+            return {"runs": []}
+
+    gateway = LiveGateway()
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(lambda: gateway))
+    client = app.test_client()
+    started = client.post(
+        "/api/v4/jobs",
+        json={"target_name": "live", "target_smiles": "CCO"},
+    )
+    assert started.status_code == 202
+    for _ in range(100):
+        if checkpoint.is_file():
+            break
+        time.sleep(0.01)
+    else:
+        release.set()
+        raise AssertionError("live checkpoint was not written")
+
+    listed = client.get("/api/v4/jobs").get_json()["jobs"]
+    release.set()
+
+    assert listed[0]["phase"] == "chemenzy_baseline"
+    assert listed[0]["progress"]["stages"][-1]["status"] == "running"
 
 
 def test_v4_delivery_projection_exposes_routes_before_proof_closure() -> None:

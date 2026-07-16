@@ -174,7 +174,8 @@ def create_v4_blueprint(
     @blueprint.get("/api/v4/jobs")
     def list_target_jobs():
         with jobs_lock:
-            rows = [_job_projection(value) for value in jobs.values()]
+            active_rows = [dict(value) for value in jobs.values()]
+        rows = [_job_with_live_progress(factory, value) for value in active_rows]
         known_run_ids = {str(row.get("run_id") or "") for row in rows}
         for run in factory().list_runs(limit=30).get("runs") or []:
             if not isinstance(run, Mapping):
@@ -202,7 +203,7 @@ def create_v4_blueprint(
             if historical is None:
                 return jsonify({"error": "job_not_found", "job_id": job_id}), 404
             row = _historical_job(historical)
-        return jsonify({**_job_projection(row), "progress": _live_job_progress(factory, row)})
+        return jsonify(_job_with_live_progress(factory, row))
 
     @blueprint.get("/api/v4/runs/<run_id>/status")
     def run_status(run_id: str):
@@ -272,6 +273,18 @@ def create_v4_blueprint(
         return Response(render_v4_route_workbench_html(snapshot), mimetype="text/html")
 
     return blueprint
+
+
+def _job_with_live_progress(
+    factory: GatewayFactory,
+    job: Mapping[str, Any],
+) -> dict[str, Any]:
+    row = _job_projection(job)
+    progress = _live_job_progress(factory, job)
+    row["progress"] = progress
+    if str(job.get("status") or "") in {"queued", "running"}:
+        row["phase"] = str(progress.get("phase") or row["phase"])
+    return row
 
 
 def _payload() -> dict[str, Any]:
