@@ -184,6 +184,21 @@ def _routes_for_target(target: dict[str, Any]) -> list[dict[str, Any]]:
     planner_routes = (target.get("planner_output") or {}).get("routes")
     if isinstance(planner_routes, list):
         return [route for route in planner_routes if isinstance(route, dict)]
+    cascade_programs = (target.get("cascade_search") or {}).get(
+        "result_programs"
+    )
+    if isinstance(cascade_programs, list):
+        return [
+            {
+                **program,
+                "steps": list(
+                    program.get("steps") or program.get("route_steps") or []
+                ),
+            }
+            for raw in cascade_programs
+            if isinstance(raw, dict)
+            for program in [dict(raw)]
+        ]
     return []
 
 

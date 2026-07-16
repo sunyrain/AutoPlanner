@@ -1,0 +1,445 @@
+{
+  "cases": [
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-01-0008e9002c",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 01",
+      "target_smiles": "COC(=O)CCc1ccc(Oc2ccc(CN(Cc3ccccc3Br)c3cccc([N+](=O)[O-])c3C)cc2)cc1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-02-0010da0e7a",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 02",
+      "target_smiles": "O=C(CN1CC=C(c2ccccc2)CC1)Nc1ccc2c(c1)Cc1c-2[nH]c(=O)c2ccccc12"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-03-00349c4c2a",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 03",
+      "target_smiles": "CN1C(=O)c2ccccc2C(CC(=O)O)c2ccc(OCCCCNc3ccccn3)cc21"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-04-0037e0bd0e",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 04",
+      "target_smiles": "Nc1c(C(=O)NCC(O)(CNC(=O)c2c(Cl)cccc2Cl)C(F)(F)F)cnn1-c1ccc(F)cc1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-05-016a32b1ee",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 05",
+      "target_smiles": "Cn1nnnc1-c1ccc(NC(=O)NCCCN2CCC[C@@H](Cc3ccc(F)cc3)C2)cc1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-06-01a139de17",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 06",
+      "target_smiles": "CC(C)Cc1cc(CCC#N)ccc1-c1ccc(O)c(Cc2ccccc2)c1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-07-06d66d9b72",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 07",
+      "target_smiles": "CCOC(=O)C1(c2cc(Br)c(N)c(OCC3CC3)c2)CCCC1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-08-0b451a7c30",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 08",
+      "target_smiles": "CCOCc1nc2cnc3cc(O)ccc3c2n1CC(C)(C)NS(C)(=O)=O"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-09-0f499fab15",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 09",
+      "target_smiles": "NC[C@H]1CC[C@@H](C(O)CCc2ccccc2)CC1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-10-209a799a4b",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 10",
+      "target_smiles": "CCCCCCOc1ccc(C(=O)Nc2ccccc2Oc2cccc(OC(C)c3nnn[nH]3)c2)cc1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-11-00108ecbf1",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 11",
+      "target_smiles": "COC(=O)c1cc(O)c(C)c([N+](=O)[O-])c1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-12-0014166f2c",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 12",
+      "target_smiles": "CCOC(=O)c1nc(-c2cnn(CCCCO)c2)ccc1N"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-13-000191c3a0",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 13",
+      "target_smiles": "COC(=O)[C@H](CNC(=O)CNc1ncc(CO)s1)NC(=O)OC(C)(C)C"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-14-003f8df592",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 14",
+      "target_smiles": "COc1ccc(C[C@H](C[C@H](O[Si](C)(C)C(C)(C)C)[C@H](Cc2ccccc2)NC(=O)OC(C)(C)C)C(=O)O)cc1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-15-0038ec1d0a",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 15",
+      "target_smiles": "CCOC(=O)C(C)Nc1cc(-c2ncc(C(F)(F)F)n(C)c2=O)c(Cl)cc1Cl"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-16-006ced8b0d",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 16",
+      "target_smiles": "CC(C)(C)OC(=O)N1CCc2c(n(CCNC(=O)Nc3ccccc3)c3ccccc23)CC1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-17-009e8397ab",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 17",
+      "target_smiles": "C=Cc1ccc(C(C(=O)Nc2cccc(CC3(C(=O)OC(C)(C)C)CC3)c2)C2CCCC2)cc1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-18-01ae5c1654",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 18",
+      "target_smiles": "CC(C(=O)O)c1ccc2nc(N)oc2c1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-19-2096a3130b",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 19",
+      "target_smiles": "CN(c1cccc(NC(=O)c2cccc(C(C)(C)C#N)c2)c1)c1ncc2nc(NC(=O)c3cccnc3)sc2n1"
+    },
+    {
+      "acceptance": {
+        "minimum_complete_routes": 1,
+        "minimum_edge_proof_level": 2,
+        "minimum_independent_source_groups": 1,
+        "minimum_planning_route_steps": 0,
+        "stock_boundary": "benchmark_search"
+      },
+      "budget": {
+        "max_accepted_expansions": 96,
+        "max_attempt_runs": 192,
+        "max_model_invocations": 3,
+        "max_prompt_context_bytes": 160000,
+        "max_total_input_tokens": 100000,
+        "max_total_output_tokens": 24000,
+        "max_total_wall_time_s": 1200
+      },
+      "case_id": "classic-ms-20-38ecb344da",
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "target_name": "opaque benchmark target 20",
+      "target_smiles": "CCC1Cc2cc(OCC(C)C)c(OC)cc2-c2cc(=O)c(C(=O)O)cn21"
+    }
+  ],
+  "schema_version": "blind_retrosynthesis_manifest.v1"
+}

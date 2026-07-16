@@ -77,6 +77,43 @@ def test_chemenzy_runtime_can_fall_back_to_bounded_conda_discovery(
     assert len(discovery["attempts"]) == 2
 
 
+def test_chemenzy_runtime_can_use_capability_probed_host_python(
+    tmp_path: Path,
+) -> None:
+    repository_default = tmp_path / "packed-linux-runtime"
+    host_runtime = tmp_path / "working-host-python"
+    unavailable = _preflight(repository_default, ready=False, source="default")
+    available = _preflight(
+        host_runtime, ready=True, source="host_python_auto_discovery"
+    )
+
+    with (
+        patch(
+            "cascade_planner.interfaces.chemenzy_runtime_selection."
+            "diagnose_chem_enzy_runtime",
+            side_effect=[unavailable, available],
+        ),
+        patch(
+            "cascade_planner.interfaces.chemenzy_runtime_selection."
+            "_registered_conda_prefixes",
+            return_value=[],
+        ),
+        patch(
+            "cascade_planner.interfaces.chemenzy_runtime_selection."
+            "_host_python_prefixes",
+            return_value=[host_runtime],
+        ),
+    ):
+        selected, discovery = _select_runtime(env_prefix=None, timeout_s=3.0)
+
+    assert selected == available
+    assert discovery["source"] == "host_python_auto_discovery"
+    assert discovery["selected_env_prefix"] == str(host_runtime)
+    assert discovery["semantics"][
+        "all_auto_discovered_runtimes_require_capability_probe"
+    ]
+
+
 def test_provider_capability_does_not_call_import_probe_campaign_ready() -> None:
     import_only = _provider_capability_snapshot(
         {

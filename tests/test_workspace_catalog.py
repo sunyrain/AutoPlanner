@@ -79,3 +79,38 @@ def test_fresh_showcase_replaces_legacy_target_and_projects_closure_axes(
     assert case["available"] is True
     assert case["artifact_url"].startswith("/api/v4/result-file?path=")
     assert catalog["semantics"]["route_length_is_descriptive_not_an_objective"] is True
+
+
+def test_classic_multistep_summary_is_published_as_showcase_audit(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path
+    shared = root / "results" / "shared"
+    benchmark = shared / "paroutes-panel" / "benchmark"
+    benchmark.mkdir(parents=True)
+    (benchmark / "index.html").write_text("<html>panel</html>", encoding="utf-8")
+    (benchmark / "summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "classic_multistep_benchmark_summary.v1",
+                "aggregates": {
+                    "overall": {
+                        "target_count": 20,
+                        "chem_enzy_route_found_rate": 0.95,
+                        "cascade_route_retained_rate": 0.9,
+                        "cascade_accepted_rate": 0.7,
+                        "benchmark_stock_closed_rate": 0.75,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    catalog = compile_showcase_catalog(root=root, shared_root=shared)
+
+    assert len(catalog["audits"]) == 1
+    audit = catalog["audits"][0]
+    assert audit["available"] is True
+    assert audit["target_count"] == 20
+    assert audit["route_retained_rate"] == 0.9

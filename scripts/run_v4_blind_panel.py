@@ -39,6 +39,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", action="append", default=[])
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--visual", action="store_true")
+    parser.add_argument(
+        "--chemenzy-env-prefix",
+        default=None,
+        help=(
+            "Explicit host-compatible ChemEnzy Python prefix. Passed through to "
+            "every isolated target run and recorded in panel status."
+        ),
+    )
     args = parser.parse_args(argv)
 
     manifest = Path(args.manifest).expanduser().resolve()
@@ -63,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         "reasoning_effort": args.reasoning_effort,
         "execution_profile": args.execution_profile,
         "worker_count": args.workers,
+        "chemenzy_env_prefix": str(args.chemenzy_env_prefix or ""),
         "target_count": len(cases),
         "targets": {
             case.target_name: {"status": "queued", "case_id": case.case_id}
@@ -94,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
             execution_profile=args.execution_profile,
             resume=args.resume,
             visual=args.visual,
+            chemenzy_env_prefix=args.chemenzy_env_prefix,
         )
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
@@ -132,6 +142,7 @@ def _run_case(
     execution_profile: str,
     resume: bool,
     visual: bool,
+    chemenzy_env_prefix: str | None,
 ) -> dict[str, Any]:
     run_id = _run_id_for_case(case)
     run_dir = output_root / "runs" / case.target_name
@@ -226,6 +237,8 @@ def _run_case(
         "--max-visual-pages",
         "10" if visual and generous_search else "6",
     ]
+    if chemenzy_env_prefix:
+        command.extend(["--chemenzy-env-prefix", str(chemenzy_env_prefix)])
     if can_resume:
         command.append("--resume")
     environment = dict(os.environ)

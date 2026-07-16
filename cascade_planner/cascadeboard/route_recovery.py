@@ -8,11 +8,21 @@ from rdkit import Chem
 
 
 def canonical_smiles(smi: str | None) -> str:
+    """Canonicalize molecular identity while ignoring atom-map annotations.
+
+    PaRoutes reference reactions are atom mapped while many planner routes are
+    not.  Atom-map numbers describe a reaction correspondence, not a different
+    molecule, and therefore must not affect route-recovery identity metrics.
+    Stereochemistry and isotopes remain part of the canonical SMILES.
+    """
+
     if not smi:
         return ""
     mol = Chem.MolFromSmiles(smi)
     if mol is None:
         return smi.strip()
+    for atom in mol.GetAtoms():
+        atom.SetAtomMapNum(0)
     return Chem.MolToSmiles(mol)
 
 

@@ -23,6 +23,11 @@ def compile_showcase_catalog(
         shared_root=shared_root,
         artifact_endpoint=artifact_endpoint,
     )
+    fresh_audits = _fresh_benchmark_audits(
+        root=root,
+        shared_root=shared_root,
+        artifact_endpoint=artifact_endpoint,
+    )
     legacy_cases = [
         _published_row(
             row,
@@ -34,7 +39,7 @@ def compile_showcase_catalog(
         if isinstance(row, Mapping)
     ]
     cases = _deduplicate_cases([*fresh_cases, *legacy_cases])
-    audits = [
+    legacy_audits = [
         _published_row(
             row,
             root=root,
@@ -44,6 +49,7 @@ def compile_showcase_catalog(
         for row in legacy.get("audits") or []
         if isinstance(row, Mapping)
     ]
+    audits = [*fresh_audits, *legacy_audits]
     standard_case = next(
         (
             row
@@ -113,6 +119,51 @@ def _fresh_cases(
             }
         )
     return cases, reruns, generated_at
+
+
+def _fresh_benchmark_audits(
+    *, root: Path, shared_root: Path, artifact_endpoint: str
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    summaries = sorted(
+        shared_root.glob("*/benchmark/summary.json"),
+        key=lambda path: path.stat().st_mtime if path.is_file() else 0,
+        reverse=True,
+    )[:16]
+    for summary_path in summaries:
+        summary = _read_json(summary_path)
+        if summary.get("schema_version") != "classic_multistep_benchmark_summary.v1":
+            continue
+        overall = dict(
+            dict(summary.get("aggregates") or {}).get("overall") or {}
+        )
+        rows.append(
+            _published_row(
+                {
+                    "audit_id": summary_path.parents[1].name,
+                    "label": "PaRoutes 经典多步盲测 · 20 targets",
+                    "category": "classic multistep benchmark",
+                    "artifact_path": str(summary_path.parent / "index.html"),
+                    "target_count": int(overall.get("target_count") or 0),
+                    "route_found_rate": float(
+                        overall.get("chem_enzy_route_found_rate") or 0.0
+                    ),
+                    "route_retained_rate": float(
+                        overall.get("cascade_route_retained_rate") or 0.0
+                    ),
+                    "accepted_rate": float(
+                        overall.get("cascade_accepted_rate") or 0.0
+                    ),
+                    "stock_closed_rate": float(
+                        overall.get("benchmark_stock_closed_rate") or 0.0
+                    ),
+                },
+                root=root,
+                shared_root=shared_root,
+                artifact_endpoint=artifact_endpoint,
+            )
+        )
+    return rows
 
 
 def _fresh_case(

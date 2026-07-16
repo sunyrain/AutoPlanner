@@ -26,11 +26,13 @@ PAROUTES_N5_MANUAL_REFS = Path("ref_routes_n5.json")
 PAROUTES_MANUAL_SOURCES = {
     "n1": (
         (PAROUTES_N1_MANUAL_TARGETS, PAROUTES_N1_MANUAL_REFS),
+        (Path("data/benchmarks/paroutes/targets_n1.txt"), Path("data/benchmarks/paroutes/ref_routes_n1.json")),
         (Path("data_external/paroutes/targets_n1.txt"), Path("data_external/paroutes/ref_routes_n1.json")),
         (Path("data_external/paroutes/n1-targets.txt"), Path("data_external/paroutes/ref_routes_n1.json")),
     ),
     "n5": (
         (PAROUTES_N5_MANUAL_TARGETS, PAROUTES_N5_MANUAL_REFS),
+        (Path("data/benchmarks/paroutes/targets_n5.txt"), Path("data/benchmarks/paroutes/ref_routes_n5.json")),
         (Path("data_external/paroutes/targets_n5.txt"), Path("data_external/paroutes/ref_routes_n5.json")),
         (Path("data_external/paroutes/n5-targets.txt"), Path("data_external/paroutes/ref_routes_n5.json")),
     ),

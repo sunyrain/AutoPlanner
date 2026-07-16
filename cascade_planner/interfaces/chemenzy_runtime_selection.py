@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 from typing import Any, Mapping
 
 from cascade_planner.baselines.chem_enzy_runtime import diagnose_chem_enzy_runtime
@@ -41,17 +42,22 @@ def select_chemenzy_runtime(
         )
 
     attempts = [default_report]
-    for candidate in _registered_conda_prefixes(environment):
-        if candidate == Path(str(default_report.get("env_prefix") or "")):
-            continue
-        discovered = dict(environment)
-        discovered[_ENV_SOURCE] = "conda_auto_discovery"
-        report = _diagnose(candidate, vendor_root, discovered, timeout_s)
-        attempts.append(report)
-        if report.get("production_ready") is True:
-            return report, _runtime_discovery(
-                "conda_auto_discovery", str(candidate), attempts
-            )
+    attempted_prefixes = {Path(str(default_report.get("env_prefix") or ""))}
+    discovery_groups = (
+        ("conda_auto_discovery", _registered_conda_prefixes(environment)),
+        ("host_python_auto_discovery", _host_python_prefixes()),
+    )
+    for source, candidates in discovery_groups:
+        for candidate in candidates:
+            if candidate in attempted_prefixes:
+                continue
+            attempted_prefixes.add(candidate)
+            discovered = dict(environment)
+            discovered[_ENV_SOURCE] = source
+            report = _diagnose(candidate, vendor_root, discovered, timeout_s)
+            attempts.append(report)
+            if report.get("production_ready") is True:
+                return report, _runtime_discovery(source, str(candidate), attempts)
     return default_report, _runtime_discovery("unresolved", "", attempts)
 
 
@@ -108,6 +114,19 @@ def _registered_conda_prefixes(environ: Mapping[str, str]) -> list[Path]:
     return sorted(valid, key=lambda value: _candidate_rank(value, current))[:8]
 
 
+def _host_python_prefixes() -> list[Path]:
+    """Return the current host interpreter prefix as a final probed fallback."""
+
+    candidates = {
+        Path(sys.prefix).expanduser(),
+        Path(sys.executable).expanduser().resolve().parent,
+    }
+    return sorted(
+        (value for value in candidates if _candidate_python_exists(value)),
+        key=lambda value: str(value).lower(),
+    )
+
+
 def _candidate_python_exists(prefix: Path) -> bool:
     paths = (
         prefix / "python.exe",
@@ -159,6 +178,7 @@ def _runtime_discovery(
         "semantics": {
             "explicit_configuration_never_silently_overridden": True,
             "auto_discovery_is_bounded": True,
+            "all_auto_discovered_runtimes_require_capability_probe": True,
         },
     }
 
