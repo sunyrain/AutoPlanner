@@ -1158,23 +1158,39 @@
         && orientation === 'horizontal'
         && maxLayerRows === 1
         && maximumLayer >= 16;
+      const layerByNode = new Map(localRows.map(row => [row.graph_node_id, Number(row.layer || 0)]));
+      const layerEdgeCounts = new Map();
+      for (const edge of localEdges) {
+        const sourceLayer = layerByNode.get(edge.source_graph_node_id);
+        const targetLayer = layerByNode.get(edge.target_graph_node_id);
+        if (!Number.isFinite(sourceLayer) || !Number.isFinite(targetLayer)) continue;
+        const key = [sourceLayer, targetLayer].sort((left, right) => left - right).join(':');
+        layerEdgeCounts.set(key, Number(layerEdgeCounts.get(key) || 0) + 1);
+      }
+      const maximumLayerEdgeCount = Math.max(1, ...layerEdgeCounts.values());
+      const routedLayerGap = state.mode === 'current' && orientation === 'horizontal' && !wrapsLongLinearRoute
+        ? Math.max(
+            metrics.layerGap,
+            maximumNode.w + 34 + Math.min(8, maximumLayerEdgeCount - 1) * 10
+          )
+        : metrics.layerGap;
       const wrapColumns = wrapsLongLinearRoute
         ? Math.min(9, maximumLayer + 1)
         : 0;
       const wrapRows = wrapsLongLinearRoute
         ? Math.ceil((maximumLayer + 1) / wrapColumns)
         : 0;
-      const wrapColumnGap = Math.max(metrics.layerGap, maximumNode.w + 24);
+      const wrapColumnGap = Math.max(routedLayerGap, maximumNode.w + 24);
       const wrapRowGap = Math.max(metrics.rowGap + 52, 196);
       const tileWidth = wrapsLongLinearRoute
         ? 92 + (wrapColumns - 1) * wrapColumnGap + maximumNode.w
         : orientation === 'vertical'
         ? 40 + (maxLayerRows - 1) * metrics.rowGap + maximumNode.w
-        : 92 + maximumLayer * metrics.layerGap + maximumNode.w;
+        : 92 + maximumLayer * routedLayerGap + maximumNode.w;
       const tileHeight = wrapsLongLinearRoute
         ? 86 + (wrapRows - 1) * wrapRowGap + maximumNode.h
         : orientation === 'vertical'
-        ? 76 + maximumLayer * metrics.layerGap + maximumNode.h
+        ? 76 + maximumLayer * routedLayerGap + maximumNode.h
         : 76 + (maxLayerRows - 1) * metrics.rowGap + maximumNode.h;
       const relativePositions = new Map();
       for (const [layerIndex, rows] of byLayer) {
@@ -1201,8 +1217,8 @@
                 ...size
               }
             : orientation === 'vertical'
-            ? { x: 20 + rowIndex * metrics.rowGap, y: 52 + displayLayer * metrics.layerGap, ...size }
-            : { x: 52 + displayLayer * metrics.layerGap, y: 52 + rowIndex * metrics.rowGap, ...size };
+            ? { x: 20 + rowIndex * metrics.rowGap, y: 52 + displayLayer * routedLayerGap, ...size }
+            : { x: 52 + displayLayer * routedLayerGap, y: 52 + rowIndex * metrics.rowGap, ...size };
           relativePositions.set(instanceId, position);
         });
       }
@@ -1314,9 +1330,18 @@
     const decorations = renderModel.decorations.map(row => `<g class="graph-lane-decoration${row.branchId === state.selectedBranchId ? ' is-selected' : ''}" data-lane-branch-id="${esc(row.branchId)}">
       <rect x="${row.x}" y="${row.y}" width="${row.w}" height="${row.h}" rx="16"></rect>
       <text x="${row.x + 16}" y="${row.y + 24}">${esc(middleEllipsis(row.label, 54))}</text></g>`).join('');
-    const edges = renderModel.edges.map(edge => edgeSvg(edge, renderModel.positions)).join('');
+    const edgeRoutingPlan = buildEdgeRoutingPlan(
+      renderModel.edges,
+      renderModel.positions,
+      renderModel.packing?.algorithm || 'logical_layers.v1'
+    );
+    const edges = renderModel.edges.map(edge => edgeSvg(
+      edge,
+      renderModel.positions,
+      edgeRoutingPlan.byEdge.get(edge)
+    )).join('');
     const nodes = renderModel.instances.map(instance => nodeSvg(instance, renderModel.positions.get(instance.instanceId))).join('');
-    element('mainRoute').innerHTML = `<svg class="graph-svg dependency-svg" data-layout-packing="${esc(renderModel.packing?.algorithm || 'shared_component_layers.v1')}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="graphTitle graphSubtitle">
+    element('mainRoute').innerHTML = `<svg class="graph-svg dependency-svg" data-layout-packing="${esc(renderModel.packing?.algorithm || 'shared_component_layers.v1')}" data-maximum-edge-tracks="${edgeRoutingPlan.maximumTrackCount}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="graphTitle graphSubtitle">
       <defs>${markers}</defs><g class="graph-world">${decorations}${edges}${nodes}</g></svg>`;
     indexRenderedObjects();
     renderPerformance.lastGraphUpdateMs = performance.now() - updateStartedAt;
@@ -1346,12 +1371,106 @@
     applyGraphSelection();
   }
 
-  function edgeSvg(edge, positions) {
+  function visualEdgeRecord(edge, positions) {
     const forwardSource = positions.get(edge.sourceInstanceId);
     const forwardTarget = positions.get(edge.targetInstanceId);
     const source = isRetrosynthesis() ? forwardTarget : forwardSource;
     const target = isRetrosynthesis() ? forwardSource : forwardTarget;
-    if (!source || !target) return '';
+    if (!source || !target) return null;
+    return {
+      edge,
+      source,
+      target,
+      sourceInstanceId: isRetrosynthesis() ? edge.targetInstanceId : edge.sourceInstanceId,
+      targetInstanceId: isRetrosynthesis() ? edge.sourceInstanceId : edge.targetInstanceId,
+      sourceCenterY: source.y + source.h / 2,
+      targetCenterY: target.y + target.h / 2
+    };
+  }
+
+  function buildEdgeRoutingPlan(edges, positions, packing) {
+    const byEdge = new Map();
+    const records = edges.map(edge => visualEdgeRecord(edge, positions)).filter(Boolean);
+    if (state.mode !== 'current' || effectiveOrientation() !== 'horizontal'
+        || packing === 'serpentine_long_route.v1') {
+      return { byEdge, maximumTrackCount: 1 };
+    }
+    const sourceGroups = groupBy(records, row => row.sourceInstanceId);
+    const targetGroups = groupBy(records, row => row.targetInstanceId);
+    assignEdgePortOffsets(sourceGroups, byEdge, 'sourcePortOffset', 'targetCenterY');
+    assignEdgePortOffsets(targetGroups, byEdge, 'targetPortOffset', 'sourceCenterY');
+    const gapGroups = groupBy(records, row => {
+      const reverse = row.target.x + row.target.w / 2 < row.source.x + row.source.w / 2;
+      const sourceX = reverse ? row.source.x : row.source.x + row.source.w;
+      const targetX = reverse ? row.target.x + row.target.w : row.target.x;
+      return `${Math.round((sourceX + targetX) / 8)}`;
+    });
+    let maximumTrackCount = 1;
+    for (const group of gapGroups.values()) {
+      group.sort((left, right) => left.sourceCenterY - right.sourceCenterY
+        || left.targetCenterY - right.targetCenterY
+        || stableTextCompare(left.edge.edge_id, right.edge.edge_id));
+      maximumTrackCount = Math.max(maximumTrackCount, group.length);
+      const gapLeft = Math.max(...group.map(row => {
+        const reverse = row.target.x + row.target.w / 2 < row.source.x + row.source.w / 2;
+        const sourceX = reverse ? row.source.x : row.source.x + row.source.w;
+        const targetX = reverse ? row.target.x + row.target.w : row.target.x;
+        return Math.min(sourceX, targetX);
+      }));
+      const gapRight = Math.min(...group.map(row => {
+        const reverse = row.target.x + row.target.w / 2 < row.source.x + row.source.w / 2;
+        const sourceX = reverse ? row.source.x : row.source.x + row.source.w;
+        const targetX = reverse ? row.target.x + row.target.w : row.target.x;
+        return Math.max(sourceX, targetX);
+      }));
+      const usableWidth = Math.max(0, gapRight - gapLeft - 20);
+      const trackSpan = Math.min(usableWidth, Math.max(0, group.length - 1) * 12);
+      const trackStart = (gapLeft + gapRight - trackSpan) / 2;
+      group.forEach((row, index) => {
+        const current = byEdge.get(row.edge) || {};
+        byEdge.set(row.edge, {
+          ...current,
+          channelX: group.length === 1
+            ? (gapLeft + gapRight) / 2
+            : trackStart + index * trackSpan / (group.length - 1),
+          trackIndex: index + 1,
+          trackCount: group.length
+        });
+      });
+    }
+    return { byEdge, maximumTrackCount };
+  }
+
+  function groupBy(rows, keyOf) {
+    const groups = new Map();
+    for (const row of rows) {
+      const key = keyOf(row);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    }
+    return groups;
+  }
+
+  function assignEdgePortOffsets(groups, plan, field, peerField) {
+    for (const group of groups.values()) {
+      group.sort((left, right) => left[peerField] - right[peerField]
+        || stableTextCompare(left.edge.edge_id, right.edge.edge_id));
+      const node = field === 'sourcePortOffset' ? group[0]?.source : group[0]?.target;
+      const span = Math.min(Number(node?.h || 0) * .54, Math.max(0, group.length - 1) * 16);
+      group.forEach((row, index) => {
+        const current = plan.get(row.edge) || {};
+        plan.set(row.edge, {
+          ...current,
+          [field]: group.length === 1 ? 0 : -span / 2 + index * span / (group.length - 1)
+        });
+      });
+    }
+  }
+
+  function edgeSvg(edge, positions, routingPlan = {}) {
+    const record = visualEdgeRecord(edge, positions);
+    if (!record) return '';
+    const { source, target } = record;
     const step = steps.get(edge.reaction_step_id);
     const tier = edge.trust_vector?.proof_tier || tierOfStep(step);
     const visual = edge.visual_encoding || step?.visual_encoding || step?.trust_vector?.visual_encoding || {};
@@ -1363,13 +1482,25 @@
     const dash = simple ? '' : String(visual.dash_pattern || '');
     const packing = renderModel?.packing?.algorithm || 'logical_layers.v1';
     const forceOrthogonal = state.mode === 'current' || state.edgeStyle !== 'trust';
-    const path = edgePath(source, target, { orthogonal: forceOrthogonal, packing });
+    const path = edgePath(source, target, {
+      orthogonal: forceOrthogonal,
+      packing,
+      sourcePortOffset: routingPlan.sourcePortOffset,
+      targetPortOffset: routingPlan.targetPortOffset,
+      channelX: routingPlan.channelX
+    });
     const markerId = simple ? 'arrow-neutral' : `arrow-${tierClass(tier)}`;
-    const routing = forceOrthogonal ? 'fixed-port-channels.v2' : 'trust-curves.v1';
-    return `<path class="graph-edge dependency-edge trust-edge ${tierClass(tier)}${edge.visual_role === 'auxiliary' ? ' is-auxiliary' : ''}" data-edge-id="${esc(edge.edge_id)}" data-edge-routing="${routing}" data-branch-id="${esc(edge.branch_id)}" data-reaction-step-id="${esc(edge.reaction_step_id)}" data-source-instance-id="${esc(edge.sourceInstanceId)}" data-target-instance-id="${esc(edge.targetInstanceId)}" d="${path}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" stroke-dasharray="${esc(dash)}" marker-end="url(#${markerId})"><title>${esc(`${tierLabel(tier)} · ${edge.visual_role === 'auxiliary' ? '辅助投入' : edge.edge_type || '显式依赖'} · ${edge.branch_id || ''}`)}</title></path>`;
+    const routing = forceOrthogonal ? 'fixed-port-channels.v3' : 'trust-curves.v1';
+    return `<path class="graph-edge dependency-edge trust-edge ${tierClass(tier)}${edge.visual_role === 'auxiliary' ? ' is-auxiliary' : ''}" data-edge-id="${esc(edge.edge_id)}" data-edge-routing="${routing}" data-edge-track="${Number(routingPlan.trackIndex || 1)}/${Number(routingPlan.trackCount || 1)}" data-branch-id="${esc(edge.branch_id)}" data-reaction-step-id="${esc(edge.reaction_step_id)}" data-source-instance-id="${esc(edge.sourceInstanceId)}" data-target-instance-id="${esc(edge.targetInstanceId)}" d="${path}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" stroke-dasharray="${esc(dash)}" marker-end="url(#${markerId})"><title>${esc(`${tierLabel(tier)} · ${edge.visual_role === 'auxiliary' ? '辅助投入' : edge.edge_type || '显式依赖'} · ${edge.branch_id || ''}`)}</title></path>`;
   }
 
-  function edgePath(source, target, { orthogonal = false, packing = '' } = {}) {
+  function edgePath(source, target, {
+    orthogonal = false,
+    packing = '',
+    sourcePortOffset = 0,
+    targetPortOffset = 0,
+    channelX = null
+  } = {}) {
     if (effectiveOrientation() === 'vertical') {
       const x1 = source.x + source.w / 2, y1 = source.y + source.h;
       const x2 = target.x + target.w / 2, y2 = target.y;
@@ -1393,10 +1524,10 @@
     }
     const reverse = targetCenterX < sourceCenterX;
     const x1 = reverse ? source.x : source.x + source.w;
-    const y1 = sourceCenterY;
+    const y1 = sourceCenterY + Number(sourcePortOffset || 0);
     const x2 = reverse ? target.x + target.w : target.x;
-    const y2 = targetCenterY;
-    const middle = (x1 + x2) / 2;
+    const y2 = targetCenterY + Number(targetPortOffset || 0);
+    const middle = Number.isFinite(channelX) ? channelX : (x1 + x2) / 2;
     return orthogonal ? (Math.abs(y1 - y2) < 1
       ? `M ${x1} ${y1} H ${x2}`
       : `M ${x1} ${y1} H ${middle} V ${y2} H ${x2}`)

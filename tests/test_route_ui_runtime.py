@@ -14,6 +14,20 @@ SCRIPT = Path("cascade_planner/harness/route_forest_ui/script.js")
 STYLES = Path("cascade_planner/harness/route_forest_ui/styles.css")
 
 
+def _chromium_path() -> Path | None:
+    return next(
+        (
+            path
+            for path in (
+                Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+                Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+            )
+            if path.is_file()
+        ),
+        None,
+    )
+
+
 def test_camera_uses_one_world_transform_and_never_moves_svg_layer() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
 
@@ -100,12 +114,18 @@ def test_current_route_edges_use_fixed_ports_and_layer_channels() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
 
     assert "state.mode === 'current' || state.edgeStyle !== 'trust'" in script
-    assert "fixed-port-channels.v2" in script
+    assert "fixed-port-channels.v3" in script
     assert "data-edge-routing=" in script
+    assert "data-edge-track=" in script
+    assert "data-maximum-edge-tracks=" in script
     assert "const rowSeparated =" in script
     assert "packing === 'serpentine_long_route.v1' && rowSeparated" in script
     assert "`M ${x1} ${y1} V ${channelY} H ${x2} V ${y2}`" in script
     assert "`M ${x1} ${y1} H ${middle} V ${y2} H ${x2}`" in script
+    assert "function buildEdgeRoutingPlan(" in script
+    assert "function assignEdgePortOffsets(" in script
+    assert "packing === 'serpentine_long_route.v1'" in script
+    assert "maximumNode.w + 34 + Math.min(8, maximumLayerEdgeCount - 1) * 10" in script
 
 
 def test_route_arrows_and_responsive_camera_do_not_scale_with_edge_emphasis() -> None:
@@ -197,17 +217,7 @@ def test_workbench_exposes_six_axis_proof_and_product_stage_filters() -> None:
 def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
     tmp_path: Path,
 ) -> None:
-    chrome = next(
-        (
-            path
-            for path in (
-                Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
-                Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
-            )
-            if path.is_file()
-        ),
-        None,
-    )
+    chrome = _chromium_path()
     if chrome is None:
         pytest.skip("Chromium browser unavailable for route UI interaction regression")
 
@@ -261,6 +271,53 @@ def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
     }
     assert report["performance"]["renderedObjects"] > 120
     assert report["performance"]["cameraFrames"] >= 1
+
+
+def test_headless_browser_convergent_edges_receive_distinct_tracks(tmp_path: Path) -> None:
+    chrome = _chromium_path()
+    if chrome is None:
+        pytest.skip("Chromium browser unavailable for route UI edge routing regression")
+
+    page = tmp_path / "convergent-route-workbench.html"
+    browser_profile = tmp_path / "convergent-chromium-profile"
+    page.write_text(
+        render_v4_route_workbench_html(_convergent_workbench()),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            str(chrome),
+            "--headless=new",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--no-first-run",
+            "--disable-background-networking",
+            "--disable-extensions",
+            "--disable-sync",
+            f"--user-data-dir={browser_profile}",
+            "--run-all-compositor-stages-before-draw",
+            "--virtual-time-budget=2500",
+            "--dump-dom",
+            page.as_uri(),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+    )
+    maximum = re.search(r'data-maximum-edge-tracks="(\d+)"', result.stdout)
+    assert maximum, result.stderr[-2000:]
+    assert int(maximum.group(1)) >= 4
+    tracks = set(re.findall(r'data-edge-track="([^"]+)"', result.stdout))
+    assert {"1/4", "2/4", "3/4", "4/4"}.issubset(tracks)
+    routed_paths = re.findall(
+        r'<path class="graph-edge[^>]+data-edge-track="[1-4]/4"[^>]*?\sd="([^"]+)"',
+        result.stdout,
+    )
+    assert len(routed_paths) == 4
+    assert len(set(routed_paths)) == 4
 
 
 def _large_workbench(*, edge_count: int) -> dict:
@@ -368,6 +425,37 @@ def _large_workbench(*, edge_count: int) -> dict:
     payload["content_sha256"] = hashlib.sha256(
         json.dumps(
             payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return payload
+
+
+def _convergent_workbench() -> dict:
+    payload = _large_workbench(edge_count=1)
+    payload["run_id"] = "convergent-edge-routing-regression"
+    payload["target"]["name"] = "convergent edge routing"
+    for index, smiles in enumerate(("CC", "CCC", "CCCC"), start=2):
+        molecule_id = f"m:{index}"
+        payload["molecules"][molecule_id] = {
+            "molecule_id": molecule_id,
+            "canonical_smiles": smiles,
+            "role": "stock_leaf",
+            "is_leaf": True,
+            "stock_closed": False,
+            "stock_observation_id": "",
+            "badges": [],
+        }
+        payload["inspectors"]["molecules"][molecule_id] = {}
+    leaf_ids = ["m:1", "m:2", "m:3", "m:4"]
+    payload["edges"]["edge:0"]["precursor_molecule_ids"] = leaf_ids
+    payload["routes"]["route:large"]["leaf_molecule_ids"] = leaf_ids
+    payload["content_sha256"] = hashlib.sha256(
+        json.dumps(
+            {key: value for key, value in payload.items() if key != "content_sha256"},
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
