@@ -578,6 +578,7 @@ body.theme-dark .theme-icon--dark {
 }
 
 .graph-panel {
+  position: relative;
   grid-area: graph;
   display: flex;
   flex-direction: column;
@@ -1105,15 +1106,28 @@ body.is-resizing * {
 }
 
 .closure-status-panel {
+  position: absolute;
+  top: 66px;
+  right: 0;
+  left: 0;
+  z-index: 35;
   min-height: 108px;
+  max-height: calc(100% - 66px);
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: minmax(154px, 0.7fr) minmax(560px, 3fr);
   gap: var(--space-3);
   align-items: stretch;
   padding: 8px var(--space-3);
-  border-bottom: 1px solid var(--divider);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-width: 0 0 1px;
   background: color-mix(in srgb, var(--canvas) 62%, var(--surface));
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+}
+
+.closure-status-panel[hidden] {
+  display: none;
 }
 
 .closure-status-heading {
@@ -1182,6 +1196,29 @@ body.is-resizing * {
   border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
   background: var(--warning-soft);
   color: var(--warning);
+}
+
+.ledger-authority-badge--compact {
+  max-width: min(32vw, 360px);
+  flex: 0 1 auto;
+}
+
+.closure-dismiss {
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 0 9px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.closure-dismiss:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
 }
 
 .closure-status-content {
@@ -1419,6 +1456,12 @@ body.is-resizing * {
 .graph-primary-actions {
   flex: 0 0 auto;
   gap: var(--space-2);
+}
+
+.ledger-toggle[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .tool-button {
@@ -3236,8 +3279,14 @@ body.embedded-route.inspector-collapsed .workbench-grid {
   }
 
   .closure-status-panel {
+    top: 54px;
     min-height: 140px;
+    max-height: calc(100% - 54px);
     padding: 6px 9px;
+  }
+
+  .ledger-authority-badge--compact {
+    display: none;
   }
 
   .ledger-progress-metrics {

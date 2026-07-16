@@ -1075,6 +1075,9 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
         "graphSubtitle",
         "graphVisibleCount",
         "closureStatusTitle",
+        "closureStatusPanel",
+        "ledgerToggle",
+        "closureDismiss",
         "ledgerAuthorityBadge",
         "ledgerProgressMetrics",
         "closureStatusGrid",
@@ -1108,6 +1111,8 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
     assert "partialExpansionProgress" in script
     assert "fully_expanded" in script
     assert "partial_expanded" in script
+    assert "ledgerOpen" in script
+    assert "closureStatusPanel" in script
     assert "all_leaves_stock_bound" not in script
     assert "旧版数据、聚合 proof tier、步骤数量与库存别名" in script
     assert "ensureSelectedBranchMatchesFilters();" in script

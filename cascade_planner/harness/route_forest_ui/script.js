@@ -110,6 +110,7 @@
   const layoutByNode = new Map((layout.nodes || []).map(row => [row.graph_node_id, row]));
   const persisted = loadState();
   const legacyChrome = loadState(LEGACY_STORAGE_KEY);
+  const embeddedRoute = new URLSearchParams(location.search).get('embed') === '1';
   const allProofTiers = unique([
     ...(lanesProjection.lanes || []).map(row => row.proof_tier),
     ...(forest.steps || []).map(row => row?.trust_vector?.proof_tier || row?.proof_tier)
@@ -151,6 +152,7 @@
     theme: oneOf(persisted.theme || legacyChrome.theme, ['light', 'dark'], preferredTheme()),
     navOpen: Object.hasOwn(persisted, 'navOpen') ? persisted.navOpen !== false : !matchMedia('(max-width: 1023px)').matches,
     inspectorOpen: Object.hasOwn(persisted, 'inspectorOpen') ? persisted.inspectorOpen !== false : false,
+    ledgerOpen: Object.hasOwn(persisted, 'ledgerOpen') ? persisted.ledgerOpen === true : false,
     navWidth: clamp(Number(persisted.navWidth || legacyChrome.navWidth) || 280, 240, 460),
     inspectorWidth: clamp(Number(persisted.inspectorWidth || legacyChrome.inspectorWidth) || 380, 320, 560),
     zoom: 1,
@@ -197,7 +199,7 @@
     })
   });
 
-  if (new URLSearchParams(location.search).get('embed') === '1') {
+  if (embeddedRoute) {
     document.body.classList.add('embedded-route');
   }
 
@@ -320,7 +322,7 @@
       orientation: state.orientation, density: state.density, edgeStyle: state.edgeStyle,
       routeDirection: state.routeDirection, showAuxiliary: state.showAuxiliary,
       labelMode: state.labelMode, layoutPreset: state.layoutPreset, theme: state.theme,
-      navOpen: state.navOpen, inspectorOpen: state.inspectorOpen,
+      navOpen: state.navOpen, inspectorOpen: state.inspectorOpen, ledgerOpen: state.ledgerOpen,
       navWidth: state.navWidth, inspectorWidth: state.inspectorWidth
     }));
   }
@@ -2216,6 +2218,7 @@
     document.body.classList.toggle('is-inspector-collapsed', !state.inspectorOpen);
     document.body.classList.toggle('nav-open', state.navOpen);
     document.body.classList.toggle('inspector-open', state.inspectorOpen);
+    document.body.classList.toggle('ledger-open', state.ledgerOpen);
     document.documentElement.style.setProperty('--nav-width', `${state.navWidth}px`);
     document.documentElement.style.setProperty('--inspector-width', `${state.inspectorWidth}px`);
     element('themeToggle').setAttribute('aria-pressed', String(state.theme === 'dark'));
@@ -2228,6 +2231,13 @@
     element('labelModeSelect').value = state.labelMode;
     element('navResizeHandle')?.setAttribute('aria-valuenow', String(state.navWidth));
     element('inspectorResizeHandle')?.setAttribute('aria-valuenow', String(state.inspectorWidth));
+    const ledgerPanel = element('closureStatusPanel');
+    const ledgerToggle = element('ledgerToggle');
+    ledgerPanel.hidden = !state.ledgerOpen;
+    ledgerPanel.toggleAttribute('inert', !state.ledgerOpen);
+    ledgerToggle.setAttribute('aria-expanded', String(state.ledgerOpen));
+    const ledgerToggleLabel = ledgerToggle.querySelector('span');
+    if (ledgerToggleLabel) ledgerToggleLabel.textContent = state.ledgerOpen ? '收起证明' : '闭合证明';
     const embedded = document.body.classList.contains('embedded-route');
     const narrowReview = state.layoutPreset === 'review' && !matchMedia('(max-width: 1023px)').matches;
     const navVisible = state.navOpen && state.layoutPreset === 'explore' && !embedded;
@@ -2342,6 +2352,11 @@
       if (target.dataset.graphAction === 'zoom-in') { zoomGraph(1.2); return; }
       if (target.dataset.graphAction === 'zoom-out') { zoomGraph(1 / 1.2); return; }
       if (target.dataset.graphAction === 'reset') { resetGraph(); return; }
+      if (target.id === 'ledgerToggle' || target.id === 'closureDismiss') {
+        state.ledgerOpen = target.id === 'closureDismiss' ? false : !state.ledgerOpen;
+        applyPersistentChromeState(); persistState();
+        return;
+      }
       if (target.dataset.detailTab) { state.detailTab = target.dataset.detailTab; renderDetail(); persistState(); return; }
       if (target.id === 'themeToggle') { state.theme = state.theme === 'dark' ? 'light' : 'dark'; applyPersistentChromeState(); persistState(); return; }
       if (target.id === 'navToggle') { state.navOpen = !state.navOpen; if (isMobileDrawerLayout() && state.navOpen) state.inspectorOpen = false; applyPersistentChromeState(); updateMobileNavigation(state.navOpen ? 'nav' : 'graph'); persistState(); requestAnimationFrame(() => fitGraph({ readable: preferReadableFocus() })); return; }
@@ -2670,6 +2685,18 @@
       state.mode = 'clusters';
       renderGraph();
       const viewport = element('graphViewport');
+      state.ledgerOpen = false;
+      applyPersistentChromeState();
+      const canvasHeightBeforeLedger = viewport.getBoundingClientRect().height;
+      checks.proofDrawerDefaultClosed = element('closureStatusPanel').hidden
+        && element('ledgerToggle').getAttribute('aria-expanded') === 'false';
+      element('ledgerToggle').click();
+      checks.proofDrawerOverlay = !element('closureStatusPanel').hidden
+        && element('ledgerToggle').getAttribute('aria-expanded') === 'true'
+        && Math.abs(viewport.getBoundingClientRect().height - canvasHeightBeforeLedger) < 1;
+      element('closureDismiss').click();
+      checks.proofDrawerDismiss = element('closureStatusPanel').hidden
+        && element('ledgerToggle').getAttribute('aria-expanded') === 'false';
       const initialPan = { x: state.panX, y: state.panY };
       viewport.dispatchEvent(new PointerEvent('pointerdown', {
         bubbles: true, button: 0, buttons: 1, pointerId: 901,

@@ -712,6 +712,8 @@ class WebAppTest(unittest.TestCase):
             "restoreLibrary",
             "collapseCatalog",
             "restoreCatalog",
+            "collapseQueue",
+            "restoreQueue",
             "launchFocus",
             "launchDialog",
             "submitButton",
@@ -726,6 +728,7 @@ class WebAppTest(unittest.TestCase):
         self.assertIn('data-view-panel="audits"', workspace)
         self.assertIn("sidebar-collapsed", workspace)
         self.assertIn("catalog-collapsed", workspace)
+        self.assertIn("queue-collapsed", workspace)
         self.assertIn('@media(max-width:900px)', workspace)
         self.assertIn("localStorage.setItem(shellKey", workspace)
         self.assertIn("embed=1", workspace)

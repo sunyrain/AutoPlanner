@@ -128,11 +128,16 @@ __STYLES__
           <div class="graph-title-line">
             <h2 id="graphTitle">完整路线依赖图</h2>
             <span id="graphVisibleCount" class="visible-count" aria-live="polite"></span>
+            <span id="ledgerAuthorityBadge" class="ledger-authority-badge ledger-authority-badge--compact" role="status">正在校验账本</span>
           </div>
           <p id="graphSubtitle">每条边均表示显式的分子→反应或反应→分子依赖。</p>
         </div>
 
         <div class="graph-primary-actions" role="toolbar" aria-label="图视图控制">
+          <button id="ledgerToggle" class="tool-button ledger-toggle" type="button" aria-controls="closureStatusPanel" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"></path><path d="M8 8h8M8 12h8M8 16h5"></path></svg>
+            <span>闭合证明</span>
+          </button>
           <button class="tool-button" type="button" data-graph-action="fit" aria-label="适应可视区域">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"></path><path d="m3 8 5-5M21 8l-5-5M3 16l5 5M21 16l-5 5"></path></svg>
             <span>适应</span>
@@ -152,13 +157,13 @@ __STYLES__
         </div>
       </div>
 
-      <section class="closure-status-panel" aria-labelledby="closureStatusTitle">
+      <section id="closureStatusPanel" class="closure-status-panel" aria-labelledby="closureStatusTitle" hidden>
         <div class="closure-status-heading">
           <div>
             <span class="closure-status-eyebrow">FRONTIER LEDGER</span>
             <strong id="closureStatusTitle">路线闭合证明</strong>
           </div>
-          <span id="ledgerAuthorityBadge" class="ledger-authority-badge" role="status">正在校验账本</span>
+          <button id="closureDismiss" class="closure-dismiss" type="button">收起证明</button>
         </div>
         <div class="closure-status-content">
           <div id="ledgerProgressMetrics" class="ledger-progress-metrics" aria-label="断键、工作、反应与库存进度"></div>

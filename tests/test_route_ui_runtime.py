@@ -261,6 +261,9 @@ def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
     report = json.loads(html.unescape(match.group(1)))
     assert report["status"] == "passed", report
     assert report["checks"] == {
+        "proofDrawerDefaultClosed": True,
+        "proofDrawerOverlay": True,
+        "proofDrawerDismiss": True,
         "drag": True,
         "singleWorldTransform": True,
         "zoomAnchor": True,
