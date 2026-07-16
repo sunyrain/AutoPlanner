@@ -161,7 +161,7 @@ def build_dependency_layout_projection(
             scc_adjacency[source_scc].add(target_scc)
             scc_reverse[target_scc].add(source_scc)
 
-    scc_layers = _longest_path_layers(scc_adjacency, scc_reverse)
+    scc_layers = _sink_aligned_longest_path_layers(scc_adjacency, scc_reverse)
     components = _undirected_components(node_ids, adjacency, reverse)
     components.sort(key=lambda member_ids: (-len(member_ids), member_ids[0]))
     component_id_by_node: dict[str, str] = {}
@@ -239,7 +239,7 @@ def build_dependency_layout_projection(
 
     projection: dict[str, Any] = {
         "schema_version": LAYOUT_SCHEMA_VERSION,
-        "algorithm": "scc_condensation_longest_path_fixed_barycentric.v1",
+        "algorithm": "scc_condensation_sink_aligned_longest_path_fixed_barycentric.v2",
         "deterministic_tie_break": "casefolded_label_then_graph_node_id",
         "barycentric_sweeps": max(0, int(barycentric_sweeps)),
         "node_count": len(node_rows),
@@ -660,25 +660,43 @@ def _strongly_connected_components(
     return components
 
 
-def _longest_path_layers(
+def _sink_aligned_longest_path_layers(
     adjacency: Mapping[str, set[str]],
     reverse: Mapping[str, set[str]],
 ) -> dict[str, int]:
-    indegree = {node_id: len(reverse[node_id]) for node_id in adjacency}
-    queue = sorted(node_id for node_id, count in indegree.items() if count == 0)
-    layers = {node_id: 0 for node_id in adjacency}
+    """Rank a DAG while keeping late-feed roots close to their first consumer.
+
+    A source-aligned longest-path rank puts every root in layer zero.  That is
+    topologically valid, but a reagent used only by a late reaction then draws
+    an edge across the whole route.  Longest distance to a sink gives the same
+    minimum one-layer separation for every edge while right-aligning shorter
+    precursor branches within their own weakly connected component.
+    """
+
+    outdegree = {node_id: len(adjacency[node_id]) for node_id in adjacency}
+    queue = sorted(node_id for node_id, count in outdegree.items() if count == 0)
+    distance_to_sink = {node_id: 0 for node_id in adjacency}
     while queue:
         node_id = queue.pop(0)
-        for target in sorted(adjacency[node_id]):
-            layers[target] = max(layers[target], layers[node_id] + 1)
-            indegree[target] -= 1
-            if indegree[target] == 0:
-                queue.append(target)
+        for source in sorted(reverse[node_id]):
+            distance_to_sink[source] = max(
+                distance_to_sink[source], distance_to_sink[node_id] + 1
+            )
+            outdegree[source] -= 1
+            if outdegree[source] == 0:
+                queue.append(source)
                 queue.sort()
     if any(
-        count for count in indegree.values()
+        count for count in outdegree.values()
     ):  # pragma: no cover - SCC condensation is a DAG.
         raise ValueError("SCC condensation unexpectedly contains a cycle")
+
+    layers: dict[str, int] = {}
+    components = _undirected_components(sorted(adjacency), adjacency, reverse)
+    for member_ids in components:
+        maximum_distance = max(distance_to_sink[node_id] for node_id in member_ids)
+        for node_id in member_ids:
+            layers[node_id] = maximum_distance - distance_to_sink[node_id]
     return layers
 
 

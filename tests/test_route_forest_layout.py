@@ -110,6 +110,35 @@ def test_fixed_barycentric_sweeps_reduce_a_crossing_fixture() -> None:
     assert count_layer_crossings(optimised, graph["edges"]) == 0
 
 
+def test_dependency_layout_places_late_feed_root_next_to_its_consumer() -> None:
+    graph = {
+        "nodes": [
+            _node("m:main-start"),
+            _node("r:1", node_type="reaction"),
+            _node("m:intermediate"),
+            _node("m:late-feed"),
+            _node("r:2", node_type="reaction"),
+            _node("m:product"),
+        ],
+        "edges": [
+            _edge("e1", "m:main-start", "r:1"),
+            _edge("e2", "r:1", "m:intermediate"),
+            _edge("e3", "m:intermediate", "r:2"),
+            _edge("e4", "m:late-feed", "r:2"),
+            _edge("e5", "r:2", "m:product"),
+        ],
+    }
+
+    projection = build_dependency_layout_projection(graph)
+    by_id = {row["graph_node_id"]: row for row in projection["nodes"]}
+
+    assert by_id["m:main-start"]["layer"] == 0
+    assert by_id["m:intermediate"]["layer"] == 2
+    assert by_id["m:late-feed"]["layer"] == 2
+    assert by_id["r:2"]["layer"] == 3
+    assert projection["algorithm"].startswith("scc_condensation_sink_aligned")
+
+
 def test_branch_lanes_include_only_explicit_edges_and_have_local_layouts() -> None:
     branch_id = "branch:one"
     nodes = [
