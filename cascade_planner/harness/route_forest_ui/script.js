@@ -1715,14 +1715,13 @@
   }
 
   function preferReadableFocus() {
-    // The unified workspace gives an embedded workbench a narrower viewport.
-    // Showing only the target at a readable zoom makes a short route look
-    // broken even though the rest of the graph is merely off-canvas.  In an
-    // embed, the complete selected route is the primary object, so always fit
-    // it on first render; the user can still zoom after orientation is clear.
-    if (embeddedRoute) return false;
     if (state.mode !== 'current') return false;
     const lane = laneByBranch.get(state.selectedBranchId) || {};
+    // Short embedded routes remain fully visible.  A convergent route with
+    // many steps becomes illegible when squeezed into the narrower workspace,
+    // so open that case at a moderate readable zoom and use the minimap for
+    // the global overview.
+    if (embeddedRoute) return (lane.step_ids || []).length > 4;
     // Short routes benefit from a readable close view.  Longer routes must
     // open fully visible; users can zoom in without first discovering that
     // the upstream half was placed outside the viewport.
@@ -1740,13 +1739,19 @@
       (height - padding * 2) / renderModel.bounds.h
     );
     if (readable && state.mode === 'current') {
-      const minimumReadableZoom = matchMedia('(max-width: 639px)').matches ? .85 : .82;
+      const minimumReadableZoom = embeddedRoute
+        ? .42
+        : matchMedia('(max-width: 639px)').matches ? .85 : .82;
       state.zoom = clamp(Math.max(naturalFit, minimumReadableZoom), minimumReadableZoom, 1.15);
       const oversized = naturalFit < minimumReadableZoom;
       const vertical = effectiveOrientation() === 'vertical';
       const target = currentTargetPosition();
+      const targetOnLeft = target
+        && target.x + target.w / 2 < renderModel.bounds.w / 2;
       state.panX = oversized && !vertical
-        ? width - ((target?.x ?? renderModel.bounds.w) + (target?.w || 0)) * state.zoom - 48
+        ? targetOnLeft
+          ? 48 - target.x * state.zoom
+          : width - ((target?.x ?? renderModel.bounds.w) + (target?.w || 0)) * state.zoom - 48
         : oversized && vertical && target
           ? width / 2 - (target.x + target.w / 2) * state.zoom
         : (width - renderModel.bounds.w * state.zoom) / 2;
@@ -1881,6 +1886,7 @@
   function renderMinimap() {
     const host = element('graphMinimap');
     if (!renderModel || !renderModel.instances.length) { host.innerHTML = ''; return; }
+    host.hidden = false;
     const width = 180, height = 108;
     const scale = Math.min(width / renderModel.bounds.w, height / renderModel.bounds.h);
     const nodes = renderModel.instances.map(instance => {
@@ -1903,7 +1909,7 @@
     const viewportHeight = viewport.clientHeight;
     const visibleRatio = clamp(viewportWidth / (renderModel.bounds.w * state.zoom), 0, 1)
       * clamp(viewportHeight / (renderModel.bounds.h * state.zoom), 0, 1);
-    host.toggleAttribute('hidden', matchMedia('(max-width: 639px)').matches || visibleRatio >= .7);
+    host.toggleAttribute('hidden', matchMedia('(max-width: 639px)').matches || visibleRatio >= .92);
     const worldX = -state.panX / state.zoom;
     const worldY = -state.panY / state.zoom;
     rectNode.setAttribute('x', String(clamp(worldX * scale, 0, 180)));
