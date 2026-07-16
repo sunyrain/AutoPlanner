@@ -110,10 +110,11 @@ def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
     assert "serpentineRowTurn" in script
 
 
-def test_current_route_edges_use_fixed_ports_and_layer_channels() -> None:
+def test_current_route_edges_use_curves_with_physical_side_ports() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
 
-    assert "state.mode === 'current' || state.edgeStyle !== 'trust'" in script
+    assert "const forceOrthogonal = state.edgeStyle !== 'trust'" in script
+    assert "side-port-curves.v4" in script
     assert "fixed-port-channels.v3" in script
     assert "data-edge-routing=" in script
     assert "data-edge-track=" in script
@@ -123,7 +124,10 @@ def test_current_route_edges_use_fixed_ports_and_layer_channels() -> None:
     assert "`M ${x1} ${y1} V ${channelY} H ${x2} V ${y2}`" in script
     assert "`M ${x1} ${y1} H ${middle} V ${y2} H ${x2}`" in script
     assert "function buildEdgeRoutingPlan(" in script
-    assert "function assignEdgePortOffsets(" in script
+    assert "function assignPhysicalPortOffsets(" in script
+    assert "function edgePhysicalSides(" in script
+    assert "function collectReactionSidePorts(" in script
+    assert "graph-node-port" in STYLES.read_text(encoding="utf-8")
     assert "packing === 'serpentine_long_route.v1'" in script
     assert "maximumNode.w + 34 + Math.min(8, maximumLayerEdgeCount - 1) * 10" in script
 
@@ -318,6 +322,19 @@ def test_headless_browser_convergent_edges_receive_distinct_tracks(tmp_path: Pat
     )
     assert len(routed_paths) == 4
     assert len(set(routed_paths)) == 4
+    port_coordinates = [
+        (float(x), float(y))
+        for x, y in re.findall(
+            r'<circle class="graph-node-port" cx="([0-9.+-]+)" cy="([0-9.+-]+)"',
+            result.stdout,
+        )
+    ]
+    assert len(port_coordinates) >= 5
+    crowded_side_x = max(
+        {x for x, _ in port_coordinates},
+        key=lambda x: sum(port_x == x for port_x, _ in port_coordinates),
+    )
+    assert len({y for x, y in port_coordinates if x == crowded_side_x}) >= 4
 
 
 def _large_workbench(*, edge_count: int) -> dict:

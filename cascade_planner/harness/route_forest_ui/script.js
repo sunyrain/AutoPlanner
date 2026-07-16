@@ -1340,7 +1340,11 @@
       renderModel.positions,
       edgeRoutingPlan.byEdge.get(edge)
     )).join('');
-    const nodes = renderModel.instances.map(instance => nodeSvg(instance, renderModel.positions.get(instance.instanceId))).join('');
+    const nodes = renderModel.instances.map(instance => nodeSvg(
+      instance,
+      renderModel.positions.get(instance.instanceId),
+      edgeRoutingPlan.portsByInstance.get(instance.instanceId) || []
+    )).join('');
     element('mainRoute').innerHTML = `<svg class="graph-svg dependency-svg" data-layout-packing="${esc(renderModel.packing?.algorithm || 'shared_component_layers.v1')}" data-maximum-edge-tracks="${edgeRoutingPlan.maximumTrackCount}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="graphTitle graphSubtitle">
       <defs>${markers}</defs><g class="graph-world">${decorations}${edges}${nodes}</g></svg>`;
     indexRenderedObjects();
@@ -1377,10 +1381,16 @@
     const source = isRetrosynthesis() ? forwardTarget : forwardSource;
     const target = isRetrosynthesis() ? forwardSource : forwardTarget;
     if (!source || !target) return null;
+    const sourceNode = graphNodes.get(isRetrosynthesis()
+      ? edge.target_graph_node_id : edge.source_graph_node_id);
+    const targetNode = graphNodes.get(isRetrosynthesis()
+      ? edge.source_graph_node_id : edge.target_graph_node_id);
     return {
       edge,
       source,
       target,
+      sourceNode,
+      targetNode,
       sourceInstanceId: isRetrosynthesis() ? edge.targetInstanceId : edge.sourceInstanceId,
       targetInstanceId: isRetrosynthesis() ? edge.sourceInstanceId : edge.targetInstanceId,
       sourceCenterY: source.y + source.h / 2,
@@ -1393,12 +1403,9 @@
     const records = edges.map(edge => visualEdgeRecord(edge, positions)).filter(Boolean);
     if (state.mode !== 'current' || effectiveOrientation() !== 'horizontal'
         || packing === 'serpentine_long_route.v1') {
-      return { byEdge, maximumTrackCount: 1 };
+      return { byEdge, portsByInstance: new Map(), maximumTrackCount: 1 };
     }
-    const sourceGroups = groupBy(records, row => row.sourceInstanceId);
-    const targetGroups = groupBy(records, row => row.targetInstanceId);
-    assignEdgePortOffsets(sourceGroups, byEdge, 'sourcePortOffset', 'targetCenterY');
-    assignEdgePortOffsets(targetGroups, byEdge, 'targetPortOffset', 'sourceCenterY');
+    assignPhysicalPortOffsets(records, byEdge);
     const gapGroups = groupBy(records, row => {
       const reverse = row.target.x + row.target.w / 2 < row.source.x + row.source.w / 2;
       const sourceX = reverse ? row.source.x : row.source.x + row.source.w;
@@ -1438,7 +1445,11 @@
         });
       });
     }
-    return { byEdge, maximumTrackCount };
+    return {
+      byEdge,
+      portsByInstance: collectReactionSidePorts(records, byEdge),
+      maximumTrackCount
+    };
   }
 
   function groupBy(rows, keyOf) {
@@ -1451,20 +1462,82 @@
     return groups;
   }
 
-  function assignEdgePortOffsets(groups, plan, field, peerField) {
+  function edgePhysicalSides(row) {
+    const reverse = row.target.x + row.target.w / 2 < row.source.x + row.source.w / 2;
+    return {
+      sourceSide: reverse ? 'left' : 'right',
+      targetSide: reverse ? 'right' : 'left'
+    };
+  }
+
+  function assignPhysicalPortOffsets(records, plan) {
+    const attachments = [];
+    for (const row of records) {
+      const { sourceSide, targetSide } = edgePhysicalSides(row);
+      attachments.push({
+        row,
+        instanceId: row.sourceInstanceId,
+        position: row.source,
+        graphNode: row.sourceNode,
+        side: sourceSide,
+        field: 'sourcePortOffset',
+        peerY: row.targetCenterY
+      });
+      attachments.push({
+        row,
+        instanceId: row.targetInstanceId,
+        position: row.target,
+        graphNode: row.targetNode,
+        side: targetSide,
+        field: 'targetPortOffset',
+        peerY: row.sourceCenterY
+      });
+    }
+    const groups = groupBy(attachments, row => `${row.instanceId}:${row.side}`);
     for (const group of groups.values()) {
-      group.sort((left, right) => left[peerField] - right[peerField]
-        || stableTextCompare(left.edge.edge_id, right.edge.edge_id));
-      const node = field === 'sourcePortOffset' ? group[0]?.source : group[0]?.target;
-      const span = Math.min(Number(node?.h || 0) * .54, Math.max(0, group.length - 1) * 16);
-      group.forEach((row, index) => {
-        const current = plan.get(row.edge) || {};
-        plan.set(row.edge, {
+      group.sort((left, right) => left.peerY - right.peerY
+        || stableTextCompare(left.row.edge.edge_id, right.row.edge.edge_id));
+      const maximumSpan = group[0]?.graphNode?.node_type === 'reaction'
+        ? Math.min(40, Number(group[0]?.position?.h || 0) * .5)
+        : Number(group[0]?.position?.h || 0) * .62;
+      const span = Math.min(maximumSpan, Math.max(0, group.length - 1) * 18);
+      group.forEach((attachment, index) => {
+        const current = plan.get(attachment.row.edge) || {};
+        plan.set(attachment.row.edge, {
           ...current,
-          [field]: group.length === 1 ? 0 : -span / 2 + index * span / (group.length - 1)
+          [attachment.field]: group.length === 1
+            ? 0 : -span / 2 + index * span / (group.length - 1)
         });
       });
     }
+  }
+
+  function collectReactionSidePorts(records, plan) {
+    const portsByInstance = new Map();
+    const append = (instanceId, port) => {
+      if (!portsByInstance.has(instanceId)) portsByInstance.set(instanceId, []);
+      const ports = portsByInstance.get(instanceId);
+      if (!ports.some(row => Math.abs(row.x - port.x) < .5 && Math.abs(row.y - port.y) < .5)) {
+        ports.push(port);
+      }
+    };
+    for (const row of records) {
+      const edgePlan = plan.get(row.edge) || {};
+      const { sourceSide, targetSide } = edgePhysicalSides(row);
+      if (row.sourceNode?.node_type === 'reaction') {
+        append(row.sourceInstanceId, {
+          x: sourceSide === 'left' ? row.source.x : row.source.x + row.source.w,
+          y: row.sourceCenterY + Number(edgePlan.sourcePortOffset || 0)
+        });
+      }
+      if (row.targetNode?.node_type === 'reaction') {
+        append(row.targetInstanceId, {
+          x: targetSide === 'left' ? row.target.x : row.target.x + row.target.w,
+          y: row.targetCenterY + Number(edgePlan.targetPortOffset || 0)
+        });
+      }
+    }
+    return portsByInstance;
   }
 
   function edgeSvg(edge, positions, routingPlan = {}) {
@@ -1481,7 +1554,7 @@
     const opacity = contrast ? .92 : (simple ? .48 : Number(visual.opacity || .62));
     const dash = simple ? '' : String(visual.dash_pattern || '');
     const packing = renderModel?.packing?.algorithm || 'logical_layers.v1';
-    const forceOrthogonal = state.mode === 'current' || state.edgeStyle !== 'trust';
+    const forceOrthogonal = state.edgeStyle !== 'trust';
     const path = edgePath(source, target, {
       orthogonal: forceOrthogonal,
       packing,
@@ -1490,7 +1563,7 @@
       channelX: routingPlan.channelX
     });
     const markerId = simple ? 'arrow-neutral' : `arrow-${tierClass(tier)}`;
-    const routing = forceOrthogonal ? 'fixed-port-channels.v3' : 'trust-curves.v1';
+    const routing = forceOrthogonal ? 'fixed-port-channels.v3' : 'side-port-curves.v4';
     return `<path class="graph-edge dependency-edge trust-edge ${tierClass(tier)}${edge.visual_role === 'auxiliary' ? ' is-auxiliary' : ''}" data-edge-id="${esc(edge.edge_id)}" data-edge-routing="${routing}" data-edge-track="${Number(routingPlan.trackIndex || 1)}/${Number(routingPlan.trackCount || 1)}" data-branch-id="${esc(edge.branch_id)}" data-reaction-step-id="${esc(edge.reaction_step_id)}" data-source-instance-id="${esc(edge.sourceInstanceId)}" data-target-instance-id="${esc(edge.targetInstanceId)}" d="${path}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" stroke-dasharray="${esc(dash)}" marker-end="url(#${markerId})"><title>${esc(`${tierLabel(tier)} · ${edge.visual_role === 'auxiliary' ? '辅助投入' : edge.edge_type || '显式依赖'} · ${edge.branch_id || ''}`)}</title></path>`;
   }
 
@@ -1534,7 +1607,7 @@
       : `M ${x1} ${y1} C ${middle} ${y1}, ${middle} ${y2}, ${x2} ${y2}`;
   }
 
-  function nodeSvg(instance, position) {
+  function nodeSvg(instance, position, ports = []) {
     if (!position) return '';
     const node = instance.node;
     const reaction = node.node_type === 'reaction';
@@ -1567,12 +1640,14 @@
           ? 'is-source-candidate'
           : 'is-missing';
     const titleText = reaction ? `${fullLabel}\n${conditionMeta}` : fullLabel;
+    const portDots = reaction ? ports.map(port => `<circle class="graph-node-port" cx="${port.x}" cy="${port.y}" r="3.4"></circle>`).join('') : '';
     return `<g class="graph-node dependency-${reaction ? 'reaction graph-node--reaction' : 'molecule graph-node--molecule'} ${nodeTierClass} ${originClass}${selected ? ' is-selected' : ''}" data-graph-node-id="${esc(node.graph_node_id)}" data-node-type="${esc(node.node_type)}" data-node-role="${esc(node.role || '')}" data-branch-id="${esc(instance.branchId)}" data-instance-id="${esc(instance.instanceId)}" ${reaction ? `data-route-step="${esc(node.reaction_step_id)}"` : ''} tabindex="${selected ? '0' : '-1'}" role="button" aria-label="${esc(`${reaction ? '反应' : '分子'}：${fullLabel}，${semanticLabel}`)}">
       <title>${esc(titleText)}</title>${reaction ? `<rect class="reaction-hit-target" x="${position.x - 5}" y="${position.y - 5}" width="${position.w + 10}" height="${position.h + 10}" rx="16"></rect>` : ''}<rect class="node-surface" x="${position.x}" y="${position.y}" width="${position.w}" height="${position.h}" rx="${reaction ? 12 : 24}"></rect>
       ${reaction ? `<rect class="reaction-origin-stripe" x="${position.x}" y="${position.y + 6}" width="5" height="${position.h - 12}" rx="2.5"></rect>` : ''}
       ${structureSvg ? `<foreignObject class="node-depiction" x="${position.x + 7}" y="${position.y + 7}" width="${position.w - 14}" height="${position.h - 39}"><div xmlns="http://www.w3.org/1999/xhtml" class="node-depiction-frame">${structureSvg}</div></foreignObject>` : ''}
       <text class="node-label" x="${textX}" y="${textY}">${svgTextLines(lines, textX, textY)}</text>
-      ${reaction && state.labelMode !== 'minimal' ? `<text class="graph-node-tier node-meta" x="${textX}" y="${position.y + position.h - 24}">${esc(reactionMeta)}</text><text class="reaction-condition-meta ${conditionClass}" x="${textX}" y="${position.y + position.h - 9}">${esc(conditionMeta)}</text>` : ''}</g>`;
+      ${reaction && state.labelMode !== 'minimal' ? `<text class="graph-node-tier node-meta" x="${textX}" y="${position.y + position.h - 24}">${esc(reactionMeta)}</text><text class="reaction-condition-meta ${conditionClass}" x="${textX}" y="${position.y + position.h - 9}">${esc(conditionMeta)}</text>` : ''}
+      ${portDots}</g>`;
   }
 
   function applyGraphSelection() {
