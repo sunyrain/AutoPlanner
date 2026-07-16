@@ -101,7 +101,14 @@ def route_innovation_from_chemenzy_step(
 def _strings(value: Any) -> list[str]:
     if isinstance(value, str):
         value = [value]
-    return sorted({str(item).strip() for item in value or [] if str(item).strip()})
+    return sorted(
+        {
+            text
+            for item in value or []
+            for text in [str(item).strip()]
+            if text and text.casefold() not in {"none", "null", "n/a", "na", "unknown"}
+        }
+    )
 
 
 def _positive_int(value: Any) -> int:

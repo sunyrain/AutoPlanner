@@ -33,6 +33,7 @@ from cascade_planner.application.route_workbench_route_rows import (
     closure_profile as _closure_profile,
     route_row as _route_row,
 )
+from cascade_planner.application.route_innovations import merge_route_innovations
 ROUTE_WORKBENCH_SCHEMA = "retrosynthesis_route_workbench.v1"
 ROUTE_WORKBENCH_DELTA_SCHEMA = "retrosynthesis_route_workbench_delta.v1"
 MAX_VISIBLE_ROUTES = 5
@@ -440,12 +441,16 @@ def _hypothesis_rows(graph: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
             ),
             "origin_records": _copy_json(value.get("origin_records") or []),
             "route_innovations": _copy_json(
-                value.get("route_innovations") or []
+                merge_route_innovations(
+                    (), value.get("route_innovations") or []
+                )
             ),
             "innovation_kinds": sorted(
                 {
                     str(row.get("kind") or "")
-                    for row in value.get("route_innovations") or []
+                    for row in merge_route_innovations(
+                        (), value.get("route_innovations") or []
+                    )
                     if isinstance(row, Mapping) and str(row.get("kind") or "")
                 }
             ),
@@ -460,7 +465,9 @@ def _hypothesis_rows(graph: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
                     ),
                     *(
                         f"innovation:{row.get('kind')}"
-                        for row in value.get("route_innovations") or []
+                        for row in merge_route_innovations(
+                            (), value.get("route_innovations") or []
+                        )
                         if isinstance(row, Mapping) and row.get("kind")
                     ),
                 }

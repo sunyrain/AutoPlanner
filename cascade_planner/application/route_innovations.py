@@ -1,12 +1,7 @@
-"""Typed innovation records for non-literature route improvement.
+"""Proposal-only route innovation contracts.
 
-The canonical reaction hypergraph identifies chemistry by product and complete
-precursor multiset.  Execution ideas are deliberately orthogonal annotations:
-the same connectivity can have chemical and enzymatic execution options, while
-a biocatalytic superstep can also span the boundary of several reported
-chemical operations.
-
-These records are proposals.  They never grant reaction or source authority.
+Execution annotations are orthogonal to connectivity and never grant reaction
+or source authority.
 """
 from __future__ import annotations
 
@@ -78,7 +73,13 @@ def normalize_route_innovation(
         "not_reaction_proof": True,
         "not_exact_source_evidence": True,
     }
-    identity = {key: value for key, value in record.items() if key != "innovation_id"}
+    # Route membership attaches an idea to a route; it is not scientific
+    # identity and must not multiply one option on shared edges.
+    identity = {
+        key: value
+        for key, value in record.items()
+        if key not in {"innovation_id", "route_family_ids"}
+    }
     record["innovation_id"] = f"innovation:{_digest(identity)[:24]}"
     record["content_sha256"] = _digest(record)
     return record, []
@@ -94,14 +95,23 @@ def merge_route_innovations(
     for raw in [*(existing or []), *incoming]:
         if not isinstance(raw, Mapping):
             continue
-        row = dict(raw)
-        innovation_id = str(row.get("innovation_id") or "")
-        if not innovation_id:
-            normalized, reasons = normalize_route_innovation(row)
-            if reasons or not normalized:
+        row, reasons = normalize_route_innovation(raw)
+        if reasons or not row:
+            continue
+        innovation_id = str(row["innovation_id"])
+        prior = rows.get(innovation_id)
+        if prior:
+            route_ids = _strings(
+                [*prior.get("route_family_ids", []), *row.get("route_family_ids", [])]
+            )
+            combined = {
+                **prior,
+                **row,
+                "route_family_ids": route_ids,
+            }
+            row, reasons = normalize_route_innovation(combined)
+            if reasons or not row:
                 continue
-            row = normalized
-            innovation_id = str(row["innovation_id"])
         rows[innovation_id] = row
     return [rows[key] for key in sorted(rows)]
 
@@ -117,7 +127,7 @@ def innovation_proof_gate(
     biocatalysis validation; atom mapping or a generic EC label is not enough.
     """
 
-    options = [dict(value) for value in innovations if isinstance(value, Mapping)]
+    options = merge_route_innovations((), innovations)
     enzyme_options = [
         value for value in options if value.get("kind") in BIOCATALYTIC_KINDS
     ]
@@ -167,11 +177,7 @@ def route_innovation_summary(
     selected: list[dict[str, Any]] = []
     for edge_id in route_edge_ids:
         edge = dict(dict(graph.get("edges") or {}).get(str(edge_id)) or {})
-        options = [
-            dict(value)
-            for value in edge.get("route_innovations") or []
-            if isinstance(value, Mapping)
-        ]
+        options = merge_route_innovations((), edge.get("route_innovations") or [])
         matching = [
             value
             for value in options
@@ -343,7 +349,11 @@ def _route_family_ids(row: Mapping[str, Any]) -> list[str]:
 def _strings(value: Any) -> list[str]:
     if isinstance(value, str):
         value = [value]
-    return sorted({str(item).strip() for item in value or [] if str(item).strip()})
+    rows = {str(item).strip() for item in value or [] if str(item).strip()}
+    return sorted(
+        text for text in rows
+        if text.casefold() not in {"none", "null", "n/a", "na", "unknown"}
+    )
 
 
 def _ordered_strings(value: Any) -> list[str]:
@@ -380,14 +390,9 @@ def _digest(value: Any) -> str:
 
 
 __all__ = [
-    "BIOCATALYTIC_KINDS",
-    "BIOCATALYTIC_STEP",
-    "BIOCATALYTIC_SUPERSTEP",
-    "INNOVATION_KINDS",
-    "MECHANISM_EXTRAPOLATION",
-    "ROUTE_INNOVATION_SCHEMA",
-    "innovation_proof_gate",
-    "merge_route_innovations",
-    "normalize_route_innovation",
-    "route_innovation_summary",
+    "BIOCATALYTIC_KINDS", "BIOCATALYTIC_STEP",
+    "BIOCATALYTIC_SUPERSTEP", "INNOVATION_KINDS",
+    "MECHANISM_EXTRAPOLATION", "ROUTE_INNOVATION_SCHEMA",
+    "innovation_proof_gate", "merge_route_innovations",
+    "normalize_route_innovation", "route_innovation_summary",
 ]

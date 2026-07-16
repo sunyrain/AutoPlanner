@@ -5,6 +5,7 @@ import json
 from typing import Any, Mapping
 
 from cascade_planner.application.fact_lifecycle import graph_fact_lifecycle_state
+from cascade_planner.application.route_innovations import merge_route_innovations
 from cascade_planner.application.route_workbench_proof_vectors import (
     PROOF_VECTOR_SCHEMA as PROOF_VECTOR_SCHEMA,
     edge_proof_vector as edge_proof_vector,
@@ -106,7 +107,9 @@ def edge_inspector(
         "procedure_records": procedures,
         "source_observation_records": source_observations,
         "validation_findings": _copy_json(edge.get("validation_findings") or []),
-        "route_innovations": _copy_json(edge.get("route_innovations") or []),
+        "route_innovations": _copy_json(
+            merge_route_innovations((), edge.get("route_innovations") or [])
+        ),
         "innovation_proof_gate": _copy_json(
             proof_row.get("innovation_proof_gate") or {}
         ),

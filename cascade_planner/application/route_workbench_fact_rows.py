@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from cascade_planner.application.route_workbench_inspectors import (
     edge_proof_vector,
 )
+from cascade_planner.application.route_innovations import merge_route_innovations
 from cascade_planner.application.route_workbench_route_rows import PROOF_VISUALS
 
 
@@ -92,11 +93,9 @@ def edge_row(
         if isinstance(value, Mapping)
     ]
     badges.extend(f"fact-{value.get('status') or 'inactive'}" for value in inactive_facts)
-    route_innovations = [
-        _copy_json(value)
-        for value in edge.get("route_innovations") or []
-        if isinstance(value, Mapping)
-    ]
+    route_innovations = merge_route_innovations(
+        (), edge.get("route_innovations") or []
+    )
     innovation_kinds = sorted(
         {
             str(value.get("kind") or "")

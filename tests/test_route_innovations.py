@@ -20,8 +20,12 @@ from cascade_planner.application.route_innovations import (
     BIOCATALYTIC_SUPERSTEP,
     MECHANISM_EXTRAPOLATION,
     innovation_proof_gate,
+    merge_route_innovations,
     normalize_route_innovation,
     route_innovation_summary,
+)
+from cascade_planner.application.route_innovation_chemenzy import (
+    route_innovation_from_chemenzy_step,
 )
 from cascade_planner.application.route_variants import (
     RouteSubroute,
@@ -98,6 +102,51 @@ def test_single_biocatalytic_step_is_valid_without_claiming_route_compression() 
     assert reasons == []
     assert record["kind"] == BIOCATALYTIC_STEP
     assert record["step_savings"] == 0
+
+
+def test_null_like_chemenzy_enzyme_label_is_not_an_enzyme_hypothesis() -> None:
+    record, reasons = normalize_route_innovation(
+        {
+            "kind": BIOCATALYTIC_STEP,
+            "enzyme_class": "None",
+            "selectivity_objective": "match proposed stereochemistry",
+        }
+    )
+
+    assert record == {}
+    assert reasons == ["biocatalytic_superstep_enzyme_hypothesis_missing"]
+
+    assert route_innovation_from_chemenzy_step(
+        {"raw_backend_metadata": {"enzyme_class": None}}
+    ) == {}
+    assert route_innovation_from_chemenzy_step(
+        {"raw_backend_metadata": {"enzyme_class": "None"}}
+    ) == {}
+
+
+def test_route_membership_does_not_duplicate_one_innovation() -> None:
+    first, first_reasons = normalize_route_innovation(
+        {
+            "kind": BIOCATALYTIC_STEP,
+            "route_family_id": "family:a",
+            "enzyme_class": "ketoreductase",
+            "selectivity_objective": "set the product alcohol stereocentre",
+        }
+    )
+    second, second_reasons = normalize_route_innovation(
+        {
+            "kind": BIOCATALYTIC_STEP,
+            "route_family_id": "family:b",
+            "enzyme_class": "ketoreductase",
+            "selectivity_objective": "set the product alcohol stereocentre",
+        }
+    )
+
+    assert first_reasons == second_reasons == []
+    assert first["innovation_id"] == second["innovation_id"]
+    merged = merge_route_innovations([first], [second])
+    assert len(merged) == 1
+    assert merged[0]["route_family_ids"] == ["family:a", "family:b"]
 
 
 def test_mechanism_extrapolation_is_one_hop_anchor_bound_and_falsifiable() -> None:
