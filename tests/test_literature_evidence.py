@@ -26,6 +26,9 @@ from cascade_planner.interfaces.literature_search import (
     europe_pmc_repository_html,
     primary_literature_search,
 )
+from cascade_planner.interfaces.literature_figshare import (
+    acs_figshare_supplementary_pdf,
+)
 from cascade_planner.harness.local_pdf_proxy import (
     local_pdf_proxy_download_manifest_path,
     local_pdf_proxy_request_queue_path,
@@ -96,15 +99,13 @@ def test_target_relevance_rejects_clinical_metadata_and_keeps_route_sources() ->
             {
                 "doi": "10.1/lipid",
                 "title": (
-                    "Pravastatin enhances linoleic acid conversion and "
-                    "triglyceride synthesis"
+                    "Pravastatin enhances linoleic acid conversion and triglyceride synthesis"
                 ),
             },
             {
                 "doi": "10.1/chitosan",
                 "title": (
-                    "Synthesis and properties of mucoadhesive thiolated "
-                    "chitosan for pravastatin"
+                    "Synthesis and properties of mucoadhesive thiolated chitosan for pravastatin"
                 ),
             },
         ],
@@ -229,6 +230,7 @@ def test_director_literature_hints_become_candidates_without_search() -> None:
         }
     ]
 
+
 def test_europe_pmc_open_access_resolver_reads_nested_si_pdf() -> None:
     nested_buffer = BytesIO()
     with zipfile.ZipFile(nested_buffer, "w") as nested:
@@ -263,9 +265,52 @@ def test_europe_pmc_open_access_resolver_reads_nested_si_pdf() -> None:
 
     assert content.startswith(b"%PDF-")
     assert receipt["pmcid"] == "PMC123"
-    assert receipt["archive_member"] == (
-        "paper-s001.zip!/paper-supplementary.pdf"
+    assert receipt["archive_member"] == ("paper-s001.zip!/paper-supplementary.pdf")
+
+
+def test_acs_figshare_resolver_binds_exact_si_doi_before_downloading() -> None:
+    search = [{"id": 24633954, "title": "Western Fragment"}]
+    detail = {
+        "id": 24633954,
+        "doi": "10.1021/acs.oprd.3c00249.s001",
+        "files": [
+            {
+                "id": 43286298,
+                "name": "op3c00249_si_001.pdf",
+                "size": 24,
+                "download_url": "https://ndownloader.figshare.com/files/43286298",
+            }
+        ],
+    }
+
+    class Response:
+        content = json.dumps(search).encode()
+
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+    def requester(*_args: Any, **_kwargs: Any) -> Response:
+        return Response()
+
+    def fetch(url: str, _timeout: float, _maximum: int) -> bytes:
+        if "/articles/" in url:
+            return json.dumps(detail).encode()
+        return b"%PDF-1.7\npublic ACS SI"
+
+    content, receipt = acs_figshare_supplementary_pdf(
+        "10.1021/acs.oprd.3c00249",
+        timeout_s=5.0,
+        max_bytes=1_000_000,
+        fetch=fetch,
+        requester=requester,
     )
+
+    assert content.startswith(b"%PDF-")
+    assert receipt["doi"] == "10.1021/acs.oprd.3c00249.s001"
+    assert receipt["article_id"] == 24633954
+    assert receipt["file_id"] == 43286298
+    assert receipt["identity_checked"] is True
 
 
 def test_europe_pmc_resolver_returns_structured_fulltext_and_figure_archive() -> None:
@@ -438,9 +483,7 @@ def test_literature_connector_uses_pmc_html_before_pdf_or_browser(
     source = result["discovery"]["sources"][0]
     assert source["acquisition_method"] == "pmc_repository_fulltext_html"
     assert source["pmcid"] == "PMC1855665"
-    assert source["procedure_inventory"][0]["source_artifact_kind"] == (
-        "pmc_fulltext_html"
-    )
+    assert source["procedure_inventory"][0]["source_artifact_kind"] == ("pmc_fulltext_html")
     assert not any("doi.org" in url for url in calls)
 
     def offline_fetch(_url: str, _timeout: float, _maximum: int) -> bytes:
@@ -563,9 +606,7 @@ def test_cached_pmc_html_keeps_identity_for_late_exact_route_binding(
     source = result["discovery"]["sources"][0]
     assert source["pmcid"] == pmcid
     assert source["exact_row_count"] == 1
-    assert result["document"]["sources"][0]["extraction"]["rows"][0][
-        "relation_type"
-    ] == "exact"
+    assert result["document"]["sources"][0]["extraction"]["rows"][0]["relation_type"] == "exact"
 
 
 def test_literature_connector_uses_isolated_browser_after_pmc_challenge(
@@ -574,9 +615,7 @@ def test_literature_connector_uses_isolated_browser_after_pmc_challenge(
 ) -> None:
     challenge = (
         b'<!doctype html><html><head><base href="https://www.google.com/'
-        b'recaptcha/challenge"></head><body>'
-        + (b"challenge " * 32)
-        + b"</body></html>"
+        b'recaptcha/challenge"></head><body>' + (b"challenge " * 32) + b"</body></html>"
     )
     full_html = b"""<!doctype html><html><head>
     <meta name="citation_doi" content="10.1128/AEM.02820-06"></head><body>
@@ -629,15 +668,11 @@ def test_literature_connector_uses_isolated_browser_after_pmc_challenge(
         fetch=fetch,
     )
     assert source["acquisition_method"] == "pmc_repository_fulltext_html"
-    assert source["acquisition_receipt"]["transport"] == (
-        "isolated_playwright_repository_fallback"
-    )
+    assert source["acquisition_receipt"]["transport"] == ("isolated_playwright_repository_fallback")
     assert source["acquisition_receipt"]["http_challenge_sha256"] == (
         hashlib.sha256(challenge).hexdigest()
     )
-    assert browser_calls == [
-        "https://pmc.ncbi.nlm.nih.gov/articles/PMC1855665/"
-    ]
+    assert browser_calls == ["https://pmc.ncbi.nlm.nih.gov/articles/PMC1855665/"]
 
 
 def test_literature_connector_uses_structured_fulltext_and_original_figures_before_pdf(
@@ -702,9 +737,7 @@ def test_literature_connector_uses_structured_fulltext_and_original_figures_befo
     assert source["acquisition_method"] == "europe_pmc_structured_fulltext_xml"
     assert source["source_fulltext_sha256"] == hashlib.sha256(xml).hexdigest()
     assert source["source_pdf_sha256"] == ""
-    assert source["procedure_inventory"][0]["source_artifact_kind"] == (
-        "europe_pmc_fulltext_xml"
-    )
+    assert source["procedure_inventory"][0]["source_artifact_kind"] == ("europe_pmc_fulltext_xml")
     figure = source["visual_candidate_pages"][0]
     assert Path(figure["image_path"]).read_bytes() == b"\xff\xd8\xff\xe0original-figure"
     assert figure["caption"].startswith("Figure 1 Chemical structure")
@@ -715,20 +748,14 @@ def test_literature_connector_uses_structured_fulltext_and_original_figures_befo
         discovery=result["discovery"],
         max_pages=2,
     )
-    assert visual_request["source"]["source_artifact_kind"] == (
-        "europe_pmc_fulltext_xml"
-    )
+    assert visual_request["source"]["source_artifact_kind"] == ("europe_pmc_fulltext_xml")
     assert visual_request["source"]["source_pdf_sha256"] == ""
-    assert visual_request["source"]["source_artifact_sha256"] == (
-        source["source_fulltext_sha256"]
-    )
+    assert visual_request["source"]["source_artifact_sha256"] == (source["source_fulltext_sha256"])
     assert visual_request["source"]["expected_labels"] == []
     network_call_count = len(calls)
     repeated = connector(request)
     assert len(calls) == network_call_count
-    assert repeated["discovery"]["sources"][0]["acquisition_receipt"][
-        "cache_hit"
-    ] is True
+    assert repeated["discovery"]["sources"][0]["acquisition_receipt"]["cache_hit"] is True
 
 
 def test_literature_connector_discovers_freezes_and_focuses_pdf(
@@ -856,9 +883,9 @@ def test_restricted_paper_is_queued_then_consumed_on_resume(
     manifest = local_pdf_proxy_download_manifest_path(proxy_root)
     manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(
-        "{\"accepted\":true,\"status\":\"downloaded\","
-        "\"doi\":\"10.1000/restricted\","
-        f"\"pdf_path\":{downloaded.as_posix()!r}}}\n".replace("'", '"'),
+        '{"accepted":true,"status":"downloaded",'
+        '"doi":"10.1000/restricted",'
+        f'"pdf_path":{downloaded.as_posix()!r}}}\n'.replace("'", '"'),
         encoding="utf-8",
     )
     image = tmp_path / "page.png"
@@ -875,9 +902,7 @@ def test_restricted_paper_is_queued_then_consumed_on_resume(
     monkeypatch.setattr(
         "cascade_planner.interfaces.literature_materialization.extract_literature_pdf_assets",
         lambda **_kwargs: {
-            "rendered_pages": [
-                {"page_number": 8, "image_path": str(image), "sha256": image_sha}
-            ],
+            "rendered_pages": [{"page_number": 8, "image_path": str(image), "sha256": image_sha}],
             "focus_page_numbers": [8],
         },
     )
@@ -892,12 +917,15 @@ def test_authorized_publisher_html_is_consumed_before_pdf(
     tmp_path: Path,
 ) -> None:
     proxy_root = tmp_path / "authorized-proxy"
-    html = b"""<!doctype html><html><head>
+    html = (
+        b"""<!doctype html><html><head>
     <meta name="citation_doi" content="10.1000/restricted-html"></head><body>
     <h2>Experimental</h2><h3>Preparation of bufotalin</h3>
     <p>Bufotalin precursor was added to the reaction mixture and was stirred
     for two hours, purified by chromatography, and isolated in 81 percent
-    yield.</p></body></html>""" + b" " * 2_000
+    yield.</p></body></html>"""
+        + b" " * 2_000
+    )
     html_path = proxy_root / "source.html"
     html_path.parent.mkdir(parents=True, exist_ok=True)
     html_path.write_bytes(html)
@@ -937,9 +965,7 @@ def test_authorized_publisher_html_is_consumed_before_pdf(
 
     source = result["discovery"]["sources"][0]
     assert source["acquisition_method"] == "authorized_publisher_fulltext_html"
-    assert source["procedure_inventory"][0]["source_artifact_kind"] == (
-        "publisher_fulltext_html"
-    )
+    assert source["procedure_inventory"][0]["source_artifact_kind"] == ("publisher_fulltext_html")
     assert Path(source["fulltext_html_path"]).is_file()
     assert source["pdf_sha256"] == ""
 
@@ -1001,9 +1027,7 @@ def test_legacy_publisher_structured_json_is_consumed_before_html_or_pdf(
 
     source = result["discovery"]["sources"][0]
     assert source["acquisition_method"] == "authorized_publisher_structured_json"
-    assert source["procedure_inventory"][0]["source_artifact_kind"] == (
-        "publisher_structured_json"
-    )
+    assert source["procedure_inventory"][0]["source_artifact_kind"] == ("publisher_structured_json")
     assert Path(source["fulltext_json_path"]).is_file()
 
 

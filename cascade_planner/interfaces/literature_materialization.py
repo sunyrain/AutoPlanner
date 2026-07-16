@@ -1,4 +1,5 @@
 """Structured-fulltext-first materialization with bounded PDF fallback."""
+
 from __future__ import annotations
 
 import hashlib
@@ -22,6 +23,9 @@ from cascade_planner.interfaces.literature_candidates import (
 )
 from cascade_planner.interfaces.literature_fulltext import (
     materialize_europe_pmc_fulltext,
+)
+from cascade_planner.interfaces.literature_figshare import (
+    acs_figshare_supplementary_pdf,
 )
 from cascade_planner.interfaces.literature_authorized_source import (
     materialize_authorized_publisher_html,
@@ -105,9 +109,7 @@ def materialize_candidate(
                 artifact=authorized_artifact,
             )
         except (OSError, RuntimeError, ValueError) as exc:
-            structured_failure += (
-                f"|authorized_json:{type(exc).__name__}:{str(exc)[:300]}"
-            )
+            structured_failure += f"|authorized_json:{type(exc).__name__}:{str(exc)[:300]}"
     if authorized_artifact.get("html_path"):
         try:
             return materialize_authorized_publisher_html(
@@ -120,9 +122,7 @@ def materialize_candidate(
                 artifact=authorized_artifact,
             )
         except (OSError, RuntimeError, ValueError) as exc:
-            structured_failure += (
-                f"|authorized_html:{type(exc).__name__}:{str(exc)[:300]}"
-            )
+            structured_failure += f"|authorized_html:{type(exc).__name__}:{str(exc)[:300]}"
     content = b""
     acquisition_method = ""
     acquisition_receipt: dict[str, Any] = {}
@@ -165,6 +165,17 @@ def materialize_candidate(
                 content = b""
         if not content and source_doi:
             try:
+                content, acquisition_receipt = acs_figshare_supplementary_pdf(
+                    source_doi,
+                    timeout_s=config.timeout_s,
+                    max_bytes=config.max_pdf_bytes,
+                    fetch=fetch,
+                )
+                acquisition_method = "acs_figshare_public_supplement"
+            except (OSError, RuntimeError, ValueError, requests.RequestException):
+                content = b""
+        if not content and source_doi:
+            try:
                 content, acquisition_receipt = europe_pmc_open_access_pdf(
                     source_doi,
                     timeout_s=config.timeout_s,
@@ -176,9 +187,7 @@ def materialize_candidate(
                 content = b""
         if not content and source_doi:
             try:
-                pdf_url = citation_pdf_url(
-                    source_doi, timeout_s=config.timeout_s, fetch=fetch
-                )
+                pdf_url = citation_pdf_url(source_doi, timeout_s=config.timeout_s, fetch=fetch)
                 if pdf_url:
                     content = fetch(pdf_url, config.timeout_s, config.max_pdf_bytes)
                     acquisition_method = "doi_landing_citation_pdf"
