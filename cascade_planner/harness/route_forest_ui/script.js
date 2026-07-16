@@ -156,6 +156,7 @@
     zoom: 1,
     panX: 0,
     panY: 0,
+    cameraMode: 'fit',
     showAllOverview: false,
     expandedGroups: new Set(),
     activeReplacement: null
@@ -169,6 +170,7 @@
   let liveAnnouncementTimer = 0;
   let deliveryIntegrityStatus = 'pending';
   let lastCullCamera = null;
+  let viewportResizeObserver = null;
   const depictionCache = new Map();
   const graphModelCache = new Map();
   const renderPerformance = {
@@ -1303,11 +1305,12 @@
       element('zoomReadout').textContent = '100%';
       return;
     }
+    const marker = (id, color) => `<marker id="${id}" viewBox="0 0 14 10" markerWidth="14" markerHeight="10" refX="13" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1,1 L13,5 L1,9 Z" fill="${color}"></path></marker>`;
     const markers = unique(PROOF_ORDER.map(tierClass)).map(cssClass => {
       const tier = PROOF_ORDER.find(value => tierClass(value) === cssClass);
-      return `<marker id="arrow-${cssClass}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 z" fill="${TIER_COLOR[tier] || '#64748b'}"></path></marker>`;
+      return marker(`arrow-${cssClass}`, TIER_COLOR[tier] || '#64748b');
     }).join('')
-      + '<marker id="arrow-neutral" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 z" fill="#94a3b8"></path></marker>';
+      + marker('arrow-neutral', '#94a3b8');
     const decorations = renderModel.decorations.map(row => `<g class="graph-lane-decoration${row.branchId === state.selectedBranchId ? ' is-selected' : ''}" data-lane-branch-id="${esc(row.branchId)}">
       <rect x="${row.x}" y="${row.y}" width="${row.w}" height="${row.h}" rx="16"></rect>
       <text x="${row.x + 16}" y="${row.y + 24}">${esc(middleEllipsis(row.label, 54))}</text></g>`).join('');
@@ -1505,7 +1508,7 @@
     return (lane.step_ids || []).length <= 4;
   }
 
-  function fitGraph({ readable = false } = {}) {
+  function fitGraph({ readable = false, remember = true } = {}) {
     if (!renderModel) return;
     const viewport = element('graphViewport');
     const width = Math.max(1, viewport.clientWidth || 1000);
@@ -1536,10 +1539,11 @@
       state.panX = (width - renderModel.bounds.w * state.zoom) / 2;
       state.panY = (height - renderModel.bounds.h * state.zoom) / 2;
     }
+    if (remember) state.cameraMode = 'fit';
     applyViewportTransform();
   }
 
-  function resetGraph() { state.zoom = 1; state.panX = 24; state.panY = 24; applyViewportTransform(); }
+  function resetGraph() { state.zoom = 1; state.panX = 24; state.panY = 24; state.cameraMode = 'manual'; applyViewportTransform(); }
   function zoomGraph(factor, clientX = null, clientY = null) {
     const viewport = element('graphViewport');
     const rect = viewport.getBoundingClientRect();
@@ -1552,7 +1556,28 @@
     state.zoom = next;
     state.panX = anchorX - worldX * next;
     state.panY = anchorY - worldY * next;
+    state.cameraMode = 'manual';
     applyViewportTransform();
+  }
+
+  function resizeGraphViewport() {
+    if (!renderModel) return;
+    const viewport = element('graphViewport');
+    if (viewport.dataset.orientation !== effectiveOrientation()) {
+      graphModelCache.clear();
+      renderGraph();
+      return;
+    }
+    const svg = viewport.querySelector('.graph-svg');
+    if (!svg) return;
+    const width = Math.max(1, viewport.clientWidth || 1000);
+    const height = Math.max(1, viewport.clientHeight || 620);
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    if (state.cameraMode === 'fit') {
+      fitGraph({ readable: preferReadableFocus(), remember: false });
+    } else {
+      applyViewportTransform({ forceCull: true });
+    }
   }
   function indexRenderedObjects() {
     if (!renderModel) return;
@@ -2136,7 +2161,13 @@
     bindViewportEvents();
     bindResizeHandles();
     document.addEventListener('keydown', handleKeyboard);
-    window.addEventListener('resize', debounce(() => renderGraph(), 120));
+    const handleViewportResize = debounce(resizeGraphViewport, 90);
+    window.addEventListener('resize', handleViewportResize);
+    if ('ResizeObserver' in window) {
+      viewportResizeObserver?.disconnect();
+      viewportResizeObserver = new ResizeObserver(handleViewportResize);
+      viewportResizeObserver.observe(element('graphViewport'));
+    }
   }
 
   function commitPendingPanFrame(frameTime = performance.now()) {
@@ -2213,6 +2244,7 @@
       if (!panSession.moved) {
         if (Math.hypot(deltaX, deltaY) < PAN_DRAG_THRESHOLD_PX) return;
         panSession.moved = true;
+        state.cameraMode = 'manual';
         try {
           viewport.setPointerCapture(event.pointerId);
           panSession.captured = true;
@@ -2345,7 +2377,7 @@
         else state.inspectorWidth = clamp(resizeSession.width - delta, 320, 560);
         applyPersistentChromeState(); handle.setAttribute('aria-valuenow', String(side === 'nav' ? state.navWidth : state.inspectorWidth));
       });
-      handle.addEventListener('pointerup', () => { resizeSession = null; persistState(); requestAnimationFrame(() => fitGraph({ readable: state.mode === 'current' })); });
+      handle.addEventListener('pointerup', () => { resizeSession = null; persistState(); requestAnimationFrame(() => fitGraph({ readable: preferReadableFocus() })); });
       handle.addEventListener('keydown', event => {
         if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
         event.preventDefault();
@@ -2399,6 +2431,7 @@
     const viewport = element('graphViewport');
     state.panX = viewport.clientWidth / 2 - worldX * state.zoom;
     state.panY = viewport.clientHeight / 2 - worldY * state.zoom;
+    state.cameraMode = 'manual';
     applyViewportTransform();
   }
   function debounce(fn, delay) {

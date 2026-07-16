@@ -96,6 +96,19 @@ def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
     assert "verticalTransition" in script
 
 
+def test_route_arrows_and_responsive_camera_do_not_scale_with_edge_emphasis() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+
+    assert 'markerUnits="userSpaceOnUse"' in script
+    assert 'markerUnits="strokeWidth"' not in script
+    assert "cameraMode: 'fit'" in script
+    assert "function resizeGraphViewport()" in script
+    assert "svg.setAttribute('viewBox'" in script
+    assert "new ResizeObserver(handleViewportResize)" in script
+    assert "fitGraph({ readable: preferReadableFocus(), remember: false })" in script
+    assert "fitGraph({ readable: state.mode === 'current' })" not in script
+
+
 def test_mixed_proof_route_labels_use_edge_distribution_not_weakest_only() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
 
