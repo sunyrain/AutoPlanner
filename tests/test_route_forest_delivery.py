@@ -1103,7 +1103,7 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
     assert template.count('aria-controls="branchGroups"') >= 5
     assert "laneMatchesStage" in script
     assert "route_forest_branch_lanes.v2" in script
-    assert "route_forest_branch_stage_evidence.v2" in script
+    assert "route_forest_branch_stage_evidence.v3" in script
     assert "stageMembershipIsAuthoritative" in script
     assert "partialExpansionProgress" in script
     assert "fully_expanded" in script

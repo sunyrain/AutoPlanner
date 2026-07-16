@@ -3,6 +3,7 @@ from cascade_planner.providers.contracts import (
     AgentBackendProvider,
     ArtifactStoreProvider,
     EvidenceProvider,
+    ExperimentExecutorProvider,
     ProposalProvider,
     Provider,
     ProviderContext,
@@ -34,11 +35,20 @@ from cascade_planner.providers.builtins import (
     ReactionRouteVerifierProvider,
     build_default_provider_registry,
 )
+from cascade_planner.providers.experiment import (
+    EXPERIMENT_DISPATCH_HANDOFF_SCHEMA,
+    EXPERIMENT_EXECUTOR_POLICY_SCHEMA,
+    ExperimentExecutorPolicyError,
+    ManualExperimentExecutorProvider,
+    select_experiment_executor,
+    validate_experiment_dispatch_handoff,
+)
 
 __all__ = [
     "AgentBackendProvider",
     "ArtifactStoreProvider",
     "EvidenceProvider",
+    "ExperimentExecutorProvider",
     "ProposalProvider",
     "Provider",
     "ProviderContext",
@@ -63,4 +73,10 @@ __all__ = [
     "LiteratureEvidenceProvider",
     "ReactionRouteVerifierProvider",
     "build_default_provider_registry",
+    "EXPERIMENT_DISPATCH_HANDOFF_SCHEMA",
+    "EXPERIMENT_EXECUTOR_POLICY_SCHEMA",
+    "ExperimentExecutorPolicyError",
+    "ManualExperimentExecutorProvider",
+    "select_experiment_executor",
+    "validate_experiment_dispatch_handoff",
 ]

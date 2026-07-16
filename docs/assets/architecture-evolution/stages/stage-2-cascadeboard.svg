@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="700" viewBox="0 0 1400 700" role="img" aria-label="阶段 II｜CascadeBoard 全局路线补全">
+<defs>
+  <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#6b8798"/></marker>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#17384d" flood-opacity=".12"/></filter>
+</defs>
+<rect width="1400" height="700" rx="28" fill="#f4f8fa"/>
+<text x="55" y="64" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0b2438">阶段 II｜CascadeBoard 全局路线补全</text>
+<text x="55" y="99" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="16" fill="#617b8c">直觉：让系统先看见整条路线，再填具体反应；冻结专家只提供候选或能量</text>
+<rect x="70" y="160" width="340" height="120" rx="18" fill="#ffffff" stroke="#5a8dee" stroke-width="2" filter="url(#shadow)"/>
+<rect x="70" y="160" width="9" height="120" rx="4" fill="#5a8dee"/>
+<text x="244.0" y="198" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="244.0" dy="0">Layer 1 · Skeleton</tspan></text>
+<text x="244.0" y="232" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="244.0" dy="0">全局反应类型 / EC / 条件骨架</tspan></text>
+<rect x="530" y="160" width="340" height="120" rx="18" fill="#ffffff" stroke="#e7a83d" stroke-width="2" filter="url(#shadow)"/>
+<rect x="530" y="160" width="9" height="120" rx="4" fill="#e7a83d"/>
+<text x="704.0" y="198" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="704.0" dy="0">Layer 2 · Molecular Fill</tspan></text>
+<text x="704.0" y="232" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="704.0" dy="0">RetroChimera / EnzExpand 填分子</tspan></text>
+<rect x="990" y="160" width="340" height="120" rx="18" fill="#ffffff" stroke="#2bb89b" stroke-width="2" filter="url(#shadow)"/>
+<rect x="990" y="160" width="9" height="120" rx="4" fill="#2bb89b"/>
+<text x="1164.0" y="198" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="1164.0" dy="0">Layer 3 · Route Scoring</tspan></text>
+<text x="1164.0" y="232" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="1164.0" dy="0">完整路线排序与兼容性</tspan></text>
+<line x1="410" y1="220" x2="530" y2="220" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="870" y1="220" x2="990" y2="220" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<text x="145" y="360" text-anchor="start" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="700" fill="#0b2438"><tspan x="145" dy="0">线性 Slot Chain</tspan></text>
+<circle cx="175" cy="440" r="27" fill="#e87468" stroke="#ffffff" stroke-width="4" filter="url(#shadow)"/>
+<text x="175" y="494" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="600" fill="#617b8c"><tspan x="175" dy="0">目标</tspan></text>
+<line x1="205" y1="440" x2="355" y2="440" stroke="#8299a8" stroke-width="3" marker-end="url(#arrow)"/>
+<circle cx="390" cy="440" r="27" fill="#5a8dee" stroke="#ffffff" stroke-width="4" filter="url(#shadow)"/>
+<text x="390" y="494" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="600" fill="#617b8c"><tspan x="390" dy="0">Slot 1</tspan></text>
+<line x1="420" y1="440" x2="570" y2="440" stroke="#8299a8" stroke-width="3" marker-end="url(#arrow)"/>
+<circle cx="605" cy="440" r="27" fill="#e7a83d" stroke="#ffffff" stroke-width="4" filter="url(#shadow)"/>
+<text x="605" y="494" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="600" fill="#617b8c"><tspan x="605" dy="0">Slot 2</tspan></text>
+<line x1="635" y1="440" x2="785" y2="440" stroke="#8299a8" stroke-width="3" marker-end="url(#arrow)"/>
+<circle cx="820" cy="440" r="27" fill="#2bb89b" stroke="#ffffff" stroke-width="4" filter="url(#shadow)"/>
+<text x="820" y="494" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="600" fill="#617b8c"><tspan x="820" dy="0">Slot 3</tspan></text>
+<line x1="850" y1="440" x2="1000" y2="440" stroke="#8299a8" stroke-width="3" marker-end="url(#arrow)"/>
+<circle cx="1035" cy="440" r="27" fill="#22a9c1" stroke="#ffffff" stroke-width="4" filter="url(#shadow)"/>
+<text x="1035" y="494" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="600" fill="#617b8c"><tspan x="1035" dy="0">起始料</tspan></text>
+<rect x="880" y="360" width="430" height="170" rx="18" fill="#fbfaff" stroke="#7a78d9" stroke-width="2" filter="url(#shadow)"/>
+<rect x="880" y="360" width="9" height="170" rx="4" fill="#7a78d9"/>
+<text x="1099.0" y="398" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="1099.0" dy="0">隐含假设</tspan></text>
+<text x="1099.0" y="432" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="1099.0" dy="0">主路线接近线性</tspan><tspan x="1099.0" dy="23">路线质量可由单一 scorer 排序</tspan><tspan x="1099.0" dy="23">候选空间覆盖了正确路线</tspan></text>
+<rect x="250" y="560" width="900" height="90" rx="18" fill="#fff8f7" stroke="#d85d6b" stroke-width="2" filter="url(#shadow)"/>
+<rect x="250" y="560" width="9" height="90" rx="4" fill="#d85d6b"/>
+<text x="704.0" y="598" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="704.0" dy="0">迁移压力</tspan></text>
+<text x="704.0" y="632" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="704.0" dy="0">会聚 AND 语义、共享中间体、证据版本和开放研究无法自然装进 slot chain</tspan></text>
+</svg>

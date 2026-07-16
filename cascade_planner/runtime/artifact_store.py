@@ -487,10 +487,13 @@ class ArtifactStore:
             or ".." in normalized.split("/")
         ):
             raise ArtifactReferenceError("artifact_pointer_name_invalid")
-        path = (self.pointers_root / f"{normalized}.json").resolve()
+        path = self.pointers_root / f"{normalized}.json"
         try:
-            path.relative_to(self.pointers_root)
-        except ValueError as exc:
+            root_key = _portable_realpath_key(self.pointers_root)
+            path_key = _portable_realpath_key(path)
+            if os.path.commonpath((root_key, path_key)) != root_key:
+                raise ValueError("pointer path escaped root")
+        except (OSError, ValueError) as exc:
             raise ArtifactReferenceError("artifact_pointer_path_escape") from exc
         return path
 
@@ -553,6 +556,17 @@ class ArtifactStore:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+
+
+def _portable_realpath_key(path: str | os.PathLike[str]) -> str:
+    """Normalize Windows extended paths before containment comparison."""
+
+    value = os.path.normcase(os.path.normpath(os.path.realpath(os.fspath(path))))
+    if value.startswith("\\\\?\\UNC\\"):
+        value = "\\\\" + value[8:]
+    elif value.startswith("\\\\?\\"):
+        value = value[4:]
+    return value
 
 
 def _utc_now() -> str:

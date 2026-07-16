@@ -16,12 +16,21 @@ from typing import Any, Iterable, Mapping
 
 from rdkit import Chem, RDLogger
 
+from cascade_planner.application.reaction_condition_records import (
+    audit_condition_completeness,
+    build_source_procedure_record,
+    normalize_source_conditions,
+)
 from cascade_planner.application.worker_runtime import (
     WorkerArtifactReader,
     WorkerBudget,
     WorkerCommand,
     WorkerHandlerSpec,
     WorkerRuntimeError,
+)
+from cascade_planner.application.route_innovations import (
+    merge_route_innovations,
+    normalize_route_innovation,
 )
 from cascade_planner.harness.reaction_step_verifier import verify_reaction_step
 from cascade_planner.application.reaction_proof_versions import (
@@ -65,21 +74,25 @@ _SOURCE_KINDS = {
     "codex_claim",
 }
 _CONDITION_KEYS = (
+    "addition_order",
+    "atmosphere",
+    "base",
+    "catalyst",
+    "concentration",
+    "equivalents",
+    "oxidant",
+    "pressure",
+    "purification",
+    "reductant",
+    "reagents",
+    "scale",
+    "solvent",
     "temperature",
     "temperature_c",
-    "solvent",
-    "reagents",
-    "catalyst",
     "time",
     "yield",
     "yield_percent",
-    "atmosphere",
-    "pressure",
-    "concentration",
-    "addition_order",
     "workup",
-    "purification",
-    "scale",
 )
 _TRUSTED_EXTRACTION_PRODUCERS = {
     "deterministic_structure_parser",
@@ -257,6 +270,8 @@ def materialization_commands_for_proposals(
                 "precursor_smiles": precursors,
                 "reagent_smiles": _string_list(row.get("reagent_smiles")),
                 "condition_predictions": [],
+                "route_innovations": [],
+                "route_innovation_reject_reasons": [],
                 "existing_edge_digests": existing,
                 "ancestor_smiles": sorted(
                     {
@@ -289,6 +304,36 @@ def materialization_commands_for_proposals(
                     row.get("transformation_hypothesis") or ""
                 ),
             }
+        )
+        raw_innovations = [
+            dict(value)
+            for value in row.get("route_innovations") or []
+            if isinstance(value, Mapping)
+        ]
+        singular_innovation = row.get("route_innovation") or row.get("innovation")
+        if not raw_innovations and isinstance(singular_innovation, Mapping):
+            raw_innovations = [dict(singular_innovation)]
+        elif not raw_innovations and (
+            row.get("innovation_kind") or row.get("proposal_basis")
+        ):
+            raw_innovations = [row]
+        normalized_innovations: list[dict[str, Any]] = []
+        for raw_innovation in raw_innovations:
+            normalized, innovation_reasons = normalize_route_innovation(
+                {
+                    **row,
+                    "route_innovation": raw_innovation,
+                }
+            )
+            if innovation_reasons:
+                payload["route_innovation_reject_reasons"].extend(
+                    innovation_reasons
+                )
+            elif normalized:
+                normalized_innovations.append(normalized)
+        payload["route_innovations"] = merge_route_innovations(
+            payload.get("route_innovations"),
+            normalized_innovations,
         )
         payload["condition_predictions"] = _merge_annotation_rows(
             payload.get("condition_predictions"),
@@ -382,6 +427,7 @@ def materialize_candidate_worker(
         ),
     )
     reasons = list(audit.get("reasons") or [])
+    reasons.extend(payload.get("route_innovation_reject_reasons") or [])
     edge_digest = str(audit.get("edge_digest") or "")
     existing = {
         str(value)
@@ -412,6 +458,9 @@ def materialize_candidate_worker(
         "reagent_smiles": sorted(canonical_reagents),
         "condition_predictions": _merge_annotation_rows(
             (), payload.get("condition_predictions")
+        ),
+        "route_innovations": merge_route_innovations(
+            (), payload.get("route_innovations") or []
         ),
         "reaction_smiles": (
             ".".join(audit.get("precursor_smiles_multiset") or [])
@@ -777,6 +826,7 @@ def extract_exact_source_worker(
                 "schema_version": "exact_source_extraction_result.v1",
                 "source_binding": binding,
                 "exact_records": [],
+                "procedure_records": [],
                 "rejected_rows": [],
                 "conflicts": [],
             },
@@ -809,6 +859,7 @@ def extract_exact_source_worker(
         }
 
     accepted: list[dict[str, Any]] = []
+    accepted_procedures: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     for index, raw in enumerate(extraction_row.get("rows") or []):
         if not isinstance(raw, Mapping):
@@ -827,8 +878,14 @@ def extract_exact_source_worker(
                     row.get("location_ref"),
                     row.get("example"),
                     row.get("page"),
-                    *(row.get("evidence_refs") or []),
                 )
+                if str(value or "").strip()
+            }
+        )
+        evidence_refs = sorted(
+            {
+                str(value).strip()
+                for value in row.get("evidence_refs") or []
                 if str(value or "").strip()
             }
         )
@@ -840,13 +897,14 @@ def extract_exact_source_worker(
         if reasons:
             rejected.append({"row_index": index, "reasons": sorted(set(reasons))})
             continue
-        conditions = _normalized_conditions(
+        conditions = normalize_source_conditions(
             row.get("condition_candidate") or row.get("conditions") or {}
         )
         identity = {
             "binding_id": binding["binding_id"],
             "edge_digest": audit["edge_digest"],
             "location_refs": location_refs,
+            "evidence_refs": evidence_refs,
             "conditions": conditions,
         }
         exact_record = {
@@ -872,11 +930,11 @@ def extract_exact_source_worker(
             "route_family_id": str(row.get("route_family_id") or ""),
             "independence_group": binding["independence_group"],
             "location_refs": location_refs,
+            "evidence_refs": evidence_refs,
             "conditions": conditions,
-            "condition_completeness": _condition_completeness(conditions),
-            "procedure_authority_scope": (
-                "source_exact_reaction_procedure" if conditions else ""
-            ),
+            "condition_completeness": audit_condition_completeness(conditions),
+            "procedure_authority_scope": "",
+            "procedure_record_ids": [],
             "relation_type": "exact",
             "provenance": binding["provenance"],
             "extraction_artifact_sha256": extraction_sha256,
@@ -891,7 +949,22 @@ def extract_exact_source_worker(
             ),
             "authority_scope": "source_exact_structure_observation",
             "not_reaction_validation": True,
+            "semantics": {
+                "conditions_are_compatibility_projection_only": True,
+                "procedure_authority_requires_separate_hash_bound_record": True,
+            },
         }
+        procedure_record = build_source_procedure_record(
+            exact_record=exact_record,
+            extraction_row=row,
+            source_binding=binding,
+            extraction_artifact_sha256=extraction_sha256,
+        )
+        if procedure_record:
+            exact_record["procedure_record_ids"] = [
+                procedure_record["procedure_record_id"]
+            ]
+            accepted_procedures.append(procedure_record)
         exact_record["content_sha256"] = _digest(exact_record)
         accepted.append(exact_record)
 
@@ -924,6 +997,8 @@ def extract_exact_source_worker(
     material_events = []
     if accepted:
         material_events.extend(["exact_rows_added", "material_evidence_added"])
+    if accepted_procedures:
+        material_events.append("source_procedure_records_added")
     if conflicts:
         material_events.append("source_conflict_added")
     existing_edge_digests = {
@@ -954,6 +1029,7 @@ def extract_exact_source_worker(
             "schema_version": "exact_source_extraction_result.v1",
             "source_binding": binding,
             "exact_records": accepted,
+            "procedure_records": accepted_procedures,
             "rejected_rows": rejected,
             "conflicts": conflicts,
         },
@@ -1450,45 +1526,6 @@ def _conflict(
     }
     row["content_sha256"] = _digest(row)
     return row
-
-
-def _normalized_conditions(value: Any) -> dict[str, Any]:
-    row = dict(value) if isinstance(value, Mapping) else {}
-    return {
-        key: _json_value(row[key])
-        for key in sorted(row)
-        if key in _CONDITION_KEYS and row[key] not in (None, "", [])
-    }
-
-
-def _condition_completeness(conditions: Mapping[str, Any]) -> dict[str, Any]:
-    """Audit whether source-located conditions are operationally complete."""
-
-    present = {
-        str(key)
-        for key, value in dict(conditions).items()
-        if value not in (None, "", [])
-    }
-    required_groups = {
-        "agents": {"reagents", "catalyst"},
-        "solvent": {"solvent"},
-        "temperature": {"temperature", "temperature_c"},
-        "time": {"time"},
-    }
-    missing = sorted(
-        name
-        for name, alternatives in required_groups.items()
-        if not (present & alternatives)
-    )
-    return {
-        "schema_version": "reaction_condition_completeness.v1",
-        "complete": not missing,
-        "missing_required_groups": missing,
-        "present_fields": sorted(present),
-        "yield_reported": bool(present & {"yield", "yield_percent"}),
-        "workup_reported": "workup" in present,
-        "purification_reported": "purification" in present,
-    }
 
 
 def _condition_value(value: Any) -> str:

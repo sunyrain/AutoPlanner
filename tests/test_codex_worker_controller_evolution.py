@@ -155,6 +155,118 @@ class CodexWorkerControllerEvolutionTest(unittest.TestCase):
         self.assertEqual(record.status, "accepted_draft")
         self.assertNotIn("tool_not_allowed", record.output_validation["reasons"])
 
+    def test_worker_accepts_valid_codex_output_after_recovered_transport_error(self):
+        task = WorkerTask(
+            task_id="recovered_codex_worker",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            input_refs=["target_profile"],
+        )
+        artifact = {
+            "schema_version": "research_report.draft.v1",
+            "artifact_id": "recovered",
+            "artifact_type": "ResearchReport",
+            "case_id": "case",
+            "source": "codex_cli",
+            "input_refs": ["target_profile"],
+            "evidence_refs": [],
+            "validation_status": "draft",
+        }
+
+        record = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(artifact),
+                stderr="Reconnecting... 5/5 (request timed out)",
+                exit_code=1,
+                backend="codex_cli",
+                metadata={
+                    "event_summary": {
+                        "turn_completed": True,
+                        "last_terminal_event_type": "turn.completed",
+                        "fatal_error": "",
+                    }
+                },
+            ),
+        )
+
+        self.assertEqual(record.status, "accepted_draft")
+        self.assertNotIn(
+            "worker_exit_code_nonzero", record.output_validation["reasons"]
+        )
+
+    def test_worker_only_recovers_disallowed_tool_rejected_before_execution(self):
+        task = WorkerTask(
+            task_id="sandbox_rejected_tool_worker",
+            case_id="case",
+            task_type="target_research",
+            required_artifact_type="ResearchReport",
+            input_refs=["target_profile"],
+            allowed_tools=["web_search"],
+        )
+        artifact = {
+            "schema_version": "research_report.draft.v1",
+            "artifact_id": "sandbox_recovered",
+            "artifact_type": "ResearchReport",
+            "case_id": "case",
+            "source": "codex_cli",
+            "input_refs": ["target_profile"],
+            "evidence_refs": [],
+            "validation_status": "draft",
+        }
+        terminal = {
+            "event_summary": {
+                "turn_completed": True,
+                "last_terminal_event_type": "turn.completed",
+                "fatal_error": "",
+            }
+        }
+
+        rejected_before_launch = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(artifact),
+                exit_code=0,
+                backend="codex_cli",
+                metadata=terminal,
+                tool_calls=[
+                    {
+                        "tool": "shell",
+                        "status": "failed",
+                        "exit_code": -1,
+                        "aggregated_output": "execution error: sandbox launch rejected",
+                    }
+                ],
+            ),
+        )
+        command_ran_and_failed = run_codex_worker(
+            task,
+            runner=lambda _: WorkerProcessResult(
+                stdout=json.dumps(artifact),
+                exit_code=0,
+                backend="codex_cli",
+                metadata=terminal,
+                tool_calls=[
+                    {
+                        "tool": "shell",
+                        "status": "failed",
+                        "exit_code": 1,
+                        "aggregated_output": "command produced output before failure",
+                    }
+                ],
+            ),
+        )
+
+        self.assertEqual(rejected_before_launch.status, "accepted_draft")
+        self.assertNotIn(
+            "tool_not_allowed", rejected_before_launch.output_validation["reasons"]
+        )
+        self.assertEqual(command_ran_and_failed.status, "rejected_output")
+        self.assertIn(
+            "tool_not_allowed", command_ran_and_failed.output_validation["reasons"]
+        )
+
     def test_worker_command_timeout_does_not_hang_when_descendant_keeps_pipe_open(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 from typing import Any, Mapping
 
+from cascade_planner.application.fact_lifecycle import validate_fact_lifecycle_event
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
@@ -22,7 +23,14 @@ from cascade_planner.routes.admission import audit_retrosynthetic_candidate
 
 REPLAY_PACK_SCHEMA = "retrosynthesis_replay_pack.v1"
 REPLAY_RESULT_SCHEMA = "retrosynthesis_replay_result.v1"
-REPLAY_STAGES = ("plan", "materialization", "evidence", "validation", "stock")
+REPLAY_STAGES = (
+    "plan",
+    "materialization",
+    "evidence",
+    "validation",
+    "stock",
+    "lifecycle",
+)
 
 
 class ReplayPackError(ValueError):
@@ -133,6 +141,9 @@ def validate_replay_pack(pack: Mapping[str, Any]) -> None:
     route_count = len(pack["global_plan"].get("route_families") or [])
     if acceptance.minimum_complete_routes > route_count:
         raise ReplayPackError("replay_pack_route_count_below_acceptance")
+    for event in pack.get("fact_lifecycle_events") or []:
+        if not isinstance(event, Mapping) or validate_fact_lifecycle_event(event):
+            raise ReplayPackError("replay_pack_fact_lifecycle_event_invalid")
 
 
 def dataclass_value(cls: Any, value: Mapping[str, Any]) -> Any:

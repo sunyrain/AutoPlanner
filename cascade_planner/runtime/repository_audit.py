@@ -13,6 +13,8 @@ from pathlib import Path
 import subprocess
 from typing import Any, Iterable
 
+from cascade_planner.runtime.ast_audit import type_checking_import_lines
+
 
 REPOSITORY_AUDIT_SCHEMA = "autoplanner_repository_audit.v1"
 _ASSET_SUFFIXES = {
@@ -217,8 +219,11 @@ def _dead_import_candidates(
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
         }
         loaded.update(_exported_names(tree))
+        type_checking_lines = type_checking_import_lines(tree)
         lines = source.splitlines()
         for node in ast.walk(tree):
+            if getattr(node, "lineno", -1) in type_checking_lines:
+                continue
             bindings: list[tuple[str, str]] = []
             if isinstance(node, ast.Import):
                 bindings = [
@@ -252,8 +257,6 @@ def _dead_import_candidates(
         sorted(candidates, key=lambda row: (row["path"], row["line"], row["binding"])),
         parse_errors,
     )
-
-
 def _exported_names(tree: ast.AST) -> set[str]:
     """Treat explicit ``__all__`` re-exports as intentional import uses."""
 

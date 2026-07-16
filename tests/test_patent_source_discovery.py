@@ -77,6 +77,10 @@ def test_europe_pmc_patent_fallback_resolves_kindless_wo_family(
     assert metadata_queries == ["(simvastatin LovD synthesis) AND SRC:PAT"]
     assert rows[0]["publication_number"] == "EP2486129B1"
     assert rows[0]["metadata_provider"] == "europe_pmc"
+    assert rows[0]["xml_url"] == (
+        "https://data.epo.org/publication-server/rest/v1.2/patents/"
+        "EP2486129NWB1/document.xml"
+    )
 
 
 def test_pubchem_hyphenated_publication_is_normalized() -> None:
@@ -276,5 +280,8 @@ def test_pubchem_family_fallback_builds_official_epo_pdf_locator() -> None:
     assert rows[0]["publication_number"] == "EP0247633B1"
     assert rows[0]["pdf_url"].endswith(
         "/19910130/patents/EP0247633NWB1/document.pdf"
+    )
+    assert rows[0]["html_url"] == (
+        "https://patents.google.com/patent/EP0247633B1/en"
     )
     assert rows[0]["source_authority"] == "pubchem_to_epo_publication_server"

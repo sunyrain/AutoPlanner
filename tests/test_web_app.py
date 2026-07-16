@@ -241,6 +241,101 @@ class WebAppTest(unittest.TestCase):
         self.assertEqual(response.content_length, route_size)
         self.assertEqual(missing_response.status_code, 404)
 
+    def test_presentation_showcase_exposes_only_available_shared_html(self):
+        repository_results = web_app.ROOT / "results"
+        repository_results.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=repository_results) as td:
+            shared = Path(td) / "shared"
+            shared.mkdir(parents=True)
+            available = shared / "case" / "route_forest.html"
+            available.parent.mkdir(parents=True)
+            available.write_text("<!doctype html><title>case</title>", encoding="utf-8")
+            audit = shared / "audit" / "index.html"
+            audit.parent.mkdir(parents=True)
+            audit.write_text("<!doctype html><title>audit</title>", encoding="utf-8")
+            manifest = shared / "presentation" / "manifest.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "autoplanner.presentation_showcase.v1",
+                        "standard_case_id": "closed",
+                        "standard": {"summary": "closed-route standard"},
+                        "statin_catalog": {
+                            "entity_count": 12,
+                            "readiness_summary": {"long_route_observed": 1},
+                            "targets": [
+                                {
+                                    "target_name": "atorvastatin",
+                                    "route_readiness": {
+                                        "readiness": "candidate_long_route",
+                                        "confidence": "low",
+                                        "warning_codes": ["NO_CONDITION_OBSERVATIONS"],
+                                        "observations": {
+                                            "max_route_steps": 11,
+                                            "best_proof_level": 0,
+                                            "condition_observation_edge_count": 0,
+                                            "reported_source_ref_count": 0,
+                                        },
+                                    },
+                                }
+                            ],
+                        },
+                        "audits": [
+                            {
+                                "audit_id": "statin-v4-live-rerun",
+                                "artifact_path": str(audit.relative_to(web_app.ROOT)),
+                            }
+                        ],
+                        "cases": [
+                            {
+                                "case_id": "closed",
+                                "artifact_path": str(available.relative_to(web_app.ROOT)),
+                                "route_closed": True,
+                            },
+                            {
+                                "case_id": "missing",
+                                "artifact_path": str(
+                                    (shared / "missing" / "route_forest.html").relative_to(web_app.ROOT)
+                                ),
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(web_app, "SHARED_RESULTS_DIR", shared),
+                patch.object(web_app, "PRESENTATION_SHOWCASE_PATH", manifest),
+            ):
+                page = self.app.get("/showcase")
+                response = self.app.get("/api/showcase")
+
+        self.assertEqual(page.status_code, 200, page.data)
+        self.assertIn(b"/api/v4/showcase", page.data)
+        self.assertIn(b".empty[hidden]{display:none}", page.data)
+        self.assertIn(b"openStatins", page.data)
+        self.assertIn("他汀路线就绪度".encode(), page.data)
+        self.assertIn(b"NO_CONDITION_OBSERVATIONS", page.data)
+        self.assertEqual(response.status_code, 200, response.data)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["cases"][0]["available"])
+        self.assertEqual(payload["statin_catalog"]["entity_count"], 12)
+        self.assertEqual(
+            payload["statin_catalog"]["targets"][0]["target_name"],
+            "atorvastatin",
+        )
+        self.assertEqual(
+            payload["statin_catalog"]["targets"][0]["route_readiness"]["confidence"],
+            "low",
+        )
+        self.assertTrue(payload["audits"][0]["available"])
+        self.assertIn("/api/result-file?path=", payload["audits"][0]["artifact_url"])
+        self.assertIn("/api/result-file?path=", payload["cases"][0]["artifact_url"])
+        self.assertFalse(payload["cases"][1]["available"])
+        self.assertEqual(payload["cases"][1]["artifact_path"], "")
+
     def test_agent_case_audit_worker_policy_and_final_report_api_smoke(self):
         web_app.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
         target = "CC(C)CCCC(C)C1CCC2C3CCC4CC(O)CCC4(C)C3CCC12C"

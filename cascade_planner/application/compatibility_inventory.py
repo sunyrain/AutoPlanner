@@ -109,6 +109,13 @@ _SHIMS = (
         removal_milestone="P10 after blackboard entrypoint retirement",
         telemetry_source="parent blackboard compatibility event",
     ),
+    CompatibilityShim(
+        shim_id="legacy.combined_web_surface",
+        module="cascade_planner.web.app",
+        replacement="cascade_planner.web.v4_app",
+        removal_milestone="P10 after legacy UI and saved-run routes are retired",
+        telemetry_source="CLI --surface combined selection",
+    ),
 )
 
 

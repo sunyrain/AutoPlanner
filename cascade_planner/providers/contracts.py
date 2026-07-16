@@ -21,6 +21,7 @@ class ProviderKind(str, Enum):
     AGENT_BACKEND = "agent_backend"
     ARTIFACT_STORE = "artifact_store"
     RENDERER = "renderer"
+    EXPERIMENT_EXECUTOR = "experiment_executor"
 
 
 @dataclass(frozen=True)
@@ -150,6 +151,11 @@ class ArtifactStoreProvider(Provider, Protocol):
 @runtime_checkable
 class RendererProvider(Provider, Protocol):
     """Projects canonical graph records into a read-only view artifact."""
+
+
+@runtime_checkable
+class ExperimentExecutorProvider(Provider, Protocol):
+    """Accepts a bounded experiment request; never grants validation."""
 
 
 def validate_provider_result(

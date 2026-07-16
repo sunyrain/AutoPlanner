@@ -10,6 +10,9 @@ import subprocess
 from typing import Any, Callable, Mapping
 
 from cascade_planner.application.canonical_hypergraph import CanonicalIngestionBatch
+from cascade_planner.application.route_innovation_chemenzy import (
+    route_innovation_from_chemenzy_step,
+)
 from cascade_planner.baselines.chem_enzy_adapter import (
     route_candidates_from_chem_enzy_result,
 )
@@ -180,8 +183,7 @@ def run_chemenzy_proposal_stage(
         for step_index, step in enumerate(route.get("steps") or [], start=1):
             if step_index > limits["max_steps"]:
                 break
-            hypotheses.append(
-                {
+            hypothesis = {
                     "step_id": f"{alias}:step:{step_index}",
                     "proposal_id": f"{alias}:step:{step_index}",
                     "route_family_id": alias,
@@ -203,7 +205,13 @@ def run_chemenzy_proposal_stage(
                         step.get("condition_predictions") or []
                     ),
                 }
+            route_innovation = route_innovation_from_chemenzy_step(
+                step,
+                route_family_id=alias,
             )
+            if route_innovation:
+                hypothesis["route_innovation"] = route_innovation
+            hypotheses.append(hypothesis)
     applied: Mapping[str, Any] = {"changed": False}
     if hypotheses:
         applied = service.apply_batch(
@@ -632,6 +640,30 @@ def _normalize_proposal_route(
                 "stock_status": dict(step.get("stock_status") or {}),
                 "condition_predictions": list(
                     step.get("condition_predictions") or []
+                ),
+                "enzyme_ec_annotations": [
+                    dict(value)
+                    for value in step.get("enzyme_ec_annotations") or []
+                    if isinstance(value, Mapping)
+                ],
+                "catalyst_annotations": [
+                    dict(value)
+                    for value in step.get("catalyst_annotations") or []
+                    if isinstance(value, Mapping)
+                ],
+                "raw_backend_metadata": dict(
+                    step.get("raw_backend_metadata") or {}
+                ),
+                "is_enzymatic": bool(
+                    step.get("is_enzymatic")
+                    or step.get("enzyme_ec_annotations")
+                ),
+                "chemical_step_equivalent_count": step.get(
+                    "chemical_step_equivalent_count"
+                ),
+                "replaced_step_ids": list(step.get("replaced_step_ids") or []),
+                "selectivity_objective": str(
+                    step.get("selectivity_objective") or ""
                 ),
                 "host_search_admission": {
                     "accepted": audit.get("accepted") is True,

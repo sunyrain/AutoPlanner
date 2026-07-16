@@ -23,7 +23,7 @@ def test_camera_uses_one_world_transform_and_never_moves_svg_layer() -> None:
     assert "translate3d" not in script
     assert "svg.style.transform =" not in script
     assert "viewport.setPointerCapture(event.pointerId)" in script
-    assert script.index("viewport.setPointerCapture(event.pointerId)") < script.index(
+    assert script.index("viewport.setPointerCapture(event.pointerId)") > script.index(
         "Math.hypot(deltaX, deltaY)"
     )
 
@@ -90,6 +90,24 @@ def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
     assert "function preferReadableFocus()" in script
     assert "return (lane.step_ids || []).length <= 4" in script
     assert "fitGraph({ readable: preferReadableFocus() })" in script
+    assert "serpentine_long_route.v1" in script
+    assert "maximumLayer >= 16" in script
+    assert "Math.min(9, maximumLayer + 1)" in script
+    assert "verticalTransition" in script
+
+
+def test_mixed_proof_route_labels_use_edge_distribution_not_weakest_only() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+
+    assert "L1_source_reported: 'L1 文献报道'" in script
+    assert "function routeProofMixLabel(lane)" in script
+    assert "is-mixed-proof" in script
+    assert "`${planner} 步 L0 规划`" in script
+    assert "`${reported} 步 L1 文献`" in script
+    assert "l1_source_reported_edges" in script
+    assert "source_observation_records" in script
+    assert "证据缺口与补证动作" in script
+    assert "unexplained_element_gains" in script
 
 
 def test_reaction_nodes_expose_condition_source_without_opening_inspector() -> None:
@@ -100,10 +118,55 @@ def test_reaction_nodes_expose_condition_source_without_opening_inspector() -> N
     assert "来源条件已绑定 · 字段待展开" in script
     assert "预测条件 · 非文献事实" in script
     assert "条件待取证" in script
+    assert "normalizedConditionRows(step)" in script
+    assert "source_observation_records" in script
+    assert 'class="reaction-hit-target"' in script
+    hit_target_index = script.index('class="reaction-hit-target"')
+    assert hit_target_index < script.index('class="node-surface"', hit_target_index)
+    assert "state.detailTab = 'step'" in script
+    assert "if (state.layoutPreset === 'focus') state.layoutPreset = 'review'" in script
     assert 'class="reaction-condition-meta ${conditionClass}"' in script
     assert ".reaction-condition-meta.is-source-exact" in styles
     assert ".reaction-condition-meta.is-model-predicted" in styles
     assert ".reaction-condition-meta.is-missing" in styles
+    assert ".graph-node--reaction .reaction-hit-target" in styles
+    assert "fill: transparent !important" in styles
+
+
+def test_reaction_inspector_groups_full_conditions_and_source_procedure_text() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
+
+    assert "function conditionGroupHtml" in script
+    assert "核心反应条件" in script
+    assert "加料、后处理与纯化" in script
+    assert "source-procedure-observation" in script
+    assert "procedure_excerpt" in script
+    assert "来源观察" in script
+    assert ".condition-group" in styles
+    assert ".source-procedure-observation" in styles
+    assert "white-space: pre-wrap" in styles
+
+
+def test_workbench_exposes_six_axis_proof_and_product_stage_filters() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    styles = STYLES.read_text(encoding="utf-8")
+    template = Path("cascade_planner/harness/route_forest_ui/template.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "function proofVectorHtml(value)" in script
+    assert "科学 Proof vector" in script
+    assert "路线 Proof vector" in script
+    assert "来源过程" in script
+    assert "失效事实" in script
+    assert "路线已按当前权威降级" in script
+    assert "哈希绑定过程" in script
+    assert "condition_missing_required_groups" in script
+    assert ".proof-vector-grid" in styles
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in styles
+    for stage in ("literature", "conditions", "procurement", "process"):
+        assert f'data-stage-filter="{stage}"' in template
 
 
 def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
@@ -164,6 +227,10 @@ def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
         "zoomAnchor": True,
         "fit": True,
         "selection": True,
+        "reactionHitTarget": True,
+        "reactionInspector": True,
+        "fullConditionGroups": True,
+        "sourceProcedure": True,
         "minimap": True,
         "largeGraphCulling": True,
     }

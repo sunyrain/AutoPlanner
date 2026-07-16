@@ -19,6 +19,8 @@ smaller duplicate of a working capability is also forbidden.
 | Canonical scientific state | several blackboard/route projections | `CanonicalHypergraphStore` | integrated | delete compatibility writes after telemetry window |
 | One typed work queue | blackboard bridge tasks and route deficit queue | `DeficitFrontier` | integrated | add condition/extraction deficits and gain metrics |
 | Guided ChemEnzy | `run_guided_chemenzy_rerun`, guided payload and failure critic | `interfaces.chemenzy_probe` | migrating | port analogical/failure policy and provider-compute receipts |
+| Enzyme route compression | enzyme action status, SP verifier, cofactor ledger | canonical `route_innovation.v1` + family-specific execution option | integrated-v1 | connect enzyme candidate generation and digest-bound biocatalysis validation in blind routes |
+| Mechanism-derived extension | global route critic and analogy proposals | one-hop, source-anchored mechanism extrapolation | integrated-v1 | add bounded generator/critic loop and prospective complex-route benchmark |
 | Codex-selected provider tasks | bridge tasks and guided payload | canonical molecule scheduling annotations -> `DeficitFrontier` | integrated | blind run with 1-3 explicit subtargets |
 | Literature research | `literature_research`, source material locator | evidence connector provider chain | integrated-v1 | broaden reaction-class query expansion beyond target/title relevance ranking |
 | Authorized browser/campus PDF access | `local_pdf_proxy`, `browser_pdf_fetch.py`, `tsinghua_pdf_gateway.py` | V4 literature source lifecycle | integrated | automated resume watcher and operator UX |

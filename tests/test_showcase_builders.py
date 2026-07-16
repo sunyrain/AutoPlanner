@@ -174,6 +174,31 @@ def test_blind_showcase_uses_current_routes_and_validated_replacements() -> None
     assert blind_showcase._origin_label("chemenzy") == "ChemEnzy 局部展开"
 
 
+def test_blind_showcase_separates_route_maturity_from_runtime_failure() -> None:
+    hypotheses = blind_showcase._maturity_projection(
+        state={"status": "completed"},
+        report={},
+        gates={"B1": True, "B2": False, "B5": False},
+    )
+    validated = blind_showcase._maturity_projection(
+        state={"status": "completed"},
+        report={},
+        gates={"B1": True, "B2": True, "B5": False},
+    )
+    failed = blind_showcase._maturity_projection(
+        state={"status": "failed"},
+        report={},
+        gates={},
+    )
+
+    assert hypotheses["id"] == "route_hypotheses_available_validation_open"
+    assert validated["id"] == "routes_validated_proof_open"
+    assert failed["id"] == "runtime_failed_recoverable"
+    assert blind_showcase._compact_failure("Traceback\nMemoryError") == (
+        "资源失败：MemoryError（保留检查点，可恢复）"
+    )
+
+
 def test_blind_showcase_newer_target_panel_replaces_only_matching_target() -> None:
     baseline = [
         {"target_name": "lovastatin", "workbench": {"route_count": 0}},

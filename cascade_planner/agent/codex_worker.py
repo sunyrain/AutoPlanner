@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from cascade_planner.agent.action_contracts import (
     ALLOWED_AGENT_ACTIONS as WORKER_AGENT_ACTION_TYPES,
@@ -1955,15 +1955,26 @@ def _parse_codex_jsonl_events(stdout: str) -> dict[str, Any]:
     child_agents_by_id: dict[str, dict[str, Any]] = {}
     orphan_wait_state_count = 0
     turn_completed = False
+    turn_failed = False
+    last_terminal_event_type = ""
+    last_terminal_event_index = -1
     errors: list[str] = []
+    error_events: list[tuple[int, str]] = []
     for index, event in enumerate(events):
         event_type = str(event.get("type") or event.get("event") or "")
         if event_type == "turn.completed":
             turn_completed = True
+            last_terminal_event_type = event_type
+            last_terminal_event_index = index
+        elif event_type == "turn.failed":
+            turn_failed = True
+            last_terminal_event_type = event_type
+            last_terminal_event_index = index
         if event_type in {"error", "turn.failed"}:
             message = _find_first_key(event, {"message", "detail"})
             if message and message not in errors:
                 errors.append(message)
+                error_events.append((index, message))
         if not session_id:
             session_id = _find_first_key(event, {"thread_id", "session_id", "conversation_id"})
         event_usage = event.get("usage")
@@ -1991,6 +2002,8 @@ def _parse_codex_jsonl_events(stdout: str) -> dict[str, Any]:
             "tool": tool_name,
             "event_type": event_type,
             "status": str(item.get("status") or ""),
+            "exit_code": item.get("exit_code"),
+            "aggregated_output": str(item.get("aggregated_output") or ""),
             "arguments": arguments,
             "prompt": str(item.get("prompt") or ""),
             "sender_thread_id": str(item.get("sender_thread_id") or ""),
@@ -2040,6 +2053,23 @@ def _parse_codex_jsonl_events(stdout: str) -> dict[str, Any]:
         for row in child_agents
         if str(row.get("status") or "").strip().lower() in {"completed", "succeeded", "success", "accepted"}
     ]
+    terminal_completed = last_terminal_event_type == "turn.completed"
+    fatal_error = ""
+    if terminal_completed:
+        post_completion_errors = [
+            message
+            for index, message in error_events
+            if index > last_terminal_event_index
+        ]
+        if post_completion_errors:
+            fatal_error = post_completion_errors[-1]
+    elif errors:
+        fatal_error = errors[-1]
+    recovered_error_count = sum(
+        1
+        for index, _message in error_events
+        if terminal_completed and index < last_terminal_event_index
+    )
 
     return {
         "session_id": session_id,
@@ -2051,13 +2081,16 @@ def _parse_codex_jsonl_events(stdout: str) -> dict[str, Any]:
             "event_count": len(events),
             "invalid_line_count": invalid_lines,
             "turn_completed": turn_completed,
+            "turn_failed": turn_failed,
+            "last_terminal_event_type": last_terminal_event_type,
             "last_event_type": str(events[-1].get("type") or "") if events else "",
             "tool_call_count": len(calls_by_id),
             "child_agent_spawn_count": len(child_agents),
             "child_agent_completed_count": len(completed_children),
             "orphan_wait_state_count": orphan_wait_state_count,
             "errors": errors[-16:],
-            "fatal_error": errors[-1] if errors else "",
+            "fatal_error": fatal_error,
+            "recovered_error_count": recovered_error_count,
         },
     }
 
@@ -2197,7 +2230,14 @@ def _contains_forbidden_production_write(value: Any) -> bool:
 
 def _worker_runtime_reasons(task: WorkerTask, process: WorkerProcessResult) -> list[str]:
     reasons: list[str] = []
-    if int(process.exit_code or 0) != 0:
+    event_summary = dict((process.metadata or {}).get("event_summary") or {})
+    recovered_codex_completion = bool(
+        process.backend == "codex_cli"
+        and event_summary.get("turn_completed") is True
+        and event_summary.get("last_terminal_event_type") == "turn.completed"
+        and not str(event_summary.get("fatal_error") or "")
+    )
+    if int(process.exit_code or 0) != 0 and not recovered_codex_completion:
         reasons.append("worker_exit_code_nonzero")
     tool_calls = list(process.tool_calls or [])
     if len(tool_calls) > int(task.budget.max_tool_calls):
@@ -2207,6 +2247,8 @@ def _worker_runtime_reasons(task: WorkerTask, process: WorkerProcessResult) -> l
         for call in tool_calls:
             observed = _canonical_runtime_tool_name(call.get("tool") or call.get("name") or "")
             if observed not in allowed:
+                if recovered_codex_completion and _tool_failed_before_execution(call):
+                    continue
                 reasons.append("tool_not_allowed")
                 break
     if task.agent_mode == "coordinator":
@@ -2230,6 +2272,21 @@ def _worker_runtime_reasons(task: WorkerTask, process: WorkerProcessResult) -> l
         ):
             reasons.append("required_child_roles_not_prompt_bound")
     return reasons
+
+
+def _tool_failed_before_execution(call: Mapping[str, Any]) -> bool:
+    """Recognize a sandbox launch rejection, not a command that ran and failed."""
+
+    try:
+        exit_code = int(call.get("exit_code"))
+    except (TypeError, ValueError):
+        return False
+    output = str(call.get("aggregated_output") or "").strip().casefold()
+    return (
+        str(call.get("status") or "").strip().casefold() == "failed"
+        and exit_code == -1
+        and output.startswith("execution error:")
+    )
 
 
 def _canonical_runtime_tool_name(value: Any) -> str:

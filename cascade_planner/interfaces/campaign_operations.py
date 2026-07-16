@@ -1,4 +1,5 @@
 """Model-free operational projections used by the shared campaign gateway."""
+
 from __future__ import annotations
 
 import json
@@ -11,15 +12,22 @@ from typing import Any
 from cascade_planner.harness.v4_route_workbench import (
     render_v4_route_workbench_html,
 )
+from cascade_planner.interfaces.campaign_gateway_contract import (
+    CAMPAIGN_GATEWAY_RESULT_SCHEMA,
+)
+from cascade_planner.interfaces.biocatalytic_program_gc import (
+    biocatalytic_program_pinned_digests,
+)
+from cascade_planner.interfaces.experimental_claim_gc import (
+    experimental_claim_pinned_digests,
+)
+from cascade_planner.interfaces.program_gc import program_store_pinned_digests
 from cascade_planner.orchestration.retrosynthesis_service import (
     RetrosynthesisCampaignService,
 )
 from cascade_planner.runtime.artifact_store import ArtifactStore
 from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.runtime.run_index import RunIndex
-
-
-CAMPAIGN_GATEWAY_RESULT_SCHEMA = "autoplanner_campaign_gateway_result.v1"
 
 
 def benchmark_campaign(
@@ -66,9 +74,7 @@ def export_campaign(
     output_dir: str | Path | None,
 ) -> dict[str, Any]:
     published = service.publish_workbench()
-    destination = Path(
-        output_dir or service.kernel.run_dir / "exports"
-    ).expanduser().resolve()
+    destination = Path(output_dir or service.kernel.run_dir / "exports").expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
     snapshot_path = destination / "route_workbench.json"
     delta_path = destination / "route_workbench.delta.json"
@@ -98,12 +104,16 @@ def plan_artifact_gc(
     *,
     minimum_age_s: float,
 ) -> dict[str, Any]:
-    pinned: set[str] = set()
+    indexed_pins: set[str] = set()
     for manifest in index.list_runs(limit=10_000):
         for row in index.artifacts_for_run(str(manifest["run_id"])):
             digest = str(dict(row.get("ref") or {}).get("sha256") or "")
             if digest:
-                pinned.add(digest)
+                indexed_pins.add(digest)
+    program_pins = program_store_pinned_digests(paths, index)
+    program_pins |= biocatalytic_program_pinned_digests(paths, index)
+    program_pins |= experimental_claim_pinned_digests(paths, index)
+    pinned = indexed_pins | program_pins
     plan = ArtifactStore(paths.artifact_store_root).garbage_collection_plan(
         pinned_digests=pinned,
         minimum_age_s=max(0.0, float(minimum_age_s)),
@@ -112,7 +122,9 @@ def plan_artifact_gc(
         "schema_version": CAMPAIGN_GATEWAY_RESULT_SCHEMA,
         "operation": "gc",
         "dry_run": True,
-        "indexed_artifact_pin_count": len(pinned),
+        "indexed_artifact_pin_count": len(indexed_pins),
+        "program_store_pin_count": len(program_pins),
+        "total_artifact_pin_count": len(pinned),
         "plan": plan,
     }
 

@@ -14,6 +14,7 @@ from cascade_planner.providers.contracts import (
 )
 from cascade_planner.providers.registry import ProviderRegistry
 from cascade_planner.providers.stock import SnapshotStockProvider
+from cascade_planner.providers.experiment import ManualExperimentExecutorProvider
 
 
 _HOST_BUILTIN_TRUST_POLICY: dict[str, dict[str, Any]] = {
@@ -46,6 +47,11 @@ _HOST_BUILTIN_TRUST_POLICY: dict[str, dict[str, Any]] = {
         "kind": ProviderKind.EVIDENCE,
         "correlation_group": "literature_evidence_pipeline",
         "deterministic": False,
+    },
+    "autoplanner.manual_experiment_executor": {
+        "kind": ProviderKind.EXPERIMENT_EXECUTOR,
+        "correlation_group": "manual_experiment_handoff",
+        "deterministic": True,
     },
 }
 
@@ -358,6 +364,7 @@ def build_default_provider_registry(
     include_codex: CodexRetrosynthesisProvider | None = None,
     include_chemenzy: ChemEnzyProposalProvider | None = None,
     include_literature: LiteratureEvidenceProvider | None = None,
+    include_manual_experiment_executor: bool = False,
 ) -> ProviderRegistry:
     registry = ProviderRegistry()
     stock = SnapshotStockProvider()
@@ -384,6 +391,13 @@ def build_default_provider_registry(
         registry.register(
             provider,
             trusted_descriptor=_host_trusted_builtin_descriptor(provider),
+            authority="autoplanner_host_builtin_allowlist.v1",
+        )
+    if include_manual_experiment_executor:
+        manual = ManualExperimentExecutorProvider()
+        registry.register(
+            manual,
+            trusted_descriptor=_host_trusted_builtin_descriptor(manual),
             authority="autoplanner_host_builtin_allowlist.v1",
         )
     return registry

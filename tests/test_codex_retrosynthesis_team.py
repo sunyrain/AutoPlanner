@@ -3522,6 +3522,40 @@ def test_codex_jsonl_parser_preserves_final_provider_error() -> None:
     assert audit["summary"]["fatal_error"] == "model requires newer CLI"
 
 
+def test_codex_jsonl_parser_marks_transport_error_recovered_by_completed_turn() -> None:
+    audit = _parse_codex_jsonl_events(
+        "\n".join(
+            [
+                '{"type":"error","message":"Reconnecting... 5/5 (request timed out)"}',
+                '{"type":"item.completed","item":{"type":"agent_message","text":"{}"}}',
+                '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2}}',
+            ]
+        )
+    )
+
+    assert audit["summary"]["turn_completed"]
+    assert audit["summary"]["last_terminal_event_type"] == "turn.completed"
+    assert audit["summary"]["errors"] == [
+        "Reconnecting... 5/5 (request timed out)"
+    ]
+    assert audit["summary"]["fatal_error"] == ""
+    assert audit["summary"]["recovered_error_count"] == 1
+
+
+def test_codex_jsonl_parser_keeps_error_after_completed_turn_fatal() -> None:
+    audit = _parse_codex_jsonl_events(
+        "\n".join(
+            [
+                '{"type":"turn.completed","usage":{"input_tokens":3}}',
+                '{"type":"error","message":"output persistence failed"}',
+            ]
+        )
+    )
+
+    assert audit["summary"]["last_terminal_event_type"] == "turn.completed"
+    assert audit["summary"]["fatal_error"] == "output persistence failed"
+
+
 def test_codex_jsonl_parser_ignores_wait_only_and_nested_children() -> None:
     text = "\n".join(
         [

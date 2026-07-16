@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="700" viewBox="0 0 1400 700" role="img" aria-label="阶段 I｜模型流水线 + 搜索器">
+<defs>
+  <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#6b8798"/></marker>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#17384d" flood-opacity=".12"/></filter>
+</defs>
+<rect width="1400" height="700" rx="28" fill="#f4f8fa"/>
+<text x="55" y="64" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0b2438">阶段 I｜模型流水线 + 搜索器</text>
+<text x="55" y="99" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="16" fill="#617b8c">直觉：先把局部预测做准，再用搜索把局部能力串成路线</text>
+<rect x="55" y="170" width="220" height="140" rx="18" fill="#ffffff" stroke="#5a8dee" stroke-width="2" filter="url(#shadow)"/>
+<rect x="55" y="170" width="9" height="140" rx="4" fill="#5a8dee"/>
+<text x="169.0" y="208" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="169.0" dy="0">数据与清洗</tspan></text>
+<text x="169.0" y="242" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="169.0" dy="0">rxn_smiles</tspan><tspan x="169.0" dy="23">EC / 条件</tspan></text>
+<line x1="275" y1="240" x2="310" y2="240" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="320" y="170" width="220" height="140" rx="18" fill="#ffffff" stroke="#e87468" stroke-width="2" filter="url(#shadow)"/>
+<rect x="320" y="170" width="9" height="140" rx="4" fill="#e87468"/>
+<text x="434.0" y="208" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="434.0" dy="0">单步扩展</tspan></text>
+<text x="434.0" y="242" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="434.0" dy="0">化学模型</tspan><tspan x="434.0" dy="23">酶催化模板</tspan></text>
+<line x1="540" y1="240" x2="575" y2="240" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="585" y="170" width="220" height="140" rx="18" fill="#ffffff" stroke="#e7a83d" stroke-width="2" filter="url(#shadow)"/>
+<rect x="585" y="170" width="9" height="140" rx="4" fill="#e7a83d"/>
+<text x="699.0" y="208" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="699.0" dy="0">条件与酶</tspan></text>
+<text x="699.0" y="242" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="699.0" dy="0">T / pH</tspan><tspan x="699.0" dy="23">enzyme rank</tspan></text>
+<line x1="805" y1="240" x2="840" y2="240" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="850" y="170" width="220" height="140" rx="18" fill="#ffffff" stroke="#2bb89b" stroke-width="2" filter="url(#shadow)"/>
+<rect x="850" y="170" width="9" height="140" rx="4" fill="#2bb89b"/>
+<text x="964.0" y="208" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="964.0" dy="0">多步搜索</tspan></text>
+<text x="964.0" y="242" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="964.0" dy="0">MCTS</tspan><tspan x="964.0" dy="23">two-stage</tspan></text>
+<line x1="1070" y1="240" x2="1105" y2="240" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="1115" y="170" width="220" height="140" rx="18" fill="#ffffff" stroke="#22a9c1" stroke-width="2" filter="url(#shadow)"/>
+<rect x="1115" y="170" width="9" height="140" rx="4" fill="#22a9c1"/>
+<text x="1229.0" y="208" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="1229.0" dy="0">评估</tspan></text>
+<text x="1229.0" y="242" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="1229.0" dy="0">Top-k / GT@5</tspan><tspan x="1229.0" dy="23">solve rate</tspan></text>
+<rect x="75" y="380" width="370" height="72" rx="16" fill="#0b2438"/>
+<text x="260.0" y="423.0" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#ffffff"><tspan x="260.0" dy="0">局部指标是主要反馈</tspan></text>
+<rect x="515" y="380" width="370" height="72" rx="16" fill="#0b2438"/>
+<text x="700.0" y="423.0" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#ffffff"><tspan x="700.0" dy="0">搜索闭合近似路线完成</tspan></text>
+<rect x="955" y="380" width="370" height="72" rx="16" fill="#0b2438"/>
+<text x="1140.0" y="423.0" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#ffffff"><tspan x="1140.0" dy="0">组件各持一部分事实</tspan></text>
+<line x1="260" y1="380" x2="180" y2="316" stroke="#5a8dee" stroke-width="3" stroke-dasharray="9 7" marker-end="url(#arrow)"/>
+<line x1="700" y1="380" x2="960" y2="316" stroke="#2bb89b" stroke-width="3" stroke-dasharray="9 7" marker-end="url(#arrow)"/>
+<line x1="1140" y1="380" x2="1220" y2="316" stroke="#22a9c1" stroke-width="3" stroke-dasharray="9 7" marker-end="url(#arrow)"/>
+<rect x="260" y="515" width="880" height="105" rx="18" fill="#fff8f7" stroke="#d85d6b" stroke-width="2" filter="url(#shadow)"/>
+<rect x="260" y="515" width="9" height="105" rx="4" fill="#d85d6b"/>
+<text x="704.0" y="553" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="704.0" dy="0">迁移压力</tspan></text>
+<text x="704.0" y="587" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="704.0" dy="0">单步更强 ≠ 多步更合理；条件、库存、来源和拓扑缺少统一事实模型</tspan></text>
+</svg>

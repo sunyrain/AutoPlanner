@@ -18,6 +18,8 @@ from cascade_planner.application.deficit_frontier import (
     compile_deficit_frontier,
     frontier_scientific_projection,
 )
+from cascade_planner.application.fact_lifecycle import build_fact_lifecycle_event
+from cascade_planner.application.proof_policy import ProofPolicy, stitch_edge_proof
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisRunBudget,
 )
@@ -309,6 +311,45 @@ def test_global_codex_plan_enters_real_frontier_then_materializes_once(
     assert kernel.state.graph_revision == 2
 
 
+def test_admission_rejected_director_step_is_retained_as_l0_without_work(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    store = CanonicalHypergraphStore(kernel)
+    plan = _plan()
+    plan["multi_step_skeletons"][0]["steps"] = [
+        {
+            "step_id": "step:missing-oxygen-source",
+            "product_smiles": "CCO",
+            "precursor_smiles": ["CC"],
+            "transformation_hypothesis": "hydration with omitted oxygen source",
+        }
+    ]
+
+    result = store.apply(
+        CanonicalIngestionBatch(global_plans=(plan,)),
+        idempotency_key="retain-rejected-plan-step",
+    )
+    graph = result["graph"]
+    hypothesis = next(iter(graph["hypotheses"].values()))
+    route = next(iter(graph["route_families"].values()))
+
+    assert hypothesis["status"] == "admission_rejected"
+    assert hypothesis["admission_accepted"] is False
+    assert hypothesis["admission_reasons"] == [
+        "element_inventory_not_conserved"
+    ]
+    assert route["hypothesis_ids"] == [hypothesis["hypothesis_id"]]
+    assert route["edge_ids"] == []
+    assert store.frontier_materialization_commands() == ()
+    retained = next(
+        row
+        for row in result["rejected"]
+        if row.get("hypothesis_id") == hypothesis["hypothesis_id"]
+    )
+    assert retained["retained_as_l0"] is True
+
+
 def test_codex_provider_delegation_becomes_one_canonical_expansion_deficit(
     tmp_path: Path,
 ) -> None:
@@ -554,6 +595,7 @@ def test_worker_facts_merge_order_independently_without_false_route_closure(
                     "product_smiles": "CCOC(C)=O",
                     "reactant_smiles": ["CCO", "CC(=O)Cl"],
                     "location_ref": "Example 1",
+                    "evidence_refs": ["procedure-text-sha256:" + "a" * 64],
                     "conditions": {"temperature_c": 20},
                 }
             ],
@@ -680,13 +722,25 @@ def test_worker_facts_merge_order_independently_without_false_route_closure(
     assert len(edge["reaction_proofs"]) == 1
     assert len(edge["exact_record_ids"]) == 1
     exact = graph["exact_records"][edge["exact_record_ids"][0]]
-    assert exact["procedure_authority_scope"] == "source_exact_reaction_procedure"
+    assert exact["procedure_authority_scope"] == ""
+    assert exact["semantics"]["conditions_are_compatibility_projection_only"] is True
     assert exact["condition_completeness"]["complete"] is False
     assert set(exact["condition_completeness"]["missing_required_groups"]) == {
         "agents",
         "solvent",
         "time",
     }
+    assert len(edge["procedure_record_ids"]) == 1
+    procedure = graph["procedure_records"][edge["procedure_record_ids"][0]]
+    assert procedure["procedure_authority_scope"] == (
+        "source_exact_reaction_procedure"
+    )
+    assert procedure["source_fragment"]["procedure_text_sha256"] == "a" * 64
+    assert procedure["condition_completeness"]["missing_required_groups"] == [
+        "agents",
+        "solvent",
+        "time",
+    ]
     assert len(edge["independent_source_groups"]) == 1
     assert {row["origin_kind"] for row in edge["origin_records"]} == {
         "codex_global_director",
@@ -696,7 +750,8 @@ def test_worker_facts_merge_order_independently_without_false_route_closure(
         graph["molecules"][molecule_id]["stock_closed"] is True
         for molecule_id in route["leaf_molecule_ids"]
     )
-    assert route["minimum_proof_level"] == 2
+    assert route["minimum_proof_level"] == 3
+    assert route["independent_source_requirement_met"] is False
     assert route["stock_closure_rate"] == 1.0
     assert route["closed"] is False
     assert graph["deficit_frontier"]["summary"]["by_kind"]["validation"] == 0
@@ -704,6 +759,120 @@ def test_worker_facts_merge_order_independently_without_false_route_closure(
     assert graph["deficit_frontier"]["summary"]["by_kind"]["evidence"] == 1
     oracle = store.full_recompute_oracle()
     assert graph["scientific_sha256"] == oracle["scientific_sha256"]
+
+    source_id = edge["source_binding_ids"][0]
+    source_record = graph["source_bindings"][source_id]
+    source_revoke = build_fact_lifecycle_event(
+        subject_kind="source_binding",
+        subject_id=source_id,
+        subject_content_sha256=source_record["content_sha256"],
+        action="revoke",
+        effective_at="2026-07-15T12:00:00Z",
+        reason_codes=["source_retracted"],
+    )
+    revoked = store.apply(
+        CanonicalIngestionBatch(fact_lifecycle_events=(source_revoke,)),
+        idempotency_key="revoke-source",
+    )
+    revoked_graph = revoked["graph"]
+    revoked_route = next(iter(revoked_graph["route_families"].values()))
+    revoked_proof = stitch_edge_proof(
+        revoked_graph,
+        edge["edge_id"],
+        policy=ProofPolicy.from_acceptance(kernel.spec.acceptance),
+    )
+
+    assert revoked["changed"] is True
+    assert revoked_proof["reaction_validated"] is True
+    assert revoked_proof["exact_source_bound"] is False
+    assert revoked_proof["inactive_facts"][0]["status"] == "revoked"
+    assert revoked_route["minimum_proof_level"] == 2
+    assert revoked_route["closed"] is False
+    assert edge["exact_record_ids"][0] in revoked_graph["exact_records"]
+    assert source_revoke["event_id"] in revoked_graph["fact_lifecycle_events"]
+    assert {
+        row["reason"] for row in revoked_graph["deficit_frontier"]["items"]
+    } >= {
+        "edge_requires_exact_source_binding",
+        "source_fact_revoked_requires_replacement",
+    }
+    duplicate = store.apply(
+        CanonicalIngestionBatch(fact_lifecycle_events=(source_revoke,)),
+        idempotency_key="revoke-source-duplicate",
+    )
+    assert duplicate["changed"] is False
+
+    source_restore = build_fact_lifecycle_event(
+        subject_kind="source_binding",
+        subject_id=source_id,
+        subject_content_sha256=source_record["content_sha256"],
+        action="restore",
+        effective_at="2026-07-15T13:00:00Z",
+        reason_codes=["retraction_withdrawn"],
+        supersedes_event_id=source_revoke["event_id"],
+    )
+    restored_graph = store.apply(
+        CanonicalIngestionBatch(fact_lifecycle_events=(source_restore,)),
+        idempotency_key="restore-source",
+    )["graph"]
+    restored_proof = stitch_edge_proof(
+        restored_graph,
+        edge["edge_id"],
+        policy=ProofPolicy.from_acceptance(kernel.spec.acceptance),
+    )
+    assert restored_proof["exact_source_bound"] is True
+    assert restored_proof["inactive_fact_count"] == 0
+
+    reaction_proof = edge["reaction_proofs"][0]
+    proof_expiry = build_fact_lifecycle_event(
+        subject_kind="reaction_proof",
+        subject_id=reaction_proof["proof_digest"],
+        subject_content_sha256=reaction_proof["proof_digest"],
+        action="expire",
+        effective_at="2026-07-16T00:00:00Z",
+        reason_codes=["validator_authority_expired"],
+    )
+    proof_expired_graph = store.apply(
+        CanonicalIngestionBatch(fact_lifecycle_events=(proof_expiry,)),
+        idempotency_key="expire-proof",
+    )["graph"]
+    proof_expired_route = next(
+        iter(proof_expired_graph["route_families"].values())
+    )
+    assert proof_expired_route["minimum_proof_level"] == 1
+    assert (
+        proof_expired_graph["deficit_frontier"]["summary"]["by_kind"][
+            "validation"
+        ]
+        == 1
+    )
+
+    stock_id = next(
+        observation_id
+        for molecule_id in proof_expired_route["leaf_molecule_ids"]
+        for observation_id in proof_expired_graph["molecules"][molecule_id][
+            "stock_observation_ids"
+        ]
+    )
+    stock_record = proof_expired_graph["stock_observations"][stock_id]
+    stock_expiry = build_fact_lifecycle_event(
+        subject_kind="stock_observation",
+        subject_id=stock_id,
+        subject_content_sha256=stock_record["content_sha256"],
+        action="expire",
+        effective_at="2026-07-16T00:05:00Z",
+        reason_codes=["supplier_offer_expired"],
+    )
+    final_graph = store.apply(
+        CanonicalIngestionBatch(fact_lifecycle_events=(stock_expiry,)),
+        idempotency_key="expire-stock",
+    )["graph"]
+    final_route = next(iter(final_graph["route_families"].values()))
+    assert final_route["stock_closure_rate"] == 0.5
+    assert final_route["closed"] is False
+    assert final_graph["scientific_sha256"] == store.full_recompute_oracle()[
+        "scientific_sha256"
+    ]
 
 
 def test_deficit_frontier_ties_and_incremental_replacement_are_deterministic(

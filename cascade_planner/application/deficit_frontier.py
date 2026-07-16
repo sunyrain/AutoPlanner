@@ -13,6 +13,8 @@ import json
 import math
 from typing import Any, Iterable, Mapping
 
+from cascade_planner.application.fact_lifecycle import graph_fact_lifecycle_state
+from cascade_planner.application.proof_policy import ProofPolicy, stitch_edge_proof
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
 )
@@ -130,6 +132,7 @@ def compile_deficit_frontier(
 ) -> dict[str, Any]:
     """Compile all deficits or incrementally replace dirty-dependent items."""
     acceptance = acceptance_spec or RetrosynthesisAcceptanceSpec()
+    proof_policy = ProofPolicy.from_acceptance(acceptance)
     attempts = {str(key): max(0, int(value)) for key, value in dict(prior_attempts or {}).items()}
     dirty = (
         None
@@ -180,17 +183,16 @@ def compile_deficit_frontier(
     for edge_id, raw in sorted(dict(graph.get("edges") or {}).items()):
         if not isinstance(raw, Mapping) or not affected(str(edge_id)):
             continue
-        edge = dict(raw)
         recomputed_entities.add(str(edge_id))
         routes = _routes_for(route_index, edge_id)
         selected = bool(set(routes) & selected_routes)
-        proof_level = _edge_proof_level(edge)
+        proof = stitch_edge_proof(graph, str(edge_id), policy=proof_policy)
         exact_groups = {
             str(value)
-            for value in edge.get("independent_source_groups") or []
+            for value in proof.get("independent_source_groups") or []
             if str(value)
         }
-        if proof_level < 2:
+        if proof.get("reaction_validated") is not True:
             items.append(
                 _item(
                     DeficitKind.VALIDATION,
@@ -208,7 +210,12 @@ def compile_deficit_frontier(
                 )
             )
         required = int(acceptance.minimum_edge_proof_level)
-        if required >= 3 and (proof_level < 3 or not exact_groups):
+        source_support_missing = (
+            len(exact_groups) < int(acceptance.minimum_independent_source_groups)
+        )
+        if required >= 3 and (
+            proof.get("exact_source_bound") is not True or source_support_missing
+        ):
             items.append(
                 _item(
                     DeficitKind.EVIDENCE,
@@ -217,7 +224,11 @@ def compile_deficit_frontier(
                     route_family_ids=routes,
                     deterministic=True,
                     model_allowed=False,
-                    reason="edge_requires_exact_source_binding",
+                    reason=(
+                        "edge_requires_exact_source_binding"
+                        if proof.get("exact_source_bound") is not True
+                        else "edge_requires_independent_source_support"
+                    ),
                     score=_score(
                         DeficitKind.EVIDENCE,
                         selected=selected,
@@ -228,15 +239,25 @@ def compile_deficit_frontier(
             )
 
     source_aliases = dict(graph.get("source_aliases") or {})
-    exact_binding_ids = {
-        str(
-            source_aliases.get(str(row.get("source_binding_id") or ""))
-            or row.get("source_binding_id")
+    exact_binding_ids: set[str] = set()
+    for record_id, raw_record in dict(graph.get("exact_records") or {}).items():
+        if not isinstance(raw_record, Mapping):
+            continue
+        record = dict(raw_record)
+        if graph_fact_lifecycle_state(
+            graph, "exact_record", str(record_id), record
+        ).get("active") is not True:
+            continue
+        source_id = str(
+            source_aliases.get(str(record.get("source_binding_id") or ""))
+            or record.get("source_binding_id")
             or ""
         )
-        for row in dict(graph.get("exact_records") or {}).values()
-        if isinstance(row, Mapping)
-    }
+        source = dict(dict(graph.get("source_bindings") or {}).get(source_id) or {})
+        if source and graph_fact_lifecycle_state(
+            graph, "source_binding", source_id, source
+        ).get("active") is True:
+            exact_binding_ids.add(source_id)
     for source_id, raw in sorted(dict(graph.get("source_bindings") or {}).items()):
         if not isinstance(raw, Mapping) or not affected(str(source_id)):
             continue
@@ -244,8 +265,14 @@ def compile_deficit_frontier(
         recomputed_entities.add(str(source_id))
         if str(source_id) in exact_binding_ids:
             continue
+        lifecycle = graph_fact_lifecycle_state(
+            graph, "source_binding", str(source_id), source
+        )
         status = str(source.get("acquisition_status") or "discovered")
-        if status == "queued_for_authorized_browser":
+        if lifecycle.get("active") is not True:
+            reason = f"source_fact_{lifecycle.get('status') or 'inactive'}_requires_replacement"
+            model_allowed = False
+        elif status == "queued_for_authorized_browser":
             reason = "source_waiting_authorized_pdf_acquisition"
             model_allowed = False
         elif int(source.get("visual_candidate_page_count") or 0) > 0:
@@ -277,6 +304,10 @@ def compile_deficit_frontier(
                     "proxy_request_id": str(source.get("proxy_request_id") or ""),
                     "visual_candidate_page_count": int(
                         source.get("visual_candidate_page_count") or 0
+                    ),
+                    "lifecycle_status": str(lifecycle.get("status") or "active"),
+                    "lifecycle_event_id": str(
+                        lifecycle.get("latest_event_id") or ""
                     ),
                 },
             )
@@ -826,21 +857,6 @@ def _score(
 def _routes_for(index: Mapping[str, Any], entity_id: Any) -> tuple[str, ...]:
     values = index.get(str(entity_id)) or []
     return tuple(sorted({str(value) for value in values if str(value)}))
-
-
-def _edge_proof_level(edge: Mapping[str, Any]) -> int:
-    level = 0
-    for proof in edge.get("reaction_proofs") or []:
-        if not isinstance(proof, Mapping):
-            continue
-        name = str(proof.get("proof_level") or "")
-        if name == "L4_procurement_ready":
-            level = max(level, 4)
-        elif name == "L3_precedent_supported":
-            level = max(level, 3)
-        elif proof.get("accepted") is True or name == "L2_reaction_validated":
-            level = max(level, 2)
-    return level
 
 
 def _unit(value: Any) -> float:

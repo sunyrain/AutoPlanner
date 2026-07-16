@@ -1,7 +1,7 @@
 """Shared CLI/Web gateway delegating all scientific state to the V4 service."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -18,28 +18,49 @@ from cascade_planner.interfaces.campaign_operations import (
     export_campaign,
     plan_artifact_gc,
 )
+from cascade_planner.interfaces.campaign_gateway_identity import (
+    new_run_id,
+    run_segment,
+    utc_now,
+)
+from cascade_planner.interfaces.campaign_gateway_contract import (
+    CAMPAIGN_GATEWAY_RESULT_SCHEMA,
+    CampaignGatewayError,
+)
+from cascade_planner.interfaces.campaign_program_gateway import (
+    CampaignProgramGatewayMixin,
+)
+from cascade_planner.interfaces.campaign_recovery import (
+    replay_campaign,
+    validate_campaign,
+)
 from cascade_planner.orchestration.retrosynthesis_service import (
     RetrosynthesisCampaignService,
 )
 from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.runtime.run_index import RunIndex
+from cascade_planner.providers.builtins import build_default_provider_registry
+from cascade_planner.providers.registry import ProviderRegistry
 
 
-CAMPAIGN_GATEWAY_RESULT_SCHEMA = "autoplanner_campaign_gateway_result.v1"
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
-class CampaignGatewayError(RuntimeError):
-    """An operator request cannot be mapped to one canonical V4 run."""
-
-
-class CampaignGateway:
+class CampaignGateway(CampaignProgramGatewayMixin):
     """Expose one bounded interface shared by CLI and HTTP adapters."""
 
-    def __init__(self, paths: RuntimePaths | None = None) -> None:
+    def __init__(
+        self,
+        paths: RuntimePaths | None = None,
+        *,
+        provider_registry: ProviderRegistry | None = None,
+    ) -> None:
         self.paths = paths or RuntimePaths.discover()
         self.paths.ensure_runtime_directories()
         self.index = RunIndex(self.paths.run_index_path)
+        self.providers = provider_registry or build_default_provider_registry(
+            include_manual_experiment_executor=True
+        )
 
     def create_run(
         self,
@@ -58,9 +79,7 @@ class CampaignGateway:
         target_smiles = str(target_smiles or "").strip()
         if not target_name or not target_smiles:
             raise CampaignGatewayError("target_name_and_smiles_required")
-        identity = self._normalize_run_id(
-            run_id or self._new_run_id(target_name, target_smiles)
-        )
+        identity = self._normalize_run_id(run_id or self._new_run_id(target_name, target_smiles))
         directory = self._run_dir(identity, explicit=run_dir, require=False)
         spec_path = directory / ".autoplanner" / "kernel" / "run_spec.json"
         if spec_path.is_file():
@@ -80,10 +99,9 @@ class CampaignGateway:
                     target_smiles=target_smiles,
                     acceptance=acceptance or RetrosynthesisAcceptanceSpec(),
                     limits=RunLimits(
-                        model=budget
-                        or RetrosynthesisRunBudget(max_model_invocations=0)
+                        model=budget or RetrosynthesisRunBudget(max_model_invocations=0)
                     ),
-                    created_at=_utc_now(),
+                    created_at=utc_now(),
                 ),
                 artifact_store_root=self.paths.artifact_store_root,
                 run_index_path=self.paths.run_index_path,
@@ -108,14 +126,17 @@ class CampaignGateway:
 
     def solve_target(self, **kwargs: Any) -> dict[str, Any]:
         from cascade_planner.interfaces.target_solver import solve_target
+
         return solve_target(self, **kwargs)
 
     def fork_target_validation(self, **kwargs: Any) -> dict[str, Any]:
         from cascade_planner.interfaces.validation_fork import fork_target_validation
+
         return fork_target_validation(self, **kwargs)
 
     def import_evidence(self, **kwargs: Any) -> dict[str, Any]:
         from cascade_planner.interfaces.evidence_import import import_structured_evidence
+
         return import_structured_evidence(self, **kwargs)
 
     def resume(
@@ -172,9 +193,7 @@ class CampaignGateway:
         *,
         run_dir: str | Path | None = None,
     ) -> dict[str, Any]:
-        return self._result(
-            self._open(run_id, run_dir=run_dir), operation="status"
-        )
+        return self._result(self._open(run_id, run_dir=run_dir), operation="status")
 
     def workbench(
         self,
@@ -196,38 +215,7 @@ class CampaignGateway:
         *,
         run_dir: str | Path | None = None,
     ) -> dict[str, Any]:
-        service = self._open(run_id, run_dir=run_dir)
-        recovery = service.kernel.recover()
-        graph = service.graph_store.load()
-        oracle = service.graph_store.full_recompute_oracle()
-        workbench = service.workbench()["snapshot"]
-        checks = {
-            "event_replay_matches_snapshot": (
-                recovery["replayed_state_sha256"]
-                == service.kernel.state.to_dict()["content_sha256"]
-            ),
-            "graph_scientific_oracle_equal": (
-                graph["scientific_sha256"] == oracle["scientific_sha256"]
-            ),
-            "graph_topology_oracle_equal": (
-                graph["topology_sha256"] == oracle["topology_sha256"]
-            ),
-            "workbench_binds_graph": (
-                workbench["revision"]["graph_scientific_sha256"]
-                == graph["scientific_sha256"]
-            ),
-        }
-        return {
-            "schema_version": CAMPAIGN_GATEWAY_RESULT_SCHEMA,
-            "operation": "validate",
-            "run_id": service.kernel.spec.run_id,
-            "accepted": all(checks.values()),
-            "checks": checks,
-            "recovery": recovery,
-            "graph_revision": graph["revision"],
-            "graph_scientific_sha256": graph["scientific_sha256"],
-            "workbench_sha256": workbench["content_sha256"],
-        }
+        return validate_campaign(self._open(run_id, run_dir=run_dir))
 
     def replay(
         self,
@@ -235,27 +223,7 @@ class CampaignGateway:
         *,
         run_dir: str | Path | None = None,
     ) -> dict[str, Any]:
-        service = self._open(run_id, run_dir=run_dir)
-        before = service.kernel.state.to_dict()["content_sha256"]
-        recovery = service.kernel.recover()
-        after = service.kernel.state.to_dict()["content_sha256"]
-        oracle = service.graph_store.full_recompute_oracle()
-        graph = service.graph_store.load()
-        checks = {
-            "snapshot_reproduced": before == after,
-            "event_replay_digest_equal": recovery["replayed_state_sha256"] == after,
-            "graph_oracle_equal": (
-                graph["scientific_sha256"] == oracle["scientific_sha256"]
-            ),
-        }
-        return {
-            "schema_version": CAMPAIGN_GATEWAY_RESULT_SCHEMA,
-            "operation": "replay",
-            "run_id": service.kernel.spec.run_id,
-            "accepted": all(checks.values()),
-            "checks": checks,
-            "recovery": recovery,
-        }
+        return replay_campaign(self._open(run_id, run_dir=run_dir))
 
     def benchmark(
         self,
@@ -329,10 +297,8 @@ class CampaignGateway:
             if manifest and manifest.get("run_dir"):
                 directory = Path(str(manifest["run_dir"])).expanduser().resolve()
             else:
-                directory = self.paths.runs_root / _run_segment(run_id)
-        if require and not (
-            directory / ".autoplanner" / "kernel" / "run_spec.json"
-        ).is_file():
+                directory = self.paths.runs_root / run_segment(run_id)
+        if require and not (directory / ".autoplanner" / "kernel" / "run_spec.json").is_file():
             raise CampaignGatewayError(f"run_not_found:{run_id}")
         return directory
 
@@ -345,12 +311,7 @@ class CampaignGateway:
 
     @staticmethod
     def _new_run_id(target_name: str, target_smiles: str) -> str:
-        label = re.sub(r"[^a-z0-9]+", "-", target_name.lower()).strip("-")[:36]
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        digest = hashlib.sha256(
-            f"{target_name}\0{target_smiles}\0{stamp}".encode("utf-8")
-        ).hexdigest()[:10]
-        return f"{label or 'target'}-{stamp}-{digest}"
+        return new_run_id(target_name, target_smiles)
 
     @staticmethod
     def _result(
@@ -369,12 +330,6 @@ class CampaignGateway:
         }
 
 
-def _run_segment(run_id: str) -> str:
-    label = re.sub(r"[^A-Za-z0-9._-]+", "-", run_id).strip(".-")[:64] or "run"
-    digest = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:12]
-    return f"{label}--{digest}"
-
-
 def _digest(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(
@@ -385,10 +340,6 @@ def _digest(value: Any) -> str:
             allow_nan=False,
         ).encode("utf-8")
     ).hexdigest()
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 __all__ = [

@@ -81,6 +81,64 @@ def test_kernel_retries_transient_windows_atomic_replace_lock(
     assert attempts >= 3
 
 
+def test_kernel_retries_transient_windows_writer_lock_contention(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kernel = _kernel(tmp_path)
+    kernel.start()
+    real_mkdir = Path.mkdir
+    attempts = 0
+
+    def flaky_mkdir(path: Path, *args, **kwargs) -> None:
+        nonlocal attempts
+        if path == kernel.lock_path and attempts < 2:
+            attempts += 1
+            raise PermissionError("transient writer lock race")
+        real_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", flaky_mkdir)
+
+    kernel.reserve_task(
+        task_id="windows-contention",
+        kind="evidence",
+        idempotency_key="reserve-windows-contention",
+        input_revision=0,
+    )
+
+    assert attempts == 2
+    assert kernel.task_lifecycle("windows-contention")["status"] == "in_flight"
+
+
+def test_kernel_preserves_genuine_writer_lock_permission_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kernel = RunKernel(
+        tmp_path / "runtime",
+        tmp_path / "run",
+        spec=_spec(),
+        lock_timeout_s=0.1,
+    )
+    kernel.start()
+    real_mkdir = Path.mkdir
+
+    def denied_mkdir(path: Path, *args, **kwargs) -> None:
+        if path == kernel.lock_path:
+            raise PermissionError("writer lock ACL denied")
+        real_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", denied_mkdir)
+
+    with pytest.raises(PermissionError, match="writer lock ACL denied"):
+        kernel.reserve_task(
+            task_id="permission-denied",
+            kind="evidence",
+            idempotency_key="reserve-permission-denied",
+            input_revision=0,
+        )
+
+
 def test_kernel_creates_one_event_chain_snapshot_and_index(tmp_path: Path) -> None:
     kernel = _kernel(tmp_path)
     kernel.start()
@@ -165,12 +223,17 @@ def test_event_idempotency_prevents_double_count_and_conflicts(
 ) -> None:
     kernel = _kernel(tmp_path)
     kernel.start()
+    assert kernel.task_lifecycle("evidence")["status"] == "absent"
     first = kernel.reserve_task(
         task_id="evidence",
         kind="evidence",
         idempotency_key="reserve-evidence",
         input_revision=0,
     )
+    lifecycle = kernel.task_lifecycle("evidence")
+    assert lifecycle["status"] == "in_flight"
+    assert lifecycle["reservation"]["event_id"] == first.event_id
+    assert lifecycle["semantics"]["projection_grants_no_scientific_authority"] is True
     repeated = kernel.reserve_task(
         task_id="evidence",
         kind="evidence",
@@ -198,6 +261,9 @@ def test_event_idempotency_prevents_double_count_and_conflicts(
         status="completed",
     )
     assert replayed.event_id == settled.event_id
+    lifecycle = kernel.task_lifecycle("evidence")
+    assert lifecycle["status"] == "settled"
+    assert lifecycle["settlement"]["event_id"] == settled.event_id
     assert kernel.state.attempt_count == 0
 
 

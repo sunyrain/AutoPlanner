@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlparse
+import xml.etree.ElementTree as ET
 
 from cascade_planner.harness.source_ocr import HASH_BOUND_OCR_FORMAT
 
@@ -15,6 +16,7 @@ from cascade_planner.harness.source_ocr import HASH_BOUND_OCR_FORMAT
 SOURCE_TEXT_COMPANION_SPEC_SCHEMA = "trusted_source_text_companion.v1"
 SOURCE_TEXT_COMPANION_BINDING_SCHEMA = "source_text_companion_binding.v1"
 GOOGLE_PATENTS_HTML_FORMAT = "google_patents_html.v1"
+EPO_ST36_XML_FORMAT = "epo_st36_xml.v1"
 STRUCTURED_FULLTEXT_HTML_FORMAT = "structured_fulltext_html.v1"
 PRIMARY_HTML_AUTHORITY_MODE = "primary_html"
 _MAX_COMPANION_BYTES = 100_000_000
@@ -43,6 +45,15 @@ def materialize_source_text_companion_pages(
         and format_id == HASH_BOUND_OCR_FORMAT
     ):
         return _materialize_hash_bound_ocr_pages(
+            spec,
+            expected_source_ref=expected_source_ref,
+        )
+    if (
+        spec.get("schema_version") == SOURCE_TEXT_COMPANION_SPEC_SCHEMA
+        and expected_source_ref
+        and format_id == EPO_ST36_XML_FORMAT
+    ):
+        return _materialize_epo_st36_pages(
             spec,
             expected_source_ref=expected_source_ref,
         )
@@ -206,6 +217,25 @@ def validate_source_text_companion_binding(
                 if isinstance(row, Mapping)
             ],
         }
+    elif binding.get("format") == EPO_ST36_XML_FORMAT:
+        spec = {
+            "schema_version": SOURCE_TEXT_COMPANION_SPEC_SCHEMA,
+            "artifact_path": binding.get("artifact_path"),
+            "artifact_sha256": binding.get("artifact_sha256"),
+            "document_identity": binding.get("document_identity"),
+            "source_url": binding.get("source_url"),
+            "format": binding.get("format"),
+            "authority_mode": binding.get("authority_mode"),
+            "sections": [
+                {
+                    "page_number": row.get("page_number"),
+                    "start_element_id": row.get("start_element_id"),
+                    "end_element_id": row.get("end_element_id"),
+                }
+                for row in binding.get("sections") or []
+                if isinstance(row, Mapping)
+            ],
+        }
     elif binding.get("format") == STRUCTURED_FULLTEXT_HTML_FORMAT:
         spec = {
             "schema_version": SOURCE_TEXT_COMPANION_SPEC_SCHEMA,
@@ -260,7 +290,11 @@ def primary_html_companion(raw: Mapping[str, Any]) -> bool:
     row = dict(raw) if isinstance(raw, Mapping) else {}
     return bool(
         row.get("format")
-        in {GOOGLE_PATENTS_HTML_FORMAT, STRUCTURED_FULLTEXT_HTML_FORMAT}
+        in {
+            EPO_ST36_XML_FORMAT,
+            GOOGLE_PATENTS_HTML_FORMAT,
+            STRUCTURED_FULLTEXT_HTML_FORMAT,
+        }
         and row.get("authority_mode") == PRIMARY_HTML_AUTHORITY_MODE
     )
 
@@ -292,6 +326,39 @@ def official_google_patent_source(
     )
 
 
+def official_epo_patent_source(
+    *,
+    document_identity: str,
+    source_url: str,
+    source_ref: str,
+) -> bool:
+    """Return whether one URL is the EPO ST.36 XML for this EP publication."""
+
+    identity = _publication_identity(document_identity)
+    parsed = urlparse(str(source_url or ""))
+    match = re.fullmatch(
+        r"/publication-server/rest/v1\.2/"
+        r"(?:publication-dates/\d{8}/)?patents/"
+        r"(?P<document>EP\d{5,12}NW(?:A|B)\d)/document\.xml",
+        parsed.path,
+        flags=re.IGNORECASE,
+    )
+    if not identity or match is None:
+        return False
+    document_identity_key = re.sub(
+        r"NW(?=[AB]\d$)",
+        "",
+        str(match.group("document") or "").upper(),
+    )
+    return bool(
+        str(source_ref or "").strip().casefold()
+        == f"patent:{identity}".casefold()
+        and parsed.scheme == "https"
+        and (parsed.hostname or "").casefold() == "data.epo.org"
+        and document_identity_key == identity
+    )
+
+
 def source_text_companion_location(
     raw: Mapping[str, Any],
     *,
@@ -317,6 +384,13 @@ def source_text_companion_location(
             "kind": "structured_fulltext_section",
             "start_element_id": label,
             "end_element_id": label,
+            "text_sha256": str(section.get("text_sha256") or ""),
+        }
+    if binding.get("format") == EPO_ST36_XML_FORMAT:
+        return {
+            "kind": "xml_element_range",
+            "start_element_id": str(section.get("start_element_id") or ""),
+            "end_element_id": str(section.get("end_element_id") or ""),
             "text_sha256": str(section.get("text_sha256") or ""),
         }
     return {
@@ -349,6 +423,111 @@ def source_text_companion_matches_page(
     return len(matches) == 1 and str(matches[0].get("image_sha256") or "") == str(
         image_sha256 or ""
     )
+
+
+def _materialize_epo_st36_pages(
+    spec: Mapping[str, Any],
+    *,
+    expected_source_ref: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any], tuple[str, ...]]:
+    """Replay selected official EPO description elements from frozen XML."""
+
+    artifact_path = Path(str(spec.get("artifact_path") or "")).expanduser()
+    artifact_sha256 = str(spec.get("artifact_sha256") or "").strip().lower()
+    document_identity = _publication_identity(spec.get("document_identity"))
+    source_url = str(spec.get("source_url") or "").strip()
+    reasons: list[str] = []
+    if not artifact_path.is_file():
+        reasons.append("epo_st36_artifact_missing")
+    if not _is_sha256(artifact_sha256):
+        reasons.append("epo_st36_artifact_sha256_invalid")
+    if not official_epo_patent_source(
+        document_identity=document_identity,
+        source_url=source_url,
+        source_ref=expected_source_ref,
+    ):
+        reasons.append("epo_st36_origin_invalid")
+    sections = [
+        dict(row)
+        for row in spec.get("sections") or []
+        if isinstance(row, Mapping)
+    ]
+    if not 1 <= len(sections) <= 64:
+        reasons.append("epo_st36_section_count_invalid")
+    if reasons:
+        return [], {}, tuple(sorted(set(reasons)))
+    try:
+        artifact_bytes = artifact_path.read_bytes()
+    except OSError:
+        return [], {}, ("epo_st36_artifact_unreadable",)
+    if len(artifact_bytes) > _MAX_COMPANION_BYTES:
+        return [], {}, ("epo_st36_artifact_too_large",)
+    if hashlib.sha256(artifact_bytes).hexdigest() != artifact_sha256:
+        return [], {}, ("epo_st36_artifact_digest_mismatch",)
+    try:
+        root, blocks = extract_epo_patent_description_blocks(artifact_bytes)
+    except (ET.ParseError, RuntimeError, ValueError):
+        return [], {}, ("epo_st36_parse_failed",)
+    root_identity = _epo_root_publication_identity(root)
+    if root_identity != document_identity:
+        return [], {}, ("epo_st36_document_identity_mismatch",)
+    block_indices = {
+        str(row.get("element_id") or "").casefold(): index
+        for index, row in enumerate(blocks)
+    }
+    section_bindings: list[dict[str, Any]] = []
+    pages: list[dict[str, Any]] = []
+    for index, section in enumerate(sections, start=1):
+        page_number = int(section.get("page_number") or 0)
+        start_id = str(section.get("start_element_id") or "").strip().casefold()
+        end_id = str(section.get("end_element_id") or "").strip().casefold()
+        start = block_indices.get(start_id, -1)
+        end = block_indices.get(end_id, -1)
+        if page_number <= 0 or start < 0 or end < start:
+            reasons.append(f"epo_st36_section_{index}_range_invalid")
+            continue
+        selected_blocks = [dict(row) for row in blocks[start : end + 1]]
+        text = "\n\n".join(
+            str(row.get("text") or "") for row in selected_blocks
+        ).strip()
+        if not text:
+            reasons.append(f"epo_st36_section_{index}_text_missing")
+            continue
+        text_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        section_bindings.append(
+            {
+                "page_number": page_number,
+                "start_element_id": str(blocks[start]["element_id"]),
+                "end_element_id": str(blocks[end]["element_id"]),
+                "text_sha256": text_sha256,
+            }
+        )
+        pages.append(
+            {
+                "page_number": page_number,
+                "text": text,
+                "source_elements": selected_blocks,
+            }
+        )
+    if reasons:
+        return [], {}, tuple(sorted(set(reasons)))
+    if not section_bindings:
+        return [], {}, ("epo_st36_sections_missing",)
+    binding: dict[str, Any] = {
+        "schema_version": SOURCE_TEXT_COMPANION_BINDING_SCHEMA,
+        "source_ref": expected_source_ref,
+        "document_identity": document_identity,
+        "source_url": source_url,
+        "artifact_path": str(artifact_path.resolve()),
+        "artifact_sha256": artifact_sha256,
+        "format": EPO_ST36_XML_FORMAT,
+        "authority_mode": PRIMARY_HTML_AUTHORITY_MODE,
+        "sections": section_bindings,
+    }
+    binding["content_sha256"] = _digest(binding)
+    for page in pages:
+        page["source_text_companion_binding"] = dict(binding)
+    return pages, binding, ()
 
 
 def _materialize_structured_fulltext_pages(
@@ -616,6 +795,72 @@ def _materialize_hash_bound_ocr_pages(
     for page in page_rows:
         page["source_text_companion_binding"] = dict(binding)
     return page_rows, binding, ()
+
+
+def extract_epo_patent_description_blocks(
+    value: bytes | str,
+) -> tuple[ET.Element, list[dict[str, str]]]:
+    """Parse ordered, source-authored headings and paragraphs from ST.36 XML."""
+
+    payload = value.encode("utf-8") if isinstance(value, str) else bytes(value)
+    root = ET.fromstring(payload)
+    if _local_xml_name(root.tag) != "ep-patent-document":
+        raise ValueError("epo_st36_root_invalid")
+    description = next(
+        (
+            element
+            for element in root
+            if _local_xml_name(element.tag) == "description"
+        ),
+        None,
+    )
+    if description is None:
+        raise ValueError("epo_st36_description_missing")
+    blocks: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for element in description.iter():
+        kind = _local_xml_name(element.tag)
+        if kind not in {"heading", "p"}:
+            continue
+        element_id = str(element.attrib.get("id") or "").strip().casefold()
+        if (
+            not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", element_id)
+            or element_id in seen
+        ):
+            continue
+        text = re.sub(r"\s+", " ", "".join(element.itertext())).strip()
+        if not text:
+            continue
+        seen.add(element_id)
+        blocks.append(
+            {
+                "element_id": element_id,
+                "kind": kind,
+                "number": str(element.attrib.get("num") or ""),
+                "text": text,
+            }
+        )
+    if not blocks:
+        raise ValueError("epo_st36_description_blocks_missing")
+    return root, blocks
+
+
+def _epo_root_publication_identity(root: ET.Element) -> str:
+    if _local_xml_name(root.tag) != "ep-patent-document":
+        return ""
+    country = re.sub(r"[^A-Z]", "", str(root.attrib.get("country") or "").upper())
+    number = re.sub(r"\D", "", str(root.attrib.get("doc-number") or ""))
+    kind = re.sub(r"[^A-Z0-9]", "", str(root.attrib.get("kind") or "").upper())
+    return _publication_identity(f"{country}{number}{kind}")
+
+
+def _publication_identity(value: Any) -> str:
+    compact = re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+    return compact if re.fullmatch(r"EP\d{5,12}(?:A|B)\d", compact) else ""
+
+
+def _local_xml_name(value: Any) -> str:
+    return str(value or "").rsplit("}", 1)[-1].casefold()
 
 
 class _GooglePatentParagraphParser(HTMLParser):

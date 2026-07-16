@@ -18,9 +18,14 @@ from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.interfaces.target_solver import (
     TargetSolveConfig,
     _chemenzy_delegation_audit,
-    _evidence_observations,
-    _should_retry_chemenzy_timeout,
     _current_disposition,
+    _director_outcome_allows_replan,
+    _director_depth_replan_events,
+    _director_topology_replan_events,
+    _evidence_observations,
+    _planning_depth_requirement,
+    _replan_reasons,
+    _should_retry_chemenzy_timeout,
 )
 from cascade_planner.interfaces.validation_fork import ValidationForkConfig
 from cascade_planner.application.canonical_hypergraph import molecule_identity
@@ -33,6 +38,133 @@ from cascade_planner.runtime.paths import RuntimePaths
 
 
 TARGET = "CCOC(C)=O"
+
+
+def test_rejected_director_topology_triggers_one_replan_even_after_b2() -> None:
+    outcomes = [
+        {
+            "status": "accepted",
+            "proposal_audits": [
+                {
+                    "accepted": False,
+                    "reasons": ["skeleton_contains_disconnected_steps"],
+                }
+            ],
+        }
+    ]
+
+    events = _director_topology_replan_events(outcomes)
+    reasons = _replan_reasons(
+        {"gates": {"B2_host_validated_routes": True}},
+        material_events=events,
+    )
+
+    assert events == ("director_topology_rejected",)
+    assert reasons == ("director_topology_deficit",)
+
+
+def test_failed_director_contract_triggers_one_bounded_replan() -> None:
+    outcomes = [
+        {
+            "status": "failed",
+            "reasons": [
+                "GlobalCampaignPlanValidationError",
+                "route_families_without_skeletons:RF4",
+            ],
+        }
+    ]
+
+    events = _director_topology_replan_events(outcomes)
+    reasons = _replan_reasons(
+        {"gates": {"B2_host_validated_routes": False}},
+        material_events=events,
+    )
+
+    assert events == ("director_contract_rejected",)
+    assert _director_outcome_allows_replan(outcomes) is True
+    assert reasons == (
+        "director_contract_deficit",
+        "host_validated_route_deficit",
+    )
+
+
+def test_planning_depth_deficit_replans_but_keeps_short_skeleton_visible() -> None:
+    short_steps = [
+        {
+            "step_id": f"step:{index}",
+            "product_smiles": "CCO",
+            "precursor_smiles": ["CC"],
+        }
+        for index in range(9)
+    ]
+    outcomes = [
+        {
+            "status": "accepted",
+            "plan": {
+                "multi_step_skeletons": [
+                    {"skeleton_id": "short", "steps": short_steps}
+                ]
+            },
+            "proposal_audits": [
+                {
+                    "skeleton_id": "short",
+                    "proposal_id": f"step:{index}",
+                    "accepted": True,
+                }
+                for index in range(9)
+            ],
+        }
+    ]
+
+    depth = _planning_depth_requirement(outcomes, minimum_steps=20)
+    events = _director_depth_replan_events(depth)
+    reasons = _replan_reasons(
+        {"gates": {"B2_host_validated_routes": True}},
+        material_events=events,
+    )
+
+    assert depth["maximum_host_contract_accepted_steps"] == 9
+    assert depth["requirement_met"] is False
+    assert depth["observed_skeletons"][0]["skeleton_id"] == "short"
+    assert depth["semantics"]["shorter_routes_remain_visible"] is True
+    assert events == ("director_depth_deficit",)
+    assert reasons == ("planning_depth_deficit",)
+
+
+def test_planning_depth_accepts_one_complete_long_skeleton_only() -> None:
+    def outcome(skeleton_id: str, count: int, *, rejected: int | None = None) -> dict:
+        return {
+            "status": "accepted",
+            "plan": {
+                "multi_step_skeletons": [
+                    {
+                        "skeleton_id": skeleton_id,
+                        "steps": [
+                            {"step_id": f"{skeleton_id}:{index}"}
+                            for index in range(count)
+                        ],
+                    }
+                ]
+            },
+            "proposal_audits": [
+                {
+                    "skeleton_id": skeleton_id,
+                    "proposal_id": f"{skeleton_id}:{index}",
+                    "accepted": index != rejected,
+                }
+                for index in range(count)
+            ],
+        }
+
+    depth = _planning_depth_requirement(
+        [outcome("rejected-long", 21, rejected=4), outcome("accepted-long", 20)],
+        minimum_steps=20,
+    )
+
+    assert depth["requirement_met"] is True
+    assert depth["maximum_host_contract_accepted_steps"] == 20
+    assert depth["qualifying_skeleton_ids"] == ["accepted-long"]
+    assert _director_depth_replan_events(depth) == ()
 
 
 def test_evidence_replan_projection_is_bounded_and_chemistry_focused() -> None:
@@ -80,10 +212,10 @@ def test_evidence_replan_projection_is_bounded_and_chemistry_focused() -> None:
     )["source_discovery"]
 
     assert projected["source_count"] == 7
-    assert projected["selected_source_count"] == 4
-    assert projected["omitted_source_count"] == 3
+    assert projected["selected_source_count"] == 3
+    assert projected["omitted_source_count"] == 4
     assert projected["sources"][0]["source_ref"] == "patent:US6"
-    assert len(projected["sources"][0]["procedure_inventory"]) == 3
+    assert len(projected["sources"][0]["procedure_inventory"]) == 2
     assert (
         len(
             projected["sources"][0]["procedure_inventory"][0][
@@ -548,14 +680,22 @@ def test_target_only_solver_runs_global_plan_validation_stock_and_resume(
         "B5_configured_portfolio_acceptance": True,
     }
     assert result["claim"]["generated_route_portfolio"] is True
+    assert result["claim"]["host_validated_route_portfolio"] is True
     assert result["claim"]["exact_multi_source_grade"] is False
     assert result["claim"]["procurement_ready"] is False
     assert result["claim"]["acceptance_profile"] == "exploration_closed"
-    assert result["claim"]["achieved_profile"] == "exploration_closed"
+    assert result["claim"]["achieved_profile"] == "reaction_validated"
+    assert result["claim"]["product_profile_counts"]["reaction_validated"] >= 1
+    assert result["claim"]["literature_grounded"] is False
     assert result["claim"]["condition_complete"] is False
     assert result["claim"]["process_ready"] is False
     assert result["current_disposition"]["state"] == "accepted"
     assert Path(result["report_path"]).is_file()
+    global_stage = next(
+        row for row in result["stages"] if row["stage"] == "global_campaign"
+    )
+    assert global_stage["detail"]["status"] == "accepted"
+    assert global_stage["detail"]["plan"]["multi_step_skeletons"]
 
     resumed = gateway.solve_target(
         target_name="opaque blind molecule",
@@ -589,6 +729,43 @@ def test_current_disposition_does_not_treat_stale_terminal_as_scientific_success
     assert disposition["state"] == "terminal_snapshot_requires_revalidation"
     assert disposition["scientifically_accepted"] is False
     assert disposition["requires_revalidation"] is True
+
+
+def test_current_disposition_separates_hypotheses_from_validated_routes() -> None:
+    common = {
+        "kernel_status": "active",
+        "stop_decision": {"decision": "continue", "terminal": False},
+        "claim": {"accepted_under_configured_policy": False},
+    }
+    hypotheses = _current_disposition(
+        **common,
+        gates={
+            "gates": {
+                "B1_global_multi_route": True,
+                "B2_host_validated_routes": False,
+                "B3_exact_multi_source": False,
+                "B4_stock_boundary": False,
+                "B5_configured_portfolio_acceptance": False,
+            }
+        },
+    )
+    validated = _current_disposition(
+        **common,
+        gates={
+            "gates": {
+                "B1_global_multi_route": True,
+                "B2_host_validated_routes": True,
+                "B3_exact_multi_source": False,
+                "B4_stock_boundary": False,
+                "B5_configured_portfolio_acceptance": False,
+            }
+        },
+    )
+
+    assert hypotheses["state"] == "route_hypotheses_available_validation_open"
+    assert "host_route_validation_open" in hypotheses["reasons"]
+    assert validated["state"] == "routes_validated_proof_open"
+    assert "host_route_validation_open" not in validated["reasons"]
 
 
 def test_target_solver_reports_provider_failure_without_replan_or_false_closure(
@@ -635,6 +812,12 @@ def test_target_solver_reports_provider_failure_without_replan_or_false_closure(
         if key != "B0_blind_input"
     )
     assert result["claim"]["accepted_under_configured_policy"] is False
+    global_stage = next(
+        row for row in result["stages"] if row["stage"] == "global_campaign"
+    )
+    assert global_stage["detail"]["reasons"][-1].endswith(
+        "provider_unavailable"
+    )
     assert Path(result["report_path"]).is_file()
 
 
@@ -705,6 +888,44 @@ def test_fast_execution_profile_bounds_global_dossier(tmp_path: Path) -> None:
     assert observed[0].max_tool_calls == 4
 
 
+def test_proof_execution_profile_can_represent_long_route_skeletons(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    observed: list[Any] = []
+
+    def recording_runner(
+        spec: AgentSpec, context: Any, mode: str, config: Any
+    ) -> AgentResult:
+        observed.append(config)
+        return _runner(spec, context, mode, config)
+
+    gateway.solve_target(
+        target_name="long route proof profile",
+        target_smiles=TARGET,
+        run_id="long-route-proof-profile",
+        budget=RetrosynthesisRunBudget(
+            max_model_invocations=1,
+            max_total_input_tokens=20_000,
+            max_total_output_tokens=20_000,
+            max_total_wall_time_s=60.0,
+            max_accepted_expansions=16,
+            max_attempt_runs=32,
+        ),
+        config=TargetSolveConfig(
+            execution_profile="proof",
+            enable_chemenzy=False,
+            enable_web_search=False,
+            enable_replan=False,
+            enable_live_benchmark_stock=False,
+        ),
+        director_runner=recording_runner,
+    )
+
+    assert observed[0].max_steps_per_skeleton == 24
+    assert observed[0].max_output_tokens == 18_000
+
+
 def test_target_solver_ingests_bounded_chemenzy_proposals_before_codex(
     tmp_path: Path,
 ) -> None:
@@ -728,6 +949,13 @@ def test_target_solver_ingests_bounded_chemenzy_proposals_before_codex(
                             "product_smiles": TARGET,
                             "reactant_smiles": ["CCO", "CC(=O)Cl"],
                             "source_model": "fixture-chem-enzy",
+                            "enzyme_ec_annotations": [
+                                {
+                                    "ec_number": "3.1.1.-",
+                                    "enzyme_class": "acyltransferase",
+                                }
+                            ],
+                            "selectivity_objective": "chemoselective ester formation",
                             "condition_predictions": [
                                 {
                                     "temperature_c": 25,
@@ -796,6 +1024,10 @@ def test_target_solver_ingests_bounded_chemenzy_proposals_before_codex(
         == "model_predicted_condition"
     )
     assert chem_enzy_edge["condition_predictions"][0]["not_reaction_proof"] is True
+    enzyme_option = chem_enzy_edge["route_innovations"][0]
+    assert enzyme_option["kind"] == "biocatalytic_step"
+    assert enzyme_option["enzyme"]["ec_numbers"] == ["3.1.1.-"]
+    assert enzyme_option["not_reaction_proof"] is True
 
 
 def test_stock_rejected_leaf_runs_one_guided_chemenzy_pass(

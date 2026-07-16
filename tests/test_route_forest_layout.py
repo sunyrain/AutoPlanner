@@ -603,7 +603,7 @@ def test_branch_stage_authority_matrix_fails_closed_without_exact_bindings(
     assert projection["schema_version"] == "route_forest_branch_lanes.v2"
     assert (
         lane["stage_evidence"]["schema_version"]
-        == "route_forest_branch_stage_evidence.v2"
+        == "route_forest_branch_stage_evidence.v3"
     )
     assert lane["stage_memberships"] == memberships
     assert lane["stage_evidence"]["stock"]["closure_scope"] == stock_scope

@@ -127,6 +127,7 @@ def extract_literature_pdf_assets(
     warnings: list[str] = []
     rendered_pages: list[dict[str, Any]] = []
     fulltext_path = ""
+    fulltext_sha256 = ""
     page_texts: list[dict[str, Any]] = []
 
     if source_pdf:
@@ -145,6 +146,7 @@ def extract_literature_pdf_assets(
                 text_file = out / "fulltext.txt"
                 text_file.write_text(text, encoding="utf-8")
                 fulltext_path = str(text_file)
+                fulltext_sha256 = _sha256(text_file)
         else:
             reasons.append("pdf_path_missing")
 
@@ -174,6 +176,7 @@ def extract_literature_pdf_assets(
         "source_pdf_path": str(source_pdf) if source_pdf else "",
         "source_pdf_sha256": _sha256(source_pdf) if source_pdf and source_pdf.is_file() else "",
         "fulltext_path": fulltext_path,
+        "fulltext_sha256": fulltext_sha256,
         "rendered_pages": rendered_pages,
         "indexed_images": indexed_images,
         "scheme_crops": crop_rows,

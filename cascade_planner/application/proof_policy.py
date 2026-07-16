@@ -14,7 +14,12 @@ from typing import Any, Mapping
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
 )
-from cascade_planner.application.reaction_proof_versions import active_reaction_proofs
+from cascade_planner.application.fact_lifecycle import validate_fact_lifecycle_event
+from cascade_planner.application.proof_fact_projection import (
+    collect_edge_authority_facts,
+    lifecycle_impact,
+)
+from cascade_planner.application.route_innovations import innovation_proof_gate
 
 
 PROOF_POLICY_SCHEMA = "retrosynthesis_proof_policy.v1"
@@ -90,11 +95,14 @@ def stitch_edge_proof(
     reasons: list[str] = []
     if not edge or not _valid_content_digest(edge):
         reasons.append("canonical_edge_missing_or_digest_invalid")
-    reaction_proofs = [
-        dict(value)
-        for value in active_reaction_proofs(edge.get("reaction_proofs") or [])
-        if isinstance(value, Mapping) and _valid_reaction_proof(value)
-    ]
+    facts = collect_edge_authority_facts(graph, edge)
+    reasons.extend(facts["reasons"])
+    reaction_proofs = facts["reaction_proofs"]
+    exact_records = facts["exact_records"]
+    procedure_records = facts["procedure_records"]
+    source_binding_ids = set(facts["source_binding_ids"])
+    source_groups = set(facts["independent_source_groups"])
+    inactive_facts = list(facts["inactive_facts"])
     reaction_level = max(
         (_reaction_proof_level(value) for value in reaction_proofs),
         default=0,
@@ -102,33 +110,6 @@ def stitch_edge_proof(
     reaction_validated = reaction_level >= 2
     if not reaction_validated:
         reasons.append("reaction_validation_missing")
-
-    exact_records: list[dict[str, Any]] = []
-    source_binding_ids: set[str] = set()
-    source_groups: set[str] = set()
-    for record_id in edge.get("exact_record_ids") or []:
-        record = dict(dict(graph.get("exact_records") or {}).get(record_id) or {})
-        if not record or not _valid_content_digest(record):
-            reasons.append(f"exact_record_invalid:{record_id}")
-            continue
-        if str(record.get("edge_digest") or "") != str(edge.get("edge_digest") or ""):
-            reasons.append(f"exact_record_edge_mismatch:{record_id}")
-            continue
-        external_source_id = str(record.get("source_binding_id") or "")
-        canonical_source_id = str(
-            dict(graph.get("source_aliases") or {}).get(external_source_id) or ""
-        )
-        source = dict(
-            dict(graph.get("source_bindings") or {}).get(canonical_source_id) or {}
-        )
-        if not source or not _valid_content_digest(source):
-            reasons.append(f"exact_record_source_binding_invalid:{record_id}")
-            continue
-        exact_records.append(record)
-        source_binding_ids.add(canonical_source_id)
-        group = str(source.get("independence_group") or record.get("independence_group") or "")
-        if group and group != "codex_model":
-            source_groups.add(group)
 
     conflicts = _edge_conflicts(graph, edge=edge, exact_records=exact_records)
     if conflicts:
@@ -151,6 +132,10 @@ def stitch_edge_proof(
     independently_supported = (
         len(source_groups) >= policy.minimum_independent_source_groups
     )
+    innovation_gate = innovation_proof_gate(
+        edge.get("route_innovations") or [],
+        reaction_proofs,
+    )
     row = {
         "schema_version": EDGE_PROOF_STITCH_SCHEMA,
         "policy_version": policy.version,
@@ -167,9 +152,14 @@ def stitch_edge_proof(
         "exact_record_ids": sorted(
             str(value.get("record_id") or "") for value in exact_records
         ),
+        "procedure_record_ids": sorted(
+            str(value.get("procedure_record_id") or "")
+            for value in procedure_records
+        ),
         "source_binding_ids": sorted(source_binding_ids),
         "independent_source_groups": sorted(source_groups),
         "independently_supported": independently_supported,
+        "innovation_proof_gate": innovation_gate,
         "conflict_ids": sorted(
             str(value.get("conflict_id") or "") for value in conflicts
         ),
@@ -178,10 +168,14 @@ def stitch_edge_proof(
         "required_level": policy.minimum_edge_proof_level,
         "accepted": accepted,
         "reasons": sorted(set(reasons)),
+        "inactive_fact_count": len(inactive_facts),
+        "inactive_facts": inactive_facts,
         "semantics": {
             "weakest_axis_controls_level": True,
             "exact_source_does_not_replace_reaction_validation": True,
             "conflict_blocks_edge_acceptance": True,
+            "inactive_facts_never_grant_authority": True,
+            "enzyme_label_alone_never_grants_biocatalysis_validation": True,
         },
     }
     row["content_sha256"] = _digest(row)
@@ -196,6 +190,7 @@ def stitch_leaf_stock_proof(
 ) -> dict[str, Any]:
     molecule = dict(dict(graph.get("molecules") or {}).get(molecule_id) or {})
     reasons: list[str] = []
+    inactive_facts: dict[tuple[str, str], dict[str, Any]] = {}
     if not molecule or not _valid_content_digest(molecule):
         reasons.append("canonical_leaf_missing_or_digest_invalid")
     observation_id = str(molecule.get("active_stock_observation_id") or "")
@@ -203,7 +198,29 @@ def stitch_leaf_stock_proof(
         dict(graph.get("stock_observations") or {}).get(observation_id) or {}
     )
     if not observation or not _valid_content_digest(observation):
+        for inactive_id in molecule.get("inactive_stock_observation_ids") or []:
+            inactive_observation = dict(
+                dict(graph.get("stock_observations") or {}).get(str(inactive_id)) or {}
+            )
+            if inactive_observation:
+                _fact_active(
+                    graph,
+                    "stock_observation",
+                    str(inactive_id),
+                    inactive_observation,
+                    inactive_facts=inactive_facts,
+                    reasons=reasons,
+                )
         reasons.append("trusted_active_stock_observation_missing")
+    elif not _fact_active(
+        graph,
+        "stock_observation",
+        observation_id,
+        observation,
+        inactive_facts=inactive_facts,
+        reasons=reasons,
+    ):
+        pass
     elif str(observation.get("molecule_id") or "") != molecule_id:
         reasons.append("stock_observation_molecule_mismatch")
     elif observation.get("accepted") is not True:
@@ -224,9 +241,12 @@ def stitch_leaf_stock_proof(
         "required_boundary": policy.stock_boundary,
         "accepted": accepted,
         "reasons": sorted(set(reasons)),
+        "inactive_fact_count": len(inactive_facts),
+        "inactive_facts": [inactive_facts[key] for key in sorted(inactive_facts)],
         "semantics": {
             "commonness_is_not_stock_authority": True,
             "active_observation_required": True,
+            "inactive_observations_never_close_stock": True,
         },
     }
     row["content_sha256"] = _digest(row)
@@ -259,6 +279,8 @@ def validate_canonical_graph_entities(graph: Mapping[str, Any]) -> list[str]:
         "edges",
         "source_bindings",
         "exact_records",
+        "procedure_records",
+        "fact_lifecycle_events",
         "stock_observations",
         "route_families",
         "hypotheses",
@@ -274,6 +296,8 @@ def validate_canonical_graph_entities(graph: Mapping[str, Any]) -> list[str]:
                 "edges": "edge_id",
                 "source_bindings": "source_binding_id",
                 "exact_records": "record_id",
+                "procedure_records": "procedure_record_id",
+                "fact_lifecycle_events": "event_id",
                 "stock_observations": "stock_observation_id",
                 "route_families": "route_family_id",
                 "hypotheses": "hypothesis_id",
@@ -283,6 +307,8 @@ def validate_canonical_graph_entities(graph: Mapping[str, Any]) -> list[str]:
                 reasons.append(
                     f"canonical_entity_identity_mismatch:{section}:{entity_id}"
                 )
+            if section == "fact_lifecycle_events":
+                reasons.extend(validate_fact_lifecycle_event(row))
     molecules = dict(graph.get("molecules") or {})
     target_id = str(graph.get("target_molecule_id") or "")
     if not target_id or target_id not in molecules:
@@ -305,6 +331,23 @@ def validate_canonical_graph_entities(graph: Mapping[str, Any]) -> list[str]:
                 f"canonical_stock_molecule_reference_invalid:{observation_id}"
             )
     return sorted(set(reasons))
+
+
+def _fact_active(
+    graph: Mapping[str, Any],
+    subject_kind: str,
+    subject_id: str,
+    subject: Mapping[str, Any],
+    *,
+    inactive_facts: dict[tuple[str, str], dict[str, Any]],
+    reasons: list[str],
+) -> bool:
+    impact = lifecycle_impact(graph, subject_kind, subject_id, subject)
+    if not impact:
+        return True
+    reasons.append(f"{subject_kind}_{impact['status']}:{subject_id}")
+    inactive_facts[(subject_kind, subject_id)] = impact
+    return False
 
 
 def _edge_conflicts(
@@ -336,16 +379,6 @@ def _reaction_proof_level(value: Mapping[str, Any]) -> int:
     if value.get("accepted") is True or name == "L2_reaction_validated":
         return 2
     return 0
-
-
-def _valid_reaction_proof(value: Mapping[str, Any]) -> bool:
-    row = dict(value)
-    supplied = str(row.pop("proof_digest", ""))
-    return bool(
-        supplied
-        and supplied == _digest(row)
-        and row.get("schema_version") == "reaction_step_proof.v1"
-    )
 
 
 def _valid_content_digest(value: Mapping[str, Any]) -> bool:

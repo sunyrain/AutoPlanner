@@ -322,3 +322,62 @@ def test_discovered_source_route_uses_canonical_route_and_edge_ingestion(
     assert replay["materialization_command_count"] == 0
     assert replay["materialized_edge_ids"] == result["materialized_edge_ids"]
     assert service.kernel.state.accepted_expansion_count == 2
+
+
+def test_empty_source_route_observation_is_not_reported_as_host_rejection(
+    tmp_path: Path,
+) -> None:
+    spec = RunSpec(
+        run_id="empty-source-route",
+        target_name="target",
+        target_smiles="CCO",
+        created_at="2026-07-16T00:00:00Z",
+        limits=RunLimits(
+            model=RetrosynthesisRunBudget(
+                max_model_invocations=0,
+                max_accepted_expansions=2,
+                max_attempt_runs=4,
+            ),
+            max_total_tasks=8,
+        ),
+    )
+    service = RetrosynthesisCampaignService.create(
+        tmp_path / "runtime",
+        tmp_path / "run",
+        spec=spec,
+    )
+    body = {
+        "schema_version": "deterministic_source_route_observation.v1",
+        "source_ref": "patent:EMPTY",
+        "source_artifact_sha256": "b" * 64,
+        "route_family": {
+            "route_family_id": "source-route-family:empty",
+            "family_key": "source-route-family:empty",
+            "strategy": "source DAG",
+            "selected": True,
+        },
+        "proposal_count": 0,
+        "proposals": [],
+        "diagnostics": [],
+        "resolver_attempt_count": 0,
+        "resolved_procedure_count": 0,
+        "unconnected_proposal_count": 0,
+        "semantics": {"proposals_grant_no_exact_or_reaction_proof": True},
+    }
+    observation = {**body, "content_sha256": _digest(body)}
+
+    result = materialize_discovered_source_routes(
+        service,
+        {
+            "sources": [
+                {
+                    "source_ref": "patent:EMPTY",
+                    "source_route_observation": observation,
+                }
+            ]
+        },
+    )
+
+    assert result["status"] == "not_needed"
+    assert result["proposal_count"] == 0
+    assert result["rejected_observations"] == []

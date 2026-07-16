@@ -1,4 +1,4 @@
-"""HTML-first exact-row attempt for one primary patent publication."""
+"""Official structured-text-first exact-row attempt for one patent."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,6 +11,11 @@ from cascade_planner.harness.deterministic_literature_registry import (
 from cascade_planner.harness.source_html import (
     PatentHtmlConfig,
     materialize_primary_patent_html,
+)
+from cascade_planner.harness.source_patent_xml import (
+    PATENT_XML_MATERIALIZATION_SCHEMA,
+    PatentXmlConfig,
+    materialize_primary_patent_xml,
 )
 
 
@@ -28,6 +33,7 @@ def attempt_primary_patent_html(
     max_html_sections: int,
     max_html_paragraphs: int,
     fetch: BytesFetcher,
+    fetch_xml: BytesFetcher | None = None,
     compile_registry: RegistryCompiler,
     resolve_structure: StructureResolver,
     resolve_names: CandidateNameResolver,
@@ -35,73 +41,53 @@ def attempt_primary_patent_html(
 ) -> dict[str, Any]:
     publication = str(candidate.get("publication_number") or "")
     source_ref = f"patent:{publication}"
-    html_url = str(candidate.get("html_url") or "").strip()
-    if not publication or not html_url:
-        return _attempt("not_available", reason="primary_patent_html_url_missing")
-    prefetched = candidate.get("_primary_html_bytes")
-    if isinstance(prefetched, bytes):
-        if len(prefetched) > max_html_bytes:
-            return _attempt(
-                "failed",
-                reason="primary_patent_html_prefetch_size_limit_exceeded",
-            )
-        content = prefetched
-    else:
-        try:
-            content = fetch(html_url, timeout_s, max_html_bytes)
-        except Exception as exc:  # external source failure must fall back to PDF
-            return _attempt(
-                "failed",
-                reason=(
-                    "primary_patent_html_fetch_failed:"
-                    f"{type(exc).__name__}:{str(exc)[:300]}"
-                ),
-            )
-    try:
-        materialization = materialize_primary_patent_html(
-            content=content,
-            publication=publication,
-            source_ref=source_ref,
-            source_url=html_url,
-            output_dir=output_dir / "html",
-            target_terms=_source_terms(
-                edges,
-                target_terms=target_terms,
-                resolve_names=resolve_names,
-            ),
-            config=PatentHtmlConfig(
-                max_bytes=max_html_bytes,
-                max_sections=max_html_sections,
-                max_selected_paragraphs=max_html_paragraphs,
-            ),
-        )
-    except Exception as exc:
-        return _attempt(
-            "failed",
-            reason=(
-                "primary_patent_html_materialization_failed:"
-                f"{type(exc).__name__}:{str(exc)[:300]}"
-            ),
-        )
+    edge_rows = [dict(row) for row in edges if isinstance(row, Mapping)]
+    terms = _source_terms(
+        edge_rows,
+        target_terms=target_terms,
+        resolve_names=resolve_names,
+    )
+    materialization, source_attempts, reason = _materialize_primary_source(
+        candidate,
+        publication=publication,
+        source_ref=source_ref,
+        output_dir=output_dir,
+        timeout_s=timeout_s,
+        max_bytes=max_html_bytes,
+        max_sections=max_html_sections,
+        max_elements=max_html_paragraphs,
+        fetch_html=fetch,
+        fetch_xml=fetch_xml or fetch,
+        target_terms=terms,
+    )
     if materialization.get("status") != "completed":
         return _attempt(
-            "unresolved",
-            reason="primary_patent_html_materialization_unresolved",
+            "not_available" if not source_attempts else "unresolved",
+            reason=reason or "primary_patent_structured_text_unresolved",
             materialization=materialization,
+            structured_source_attempts=source_attempts,
         )
     companion = dict(materialization.get("companion") or {})
     steps = _registry_steps(
-        edges,
+        edge_rows,
         source_ref=source_ref,
         companion=companion,
         resolve_names=resolve_names,
     )
     try:
+        artifact_kind = (
+            "xml"
+            if materialization.get("schema_version")
+            == PATENT_XML_MATERIALIZATION_SCHEMA
+            else "html"
+        )
         audit = dict(
             compile_registry(
                 steps,
                 registry_path=(
-                    output_dir / "html" / "deterministic-step-registry.json"
+                    output_dir
+                    / artifact_kind
+                    / "deterministic-step-registry.json"
                 ),
                 structure_resolver=resolve_structure,
                 candidate_name_resolver=resolve_names,
@@ -112,10 +98,11 @@ def attempt_primary_patent_html(
         return _attempt(
             "failed",
             reason=(
-                "primary_patent_html_registry_failed:"
+                "primary_patent_structured_text_registry_failed:"
                 f"{type(exc).__name__}:{str(exc)[:300]}"
             ),
             materialization=materialization,
+            structured_source_attempts=source_attempts,
         )
     accepted = sorted(
         str(row.get("step_id") or "")
@@ -128,7 +115,116 @@ def attempt_primary_patent_html(
         registry_audit=audit,
         accepted_edge_ids=accepted,
         attempted_edge_count=len(steps),
+        source_artifact_kind=artifact_kind,
+        structured_source_attempts=source_attempts,
     )
+
+
+def _materialize_primary_source(
+    candidate: Mapping[str, Any],
+    *,
+    publication: str,
+    source_ref: str,
+    output_dir: Path,
+    timeout_s: float,
+    max_bytes: int,
+    max_sections: int,
+    max_elements: int,
+    fetch_html: BytesFetcher,
+    fetch_xml: BytesFetcher,
+    target_terms: Iterable[str],
+) -> tuple[dict[str, Any], list[dict[str, str]], str]:
+    attempts: list[dict[str, str]] = []
+    xml_url = str(candidate.get("xml_url") or "").strip()
+    html_url = str(candidate.get("html_url") or "").strip()
+    if not publication:
+        return {}, attempts, "primary_patent_publication_missing"
+    if xml_url:
+        try:
+            prefetched_xml = candidate.get("_primary_xml_bytes")
+            if isinstance(prefetched_xml, bytes):
+                if len(prefetched_xml) > max_bytes:
+                    raise ValueError("primary_patent_xml_prefetch_size_limit_exceeded")
+                xml_content = prefetched_xml
+            else:
+                xml_content = fetch_xml(xml_url, timeout_s, max_bytes)
+            materialization = materialize_primary_patent_xml(
+                content=xml_content,
+                publication=publication,
+                source_ref=source_ref,
+                source_url=xml_url,
+                output_dir=output_dir / "xml",
+                target_terms=target_terms,
+                config=PatentXmlConfig(
+                    max_bytes=max_bytes,
+                    max_sections=max_sections,
+                    max_selected_elements=max_elements,
+                ),
+            )
+        except Exception as exc:
+            attempts.append(
+                {
+                    "source_artifact_kind": "xml",
+                    "status": "failed",
+                    "reason": f"{type(exc).__name__}:{str(exc)[:300]}",
+                }
+            )
+        else:
+            attempts.append(
+                {
+                    "source_artifact_kind": "xml",
+                    "status": str(materialization.get("status") or "failed"),
+                    "reason": ";".join(materialization.get("reasons") or []),
+                }
+            )
+            if materialization.get("status") == "completed":
+                return materialization, attempts, ""
+    if html_url:
+        try:
+            prefetched_html = candidate.get("_primary_html_bytes")
+            if isinstance(prefetched_html, bytes):
+                if len(prefetched_html) > max_bytes:
+                    raise ValueError("primary_patent_html_prefetch_size_limit_exceeded")
+                html_content = prefetched_html
+            else:
+                html_content = fetch_html(html_url, timeout_s, max_bytes)
+            materialization = materialize_primary_patent_html(
+                content=html_content,
+                publication=publication,
+                source_ref=source_ref,
+                source_url=html_url,
+                output_dir=output_dir / "html",
+                target_terms=target_terms,
+                config=PatentHtmlConfig(
+                    max_bytes=max_bytes,
+                    max_sections=max_sections,
+                    max_selected_paragraphs=max_elements,
+                ),
+            )
+        except Exception as exc:
+            attempts.append(
+                {
+                    "source_artifact_kind": "html",
+                    "status": "failed",
+                    "reason": f"{type(exc).__name__}:{str(exc)[:300]}",
+                }
+            )
+        else:
+            attempts.append(
+                {
+                    "source_artifact_kind": "html",
+                    "status": str(materialization.get("status") or "failed"),
+                    "reason": ";".join(materialization.get("reasons") or []),
+                }
+            )
+            if materialization.get("status") == "completed":
+                return materialization, attempts, ""
+    reason = (
+        "primary_patent_structured_text_url_missing"
+        if not attempts
+        else "primary_patent_structured_text_materialization_unresolved"
+    )
+    return {}, attempts, reason
 
 
 def _registry_steps(
@@ -186,7 +282,7 @@ def _source_terms(
 
 def _attempt(status: str, *, reason: str = "", **values: Any) -> dict[str, Any]:
     return {
-        "schema_version": "primary_patent_html_attempt.v1",
+        "schema_version": "primary_patent_structured_text_attempt.v1",
         "status": status,
         "reason": reason,
         "model_invocations": 0,

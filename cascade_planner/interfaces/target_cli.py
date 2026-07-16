@@ -70,7 +70,8 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         default="fast",
         help=(
             "fast is the default and returns a compact two-family architecture; "
-            "standard expands breadth; proof permits the largest bounded dossier"
+            "standard expands breadth; proof permits up to 24-step skeletons "
+            "for long-route dossiers"
         ),
     )
     agent_mode = solve.add_mutually_exclusive_group()
@@ -161,6 +162,13 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--minimum-edge-proof-level", type=int, default=2)
     solve.add_argument("--minimum-source-groups", type=int, default=2)
     solve.add_argument(
+        "--minimum-planning-route-steps",
+        type=int,
+        choices=range(0, 25),
+        default=0,
+        help="require one host-contract-accepted planning skeleton of this depth",
+    )
+    solve.add_argument(
         "--stock-boundary",
         choices=("benchmark_search", "procurement", "in_house"),
         default="benchmark_search",
@@ -169,6 +177,7 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
     solve.add_argument("--max-input-tokens", type=int, default=50_000)
     solve.add_argument("--max-output-tokens", type=int, default=14_000)
     solve.add_argument("--max-model-wall-time-s", type=float, default=720.0)
+    solve.add_argument("--max-prompt-context-bytes", type=int, default=96_000)
     solve.add_argument(
         "--max-visual-invocations",
         type=int,
@@ -451,7 +460,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             max_visual_invocations=args.max_visual_invocations,
             max_accepted_expansions=args.max_accepted_expansions,
             max_attempt_runs=args.max_attempt_runs,
-            max_prompt_context_bytes=96_000,
+            max_prompt_context_bytes=args.max_prompt_context_bytes,
         ),
         config=TargetSolveConfig(
             model=args.model,
@@ -489,6 +498,7 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             max_guided_chemenzy_iterations=args.guided_chemenzy_iterations,
             guided_chemenzy_timeout_s=args.guided_chemenzy_timeout_s,
             max_visual_evidence_pages=args.max_visual_pages,
+            minimum_planning_route_steps=args.minimum_planning_route_steps,
         ),
     )
     return result if args.full_output else _compact_target_result(result)
@@ -508,6 +518,7 @@ def _compact_target_result(result: Any) -> dict[str, Any]:
         ),
         "counts": dict(gates.get("counts") or {}),
         "claim": dict(row.get("claim") or {}),
+        "planning_depth": dict(row.get("planning_depth") or {}),
         "current_disposition": dict(row.get("current_disposition") or {}),
         "self_evolution": {
             "enabled": dict(row.get("self_evolution") or {}).get("enabled") is True,

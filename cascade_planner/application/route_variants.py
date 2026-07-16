@@ -11,6 +11,10 @@ from cascade_planner.application.proof_policy import (
     ProofPolicy,
     stitch_leaf_stock_proof,
 )
+from cascade_planner.application.route_innovations import (
+    BIOCATALYTIC_KINDS,
+    route_innovation_summary,
+)
 
 
 PROOF_ROUTE_SCHEMA = "proof_stitched_route.v1"
@@ -155,6 +159,23 @@ def build_route_candidate(
     edge_ids = sorted(variant.edge_ids)
     leaf_ids = sorted(variant.leaf_ids)
     proofs = [dict(edge_proofs[edge_id]) for edge_id in edge_ids]
+    innovation_summary = route_innovation_summary(
+        graph,
+        edge_ids,
+        route_family_id=family_id,
+    )
+    unvalidated_biocatalytic_edge_ids: list[str] = []
+    for option in innovation_summary["selected_options"]:
+        if option.get("kind") not in BIOCATALYTIC_KINDS:
+            continue
+        edge_id = str(option.get("edge_id") or "")
+        gate = dict(edge_proofs.get(edge_id, {}).get("innovation_proof_gate") or {})
+        option_id = str(option.get("innovation_id") or "")
+        validated_ids = {
+            str(value) for value in gate.get("validated_innovation_ids") or []
+        }
+        if gate.get("generic_validation") is not True and option_id not in validated_ids:
+            unvalidated_biocatalytic_edge_ids.append(edge_id)
     leaves = [
         leaf_proof_cache.setdefault(
             molecule_id,
@@ -179,10 +200,17 @@ def build_route_candidate(
         }
     )
     min_proof = min((int(value["achieved_level"]) for value in proofs), default=0)
+    if unvalidated_biocatalytic_edge_ids:
+        min_proof = min(min_proof, 1)
     unproven_edge_ids = sorted(
-        str(value["edge_id"])
-        for value in proofs
-        if value.get("accepted") is not True
+        {
+            *(
+                str(value["edge_id"])
+                for value in proofs
+                if value.get("accepted") is not True
+            ),
+            *unvalidated_biocatalytic_edge_ids,
+        }
     )
     stock_rate = sum(value["accepted"] is True for value in leaves) / max(
         1, len(leaves)
@@ -197,7 +225,11 @@ def build_route_candidate(
         not source_required
         or len(source_groups) >= policy.minimum_independent_source_groups
     )
-    complete = bool(edge_ids) and all(value["accepted"] is True for value in proofs)
+    complete = (
+        bool(edge_ids)
+        and all(value["accepted"] is True for value in proofs)
+        and not unvalidated_biocatalytic_edge_ids
+    )
     if policy.require_stock_for_every_selected_leaf:
         complete = complete and bool(leaves) and stock_rate == 1.0
     complete = complete and source_met and not conflicts
@@ -221,6 +253,11 @@ def build_route_candidate(
         + 0.20 * (not source_met)
         + 0.15 * bool(conflicts)
         + 0.05 * min(1.0, len(edge_ids) / 12.0)
+        + 0.08 * min(1.0, len(unvalidated_biocatalytic_edge_ids))
+        + 0.04 * min(
+            1.0,
+            int(innovation_summary["mechanism_extrapolation_count"]),
+        )
     )
     identity = {
         "route_family_id": family_id,
@@ -239,7 +276,8 @@ def build_route_candidate(
             "module_selections": dict(variant.module_selections),
             "minimum_edge_proof_level": min_proof,
             "all_edges_proven": bool(proofs)
-            and all(value["accepted"] for value in proofs),
+            and all(value["accepted"] for value in proofs)
+            and not unvalidated_biocatalytic_edge_ids,
             "unproven_edge_ids": unproven_edge_ids,
             "stock_closure_rate": round(stock_rate, 6),
             "all_leaves_stock_closed": bool(leaves) and stock_rate == 1.0,
@@ -249,14 +287,45 @@ def build_route_candidate(
             "source_independence_required": source_required,
             "conflict_ids": conflicts,
             "length": len(edge_ids),
+            "physical_step_count": len(edge_ids),
+            "chemical_step_equivalent_count": int(
+                innovation_summary["chemical_step_equivalent_count"]
+            ),
+            "net_step_savings": int(innovation_summary["net_step_savings"]),
+            "biocatalytic_superstep_count": int(
+                innovation_summary["biocatalytic_superstep_count"]
+            ),
+            "biocatalytic_step_count": int(
+                innovation_summary["biocatalytic_step_count"]
+            ),
+            "mechanism_extrapolation_count": int(
+                innovation_summary["mechanism_extrapolation_count"]
+            ),
+            "unvalidated_biocatalytic_edge_ids": sorted(
+                set(unvalidated_biocatalytic_edge_ids)
+            ),
+            "route_innovation_summary": innovation_summary,
             "convergence_score": round(convergence, 6),
             "risk_score": round(float(risk), 6),
             "complete": complete,
             "selected": False,
+            "reported_in_source": family.get("reported_in_source") is True,
+            "reported_source_refs": sorted(
+                {
+                    str(value)
+                    for value in family.get("reported_source_refs") or []
+                    if str(value)
+                }
+            ),
             "semantics": {
                 "weakest_edge_controls_route": True,
                 "every_leaf_requires_stock_observation": True,
                 "counts_do_not_override_boolean_proofs": True,
+                "reported_route_survives_unresolved_edge_for_display": (
+                    family.get("reported_in_source") is True
+                ),
+                "biocatalytic_superstep_requires_specific_validation": True,
+                "mechanism_extrapolation_never_claims_anchor_source_reported_it": True,
             },
         }
     )

@@ -64,6 +64,27 @@ def test_blind_case_requires_canonical_smiles_and_generic_options_only() -> None
         BlindCase.from_dict(row)
 
 
+@pytest.mark.parametrize("value", [-1, 25, True, 20.0, "20"])
+def test_blind_case_bounds_generic_minimum_planning_depth(value: object) -> None:
+    row = _case()
+    row["acceptance"] = {
+        **dict(row["acceptance"]),
+        "minimum_planning_route_steps": value,
+    }
+
+    with pytest.raises(BlindBenchmarkError, match="planning_route_steps_invalid"):
+        BlindCase.from_dict(row)
+
+    accepted = _case()
+    accepted["acceptance"] = {
+        **dict(accepted["acceptance"]),
+        "minimum_planning_route_steps": 20,
+    }
+    assert (
+        BlindCase.from_dict(accepted).acceptance["minimum_planning_route_steps"] == 20
+    )
+
+
 def test_manifest_loads_target_only_cases_and_rejects_duplicate_targets(
     tmp_path: Path,
 ) -> None:

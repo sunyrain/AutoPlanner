@@ -1,8 +1,8 @@
 """Coordinate global reasoning and deterministic work on one V4 RunKernel."""
+
 from __future__ import annotations
 
 from pathlib import Path
-import hashlib
 from typing import Any, Iterable, Mapping
 
 from cascade_planner.application.campaign_context import CampaignContext, CampaignContextCompiler
@@ -34,6 +34,15 @@ from cascade_planner.orchestration.global_campaign_director import (
     DirectorOutcome,
     DirectorRunner,
     GlobalCampaignDirector,
+)
+from cascade_planner.orchestration import route_innovation_runtime
+from cascade_planner.orchestration.program_admission_runtime import (
+    admit_program_projection,
+    program_projection_read,
+    program_store_read,
+)
+from cascade_planner.orchestration.workbench_publication import (
+    publish_workbench_snapshot,
 )
 
 
@@ -204,6 +213,21 @@ class RetrosynthesisCampaignService:
             previous=self._previous_context,
         )
 
+    def review_route_innovations(
+        self,
+        route_id: str,
+        *,
+        capabilities: Mapping[str, Any] | Iterable[Mapping[str, Any]],
+        mechanism_proposals: Iterable[Mapping[str, Any]] = (),
+    ) -> dict[str, Any]:
+        return route_innovation_runtime.review_route_innovations(
+            self.graph_store.load(),
+            acceptance_spec=self.kernel.spec.acceptance,
+            route_id=route_id,
+            capabilities=capabilities,
+            mechanism_proposals=mechanism_proposals,
+        )
+
     def execute_frontier_materialization(
         self,
         *,
@@ -350,13 +374,24 @@ class RetrosynthesisCampaignService:
             graph,
             acceptance_spec=self.kernel.spec.acceptance,
         )
-        snapshot = compile_route_workbench(
-            graph, portfolio, campaign_summary=campaign_summary
-        )
+        snapshot = compile_route_workbench(graph, portfolio, campaign_summary=campaign_summary)
         return {
             "snapshot": snapshot,
             "delta": compile_route_workbench_delta(previous, snapshot),
         }
+
+    def program_projection(self) -> dict[str, Any]:
+        return program_projection_read(self.graph_store)
+
+    def program_store(self) -> dict[str, Any]:
+        return program_store_read(self.kernel, self.graph_store)
+
+    def admit_programs(self, *, enable_program_admission: bool = False) -> dict[str, Any]:
+        return admit_program_projection(
+            self.kernel,
+            self.graph_store,
+            enable_program_admission=enable_program_admission,
+        )
 
     def publish_workbench(
         self,
@@ -367,30 +402,10 @@ class RetrosynthesisCampaignService:
         """Publish the display projection without changing scientific state."""
 
         result = self.workbench(previous=previous, campaign_summary=campaign_summary)
-        snapshot = result["snapshot"]
-        ref = self.kernel.artifacts.put_json(
-            snapshot,
-            logical_name="retrosynthesis_route_workbench.json",
-            producer="autoplanner.route_workbench",
-        )
-        run_digest = hashlib.sha256(self.kernel.spec.run_id.encode("utf-8")).hexdigest()
-        self.kernel.artifacts.write_pointer(
-            f"u/{run_digest[:24]}/latest",
-            ref,
-            metadata={
-                "run_id": self.kernel.spec.run_id,
-                "graph_revision": self.kernel.state.graph_revision,
-                "portfolio_route_count": snapshot["portfolio"]["route_count"],
-            },
-        )
-        self.kernel.index.index_artifact(
-            run_id=self.kernel.spec.run_id,
-            artifact_id="retrosynthesis_route_workbench",
-            ref=ref,
-            revision=self.kernel.state.graph_revision,
-            authority_scope="display_projection_only",
-        )
-        return {**result, "snapshot_ref": ref.to_dict()}
+        return {
+            **result,
+            "snapshot_ref": publish_workbench_snapshot(self.kernel, result["snapshot"]),
+        }
 
     def _publish_graph_frontier(
         self,

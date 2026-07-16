@@ -50,6 +50,11 @@ run manifests, artifact metadata, logs, or exceptions.
 - Run manifest pointers automatically pin their manifest object.
 - Scientific artifacts referenced by retained manifests must be supplied as
   explicit GC pins until transitive manifest pin discovery lands.
+- Explicit Program admission indexes its historical graph and projection refs
+  with `shadow_program_admission_*` authority scopes.  This pins their bytes
+  for GC but grants no proof, route, or completion authority; the immutable
+  run-local admission event remains the replay binding.  GC also replays these
+  events directly, so recreating an empty RunIndex cannot orphan Program refs.
 - GC is a dry run by default and reports candidate digests, ages, and bytes.
 - Deletion requires explicit confirmation and revalidates every candidate
   digest immediately before removing it.

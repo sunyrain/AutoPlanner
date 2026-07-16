@@ -1,0 +1,582 @@
+{
+  "content_sha256": "cfc67cb47d1416550a0bed7b4885aeee9520c018c0b9c9ae56aab648be31ca9a",
+  "counts": {
+    "molecules": 17,
+    "routes": 3,
+    "transformations": 12
+  },
+  "molecules": {
+    "mol:1eccae331ace228db902f9f7b4fa04f5834d0cdc6b1fd3f6b51bb6b779d669b4": {
+      "canonical_smiles": "C=CC(=O)O",
+      "content_sha256": "086a0adbd961fd4f0337839cf92135b201a43e16d07d440617d961ec3348bdbb",
+      "label": "",
+      "molecule_id": "mol:1eccae331ace228db902f9f7b4fa04f5834d0cdc6b1fd3f6b51bb6b779d669b4",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:2213a3d84cf09fc0c267981e0a12c589925115d580e0224fd186db58081571d6": {
+      "canonical_smiles": "O=C(Cl)CCO",
+      "content_sha256": "6ac9c0bd193e1f06589f18b845dfeb630ba743ba6ab8733c13ea3db5a363acfe",
+      "label": "",
+      "molecule_id": "mol:2213a3d84cf09fc0c267981e0a12c589925115d580e0224fd186db58081571d6",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:314956f1dd7660664707dc0767427852bed7703fc4c53ff0f5c038e234a5d043": {
+      "canonical_smiles": "OB(O)c1ccc(Oc2ccccc2)cc1",
+      "content_sha256": "bdc243e8513317de62e195b3e525f67c701881e6d96300210088de22a393eef1",
+      "label": "",
+      "molecule_id": "mol:314956f1dd7660664707dc0767427852bed7703fc4c53ff0f5c038e234a5d043",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:33db8041e0926c0f42fb311632c83a91d9875a1d5ff15abf1e8fa6b444e1340b": {
+      "canonical_smiles": "Nc1ncnc2c1c(Br)nn2F",
+      "content_sha256": "9ed947f9951dbf3f01973d56b28e7890662891790367f2c4340e8d9b2d3d4785",
+      "label": "",
+      "molecule_id": "mol:33db8041e0926c0f42fb311632c83a91d9875a1d5ff15abf1e8fa6b444e1340b",
+      "role": "stock_leaf",
+      "source_stock_closed": false
+    },
+    "mol:343e02865d6b17432cd3994d24c10cfca2b82d639dfda953d5046f9dfab7e07d": {
+      "canonical_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCN(C(=O)CCO)C1",
+      "content_sha256": "773e994ad41e7e007773141292194ac2dcf0cd58b3cdeda48af2f746138284c7",
+      "label": "",
+      "molecule_id": "mol:343e02865d6b17432cd3994d24c10cfca2b82d639dfda953d5046f9dfab7e07d",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:3b53bc5fb2abb15f4949730aec531777e8ce0e2e460379ebecc5f2c922963163": {
+      "canonical_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2[C@@H]1CCCNC1",
+      "content_sha256": "070e053d71654d81ae394d82229adf5650951c1d426769c9b71a0cc1fd2893bb",
+      "label": "",
+      "molecule_id": "mol:3b53bc5fb2abb15f4949730aec531777e8ce0e2e460379ebecc5f2c922963163",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:4a00ace1300042563148c5a455587f50a7f4bc7d6e1354d38667876a6b6bde46": {
+      "canonical_smiles": "Nc1ncnc2c1c(I)nn2Cl",
+      "content_sha256": "caf6240f997f9f73ecd6cb24ab3369b9a55fc06ed6423a0508ff2ce9440ce57a",
+      "label": "",
+      "molecule_id": "mol:4a00ace1300042563148c5a455587f50a7f4bc7d6e1354d38667876a6b6bde46",
+      "role": "stock_leaf",
+      "source_stock_closed": false
+    },
+    "mol:7c4b486f01f561a1d0e0f24e922d4960cd74b437579bb879d5626468f928b9d0": {
+      "canonical_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2Cl",
+      "content_sha256": "2077452a4db179e95ca6944edabf7441a82146944f06d4ad49a5f60c4deb2cff",
+      "label": "",
+      "molecule_id": "mol:7c4b486f01f561a1d0e0f24e922d4960cd74b437579bb879d5626468f928b9d0",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:860136cba3b73865d85fc1000dd8dfd23e29eb6a77b5455846dea1873c030b16": {
+      "canonical_smiles": "Oc1ccccc1",
+      "content_sha256": "6fe597c7afd4729cec608daf13a217e4e4d89cfbcd6ed40c0bb754cbee846144",
+      "label": "",
+      "molecule_id": "mol:860136cba3b73865d85fc1000dd8dfd23e29eb6a77b5455846dea1873c030b16",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:8833d1f23c7e3aa33873508a23500b283116c299e50755ac66900a7718764143": {
+      "canonical_smiles": "N[C@@H]1CCCNC1",
+      "content_sha256": "e385419da68c49b414fa836884db790cdd1e395555615a524a2ba4ad98d543c1",
+      "label": "",
+      "molecule_id": "mol:8833d1f23c7e3aa33873508a23500b283116c299e50755ac66900a7718764143",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:908ad2fe1e1a51a57a7013d6d7f1d76fbd14f2d4c06cf4a7910fa645ed91fa74": {
+      "canonical_smiles": "C=CC(=O)Cl",
+      "content_sha256": "9e325cc6435fac562c812672b18424b749cfed27d41c6f1473727c216a4b2bf4",
+      "label": "",
+      "molecule_id": "mol:908ad2fe1e1a51a57a7013d6d7f1d76fbd14f2d4c06cf4a7910fa645ed91fa74",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:9a0fd907c5c17894581fcd46e90e5e1e8a3a58b20cc1a71902aaac2543ed4d06": {
+      "canonical_smiles": "OB(O)c1ccc(Br)cc1",
+      "content_sha256": "a64cdaaf4a0076d72cca10b619526594ff46165a2c5b4d4593c4dddb1aaddd48",
+      "label": "",
+      "molecule_id": "mol:9a0fd907c5c17894581fcd46e90e5e1e8a3a58b20cc1a71902aaac2543ed4d06",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:a6bfce5afe88685e109bdc49be8e7c4c20772145283fb4b1e71aba102557963e": {
+      "canonical_smiles": "Nc1ncnc2c1c(Br)nn2Cl",
+      "content_sha256": "84be80abb8cec36ce03ab82a32b22cebc44ae3911018606da87f228d68b826eb",
+      "label": "",
+      "molecule_id": "mol:a6bfce5afe88685e109bdc49be8e7c4c20772145283fb4b1e71aba102557963e",
+      "role": "stock_leaf",
+      "source_stock_closed": false
+    },
+    "mol:b7b0323aac33c3820c4cef39bbe5396519e612bb67d24f8225472dcd240e1a11": {
+      "canonical_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
+      "content_sha256": "598df41381f6238c143bd9433ae18b522429682b4ef26edbfbfa2ecf9b249935",
+      "label": "",
+      "molecule_id": "mol:b7b0323aac33c3820c4cef39bbe5396519e612bb67d24f8225472dcd240e1a11",
+      "role": "target",
+      "source_stock_closed": false
+    },
+    "mol:c0a77a5956fbcc5e9825d621d1aab5bd07a6fa4113a553c67a4a204e2ef8f41e": {
+      "canonical_smiles": "Nc1ncnc2c1c(-c1ccc(Oc3ccccc3)cc1)nn2F",
+      "content_sha256": "90e0f05b8300eb2aa49020b5346124fc55b289bd9ca701508e6fef7e457b9c23",
+      "label": "",
+      "molecule_id": "mol:c0a77a5956fbcc5e9825d621d1aab5bd07a6fa4113a553c67a4a204e2ef8f41e",
+      "role": "intermediate",
+      "source_stock_closed": false
+    },
+    "mol:c77266896dfa415e02cd03315405fef6e545e1ff6e3887ff4965e027aea7d32e": {
+      "canonical_smiles": "OB(O)c1ccc(F)cc1",
+      "content_sha256": "351dcffc2895920ce403995546f52ab11d3ebe4becaf2a7315a1de892a884bce",
+      "label": "",
+      "molecule_id": "mol:c77266896dfa415e02cd03315405fef6e545e1ff6e3887ff4965e027aea7d32e",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    },
+    "mol:c9ba8387fbb3cfd4834b4c36915fd4c0b7f55e834ff4a395f4f9d8e70af1f233": {
+      "canonical_smiles": "OB(O)c1ccc(Cl)cc1",
+      "content_sha256": "de84c4e6faa69a6c01fdb9c8fd26ae7e98e736b70f6d9bd31a627caac68650bb",
+      "label": "",
+      "molecule_id": "mol:c9ba8387fbb3cfd4834b4c36915fd4c0b7f55e834ff4a395f4f9d8e70af1f233",
+      "role": "stock_leaf",
+      "source_stock_closed": true
+    }
+  },
+  "observation_id": "candidate-route:5b758eb2ccd105356afe527c",
+  "routes": {
+    "route:0a31bcc4640f7b39b6e5918c510fe233a0f8802cef450ca368aa0207b1a867da": {
+      "content_sha256": "6e850c1ba3e3d0dd3e3e7092d233581d89513c0f86ba15c29714d896463c3989",
+      "edge_ids": [
+        "edge:061baa7221093d0cc25609e16c69a3eda1fc622d5c16b5ea20b9295032a0bfc8",
+        "edge:4758af129c6997eacbcc68a50545118b98f3dd8db07e2730414a3c221f06ea20",
+        "edge:c4e364117de1eb06738973c777e10e6a83566f1b5c90d6267afbd63bf5078d33",
+        "edge:d2cb5825d45cce1770f3f66fb6b630d7342a29896ff4c10751ef5dfdce23f0d8"
+      ],
+      "leaf_molecule_ids": [
+        "mol:860136cba3b73865d85fc1000dd8dfd23e29eb6a77b5455846dea1873c030b16",
+        "mol:8833d1f23c7e3aa33873508a23500b283116c299e50755ac66900a7718764143",
+        "mol:908ad2fe1e1a51a57a7013d6d7f1d76fbd14f2d4c06cf4a7910fa645ed91fa74",
+        "mol:a6bfce5afe88685e109bdc49be8e7c4c20772145283fb4b1e71aba102557963e",
+        "mol:c77266896dfa415e02cd03315405fef6e545e1ff6e3887ff4965e027aea7d32e"
+      ],
+      "root_edge_ids": [
+        "edge:061baa7221093d0cc25609e16c69a3eda1fc622d5c16b5ea20b9295032a0bfc8"
+      ],
+      "route_id": "route:0a31bcc4640f7b39b6e5918c510fe233a0f8802cef450ca368aa0207b1a867da",
+      "source_closure_profile": "",
+      "source_complete": false,
+      "source_refs": [],
+      "warning_codes": []
+    },
+    "route:c4c9a8d4ac1dc116d0f9fad9bce05b03cefe35ef016e055e0115e2b027e8ea82": {
+      "content_sha256": "7eb04b6dc12d30e3a19a70466c93c33ff272b03392a16f8118a1ab099f107349",
+      "edge_ids": [
+        "edge:36168d1c593e456808949e11c927737780be862d4dd385a0442f6f0af46d5b69",
+        "edge:5a71f6884e607e1f91779ca0661630fd39b9b862bd460365c5c5ba038f10e365",
+        "edge:a75433f85b80c8984a136ea95091d6c5b0b3a8f0778daa227c96bca91175024c",
+        "edge:c0901d105915486a3999b868ffa5336dd53551f8a20d75172eee5577a68dc28a"
+      ],
+      "leaf_molecule_ids": [
+        "mol:1eccae331ace228db902f9f7b4fa04f5834d0cdc6b1fd3f6b51bb6b779d669b4",
+        "mol:33db8041e0926c0f42fb311632c83a91d9875a1d5ff15abf1e8fa6b444e1340b",
+        "mol:860136cba3b73865d85fc1000dd8dfd23e29eb6a77b5455846dea1873c030b16",
+        "mol:8833d1f23c7e3aa33873508a23500b283116c299e50755ac66900a7718764143",
+        "mol:c9ba8387fbb3cfd4834b4c36915fd4c0b7f55e834ff4a395f4f9d8e70af1f233"
+      ],
+      "root_edge_ids": [
+        "edge:a75433f85b80c8984a136ea95091d6c5b0b3a8f0778daa227c96bca91175024c"
+      ],
+      "route_id": "route:c4c9a8d4ac1dc116d0f9fad9bce05b03cefe35ef016e055e0115e2b027e8ea82",
+      "source_closure_profile": "",
+      "source_complete": false,
+      "source_refs": [],
+      "warning_codes": []
+    },
+    "route:dac1299967a83df5a023a13364d8baf5d4ff115de53d58e2000ff9180c347270": {
+      "content_sha256": "cb8cf6986b1af22323010764fb6ae6116f62e1ec2e428b35dbfb5fcd0e97cb65",
+      "edge_ids": [
+        "edge:02cbc3d9a2cddd78a1d0f6d74a5c5030960436381017c3974c0583e642f95704",
+        "edge:49fa8f2e0814232c8665a22023f04b6676395ff0cb44b72293a5f59a81603d01",
+        "edge:b01ccf4fd5bc814adb83e43e21e14da289bd95fcb7016649f8388d0d4ecf7c04",
+        "edge:b6d540ed37f8fc605f151a2ac55907c82d31a95965e7f1273d83035d423e5ef7",
+        "edge:c4e364117de1eb06738973c777e10e6a83566f1b5c90d6267afbd63bf5078d33"
+      ],
+      "leaf_molecule_ids": [
+        "mol:2213a3d84cf09fc0c267981e0a12c589925115d580e0224fd186db58081571d6",
+        "mol:4a00ace1300042563148c5a455587f50a7f4bc7d6e1354d38667876a6b6bde46",
+        "mol:860136cba3b73865d85fc1000dd8dfd23e29eb6a77b5455846dea1873c030b16",
+        "mol:8833d1f23c7e3aa33873508a23500b283116c299e50755ac66900a7718764143",
+        "mol:9a0fd907c5c17894581fcd46e90e5e1e8a3a58b20cc1a71902aaac2543ed4d06"
+      ],
+      "root_edge_ids": [
+        "edge:b01ccf4fd5bc814adb83e43e21e14da289bd95fcb7016649f8388d0d4ecf7c04"
+      ],
+      "route_id": "route:dac1299967a83df5a023a13364d8baf5d4ff115de53d58e2000ff9180c347270",
+      "source_closure_profile": "",
+      "source_complete": false,
+      "source_refs": [],
+      "warning_codes": []
+    }
+  },
+  "schema_version": "candidate_route_observation.v1",
+  "semantics": {
+    "read_only_route_observation": true,
+    "reported_route_may_remain_visible_with_open_transformations": true,
+    "workbench_is_not_promoted_to_scientific_authority": true
+  },
+  "source_snapshot": {
+    "content_sha256": "5b758eb2ccd105356afe527c172bfe2f471a1a79cbef06b27e57be79db77b4ab",
+    "revision": {
+      "evidence": 9,
+      "graph": 9,
+      "graph_scientific_sha256": "b9de607a79e680f4f4437ccc8cedf289e7a6560524b9c0f1265ac35a8855dc3b",
+      "portfolio_sha256": "2dcaf054cd4c3c8767183f57a3c318010e02cfe362bdab54e773e9e8aaafc664"
+    },
+    "run_id": "blind-ibrutinib-live-01",
+    "schema_version": "retrosynthesis_route_workbench.v1"
+  },
+  "target": {
+    "canonical_smiles": "C=CC(=O)N1CCC[C@@H](n2nc(-c3ccc(Oc4ccccc4)cc3)c3c(N)ncnc32)C1",
+    "molecule_id": "mol:b7b0323aac33c3820c4cef39bbe5396519e612bb67d24f8225472dcd240e1a11",
+    "name": "Ibrutinib"
+  },
+  "transformations": {
+    "edge:02cbc3d9a2cddd78a1d0f6d74a5c5030960436381017c3974c0583e642f95704": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "094ee49c3b790130ed058f481b25fe00098bf64e260148911dc8cf828463ae3b",
+      "precursor_molecule_ids": [
+        "mol:4a00ace1300042563148c5a455587f50a7f4bc7d6e1354d38667876a6b6bde46",
+        "mol:314956f1dd7660664707dc0767427852bed7703fc4c53ff0f5c038e234a5d043"
+      ],
+      "product_molecule_id": "mol:7c4b486f01f561a1d0e0f24e922d4960cd74b437579bb879d5626468f928b9d0",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "0bfaac93aca38de2ab65f806a204a7e6c2fd1f8fd92b51c2b6f606d408247dd1",
+          "proposal_id": "SK2_S4_core_from_iodoaryl_ether",
+          "route_family_id": "RF2_acrylamide_from_beta_hydroxy_side_chain",
+          "skeleton_id": "SK2_RF2_beta_hydroxy_dehydration_variant",
+          "transformation_hypothesis": "Alternative arylation of an iodinated aminopyrazolopyrimidine electrophile with a phenoxyphenyl boronic acid to form the same arylated core as SK1."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:02cbc3d9a2cddd78a1d0f6d74a5c5030960436381017c3974c0583e642f95704",
+      "warning_codes": []
+    },
+    "edge:061baa7221093d0cc25609e16c69a3eda1fc622d5c16b5ea20b9295032a0bfc8": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "2c8f0bcf8673bce62e1c0e9b0fb0ee093f994bdf0ceb7edb402809b41923ddb3",
+      "precursor_molecule_ids": [
+        "mol:908ad2fe1e1a51a57a7013d6d7f1d76fbd14f2d4c06cf4a7910fa645ed91fa74",
+        "mol:3b53bc5fb2abb15f4949730aec531777e8ce0e2e460379ebecc5f2c922963163"
+      ],
+      "product_molecule_id": "mol:b7b0323aac33c3820c4cef39bbe5396519e612bb67d24f8225472dcd240e1a11",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "a5ba53ea2f257dac15a61600453493a8d806a647ca6bcb3d5c412e46552a1dd5",
+          "proposal_id": "SK1_S1_target_acryloylation",
+          "route_family_id": "RF1_late_acryloylation_desacryloyl_amine",
+          "skeleton_id": "SK1_RF1_late_acryloylation_core_coupling",
+          "transformation_hypothesis": "Late acylation of the des-acryloyl secondary piperidine amine with an activated acrylic acid derivative to form the target acrylamide."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:061baa7221093d0cc25609e16c69a3eda1fc622d5c16b5ea20b9295032a0bfc8",
+      "warning_codes": []
+    },
+    "edge:36168d1c593e456808949e11c927737780be862d4dd385a0442f6f0af46d5b69": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "60c693f99d84156055b5ecdd3e9cf109e9383da1a086cdc220b844788eb873b3",
+      "precursor_molecule_ids": [
+        "mol:8833d1f23c7e3aa33873508a23500b283116c299e50755ac66900a7718764143",
+        "mol:c0a77a5956fbcc5e9825d621d1aab5bd07a6fa4113a553c67a4a204e2ef8f41e"
+      ],
+      "product_molecule_id": "mol:3b53bc5fb2abb15f4949730aec531777e8ce0e2e460379ebecc5f2c922963163",
+      "proof_level": 1,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "9a2692cb06b416a94ca8f1fdb9c33dde639acbed18366f9b7bffceedce11eecb",
+          "proposal_id": "SK3_S2_shared_desacryloyl_from_biaryl_core",
+          "route_family_id": "RF3_core_divergence_biaryl_first",
+          "skeleton_id": "SK3_RF3_biaryl_first_with_acrylic_acid_coupling",
+          "transformation_hypothesis": "Displacement or C-N coupling of a fluoro arylated aminopyrazolopyrimidine core with chiral aminopiperidine to form des-acryloyl amine."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:36168d1c593e456808949e11c927737780be862d4dd385a0442f6f0af46d5b69",
+      "warning_codes": [
+        "reaction_validation_missing"
+      ]
+    },
+    "edge:4758af129c6997eacbcc68a50545118b98f3dd8db07e2730414a3c221f06ea20": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "574610ea8eecb1b070da968e6dba9ca278816f73fc6052b155913eb53f736783",
+      "precursor_molecule_ids": [
+        "mol:a6bfce5afe88685e109bdc49be8e7c4c20772145283fb4b1e71aba102557963e",
+        "mol:314956f1dd7660664707dc0767427852bed7703fc4c53ff0f5c038e234a5d043"
+      ],
+      "product_molecule_id": "mol:7c4b486f01f561a1d0e0f24e922d4960cd74b437579bb879d5626468f928b9d0",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "db43d8e99c48495b011f9b7b7bbd1d3f87cf35d336148a5615e6967c389bfc17",
+          "proposal_id": "SK1_S3_arylated_core_by_cross_coupling",
+          "route_family_id": "RF1_late_acryloylation_desacryloyl_amine",
+          "skeleton_id": "SK1_RF1_late_acryloylation_core_coupling",
+          "transformation_hypothesis": "Aryl-heteroaryl bond formation between a halogenated aminopyrazolopyrimidine electrophile and a phenoxyphenyl boronic acid reagent to furnish the arylated heterocyclic core."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:4758af129c6997eacbcc68a50545118b98f3dd8db07e2730414a3c221f06ea20",
+      "warning_codes": []
+    },
+    "edge:49fa8f2e0814232c8665a22023f04b6676395ff0cb44b72293a5f59a81603d01": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "9a97df2b60ce7d1b2ffa7b587926462fb02330ec8e362f14f67eb8e2d81a4c3e",
+      "precursor_molecule_ids": [
+        "mol:9a0fd907c5c17894581fcd46e90e5e1e8a3a58b20cc1a71902aaac2543ed4d06",
+        "mol:860136cba3b73865d85fc1000dd8dfd23e29eb6a77b5455846dea1873c030b16"
+      ],
+      "product_molecule_id": "mol:314956f1dd7660664707dc0767427852bed7703fc4c53ff0f5c038e234a5d043",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "52d008ce03a4ce455f030bc05e7341c622c6427699ced221bd191d8dd75fb31e",
+          "proposal_id": "SK2_S5_direct_phenoxyphenyl_boronic_acid_source",
+          "route_family_id": "RF2_acrylamide_from_beta_hydroxy_side_chain",
+          "skeleton_id": "SK2_RF2_beta_hydroxy_dehydration_variant",
+          "transformation_hypothesis": "Preparation or benchmark sourcing of phenoxyphenyl boronic acid from phenol and a bromophenylboronic acid precursor through aryl ether formation."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:49fa8f2e0814232c8665a22023f04b6676395ff0cb44b72293a5f59a81603d01",
+      "warning_codes": []
+    },
+    "edge:5a71f6884e607e1f91779ca0661630fd39b9b862bd460365c5c5ba038f10e365": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "55e125c98f6d0a9502d03dbfc47a2a6603198d6abfd21971b06d9c0e65ab6dc6",
+      "precursor_molecule_ids": [
+        "mol:c9ba8387fbb3cfd4834b4c36915fd4c0b7f55e834ff4a395f4f9d8e70af1f233",
+        "mol:860136cba3b73865d85fc1000dd8dfd23e29eb6a77b5455846dea1873c030b16"
+      ],
+      "product_molecule_id": "mol:314956f1dd7660664707dc0767427852bed7703fc4c53ff0f5c038e234a5d043",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "d42ca9ae4301014f4069d44060ccdce962e19d211c5d61cf17f8fbc5fe2604ec",
+          "proposal_id": "SK3_S4_boron_reagent_by_etherification",
+          "route_family_id": "RF3_core_divergence_biaryl_first",
+          "skeleton_id": "SK3_RF3_biaryl_first_with_acrylic_acid_coupling",
+          "transformation_hypothesis": "Aryl ether formation from phenol and chlorophenylboronic acid or a protected equivalent to access the phenoxyphenyl boron reagent."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:5a71f6884e607e1f91779ca0661630fd39b9b862bd460365c5c5ba038f10e365",
+      "warning_codes": []
+    },
+    "edge:a75433f85b80c8984a136ea95091d6c5b0b3a8f0778daa227c96bca91175024c": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "aa5238461b80c5247ae93a69fab3e8d02568261f7f8c4c38ce28986fef9f1f4e",
+      "precursor_molecule_ids": [
+        "mol:1eccae331ace228db902f9f7b4fa04f5834d0cdc6b1fd3f6b51bb6b779d669b4",
+        "mol:3b53bc5fb2abb15f4949730aec531777e8ce0e2e460379ebecc5f2c922963163"
+      ],
+      "product_molecule_id": "mol:b7b0323aac33c3820c4cef39bbe5396519e612bb67d24f8225472dcd240e1a11",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "90098221e93e897be33d0494ec661a88deb1dc943be66ab0632683ff2ba34230",
+          "proposal_id": "SK3_S1_target_from_acrylic_acid_coupling",
+          "route_family_id": "RF3_core_divergence_biaryl_first",
+          "skeleton_id": "SK3_RF3_biaryl_first_with_acrylic_acid_coupling",
+          "transformation_hypothesis": "Amide-bond formation between des-acryloyl amine and acrylic acid using a non-incorporated activation method, preserving the terminal acrylamide alkene."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:a75433f85b80c8984a136ea95091d6c5b0b3a8f0778daa227c96bca91175024c",
+      "warning_codes": []
+    },
+    "edge:b01ccf4fd5bc814adb83e43e21e14da289bd95fcb7016649f8388d0d4ecf7c04": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "ff3d24bd9a9850bc859cd445a2847fdcbb47dd2a02107a69e8c4611c7d3fca60",
+      "precursor_molecule_ids": [
+        "mol:343e02865d6b17432cd3994d24c10cfca2b82d639dfda953d5046f9dfab7e07d"
+      ],
+      "product_molecule_id": "mol:b7b0323aac33c3820c4cef39bbe5396519e612bb67d24f8225472dcd240e1a11",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "bfa47d950d484eb1e03d57487be806e5d0a983a5e29b38433f63486864a75963",
+          "proposal_id": "SK2_S1_target_from_beta_hydroxy_amide",
+          "route_family_id": "RF2_acrylamide_from_beta_hydroxy_side_chain",
+          "skeleton_id": "SK2_RF2_beta_hydroxy_dehydration_variant",
+          "transformation_hypothesis": "Dehydrative elimination of a beta-hydroxy propanamide analog to generate the target acrylamide alkene."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:b01ccf4fd5bc814adb83e43e21e14da289bd95fcb7016649f8388d0d4ecf7c04",
+      "warning_codes": []
+    },
+    "edge:b6d540ed37f8fc605f151a2ac55907c82d31a95965e7f1273d83035d423e5ef7": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "3eb5e6c42d4ba18d8e1da45c8d76834c1b96ab894f35f276b49ab3fc2c2a60c6",
+      "precursor_molecule_ids": [
+        "mol:3b53bc5fb2abb15f4949730aec531777e8ce0e2e460379ebecc5f2c922963163",
+        "mol:2213a3d84cf09fc0c267981e0a12c589925115d580e0224fd186db58081571d6"
+      ],
+      "product_molecule_id": "mol:343e02865d6b17432cd3994d24c10cfca2b82d639dfda953d5046f9dfab7e07d",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "d13d92045838be9a6b51e556f2dc9d006cafc6af001b9dee70efacd5489f1c56",
+          "proposal_id": "SK2_S2_beta_hydroxy_amide_formation",
+          "route_family_id": "RF2_acrylamide_from_beta_hydroxy_side_chain",
+          "skeleton_id": "SK2_RF2_beta_hydroxy_dehydration_variant",
+          "transformation_hypothesis": "Acylation of the des-acryloyl secondary piperidine amine with a beta-hydroxy propionyl donor to form the beta-hydroxy propanamide precursor."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:b6d540ed37f8fc605f151a2ac55907c82d31a95965e7f1273d83035d423e5ef7",
+      "warning_codes": []
+    },
+    "edge:c0901d105915486a3999b868ffa5336dd53551f8a20d75172eee5577a68dc28a": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "513aafdb8aedd0dedfe15f0e784961ca2a171a668e4eee4b264f532c858d3286",
+      "precursor_molecule_ids": [
+        "mol:33db8041e0926c0f42fb311632c83a91d9875a1d5ff15abf1e8fa6b444e1340b",
+        "mol:314956f1dd7660664707dc0767427852bed7703fc4c53ff0f5c038e234a5d043"
+      ],
+      "product_molecule_id": "mol:c0a77a5956fbcc5e9825d621d1aab5bd07a6fa4113a553c67a4a204e2ef8f41e",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "78971267ffe4b93d2398c35a6ee71b517c03bd0d4d43a68a9a7bd4048773e104",
+          "proposal_id": "SK3_S3_biaryl_core_from_phenoxybenzaldehyde_like_surrogate",
+          "route_family_id": "RF3_core_divergence_biaryl_first",
+          "skeleton_id": "SK3_RF3_biaryl_first_with_acrylic_acid_coupling",
+          "transformation_hypothesis": "Biaryl-first arylation of a brominated fluoro aminopyrazolopyrimidine core with phenoxyphenyl boronic acid to furnish the arylated electrophile for downstream piperidine installation."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:c0901d105915486a3999b868ffa5336dd53551f8a20d75172eee5577a68dc28a",
+      "warning_codes": []
+    },
+    "edge:c4e364117de1eb06738973c777e10e6a83566f1b5c90d6267afbd63bf5078d33": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "bed694f21a226640e88c5613b996b91d1e5172355f0476c8f56f2c4d46862d09",
+      "precursor_molecule_ids": [
+        "mol:8833d1f23c7e3aa33873508a23500b283116c299e50755ac66900a7718764143",
+        "mol:7c4b486f01f561a1d0e0f24e922d4960cd74b437579bb879d5626468f928b9d0"
+      ],
+      "product_molecule_id": "mol:3b53bc5fb2abb15f4949730aec531777e8ce0e2e460379ebecc5f2c922963163",
+      "proof_level": 1,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "41db7fdc4da5833018052ab08e83a8e6c08255b94c2ddcda2546af5f43b6b1ce",
+          "proposal_id": "SK1_S2_desacryloyl_from_chiral_piperidine",
+          "route_family_id": "RF1_late_acryloylation_desacryloyl_amine",
+          "skeleton_id": "SK1_RF1_late_acryloylation_core_coupling",
+          "transformation_hypothesis": "Nucleophilic aromatic substitution or related C-N bond formation between a chiral aminopiperidine fragment and an activated halo aminopyrazolopyrimidine core to give the des-acryloyl amine."
+        },
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "e17f2a90c356e975d2f664570afb7bb90bbc243737106d8131a2dcf37f116a30",
+          "proposal_id": "SK2_S3_shared_desacryloyl_amine",
+          "route_family_id": "RF2_acrylamide_from_beta_hydroxy_side_chain",
+          "skeleton_id": "SK2_RF2_beta_hydroxy_dehydration_variant",
+          "transformation_hypothesis": "Coupling of a chiral aminopiperidine nucleophile with the activated arylated aminopyrazolopyrimidine core to furnish the shared des-acryloyl amine."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": false,
+      "transformation_id": "edge:c4e364117de1eb06738973c777e10e6a83566f1b5c90d6267afbd63bf5078d33",
+      "warning_codes": [
+        "reaction_validation_missing"
+      ]
+    },
+    "edge:d2cb5825d45cce1770f3f66fb6b630d7342a29896ff4c10751ef5dfdce23f0d8": {
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "58cc24116a395f5722756a6f19cb71a2cd1ec79240bd06ae2c3c0e093b215173",
+      "precursor_molecule_ids": [
+        "mol:c77266896dfa415e02cd03315405fef6e545e1ff6e3887ff4965e027aea7d32e",
+        "mol:860136cba3b73865d85fc1000dd8dfd23e29eb6a77b5455846dea1873c030b16"
+      ],
+      "product_molecule_id": "mol:314956f1dd7660664707dc0767427852bed7703fc4c53ff0f5c038e234a5d043",
+      "proof_level": 2,
+      "proof_vector": {},
+      "provenance": [
+        {
+          "origin_kind": "codex_global_director",
+          "origin_ref": "",
+          "origin_sha256": "a7b6b66dcc7fcc613efa2a051c5c60f23b0eaf1751a919c1ce715a3e67e25834",
+          "proposal_id": "SK1_S4_phenoxyphenyl_boronate_from_aryl_ether",
+          "route_family_id": "RF1_late_acryloylation_desacryloyl_amine",
+          "skeleton_id": "SK1_RF1_late_acryloylation_core_coupling",
+          "transformation_hypothesis": "Aryl ether formation between phenol and a haloaryl boronic acid equivalent to provide a phenoxyphenyl boronic acid building block."
+        }
+      ],
+      "source_refs": [],
+      "source_step_accepted": true,
+      "transformation_id": "edge:d2cb5825d45cce1770f3f66fb6b630d7342a29896ff4c10751ef5dfdce23f0d8",
+      "warning_codes": []
+    }
+  }
+}

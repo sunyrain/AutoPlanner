@@ -278,6 +278,10 @@ def _metadata_patent_candidates(
                     "title": str(row.get("title") or title),
                     "query": query,
                     "metadata_provider": "europe_pmc",
+                    "xml_url": str(
+                        row.get("xml_url")
+                        or _epo_xml_url(str(row.get("publication_number") or ""))
+                    ),
                 }
                 for row in family
             ]
@@ -346,6 +350,8 @@ def select_independent_candidates(
             + source_priority
         )
         normalized = {**row, "publication_number": publication}
+        if not normalized.get("xml_url"):
+            normalized["xml_url"] = _epo_xml_url(publication)
         prior = by_publication.get(publication)
         if prior is None:
             by_publication[publication] = (score, normalized)
@@ -394,6 +400,17 @@ def fetch_bounded_bytes(url: str, timeout_s: float, limit: int) -> bytes:
     finally:
         response.close()
     return b"".join(chunks)
+
+
+def _epo_xml_url(publication: str) -> str:
+    match = re.fullmatch(r"EP(?P<number>\d{5,12})(?P<kind>A\d|B\d)", publication)
+    if match is None:
+        return ""
+    document_id = f"EP{match.group('number')}NW{match.group('kind')}"
+    return (
+        "https://data.epo.org/publication-server/rest/v1.2/patents/"
+        f"{document_id}/document.xml"
+    )
 
 
 def _xhr_candidates(
@@ -602,7 +619,10 @@ def _pubchem_family_pdf_candidates(
                     f"publication-dates/{publication_date.replace('-', '')}/"
                     f"patents/{document_id}/document.pdf"
                 ),
-                "html_url": "",
+                "html_url": (
+                    "https://patents.google.com/patent/"
+                    f"{member}/en"
+                ),
                 "family_id": f"pubchem-family:{canonical}",
                 "query": publication,
                 "source_authority": "pubchem_to_epo_publication_server",

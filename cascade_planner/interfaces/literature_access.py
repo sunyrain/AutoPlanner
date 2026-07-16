@@ -49,22 +49,29 @@ def queue_authorized_pdf_request(
     }
 
 
-def authorized_proxy_pdf(
+def authorized_proxy_artifact(
     candidate: Mapping[str, Any],
     *,
     proxy_root: Path,
     source_ref: str,
     doi: str,
-) -> str:
+) -> dict[str, Any]:
+    """Return the newest identity-matched, locally authorized source artifact.
+
+    The local provider may freeze publisher HTML, supplementary material, or a
+    PDF.  Keeping the receipt row intact lets the materializer verify both the
+    source identity and the content hash before extracting evidence.
+    """
+
     manifest = local_pdf_proxy_download_manifest_path(proxy_root)
     if not manifest.is_file():
-        return ""
+        return {}
     identities = {
         doi.lower(),
         source_ref.lower(),
         str(candidate.get("pdf_url") or candidate.get("url") or "").strip().lower(),
     } - {""}
-    matched = ""
+    matched: dict[str, Any] = {}
     for line in manifest.read_text(encoding="utf-8").splitlines():
         try:
             row = json.loads(line)
@@ -79,10 +86,34 @@ def authorized_proxy_pdf(
         }
         if not identities & row_ids:
             continue
-        path = Path(str(row.get("pdf_path") or "")).expanduser().resolve()
-        if path.is_file():
-            matched = str(path)
+        paths = [
+            str(row.get("html_path") or ""),
+            str(row.get("structured_path") or ""),
+            str(row.get("pdf_path") or ""),
+        ]
+        if any(
+            path and Path(path).expanduser().resolve().is_file()
+            for path in paths
+        ):
+            matched = dict(row)
     return matched
+
+
+def authorized_proxy_pdf(
+    candidate: Mapping[str, Any],
+    *,
+    proxy_root: Path,
+    source_ref: str,
+    doi: str,
+) -> str:
+    row = authorized_proxy_artifact(
+        candidate,
+        proxy_root=proxy_root,
+        source_ref=source_ref,
+        doi=doi,
+    )
+    path = Path(str(row.get("pdf_path") or "")).expanduser().resolve()
+    return str(path) if path.is_file() else ""
 
 
 def pending_source(
@@ -113,4 +144,9 @@ def pending_source(
     }
 
 
-__all__ = ["authorized_proxy_pdf", "pending_source", "queue_authorized_pdf_request"]
+__all__ = [
+    "authorized_proxy_artifact",
+    "authorized_proxy_pdf",
+    "pending_source",
+    "queue_authorized_pdf_request",
+]

@@ -494,7 +494,7 @@ def materialize_discovered_source_routes(
             for row in observation.get("proposals") or []
             if isinstance(row, Mapping)
         ]
-        if not proposals or len(proposals) > 64:
+        if len(proposals) > 64:
             reasons.append("source_route_proposal_count_invalid")
         if reasons:
             rejected_observations.append(
@@ -503,6 +503,10 @@ def materialize_discovered_source_routes(
                     "reasons": sorted(set(reasons)),
                 }
             )
+            continue
+        if not proposals:
+            # An honest, hash-bound observation may contain no target-connected
+            # route. Absence is not a malformed proposal or a host rejection.
             continue
         observation["content_sha256"] = supplied
         observations.append(observation)

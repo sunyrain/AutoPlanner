@@ -59,6 +59,25 @@ def _patent_html_bytes(publication: str = "US1234567A1") -> bytes:
     """.encode()
 
 
+def _patent_xml_bytes() -> bytes:
+    return b"""<?xml version="1.0" encoding="UTF-8"?>
+    <ep-patent-document id="EP18163540A1" file="EP18163540NWA1.xml"
+      lang="en" country="EP" doc-number="3381900" kind="A1"
+      date-publ="20181003" status="n" dtd-version="ep-patent-document-v1-5">
+      <description id="desc" lang="en">
+        <heading id="h0001"><b>BRIEF DESCRIPTION</b></heading>
+        <p id="p0001" num="0001">The route uses compound (3) (ethanol)
+          and compound (4) (acetic acid).</p>
+        <heading id="h0002"><b>Synthesis of Ethyl acetate (5)</b></heading>
+        <p id="p0002" num="0002">Compound 3 (1.0 g, 21.7 mmol) was dissolved
+          in tetrahydrofuran. Compound 4 (1.3 g, 21.7 mmol) was added and the
+          reaction mixture was stirred for 17 h at 4 degrees C to afford the
+          product in 85% yield.</p>
+      </description>
+    </ep-patent-document>
+    """
+
+
 def _request(*, validated: bool = True) -> dict[str, Any]:
     return {
         "schema_version": "evidence_acquisition_request.v1",
@@ -497,11 +516,71 @@ def test_builtin_patent_connector_html_closes_edge_without_fetching_pdf(
     assert row["location_ref"].startswith(f"{publication}:html:p")
     assert {value.split(":", 1)[0] for value in row["evidence_refs"]} == {
         "html_sha256",
+        "procedure-text-sha256",
         "text_sha256",
     }
     assert discovery["html_sha256"]
     assert discovery["pdf_sha256"] == ""
     assert discovery["exact_row_count"] == 1
+    assert list(tmp_path.rglob("*.pdf")) == []
+    assert list(tmp_path.rglob("*.png")) == []
+
+
+def test_builtin_patent_connector_prefers_official_epo_xml_without_pdf(
+    tmp_path: Path,
+) -> None:
+    publication = "EP3381900A1"
+
+    def fallback_must_not_run(*_args: Any) -> bytes:
+        raise AssertionError("HTML/PDF fallback must not run after XML closure")
+
+    connector = build_builtin_patent_evidence_connector(
+        BuiltinPatentEvidenceConfig(cache_dir=tmp_path, max_patents=1),
+        candidate_provider=lambda _queries: [
+            {
+                "publication_number": publication,
+                "family_id": "family:xml",
+                "title": "Preparation of ethyl acetate",
+                "xml_url": (
+                    "https://data.epo.org/publication-server/rest/v1.2/"
+                    "patents/EP3381900NWA1/document.xml"
+                ),
+                "_primary_xml_bytes": _patent_xml_bytes(),
+                "pdf_url": "https://source.invalid/must-not-run.pdf",
+            }
+        ],
+        bytes_fetcher=fallback_must_not_run,
+        html_fetcher=fallback_must_not_run,
+        structure_resolver=lambda name: {
+            "Ethyl acetate": "CCOC(C)=O",
+            "ethanol": "CCO",
+            "acetic acid": "CC(=O)O",
+        }.get(name, ""),
+        candidate_name_resolver=lambda smiles: {
+            "CCOC(C)=O": ["ethyl acetate"],
+            "CCO": ["ethanol"],
+            "CC(=O)O": ["acetic acid"],
+        }.get(smiles, []),
+    )
+
+    result = connector(_request())
+
+    source = result["document"]["sources"][0]
+    row = source["extraction"]["rows"][0]
+    discovery = result["discovery"]["sources"][0]
+    assert source["binding"]["provenance"] == (
+        "builtin_deterministic_primary_patent_xml"
+    )
+    assert row["location_ref"].startswith(f"{publication}:xml:h")
+    assert {value.split(":", 1)[0] for value in row["evidence_refs"]} == {
+        "procedure-text-sha256",
+        "text_sha256",
+        "xml_sha256",
+    }
+    assert row["conditions"]["yield_percent"] == 85.0
+    assert discovery["xml_sha256"]
+    assert discovery["html_sha256"] == ""
+    assert discovery["pdf_sha256"] == ""
     assert list(tmp_path.rglob("*.pdf")) == []
     assert list(tmp_path.rglob("*.png")) == []
 

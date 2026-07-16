@@ -26,6 +26,12 @@ def test_repository_audit_is_read_only_and_reports_review_candidates(
         "cascade_planner/dead.py": "import os\nVALUE = 1\n",
         "cascade_planner/used.py": "import os\nVALUE = os.name\n",
         "cascade_planner/reexported.py": "from os import name\n__all__ = ['name']\n",
+        "cascade_planner/type_only.py": (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    from os import PathLike\n"
+            "VALUE: 'PathLike[str] | None' = None\n"
+        ),
         "docs/a.svg": "<svg/>",
         "docs/b.svg": "<svg/>",
         "results/run.log": "generated",
@@ -55,6 +61,7 @@ def test_repository_audit_is_read_only_and_reports_review_candidates(
         row["path"] in {
             "cascade_planner/used.py",
             "cascade_planner/reexported.py",
+            "cascade_planner/type_only.py",
         }
         for row in report["dead_import_candidates"]
     )

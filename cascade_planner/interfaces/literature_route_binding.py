@@ -277,8 +277,12 @@ def _exact_rows_from_registry(
         ]
         step_id = str(value.get("step_id") or "")
         location = dict(binding.get("source_location") or {})
+        parser_audit = dict(binding.get("parser_audit") or {})
         artifact_sha256 = str(binding.get("source_artifact_sha256") or "")
         text_sha256 = str(location.get("text_sha256") or "")
+        procedure_text_sha256 = str(
+            parser_audit.get("procedure_text_sha256") or ""
+        )
         if not step_id or not product or not reactants:
             continue
         rows.append(
@@ -295,6 +299,11 @@ def _exact_rows_from_registry(
                     for item in (
                         f"html_sha256:{artifact_sha256}" if artifact_sha256 else "",
                         f"text_sha256:{text_sha256}" if text_sha256 else "",
+                        (
+                            f"procedure-text-sha256:{procedure_text_sha256}"
+                            if procedure_text_sha256
+                            else ""
+                        ),
                     )
                     if item
                 ],

@@ -1,10 +1,13 @@
 # 理想逆合成主线架构与实施 TODO
 
-状态：前瞻性主线设计；TODO 只有在真实盲测验收后才能关闭
+状态：**V4 收敛期历史实施清单（2026-07-14～15）**；保留已完成项和运行记录用于审计，
+不再是下一代架构的唯一前瞻性权威。当前状态见
+[CURRENT_ARCHITECTURE_STATUS.md](CURRENT_ARCHITECTURE_STATUS.md)，下一代目标见
+[GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md](GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md)。
 创建：2026-07-14
 适用入口：任意陌生目标 SMILES，不预置目标案卷、路线或前体答案
 
-本文是当前实现向理想主线收敛的唯一前瞻性清单。已有
+本文曾是当前实现向 Canonical V4 收敛的前瞻性清单。已有
 `RETROSYNTHESIS_V4_IMPLEMENTATION_TODO.md` 记录的是历史能力交付，不能再用“类、字段、
 fixture 或单元测试存在”代表端到端能力已经可用。
 
@@ -299,12 +302,12 @@ P8 依赖 P2/P3；P9 验收全部；P10 最后删除兼容代码。
 
 ### P2 — Proof vector 与严格 acceptance
 
-- [ ] 建立 identity/reaction/conditions/sources/stock/process 六轴 schema。
-- [ ] 把 exact structure observation 与 exact reaction procedure 拆开。
-- [ ] 建立六个产品输出档位及逐档 acceptance compiler。
-- [ ] Route stitcher 以所有边/叶的最弱轴判定，不再由最高单边等级抬升整条路线。
-- [ ] 将真实 offer、catalog seen 和 benchmark hit 分开。
-- [ ] 增加冲突、撤销、过期来源和过期库存后的增量降级。
+- [x] 建立 identity/reaction/conditions/sources/stock/process 六轴 schema。
+- [x] 把 exact structure observation 与 exact reaction procedure 拆开。
+- [x] 建立六个产品输出档位及逐档 acceptance compiler。
+- [x] Route stitcher 以所有边/叶的最弱轴判定，不再由最高单边等级抬升整条路线。
+- [x] 将真实 offer、catalog seen 和 benchmark hit 分开。
+- [x] 增加冲突、撤销、过期来源和过期库存后的增量降级。
 - [ ] 保留旧 L0–L4 为 UI 派生色，取消其科学权威。
 
 验收：`conditions={}` 的 exact-structure 边不能通过 `condition_complete`；benchmark hit 不能
@@ -312,17 +315,17 @@ P8 依赖 P2/P3；P9 验收全部；P10 最后删除兼容代码。
 
 ### P3 — 反应条件与实验过程抽取
 
-- [ ] 定义完整 condition/procedure schema 和来源片段绑定。
-- [ ] 优先从官方专利 HTML/XML 的实施例抽取条件、后处理、纯化、产率和规模。
+- [x] 定义完整 condition/procedure schema 和来源片段绑定。
+- [x] 优先从官方专利 HTML/XML 的实施例抽取条件、后处理、纯化、产率和规模。
 - [ ] 仅对未闭合边回退 PDF native text、OCR 和显式准入 vision。
 - [ ] 将结构表、合成段落、通法与具体实施例关联到同一反应边。
 - [ ] 增加单位标准化、同义试剂、当量换算和温度/时间程序解析。
 - [ ] 表示字段缺失和多来源冲突，不自动选择看似更好的条件。
 - [ ] 增加可插拔 condition predictor，但输出固定为 `model_predicted`。
-- [ ] 将 Vismodegib EP3381900A1 的目标边补成真实 procedure 回归样例；若原文确实无条件，
+- [x] 将 Vismodegib EP3381900A1 的目标边补成真实 procedure 回归样例；若原文确实无条件，
   必须记录“来源只支持结构”而不是伪造。
 
-验收：至少三个真实专利案例可从 HTML 端到端重放条件；网络关闭时从 CAS 重放得到相同
+验收：至少三个真实专利案例可从官方 HTML/XML 端到端重放条件；网络关闭时从 CAS 重放得到相同
 digest；预测条件永不提升 exact-source 或 process-ready 权威。
 
 ### P4 — Codex 全局规划与 guided providers
@@ -346,7 +349,7 @@ ChemEnzy 扩展不会触发逐边 Codex；相同上下文不会重复付费。
 - [ ] 已发现来源自动优先抽取；exact row/procedure 到达后自动恢复同一 campaign。
 - [ ] ChemEnzy 连续重复、低验证率或无 portfolio 增益时提前停止。
 - [ ] attempt、accepted expansion、provider compute 和模型 token 分账。
-- [ ] 增加 dirty-subgraph 增量重算与 full-recompute oracle。
+- [x] 增加 dirty-subgraph 增量重算与 full-recompute oracle。
 - [ ] 当没有可执行 frontier 时生成具体 unresolved dossier，而不是空成功。
 
 验收：日志中只有一个 frontier 和一个 expansion 计数权威；单 child 不会双计；证据到达
@@ -359,7 +362,7 @@ ChemEnzy 扩展不会触发逐边 Codex；相同上下文不会重复付费。
 - [x] 对所有选中叶执行 stock audit；高级片段无 offer 时自动形成上游展开 deficit。
 - [ ] 支持 `procurement` 与 `in_house` 两种不同权威边界。
 - [ ] 处理盐型、保护态、溶剂化物和立体化学不一致，禁止模糊命中闭合。
-- [ ] 库存过期或撤销后自动重算受影响路线。
+- [x] 库存过期或撤销后自动重算受影响路线。
 
 验收：Vismodegib 的高级前体只有真实 offer 才能作为叶；否则继续展示和调度其上游结构，
 直至真实闭合或明确 unresolved。
@@ -538,3 +541,154 @@ monacolin J 与 DMB-S-MMP，随后通过本地 RXNMapper、元素盘点和 host 
 实时控制台已在 `http://127.0.0.1:8878/v4` 以同一 statin runtime 重载，返回 9 个历史 job。
 汇总展示保留 9 个 blind 基线，并链接独立 Lovastatin 修复复跑；基线秒数与新运行时优化明确
 分栏，尚未执行的新冷启动 SLO 不被显示为已完成。
+
+## 11. 2026-07-15 Proof vector 产品档位与展示闭环
+
+本轮没有把 P2/P8 的 fresh blind 验收框提前勾为完成，而是先闭合 canonical read model 到
+最终展示的语义断点：
+
+- 路线由 identity、reaction、conditions、sources、stock、process 六轴只读编译六个具名
+  产品档位；报告 `claim` 和 Workbench 读取同一档位汇总。
+- `benchmark_hit` 与 `offer_verified`/`in_house` 分开；精确结构来源与完整来源 procedure 分开。
+  缺失规范 proof vector 的旧投影失败关闭，不能从颜色或 L0-L4 总等级反推产品档位。
+- Workbench 增加文献落地、条件完整、真实采购和工艺候选四个阶段筛选；反应与路线检查器
+  逐轴展示 proof vector，producer 仍由独立 badge 表示。
+- 阶段成员关系升级为 `route_forest_branch_stage_evidence.v3`。reaction 继续要求当前主机重放，
+  procurement 继续要求当前 stock provider authority；process 必须同时依赖 reaction、literature、
+  conditions 和 procurement，任何一个缺口都会具名保留。
+
+零模型 Nirmatrelvir fresh runtime replay 复现 2 条路线、12 条验证超边、15 条 exact records、
+7 个库存叶，输出 2 条 literature-grounded 与 procurement-closed 路线。其所有步骤虽有来源条件，
+但 `condition_completeness` 仍为 partial，因此 condition-complete/process-ready 均为 0。该结果证明
+展示能诚实暴露“采购已闭合、条件仍待补”，不代表 P2/P8/P9 的 fresh blind 发布门已经完成。
+
+## 12. 2026-07-15 来源 procedure 独立实体与缺口展示
+
+在 proof vector 之后，来源过程从 exact structure record 中拆为
+`source_reaction_procedure_record.v1`：
+
+- procedure 必须绑定来源位置及 `procedure-text-sha256`（或确定性 HTML text digest）；没有
+  片段摘要的条件只能保留为兼容投影，不能取得 exact procedure 权威；
+- canonical hypergraph 单独存储 `procedure_records`，边、proof stitcher、Workbench inspector
+  只通过 procedure ID 读取过程证据；结构观察不再通过同一字段隐式授予条件权威；
+- condition schema 保留 `reagent/base/catalyst/oxidant/reductant`、溶剂、温度、时间、当量、
+  加料顺序、气氛/压力、后处理、纯化、收率和规模；常用 `reagent/duration/reported_yield`
+  输入先确定性归一化，不再被静默丢弃；
+- 多个来源过程并存时不自动选科学“赢家”。展示缺口只采用缺失组最少的当前记录作为下一步
+  工作提示，所有原始 procedure 和冲突仍保留在 inspector 中。
+
+更新后的零模型 Nirmatrelvir replay 仍通过原有 2 路线、12 验证边、15 exact records、7 库存叶
+门禁，同时新增并校验 15 个 procedure records：8 个为“过程已定位、条件未解析”，7 个为
+“条件部分完整”，0 个条件完整；因此 condition-complete/process-ready 路线继续为 0。离线
+Workbench 的反应 inspector 现在显示 procedure 状态、来源位置、片段摘要和缺失条件组。
+
+这完成了 P2 的静态六轴/档位/结构—过程拆分及 P3 的 schema/片段绑定条目；后续生命周期
+切片继续完成 P2 的撤销/过期增量降级。P3 的三个真实专利端到端验收及 P8/P9 fresh blind
+发布门仍未完成。
+
+## 13. 2026-07-15 事实生命周期、增量降级与展示
+
+Canonical graph 新增 `canonical_fact_lifecycle_event.v1`，以 append-only 事件表达 `revoke`、
+`expire` 和显式 `restore`。事件绑定事实类型、canonical ID、原内容摘要、生效时间、原因码和
+类型专属 host authority；恢复事件必须指向上一失效事件。原 source、exact record、procedure、
+reaction proof 和 stock observation 永不因失效而删除，因而审计与回放仍能看到完整历史。
+
+当前状态在 proof stitch 前重放：失效 reaction proof 重新打开 validation deficit；失效来源或
+exact record 移除 L3/source/condition 权威；失效 procedure 不能满足 condition-complete；失效库存
+观察不能闭合采购边界。Dependency index 将这些事实 ID 映射回受影响边、叶和路线，增量更新后
+继续以 full-recompute oracle 校验 scientific digest。冲突也进入同一 weakest-link route closure，
+不再只停留在 inspector 提示。
+
+零模型 Nirmatrelvir lifecycle showcase 撤销 `patent:WO2021250648A1` 后保留 12 条当前反应验证和
+全部 15 条审计记录，但有效 exact/procedure 各从 15 降为 8，complete route 从 2 降为 0，独立
+来源只剩 Science 论文组。Replay lifecycle stage、expected metrics 和零模型门全部通过；run 保持
+`continue` 并重新打开 evidence deficit，没有把已降级结果误判为完成。Workbench 顶部显示
+L3 精确先例从 12 降为 8、文献落地路线从 2 降为 1，反应/路线检查器以“失效事实”展示撤销状态、
+生效时间、原因和 event ID。
+
+因此 P2 的生命周期验收、P5 dirty-subgraph/oracle 条目和 P6 库存失效重算条目已闭合。仍未完成的
+主线门是旧 L0–L4 科学权威彻底取消、P3 三个真实专利条件端到端案例，以及 P8/P9 fresh blind
+发布验收。
+
+## 14. 2026-07-15 首个真实专利 XML procedure 门禁
+
+P3 的首个真实案例使用 Vismodegib / EP3381900A1。证据连接器现在优先请求 EPO Publication
+Server 的 ST.36 XML，校验 publication 身份后冻结完整字节与 SHA-256，再把 description 的 heading
+和 paragraph 元素转换为可重放 companion。Google Patents HTML 仍是兼容结构化文本路径；只有
+结构化来源未闭合时才继续进入既有 PDF/OCR 降级链。
+
+确定性 parser 不再把相邻 Route B/C 的条件并入目标边，而是从 `Synthesis of Vismodegib` heading
+开始，在下一 heading 前结束，形成 `h0016-p0046` 精确范围。目标边绑定两个来源命名前体、产物、
+procedure 文本摘要与反应摘要；条件编译得到 THF、三乙胺、4°C、17 h、加料顺序、后处理、柱层析、
+规模及 52% 收率，`reaction_condition_completeness.v1` 没有缺失组。
+
+`scripts/replay_patent_xml_showcase.py` 将首次联网取得的官方 XML 和独立名称解析结果写入本地 CAS；
+之后两次 registry 编译完全关闭网络并得到相同 content digest。严格 `--offline` 也只读取这些摘要
+校验后的输入。生成的 Workbench 只展示这一条真实 procedure 边，两个起始原料的库存未审计，
+因此 portfolio 保持 `accepted=false`，不会把“来源与条件完整”误报为“完整路线闭合”。
+
+这闭合了官方 HTML/XML 优先路径和 Vismodegib 回归条目，但 P3 的三案例门目前仅完成 1/3；
+仍需两个不同专利/反应类型的真实案例，并继续验证 native PDF、OCR 和显式 vision 只对未闭合边回退。
+
+## 15. 2026-07-15 酶催化超级步骤与文献外一跳机理外推
+
+路线优化不再默认“文献就是最优路线”。Canonical reaction edge 继续只表达产物与完整前体集合，
+新的 `route_innovation.v1` 在正交执行层表达两类可审计创新：
+
+- `biocatalytic_superstep` 把一个真实酶转化作为单个执行步骤，同时记录它跨越的化学等效步骤、
+  被替代步骤、净节省、酶类别/EC/候选、选择性目标、辅因子账本、底物范围依据和先例。路线同时
+  报告 `physical_step_count` 与 `chemical_step_equivalent_count`，避免把“图上 1 条边”误解为
+  普通化学一步，也能直接比较 1 步酶法替代 3～6 步保护—氧化还原—拆保护序列的价值。
+- `mechanism_extrapolation` 允许从已报道中间体或反应边继续提出一跳新反应，但必须绑定来源锚点、
+  写明机理与 elementary steps，并给出可证伪检查。锚点论文不被转写为新边的 exact source；
+  未验证时权威上限为 L1，展示采用低证据警示而不是删除候选。
+
+同一反应连通性可以并存化学与酶法执行 option，option 按 route family 选择，不能因 canonical
+edge 去重而丢失。普通 host reaction proof 也不能验证“酶可做”：选中酶法的路线需要 proof digest
+内的专项 `biocatalysis_validation`；只有 EC 标签、模型相似度或原子守恒时，路线仍可见但
+`all_edges_proven=false`，最低 proof 被限制为 L1。Workbench 反应检查器展示替代步数、酶候选、
+选择性、底物范围、机理锚点与可证伪检查；路线检查器分别展示实际步数、化学等效步数和净节省。
+
+当前完成的是数据契约、canonical ingestion、proof/route gate、family-specific 汇总和 UI 投影，
+并有从 L0 hypothesis 物化到 canonical edge 的集成回归。下一条关键路线不是扩大普通文献检索，
+而是：
+
+1. 把 ChemEnzy 的 enzyme action、SP verifier、cofactor ledger 转成上述 option 与专项验证记录；
+2. 在长路线中识别连续的保护/官能团互变/立体控制窗口，生成 2～5 个酶法超级步骤候选；
+3. 对文献最弱或明显绕行的中间体只生成一跳机理外推，经过 host admission、前向可行性和
+   反例 critic 后才允许继续下一跳；
+4. 首个 prospective 验收用 Bufotalin 与一条 statin 路线各比较“原文路线 / 酶法压缩 /
+   文献锚点+机理外推”三类 family，报告净省步骤、最低 proof、辅因子闭合和失败原因。
+
+### 15.1 Bufotalin 首轮创新窗口
+
+`scripts/build_bufotalin_innovation_review.py` 已把 20 步案卷编译为独立 review 和 canonical
+ingestion batch。首轮保留 4 个低证据候选：3 个进入酶筛选队列，1 个停留在机理审查层，尚未
+创建 canonical edge。最高优先级窗口是文献 11→24→25→23→26→27→28 的 6 个操作：目标净
+转化是保留 Δ4 双键与 C17 酮的选择性 C3 酮还原，若 HSDH/KRED 筛选成功可从 6 步压成 1 步，
+净省 5 步。31→32 的晚期酮还原和 32→33 的选择性乙酰化仅作为单步酶执行 option，不虚报步数
+压缩。
+
+机理候选从来源报道的 31 向前一跳到“脱硅 31”这一新中间体，用后续已报道脱硅反应作为机理
+锚点，尝试把脱保护提前到 KRED/酶促酰化之前。该连接明确标记
+`not_canonical_edge_yet=true`，并要求 LC-MS 时间过程、酮保留及 bufadienolide 稳定性检查；
+只有 host materialization 与实验验证完成后才可继续下一跳。下一项 prospective 工作因此收束为
+执行 11→28 HSDH/KRED 小面板、31→32 KRED 面板和 32→33 lipase/acyltransferase 面板，并把
+失败数据写回底物范围，而不是先扩写更多未验证路线。
+
+### 15.2 去目标硬编码的机会发现层
+
+Bufotalin 结果不再由目标脚本内的化学 `if/else` 产生。通用
+`route_innovation_discovery` 在 selected canonical route 上枚举有界连续窗口，以窗口首个前体和
+末端产物计算净 carbonyl/hydroxyl/ester/alkene/silyl-ether 变化、元素差、重原子差、骨架相似度、
+碳数和环数，再与版本化 `biocatalysis_capability.v1` 目录匹配。能力记录自身保存 SMARTS 适用域、
+可保留 motif、窗口长度、酶类别/候选、辅因子及先例；目标名称完全不进入匹配输入。酶先例池以后
+可用相同 schema 动态产生能力记录，不需要修改发现代码。
+
+机理生成与 admission 分离：Codex、规则模板或人工均可提交 proposal，但 host 要求前体是所绑定
+route edge 的真实产物、锚点属于同一路线、产物结构有效且不是 self-loop，并重新规范化为严格一跳
+`mechanism_extrapolation`。通过后的酶窗口与机理 proposal 都只形成 canonical ingestion
+hypotheses；`RetrosynthesisCampaignService.review_route_innovations` 暴露统一入口，后续仍通过
+`CanonicalIngestionBatch` 写图。`scripts/build_bufotalin_innovation_review.py` 现在只是冻结案卷、
+能力目录和 benchmark proposal 的回放适配器；目标专属结构只存在于 benchmark 输入，不拥有生产
+匹配权威。

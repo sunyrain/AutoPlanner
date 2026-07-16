@@ -118,10 +118,11 @@ provider 时伪装成任意未见分子的自动发现器。
 python -m cascade_planner serve
 ```
 
-打开 `http://127.0.0.1:7860/v4`。CLI、V4 API 和 Web workbench 共用
-`CampaignGateway` 与 `RetrosynthesisCampaignService`。控制台从任意 SMILES 发起独立
-campaign，每 2 秒读取一次 canonical checkpoint，并分别显示路线可见、证据待补、模型/
-视觉调用和历史快照；历史内核记录为 `running` 不代表进程仍在执行。
+打开 `http://127.0.0.1:7860/v4` 进入统一工作区：展示案例、后端运行索引和路线 Workbench
+共用一个查看器；`/v4/console` 从任意 SMILES 发起独立 campaign，`/v4/showcase` 提供全屏
+演示。CLI、V4 API 和 Web workbench 共用 `CampaignGateway` 与
+`RetrosynthesisCampaignService`。页面每 2 秒读取 canonical checkpoint，并分别显示路线
+结构闭合、证据待补、模型/视觉调用和历史快照；历史内核记录为 `running` 不代表进程仍在执行。
 
 ## 可信度与完成
 

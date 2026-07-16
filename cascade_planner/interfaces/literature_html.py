@@ -106,7 +106,7 @@ def materialize_pmc_repository_html(
     assert parser is not None
     if parser.citation_doi.casefold() != source_doi.casefold():
         raise ValueError("pmc_repository_html_doi_mismatch")
-    return _materialize_parsed_pmc_html(
+    return materialize_parsed_html(
         parser=parser,
         html_bytes=html_bytes,
         receipt=receipt,
@@ -132,7 +132,7 @@ def _is_repository_browser_challenge(content: bytes) -> bool:
     )
 
 
-def _materialize_parsed_pmc_html(
+def materialize_parsed_html(
     *,
     parser: PmcArticleParser,
     html_bytes: bytes,
@@ -144,6 +144,9 @@ def _materialize_parsed_pmc_html(
     source_dir: Path,
     fulltext_cache_dir: Path,
     config: Any,
+    acquisition_method: str = "pmc_repository_fulltext_html",
+    artifact_kind: str = "pmc_fulltext_html",
+    repository_semantics: bool = True,
 ) -> dict[str, Any]:
     html_sha = hashlib.sha256(html_bytes).hexdigest()
     cache_path = fulltext_cache_dir / f"fulltext-{html_sha[:16]}.html"
@@ -170,6 +173,7 @@ def _materialize_parsed_pmc_html(
         ],
         source_artifact_sha256=html_sha,
         limit=config.max_fulltext_sections,
+        source_artifact_kind=artifact_kind,
     )
     if not procedures:
         raise ValueError("pmc_repository_html_relevant_material_missing")
@@ -193,14 +197,16 @@ def _materialize_parsed_pmc_html(
         "unresolved_edge_count": len(request.get("edges") or []) or 1,
         "focus_page_numbers": [],
         "acquisition_status": "materialized",
-        "acquisition_method": "pmc_repository_fulltext_html",
+        "acquisition_method": acquisition_method,
         "acquisition_receipt": {
             **receipt,
             "cached_fulltext_path": str(cache_path),
         },
         "semantics": {
-            "html_used_after_xml_before_pdf": True,
-            "repository_access_is_distinct_from_open_access_licence": True,
+            "html_used_before_pdf": True,
+            "html_used_after_xml_before_pdf": repository_semantics,
+            "repository_access_is_distinct_from_open_access_licence": repository_semantics,
+            "institutionally_authorized_source": not repository_semantics,
             "source_material_grants_no_exact_reaction_authority": True,
         },
     }
@@ -250,4 +256,4 @@ def _write_receipt_once(path: Path, value: Mapping[str, Any]) -> None:
     temporary.replace(path)
 
 
-__all__ = ["materialize_pmc_repository_html"]
+__all__ = ["materialize_parsed_html", "materialize_pmc_repository_html"]

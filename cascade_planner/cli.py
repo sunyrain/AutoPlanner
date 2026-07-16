@@ -3,6 +3,7 @@
 All campaign commands call the same gateway used by the V4 HTTP adapter.
 Model-free ``run`` remains separate from explicit model-backed ``solve-target``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,6 +25,11 @@ from cascade_planner.interfaces.case_cli import (
     CASE_COMMANDS,
     add_case_commands,
     dispatch_case_command,
+)
+from cascade_planner.interfaces.program_cli import (
+    PROGRAM_COMMANDS,
+    add_program_commands,
+    dispatch_program_command,
 )
 from cascade_planner.interfaces.target_cli import (
     TARGET_COMMANDS,
@@ -77,9 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
         command = sub.add_parser(name, help=help_text)
         _add_run_reference(command)
 
-    benchmark = sub.add_parser(
-        "benchmark", help="measure model-free status/oracle/projection work"
-    )
+    benchmark = sub.add_parser("benchmark", help="measure model-free status/oracle/projection work")
     _add_run_reference(benchmark)
     benchmark.add_argument("--iterations", type=int, default=3)
 
@@ -104,11 +108,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_case_commands(sub)
     add_target_commands(sub)
+    add_program_commands(sub)
 
     serve = sub.add_parser("serve", help="serve the Web UI and V4 API")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=7860)
     serve.add_argument("--server", choices=("waitress", "flask"), default="waitress")
+    serve.add_argument(
+        "--surface",
+        choices=("v4", "combined"),
+        default="v4",
+        help="serve the isolated V4 mainline or the frozen combined compatibility UI",
+    )
     serve.add_argument("--threads", type=int, default=2)
     serve.add_argument("--debug", action="store_true")
     return parser
@@ -144,6 +155,8 @@ def _dispatch(gateway: CampaignGateway, args: argparse.Namespace) -> dict[str, A
         return dispatch_case_command(args, paths=gateway.paths)
     if args.command in TARGET_COMMANDS:
         return dispatch_target_command(gateway, args)
+    if args.command in PROGRAM_COMMANDS:
+        return dispatch_program_command(gateway, args)
     if args.command == "run":
         plan = _read_object(args.plan) if args.plan else None
         return gateway.create_run(
@@ -244,30 +257,16 @@ def _serve(args: argparse.Namespace) -> None:
         value = getattr(args, attribute, None)
         if value:
             os.environ[variable] = str(value)
-    from cascade_planner.web.app import create_app
+    from cascade_planner.web.server import serve_web
 
-    app = create_app()
-    if args.server == "waitress":
-        try:
-            from waitress import serve
-        except ImportError as exc:
-            raise ValueError(
-                "waitress_not_installed; install requirements or use --server flask"
-            ) from exc
-        serve(
-            app,
-            host=args.host,
-            port=args.port,
-            threads=max(1, min(32, int(args.threads))),
-            channel_timeout=30,
-        )
-    else:
-        app.run(
-            host=args.host,
-            port=args.port,
-            debug=args.debug,
-            threaded=True,
-        )
+    serve_web(
+        surface=args.surface,
+        host=args.host,
+        port=args.port,
+        server=args.server,
+        threads=args.threads,
+        debug=args.debug,
+    )
 
 
 def _add_run_reference(parser: argparse.ArgumentParser) -> None:

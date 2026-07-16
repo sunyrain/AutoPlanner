@@ -1,0 +1,557 @@
+{
+  "accepted_capability_count": 3,
+  "accepted_capability_ids": [
+    "hsdh:delta4-3-ketosteroid-to-3-hydroxysteroid",
+    "lipase:polycyclic-steroid-selective-acylation",
+    "sdr:polycyclic-steroid-ketone-screen"
+  ],
+  "candidate_projection_sha256": "db3399b9e088c355f0d11ba4658e8cf3fdb5fd33c6f3990c0881178cc645f8e2",
+  "capability_audit_sha256": "5c381a779c53ebb67f296aa2ce39b1e9815a7aca3bfeee10b1eb6ef0ad170a2d",
+  "content_sha256": "7418909b2fd20941b562864149bb41244708f7c9762780abb5c9dd43cc6dc7d8",
+  "counts": {
+    "enzyme_candidates": 5,
+    "mechanism_candidates": 0,
+    "no_applicable_enzyme_routes": 0,
+    "routes": 1,
+    "screenable_routes": 1
+  },
+  "observation_sha256": "0230f065ce67f48b2815a49f351a1877a8da0bbb56d5b495b8242711975a96be",
+  "rejected_capabilities": [],
+  "route_screens": {
+    "route:bufotalin-20-step-reported-candidate": {
+      "discovery": {
+        "candidate_count": 5,
+        "candidates": [
+          {
+            "boundary": {
+              "minimum_boundary_proof_level": 1,
+              "precursor_molecule_id": "m:paper:11",
+              "precursor_smiles": "CC12CCC3C(CCC4=CC(=O)CCC43C)C1CCC2=O",
+              "product_molecule_id": "m:paper:28",
+              "product_smiles": "CC12CCC3C(CCC4=CC(O)CCC43C)C1CCC2=O",
+              "replaced_edge_ids": [
+                "edge:paper:24",
+                "edge:paper:25",
+                "edge:paper:23",
+                "edge:paper:26",
+                "edge:paper:27",
+                "edge:paper:28"
+              ]
+            },
+            "candidate_id": "route-innovation:6c9d4028cd0f7e5d7302c2a1",
+            "candidate_kind": "enzyme_window",
+            "capability_id": "hsdh:delta4-3-ketosteroid-to-3-hydroxysteroid",
+            "match_audit": {
+              "accepted": true,
+              "capability_specificity_bonus": 0.07,
+              "match_score": 0.855714,
+              "reasons": [],
+              "transition": {
+                "element_delta": {
+                  "C": 0,
+                  "O": 0
+                },
+                "heavy_atom_delta": 0,
+                "motif_delta": {
+                  "alkene": 0,
+                  "carbonyl": -1,
+                  "carboxyl": 0,
+                  "ester": 0,
+                  "hydroxyl": 1,
+                  "silyl_ether": 0
+                },
+                "precursor_smiles": "CC12CCC3C(CCC4=CC(=O)CCC43C)C1CCC2=O",
+                "product_smiles": "CC12CCC3C(CCC4=CC(O)CCC43C)C1CCC2=O",
+                "scaffold_similarity": 0.642857,
+                "substrate_carbon_count": 19,
+                "substrate_ring_count": 4,
+                "valid": true
+              }
+            },
+            "not_program_yet": true,
+            "priority_score": 0.855714,
+            "review_status": "ready_for_enzyme_screen",
+            "route_innovation": {
+              "authority_scope": "proposal_only",
+              "chemical_step_equivalent_count": 6,
+              "cofactor_regenerations": {
+                "screen": [
+                  "glucose dehydrogenase",
+                  "formate dehydrogenase"
+                ]
+              },
+              "cofactor_requirements": {
+                "accepted": [
+                  "NADH",
+                  "NADPH"
+                ]
+              },
+              "content_sha256": "6b21275e8169e50472f6c671d6547979f97d68b2f4a0feab8b35fe818d71ce9e",
+              "enzyme": {
+                "candidate_ids": [
+                  "Ct3alpha-HSDH",
+                  "Ss3beta-HSDH"
+                ],
+                "classes": [
+                  "3alpha-hydroxysteroid dehydrogenase",
+                  "3beta-hydroxysteroid dehydrogenase"
+                ],
+                "ec_numbers": []
+              },
+              "evidence_grade": "low_until_biocatalysis_validated",
+              "innovation_id": "innovation:8e5f7ee51f4ee948eec7d8f1",
+              "kind": "biocatalytic_superstep",
+              "l2_requires_biocatalysis_validation": true,
+              "not_exact_source_evidence": true,
+              "not_reaction_proof": true,
+              "precedent_refs": [
+                "doi:10.1021/acs.orglett.3c03557"
+              ],
+              "proposal_basis": "biocatalysis_hypothesis",
+              "replaced_step_ids": [
+                "edge:paper:24",
+                "edge:paper:25",
+                "edge:paper:23",
+                "edge:paper:26",
+                "edge:paper:27",
+                "edge:paper:28"
+              ],
+              "route_family_ids": [
+                "candidate-family:route:bufotalin-20-step-reported-candidate"
+              ],
+              "schema_version": "route_innovation.v1",
+              "selectivity_objective": "Reduce the Delta4 steroid C3 ketone to one specified C3 alcohol stereoisomer while retaining other ketones, C=C bonds and esters.",
+              "step_savings": 5,
+              "substrate_scope_basis": "Primary steroid HSDH study; exact route substrates require screening.",
+              "transformation_mode": "biocatalytic",
+              "validation_status": "proposed_screen_required"
+            },
+            "warning_codes": [
+              "EXACT_SUBSTRATE_UNVALIDATED"
+            ]
+          },
+          {
+            "boundary": {
+              "minimum_boundary_proof_level": 1,
+              "precursor_molecule_id": "m:paper:32",
+              "precursor_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+              "product_molecule_id": "m:paper:33",
+              "product_smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+              "replaced_edge_ids": [
+                "edge:paper:33"
+              ]
+            },
+            "candidate_id": "route-innovation:535460af228d881808056096",
+            "candidate_kind": "enzyme_window",
+            "capability_id": "lipase:polycyclic-steroid-selective-acylation",
+            "match_audit": {
+              "accepted": true,
+              "capability_specificity_bonus": 0.06,
+              "match_score": 0.541579,
+              "reasons": [],
+              "transition": {
+                "element_delta": {
+                  "C": 2,
+                  "O": 1,
+                  "Si": 0
+                },
+                "heavy_atom_delta": 3,
+                "motif_delta": {
+                  "alkene": 0,
+                  "carbonyl": 1,
+                  "carboxyl": 0,
+                  "ester": 1,
+                  "hydroxyl": -1,
+                  "silyl_ether": 0
+                },
+                "precursor_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+                "product_smiles": "CC(=O)O[C@H]1C[C@]2(O[Si](C)(C)C)[C@@H]3CC[C@@H]4C[C@@H](O[Si](C)(C)C(C)(C)C)CC[C@]4(C)[C@H]3CC[C@]2(C)[C@H]1c1ccc(=O)oc1",
+                "scaffold_similarity": 0.802632,
+                "substrate_carbon_count": 33,
+                "substrate_ring_count": 5,
+                "valid": true
+              }
+            },
+            "not_program_yet": true,
+            "priority_score": 0.541579,
+            "review_status": "ready_for_enzyme_screen",
+            "route_innovation": {
+              "authority_scope": "proposal_only",
+              "chemical_step_equivalent_count": 1,
+              "cofactor_regenerations": {},
+              "cofactor_requirements": {},
+              "content_sha256": "2e14d6cde2856daa5ac56fb817d8cd52813627e4e7685069580f41afb96f8bbd",
+              "enzyme": {
+                "candidate_ids": [],
+                "classes": [
+                  "acyltransferase",
+                  "lipase"
+                ],
+                "ec_numbers": []
+              },
+              "evidence_grade": "low_until_biocatalysis_validated",
+              "innovation_id": "innovation:7dd862ab34d70f0a89f1e70a",
+              "kind": "biocatalytic_step",
+              "l2_requires_biocatalysis_validation": true,
+              "not_exact_source_evidence": true,
+              "not_reaction_proof": true,
+              "precedent_refs": [
+                "doi:10.1016/j.steroids.2009.07.010"
+              ],
+              "proposal_basis": "biocatalysis_hypothesis",
+              "replaced_step_ids": [
+                "edge:paper:33"
+              ],
+              "route_family_ids": [
+                "candidate-family:route:bufotalin-20-step-reported-candidate"
+              ],
+              "schema_version": "route_innovation.v1",
+              "selectivity_objective": "Form one specified steroid alcohol ester while leaving all non-target hydroxyl and protecting-group states unchanged.",
+              "step_savings": 0,
+              "substrate_scope_basis": "Primary lipase study on hydrocortisone derivatives; exact route substrate and site selectivity require screening.",
+              "transformation_mode": "biocatalytic",
+              "validation_status": "proposed_screen_required"
+            },
+            "warning_codes": [
+              "EXACT_SUBSTRATE_UNVALIDATED"
+            ]
+          },
+          {
+            "boundary": {
+              "minimum_boundary_proof_level": 1,
+              "precursor_molecule_id": "m:paper:31",
+              "precursor_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+              "product_molecule_id": "m:paper:32",
+              "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+              "replaced_edge_ids": [
+                "edge:paper:32"
+              ]
+            },
+            "candidate_id": "route-innovation:c9cab53c35882e1587d1d95c",
+            "candidate_kind": "enzyme_window",
+            "capability_id": "sdr:polycyclic-steroid-ketone-screen",
+            "match_audit": {
+              "accepted": true,
+              "capability_specificity_bonus": 0.03,
+              "match_score": 0.47,
+              "reasons": [],
+              "transition": {
+                "element_delta": {
+                  "C": 0,
+                  "O": 0,
+                  "Si": 0
+                },
+                "heavy_atom_delta": 0,
+                "motif_delta": {
+                  "alkene": 0,
+                  "carbonyl": -1,
+                  "carboxyl": 0,
+                  "ester": 0,
+                  "hydroxyl": 1,
+                  "silyl_ether": 0
+                },
+                "precursor_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)C(=O)C[C@]32O[Si](C)(C)C)C1",
+                "product_smiles": "CC(C)(C)[Si](C)(C)O[C@H]1CC[C@@]2(C)[C@H](CC[C@@H]3[C@@H]2CC[C@]2(C)[C@@H](c4ccc(=O)oc4)[C@@H](O)C[C@]32O[Si](C)(C)C)C1",
+                "scaffold_similarity": 0.733333,
+                "substrate_carbon_count": 33,
+                "substrate_ring_count": 5,
+                "valid": true
+              }
+            },
+            "not_program_yet": true,
+            "priority_score": 0.47,
+            "review_status": "ready_for_enzyme_screen",
+            "route_innovation": {
+              "authority_scope": "proposal_only",
+              "chemical_step_equivalent_count": 1,
+              "cofactor_regenerations": {
+                "screen": [
+                  "glucose dehydrogenase"
+                ]
+              },
+              "cofactor_requirements": {
+                "accepted": [
+                  "NADH",
+                  "NADPH"
+                ]
+              },
+              "content_sha256": "94d977c2965326a4d56bca2f8010f0be0bf9949c103cf092571b5836f7750c49",
+              "enzyme": {
+                "candidate_ids": [
+                  "Is2-SDR"
+                ],
+                "classes": [
+                  "ketoreductase",
+                  "short-chain dehydrogenase/reductase"
+                ],
+                "ec_numbers": []
+              },
+              "evidence_grade": "low_until_biocatalysis_validated",
+              "innovation_id": "innovation:95491e4419ef4b34fd702282",
+              "kind": "biocatalytic_step",
+              "l2_requires_biocatalysis_validation": true,
+              "not_exact_source_evidence": true,
+              "not_reaction_proof": true,
+              "precedent_refs": [
+                "doi:10.3390/ijms232012153"
+              ],
+              "proposal_basis": "biocatalysis_hypothesis",
+              "replaced_step_ids": [
+                "edge:paper:32"
+              ],
+              "route_family_ids": [
+                "candidate-family:route:bufotalin-20-step-reported-candidate"
+              ],
+              "schema_version": "route_innovation.v1",
+              "selectivity_objective": "Reduce one specified ketone on a polycyclic steroid to the requested alcohol stereoisomer while preserving all other recorded motifs.",
+              "step_savings": 0,
+              "substrate_scope_basis": "Promiscuous thermostable SDR precedent; position and exact route substrate are outside validated scope and require screening.",
+              "transformation_mode": "biocatalytic",
+              "validation_status": "proposed_screen_required"
+            },
+            "warning_codes": [
+              "EXACT_SUBSTRATE_UNVALIDATED"
+            ]
+          },
+          {
+            "boundary": {
+              "minimum_boundary_proof_level": 0,
+              "precursor_molecule_id": "m:planner:4",
+              "precursor_smiles": "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+              "product_molecule_id": "m:planner:5",
+              "product_smiles": "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+              "replaced_edge_ids": [
+                "edge:planner:4"
+              ]
+            },
+            "candidate_id": "route-innovation:e0e07fa2cf3d40235efab801",
+            "candidate_kind": "enzyme_window",
+            "capability_id": "sdr:polycyclic-steroid-ketone-screen",
+            "match_audit": {
+              "accepted": true,
+              "capability_specificity_bonus": 0.03,
+              "match_score": 0.425455,
+              "reasons": [],
+              "transition": {
+                "element_delta": {
+                  "C": 0,
+                  "O": 0
+                },
+                "heavy_atom_delta": 0,
+                "motif_delta": {
+                  "alkene": 0,
+                  "carbonyl": -1,
+                  "carboxyl": 0,
+                  "ester": 0,
+                  "hydroxyl": 1,
+                  "silyl_ether": 0
+                },
+                "precursor_smiles": "C[C@]12CCC(=O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+                "product_smiles": "C[C@]12CC[C@H](O)CC1=CC[C@@H]1[C@@H]2CC[C@]2(C)C(=O)CC[C@@H]12",
+                "scaffold_similarity": 0.659091,
+                "substrate_carbon_count": 19,
+                "substrate_ring_count": 4,
+                "valid": true
+              }
+            },
+            "not_program_yet": true,
+            "priority_score": 0.425455,
+            "review_status": "requires_boundary_materialization",
+            "route_innovation": {
+              "authority_scope": "proposal_only",
+              "chemical_step_equivalent_count": 1,
+              "cofactor_regenerations": {
+                "screen": [
+                  "glucose dehydrogenase"
+                ]
+              },
+              "cofactor_requirements": {
+                "accepted": [
+                  "NADH",
+                  "NADPH"
+                ]
+              },
+              "content_sha256": "fcc9378e35eb3b584795f989b34d90adaad11a603317c6a839b124fd91ff621c",
+              "enzyme": {
+                "candidate_ids": [
+                  "Is2-SDR"
+                ],
+                "classes": [
+                  "ketoreductase",
+                  "short-chain dehydrogenase/reductase"
+                ],
+                "ec_numbers": []
+              },
+              "evidence_grade": "low_until_biocatalysis_validated",
+              "innovation_id": "innovation:d9a7987ee6089e7f9a4ed90c",
+              "kind": "biocatalytic_step",
+              "l2_requires_biocatalysis_validation": true,
+              "not_exact_source_evidence": true,
+              "not_reaction_proof": true,
+              "precedent_refs": [
+                "doi:10.3390/ijms232012153"
+              ],
+              "proposal_basis": "biocatalysis_hypothesis",
+              "replaced_step_ids": [
+                "edge:planner:4"
+              ],
+              "route_family_ids": [
+                "candidate-family:route:bufotalin-20-step-reported-candidate"
+              ],
+              "schema_version": "route_innovation.v1",
+              "selectivity_objective": "Reduce one specified ketone on a polycyclic steroid to the requested alcohol stereoisomer while preserving all other recorded motifs.",
+              "step_savings": 0,
+              "substrate_scope_basis": "Promiscuous thermostable SDR precedent; position and exact route substrate are outside validated scope and require screening.",
+              "transformation_mode": "biocatalytic",
+              "validation_status": "proposed_screen_required"
+            },
+            "warning_codes": [
+              "EXACT_SUBSTRATE_UNVALIDATED",
+              "ROUTE_BOUNDARY_BELOW_L1"
+            ]
+          },
+          {
+            "boundary": {
+              "minimum_boundary_proof_level": 1,
+              "precursor_molecule_id": "m:paper:25",
+              "precursor_smiles": "CC12CCC(=O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+              "product_molecule_id": "m:paper:23",
+              "product_smiles": "CC12CCC(O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+              "replaced_edge_ids": [
+                "edge:paper:23"
+              ]
+            },
+            "candidate_id": "route-innovation:582bb1da7b99a577b320de4b",
+            "candidate_kind": "enzyme_window",
+            "capability_id": "sdr:polycyclic-steroid-ketone-screen",
+            "match_audit": {
+              "accepted": true,
+              "capability_specificity_bonus": 0.03,
+              "match_score": 0.385102,
+              "reasons": [],
+              "transition": {
+                "element_delta": {
+                  "C": 0,
+                  "O": 0
+                },
+                "heavy_atom_delta": 0,
+                "motif_delta": {
+                  "alkene": 0,
+                  "carbonyl": -1,
+                  "carboxyl": 0,
+                  "ester": 0,
+                  "hydroxyl": 1,
+                  "silyl_ether": 0
+                },
+                "precursor_smiles": "CC12CCC(=O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+                "product_smiles": "CC12CCC(O)CC1CCC1C2CCC2(C)C1CCC21OCCO1",
+                "scaffold_similarity": 0.591837,
+                "substrate_carbon_count": 21,
+                "substrate_ring_count": 5,
+                "valid": true
+              }
+            },
+            "not_program_yet": true,
+            "priority_score": 0.385102,
+            "review_status": "ready_for_enzyme_screen",
+            "route_innovation": {
+              "authority_scope": "proposal_only",
+              "chemical_step_equivalent_count": 1,
+              "cofactor_regenerations": {
+                "screen": [
+                  "glucose dehydrogenase"
+                ]
+              },
+              "cofactor_requirements": {
+                "accepted": [
+                  "NADH",
+                  "NADPH"
+                ]
+              },
+              "content_sha256": "73dd75ba9ff1896f89c754aab178bdb7617ac5cdb05a90509eb992d507407b4f",
+              "enzyme": {
+                "candidate_ids": [
+                  "Is2-SDR"
+                ],
+                "classes": [
+                  "ketoreductase",
+                  "short-chain dehydrogenase/reductase"
+                ],
+                "ec_numbers": []
+              },
+              "evidence_grade": "low_until_biocatalysis_validated",
+              "innovation_id": "innovation:18bad3ad49ff5e1f1741d2c7",
+              "kind": "biocatalytic_step",
+              "l2_requires_biocatalysis_validation": true,
+              "not_exact_source_evidence": true,
+              "not_reaction_proof": true,
+              "precedent_refs": [
+                "doi:10.3390/ijms232012153"
+              ],
+              "proposal_basis": "biocatalysis_hypothesis",
+              "replaced_step_ids": [
+                "edge:paper:23"
+              ],
+              "route_family_ids": [
+                "candidate-family:route:bufotalin-20-step-reported-candidate"
+              ],
+              "schema_version": "route_innovation.v1",
+              "selectivity_objective": "Reduce one specified ketone on a polycyclic steroid to the requested alcohol stereoisomer while preserving all other recorded motifs.",
+              "step_savings": 0,
+              "substrate_scope_basis": "Promiscuous thermostable SDR precedent; position and exact route substrate are outside validated scope and require screening.",
+              "transformation_mode": "biocatalytic",
+              "validation_status": "proposed_screen_required"
+            },
+            "warning_codes": [
+              "EXACT_SUBSTRATE_UNVALIDATED"
+            ]
+          }
+        ],
+        "content_sha256": "65c7be8d68cbaa56150f1d4cb009f0aceb3e61e46dba0ca4f5e07cff28c3c43a",
+        "execution_program_draft_candidate_ids": [],
+        "ingestion_hypotheses": [],
+        "program_draft_candidate_ids": [
+          "route-innovation:535460af228d881808056096",
+          "route-innovation:582bb1da7b99a577b320de4b",
+          "route-innovation:6c9d4028cd0f7e5d7302c2a1",
+          "route-innovation:c9cab53c35882e1587d1d95c",
+          "route-innovation:e0e07fa2cf3d40235efab801"
+        ],
+        "rejected": [],
+        "route_family_id": "candidate-family:route:bufotalin-20-step-reported-candidate",
+        "route_id": "route:bufotalin-20-step-reported-candidate",
+        "schema_version": "route_innovation_discovery.v1",
+        "semantics": {
+          "analog_matches_are_proposal_only": true,
+          "canonical_ingestion_remains_the_only_scientific_write_path": true,
+          "capabilities_are_data_not_code": true,
+          "enzyme_windows_compile_to_program_drafts_not_reaction_edges": true,
+          "mechanism_generation_and_host_admission_are_separate": true,
+          "target_names_are_not_matching_inputs": true,
+          "whole_cell_and_hybrid_windows_compile_to_program_drafts": true
+        },
+        "window_enumeration": {
+          "count": 132,
+          "maximum": 2048,
+          "truncated": false
+        }
+      },
+      "enzyme_candidate_count": 5,
+      "mechanism_candidate_count": 0,
+      "negative_control_eligible": false,
+      "route_id": "route:bufotalin-20-step-reported-candidate",
+      "screen_status": "enzyme_candidates_found"
+    }
+  },
+  "schema_version": "candidate_route_innovation_screen.v1",
+  "semantics": {
+    "candidate_graph_is_screening_input_not_scientific_authority": true,
+    "canonical_graph_not_modified": true,
+    "enzyme_matches_are_proposal_only": true,
+    "enzyme_windows_target_program_drafts_not_canonical_edges": true,
+    "program_store_admission_performed": false,
+    "read_only": true,
+    "target_names_are_not_matching_inputs": true,
+    "zero_candidates_is_a_valid_screen_result": true
+  }
+}

@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1380" height="720" viewBox="0 0 1380 720">
+<defs>
+  <filter id="shadow" x="-10%" y="-20%" width="120%" height="150%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#0B2637" flood-opacity=".12"/></filter>
+  <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#22B8CF"/></marker>
+  <style>
+    text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; }
+    .heading { font-size: 31px; font-weight: 700; letter-spacing: .4px; }
+    .kicker { font-size: 15px; font-weight: 700; letter-spacing: 2px; }
+    .title { font-size: 21px; font-weight: 700; }
+    .sub { font-size: 14px; }
+    .badge { font-size: 12px; font-weight: 700; }
+    .node { filter: url(#shadow); }
+    .label { font-size: 14px; font-weight: 700; }
+  </style>
+</defs>
+<rect width="100%" height="100%" rx="26" fill="#F4F8FA"/>
+<text x="48" y="52" class="kicker" fill="#22B8CF">AUTOPLANNER · SYSTEM ROUTE</text>
+<text x="48" y="94" class="heading" fill="#0D2638">当前真实运行路线 · Canonical V4</text>
+
+      <g class="node">
+        <rect x="50" y="140" width="260" height="94" rx="18" fill="#FFFFFF" stroke="#3977F6" stroke-width="3"/>
+        <rect x="50" y="140" width="8" height="94" rx="4" fill="#3977F6"/>
+        <rect x="220" y="154" width="72" height="24" rx="12" fill="#3977F6" opacity=".16"/><text x="256" y="171" text-anchor="middle" class="badge" fill="#3977F6">INPUT</text>
+        <text x="76" y="178" class="title" fill="#173243">Target intake</text>
+        <text x="76" y="208" class="sub" fill="#6B7F8C">SMILES · acceptance · budgets</text>
+      </g>
+
+      <g class="node">
+        <rect x="360" y="140" width="260" height="94" rx="18" fill="#FFFFFF" stroke="#3977F6" stroke-width="3"/>
+        <rect x="360" y="140" width="8" height="94" rx="4" fill="#3977F6"/>
+        <rect x="530" y="154" width="72" height="24" rx="12" fill="#3977F6" opacity=".16"/><text x="566" y="171" text-anchor="middle" class="badge" fill="#3977F6">AUTH</text>
+        <text x="386" y="178" class="title" fill="#173243">RunKernel</text>
+        <text x="386" y="208" class="sub" fill="#6B7F8C">事件 · 恢复 · 任务 · 成本</text>
+      </g>
+
+      <g class="node">
+        <rect x="670" y="140" width="280" height="94" rx="18" fill="#FFFFFF" stroke="#7759D9" stroke-width="3"/>
+        <rect x="670" y="140" width="8" height="94" rx="4" fill="#7759D9"/>
+        <rect x="860" y="154" width="72" height="24" rx="12" fill="#7759D9" opacity=".16"/><text x="896" y="171" text-anchor="middle" class="badge" fill="#7759D9">PLAN</text>
+        <text x="696" y="178" class="title" fill="#173243">Global Director</text>
+        <text x="696" y="208" class="sub" fill="#6B7F8C">全局策略；proposal only</text>
+      </g>
+
+      <g class="node">
+        <rect x="1000" y="140" width="330" height="94" rx="18" fill="#FFFFFF" stroke="#E9A23B" stroke-width="3"/>
+        <rect x="1000" y="140" width="8" height="94" rx="4" fill="#E9A23B"/>
+        <rect x="1240" y="154" width="72" height="24" rx="12" fill="#E9A23B" opacity=".16"/><text x="1276" y="171" text-anchor="middle" class="badge" fill="#E9A23B">WORK</text>
+        <text x="1026" y="178" class="title" fill="#173243">Workers / Providers</text>
+        <text x="1026" y="208" class="sub" fill="#6B7F8C">ChemEnzy · 文献 · 库存 · 实验交接</text>
+      </g>
+
+      <g class="node">
+        <rect x="1000" y="330" width="330" height="94" rx="18" fill="#FFFFFF" stroke="#E9685B" stroke-width="3"/>
+        <rect x="1000" y="330" width="8" height="94" rx="4" fill="#E9685B"/>
+        <rect x="1240" y="344" width="72" height="24" rx="12" fill="#E9685B" opacity=".16"/><text x="1276" y="361" text-anchor="middle" class="badge" fill="#E9685B">GATE</text>
+        <text x="1026" y="368" class="title" fill="#173243">Canonical admission</text>
+        <text x="1026" y="398" class="sub" fill="#6B7F8C">身份 · 元素 · 映射 · 循环 · 权威</text>
+      </g>
+
+      <g class="node">
+        <rect x="640" y="330" width="310" height="94" rx="18" fill="#FFFFFF" stroke="#22A884" stroke-width="3"/>
+        <rect x="640" y="330" width="8" height="94" rx="4" fill="#22A884"/>
+
+        <text x="666" y="368" class="title" fill="#173243">Canonical Hypergraph</text>
+        <text x="666" y="398" class="sub" fill="#6B7F8C">分子 · 反应边 · 来源 · procedure</text>
+      </g>
+
+      <g class="node">
+        <rect x="170" y="535" width="290" height="94" rx="18" fill="#FFFFFF" stroke="#E9A23B" stroke-width="3"/>
+        <rect x="170" y="535" width="8" height="94" rx="4" fill="#E9A23B"/>
+        <rect x="370" y="549" width="72" height="24" rx="12" fill="#E9A23B" opacity=".16"/><text x="406" y="566" text-anchor="middle" class="badge" fill="#E9A23B">LOOP</text>
+        <text x="196" y="573" class="title" fill="#173243">DeficitFrontier</text>
+        <text x="196" y="603" class="sub" fill="#6B7F8C">唯一待办 · 调度下一项工作</text>
+      </g>
+
+      <g class="node">
+        <rect x="570" y="535" width="290" height="94" rx="18" fill="#FFFFFF" stroke="#43B86A" stroke-width="3"/>
+        <rect x="570" y="535" width="8" height="94" rx="4" fill="#43B86A"/>
+        <rect x="770" y="549" width="72" height="24" rx="12" fill="#43B86A" opacity=".16"/><text x="806" y="566" text-anchor="middle" class="badge" fill="#43B86A">DECIDE</text>
+        <text x="596" y="573" class="title" fill="#173243">Proof Portfolio</text>
+        <text x="596" y="603" class="sub" fill="#6B7F8C">最弱边/叶 · 多样性 · acceptance</text>
+      </g>
+
+      <g class="node">
+        <rect x="970" y="535" width="330" height="94" rx="18" fill="#FFFFFF" stroke="#22B8CF" stroke-width="3"/>
+        <rect x="970" y="535" width="8" height="94" rx="4" fill="#22B8CF"/>
+        <rect x="1210" y="549" width="72" height="24" rx="12" fill="#22B8CF" opacity=".16"/><text x="1246" y="566" text-anchor="middle" class="badge" fill="#22B8CF">VIEW</text>
+        <text x="996" y="573" class="title" fill="#173243">Route Workbench</text>
+        <text x="996" y="603" class="sub" fill="#6B7F8C">同 revision 只读展示；不创造 proof</text>
+      </g>
+    <path d="M310,187 L360,187" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M620,187 L670,187" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M950,187 L1000,187" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M1165,234 L1165,330" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M1000,377 L950,377" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M795,424 L715,535" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M640,377 L315,535" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M860,582 L970,582" fill="none" stroke="#22B8CF" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/><path d="M170,582 C70,582 70,285 1000,285" fill="none" stroke="#E9A23B" stroke-width="3" stroke-dasharray="9 8" marker-end="url(#arrow)"/><text x="88" y="455" class="label" fill="#B87920">未闭合 → 继续工作</text><text x="1010" y="681" class="label" fill="#3977F6">只有 acceptance 可以宣布完成</text>
+</svg>

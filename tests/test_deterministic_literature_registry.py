@@ -12,6 +12,7 @@ from cascade_planner.harness.deterministic_literature_registry import (
     _extract_labeled_procedures,
     _source_parenthetical_name_aliases,
     compile_deterministic_literature_step_registry,
+    source_amount_reagent_names,
 )
 from cascade_planner.harness.reaction_step_verifier import (
     canonical_reaction_digest,
@@ -67,6 +68,37 @@ def test_extract_labeled_procedures_keeps_heading_and_forward_procedure() -> Non
     assert "T1 was treated" in rows[1]["procedure"]
 
 
+def test_extract_labeled_procedures_accepts_journal_compound_blocks() -> None:
+    rows = _extract_labeled_procedures(
+        [
+            {
+                "page_number": 4,
+                "text": (
+                    "The discussion says compound 24 was useful. "
+                    "Compound 24. To a stirred solution of substrate 11 "
+                    "(286 mg, 1.0 mmol) was added reagent A. The reaction "
+                    "mixture was stirred and purified to afford compound 24. "
+                    "Compound 25. To a stirred solution of compound 24 "
+                    "(330 mg, 1.0 mmol) was added reagent B. The reaction "
+                    "mixture was stirred and purified to afford compound 25. "
+                    "Bufotalin(1). To a stirred solution of compound 25 "
+                    "(15 mg, 0.02 mmol) was added reagent C. The reaction "
+                    "mixture was stirred and purified to afford bufotalin."
+                ),
+            }
+        ]
+    )
+
+    assert [(row["label"], row["name"]) for row in rows] == [
+        ("1", "Bufotalin"),
+        ("24", "Compound 24"),
+        ("25", "Compound 25"),
+    ]
+    by_label = {row["label"]: row for row in rows}
+    assert "reagent B" not in by_label["24"]["procedure"]
+    assert "reagent C" not in by_label["25"]["procedure"]
+
+
 def test_source_declared_acyl_thioester_alias_is_preserved_for_resolution() -> None:
     aliases = _source_parenthetical_name_aliases(
         [
@@ -99,6 +131,15 @@ def test_source_declared_short_chemical_alias_is_preserved_for_resolution() -> N
     )
 
     assert aliases["mj"] == "Monacolin J"
+
+
+def test_two_character_reagent_with_source_amount_is_preserved() -> None:
+    names = source_amount_reagent_names(
+        "To a solution of substrate (15 mg, 0.02 mmol) was added HF "
+        "(70 %wt, 0.25 mL) at room temperature."
+    )
+
+    assert "HF" in names
 
 
 def test_extract_labeled_procedures_accepts_wrapped_patent_example_headings() -> None:

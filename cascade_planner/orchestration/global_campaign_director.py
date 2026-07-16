@@ -51,6 +51,9 @@ DIRECTOR_DISPOSITIONS = frozenset(
 MATERIAL_REPLAN_EVENTS = frozenset(
     {
         "critical_edge_rejected",
+        "director_contract_rejected",
+        "director_depth_deficit",
+        "director_topology_rejected",
         "exact_rows_added",
         "material_evidence_added",
         "new_route_family",
@@ -196,6 +199,7 @@ class GlobalCampaignPlan:
 @dataclass(frozen=True, slots=True)
 class DirectorConfig:
     minimum_route_families: int = 2
+    minimum_planning_route_steps: int = 0
     max_route_families: int = 6
     max_skeletons: int = 8
     max_steps_per_skeleton: int = 12
@@ -237,6 +241,12 @@ class DirectorConfig:
             raise ValueError("director max_wall_time_s must be finite and positive")
         if self.minimum_route_families > self.max_route_families:
             raise ValueError("director minimum route families exceeds maximum")
+        if (
+            isinstance(self.minimum_planning_route_steps, bool)
+            or not isinstance(self.minimum_planning_route_steps, int)
+            or not 0 <= self.minimum_planning_route_steps <= self.max_steps_per_skeleton
+        ):
+            raise ValueError("director minimum planning route depth is invalid")
         roles = tuple(str(value).strip() for value in self.child_roles)
         if self.use_coordinator and len(set(roles)) < 2:
             raise ValueError("director coordinator requires distinct child roles")
@@ -523,7 +533,11 @@ class GlobalCampaignDirector:
                     "director_child_failed:" + (result.error or result.state.value)
                 )
             plan = GlobalCampaignPlan.from_dict(_require_mapping(result.output))
-            plan, contract_repairs = repair_global_campaign_plan_contract(plan, context)
+            plan, contract_repairs = repair_global_campaign_plan_contract(
+                plan,
+                context,
+                config=self.config,
+            )
             if plan.mode != mode:
                 raise GlobalCampaignPlanValidationError("director_plan_mode_mismatch")
             if len(_canonical_bytes(plan.to_dict())) > self.config.max_output_bytes:
@@ -768,6 +782,10 @@ def validate_global_campaign_plan(
     audits: list[dict[str, Any]] = []
     audits_by_skeleton: dict[str, list[dict[str, Any]]] = {}
     root_edge_by_family: dict[str, tuple[str, ...]] = {}
+    upstream_edges_by_family: dict[
+        str,
+        set[tuple[str, tuple[str, ...]]],
+    ] = {}
     skeleton_family_ids: set[str] = set()
     skeleton_ids: set[str] = set()
     skeleton_molecules: set[str] = set()
@@ -820,8 +838,14 @@ def validate_global_campaign_plan(
                 audit["reasons"] = sorted(
                     {*audit.get("reasons", []), *topology_reasons}
                 )
-        elif route_family_id and route_family_id not in root_edge_by_family:
-            root_edge_by_family[route_family_id] = root_precursors
+        elif route_family_id:
+            root_edge_by_family.setdefault(route_family_id, root_precursors)
+            upstream_edges_by_family.setdefault(route_family_id, set()).update(
+                _skeleton_upstream_edge_signatures(
+                    steps,
+                    target_smiles=target,
+                )
+            )
     missing_skeleton_families = sorted(family_ids - skeleton_family_ids)
     if missing_skeleton_families:
         reasons.append(
@@ -830,12 +854,29 @@ def validate_global_campaign_plan(
     duplicate_root_families: dict[tuple[str, ...], list[str]] = {}
     for family_id, root_precursors in root_edge_by_family.items():
         duplicate_root_families.setdefault(root_precursors, []).append(family_id)
-    duplicate_family_ids = {
-        family_id
-        for values in duplicate_root_families.values()
-        if len(values) > 1
-        for family_id in sorted(values)[1:]
-    }
+    duplicate_family_ids: set[str] = set()
+    for family_ids_with_shared_root in duplicate_root_families.values():
+        if len(family_ids_with_shared_root) <= 1:
+            continue
+        seen_upstream_signatures: set[
+            frozenset[tuple[str, tuple[str, ...]]]
+        ] = set()
+        for index, family_id in enumerate(family_ids_with_shared_root):
+            upstream_signature = frozenset(
+                upstream_edges_by_family.get(family_id, set())
+            )
+            if index == 0:
+                seen_upstream_signatures.add(upstream_signature)
+                continue
+            # A shared target-forming edge is normal in a retrosynthetic
+            # hypergraph.  Reject only a relabelled/truncated duplicate with
+            # no upstream divergence, or an exact duplicate of an already
+            # admitted upstream program.  Distinct upstream chemistry must
+            # survive even when the final convergence step is shared.
+            if not upstream_signature or upstream_signature in seen_upstream_signatures:
+                duplicate_family_ids.add(family_id)
+                continue
+            seen_upstream_signatures.add(upstream_signature)
     if duplicate_family_ids:
         for skeleton in plan.multi_step_skeletons:
             if str(skeleton.get("route_family_id") or "") not in duplicate_family_ids:
@@ -869,6 +910,8 @@ def validate_global_campaign_plan(
 def repair_global_campaign_plan_contract(
     plan: GlobalCampaignPlan,
     context: CampaignContext,
+    *,
+    config: DirectorConfig | None = None,
 ) -> tuple[GlobalCampaignPlan, tuple[Mapping[str, Any], ...]]:
     """Repair redundant metadata and remove explicit no-op leaf markers.
 
@@ -880,7 +923,12 @@ def repair_global_campaign_plan_contract(
     That row is not chemistry and can only create a false ancestor cycle, so it
     is removed when the skeleton still contains at least one real step.  Real
     products and precursors are never rewritten and remain subject to the
-    normal chemistry/topology validators.
+    normal chemistry/topology validators.  A declared route family with no
+    skeleton contains no chemistry at all; dropping that orphan metadata is
+    likewise safe and avoids rejecting otherwise reviewable route programs. A
+    continuation skeleton can be joined to a target-rooted skeleton only when
+    its unique internal root is an unexpanded leaf of exactly one skeleton in
+    the same family and the unchanged combined steps pass the normal DAG check.
     """
 
     target = _canonical_smiles(context.target.get("canonical_smiles"))
@@ -929,6 +977,17 @@ def repair_global_campaign_plan_contract(
                     }
                 )
         repaired_skeletons.append(row)
+    repaired_skeletons, continuation_repairs = _merge_continuation_skeletons(
+        repaired_skeletons,
+        target_smiles=target,
+        max_steps_per_skeleton=(config or DirectorConfig()).max_steps_per_skeleton,
+    )
+    repairs.extend(continuation_repairs)
+    skeleton_family_ids = {
+        str(skeleton.get("route_family_id") or "")
+        for skeleton in repaired_skeletons
+        if str(skeleton.get("route_family_id") or "")
+    }
     rooted_families: set[str] = set()
     for skeleton in repaired_skeletons:
         family_id = str(skeleton.get("route_family_id") or "")
@@ -947,6 +1006,21 @@ def repair_global_campaign_plan_contract(
     for family in plan.route_families:
         row = dict(family)
         family_id = str(row.get("route_family_id") or "")
+        if family_id and family_id not in skeleton_family_ids:
+            repairs.append(
+                {
+                    "schema_version": "global_campaign_contract_repair.v1",
+                    "field": "route_families",
+                    "route_family_id": family_id,
+                    "reason": "route_family_without_skeleton_removed",
+                    "semantics": {
+                        "chemistry_unchanged": True,
+                        "orphan_metadata_only": True,
+                        "normal_validation_still_required": True,
+                    },
+                }
+            )
+            continue
         observed = _canonical_smiles(row.get("target_smiles"))
         if observed != target and family_id in rooted_families:
             row["target_smiles"] = target
@@ -1007,6 +1081,127 @@ def repair_global_campaign_plan_contract(
     payload["multi_step_skeletons"] = repaired_skeletons
     payload["frontier_priorities"] = repaired_priorities
     return GlobalCampaignPlan.from_dict(payload), tuple(repairs)
+
+
+def _merge_continuation_skeletons(
+    skeletons: list[dict[str, Any]],
+    *,
+    target_smiles: str,
+    max_steps_per_skeleton: int,
+) -> tuple[list[dict[str, Any]], list[Mapping[str, Any]]]:
+    """Join an explicitly split route only when its graph boundary is exact."""
+
+    rows = [
+        {
+            **dict(skeleton),
+            "steps": [
+                dict(step)
+                for step in skeleton.get("steps") or []
+                if isinstance(step, Mapping)
+            ],
+        }
+        for skeleton in skeletons
+    ]
+    removed: set[int] = set()
+    repairs: list[Mapping[str, Any]] = []
+    changed = True
+    while changed:
+        changed = False
+        for continuation_index, continuation in enumerate(rows):
+            if continuation_index in removed:
+                continue
+            continuation_steps = continuation["steps"]
+            continuation_products = {
+                _canonical_smiles(step.get("product_smiles"))
+                for step in continuation_steps
+            }
+            if not continuation_steps or target_smiles in continuation_products:
+                continue
+            continuation_root = _continuation_skeleton_root(continuation_steps)
+            if not continuation_root:
+                continue
+            topology_reasons, _root_precursors = _skeleton_topology_reasons(
+                continuation_steps,
+                target_smiles=continuation_root,
+            )
+            if topology_reasons:
+                continue
+            family_id = str(continuation.get("route_family_id") or "")
+            eligible: list[tuple[int, list[dict[str, Any]]]] = []
+            for parent_index, parent in enumerate(rows):
+                if parent_index == continuation_index or parent_index in removed:
+                    continue
+                if not family_id or str(parent.get("route_family_id") or "") != family_id:
+                    continue
+                parent_steps = parent["steps"]
+                parent_products = {
+                    _canonical_smiles(step.get("product_smiles"))
+                    for step in parent_steps
+                }
+                if target_smiles not in parent_products:
+                    continue
+                parent_precursors = {
+                    _canonical_smiles(value)
+                    for step in parent_steps
+                    for value in step.get("precursor_smiles") or []
+                    if _canonical_smiles(value)
+                }
+                parent_leaves = parent_precursors - parent_products
+                if continuation_root not in parent_leaves:
+                    continue
+                combined = [*parent_steps, *continuation_steps]
+                if len(combined) > max_steps_per_skeleton:
+                    continue
+                combined_reasons, _combined_root = _skeleton_topology_reasons(
+                    combined,
+                    target_smiles=target_smiles,
+                )
+                if not combined_reasons:
+                    eligible.append((parent_index, combined))
+            if len(eligible) != 1:
+                continue
+            parent_index, combined = eligible[0]
+            parent = rows[parent_index]
+            parent["steps"] = combined
+            removed.add(continuation_index)
+            repairs.append(
+                {
+                    "schema_version": "global_campaign_contract_repair.v1",
+                    "field": "multi_step_skeletons",
+                    "skeleton_id": str(parent.get("skeleton_id") or ""),
+                    "continuation_skeleton_id": str(
+                        continuation.get("skeleton_id") or ""
+                    ),
+                    "boundary_smiles": continuation_root,
+                    "combined_step_count": len(combined),
+                    "reason": "unique_leaf_continuation_skeleton_merged",
+                    "semantics": {
+                        "chemistry_unchanged": True,
+                        "exact_existing_boundary_required": True,
+                        "ambiguous_or_invalid_continuations_remain_rejected": True,
+                        "normal_validation_still_required": True,
+                    },
+                }
+            )
+            changed = True
+            break
+    return [row for index, row in enumerate(rows) if index not in removed], repairs
+
+
+def _continuation_skeleton_root(steps: list[dict[str, Any]]) -> str:
+    products = {
+        _canonical_smiles(step.get("product_smiles"))
+        for step in steps
+        if _canonical_smiles(step.get("product_smiles"))
+    }
+    precursors = {
+        _canonical_smiles(value)
+        for step in steps
+        for value in step.get("precursor_smiles") or []
+        if _canonical_smiles(value)
+    }
+    roots = products - precursors
+    return next(iter(roots)) if len(roots) == 1 else ""
 
 
 def _validate_step(value: Any, *, skeleton_id: str) -> dict[str, Any]:
@@ -1102,6 +1297,41 @@ def _skeleton_topology_reasons(
     return sorted(set(reasons)), root_precursors
 
 
+def _skeleton_upstream_edge_signatures(
+    raw_steps: Any,
+    *,
+    target_smiles: str,
+) -> set[tuple[str, tuple[str, ...]]]:
+    """Return canonical non-root chemistry used to distinguish route families.
+
+    Multiple route families are allowed to share their target-forming edge or
+    a downstream suffix.  Their diversity comes from at least one upstream
+    transformation, not from a different label on the same target precursor
+    set.
+    """
+
+    signatures: set[tuple[str, tuple[str, ...]]] = set()
+    for value in raw_steps if isinstance(raw_steps, list) else []:
+        if not isinstance(value, Mapping):
+            continue
+        product = _canonical_smiles(value.get("product_smiles"))
+        if not product or product == target_smiles:
+            continue
+        precursors = tuple(
+            sorted(
+                canonical
+                for canonical in (
+                    _canonical_smiles(item)
+                    for item in value.get("precursor_smiles") or []
+                )
+                if canonical
+            )
+        )
+        if precursors:
+            signatures.add((product, precursors))
+    return signatures
+
+
 def director_trigger_reasons(context: CampaignContext, *, mode: str) -> list[str]:
     if mode == "initial_architecture":
         return ["initial_architecture_requested"]
@@ -1139,8 +1369,10 @@ def director_prompt(
             "Coordinate route families, multi-step skeletons, shared intermediates, evidence acquisition, fallbacks, pivots, and portfolio tradeoffs together.",
             f"Exact campaign target: {target}",
             "Every route_family.target_smiles must equal the exact campaign target; put disconnection precursors only in skeleton step precursor_smiles.",
+            "Every declared route family must have at least one multi-step skeleton; omit an unexpanded family instead of returning metadata without chemistry.",
             "Every skeleton must be a connected retrosynthetic DAG with exactly one root product equal to the exact campaign target. Every non-root product must appear as a precursor of an upstream step in that same skeleton.",
-            f"Return at least {config.minimum_route_families} strategically distinct route families with different target-level precursor sets; superficial renaming is not diversity.",
+            "Do not invoke shell, command execution, local Python, or local files. The host applies RDKit canonicalization and chemistry validation after your structured response; use only permitted live search for source discovery.",
+            f"Return at least {config.minimum_route_families} strategically distinct route families. Families may share a target-forming edge or downstream suffix when their upstream reaction program genuinely diverges; superficial renaming, truncation, or an identical upstream program is not diversity.",
             "Extend each family to plausible purchasable or benchmark-stock leaves. Include all atom-contributing reactants as precursors, but omit catalysts, solvents, counterions, and non-incorporated reagents.",
             "Stop a branch at a terminal leaf. Never represent stock, availability, or an unexpanded leaf with an identity step such as A -> A.",
             "Use valid canonical isomeric SMILES, preserve stereochemistry, avoid ancestor cycles, and do not expand the same product twice inside one skeleton.",
@@ -1161,9 +1393,37 @@ def director_prompt(
                 if mode == "event_replan"
                 else "This is the initial global architecture pass; prioritize structurally coherent complete families over a large number of speculative variants."
             ),
+            (
+                "A prior skeleton failed host topology. Return each alternative or backup as its own target-rooted connected skeleton; never append a disconnected backup chain to another route. Join every retained upstream chain through an explicit single-reaction edge, and keep stereochemical SMILES identical at shared intermediate boundaries."
+                if mode == "event_replan"
+                and "director_topology_rejected" in context.delta.material_events
+                else ""
+            ),
             "Do not consult local dossiers, replay packs, showcase answers, target fixtures, or prior run artifacts; the CampaignContext and permitted live search are the only target inputs.",
             f"Mode: {mode}",
             f"Limits: at most {config.max_route_families} route families, {config.max_skeletons} skeletons, and {config.max_steps_per_skeleton} steps per skeleton.",
+            (
+                f"Planning-depth contract: at least one single target-rooted, fully connected skeleton MUST itself contain at least {config.minimum_planning_route_steps} explicit single-reaction steps. The required count cannot be split across a main skeleton and an extension/continuation skeleton. This is a planning/display requirement, not proof. Do not satisfy it with identity padding, fictitious intermediates, duplicated chemistry, or artificial splitting; retain credible shorter families as lower-depth alternatives."
+                if config.minimum_planning_route_steps > 0
+                else "No minimum planning depth is configured; choose route depth from the chemistry."
+            ),
+            (
+                f"Before returning the required-depth skeleton, audit it mechanically: it must have at least {config.minimum_planning_route_steps} unique step products; the exact campaign target must be the sole root product; every other step product must occur as a precursor reachable from that root; and no precursor chain may point back to an ancestor."
+                if config.minimum_planning_route_steps > 0
+                else ""
+            ),
+            (
+                "This is a long-route-capable proof run. Fully expand at least one promising family toward simple purchasable or benchmark leaves; include 20+ explicit steps when chemistry requires them. Do not compress a multistep chemical sequence into one reaction step unless it is a genuine one-pot, whole-cell, or biocatalytic program and label that program hypothesis explicitly."
+                if config.max_steps_per_skeleton >= 20
+                else "Keep every proposed step at the single-reaction level within the configured depth bound."
+            ),
+            (
+                f"The prior plan missed the configured {config.minimum_planning_route_steps}-step planning depth. In this replan, make one chemically coherent target-rooted skeleton meet that depth while preserving useful shorter routes; do not pad or fabricate steps."
+                if mode == "event_replan"
+                and config.minimum_planning_route_steps > 0
+                and "director_depth_deficit" in context.delta.material_events
+                else ""
+            ),
             "Each skeleton step requires step_id, product_smiles, precursor_smiles, transformation_hypothesis, required_validation, and hypothesis_only=true.",
             "Use frontier_priorities for both host step ordering and local-provider delegation. Select 1-3 nontrivial intermediates or leaves from a fully connected target-rooted skeleton for ChemEnzy by adding its exact step_id as proposal_id, target_smiles, provider_preferences=['chemenzy'], retron_hints, priority, and rationale. Never invent a provider-only proposal_id, never delegate a disconnected sketch or the campaign target itself; Codex owns target-level global strategy.",
             "CampaignContext:",

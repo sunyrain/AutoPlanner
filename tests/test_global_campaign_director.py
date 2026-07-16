@@ -557,6 +557,40 @@ def test_director_rejects_duplicate_target_level_route_family_chemistry(
     assert all("route_family_root_not_distinct" in row["reasons"] for row in duplicate)
 
 
+def test_director_allows_shared_target_edge_when_upstream_program_diverges(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    context = _context(kernel)
+    raw = _plan(context)
+    second = raw["multi_step_skeletons"][1]
+    second["steps"][0]["precursor_smiles"] = ["CCOC(=O)O", "N"]
+    second["steps"].append(
+        {
+            "step_id": "proposal:ester:2",
+            "product_smiles": "CCOC(=O)O",
+            "precursor_smiles": ["CCOC(=O)Cl"],
+            "transformation_hypothesis": "hydrolysis of an alternative acid feed",
+            "strategic_role": "upstream divergent supply",
+            "source_hints": [],
+            "required_validation": ["identity", "precedent"],
+            "hypothesis_only": True,
+        }
+    )
+
+    audits = validate_global_campaign_plan(GlobalCampaignPlan.from_dict(raw), context)
+
+    shared_root_family = [
+        row for row in audits if row["skeleton_id"] == "skeleton:ester"
+    ]
+    assert shared_root_family
+    assert all(row["accepted"] is True for row in shared_root_family)
+    assert all(
+        "route_family_root_not_distinct" not in row["reasons"]
+        for row in shared_root_family
+    )
+
+
 def test_director_output_cannot_grant_scientific_authority(tmp_path: Path) -> None:
     kernel = _kernel(tmp_path)
     context = _context(kernel)
@@ -605,6 +639,32 @@ def test_director_does_not_repair_family_without_exact_target_root(tmp_path: Pat
 
     assert repairs == ()
     assert unrepaired.route_families[0]["target_smiles"] == "CCOC(=O)O"
+
+
+def test_director_removes_route_family_without_any_skeleton(tmp_path: Path) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    raw["route_families"].append(
+        {
+            **raw["route_families"][0],
+            "route_family_id": "family:orphan-metadata",
+            "diversity_basis": "declared but never expanded",
+        }
+    )
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+    )
+
+    assert "family:orphan-metadata" not in {
+        row["route_family_id"] for row in repaired.route_families
+    }
+    assert any(
+        row["reason"] == "route_family_without_skeleton_removed"
+        for row in repairs
+    )
+    assert validate_global_campaign_plan(repaired, context)
 
 
 def test_director_removes_identity_leaf_marker_without_rewriting_chemistry(
@@ -786,6 +846,147 @@ def test_director_defers_web_tools_until_evidence_informed_replan(
     assert (
         director_web_search_enabled(opted_in, mode="initial_architecture") is True
     )
+
+
+def test_director_long_route_profile_requests_explicit_uncompressed_steps(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    prompt = director_prompt(
+        context,
+        mode="initial_architecture",
+        config=DirectorConfig(max_steps_per_skeleton=24),
+    )
+
+    assert "long-route-capable proof run" in prompt
+    assert "include 20+ explicit steps when chemistry requires them" in prompt
+    assert "Do not compress a multistep chemical sequence" in prompt
+    assert "may share a target-forming edge" in prompt
+    assert "The host applies RDKit canonicalization" in prompt
+
+
+def test_director_enforces_configured_planning_depth_without_claiming_proof(
+    tmp_path: Path,
+) -> None:
+    context = _context(
+        _kernel(tmp_path),
+        material_events=("director_depth_deficit",),
+    )
+    config = DirectorConfig(
+        minimum_planning_route_steps=20,
+        max_steps_per_skeleton=24,
+    )
+
+    prompt = director_prompt(context, mode="event_replan", config=config)
+
+    assert "MUST itself contain at least 20 explicit single-reaction steps" in prompt
+    assert "cannot be split across a main skeleton" in prompt
+    assert "at least 20 unique step products" in prompt
+    assert "no precursor chain may point back to an ancestor" in prompt
+    assert "planning/display requirement, not proof" in prompt
+    assert "prior plan missed the configured 20-step planning depth" in prompt
+    assert "do not pad or fabricate steps" in prompt
+    with pytest.raises(ValueError, match="planning route depth"):
+        DirectorConfig(
+            minimum_planning_route_steps=20,
+            max_steps_per_skeleton=12,
+        )
+
+
+def test_director_safely_merges_unique_same_family_leaf_continuation(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    parent = raw["multi_step_skeletons"][0]
+    continuation_step = parent["steps"].pop()
+    raw["multi_step_skeletons"].append(
+        {
+            "skeleton_id": "skeleton:amide:continuation",
+            "route_family_id": "family:amide",
+            "summary": "split upstream continuation",
+            "steps": [continuation_step],
+        }
+    )
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+        config=DirectorConfig(max_steps_per_skeleton=12),
+    )
+
+    skeletons = {
+        row["skeleton_id"]: row for row in repaired.multi_step_skeletons
+    }
+    assert "skeleton:amide:continuation" not in skeletons
+    assert len(skeletons["skeleton:amide"]["steps"]) == 2
+    assert any(
+        row["reason"] == "unique_leaf_continuation_skeleton_merged"
+        and row["combined_step_count"] == 2
+        for row in repairs
+    )
+    assert validate_global_campaign_plan(
+        repaired,
+        context,
+        DirectorConfig(max_steps_per_skeleton=12),
+    )
+
+
+def test_director_does_not_merge_unrelated_or_over_depth_continuation(
+    tmp_path: Path,
+) -> None:
+    context = _context(_kernel(tmp_path))
+    raw = _plan(context)
+    raw["multi_step_skeletons"].append(
+        {
+            "skeleton_id": "skeleton:unrelated-continuation",
+            "route_family_id": "family:amide",
+            "summary": "unrelated chemistry",
+            "steps": [
+                {
+                    "step_id": "proposal:unrelated",
+                    "product_smiles": "CCC",
+                    "precursor_smiles": ["CC", "C"],
+                    "transformation_hypothesis": "unrelated split",
+                    "required_validation": ["identity"],
+                    "hypothesis_only": True,
+                }
+            ],
+        }
+    )
+
+    repaired, repairs = repair_global_campaign_plan_contract(
+        GlobalCampaignPlan.from_dict(raw),
+        context,
+        config=DirectorConfig(max_steps_per_skeleton=12),
+    )
+
+    assert any(
+        row["skeleton_id"] == "skeleton:unrelated-continuation"
+        for row in repaired.multi_step_skeletons
+    )
+    assert not any(
+        row["reason"] == "unique_leaf_continuation_skeleton_merged"
+        for row in repairs
+    )
+
+
+def test_director_topology_replan_requests_connected_alternative_skeletons(
+    tmp_path: Path,
+) -> None:
+    context = _context(
+        _kernel(tmp_path),
+        material_events=("director_topology_rejected",),
+    )
+
+    prompt = director_prompt(
+        context,
+        mode="event_replan",
+        config=DirectorConfig(max_steps_per_skeleton=24),
+    )
+
+    assert "A prior skeleton failed host topology" in prompt
+    assert "never append a disconnected backup chain" in prompt
 
 
 def test_proposal_dispositions_preserve_superseded_and_ignored_history(

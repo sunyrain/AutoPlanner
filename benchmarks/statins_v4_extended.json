@@ -1,0 +1,29 @@
+{
+  "schema_version": "blind_retrosynthesis_manifest.v1",
+  "cases": [
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-crilvastatin-v4-extended",
+      "target_name": "crilvastatin",
+      "target_smiles": "CC1CC(OC(=O)[C@@H]2CCC(=O)N2)CC(C)(C)C1",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 5, "max_total_input_tokens": 120000, "max_total_output_tokens": 30000, "max_total_wall_time_s": 1200, "max_accepted_expansions": 96, "max_attempt_runs": 192, "max_prompt_context_bytes": 192000}
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-dalvastatin-v4-extended",
+      "target_name": "dalvastatin",
+      "target_smiles": "Cc1cc(C2=C(/C=C/[C@@H]3C[C@@H](O)CC(=O)O3)C(C)(C)CC(C)(C)C2)ccc1F",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 5, "max_total_input_tokens": 120000, "max_total_output_tokens": 30000, "max_total_wall_time_s": 1200, "max_accepted_expansions": 96, "max_attempt_runs": 192, "max_prompt_context_bytes": 192000}
+    },
+    {
+      "schema_version": "blind_retrosynthesis_case.v1",
+      "case_id": "statin-glenvastatin-v4-extended",
+      "target_name": "glenvastatin",
+      "target_smiles": "CC(C)c1nc(-c2ccccc2)cc(-c2ccc(F)cc2)c1/C=C/[C@@H]1C[C@@H](O)CC(=O)O1",
+      "acceptance": {"minimum_complete_routes": 2, "minimum_edge_proof_level": 2, "minimum_independent_source_groups": 2, "stock_boundary": "benchmark_search"},
+      "budget": {"max_model_invocations": 5, "max_total_input_tokens": 120000, "max_total_output_tokens": 30000, "max_total_wall_time_s": 1200, "max_accepted_expansions": 96, "max_attempt_runs": 192, "max_prompt_context_bytes": 192000}
+    }
+  ]
+}

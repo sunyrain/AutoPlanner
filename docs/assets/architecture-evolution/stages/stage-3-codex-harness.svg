@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="700" viewBox="0 0 1400 700" role="img" aria-label="阶段 III｜LLM 增强 Route Tree → Codex-entry Harness">
+<defs>
+  <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#6b8798"/></marker>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#17384d" flood-opacity=".12"/></filter>
+</defs>
+<rect width="1400" height="700" rx="28" fill="#f4f8fa"/>
+<text x="55" y="64" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0b2438">阶段 III｜LLM 增强 Route Tree → Codex-entry Harness</text>
+<text x="55" y="99" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="16" fill="#617b8c">直觉：复杂目标的关键不是再跑一次搜索，而是先选择正确的工作流</text>
+<rect x="55" y="165" width="290" height="120" rx="18" fill="#ffffff" stroke="#5a8dee" stroke-width="2" filter="url(#shadow)"/>
+<rect x="55" y="165" width="9" height="120" rx="4" fill="#5a8dee"/>
+<text x="204.0" y="203" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="204.0" dy="0">Target + Preflight</tspan></text>
+<text x="204.0" y="237" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="204.0" dy="0">结构复杂度</tspan><tspan x="204.0" dy="23">已知来源 / 约束</tspan></text>
+<rect x="420" y="145" width="350" height="160" rx="18" fill="#ffffff" stroke="#22a9c1" stroke-width="2" filter="url(#shadow)"/>
+<rect x="420" y="145" width="9" height="160" rx="4" fill="#22a9c1"/>
+<text x="599.0" y="183" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="599.0" dy="0">Codex Controller</tspan></text>
+<text x="599.0" y="217" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="599.0" dy="0">选择 ChemEnzy-first</tspan><tspan x="599.0" dy="23">literature-first / hybrid</tspan></text>
+<rect x="845" y="150" width="230" height="120" rx="18" fill="#ffffff" stroke="#e7a83d" stroke-width="2" filter="url(#shadow)"/>
+<rect x="845" y="150" width="9" height="120" rx="4" fill="#e7a83d"/>
+<text x="964.0" y="188" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="964.0" dy="0">ChemEnzy</tspan></text>
+<text x="964.0" y="222" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="964.0" dy="0">局部候选</tspan><tspan x="964.0" dy="23">无 solved 权威</tspan></text>
+<rect x="1115" y="150" width="230" height="120" rx="18" fill="#ffffff" stroke="#2bb89b" stroke-width="2" filter="url(#shadow)"/>
+<rect x="1115" y="150" width="9" height="120" rx="4" fill="#2bb89b"/>
+<text x="1234.0" y="188" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="1234.0" dy="0">Literature</tspan></text>
+<text x="1234.0" y="222" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="1234.0" dy="0">来源发现</tspan><tspan x="1234.0" dy="23">类比 / exact</tspan></text>
+<line x1="345" y1="225" x2="420" y2="225" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="770" y1="205" x2="845" y2="205" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="770" y1="245" x2="1115" y2="245" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="420" y="385" width="350" height="145" rx="18" fill="#ffffff" stroke="#35a873" stroke-width="2" filter="url(#shadow)"/>
+<rect x="420" y="385" width="9" height="145" rx="4" fill="#35a873"/>
+<text x="599.0" y="423" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="599.0" dy="0">Deterministic Validators</tspan></text>
+<text x="599.0" y="457" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="599.0" dy="0">结构 / 路线 / 库存 / 证据</tspan><tspan x="599.0" dy="23">solved / partial / rejected</tspan></text>
+<line x1="960" y1="270" x2="735" y2="385" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="1230" y1="270" x2="760" y2="405" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="55" y="405" width="290" height="105" rx="18" fill="#fff8f7" stroke="#d85d6b" stroke-width="2" filter="url(#shadow)"/>
+<rect x="55" y="405" width="9" height="105" rx="4" fill="#d85d6b"/>
+<text x="204.0" y="443" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="204.0" dy="0">旧直觉失效</tspan></text>
+<text x="204.0" y="477" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="204.0" dy="0">候选多、planner 强</tspan><tspan x="204.0" dy="23">不代表 parent route 闭合</tspan></text>
+<rect x="845" y="400" width="500" height="115" rx="18" fill="#fbfaff" stroke="#7a78d9" stroke-width="2" filter="url(#shadow)"/>
+<rect x="845" y="400" width="9" height="115" rx="4" fill="#7a78d9"/>
+<text x="1099.0" y="438" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="1099.0" dy="0">迁移压力</tspan></text>
+<text x="1099.0" y="472" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="1099.0" dy="0">固定 harness 难以支持多轮研究、失败转向与持续共享状态</tspan></text>
+<rect x="555" y="565" width="180" height="34" rx="17" fill="#22a9c1"/>
+<text x="645.0" y="588" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="700" fill="#ffffff"><tspan x="645.0" dy="0">编排权 ≠ 裁决权</tspan></text>
+</svg>

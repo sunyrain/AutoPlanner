@@ -50,6 +50,7 @@ def request_queries(request: Mapping[str, Any]) -> list[str]:
 
 def request_source_candidates(request: Mapping[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    direct_refs: list[tuple[str, str]] = []
     for task in request.get("source_tasks") or []:
         if not isinstance(task, Mapping) or not any(
             str(kind).casefold()
@@ -63,20 +64,45 @@ def request_source_candidates(request: Mapping[str, Any]) -> list[dict[str, Any]
             for kind in task.get("source_types") or []
         ):
             continue
-        for raw in task.get("source_refs") or []:
-            value = str(raw).strip()
-            lower = value.casefold()
-            doi = ""
-            if lower.startswith("doi:"):
-                doi = value[4:].strip()
-            elif "doi.org/" in lower:
-                doi = value[lower.index("doi.org/") + len("doi.org/") :].strip()
-            elif lower.startswith("10."):
-                doi = value
-            if doi:
-                rows.append({"doi": doi, "title": doi, "source_ref": f"doi:{doi}"})
-            elif lower.startswith(("https://", "http://")) and ".pdf" in lower:
-                rows.append({"pdf_url": value, "title": value, "source_ref": value})
+        direct_refs.extend((str(raw), "") for raw in task.get("source_refs") or [])
+    for hint in request.get("source_hints") or []:
+        if not isinstance(hint, Mapping) or str(hint.get("source_kind") or "").casefold() not in {
+            "paper",
+            "paper_si",
+            "journal",
+            "literature",
+            "primary_literature",
+        }:
+            continue
+        direct_refs.append(
+            (str(hint.get("source_ref") or ""), str(hint.get("title") or ""))
+        )
+    for raw, title in direct_refs:
+        value = str(raw).strip()
+        lower = value.casefold()
+        source_doi = ""
+        if lower.startswith("doi:"):
+            source_doi = value[4:].strip()
+        elif "doi.org/" in lower:
+            source_doi = value[lower.index("doi.org/") + len("doi.org/") :].strip()
+        elif lower.startswith("10."):
+            source_doi = value
+        if source_doi:
+            rows.append(
+                {
+                    "doi": source_doi,
+                    "title": " ".join(title.split()) or source_doi,
+                    "source_ref": f"doi:{source_doi}",
+                }
+            )
+        elif lower.startswith(("https://", "http://")) and ".pdf" in lower:
+            rows.append(
+                {
+                    "pdf_url": value,
+                    "title": " ".join(title.split()) or value,
+                    "source_ref": value,
+                }
+            )
     return rows
 
 

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="700" viewBox="0 0 1400 700" role="img" aria-label="阶段 VI｜Canonical V4 单一权威链">
+<defs>
+  <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#6b8798"/></marker>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#17384d" flood-opacity=".12"/></filter>
+</defs>
+<rect width="1400" height="700" rx="28" fill="#f4f8fa"/>
+<text x="55" y="64" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0b2438">阶段 VI｜Canonical V4 单一权威链</text>
+<text x="55" y="99" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="16" fill="#617b8c">直觉：不是继续增加检查器，而是让每类事实只有一个写入权威</text>
+<rect x="475" y="135" width="450" height="100" rx="18" fill="#ffffff" stroke="#22a9c1" stroke-width="2" filter="url(#shadow)"/>
+<rect x="475" y="135" width="9" height="100" rx="4" fill="#22a9c1"/>
+<text x="704.0" y="173" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="704.0" dy="0">GlobalCampaignDirector</tspan></text>
+<text x="704.0" y="207" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="704.0" dy="0">一次读取全局上下文；输出 proposal only</tspan></text>
+<line x1="700" y1="235" x2="700" y2="295" stroke="#22a9c1" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="55" y="310" width="300" height="135" rx="18" fill="#ffffff" stroke="#5a8dee" stroke-width="2" filter="url(#shadow)"/>
+<rect x="55" y="310" width="9" height="135" rx="4" fill="#5a8dee"/>
+<text x="209.0" y="348" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="209.0" dy="0">RunKernel</tspan></text>
+<text x="209.0" y="382" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="209.0" dy="0">事件 / 恢复 / 预算</tspan></text>
+<rect x="385" y="310" width="300" height="135" rx="18" fill="#ffffff" stroke="#2bb89b" stroke-width="2" filter="url(#shadow)"/>
+<rect x="385" y="310" width="9" height="135" rx="4" fill="#2bb89b"/>
+<text x="539.0" y="348" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="539.0" dy="0">Canonical Hypergraph</tspan></text>
+<text x="539.0" y="382" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="539.0" dy="0">分子 / 超边 / 来源 / 库存</tspan></text>
+<rect x="715" y="310" width="300" height="135" rx="18" fill="#ffffff" stroke="#e7a83d" stroke-width="2" filter="url(#shadow)"/>
+<rect x="715" y="310" width="9" height="135" rx="4" fill="#e7a83d"/>
+<text x="869.0" y="348" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="869.0" dy="0">DeficitFrontier</tspan></text>
+<text x="869.0" y="382" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="869.0" dy="0">唯一待办与调度</tspan></text>
+<rect x="1045" y="310" width="300" height="135" rx="18" fill="#ffffff" stroke="#22a9c1" stroke-width="2" filter="url(#shadow)"/>
+<rect x="1045" y="310" width="9" height="135" rx="4" fill="#22a9c1"/>
+<text x="1199.0" y="348" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="1199.0" dy="0">Proof Portfolio</tspan></text>
+<text x="1199.0" y="382" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="1199.0" dy="0">最弱证明 / 多样性 / 验收</tspan></text>
+<line x1="355" y1="378" x2="385" y2="378" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="685" y1="378" x2="715" y2="378" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="1015" y1="378" x2="1045" y2="378" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="160" y="510" width="1080" height="70" rx="16" fill="#0b2438"/>
+<text x="700.0" y="552.0" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#ffffff"><tspan x="700.0" dy="0">Host authority path：admission → materialize → validate → exact evidence → stock</tspan></text>
+<line x1="700" y1="445" x2="700" y2="510" stroke="#35a873" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="240" y="615" width="920" height="55" rx="18" fill="#f4fbf8" stroke="#35a873" stroke-width="2" filter="url(#shadow)"/>
+<rect x="240" y="615" width="9" height="55" rx="4" fill="#35a873"/>
+<text x="704.0" y="653" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="704.0" dy="0">CLI / API / Web / 恢复 / 导出只读同一 canonical state</tspan></text>
+</svg>

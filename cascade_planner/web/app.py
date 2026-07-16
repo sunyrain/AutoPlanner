@@ -10,7 +10,6 @@ import argparse
 import contextlib
 import copy
 import html
-import hmac
 import json
 import os
 import signal
@@ -60,6 +59,8 @@ from cascade_planner.runtime.artifact_revision import (
     validate_latest_closeout_revision,
 )
 from cascade_planner.web.v4_api import create_v4_blueprint
+from cascade_planner.web.security import install_web_security
+from cascade_planner.web.workspace_catalog import compile_showcase_catalog
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -72,6 +73,7 @@ DATA_DIR = ROOT / "data"
 CONFIG_DIR = ROOT / "config"
 TRUSTED_STOCK_CATALOGS_CONFIG = CONFIG_DIR / "trusted_stock_catalogs.json"
 STATIN_SHOWCASE_PATH = ROOT / "results" / "shared" / "statin_panel_20260520" / "web_showcase" / "statin_showcase_routes.json"
+PRESENTATION_SHOWCASE_PATH = SHARED_RESULTS_DIR / "presentation_showcase_20260715" / "manifest.json"
 ROUTE_EXAMPLE_SPECS: tuple[dict[str, str], ...] = (
     {
         "key": "artemisinin",
@@ -144,33 +146,8 @@ class _PlanJobCancelled(RuntimeError):
 def create_app() -> Flask:
     app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+    install_web_security(app)
     app.register_blueprint(create_v4_blueprint())
-
-    @app.before_request
-    def protect_mutating_api() -> None:
-        if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
-            return None
-        if not request.is_json:
-            abort(415, description="mutating API requests require application/json")
-        configured_token = str(os.environ.get("AUTOPLANNER_WEB_API_TOKEN") or "")
-        if configured_token:
-            supplied = str(request.headers.get("X-Autoplanner-Token") or "")
-            if not hmac.compare_digest(configured_token, supplied):
-                abort(401, description="missing or invalid API token")
-        fetch_site = str(request.headers.get("Sec-Fetch-Site") or "").lower()
-        if fetch_site in {"cross-site", "same-site"}:
-            abort(403, description="cross-site mutation rejected")
-        origin = str(request.headers.get("Origin") or "").rstrip("/")
-        if origin and origin != request.host_url.rstrip("/"):
-            abort(403, description="origin does not match this AutoPlanner service")
-        return None
-
-    @app.after_request
-    def add_security_headers(response: Response) -> Response:
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("Referrer-Policy", "no-referrer")
-        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-        return response
 
     @app.get("/")
     def index():
@@ -183,6 +160,10 @@ def create_app() -> Flask:
     @app.get("/statins")
     def statins_showcase():
         return send_from_directory(STATIC_DIR, "statins.html")
+
+    @app.get("/showcase")
+    def presentation_showcase():
+        return send_from_directory(STATIC_DIR, "showcase.html")
 
     @app.get("/api/status")
     def status():
@@ -245,6 +226,10 @@ def create_app() -> Flask:
     @app.get("/api/statins")
     def statins_api():
         return jsonify(_statin_showcase_public_payload())
+
+    @app.get("/api/showcase")
+    def presentation_showcase_api():
+        return jsonify(_presentation_showcase_payload())
 
     @app.get("/api/statins/route/<target_key>/<int:route_index>")
     def statin_route_doc(target_key: str, route_index: int):
@@ -951,6 +936,16 @@ def _route_examples_payload() -> dict[str, Any]:
         },
         "message": message,
     }
+
+
+def _presentation_showcase_payload() -> dict[str, Any]:
+    """Compatibility alias over the Canonical V4 showcase catalog."""
+    return compile_showcase_catalog(
+        root=ROOT,
+        shared_root=SHARED_RESULTS_DIR,
+        manifest_path=PRESENTATION_SHOWCASE_PATH,
+        artifact_endpoint="/api/result-file",
+    )
 
 
 def _route_example_roots() -> tuple[Path, ...]:

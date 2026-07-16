@@ -4,6 +4,10 @@ from __future__ import annotations
 from html.parser import HTMLParser
 from typing import Iterable
 
+from cascade_planner.interfaces.literature_procedure_fragments import (
+    source_procedure_fragments,
+)
+
 
 class PmcArticleParser(HTMLParser):
     """Extract DOI identity and titled paragraphs from PMC article HTML."""
@@ -83,6 +87,7 @@ def html_procedure_inventory(
     target_terms: Iterable[str],
     source_artifact_sha256: str,
     limit: int,
+    source_artifact_kind: str = "pmc_fulltext_html",
 ) -> list[dict[str, object]]:
     terms = [
         " ".join(str(value).casefold().split())
@@ -107,12 +112,24 @@ def html_procedure_inventory(
         "catalyzed",
         "conversion",
     )
+    expanded: list[tuple[str, str, str, str]] = []
+    for title, body in sections:
+        fragments = source_procedure_fragments(title, body)
+        expanded.extend(fragments or [(title, body, "", "")])
+    if any(label for _title, _body, label, _name in expanded):
+        expanded = [row for row in expanded if row[2]]
     ranked: list[tuple[int, int, dict[str, object]]] = []
-    for index, (title, body) in enumerate(sections, start=1):
+    for index, (title, body, label, source_name) in enumerate(expanded, start=1):
         normalized = f"{title} {body}".casefold()
-        score = 40 * sum(signal in title.casefold() for signal in title_signals)
-        score += 20 * sum(term in normalized for term in terms)
-        score += 4 * sum(signal in normalized for signal in process_signals)
+        if label:
+            # A bounded, source-authored compound heading is stronger than a
+            # topic match.  Give every such block the same score so the
+            # secondary source index preserves the experimental route order.
+            score = 10_000
+        else:
+            score = 40 * sum(signal in title.casefold() for signal in title_signals)
+            score += 20 * sum(term in normalized for term in terms)
+            score += 4 * sum(signal in normalized for signal in process_signals)
         if score < 8:
             continue
         ranked.append(
@@ -120,12 +137,14 @@ def html_procedure_inventory(
                 -score,
                 index,
                 {
-                    "label": f"html-section-{index}",
-                    "name": title or f"PMC full-text paragraph {index}",
+                    "label": label or f"html-section-{index}",
+                    "name": source_name
+                    or title
+                    or f"PMC full-text paragraph {index}",
                     "visual_expected": False,
                     "page_number": index,
                     "procedure_excerpt": body[:4_000],
-                    "source_artifact_kind": "pmc_fulltext_html",
+                    "source_artifact_kind": source_artifact_kind,
                     "source_artifact_sha256": source_artifact_sha256,
                 },
             )
@@ -133,4 +152,9 @@ def html_procedure_inventory(
     return [row for _score, _index, row in sorted(ranked)[:limit]]
 
 
-__all__ = ["PmcArticleParser", "html_procedure_inventory", "parse_pmc_html"]
+__all__ = [
+    "PmcArticleParser",
+    "html_procedure_inventory",
+    "parse_pmc_html",
+    "source_procedure_fragments",
+]

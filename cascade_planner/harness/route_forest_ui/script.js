@@ -10,7 +10,7 @@
   const CULLING_OBJECT_THRESHOLD = 120;
   const CULLING_WORLD_MARGIN_PX = 180;
   const BRANCH_LANE_SCHEMA_VERSION = 'route_forest_branch_lanes.v2';
-  const BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION = 'route_forest_branch_stage_evidence.v2';
+  const BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION = 'route_forest_branch_stage_evidence.v3';
   const COPY = Object.freeze({
     consensus: 'Consensus evidence audit',
     support: 'Independent support groups',
@@ -24,7 +24,7 @@
   });
   const PROOF_ORDER = [
     'L4_procurement_ready', 'L3_precedent_supported', 'L2_reaction_validated',
-    'L2_mapping_consistent', 'L1_graph_stock_closed', 'L1_graph_and_stock_closed',
+    'L2_mapping_consistent', 'L1_source_reported', 'L1_graph_stock_closed', 'L1_graph_and_stock_closed',
     'L0_materialized', 'L0_advisory', 'L0_rejected'
   ];
   const PROOF_LABEL = {
@@ -32,17 +32,48 @@
     L3_precedent_supported: 'L3 精确先例',
     L2_reaction_validated: 'L2 反应重验',
     L2_mapping_consistent: 'L2 映射一致',
+    L1_source_reported: 'L1 文献报道',
     L1_graph_stock_closed: 'L1 图与库存闭合',
     L1_graph_and_stock_closed: 'L1 图与库存闭合',
     L0_materialized: 'L0 结构已具象',
     L0_advisory: 'L0 探索建议',
     L0_rejected: 'L0 已拒绝'
   };
+  const PROOF_AXIS_LABEL = Object.freeze({
+    identity: '结构身份', reaction: '反应验证', conditions: '实验条件',
+    sources: '独立来源', stock: '叶节点边界', process: '工艺可执行性'
+  });
+  const PROOF_VALUE_LABEL = Object.freeze({
+    proposed: '仅建议', materialized: '已物化', source_exact: '精确来源结构',
+    all_materialized: '全部已物化', all_source_exact: '全部精确来源', incomplete: '未闭合',
+    untested: '未测试', mapped: '已映射', host_validated: '主机验证通过',
+    source_reaction_exact: '来源反应精确', all_validated: '全部验证通过',
+    missing: '缺失', model_predicted: '模型预测', source_recorded_unverified: '来源候选待核',
+    mixed_supported: '混合支持', none: '无', single_group: '单一来源组',
+    independent_2_plus: '两个以上独立来源组', conflicted: '存在冲突',
+    not_applicable_to_edge: '边不适用', unknown: '未知', benchmark_hit: '搜索边界命中',
+    offer_verified: '供应 offer 已验证', in_house: '厂内库存', blocked: '未就绪',
+    procedure_bound_candidate: '已绑定过程候选', executable_candidate: '可执行工艺候选'
+  });
+  const CONDITION_LABEL = Object.freeze({
+    reagents: '试剂', reagent: '试剂', agents: '辅助试剂', agent: '辅助试剂',
+    catalyst: '催化剂', catalysts: '催化剂', solvent: '溶剂', solvents: '溶剂',
+    temperature: '温度', 'temperature c': '温度', 'temperature program': '温度程序',
+    time: '时间', 'time program': '时间程序', scale: '投料规模', equivalents: '当量',
+    'addition order': '加料顺序', addition_order: '加料顺序', workup: '后处理',
+    purification: '纯化', yield: '收率', 'yield percent': '收率', yield_percent: '收率'
+  });
+  const CORE_CONDITION_KEYS = new Set([
+    'reagents', 'reagent', 'agents', 'agent', 'catalyst', 'catalysts', 'solvent', 'solvents',
+    'temperature', 'temperature c', 'temperature program', 'time', 'time program', 'scale',
+    'equivalents', 'yield', 'yield percent', 'yield_percent'
+  ]);
   const TIER_CLASS = {
     L4_procurement_ready: 'tier-l4',
     L3_precedent_supported: 'tier-l3',
     L2_reaction_validated: 'tier-l2-validated',
     L2_mapping_consistent: 'tier-l2-mapping',
+    L1_source_reported: 'tier-l1-reported',
     L1_graph_stock_closed: 'tier-l1',
     L1_graph_and_stock_closed: 'tier-l1',
     L0_materialized: 'tier-l0-materialized',
@@ -52,6 +83,7 @@
   const TIER_COLOR = {
     L4_procurement_ready: '#15803d', L3_precedent_supported: '#0f766e',
     L2_reaction_validated: '#2563eb', L2_mapping_consistent: '#64748b',
+    L1_source_reported: '#4f46e5',
     L1_graph_stock_closed: '#a16207', L1_graph_and_stock_closed: '#a16207',
     L0_materialized: '#7c3aed', L0_advisory: '#ea580c', L0_rejected: '#be123c'
   };
@@ -68,6 +100,7 @@
   const frontierLedger = forest.frontier_ledger || forest.semantic_summary?.frontier_ledger || {};
   const retrosynthesisControl = forest.retrosynthesis_control || {};
   const campaignSummary = forest.campaign_summary || {};
+  const routeClosure = forest.route_closure || {};
   const graphNodes = new Map((graph.nodes || []).map(row => [row.graph_node_id, row]));
   const moleculeNodes = new Map((forest.nodes || []).map(row => [row.node_id, row]));
   const steps = new Map((forest.steps || []).map(row => [row.step_id, row]));
@@ -77,7 +110,10 @@
   const layoutByNode = new Map((layout.nodes || []).map(row => [row.graph_node_id, row]));
   const persisted = loadState();
   const legacyChrome = loadState(LEGACY_STORAGE_KEY);
-  const allProofTiers = unique((lanesProjection.lanes || []).map(row => row.proof_tier).filter(Boolean));
+  const allProofTiers = unique([
+    ...(lanesProjection.lanes || []).map(row => row.proof_tier),
+    ...(forest.steps || []).map(row => row?.trust_vector?.proof_tier || row?.proof_tier)
+  ].filter(Boolean));
   const allKinds = unique((lanesProjection.lanes || []).map(row => row.kind).filter(Boolean));
   const defaultBranchId = chooseDefaultBranchId();
   const initialBranchId = persisted.selectedBranchId && branches.has(persisted.selectedBranchId)
@@ -91,7 +127,10 @@
     selectedStepId: '',
     detailTab: oneOf(persisted.detailTab, ['step', 'evidence', 'alternatives'], 'step'),
     query: '',
-    stageFilter: oneOf(persisted.stageFilter, ['all', 'suggestion', 'expanded', 'reaction', 'stock'], 'all'),
+    stageFilter: oneOf(persisted.stageFilter, [
+      'all', 'suggestion', 'expanded', 'reaction', 'literature', 'conditions',
+      'stock', 'procurement', 'process'
+    ], 'all'),
     branchFilter: oneOf(persisted.branchFilter, ['all', 'verified', 'evidence', 'advisory', 'diagnostic'], 'all'),
     proofFilters: new Set(Array.isArray(persisted.proofFilters) ? persisted.proofFilters.filter(tier => allProofTiers.includes(tier)) : allProofTiers),
     kindFilters: new Set(Array.isArray(persisted.kindFilters) ? persisted.kindFilters.filter(kind => allKinds.includes(kind)) : allKinds),
@@ -181,7 +220,8 @@
     if (branch.solved === true && branch.executable === true && branch.advisory_only === false) return 10000;
     const kindScore = {
       stitched_verified_route: 900, direct_verified_route: 860,
-      proof_eligible_portfolio_route: 760, exact_literature: 700,
+      proof_eligible_portfolio_route: 760, reported_candidate_route: 730,
+      exact_literature: 700,
       subgoal_verified_route: 640, process_evidence: 520,
       route_consensus_graph: 420, visual_chain: 360,
       route_consensus: 300, literature_candidate: 280,
@@ -288,6 +328,22 @@
   function tierOfStep(step) { return step?.trust_vector?.proof_tier || 'L0_advisory'; }
   function tierClass(tier) { return TIER_CLASS[tier] || 'tier-l0-advisory'; }
   function tierLabel(tier) { return PROOF_LABEL[tier] || tier || '未分级'; }
+  function routeProofMixLabel(lane) {
+    const reported = Math.max(0, Number(lane?.reported_step_count || 0));
+    const planner = Math.max(0, Number(lane?.planner_hypothesis_step_count || 0));
+    if (reported || planner) {
+      return [
+        planner ? `${planner} 步 L0 规划` : '',
+        reported ? `${reported} 步 L1 文献` : ''
+      ].filter(Boolean).join(' · ');
+    }
+    const counts = lane?.proof_level_counts || {};
+    const parts = Object.entries(counts)
+      .filter(([, count]) => Number(count) > 0)
+      .sort((left, right) => Number(left[0]) - Number(right[0]))
+      .map(([level, count]) => `${Number(count)} 步 L${level}`);
+    return parts.join(' · ') || tierLabel(lane?.proof_tier);
+  }
   function isRetrosynthesis() { return state.routeDirection === 'retrosynthesis'; }
   function routeStepDisplayLabel(step) {
     if (!step) return '反应步骤';
@@ -296,17 +352,16 @@
       : (step.display_label || step.stage_label || step.step_id);
   }
   function inlineConditionText(step) {
-    const rows = Array.isArray(step?.conditions) ? step.conditions : [];
+    const rows = normalizedConditionRows(step);
     const priority = ['reagents', 'agents', 'catalyst', 'solvent', 'temperature', 'temperature c', 'time', 'yield', 'yield percent', 'workup', 'addition order'];
     const ranked = rows
-      .filter(row => row && String(row.value || '').trim())
       .sort((left, right) => {
-        const a = priority.indexOf(String(left.label || '').toLowerCase());
-        const b = priority.indexOf(String(right.label || '').toLowerCase());
+        const a = priority.indexOf(left.key);
+        const b = priority.indexOf(right.key);
         return (a < 0 ? priority.length : a) - (b < 0 ? priority.length : b);
       });
     if (ranked.length) {
-      const summary = ranked.slice(0, 2).map(row => `${row.label || '条件'} ${row.value}`).join(' · ');
+      const summary = ranked.slice(0, 3).map(row => `${row.displayLabel} ${row.value}`).join(' · ');
       const prefix = step.condition_status === 'model_predicted' ? '预测' : '来源';
       return `${prefix} · ${middleEllipsis(summary, 34)}`;
     }
@@ -314,6 +369,41 @@
     if (step?.condition_status === 'source_recorded_unverified') return '来源条件候选 · 待核验';
     if (step?.condition_status === 'model_predicted') return '预测条件 · 非文献事实';
     return '条件待取证';
+  }
+  function conditionValueText(value) {
+    if (Array.isArray(value)) return value.map(conditionValueText).filter(Boolean).join('、');
+    if (value && typeof value === 'object') {
+      return Object.entries(value).map(([key, item]) => `${key}: ${conditionValueText(item)}`).join('；');
+    }
+    return String(value ?? '').trim();
+  }
+  function normalizedConditionRows(step) {
+    const candidates = [];
+    for (const row of Array.isArray(step?.conditions) ? step.conditions : []) {
+      if (!row || typeof row !== 'object') continue;
+      candidates.push({ label: row.label || row.key || '条件', value: row.value });
+    }
+    for (const observation of Array.isArray(step?.source_observation_records) ? step.source_observation_records : []) {
+      for (const [label, value] of Object.entries(observation?.conditions || {})) {
+        candidates.push({ label, value });
+      }
+    }
+    const seen = new Set();
+    return candidates.flatMap(row => {
+      const key = String(row.label || '条件').trim().toLowerCase().replaceAll('_', ' ');
+      const value = conditionValueText(row.value);
+      const signature = `${key}\u0000${value}`;
+      if (!value || seen.has(signature)) return [];
+      seen.add(signature);
+      return [{ key, label: String(row.label || '条件'), displayLabel: CONDITION_LABEL[key] || String(row.label || '条件'), value }];
+    });
+  }
+  function conditionLinesHtml(rows) {
+    return rows.map(row => `<div class="condition-line"><span class="condition-label">${esc(row.displayLabel)}</span><span class="condition-value">${esc(row.value)}</span></div>`).join('');
+  }
+  function conditionGroupHtml(label, rows, { open = false } = {}) {
+    if (!rows.length) return '';
+    return `<details class="condition-group" ${open ? 'open' : ''}><summary><span>${esc(label)}</span><strong>${rows.length} 项</strong></summary><div class="condition-group-body">${conditionLinesHtml(rows)}</div></details>`;
   }
   function producerClass(step) {
     return PRODUCER_CLASS[(step?.producer_kinds || [])[0]] || 'producer-unknown';
@@ -398,6 +488,8 @@
     const ledgerAuthoritative = deliveryBytesVerified && frontierLedger.authoritative === true;
     const closure = frontierLedger.closure || {};
     const anyRouteClosed = ledgerAuthoritative && closure.any_benchmark_route_closed === true;
+    const graphRouteClosed = deliveryBytesVerified
+      && routeClosure.any_declared_route_graph_closed === true;
     const allGraphClosed = ledgerAuthoritative && closure.all_explored_benchmark_closed === true;
     const anyProcurementClosed = ledgerAuthoritative && closure.any_procurement_route_closed === true;
     const selectedRouteProof = forest.selected_route_parent_proof || {};
@@ -421,8 +513,12 @@
       : parentL3Solved ? `${Number(selectedRouteProof.distinct_complete_route_count || 1)} 条 L3 替代路线闭合`
         : allGraphClosed ? 'Benchmark 全探索闭合'
           : anyRouteClosed ? '存在 Benchmark 闭合路线' : '父路线未闭合';
+    if (!hardAcceptance && !procurementL4Ready && !parentL3Solved
+        && !anyRouteClosed && graphRouteClosed) {
+      verdict.textContent = '存在结构闭合路线 · 证据/库存开放';
+    }
     const verdictState = hardAcceptance || procurementL4Ready || parentL3Solved
-      ? 'verified' : anyRouteClosed || allGraphClosed ? 'partial' : 'unresolved';
+      ? 'verified' : anyRouteClosed || allGraphClosed || graphRouteClosed ? 'partial' : 'unresolved';
     verdict.dataset.status = verdictState;
     verdict.classList.toggle('status-badge--verified', verdictState === 'verified');
     verdict.classList.toggle('status-badge--partial', verdictState === 'partial');
@@ -433,6 +529,7 @@
     const overviewRows = [
       ['Agent 完成', `${agentTasks.completed || 0}/${agentTasks.total || 0}`],
       ['L0 断键边', ledgerValue('l0_break_suggestion_edges')],
+      ['L1 文献边', ledgerValue('l1_source_reported_edges')],
       ['已展开 work', ledgerValue('expanded_work_molecules')],
       ['L2 反应边', ledgerValue('l2_reaction_edges')],
       ['L3 先例边', ledgerValue('l3_precedent_edges')],
@@ -506,7 +603,8 @@
       ? `搜索闭合叶；其中 benchmark ${Number(counts.benchmark_only_stock_leaves || 0)}，采购边界 ${Number(counts.procurement_boundary_leaves || 0)}。benchmark 不等于可采购。`
       : '缺少有效 frontier ledger；库存与采购均不作正向声明';
     const progress = [
-      ['L0 断键建议', countValue('l0_break_suggestion_edges'), '未达到 L2 的精确候选反应边'],
+      ['L0 规划建议', countValue('l0_break_suggestion_edges'), '仅由规划器提出、尚未获得来源或主机反应验证的边'],
+      ['L1 文献报道', countValue('l1_source_reported_edges'), '论文已报道且结构已具象，但尚未升级为主机反应验证或精确人工绑定'],
       ['已展开 work', ratioValue('expanded_work_molecules', 'reachable_molecules'), '已成功完成 proposal expansion 的分子 frontier'],
       ['L2 反应验证', countValue('l2_reaction_edges'), '当前 host verifier 接受的 L2 反应边'],
       ['L3 精确先例', countValue('l3_precedent_edges'), '绑定精确文献先例的 L3 反应边'],
@@ -592,6 +690,16 @@
     const ledgerValue = (value, positive, negative) => authoritative
       ? (value === true ? positive : negative) : '账本缺失';
     const cards = [
+      {
+        label: 'DECLARED ROUTE GRAPH',
+        value: !deliveryBytesVerified ? '交付字节未验证'
+          : routeClosure.any_declared_route_graph_closed === true
+            ? `${Number(routeClosure.graph_closed_program_count || 0)}/${Number(routeClosure.declared_program_count || 0)} 条结构闭合 · 最长 ${Number(routeClosure.longest_graph_closed_step_count || 0)} 步`
+            : `0/${Number(routeClosure.declared_program_count || 0)} 条结构闭合`,
+        state: !deliveryBytesVerified ? 'unknown'
+          : routeClosure.any_declared_route_graph_closed === true ? 'closed' : 'open',
+        detail: '仅表示目标到声明叶节点的每一步均已进入规范图；不等于反应验证、文献精确绑定或库存/采购闭合'
+      },
       {
         label: 'ANY BENCHMARK ROUTE',
         value: ledgerValue(closure.any_benchmark_route_closed, '存在搜索闭合路线', '尚无搜索闭合路线'),
@@ -706,6 +814,7 @@
     const rows = [
       ['独立信源组', literature.independent_source_group_count ?? 0],
       ['文献文档', literature.document_count ?? 0],
+      ['论文过程观察', literature.source_observation_records ?? 0],
       ['来源表示', literature.representation_count ?? 0],
       ['候选记录', literature.real_source_candidate_records ?? literature.real_source_candidates ?? literature.source_candidates ?? 0],
       ['文献/图像链', counts.visual_chains ?? 0],
@@ -870,6 +979,8 @@
 
   function branchCard(lane) {
     const selected = lane.branch_id === state.selectedBranchId;
+    const mixedProof = Object.values(lane.proof_level_counts || {})
+      .filter(count => Number(count) > 0).length > 1;
     const branch = branches.get(lane.branch_id) || {};
     const stageEvidence = lane.stage_evidence?.schema_version === BRANCH_STAGE_EVIDENCE_SCHEMA_VERSION
       ? lane.stage_evidence : {};
@@ -881,6 +992,7 @@
     const partialBadge = partialProgress
       ? `<span class="branch-badge branch-badge--partial-expanded" title="${esc(partialReason)}">部分展开 ${esc(partialProgress.matched)}/${esc(partialProgress.required)}</span>`
       : '';
+    const proofMix = routeProofMixLabel(lane);
     const stateLabel = lane.route_state_label || lane.completion_label || (lane.solved && lane.executable && !lane.advisory_only
       ? '完整父路线'
       : lane.kind === 'proof_eligible_portfolio_route' ? '完整 portfolio'
@@ -890,10 +1002,10 @@
             : stageMembershipIsAuthoritative(lane, 'expanded') ? '全路径已展开'
               : stageEvidence.suggestion?.member === true ? '断键建议'
                 : partialProgress ? '探索中' : '阶段证据未绑定');
-    return `<button class="branch-card ${tierClass(lane.proof_tier)}${selected ? ' is-selected' : ''}" type="button"
+    return `<button class="branch-card ${tierClass(lane.proof_tier)}${mixedProof ? ' is-mixed-proof' : ''}${selected ? ' is-selected' : ''}" type="button"
       data-branch-id="${esc(lane.branch_id)}" aria-current="${selected ? 'true' : 'false'}" tabindex="-1">
       <span class="branch-card-title">${esc(lane.title || lane.branch_id)}</span>
-      <span class="branch-card-meta">${esc((lane.step_ids || []).length)} 步 · ${esc(tierLabel(lane.proof_tier))} · ${esc(lane.condition_label || '条件状态未知')}</span>
+      <span class="branch-card-meta">${esc((lane.step_ids || []).length)} 步 · ${esc(proofMix)} · ${esc(lane.condition_label || '条件状态未知')}</span>
       <span class="branch-card-badges">${lane.is_primary ? `<span class="branch-badge">${forest.primary_selection?.display_tiebreak_only ? '展示锚点' : '主分支'}</span>` : ''}<span class="branch-badge">${esc(stateLabel)}</span>${partialBadge}<span class="branch-badge">${esc(synthesisLabel(branch.synthesis_class))}</span></span>
     </button>`;
   }
@@ -1040,10 +1152,26 @@
       const maxLayerRows = Math.max(1, ...[...byLayer.values()].map(rows => rows.length));
       const maximumNode = nodeSize({ node_type: 'molecule' }, metrics.nodeScale);
       const maximumLayer = Math.max(0, ...localRows.map(row => Number(row.layer || 0)));
-      const tileWidth = orientation === 'vertical'
+      const wrapsLongLinearRoute = state.mode === 'current'
+        && orientation === 'horizontal'
+        && maxLayerRows === 1
+        && maximumLayer >= 16;
+      const wrapColumns = wrapsLongLinearRoute
+        ? Math.min(9, maximumLayer + 1)
+        : 0;
+      const wrapRows = wrapsLongLinearRoute
+        ? Math.ceil((maximumLayer + 1) / wrapColumns)
+        : 0;
+      const wrapColumnGap = Math.max(metrics.layerGap, maximumNode.w + 24);
+      const wrapRowGap = Math.max(metrics.rowGap + 52, 196);
+      const tileWidth = wrapsLongLinearRoute
+        ? 92 + (wrapColumns - 1) * wrapColumnGap + maximumNode.w
+        : orientation === 'vertical'
         ? 40 + (maxLayerRows - 1) * metrics.rowGap + maximumNode.w
         : 92 + maximumLayer * metrics.layerGap + maximumNode.w;
-      const tileHeight = orientation === 'vertical'
+      const tileHeight = wrapsLongLinearRoute
+        ? 86 + (wrapRows - 1) * wrapRowGap + maximumNode.h
+        : orientation === 'vertical'
         ? 76 + maximumLayer * metrics.layerGap + maximumNode.h
         : 76 + (maxLayerRows - 1) * metrics.rowGap + maximumNode.h;
       const relativePositions = new Map();
@@ -1055,13 +1183,31 @@
           const instanceId = `${lane.branch_id}::${node.graph_node_id}`;
           const size = nodeSize(node, metrics.nodeScale);
           const displayLayer = isRetrosynthesis() ? maximumLayer - layerIndex : layerIndex;
-          const position = orientation === 'vertical'
+          const wrapRow = wrapsLongLinearRoute
+            ? Math.floor(displayLayer / wrapColumns)
+            : 0;
+          const wrapOffset = wrapsLongLinearRoute
+            ? displayLayer % wrapColumns
+            : 0;
+          const wrapColumn = wrapsLongLinearRoute && wrapRow % 2 === 1
+            ? wrapColumns - 1 - wrapOffset
+            : wrapOffset;
+          const position = wrapsLongLinearRoute
+            ? {
+                x: 52 + wrapColumn * wrapColumnGap,
+                y: 52 + wrapRow * wrapRowGap,
+                ...size
+              }
+            : orientation === 'vertical'
             ? { x: 20 + rowIndex * metrics.rowGap, y: 52 + displayLayer * metrics.layerGap, ...size }
             : { x: 52 + displayLayer * metrics.layerGap, y: 52 + rowIndex * metrics.rowGap, ...size };
           relativePositions.set(instanceId, position);
         });
       }
-      return { lane, localEdges, byLayer, relativePositions, w: tileWidth, h: tileHeight };
+      return {
+        lane, localEdges, byLayer, relativePositions, w: tileWidth, h: tileHeight,
+        packing: wrapsLongLinearRoute ? 'serpentine_long_route.v1' : 'logical_layers.v1'
+      };
     });
     const averageWidth = tiles.reduce((sum, tile) => sum + tile.w, 0) / Math.max(1, tiles.length);
     const averageHeight = tiles.reduce((sum, tile) => sum + tile.h, 0) / Math.max(1, tiles.length);
@@ -1098,7 +1244,13 @@
       originY += rowHeight + metrics.laneGap;
     }
     const model = finaliseModel(state.mode, instances, renderedEdges, positions, decorations);
-    model.packing = { algorithm: 'deterministic_adaptive_shelf_grid.v1', columns, targetRatio };
+    model.packing = {
+      algorithm: tiles.some(tile => tile.packing === 'serpentine_long_route.v1')
+        ? 'serpentine_long_route.v1'
+        : 'deterministic_adaptive_shelf_grid.v1',
+      columns,
+      targetRatio
+    };
     return model;
   }
 
@@ -1185,7 +1337,7 @@
         ? '默认按闭合度与可信度展示高价值 Top-K；其余探索视图可按需展开，数量不代表完整路线数。'
         : state.mode === 'shared'
           ? '相同规范分子合并显示；线宽表达支持，颜色仅表达反应证明层级。'
-          : `${(currentLane.step_ids || []).length} 步 · ${tierLabel(currentLane.proof_tier)} · ${(currentLane.source_refs || []).length} 个来源引用；分子保持中性，证明颜色只用于反应和依赖边。`;
+          : `${(currentLane.step_ids || []).length} 步 · ${routeProofMixLabel(currentLane)} · ${(currentLane.source_refs || []).length} 个来源引用；路线闭合与证明等级独立，颜色只用于反应和依赖边。`;
     renderMinimap();
     if (fit) fitGraph({ readable: preferReadableFocus() }); else applyViewportTransform();
     applyGraphSelection();
@@ -1219,8 +1371,26 @@
       return orthogonal ? `M ${x1} ${y1} V ${middle} H ${x2} V ${y2}`
         : `M ${x1} ${y1} C ${x1} ${middle}, ${x2} ${middle}, ${x2} ${y2}`;
     }
-    const x1 = source.x + source.w, y1 = source.y + source.h / 2;
-    const x2 = target.x, y2 = target.y + target.h / 2;
+    const sourceCenterX = source.x + source.w / 2;
+    const targetCenterX = target.x + target.w / 2;
+    const sourceCenterY = source.y + source.h / 2;
+    const targetCenterY = target.y + target.h / 2;
+    const verticalTransition = Math.abs(sourceCenterX - targetCenterX)
+      < Math.max(source.w, target.w) * .35
+      && Math.abs(sourceCenterY - targetCenterY) > Math.max(source.h, target.h);
+    if (verticalTransition) {
+      const descending = targetCenterY > sourceCenterY;
+      const x1 = sourceCenterX, y1 = descending ? source.y + source.h : source.y;
+      const x2 = targetCenterX, y2 = descending ? target.y : target.y + target.h;
+      const middle = (y1 + y2) / 2;
+      return orthogonal ? `M ${x1} ${y1} V ${middle} H ${x2} V ${y2}`
+        : `M ${x1} ${y1} C ${x1} ${middle}, ${x2} ${middle}, ${x2} ${y2}`;
+    }
+    const reverse = targetCenterX < sourceCenterX;
+    const x1 = reverse ? source.x : source.x + source.w;
+    const y1 = sourceCenterY;
+    const x2 = reverse ? target.x + target.w : target.x;
+    const y2 = targetCenterY;
     const middle = (x1 + x2) / 2;
     return orthogonal ? `M ${x1} ${y1} H ${middle} V ${y2} H ${x2}`
       : `M ${x1} ${y1} C ${middle} ${y1}, ${middle} ${y2}, ${x2} ${y2}`;
@@ -1258,8 +1428,9 @@
         : step?.condition_status === 'source_recorded_unverified'
           ? 'is-source-candidate'
           : 'is-missing';
+    const titleText = reaction ? `${fullLabel}\n${conditionMeta}` : fullLabel;
     return `<g class="graph-node dependency-${reaction ? 'reaction graph-node--reaction' : 'molecule graph-node--molecule'} ${nodeTierClass} ${originClass}${selected ? ' is-selected' : ''}" data-graph-node-id="${esc(node.graph_node_id)}" data-node-type="${esc(node.node_type)}" data-node-role="${esc(node.role || '')}" data-branch-id="${esc(instance.branchId)}" data-instance-id="${esc(instance.instanceId)}" ${reaction ? `data-route-step="${esc(node.reaction_step_id)}"` : ''} tabindex="${selected ? '0' : '-1'}" role="button" aria-label="${esc(`${reaction ? '反应' : '分子'}：${fullLabel}，${semanticLabel}`)}">
-      <title>${esc(fullLabel)}</title><rect class="node-surface" x="${position.x}" y="${position.y}" width="${position.w}" height="${position.h}" rx="${reaction ? 12 : 24}"></rect>
+      <title>${esc(titleText)}</title>${reaction ? `<rect class="reaction-hit-target" x="${position.x - 5}" y="${position.y - 5}" width="${position.w + 10}" height="${position.h + 10}" rx="16"></rect>` : ''}<rect class="node-surface" x="${position.x}" y="${position.y}" width="${position.w}" height="${position.h}" rx="${reaction ? 12 : 24}"></rect>
       ${reaction ? `<rect class="reaction-origin-stripe" x="${position.x}" y="${position.y + 6}" width="5" height="${position.h - 12}" rx="2.5"></rect>` : ''}
       ${structureSvg ? `<foreignObject class="node-depiction" x="${position.x + 7}" y="${position.y + 7}" width="${position.w - 14}" height="${position.h - 39}"><div xmlns="http://www.w3.org/1999/xhtml" class="node-depiction-frame">${structureSvg}</div></foreignObject>` : ''}
       <text class="node-label" x="${textX}" y="${textY}">${svgTextLines(lines, textX, textY)}</text>
@@ -1517,6 +1688,10 @@
     state.selectedGraphNodeId = graphNodeId;
     state.selectedInstanceId = instanceId;
     state.selectedStepId = node.node_type === 'reaction' ? node.reaction_step_id : '';
+    if (node.node_type === 'reaction') {
+      state.detailTab = 'step';
+      if (state.layoutPreset === 'focus') state.layoutPreset = 'review';
+    }
     const selectedInstance = renderModel?.instances.find(row => row.graphNodeId === graphNodeId && row.branchId);
     const selectedBranchId = branchId || selectedInstance?.branchId || '';
     if (selectedBranchId && branches.has(selectedBranchId)) state.selectedBranchId = selectedBranchId;
@@ -1566,6 +1741,31 @@
       : entity.type === 'molecule' ? moleculeOverview(entity.value) : branchOverview(entity.value);
   }
 
+  function innovationSectionHtml(step) {
+    const options = Array.isArray(step.route_innovations) ? step.route_innovations : [];
+    if (!options.length) return '';
+    const rows = options.map(option => {
+      const kind = String(option.kind || 'route_innovation');
+      if (kind === 'biocatalytic_superstep' || kind === 'biocatalytic_step') {
+        const enzyme = option.enzyme || {};
+        const enzymeLabels = [...(enzyme.classes || []), ...(enzyme.ec_numbers || [])].join(' · ');
+        const equivalent = Number(option.chemical_step_equivalent_count || 1);
+        const savings = Number(option.step_savings || Math.max(0, equivalent - 1));
+        const title = kind === 'biocatalytic_superstep' ? `酶催化超级步骤 · 1 步替代 ${equivalent} 个化学步骤` : '酶催化步骤';
+        return `<div class="trace-row route-innovation" data-innovation-kind="${esc(kind)}"><strong>${esc(title)}</strong><span>净节省 ${esc(savings)} 步 · ${esc(enzymeLabels || '酶类别待筛选')}</span><span>选择性目标：${esc(option.selectivity_objective || '待定义')}</span><span>底物范围依据：${esc(option.substrate_scope_basis || '未验证')}</span><code>${esc(option.validation_status || 'proposed')}</code></div>`;
+      }
+      const anchor = option.anchor || {};
+      const anchorRefs = [...(anchor.source_refs || []), ...(anchor.source_binding_ids || []), ...(anchor.edge_ids || [])];
+      const checks = Array.isArray(option.falsifiable_checks) ? option.falsifiable_checks.join(' · ') : '';
+      return `<div class="trace-row route-innovation" data-innovation-kind="mechanism_extrapolation"><strong>机理外推 · 文献锚点后一跳</strong><span>${esc(option.mechanistic_rationale || '机理说明待补')}</span><span>锚点：${esc(anchorRefs.join(' · ') || '未绑定')}</span><span>可证伪检查：${esc(checks || '未记录')}</span><code>${esc(option.evidence_grade || 'low_mechanistic_hypothesis')}</code></div>`;
+    }).join('');
+    const gate = step.innovation_proof_gate || {};
+    const warning = gate.required === true && gate.accepted !== true
+      ? '<div class="notice"><strong>尚未闭合</strong><span>酶标签、EC 预测或机理合理性不等于反应验证；需要绑定当前主机可重放的专项验证。</span></div>'
+      : '';
+    return `<section class="detail-section route-innovation-section"><h3>路线创新与替代</h3>${warning}<div class="trace-list">${rows}</div></section>`;
+  }
+
   function reactionOverview(step) {
     const trust = step.trust_vector || {};
     const bindingSet = step.edge_evidence_binding_set || trust.edge_evidence_binding_set || {};
@@ -1574,31 +1774,96 @@
     const citations = (step.source_refs || []).map(ref => `<div class="trace-row">${esc(basename(ref))}</div>`).join('');
     const sourceCount = Number(bindingSet.independent_trusted_source_group_count || 0);
     const corroborated = bindingSet.corroborated === true;
-    const conditions = (step.conditions || []).map(row => `<div class="condition-line"><span class="condition-label">${esc(row.label || '条件')}</span><span class="condition-value">${esc(row.value || '')}</span></div>`).join('');
+    const conditionRows = normalizedConditionRows(step);
+    const coreConditions = conditionRows.filter(row => CORE_CONDITION_KEYS.has(row.key));
+    const operationConditions = conditionRows.filter(row => !CORE_CONDITION_KEYS.has(row.key));
+    const conditions = [
+      conditionGroupHtml('核心反应条件', coreConditions, { open: true }),
+      conditionGroupHtml('加料、后处理与纯化', operationConditions)
+    ].join('');
+    const procedures = Array.isArray(step.procedure_records) ? step.procedure_records : [];
+    const procedureRows = procedures.map(row => {
+      const fragment = row.source_fragment || {};
+      const locations = Array.isArray(row.location_refs) ? row.location_refs.join(' · ') : '';
+      const missing = row.condition_completeness?.missing_required_groups || [];
+      return `<div class="trace-row"><strong>${esc(row.procedure_status || 'source procedure')}</strong><span>${esc(locations || row.source_ref || '')}</span><code>${esc(fragment.procedure_text_sha256 || '')}</code>${missing.length ? `<span>缺失：${esc(missing.join('、'))}</span>` : ''}</div>`;
+    }).join('');
+    const sourceObservations = Array.isArray(step.source_observation_records) ? step.source_observation_records : [];
+    const observationRows = sourceObservations.map((row, index) => {
+      const locations = Array.isArray(row.location_refs) ? row.location_refs.join(' · ') : '';
+      const excerpt = String(row.procedure_excerpt || '').trim();
+      const source = row.source_ref || '来源过程观察';
+      return `<details class="source-procedure-observation" ${index === 0 ? 'open' : ''}><summary><span>${esc(source)}</span><strong>${esc(locations || `过程 ${index + 1}`)}</strong></summary><div class="source-procedure-body">${excerpt ? `<p class="procedure-excerpt">${esc(excerpt)}</p>` : '<div class="empty">未保存过程摘录</div>'}<div class="procedure-digests"><code>${esc(row.source_artifact_sha256 || '')}</code><code>${esc(row.source_pdf_sha256 || '')}</code></div></div></details>`;
+    }).join('');
+    const missingGroups = Array.isArray(step.condition_missing_required_groups) ? step.condition_missing_required_groups : [];
+    const validationFindings = Array.isArray(step.validation_findings) ? step.validation_findings : [];
+    const rejectionReasons = Array.isArray(step.rejection_reasons) ? step.rejection_reasons : [];
+    const validationRows = validationFindings.map(row => {
+      const audit = row.evidence?.audit || {};
+      const gains = Object.entries(audit.unexplained_element_gains || {})
+        .map(([element, count]) => `${element}+${count}`).join('、');
+      const detail = gains ? `未解释原子增加：${gains}` : (row.message || '验证未通过');
+      return `<div class="trace-row validation-finding" data-severity="${esc(row.severity || 'warning')}"><strong>${esc(row.finding_code || 'validation_finding')}</strong><span>${esc(detail)}</span>${row.required_action ? `<span>下一步：${esc(row.required_action)}</span>` : ''}</div>`;
+    }).join('');
+    const reasonRows = rejectionReasons.map(reason => `<code class="reason-code">${esc(reason)}</code>`).join('');
+    const lifecycleSection = lifecycleFactsHtml(step.inactive_facts);
     return `<article><header><p class="detail-kind">${esc(routeStepDisplayLabel(step))} · ${esc(tierLabel(tierOfStep(step)))}</p><h3 class="detail-title">${esc(step.reaction_class || step.label || step.step_id)}</h3></header>
       ${state.activeReplacement ? `<div class="notice replacement-preview-notice"><strong>完整替换路线预览</strong><span>该分支已由后端 AND/OR 对 connectivity、stock 与 reaction proof 整路重验；预览不等于父路线证明。</span><button class="detail-action" type="button" data-replacement-reset>恢复原路线</button></div>` : ''}
       <section class="detail-section"><h3>来源分解</h3><div class="kv"><span class="k">方案生产者</span><span class="v">${esc(step.producer_label || '来源未标记')}</span></div><div class="kv"><span class="k">证据载体</span><span class="v">${esc(step.evidence_label || '无精确证据')}</span></div><div class="kv"><span class="k">主机验证</span><span class="v">${esc(tierLabel(tierOfStep(step)))}</span></div></section>
+      ${innovationSectionHtml(step)}
       <section class="detail-section"><h3>反应连接</h3><p class="v">${esc(nodeNames(step.main_from_node_ids || step.from_node_ids))} → ${esc(nodeNames(step.to_node_ids))}</p>${(step.auxiliary_from_node_ids || []).length ? `<div class="kv"><span class="k">辅助试剂/小分子</span><span class="v">${esc(nodeNames(step.auxiliary_from_node_ids))}</span></div>` : ''}</section>
-      <section class="detail-section"><h3>条件</h3><div class="condition-list">${conditions || `<div class="empty">${esc(step.condition_summary || '条件未记录')}</div>`}</div></section>
+      <section class="detail-section condition-section"><h3>反应条件 <span class="section-count">${conditionRows.length} 项</span></h3><div class="condition-list">${conditions || `<div class="empty">${esc(step.condition_summary || '条件未记录')}</div>`}</div></section>
+      <section class="detail-section"><h3>来源过程 <span class="section-count">${sourceObservations.length + procedures.length} 条</span></h3><div class="kv"><span class="k">哈希绑定过程</span><span class="v">${procedures.length}</span></div><div class="kv"><span class="k">来源观察</span><span class="v">${sourceObservations.length}</span></div><div class="kv"><span class="k">条件缺失组</span><span class="v">${esc(missingGroups.join('、') || '无')}</span></div><div class="source-observation-list">${observationRows}</div><div class="trace-list">${procedureRows || (!observationRows ? `<div class="empty">${esc(step.condition_gap || '尚无可重放的来源过程')}</div>` : '')}</div></section>
+      ${(validationRows || reasonRows) ? `<section class="detail-section evidence-gap-section"><h3>证据缺口与补证动作</h3><div class="trace-list">${validationRows || '<div class="empty">尚无结构化验证发现</div>'}</div>${reasonRows ? `<div class="reason-code-list">${reasonRows}</div>` : ''}</section>` : ''}
+      ${lifecycleSection}
+      <section class="detail-section"><h3>科学 Proof vector</h3>${proofVectorHtml(step.proof_vector)}</section>
       <section class="detail-section"><h3>Trust vector</h3><div class="trust-grid">${['identity','connectivity','source_independence','stock','conditions','forward_feasibility'].map(key => `<div class="trust-cell ${tierClass(tierOfStep(step))}" style="--trust-value:${clamp(Number(trust[key] || 0), 0, 1)}"><strong>${esc(key)}</strong><span>${Number(trust[key] || 0).toFixed(2)}</span></div>`).join('')}</div></section>
       <section class="detail-section"><h3>逐边可信绑定</h3><div class="kv"><span class="k">可信独立来源</span><span class="v">${esc(sourceCount)}</span></div><div class="kv"><span class="k">多信源佐证</span><span class="v">${corroborated ? '是' : '否'}</span></div><div class="trace-list">${trustedSources || '<div class="empty">尚无可信精确绑定；引用不会自动升级证明。</div>'}</div></section>
       <section class="detail-section"><h3>普通引用</h3><div class="trace-list">${citations || '<div class="empty">来源未记录</div>'}</div></section></article>`;
   }
   function moleculeOverview(node) {
+    const lifecycleSection = lifecycleFactsHtml(node.inactive_facts);
     return `<article><header><p class="detail-kind">分子节点</p><h3 class="detail-title">${esc(node.label || node.node_id || '未命名分子')}</h3></header>
       ${node.structure_svg ? `<div class="mol-structure">${node.structure_svg}</div>` : ''}
       <section class="detail-section"><div class="kv"><span class="k">分子式</span><span class="v">${esc(node.formula || '未记录')}</span></div>
       <div class="kv"><span class="k">Canonical</span><span class="v"><code>${esc(node.canonical_isomeric_smiles || node.smiles || '未记录')}</code></span></div>
-      <div class="kv"><span class="k">角色</span><span class="v">${esc(node.role || 'intermediate')}</span></div></section></article>`;
+      <div class="kv"><span class="k">角色</span><span class="v">${esc(node.role || 'intermediate')}</span></div></section>${lifecycleSection}</article>`;
   }
   function branchOverview(branch) {
     const lane = laneByBranch.get(branch.branch_id) || {};
     const executionLabel = lane.process_ready
       ? '工艺候选可执行'
       : lane.route_state_label || lane.completion_label || (branch.solved && branch.executable ? '已验证' : '探索建议');
+    const lifecycleSection = lifecycleFactsHtml(lane.inactive_facts);
     return `<article><header><p class="detail-kind">路线分支 · ${esc(tierLabel(lane.proof_tier))}</p><h3 class="detail-title">${esc(branch.title || branch.branch_id)}</h3></header>
       <div class="notice">${esc(branch.summary || branch.recommendation || '没有路线摘要。')}</div>
-      <section class="detail-section"><div class="kv"><span class="k">步骤</span><span class="v">${esc((lane.step_ids || []).length)}</span></div><div class="kv"><span class="k">DAG</span><span class="v">${lane.acyclic === false ? '检测到环路' : '无环'}</span></div><div class="kv"><span class="k">路线状态</span><span class="v">${esc(executionLabel)}</span></div><div class="kv"><span class="k">条件状态</span><span class="v">${esc(lane.condition_label || '条件状态未知')}</span></div><div class="kv"><span class="k">完整合成声明</span><span class="v">${lane.full_synthesis_claim ? '是' : '否；仍是骨架或未闭合路线'}</span></div></section></article>`;
+      <section class="detail-section"><div class="kv"><span class="k">实际执行步骤</span><span class="v">${esc(lane.physical_step_count ?? (lane.step_ids || []).length)}</span></div><div class="kv"><span class="k">化学等效步骤</span><span class="v">${esc(lane.chemical_step_equivalent_count ?? (lane.step_ids || []).length)}</span></div><div class="kv"><span class="k">酶法净省步骤</span><span class="v">${esc(lane.net_step_savings || 0)}</span></div><div class="kv"><span class="k">机理外推</span><span class="v">${esc(lane.mechanism_extrapolation_count || 0)} 个一跳假设</span></div><div class="kv"><span class="k">DAG</span><span class="v">${lane.acyclic === false ? '检测到环路' : '无环'}</span></div><div class="kv"><span class="k">路线状态</span><span class="v">${esc(executionLabel)}</span></div><div class="kv"><span class="k">条件状态</span><span class="v">${esc(lane.condition_label || '条件状态未知')}</span></div><div class="kv"><span class="k">已达档位</span><span class="v">${esc((lane.achieved_profiles || []).join(' · ') || 'unresolved')}</span></div><div class="kv"><span class="k">完整合成声明</span><span class="v">${lane.full_synthesis_claim ? '是' : '否；仍是骨架或未闭合路线'}</span></div></section>
+      ${lifecycleSection}
+      <section class="detail-section"><h3>路线 Proof vector</h3>${proofVectorHtml(lane.proof_vector)}</section></article>`;
+  }
+  function lifecycleFactsHtml(values) {
+    const facts = Array.isArray(values) ? values : [];
+    if (!facts.length) return '';
+    const rows = facts.map(row => {
+      const status = row.status === 'revoked' ? '已撤销' : row.status === 'expired' ? '已过期' : '已失效';
+      const reasons = Array.isArray(row.reason_codes) ? row.reason_codes.join('、') : '';
+      return `<div class="trace-row"><strong>${esc(status)} · ${esc(row.subject_kind || 'fact')}</strong><span>${esc(row.subject_id || '')}</span><span>${esc(row.effective_at || '')}</span>${reasons ? `<span>原因：${esc(reasons)}</span>` : ''}<code>${esc(row.lifecycle_event_id || '')}</code></div>`;
+    }).join('');
+    return `<section class="detail-section lifecycle-impact"><h3>失效事实</h3><div class="notice"><strong>路线已按当前权威降级</strong><span>原事实仍保留用于审计，但不再授予 reaction、source、condition 或 stock 权威。</span></div><div class="trace-list">${rows}</div></section>`;
+  }
+  function proofVectorHtml(value) {
+    const vector = value && typeof value === 'object' ? value : {};
+    const axes = ['identity', 'reaction', 'conditions', 'sources', 'stock', 'process'];
+    if (vector.schema_version !== 'retrosynthesis_proof_vector.v1') {
+      return '<div class="empty">当前投影没有规范 proof vector；不会从颜色或总数反推证明。</div>';
+    }
+    return `<div class="proof-vector-grid">${axes.map(axis => {
+      const raw = String(vector[axis] || 'unknown');
+      const label = PROOF_VALUE_LABEL[raw] || raw.replaceAll('_', ' ');
+      const state = ['missing', 'none', 'unknown', 'blocked', 'incomplete', 'untested', 'invalidated'].includes(raw)
+        ? 'open' : raw === 'conflicted' ? 'conflict' : 'closed';
+      return `<div class="proof-axis" data-state="${esc(state)}"><span>${esc(PROOF_AXIS_LABEL[axis] || axis)}</span><strong>${esc(label)}</strong><code>${esc(raw)}</code></div>`;
+    }).join('')}</div>`;
   }
   function nodeNames(ids) {
     return (ids || []).map(id => moleculeNodes.get(id)?.label || moleculeNodes.get(id)?.smiles || id).join(' + ') || '未记录';
@@ -1928,11 +2193,6 @@
       suppressGraphClickPointerId = null;
       if (panSession) return;
       if (event.target.closest('.graph-minimap, button, input, select, textarea, a, summary')) return;
-      let captured = false;
-      try {
-        viewport.setPointerCapture(event.pointerId);
-        captured = true;
-      } catch (_) { /* the global listeners still finish a short-lived pointer */ }
       panSession = {
         pointerId: event.pointerId,
         x: event.clientX,
@@ -1942,7 +2202,7 @@
         panX: state.panX,
         panY: state.panY,
         moved: false,
-        captured
+        captured: false
       };
       viewport.classList.add('is-pan-ready');
     });
@@ -1953,6 +2213,10 @@
       if (!panSession.moved) {
         if (Math.hypot(deltaX, deltaY) < PAN_DRAG_THRESHOLD_PX) return;
         panSession.moved = true;
+        try {
+          viewport.setPointerCapture(event.pointerId);
+          panSession.captured = true;
+        } catch (_) { /* global listeners still finish the active drag */ }
         viewport.classList.remove('is-pan-ready');
         viewport.classList.add('is-panning');
       }
@@ -2200,12 +2464,33 @@
           fitGraph();
           checks.fit = Number.isFinite(state.zoom) && state.zoom > 0
             && Number.isFinite(state.panX) && Number.isFinite(state.panY);
-          const firstNode = document.querySelector('.graph-node[data-graph-node-id]');
-          if (firstNode) selectGraphNode(firstNode.dataset.graphNodeId, {
-            branchId: firstNode.dataset.branchId || '',
-            instanceId: firstNode.dataset.instanceId || ''
-          });
+          const reactionNodes = [...document.querySelectorAll(
+            '.graph-node[data-node-type="reaction"]'
+          )];
+          const firstNode = reactionNodes.find(row => {
+            const step = steps.get(row.dataset.routeStep || '');
+            return (step?.source_observation_records || []).length > 0;
+          }) || reactionNodes[0] || document.querySelector('.graph-node[data-graph-node-id]');
+          const firstHitTarget = firstNode?.querySelector('.reaction-hit-target') || firstNode;
+          firstHitTarget?.dispatchEvent(new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          }));
           checks.selection = !firstNode || Boolean(document.querySelector('.graph-node.is-selected'));
+          checks.reactionHitTarget = !firstNode || firstNode.dataset.nodeType !== 'reaction'
+            || Boolean(firstNode.querySelector('.reaction-hit-target'));
+          checks.reactionInspector = !firstNode || firstNode.dataset.nodeType !== 'reaction'
+            || (state.inspectorOpen && state.detailTab === 'step' && Boolean(state.selectedStepId)
+              && Boolean(element('detail').querySelector('.condition-section')));
+          const selectedStep = steps.get(state.selectedStepId || '');
+          const conditionRowCount = selectedStep ? normalizedConditionRows(selectedStep).length : 0;
+          const sourceObservationCount = (selectedStep?.source_observation_records || []).length;
+          checks.fullConditionGroups = conditionRowCount === 0
+            || Boolean(element('detail').querySelector('.condition-group'));
+          checks.sourceProcedure = sourceObservationCount === 0
+            || (Boolean(element('detail').querySelector('.source-procedure-observation'))
+              && Boolean(element('detail').querySelector('.procedure-excerpt')));
           const minimap = element('graphMinimap');
           minimap.hidden = false;
           const minimapRect = minimap.getBoundingClientRect();

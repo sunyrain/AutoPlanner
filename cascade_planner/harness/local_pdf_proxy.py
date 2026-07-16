@@ -26,7 +26,9 @@ USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/148.0.7778.96 Safari/537.36"
 )
-DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
+# DOI suffixes are deliberately permissive.  Older SICI identifiers legally
+# contain ``<`` and ``>``; truncating them produced unresolvable proxy requests.
+DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:<>A-Z0-9]+", re.IGNORECASE)
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 FetchUrl = Callable[[str, dict[str, str], float, int], dict[str, Any]]

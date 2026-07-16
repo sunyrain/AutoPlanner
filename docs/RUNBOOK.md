@@ -178,6 +178,265 @@ python -m cascade_planner benchmark target-001 --iterations 3
 ```
 
 `validate` 比较事件重放、snapshot、规范图 full-recompute oracle 和 workbench 绑定。
+
+### 5.1 Program 迁移影子存储
+
+只读查看当前 canonical graph 的 Program 投影不会创建任何文件：
+
+```bash
+python -m cascade_planner programs target-001
+python -m cascade_planner program-routes target-001
+python -m cascade_planner program-store target-001
+python -m cascade_planner audit-programs --limit 100
+python -m cascade_planner audit-programs --run-id target-001
+```
+
+只有以下显式命令会追加 admission event：
+
+```bash
+python -m cascade_planner admit-programs target-001 \
+  --enable-program-admission
+```
+
+`audit-programs` 只读取 RunIndex 与各运行的 canonical graph/store，输出
+`projection_ready`、`empty_graph`、`canonical_replay_required` 或 `error`；它不创建 Program
+目录、CAS 对象或 admission event。
+
+`program-routes` 从同一 graph revision 重新生成 Workbench 和 Program projection，把每条实际展示
+`route:*` 的 `edge_ids[]` 一一映射为次级 `program_ids[]`，并复核 route identity、物理步数、proof、
+条件和 acceptance 快照。它不会修改 Workbench、graph 或 Program store。真实 Fluvastatin current
+run 的 5 条展示路线和 2 条 replacement route 已通过该 oracle：17 个 edge 引用映射到 11 个不同
+Program，物理步数差异为 0；这仍不表示该 run 通过路线 acceptance。
+
+对历史 Workbench 中“路线连通但部分转换低可信”的案例，可生成独立 Candidate Program 投影：
+
+```bash
+python scripts/project_candidate_programs.py path/to/route_workbench.json \
+  --observation-output candidate-route-observation.json \
+  --projection-output candidate-program-projection.json
+```
+
+该命令验证 Workbench 摘要、路线拓扑和逐转换 canonical admission，保留来源条件观察；输出中的
+`inventory_gap` 会继续可见，但命令不写 canonical graph、Program store 或 acceptance。
+输入结构在观察边界统一规范化；合法但非 canonical 的 SMILES 不会因文本形式不同被拒绝，不可解析
+结构、自环、环路、断图或摘要篡改仍会失败关闭。
+
+当前冻结的真实回归包括：Bufotalin 20 步（15 个 `canonical_admissible`、5 个 `inventory_gap`）和
+Atorvastatin 11 步 L0 候选（11 个 `canonical_admissible`、条件观察为 0）。两者都强制
+`production_closed=false`，不得据此声称反应或生产闭合。
+
+批量盘点结果目录中的 Workbench，并按内容摘要去重：
+
+```bash
+python scripts/audit_candidate_workbenches.py results \
+  --output candidate-workbench-migration-audit.json
+```
+
+输出只分类 `projection_ready`、`empty_graph`、`invalid_snapshot` 和未知 `error`；来源的历史 acceptance
+只进入诊断字段。扫描器排除浏览器 profile，并对命名 Workbench 的 UTF-8、JSON 和 schema 错误失败
+关闭。
+
+对任一冻结 Candidate Route 执行数据驱动酶机会扫描：
+
+```bash
+python scripts/screen_candidate_innovations.py candidate-route-observation.json \
+  --capabilities config/route_innovation_capabilities.v1.json \
+  --output candidate-route-innovation-screen.json
+```
+
+Bufotalin 回归产生 5 个 Program draft proposal，其中一个 HSDH 窗口以 1 个酶步骤候选替代
+6 个化学步骤；酶窗口不再进入 canonical reaction ingestion batch。
+Ibrutinib 的 3 条可枚举路线对同一能力目录均为零匹配，是冻结的无适用酶负对照。两者都不授予
+精确底物适用性、反应证明或路线闭合。
+
+对 current canonical route 使用同一审查入口；返回值同时包含 `program_bundle`、
+`validation_frontier`、`program_route_candidates`、`program_optimizer` 与
+`program_optimizer_oracle`：
+
+```bash
+python -m cascade_planner program-innovations target-001 \
+  --route-id route:example \
+  --capabilities-json config/route_innovation_capabilities.v1.json
+```
+
+可把已经完成 Candidate Program 投影的完整文献/展示路线同时送入同一只读比较入口：
+
+```bash
+python -m cascade_planner program-innovations target-001 \
+  --route-id route:example \
+  --capabilities-json config/route_innovation_capabilities.v1.json \
+  --reported-candidates-json reported-program-route-packs.json
+```
+
+输入文件是 `reported_program_route_pack.v1` 数组；每项必须同时包含 digest-bound
+`candidate_route_observation.v1`、可由前者精确重算的 `candidate_program_projection.v1` 和
+`route_ids`。adapter 按 canonical target SMILES 对齐，不读取目标名称。有逐步或 route-level 来源
+绑定时标为 `literature`；没有来源时标为 `chemical` 并加入 `SOURCE_PROVENANCE_MISSING`，不会把旧
+展示资产伪装成论文证据。两类 reported candidate 都只进入 exploration，固定
+`shadow_optimizer=false`、`route_completion=false`，且该参数在 admission 入口会被显式拒绝。
+
+`validation_frontier` 只为尚未通过专项验证的 Program 生成精确输入/输出状态、酶候选、辅因子/再生
+矩阵、选择性目标和必做检测。它明确输出 `grants_validation=false`，文献类比或 SI 获取失败不会被
+伪装成精确底物验证。当前 Bufotalin 六边区间已通过 fresh V4 run 重建为 current canonical 6→1
+HSDH 阳性 proposal，但仍缺精确底物专项验证，因此只生成实验计划，不能持久准入。
+
+`program_optimizer` 不选择一个隐含权重的“最佳路线”，而是在四个资格域分别给出完整 Pareto
+分层：`exploration` 保留 baseline、reported Candidate Program 路线与所有低证据候选，`shadow_optimizer` 只接收已通过专项门的
+替代方案，随后是更严格的 `experimental_ready` 和 `process_ready`。来源类别不参与评分；当前接入
+的生成器已有 baseline、酶 Program 替代、digest-bound reported Candidate Program adapter、
+结构驱动的机理一跳重拼器，以及数据驱动的 whole-cell/hybrid execution Program adapter。机理 proposal 只有在前体和产物分别精确
+匹配同一路线的上游/下游状态、被跨越边构成无外部分支的连续区间时，才生成完整
+`mechanism_restitched_program_route.v1`。无法接回路线的 proposal 继续显示在 discovery，并在
+mechanism bundle 中给出 `mechanism_full_route_restitch_missing`，不会伪装成 route candidate。即使已
+重拼，未验证机理候选仍为 exploration-only、最低 proof 0、反应/条件/来源缺口至少各 1，且锚点来源
+不被解释为报道了外推反应。系统可消费严格的 `mechanism_program_validation.v1`：有效成功且全部必检项
+通过时，只把完整重拼候选开放给只读 shadow；失败和不确定结果仍作为 exact-boundary feedback 保留。
+`net_transform_observed` 只表示净转化成立，不等于提议的基元机理被证明；所有结果仍固定不创建 reaction
+proof、Program store admission 或 route completion。预期成功率、纯化次数、原料/辅因子成本和 PMI 没有
+可靠数据时会列在 `unmodeled_objectives`，不会由零值或目标名称猜测。即使某个低证据候选位于后续
+Pareto layer，它仍保留在 exploration 输出中。
+
+同一个 `--capabilities-json` 可加入 `execution_domain=whole_cell|hybrid` 的
+`program_execution_capability.v1` 记录。记录必须声明结构适用域、文献先例、actors、顺序
+`operation_blueprints`、辅因子/载体账本和选择性目标。whole-cell 必须有 organism/preparation；
+hybrid 必须同时有 chemical 与 enzymatic/whole-cell transform。匹配后，系统使用与酶/机理相同的
+连续区间重拼器生成完整 Program 路线并保留逐边 fallback。培养、后处理和分离均计入物理操作，
+所以 `net_step_savings` 可以为负；候选仍在 exploration 可见。系统可消费严格的
+`execution_program_validation.v1`：成功、失败和不确定结果都必须绑定精确边界、完整 operation sequence、
+actor、claim、condition 与辅因子/载体台账。只有全部检查通过的成功记录能使候选进入只读 shadow；
+失败与不确定结果保留为 exact-boundary capability feedback，不会删除能力或候选。当前已有执行器中立的
+request/result 封套、原始工件摘要绑定、current-frontier 只读审计，以及宿主信任的人工交接 provider 与
+RunKernel 单账本派发/恢复；仍没有真实实验设备或网络实验 provider，也没有 execution Program store
+admission 路径。审计释放的验证候选必须再次作为 `validations` 输入通过原领域
+gate，之后结果才可以进入独立实验 Claim store；所有 execution
+候选仍固定 `route_completion=false`。Gateway/HTTP
+始终返回 `execution_program_bundle` 与 `execution_oracle`；合法但不适用的能力返回 oracle 通过的空
+bundle，不视为系统错误；同时返回 `execution_validation_frontier`、
+`execution_capability_feedback` 与 `execution_feedback_oracle`。机理路径对应返回
+`mechanism_validation_frontier`、`mechanism_experiment_feedback` 与 `mechanism_feedback_oracle`；未验证候选
+产生计划，成功/失败/不确定结果都可被精确复算。
+
+只有具有有效 `biocatalysis_program_validation.v1` 的候选才可显式写入独立影子 store：
+
+```bash
+python -m cascade_planner admit-program-innovation target-001 \
+  --route-id route:example \
+  --capabilities-json config/route_innovation_capabilities.v1.json \
+  --validations-json exact-substrate-validations.json \
+  --enable-biocatalytic-program-admission
+
+python -m cascade_planner program-innovation-store target-001
+```
+
+该 store 与一边一 Program 的迁移 store 分离，追加内容寻址事件并固定 graph、route、baseline
+projection、discovery、bundle、validation pack 六个 CAS 对象。事件可从空 RunIndex 重建 GC pin；
+准入前后 canonical graph revision、proof、completion、acceptance 和 `edge_ids[]` 权威均不变。
+
+三个验证域还会统一生成 `experimental_observation_claim_set.v1`。只读 review 已返回 Claim set、精确边界
+applicability calibration、dirty-domain 提示及各自 oracle；只有显式命令才把非空 Claim set 写入独立
+append-only store：
+
+```bash
+python -m cascade_planner admit-experimental-claims target-001 \
+  --route-id route:example \
+  --capabilities-json config/route_innovation_capabilities.v1.json \
+  --mechanism-proposals-json mechanism-proposals.json \
+  --validations-json experimental-validations.json \
+  --enable-experimental-claim-admission
+
+python -m cascade_planner experimental-claim-store target-001
+```
+
+该入口允许只含失败或不确定结果的非空 Claim set，不要求“成功”才保存；空观察集拒绝写入。事件固定
+graph、route、Program projection、discovery、排序后的 validation pack 和 Claim set 六类 CAS。每次读取都
+重新编译生物催化、execution、mechanism 的 bundle/feedback/oracle 和统一 Claim set；事件或 CAS 篡改
+失败关闭。它不写 canonical graph、reaction proof、Program store、route completion/acceptance 或能力目录。
+
+每次只读创新 review 还返回 `experimental_work_frontier` 与 oracle。工作项绑定唯一 canonical
+`deficit_frontier`、被替代 edge span、源 validation plan 和稳定 `experiment_execution_request.v1`。
+外部实验室、机器人或服务应把结果封装为 `experiment_execution_result.v1`，然后执行：
+
+```bash
+python -m cascade_planner audit-experiment-result target-001 \
+  --route-id route:example \
+  --capabilities-json config/route_innovation_capabilities.v1.json \
+  --mechanism-proposals-json mechanism-proposals.json \
+  --validations-json existing-validations.json \
+  --result-json executor-result.json
+```
+
+命令会重建当前工作投影；旧 request、自造 request、摘要/边界不匹配或缺原始工件哈希的结果失败关闭。
+通过只表示 `domain_validation_candidate` 可提交给既有 gate，不会自动追加 Claim 或修改 graph。
+
+需要真正形成可恢复交接时，先准备严格的 provider policy。公共 policy 只能从宿主已经注册并信任的
+executor 中选择，不能把第三方 provider 提升为实验执行者：
+
+```json
+{
+  "schema_version": "experiment_executor_policy.v1",
+  "enabled": true,
+  "allowed_provider_ids": ["autoplanner.manual_experiment_executor"],
+  "preferred_provider_ids": ["autoplanner.manual_experiment_executor"],
+  "allowed_domains": ["biocatalytic"],
+  "allow_network_access": false,
+  "max_estimated_cost_units": 0
+}
+```
+
+随后将原始 JSON 记录放入 CAS、派发并结算：
+
+```bash
+python -m cascade_planner stage-experiment-artifact target-001 \
+  --artifact-json raw-assay.json \
+  --logical-name raw-assay.json \
+  --enable-experiment-artifact-staging
+
+python -m cascade_planner dispatch-experiment target-001 \
+  --route-id route:example \
+  --capabilities-json config/route_innovation_capabilities.v1.json \
+  --request-id experiment-request:... \
+  --provider-policy-json experiment-provider-policy.json \
+  --enable-experiment-dispatch
+
+python -m cascade_planner settle-experiment-dispatch target-001 \
+  --route-id route:example \
+  --capabilities-json config/route_innovation_capabilities.v1.json \
+  --dispatch-id experiment-dispatch:... \
+  --result-json executor-result.json \
+  --enable-experiment-settlement
+```
+
+RunKernel 的 `validation` reservation 是唯一操作账本；系统不会另建 experiment queue。请求、provider
+selection、handoff、result、review 与 settlement 都是 CAS 对象。pointer 丢失时，幂等 provider 可用
+`recover-experiment-dispatch ... --enable-experiment-dispatch-recovery` 重新物化同一 handoff。并发派发与
+并发结算复用同一 task；无效 executor、缺失 CAS artifact、旧 frontier 或篡改收据不会结算任务。
+
+HTTP 使用 `GET /api/v4/program-migration`、`GET /api/v4/runs/<run_id>/programs`、
+`GET /api/v4/runs/<run_id>/programs/routes`、
+`GET /api/v4/runs/<run_id>/programs/store` 和
+`POST /api/v4/runs/<run_id>/programs/innovations`、
+`GET /api/v4/runs/<run_id>/programs/innovations/store`、
+`POST /api/v4/runs/<run_id>/programs/innovations/admit`、
+`POST /api/v4/runs/<run_id>/programs/innovations/experiments/audit`、
+`POST /api/v4/runs/<run_id>/programs/innovations/experiments/artifacts/json`、
+`POST /api/v4/runs/<run_id>/programs/innovations/experiments/dispatch`、
+`POST /api/v4/runs/<run_id>/programs/innovations/experiments/recover`、
+`POST /api/v4/runs/<run_id>/programs/innovations/experiments/settle`、
+`GET /api/v4/runs/<run_id>/programs/innovations/claims/store`、
+`POST /api/v4/runs/<run_id>/programs/innovations/claims/admit`、
+`POST /api/v4/runs/<run_id>/programs/admit`。创新审查 POST JSON 包含 `route_id`、`capabilities`，
+并可选传 `mechanism_proposals` 与 `validations`；输出绑定区间边界、逐边 fallback，以及物理步数、
+化学等效步数和净节省。即使专项验证有效，该入口仍为只读，不执行 Program store admission，
+也不改变 route completion。`validations` 按显式 schema 分流：生物催化验证仍走已有影子准入审查，
+execution 与 mechanism 验证都只影响各自的只读 shadow 与反馈投影。准入 POST JSON 必须包含
+`{"enable_program_admission": true}`；酶 Program 准入还必须包含有效 `validations` 与
+`{"enable_biocatalytic_program_admission": true}`；实验 Claim 准入必须包含非空有效观察与
+`{"enable_experimental_claim_admission": true}`。三个写入口缺省都返回 409，不产生 store 事件。
+
+Store 同时保存历史 canonical graph 与对应 Program projection 的不可变 CAS ref，并追加内容寻址
+事件。重复准入同一 revision 是幂等的；canonical graph 前进后，`validate`/`replay` 会报告
+`program_store_current_projection_equal=false`，直到新 revision 被显式准入。此门禁只检查迁移
+一致性，不改变 `edge_ids[]`、proof、route completion 或 acceptance。
 `benchmark` 不访问模型或网络。
 
 ## 6. 导出、Web 与存储维护
@@ -189,8 +448,13 @@ python -m cascade_planner gc --dry-run --minimum-age-hours 24
 python -m cascade_planner audit
 ```
 
-Web 为 `/v4`，JSON API 为 `/api/v4/runs`。默认仅绑定 `127.0.0.1`。CLI 不提供隐式
-删除模式；GC 只生成 dry-run 计划。
+默认启动隔离的 Canonical V4 surface，不装载旧 Blackboard compiler 或旧 campaign。
+统一工作区为 `/v4`，SMILES 运行控制台为 `/v4/console`，集中展示页为 `/v4/showcase`；三者
+共用 `/api/v4/workspace`、`/api/v4/showcase`、`/api/v4/runs` 和同一 Workbench read model。
+Program 迁移盘点为
+`/api/v4/program-migration`，单运行影子投影为 `/api/v4/runs/<run_id>/programs`。默认仅绑定
+`127.0.0.1`。CLI 不提供隐式删除模式；
+GC 只生成 dry-run 计划。
 
 本地开发环境没有安装 Waitress 时使用：
 
@@ -198,10 +462,19 @@ Web 为 `/v4`，JSON API 为 `/api/v4/runs`。默认仅绑定 `127.0.0.1`。CLI 
 python -m cascade_planner serve --server flask --host 127.0.0.1 --port 8878
 ```
 
-浏览器打开 `http://127.0.0.1:8878/v4`。表单会 `POST /api/v4/jobs`，页面每 2 秒轮询
+浏览器打开 `http://127.0.0.1:8878/v4`，再从右上角进入“启动新任务”；控制台表单会
+`POST /api/v4/jobs`，页面每 2 秒轮询
 `/api/v4/jobs` 与单任务进度；首次路线、ChemEnzy provider 调用、来源数、exact rows、视觉
 调用和 token 分开显示。历史卡片是停止执行的不可变快照，内核原始状态只作审计，不能被
 理解为仍有后台线程或已经达到 B3/L4。
+
+仅在需要旧 Agent/Statin/RouteForest 综合界面时显式启动兼容 surface：
+
+```bash
+python -m cascade_planner serve --surface combined
+```
+
+该 surface 不是 Canonical V4 的科学权威，不能承载新产品逻辑。
 
 ## 7. 本地发布门
 

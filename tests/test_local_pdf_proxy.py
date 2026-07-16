@@ -8,12 +8,18 @@ from cascade_planner.harness.local_pdf_proxy import (
     build_pdf_request,
     download_pdf_requests,
     local_pdf_proxy_manifest_entry,
+    normalize_doi,
     requests_from_source_material_locator_pack,
     write_pdf_request_queue,
 )
 
 
 class LocalPdfProxyTest(unittest.TestCase):
+    def test_sici_doi_is_not_truncated(self):
+        doi = "10.1002/(SICI)1099-1344(199902)42:2<101::AID-JLCR171>3.0.CO;2-A"
+
+        self.assertEqual(normalize_doi(doi), doi.lower())
+
     def test_manifest_entry_exposes_queue_without_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
             entry = local_pdf_proxy_manifest_entry(None, output_dir=tmp)

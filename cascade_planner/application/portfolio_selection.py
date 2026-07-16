@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
 )
+from cascade_planner.application.pareto import dominates
 from cascade_planner.application.route_variants import with_content_digest
 
 
@@ -48,7 +49,7 @@ def pareto_front(candidates: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
     for index, row in enumerate(rows):
         vector = _objective_vector(row)
         if any(
-            _dominates(_objective_vector(other), vector)
+            dominates(_objective_vector(other), vector)
             for other_index, other in enumerate(rows)
             if other_index != index
         ):
@@ -287,12 +288,6 @@ def _objective_vector(value: Mapping[str, Any]) -> tuple[float, ...]:
         min(1.0, len(value.get("independent_source_groups") or []) / 3.0),
         1.0 - min(1.0, float(value.get("risk_score") or 0.0)),
         1.0 / (1.0 + float(value.get("length") or 0.0)),
-    )
-
-
-def _dominates(left: tuple[float, ...], right: tuple[float, ...]) -> bool:
-    return all(a >= b for a, b in zip(left, right, strict=True)) and any(
-        a > b for a, b in zip(left, right, strict=True)
     )
 
 

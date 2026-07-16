@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="700" viewBox="0 0 1400 700" role="img" aria-label="阶段 VII｜Target-only、Blind 与来源证据闭环">
+<defs>
+  <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#6b8798"/></marker>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#17384d" flood-opacity=".12"/></filter>
+</defs>
+<rect width="1400" height="700" rx="28" fill="#f4f8fa"/>
+<text x="55" y="64" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0b2438">阶段 VII｜Target-only、Blind 与来源证据闭环</text>
+<text x="55" y="99" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="16" fill="#617b8c">直觉：让陌生目标进入同一权威链，同时用有界降级控制成本与证据强度</text>
+<rect x="45" y="145" width="220" height="120" rx="18" fill="#ffffff" stroke="#5a8dee" stroke-width="2" filter="url(#shadow)"/>
+<rect x="45" y="145" width="9" height="120" rx="4" fill="#5a8dee"/>
+<text x="159.0" y="183" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="159.0" dy="0">Target-only</tspan></text>
+<text x="159.0" y="217" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="159.0" dy="0">陌生 SMILES</tspan></text>
+<line x1="265" y1="205" x2="300" y2="205" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="300" y="145" width="220" height="120" rx="18" fill="#ffffff" stroke="#22a9c1" stroke-width="2" filter="url(#shadow)"/>
+<rect x="300" y="145" width="9" height="120" rx="4" fill="#22a9c1"/>
+<text x="414.0" y="183" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="414.0" dy="0">Global plan</tspan></text>
+<text x="414.0" y="217" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="414.0" dy="0">路线族 / frontier</tspan></text>
+<line x1="520" y1="205" x2="555" y2="205" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="555" y="145" width="220" height="120" rx="18" fill="#ffffff" stroke="#2bb89b" stroke-width="2" filter="url(#shadow)"/>
+<rect x="555" y="145" width="9" height="120" rx="4" fill="#2bb89b"/>
+<text x="669.0" y="183" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="669.0" dy="0">Host validation</tspan></text>
+<text x="669.0" y="217" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="669.0" dy="0">物化 / mapping</tspan></text>
+<line x1="775" y1="205" x2="810" y2="205" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="810" y="145" width="220" height="120" rx="18" fill="#ffffff" stroke="#e7a83d" stroke-width="2" filter="url(#shadow)"/>
+<rect x="810" y="145" width="9" height="120" rx="4" fill="#e7a83d"/>
+<text x="924.0" y="183" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="924.0" dy="0">Exact evidence</tspan></text>
+<text x="924.0" y="217" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="924.0" dy="0">HTML → PDF → OCR → vision</tspan></text>
+<line x1="1030" y1="205" x2="1065" y2="205" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="1065" y="145" width="220" height="120" rx="18" fill="#ffffff" stroke="#35a873" stroke-width="2" filter="url(#shadow)"/>
+<rect x="1065" y="145" width="9" height="120" rx="4" fill="#35a873"/>
+<text x="1179.0" y="183" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="1179.0" dy="0">Portfolio</tspan></text>
+<text x="1179.0" y="217" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="1179.0" dy="0">proof / stock / deficits</tspan></text>
+<text x="120" y="345" text-anchor="start" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="120" dy="0">来源不可逆降级链</tspan></text>
+<rect x="120" y="390" width="210" height="34" rx="17" fill="#35a873"/>
+<text x="225.0" y="413" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="700" fill="#ffffff"><tspan x="225.0" dy="0">官方 HTML/XML</tspan></text>
+<line x1="330" y1="407" x2="400" y2="407" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="410" y="390" width="210" height="34" rx="17" fill="#2bb89b"/>
+<text x="515.0" y="413" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="700" fill="#ffffff"><tspan x="515.0" dy="0">PDF 原生文本</tspan></text>
+<line x1="620" y1="407" x2="690" y2="407" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="700" y="390" width="210" height="34" rx="17" fill="#e7a83d"/>
+<text x="805.0" y="413" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="700" fill="#ffffff"><tspan x="805.0" dy="0">本地 OCR</tspan></text>
+<line x1="910" y1="407" x2="980" y2="407" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="990" y="390" width="210" height="34" rx="17" fill="#e87468"/>
+<text x="1095.0" y="413" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="700" fill="#ffffff"><tspan x="1095.0" dy="0">视觉 L0</tspan></text>
+<rect x="95" y="500" width="390" height="110" rx="18" fill="#fbfaff" stroke="#7a78d9" stroke-width="2" filter="url(#shadow)"/>
+<rect x="95" y="500" width="9" height="110" rx="4" fill="#7a78d9"/>
+<text x="294.0" y="538" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="294.0" dy="0">Self-evolution</tspan></text>
+<text x="294.0" y="572" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="294.0" dy="0">exact row + accepted proof</tspan><tspan x="294.0" dy="23">模板复用仍从 L0 重验</tspan></text>
+<rect x="505" y="500" width="390" height="110" rx="18" fill="#f5f9ff" stroke="#5a8dee" stroke-width="2" filter="url(#shadow)"/>
+<rect x="505" y="500" width="9" height="110" rx="4" fill="#5a8dee"/>
+<text x="704.0" y="538" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="704.0" dy="0">Blind contract</tspan></text>
+<text x="704.0" y="572" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="704.0" dy="0">冻结知识 / 库存 / 预算</tspan><tspan x="704.0" dy="23">失败案例必须保留</tspan></text>
+<rect x="915" y="500" width="390" height="110" rx="18" fill="#fff8f7" stroke="#e87468" stroke-width="2" filter="url(#shadow)"/>
+<rect x="915" y="500" width="9" height="110" rx="4" fill="#e87468"/>
+<text x="1114.0" y="538" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="1114.0" dy="0">诚实输出</tspan></text>
+<text x="1114.0" y="572" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="1114.0" dy="0">unresolved / budget_exhausted</tspan><tspan x="1114.0" dy="23">部分条件不伪装成完整</tspan></text>
+</svg>

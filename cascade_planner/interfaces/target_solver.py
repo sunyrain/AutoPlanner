@@ -83,6 +83,14 @@ if TYPE_CHECKING:
 TARGET_SOLVE_REPORT_SCHEMA = "target_only_retrosynthesis_solve_report.v1"
 TARGET_SOLVE_CHECKPOINT_SCHEMA = "target_only_solve_checkpoint.v1"
 DEFAULT_TARGET_DIRECTOR_MODEL = "gpt-5.5"
+_DIRECTOR_TOPOLOGY_REASONS = frozenset(
+    {
+        "skeleton_ancestor_cycle",
+        "skeleton_contains_disconnected_steps",
+        "skeleton_product_expanded_more_than_once",
+        "skeleton_requires_exactly_one_target_root",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,7 +126,8 @@ class TargetSolveConfig:
     max_guided_chemenzy_iterations: int = 6
     guided_chemenzy_timeout_s: float = 60.0
     max_visual_evidence_pages: int = 6
-    max_director_output_tokens: int = 9_000
+    minimum_planning_route_steps: int = 0
+    max_director_output_tokens: int = 18_000
     max_director_wall_time_s: float = 360.0
     publish_intermediate_workbenches: bool = True
     schema_version: str = "target_solve_config.v1"
@@ -153,6 +162,12 @@ class TargetSolveConfig:
             raise ValueError("target solver guided ChemEnzy budget is invalid")
         if self.max_director_output_tokens < 1 or self.max_director_wall_time_s <= 0:
             raise ValueError("target solver director limits must be positive")
+        if (
+            isinstance(self.minimum_planning_route_steps, bool)
+            or not isinstance(self.minimum_planning_route_steps, int)
+            or not 0 <= self.minimum_planning_route_steps <= 24
+        ):
+            raise ValueError("target solver minimum planning route depth is invalid")
 
 
 def solve_target(
@@ -283,8 +298,8 @@ def solve_target(
             "minimum_route_families": 3,
             "max_route_families": 4,
             "max_skeletons": 4,
-            "max_steps_per_skeleton": 8,
-            "max_output_tokens": 9_000,
+            "max_steps_per_skeleton": 24,
+            "max_output_tokens": 18_000,
             "max_tool_calls": 16,
         },
     }[active.execution_profile]
@@ -292,8 +307,13 @@ def solve_target(
         director_profile["minimum_route_families"],
         resolved_acceptance.minimum_complete_routes,
     )
+    if active.minimum_planning_route_steps > director_profile["max_steps_per_skeleton"]:
+        raise ValueError(
+            "minimum planning route depth exceeds execution profile capacity"
+        )
     director_config = DirectorConfig(
         minimum_route_families=minimum_director_families,
+        minimum_planning_route_steps=active.minimum_planning_route_steps,
         max_route_families=max(
             director_profile["max_route_families"],
             minimum_director_families,
@@ -488,7 +508,7 @@ def solve_target(
             idempotency_key="solve-target:director:initial",
         )
         outcomes.append(initial)
-        stages.append(_stage("global_campaign", initial["status"]))
+        stages.append(_stage("global_campaign", initial["status"], initial))
         _checkpoint(checkpoint_path, identity, stages, outcomes)
 
     materialization = service.execute_frontier_materialization(
@@ -840,25 +860,37 @@ def solve_target(
         graph=service.graph_store.load(),
         portfolio=provisional,
     )
-    material_events = _material_replan_events(
-        materialization,
-        template_reuse,
-        validation,
-        repair_stage,
-        repair_validation,
-        source_stage,
-        evidence_stage,
-        learned_template_reuse,
-        learned_template_validation,
-        stock_stage,
-        guided_stage,
-        guided_materialization,
-        guided_validation,
-        guided_stock,
-        recovery_stage,
-        recovery_materialization,
-        recovery_validation,
-        recovery_stock,
+    provisional_planning_depth = _planning_depth_requirement(
+        outcomes,
+        minimum_steps=active.minimum_planning_route_steps,
+    )
+    material_events = tuple(
+        sorted(
+            {
+                *_material_replan_events(
+                    materialization,
+                    template_reuse,
+                    validation,
+                    repair_stage,
+                    repair_validation,
+                    source_stage,
+                    evidence_stage,
+                    learned_template_reuse,
+                    learned_template_validation,
+                    stock_stage,
+                    guided_stage,
+                    guided_materialization,
+                    guided_validation,
+                    guided_stock,
+                    recovery_stage,
+                    recovery_materialization,
+                    recovery_validation,
+                    recovery_stock,
+                ),
+                *_director_topology_replan_events(outcomes),
+                *_director_depth_replan_events(provisional_planning_depth),
+            }
+        )
     )
     replan_reasons = _replan_reasons(
         provisional_gates,
@@ -867,10 +899,7 @@ def solve_target(
     needs_replan = bool(
         active.enable_replan
         and replan_reasons
-        and any(
-            outcome.get("status") == "accepted" and outcome.get("plan")
-            for outcome in outcomes
-        )
+        and _director_outcome_allows_replan(outcomes)
         and len(outcomes) < 2
     )
     evidence_observations = {
@@ -1078,7 +1107,17 @@ def solve_target(
         budget=resolved_budget,
     )
     stop_preview = service.kernel.decide_stop().to_dict()
-    claim = _claim(gates, resolved_acceptance, resource_envelope)
+    profile_projection = service.workbench()["snapshot"]
+    claim = _claim(
+        gates,
+        resolved_acceptance,
+        resource_envelope,
+        workbench=profile_projection,
+    )
+    planning_depth = _planning_depth_requirement(
+        outcomes,
+        minimum_steps=active.minimum_planning_route_steps,
+    )
     current_disposition = _current_disposition(
         kernel_status=service.kernel.state.status,
         stop_decision=stop_preview,
@@ -1093,6 +1132,7 @@ def solve_target(
             stop_decision=stop_preview,
             claim=claim,
             current_disposition=current_disposition,
+            planning_depth=planning_depth,
         )
     )
     stop = service.kernel.apply_stop_decision(
@@ -1110,6 +1150,7 @@ def solve_target(
         "director_outcomes": outcomes,
         "stages": _deduplicate_stages(stages),
         "gates": gates,
+        "planning_depth": planning_depth,
         "model_cost": dict(service.kernel.state.model_totals),
         "resource_envelope": resource_envelope,
         "attempt_count": service.kernel.state.attempt_count,
@@ -1185,7 +1226,17 @@ def _refresh_terminal_report(
         budget=budget,
     )
     stop_decision = service.kernel.decide_stop().to_dict()
-    claim = _claim(gates, acceptance, resource_envelope)
+    profile_projection = service.workbench()["snapshot"]
+    claim = _claim(
+        gates,
+        acceptance,
+        resource_envelope,
+        workbench=profile_projection,
+    )
+    planning_depth = _planning_depth_requirement(
+        outcomes,
+        minimum_steps=config.minimum_planning_route_steps,
+    )
     current_disposition = _current_disposition(
         kernel_status=service.kernel.state.status,
         stop_decision=stop_decision,
@@ -1200,6 +1251,7 @@ def _refresh_terminal_report(
             stop_decision=stop_decision,
             claim=claim,
             current_disposition=current_disposition,
+            planning_depth=planning_depth,
         )
     )
     report_path = directory / "target-only-solve-report.json"
@@ -1221,6 +1273,7 @@ def _refresh_terminal_report(
         "director_outcomes": outcomes,
         "stages": _deduplicate_stages(stages),
         "gates": gates,
+        "planning_depth": planning_depth,
         "model_cost": dict(service.kernel.state.model_totals),
         "resource_envelope": resource_envelope,
         "attempt_count": service.kernel.state.attempt_count,
@@ -1922,6 +1975,136 @@ def _material_replan_events(*stages: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(events))
 
 
+def _director_topology_replan_events(
+    outcomes: Iterable[Mapping[str, Any]],
+) -> tuple[str, ...]:
+    """Expose malformed multi-step skeletons to one bounded global replan."""
+
+    for outcome in outcomes:
+        outcome_reasons = {
+            str(value)
+            for value in outcome.get("reasons") or []
+            if str(value).strip()
+        }
+        if (
+            str(outcome.get("status") or "") == "failed"
+            and "GlobalCampaignPlanValidationError" in outcome_reasons
+        ):
+            return ("director_contract_rejected",)
+        if str(outcome.get("status") or "") != "accepted":
+            continue
+        for audit in outcome.get("proposal_audits") or []:
+            if not isinstance(audit, Mapping) or audit.get("accepted") is True:
+                continue
+            reasons = {
+                str(value)
+                for value in audit.get("reasons") or []
+                if str(value).strip()
+            }
+            if reasons & _DIRECTOR_TOPOLOGY_REASONS:
+                return ("director_topology_rejected",)
+    return ()
+
+
+def _planning_depth_requirement(
+    outcomes: Iterable[Mapping[str, Any]],
+    *,
+    minimum_steps: int,
+) -> dict[str, Any]:
+    """Audit planning depth without granting reaction proof or hiding short routes."""
+
+    observed: list[dict[str, Any]] = []
+    for outcome in outcomes:
+        if str(outcome.get("status") or "") != "accepted":
+            continue
+        plan = outcome.get("plan")
+        if not isinstance(plan, Mapping):
+            continue
+        audits_by_skeleton: dict[str, list[Mapping[str, Any]]] = {}
+        for audit in outcome.get("proposal_audits") or []:
+            if not isinstance(audit, Mapping):
+                continue
+            audits_by_skeleton.setdefault(str(audit.get("skeleton_id") or ""), []).append(
+                audit
+            )
+        for skeleton in plan.get("multi_step_skeletons") or []:
+            if not isinstance(skeleton, Mapping):
+                continue
+            skeleton_id = str(skeleton.get("skeleton_id") or "")
+            steps = [
+                step
+                for step in skeleton.get("steps") or []
+                if isinstance(step, Mapping)
+            ]
+            expected_ids = [str(step.get("step_id") or "") for step in steps]
+            audits = audits_by_skeleton.get(skeleton_id, [])
+            audited_ids = [str(audit.get("proposal_id") or "") for audit in audits]
+            host_accepted = bool(
+                steps
+                and len(audits) == len(steps)
+                and sorted(audited_ids) == sorted(expected_ids)
+                and all(audit.get("accepted") is True for audit in audits)
+            )
+            observed.append(
+                {
+                    "skeleton_id": skeleton_id,
+                    "step_count": len(steps),
+                    "host_contract_accepted": host_accepted,
+                }
+            )
+    accepted = [row for row in observed if row["host_contract_accepted"]]
+    maximum = max((int(row["step_count"]) for row in accepted), default=0)
+    return {
+        "schema_version": "planning_depth_requirement.v1",
+        "minimum_requested_steps": int(minimum_steps),
+        "maximum_host_contract_accepted_steps": maximum,
+        "requirement_met": minimum_steps <= 0 or maximum >= minimum_steps,
+        "qualifying_skeleton_ids": sorted(
+            str(row["skeleton_id"])
+            for row in accepted
+            if int(row["step_count"]) >= minimum_steps > 0
+        ),
+        "observed_skeletons": observed,
+        "semantics": {
+            "planning_depth_is_not_reaction_proof": True,
+            "shorter_routes_remain_visible": True,
+            "depth_deficit_triggers_at_most_the_existing_bounded_replan": True,
+        },
+    }
+
+
+def _director_depth_replan_events(
+    planning_depth: Mapping[str, Any],
+) -> tuple[str, ...]:
+    if (
+        int(planning_depth.get("minimum_requested_steps") or 0) > 0
+        and planning_depth.get("requirement_met") is not True
+    ):
+        return ("director_depth_deficit",)
+    return ()
+
+
+def _director_outcome_allows_replan(
+    outcomes: Iterable[Mapping[str, Any]],
+) -> bool:
+    """Allow one bounded retry for accepted plans or host contract rejection."""
+
+    for outcome in outcomes:
+        if outcome.get("status") == "accepted" and outcome.get("plan"):
+            return True
+        reasons = {
+            str(value)
+            for value in outcome.get("reasons") or []
+            if str(value).strip()
+        }
+        if (
+            outcome.get("status") == "failed"
+            and "GlobalCampaignPlanValidationError" in reasons
+        ):
+            return True
+    return False
+
+
 def _replan_reasons(
     gates: Mapping[str, Any],
     *,
@@ -1930,6 +2113,12 @@ def _replan_reasons(
     values = dict(gates.get("gates") or {})
     events = set(material_events)
     reasons: list[str] = []
+    if "director_contract_rejected" in events:
+        reasons.append("director_contract_deficit")
+    if "director_depth_deficit" in events:
+        reasons.append("planning_depth_deficit")
+    if "director_topology_rejected" in events:
+        reasons.append("director_topology_deficit")
     if values.get("B2_host_validated_routes") is not True:
         reasons.append("host_validated_route_deficit")
     if values.get("B3_exact_multi_source") is not True and events & {
@@ -1966,7 +2155,7 @@ def _evidence_observations(stage: Mapping[str, Any]) -> dict[str, Any]:
             str(row.get("source_ref") or row.get("publication_number") or ""),
         ),
     )
-    selected_sources = ranked_sources[:4]
+    selected_sources = ranked_sources[:3]
     return {
         "schema_version": "campaign_evidence_observations.v1",
         "source_discovery": {
@@ -2001,7 +2190,7 @@ def _source_replan_observation(source: Mapping[str, Any]) -> dict[str, Any]:
         _procedure_replan_observation(value)
         for value in row.get("procedure_inventory") or []
         if isinstance(value, Mapping)
-    ][:3]
+    ][:2]
     route = _source_route_replan_observation(
         dict(row.get("source_route_observation") or {})
     )
@@ -2060,7 +2249,7 @@ def _procedure_replan_observation(value: Mapping[str, Any]) -> dict[str, Any]:
             )
             if key in row
         },
-        "procedure_excerpt": " ".join(excerpt.split())[:700],
+        "procedure_excerpt": " ".join(excerpt.split())[:500],
     }
 
 
@@ -2215,6 +2404,8 @@ def _claim(
     gates: Mapping[str, Any],
     acceptance: RetrosynthesisAcceptanceSpec,
     resource_envelope: Mapping[str, Any],
+    *,
+    workbench: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     values = dict(gates.get("gates") or {})
     accepted = bool(
@@ -2226,21 +2417,34 @@ def _claim(
         "procurement": "procurement_closed",
         "in_house": "in_house_closed",
     }.get(acceptance.stock_boundary, "configured_boundary_closed")
+    workbench_portfolio = dict(dict(workbench or {}).get("portfolio") or {})
+    profile_counts = {
+        str(key): int(value or 0)
+        for key, value in dict(
+            workbench_portfolio.get("acceptance_profile_counts") or {}
+        ).items()
+    }
+    achieved_profile = str(
+        workbench_portfolio.get("achieved_profile") or "unresolved"
+    )
     return {
-        "generated_route_portfolio": values.get("B2_host_validated_routes") is True,
+        "generated_route_portfolio": values.get("B1_global_multi_route") is True,
+        "host_validated_route_portfolio": (
+            values.get("B2_host_validated_routes") is True
+        ),
         "exact_multi_source_grade": values.get("B3_exact_multi_source") is True,
         "configured_stock_boundary_closed": values.get("B4_stock_boundary") is True,
         "accepted_under_configured_policy": accepted,
         "acceptance_profile": acceptance_profile,
-        "achieved_profile": acceptance_profile if accepted else "unresolved",
+        "achieved_profile": achieved_profile,
+        "product_profile_counts": profile_counts,
+        "literature_grounded": profile_counts.get("literature_grounded", 0) > 0,
         "procurement_ready": bool(
-            acceptance.stock_boundary == "procurement"
-            and values.get("B5_configured_portfolio_acceptance") is True
-            and resource_envelope.get("within_budget") is True
+            profile_counts.get("procurement_closed", 0) > 0
         ),
         "within_resource_budget": resource_envelope.get("within_budget") is True,
-        "condition_complete": False,
-        "process_ready": False,
+        "condition_complete": profile_counts.get("condition_complete", 0) > 0,
+        "process_ready": profile_counts.get("process_ready", 0) > 0,
         "no_unqualified_solved_claim": True,
         "no_unqualified_complete_claim": True,
     }
@@ -2254,6 +2458,7 @@ def _workbench_campaign_summary(
     stop_decision: Mapping[str, Any],
     claim: Mapping[str, Any],
     current_disposition: Mapping[str, Any],
+    planning_depth: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "gates": dict(gates.get("gates") or {}),
@@ -2266,6 +2471,7 @@ def _workbench_campaign_summary(
         "stop_decision": dict(stop_decision),
         "claim": dict(claim),
         "current_disposition": dict(current_disposition),
+        "planning_depth": dict(planning_depth or {}),
     }
 
 
@@ -2294,6 +2500,12 @@ def _current_disposition(
     elif stop_decision.get("terminal") is True:
         state = str(stop_decision.get("decision") or "terminal_unresolved")
         reasons = [str(value) for value in stop_decision.get("reasons") or []]
+    elif dict(gates.get("gates") or {}).get("B2_host_validated_routes") is True:
+        state = "routes_validated_proof_open"
+        reasons = _open_gate_reasons(gates, include_host_validation=False)
+    elif dict(gates.get("gates") or {}).get("B1_global_multi_route") is True:
+        state = "route_hypotheses_available_validation_open"
+        reasons = _open_gate_reasons(gates, include_host_validation=True)
     else:
         state = "unresolved"
         reasons = [str(value) for value in stop_decision.get("reasons") or []]
@@ -2312,6 +2524,24 @@ def _current_disposition(
             "kernel_event_history_is_not_rewritten": True,
         },
     }
+
+
+def _open_gate_reasons(
+    gates: Mapping[str, Any],
+    *,
+    include_host_validation: bool,
+) -> list[str]:
+    values = dict(gates.get("gates") or {})
+    reasons: list[str] = []
+    if include_host_validation and values.get("B2_host_validated_routes") is not True:
+        reasons.append("host_route_validation_open")
+    if values.get("B3_exact_multi_source") is not True:
+        reasons.append("exact_multi_source_proof_open")
+    if values.get("B4_stock_boundary") is not True:
+        reasons.append("configured_stock_boundary_open")
+    if values.get("B5_configured_portfolio_acceptance") is not True:
+        reasons.append("configured_portfolio_acceptance_open")
+    return reasons
 
 
 def _resource_envelope(

@@ -479,7 +479,8 @@ class RunKernel:
 
     @property
     def state(self) -> RunState:
-        return _state_from_dict(_read_json_object(self.snapshot_path))
+        with self._locked():
+            return _state_from_dict(_read_json_object(self.snapshot_path))
 
     @property
     def revision(self) -> RunRevision:
@@ -498,16 +499,50 @@ class RunKernel:
         campaign-level call allowance.
         """
         expected = dict(metadata or {})
-        return sum(
-            1
-            for event in self._read_events()
-            if event.event_type == "task_reserved"
-            and (not kind or str(event.payload.get("kind") or "") == kind)
-            and all(
-                dict(event.payload.get("metadata") or {}).get(key) == value
-                for key, value in expected.items()
+        with self._locked():
+            return sum(
+                1
+                for event in self._read_events()
+                if event.event_type == "task_reserved"
+                and (not kind or str(event.payload.get("kind") or "") == kind)
+                and all(
+                    dict(event.payload.get("metadata") or {}).get(key) == value
+                    for key, value in expected.items()
+                )
             )
-        )
+
+    def task_lifecycle(self, task_id: str) -> dict[str, Any]:
+        """Read one task's durable reservation/settlement without new authority."""
+
+        identity = str(task_id or "").strip()
+        if not identity:
+            raise ValueError("task_id is required")
+        reservation: RunEvent | None = None
+        settlement: RunEvent | None = None
+        with self._locked():
+            for event in self._read_events():
+                if str(event.payload.get("task_id") or "") != identity:
+                    continue
+                if event.event_type == "task_reserved":
+                    reservation = event
+                elif event.event_type == "task_settled":
+                    settlement = event
+        return {
+            "schema_version": "autoplanner_task_lifecycle.v1",
+            "run_id": self.spec.run_id,
+            "task_id": identity,
+            "status": (
+                "settled" if settlement is not None
+                else "in_flight" if reservation is not None
+                else "absent"
+            ),
+            "reservation": reservation.to_dict() if reservation else {},
+            "settlement": settlement.to_dict() if settlement else {},
+            "semantics": {
+                "event_log_is_operational_authority": True,
+                "projection_grants_no_scientific_authority": True,
+            },
+        }
 
     def start(self) -> RunEvent:
         return self.transition("running", idempotency_key="run:start")
@@ -949,10 +984,11 @@ class RunKernel:
         return event
 
     def _event_by_key(self, key: str) -> RunEvent | None:
-        return next(
-            (event for event in self._read_events() if event.idempotency_key == key),
-            None,
-        )
+        with self._locked():
+            return next(
+                (event for event in self._read_events() if event.idempotency_key == key),
+                None,
+            )
 
     def _assert_task_budget(
         self,
@@ -1269,28 +1305,57 @@ class RunKernel:
     @contextmanager
     def _locked(self) -> Iterator[None]:
         deadline = time.monotonic() + self.lock_timeout_s
+        last_permission_error: PermissionError | None = None
+        observed_contention = False
         while True:
             try:
                 self.lock_path.mkdir()
                 break
             except FileExistsError:
+                observed_contention = True
+            except PermissionError as exc:
+                # Windows can report Access denied, instead of FileExistsError,
+                # while another thread is creating or removing the directory.
+                # Retry that bounded race, but preserve a genuine permission
+                # failure when no competing lock was ever observable.
+                last_permission_error = exc
                 try:
-                    age = time.time() - self.lock_path.stat().st_mtime
-                    if age > self.stale_lock_s:
+                    self.kernel_dir.stat()
+                except OSError:
+                    raise
+                if self.lock_path.exists():
+                    observed_contention = True
+            try:
+                age = time.time() - self.lock_path.stat().st_mtime
+                if age > self.stale_lock_s:
+                    try:
                         self.lock_path.rmdir()
+                    except FileNotFoundError:
                         continue
-                except (FileNotFoundError, OSError):
-                    pass
-                if time.monotonic() >= deadline:
-                    raise RunKernelError("run_kernel_writer_lock_timeout")
-                time.sleep(0.01)
+                    except OSError:
+                        pass
+                    else:
+                        continue
+            except (FileNotFoundError, PermissionError, OSError):
+                pass
+            if time.monotonic() >= deadline:
+                if last_permission_error is not None and not observed_contention:
+                    raise last_permission_error
+                raise RunKernelError("run_kernel_writer_lock_timeout")
+            time.sleep(0.01)
         try:
             yield
         finally:
-            try:
-                self.lock_path.rmdir()
-            except FileNotFoundError:
-                pass
+            for attempt in range(8):
+                try:
+                    self.lock_path.rmdir()
+                    break
+                except FileNotFoundError:
+                    break
+                except PermissionError:
+                    if attempt == 7:
+                        raise RunKernelError("run_kernel_writer_lock_release_failed")
+                    time.sleep(min(0.1, 0.005 * (2**attempt)))
 
 
 def _replay(spec: RunSpec, events: Iterable[RunEvent]) -> RunState:

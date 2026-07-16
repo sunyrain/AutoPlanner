@@ -1,0 +1,136 @@
+{
+  "audit_date": "2026-07-16",
+  "catalog_entity_count": 12,
+  "content_sha256": "af4fd1d04fcf2572a9eceb1e8396ffda785969d78a1e5de100401da0ffcfd06e",
+  "records": [
+    {
+      "candidate_projection": {
+        "counts": {
+          "canonical_admissible": 11,
+          "chemical_states": 22,
+          "operation_nodes": 11,
+          "programs": 11,
+          "routes": 1
+        },
+        "file": "benchmarks/atorvastatin_candidate_program_projection.v1.json",
+        "file_sha256": "dd474bcdc386a92653903c4bdb50bfe86c2973c1f2dd287dcedfa46e0d7d8bb3",
+        "projection_sha256": "49a1fca550c76899ff134dc695d14deb995767e75fcee771e0fcb735e5fc82ed"
+      },
+      "classification": "candidate_projection_ready",
+      "evidence_paths": [
+        "results/shared/presentation_showcase_20260715/atorvastatin-v4-migrated-closed/route_workbench.json",
+        "benchmarks/atorvastatin_candidate_route_observation.v1.json"
+      ],
+      "next_action": "Acquire exact procedures and current reaction proofs; do not promote the route from candidate status.",
+      "source_route_status": "exploration_closed_l0_candidate",
+      "target_name": "atorvastatin"
+    },
+    {
+      "classification": "legacy_partial_anchor_only",
+      "evidence_paths": [
+        "results/shared/fluvastatin_codex_entry_fullflow_prompt_v2_20260605/smiles_first_literature_workflow/fluvastatin_hybrid_retrosynthesis_route.json"
+      ],
+      "next_action": "Replay into a current Workbench and retain unresolved frontiers.",
+      "source_route_status": "partial_anchor",
+      "target_name": "fluvastatin"
+    },
+    {
+      "classification": "rerun_assets_absent",
+      "evidence_paths": [],
+      "next_action": "Run a current evidence-first campaign; no route artifact is available for migration.",
+      "source_route_status": "absent",
+      "target_name": "lovastatin"
+    },
+    {
+      "classification": "empty_workbench",
+      "evidence_paths": [
+        "results/shared/presentation_v4_statins_c_20260715/artifacts/objects/sha256/0d/0ddc9c01a74649ca9e432ef3c77e926996ccb461caf4872d7c9ca0375e763d3c"
+      ],
+      "next_action": "Resume or rerun the current campaign; the snapshot contains a target only and zero routes.",
+      "source_route_status": "zero_route",
+      "target_name": "pitavastatin"
+    },
+    {
+      "classification": "rerun_assets_absent",
+      "evidence_paths": [],
+      "next_action": "Run a current evidence-first campaign; no route artifact is available for migration.",
+      "source_route_status": "absent",
+      "target_name": "pravastatin"
+    },
+    {
+      "classification": "legacy_partial_anchor_only",
+      "evidence_paths": [
+        "results/shared/rosuvastatin_codex_entry_strict_stock_depth20_20260606/smiles_first_literature_workflow/rosuvastatin_hybrid_retrosynthesis_route.json"
+      ],
+      "next_action": "Replay into a current Workbench and retain unresolved frontiers.",
+      "source_route_status": "partial_anchor",
+      "target_name": "rosuvastatin"
+    },
+    {
+      "classification": "rerun_assets_absent",
+      "evidence_paths": [],
+      "next_action": "Run a current evidence-first campaign; no route artifact is available for migration.",
+      "source_route_status": "absent",
+      "target_name": "simvastatin"
+    },
+    {
+      "classification": "empty_workbench",
+      "evidence_paths": [
+        "results/shared/presentation_v4_statins_c_20260715/artifacts/objects/sha256/08/084be3a648b4320113fb8a3be765c15b96c5c7fc59681f5aa998bbe637c36563"
+      ],
+      "next_action": "Resume or rerun the current campaign; the snapshot contains a target only and zero routes.",
+      "source_route_status": "zero_route",
+      "target_name": "cerivastatin"
+    },
+    {
+      "classification": "empty_workbench",
+      "evidence_paths": [
+        "results/shared/presentation_v4_statins_c_20260715/artifacts/objects/sha256/7f/7f7179a9f8dc5ae8905861709e4fa2c0055ee11503771834d339081765b286b0"
+      ],
+      "next_action": "Resume or rerun the current campaign; the snapshot contains a target only and zero routes.",
+      "source_route_status": "zero_route",
+      "target_name": "mevastatin"
+    },
+    {
+      "classification": "manifest_only",
+      "evidence_paths": [
+        "benchmarks/statins_v4_extended.json"
+      ],
+      "next_action": "Run the blind manifest through the current campaign before route migration.",
+      "source_route_status": "blind_manifest_only",
+      "target_name": "crilvastatin"
+    },
+    {
+      "classification": "manifest_only",
+      "evidence_paths": [
+        "benchmarks/statins_v4_extended.json"
+      ],
+      "next_action": "Run the blind manifest through the current campaign before route migration.",
+      "source_route_status": "blind_manifest_only",
+      "target_name": "dalvastatin"
+    },
+    {
+      "classification": "manifest_only",
+      "evidence_paths": [
+        "benchmarks/statins_v4_extended.json"
+      ],
+      "next_action": "Run the blind manifest through the current campaign before route migration.",
+      "source_route_status": "blind_manifest_only",
+      "target_name": "glenvastatin"
+    }
+  ],
+  "schema_version": "statin_candidate_migration_audit.v1",
+  "semantics": {
+    "catalog_names_do_not_imply_route_assets": true,
+    "empty_or_missing_assets_never_grant_route_closure": true,
+    "legacy_partial_anchor_is_not_a_complete_route": true,
+    "target_specific_file_is_regression_data_not_core_branching": true
+  },
+  "summary": {
+    "candidate_projection_ready": 1,
+    "empty_workbench": 3,
+    "legacy_partial_anchor_only": 2,
+    "manifest_only": 3,
+    "rerun_assets_absent": 3
+  }
+}

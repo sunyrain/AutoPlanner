@@ -1,0 +1,1312 @@
+{
+  "chemical_states": {
+    "candidate-state:11b8656af6907be158c93c79": {
+      "authoritative": false,
+      "canonical_smiles": "CNC(=O)c1ccc(N)cc1F",
+      "content_sha256": "232ddd2ef8c89a06564869430eea2b5131c7fc622485546173038d15f92f8ac3",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:5d6836aa26692fa6cc5b964a14b483f70d37b7d7ad69ed6983a29d652b4538cc",
+      "state_id": "candidate-state:11b8656af6907be158c93c79",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:28918fbdba0bfb67b759eb19": {
+      "authoritative": false,
+      "canonical_smiles": "N#Cc1ccc(N=C=S)cc1C(F)(F)F",
+      "content_sha256": "a2d14820a312646961e24f17f01b7c794a445438b77b7ac18e91bb4eb93b330e",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:1660d74f90fb522b1ca4181f6942a0d79a235743b83e7e17b02609bfd1288345",
+      "state_id": "candidate-state:28918fbdba0bfb67b759eb19",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:38866886177bcc432135ae47": {
+      "authoritative": false,
+      "canonical_smiles": "COC(=O)c1ccc(N)cc1F",
+      "content_sha256": "b6e05d9d5c333a4d054f00ea120dbbd7983e40fca6565bec17051b00b9f9f6a9",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:8a6cfd3327ef266227612abc98dc7009de55ad304bc393d7543b053df7ca53fd",
+      "state_id": "candidate-state:38866886177bcc432135ae47",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:388920752be1529c3d72b23c": {
+      "authoritative": false,
+      "canonical_smiles": "CC1(C)C(=O)N(c2ccc(C#N)c(C(F)(F)F)c2)C(=S)N1c1ccc(C(=O)O)c(F)c1",
+      "content_sha256": "f5f1a45fdde6d1c181196a24da158db7cb46c860dbeb9e49ff0fc4bf02df43e4",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:f58b685d26b1efbe5bc699013dcc158a2438ebb085a600ad983ce9958c28e519",
+      "state_id": "candidate-state:388920752be1529c3d72b23c",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:458fad8bfedc2422f18d7647": {
+      "authoritative": false,
+      "canonical_smiles": "CNC(=O)c1ccc(N2C(=S)N(c3ccc(C#N)c(C(F)(F)F)c3)C(=O)C2(C)C)cc1F",
+      "content_sha256": "5a206d196c75e12b35631a8889e85bc3739d9298c6591fffd52961320c73bf61",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:8d821dbb4848d560c4a0ee7316e97320141dda4700b85134f9380a1fa4c64292",
+      "state_id": "candidate-state:458fad8bfedc2422f18d7647",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:569f5a63b818bfa333ddc164": {
+      "authoritative": false,
+      "canonical_smiles": "CNC(=O)c1ccc(NC(=S)Nc2ccc(C#N)c(C(F)(F)F)c2)cc1F",
+      "content_sha256": "d0a0c6e239a7e26d16e3949de058f09ae96302559e5fb09193024189bd3483ac",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:74ab41f2dbfa99bccbf4a9f84e6c2aa34f49bba3ed3c2a138061f493169dfea8",
+      "state_id": "candidate-state:569f5a63b818bfa333ddc164",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:5cbaea30a7b12c8665f9bf39": {
+      "authoritative": false,
+      "canonical_smiles": "COC(=O)c1ccc(Br)cc1F",
+      "content_sha256": "3aca671dba6cb6b5616bd65c5d0a5d05f760bb67cceaddeb9ca7a134395a4fb1",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:504cf10818bc4c8a7153be10db0f65abec461aa5e8d5b394d2fb769b9f1d5675",
+      "state_id": "candidate-state:5cbaea30a7b12c8665f9bf39",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:70d3279b29e66543cdd7b8fe": {
+      "authoritative": false,
+      "canonical_smiles": "S=C(Cl)Cl",
+      "content_sha256": "b486159171ac21e7e47da2ee89b8eaae933c4d1563836055f930eaf2f3f5b7c4",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:4213d4338b2a285a4d16a0927fa72b5ca6f863599f846e9fcac5d3d6bd753113",
+      "state_id": "candidate-state:70d3279b29e66543cdd7b8fe",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:71eb73c258c7363d98e6167a": {
+      "authoritative": false,
+      "canonical_smiles": "CC1(C)C(=O)NC(=S)N1c1ccc(C#N)c(C(F)(F)F)c1",
+      "content_sha256": "0c2f600bf5695a0478cccd846a92f69bd344c946eb3b2b97b54d38d8750c2613",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:116f248003478731022f0cd97dd32d3407787f95ba296220b2a74572e7547678",
+      "state_id": "candidate-state:71eb73c258c7363d98e6167a",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:8748a92352f1fe112718bbce": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)(N)C(=O)O",
+      "content_sha256": "3c9abc1f634edf66cb6e745fc41c2fecaa9ae88431404691364ca0f59fc900a3",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:3ccf33a5e05618b427421c6bfb2275606a522329418f98be3e363eeeba8db2ca",
+      "state_id": "candidate-state:8748a92352f1fe112718bbce",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:a5a8be35a851aa98f6e48a92": {
+      "authoritative": false,
+      "canonical_smiles": "N#Cc1ccc(NC(=S)Nc2ccc(C(=O)O)c(F)c2)cc1C(F)(F)F",
+      "content_sha256": "e071adba9b51959f708f6b58b6f053c3d397b521415a324e580672d4fdf44235",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:08b4d85bc2f0473bd3a101f15279b7096218b908a8b07f37c11137b2bbce5d99",
+      "state_id": "candidate-state:a5a8be35a851aa98f6e48a92",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:b16d88788f06aba147bd9c21": {
+      "authoritative": false,
+      "canonical_smiles": "CN",
+      "content_sha256": "c5d16d92f4f4d605c218a9a38b0cba01273057b7dc38a502ba0498e0cef8234a",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:6584fdfb4fd590b0db669e1b6e505f92c8c2120c7563b461bc95870f936865fa",
+      "state_id": "candidate-state:b16d88788f06aba147bd9c21",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:c290d9fbce0ef13823aaebc1": {
+      "authoritative": false,
+      "canonical_smiles": "N#Cc1ccc(N)cc1C(F)(F)F",
+      "content_sha256": "3640914bbebd10373a6c55e03fbcfa4ccd2daca197a64db177a9a0bd0ea88fc4",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:72c884819c9e8ece0e328185bc6a8242476e07f3530831bf2cc8031cde53a396",
+      "state_id": "candidate-state:c290d9fbce0ef13823aaebc1",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:cf8fd26934a809702822733e": {
+      "authoritative": false,
+      "canonical_smiles": "CC(C)(Cl)C(=O)Cl",
+      "content_sha256": "37c54815b2b045291857ba84381383fdf0c67617b09d53a44cf3529c89d7c2a1",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:ceaca618be028e1ee4a543c5a0fe00cf2af84977c6265b235c021eb5867a3802",
+      "state_id": "candidate-state:cf8fd26934a809702822733e",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:cfa5659a4177d6873698d880": {
+      "authoritative": false,
+      "canonical_smiles": "CNC(=O)c1ccc(Br)cc1F",
+      "content_sha256": "5102673e2b5ccb5d466063eee6f4c8ab62df988c6ff767b4cdb050a93bc09438",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:6a13a26950558649a70610bf729b2bfa6542f28e915d2fd30d3b21276656d7eb",
+      "state_id": "candidate-state:cfa5659a4177d6873698d880",
+      "status": "candidate_route_observation"
+    },
+    "candidate-state:e3c507af20c3b8377dae74d5": {
+      "authoritative": false,
+      "canonical_smiles": "Nc1ccc(C(=O)O)cc1F",
+      "content_sha256": "691c3526200297a3fc038e3b625b76bbe971daeae301401e284731d1f9d847cf",
+      "label": "",
+      "schema_version": "candidate_chemical_state.v1",
+      "source_molecule_id": "mol:d55bcdf9312180b1deeeb9694c9251d6b1b5f58baaf33c26895d1293cfe044fb",
+      "state_id": "candidate-state:e3c507af20c3b8377dae74d5",
+      "status": "candidate_route_observation"
+    }
+  },
+  "content_sha256": "d97e1d80f5f2b2d5865d7db658841e1aeffd4cc886d07253a34d4682abe65847",
+  "counts": {
+    "blocked_candidate": 0,
+    "canonical_admissible": 10,
+    "chemical_states": 16,
+    "inventory_gap": 0,
+    "operation_nodes": 10,
+    "programs": 10,
+    "routes": 3
+  },
+  "observation_id": "candidate-route:a6b7bb163ab385e54896cba0",
+  "operation_nodes": {
+    "candidate-operation:11480e629ca4ccd99398a908": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "9843d42b85023bb900ce0662411e4cb14e8ca891eeb72acf1e927a3cef09cb8c",
+      "input_state_ids": [
+        "candidate-state:cf8fd26934a809702822733e",
+        "candidate-state:569f5a63b818bfa333ddc164"
+      ],
+      "operation_id": "candidate-operation:11480e629ca4ccd99398a908",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:458fad8bfedc2422f18d7647"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:eeb672f17da0df4fe7996549b99d14e42c5b80df51a548d2daf46502a9eb0f7a",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:12ff71ea2b5334f17f310eef": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "93ccfc381708304d307ae0dca45948ddc06c903f015a02c13e41d336647e307b",
+      "input_state_ids": [
+        "candidate-state:8748a92352f1fe112718bbce",
+        "candidate-state:28918fbdba0bfb67b759eb19"
+      ],
+      "operation_id": "candidate-operation:12ff71ea2b5334f17f310eef",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:71eb73c258c7363d98e6167a"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:dfa4c88cb7a90a71fa4dbd79dcd401a7710cdc8f8514b7135f6ff1b6c4d5221c",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:531c7355a5f55d3fa847c639": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "473b80eac1400cccc540c9774e049e32daae8d8ccc69dbedf98d82628013100b",
+      "input_state_ids": [
+        "candidate-state:28918fbdba0bfb67b759eb19",
+        "candidate-state:e3c507af20c3b8377dae74d5"
+      ],
+      "operation_id": "candidate-operation:531c7355a5f55d3fa847c639",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:a5a8be35a851aa98f6e48a92"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:f6983436ff2859acf54c15fa99db253588331242dff7b2269da3801e19fef821",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:566362110e9210401e29fd3c": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "d6982304049867b12bae61ac1b949996f158a22e186dd6eb530af2473c6349e9",
+      "input_state_ids": [
+        "candidate-state:71eb73c258c7363d98e6167a",
+        "candidate-state:cfa5659a4177d6873698d880"
+      ],
+      "operation_id": "candidate-operation:566362110e9210401e29fd3c",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:458fad8bfedc2422f18d7647"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:17d55e1e31c0a03e2b09fd94d0b6761fbddb62be23414d7c1c0714407ff436e3",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:5ce6c0c0e550d7ecc6426851": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "55da87ec2bdb6ca6cfad5ea12be2026f2024b7be32686d603c6a2ba3abb46f87",
+      "input_state_ids": [
+        "candidate-state:b16d88788f06aba147bd9c21",
+        "candidate-state:38866886177bcc432135ae47"
+      ],
+      "operation_id": "candidate-operation:5ce6c0c0e550d7ecc6426851",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:11b8656af6907be158c93c79"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:7da3ab807238220463a5ff3a02e5d9193e53f95e34011e61f9ea7aea6e61b48f",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:6a933e22b5eaad88d4f5ed96": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "92ae932ccb37ff2e1b0a6afc80889441bf6a8481af34a8a296fab46d5e4a8c84",
+      "input_state_ids": [
+        "candidate-state:b16d88788f06aba147bd9c21",
+        "candidate-state:5cbaea30a7b12c8665f9bf39"
+      ],
+      "operation_id": "candidate-operation:6a933e22b5eaad88d4f5ed96",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:cfa5659a4177d6873698d880"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:9728e4c9d291e112f36a09b18b46b55027fb65b08e9c0d90786be27bd3581f3e",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:8a3ac2e778a4d57a997f1be9": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "efb85d12ac345d6927385bc6604df3dbb10a267189b3993aa1420c764da948e2",
+      "input_state_ids": [
+        "candidate-state:388920752be1529c3d72b23c",
+        "candidate-state:b16d88788f06aba147bd9c21"
+      ],
+      "operation_id": "candidate-operation:8a3ac2e778a4d57a997f1be9",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:458fad8bfedc2422f18d7647"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:34cd5c7ef8b1d0eeb0b94b57a22c36d213f96b0c82e23e5f02a55d66175c61ba",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:96f38becde5db0e26f7d4db7": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "8d62f86b68815dc9e39c420b3560d555729cdf5f4e2e1c7c8c253e069232c07e",
+      "input_state_ids": [
+        "candidate-state:11b8656af6907be158c93c79",
+        "candidate-state:28918fbdba0bfb67b759eb19"
+      ],
+      "operation_id": "candidate-operation:96f38becde5db0e26f7d4db7",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:569f5a63b818bfa333ddc164"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:dd7d02270b4cf853565f0a0d6e24cf53db0a187533467b2da57e1f99e9e50813",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:a9f616c1a3c7e756c763836a": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "8e6d79dded122f48f704785cb944df1a49a42ebad6a9d490841d831ba211ad9e",
+      "input_state_ids": [
+        "candidate-state:c290d9fbce0ef13823aaebc1",
+        "candidate-state:70d3279b29e66543cdd7b8fe"
+      ],
+      "operation_id": "candidate-operation:a9f616c1a3c7e756c763836a",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:28918fbdba0bfb67b759eb19"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:3836aa3a40695a47de3de38565e223ab6f8d930eea4464f27eb63d90d96a5a86",
+      "status": "canonical_admissible"
+    },
+    "candidate-operation:f42409e1dd1b3a72d8706b20": {
+      "authoritative": false,
+      "condition_observations": [],
+      "condition_status": "",
+      "content_sha256": "d5c220a9a0582e7ced65812c17cc6339bb8c88c233a9bfece7707e546494a8bf",
+      "input_state_ids": [
+        "candidate-state:cf8fd26934a809702822733e",
+        "candidate-state:a5a8be35a851aa98f6e48a92"
+      ],
+      "operation_id": "candidate-operation:f42409e1dd1b3a72d8706b20",
+      "operation_kind": "candidate_reaction",
+      "output_state_ids": [
+        "candidate-state:388920752be1529c3d72b23c"
+      ],
+      "schema_version": "candidate_operation_node.v1",
+      "source_transformation_id": "edge:581e50e593fb24d7072c0648266015fc83ad6ab994ded22ed6d1c00d851ece5b",
+      "status": "canonical_admissible"
+    }
+  },
+  "programs": {
+    "candidate-program:11480e629ca4ccd99398a908": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "eeb672f17da0df4fe7996549b99d14e42c5b80df51a548d2daf46502a9eb0f7a",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)(Cl)C(=O)Cl",
+            "CNC(=O)c1ccc(NC(=S)Nc2ccc(C#N)c(C(F)(F)F)c2)cc1F"
+          ],
+          "product_smiles": "CNC(=O)c1ccc(N2C(=S)N(c3ccc(C#N)c(C(F)(F)F)c3)C(=O)C2(C)C)cc1F",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "forbidden_return_smiles": [],
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 21,
+          "Cl": 2,
+          "F": 4,
+          "N": 4,
+          "O": 2,
+          "S": 1
+        },
+        "precursor_heavy_atom_count": 34,
+        "precursor_smiles": [
+          "CC(C)(Cl)C(=O)Cl",
+          "CNC(=O)c1ccc(NC(=S)Nc2ccc(C#N)c(C(F)(F)F)c2)cc1F"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)(Cl)C(=O)Cl",
+          "CNC(=O)c1ccc(NC(=S)Nc2ccc(C#N)c(C(F)(F)F)c2)cc1F"
+        ],
+        "product_element_counts": {
+          "C": 21,
+          "F": 4,
+          "N": 4,
+          "O": 2,
+          "S": 1
+        },
+        "product_heavy_atom_count": 32,
+        "product_smiles": "CNC(=O)c1ccc(N2C(=S)N(c3ccc(C#N)c(C(F)(F)F)c3)C(=O)C2(C)C)cc1F",
+        "reasons": [],
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "4d07e3d1752355efc1a45365ec9b3b1687e9c9389d773d99ac8dfcaaf2675257",
+      "input_state_ids": [
+        "candidate-state:cf8fd26934a809702822733e",
+        "candidate-state:569f5a63b818bfa333ddc164"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:11480e629ca4ccd99398a908"
+      ],
+      "output_state_ids": [
+        "candidate-state:458fad8bfedc2422f18d7647"
+      ],
+      "program_id": "candidate-program:11480e629ca4ccd99398a908",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:eeb672f17da0df4fe7996549b99d14e42c5b80df51a548d2daf46502a9eb0f7a",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:12ff71ea2b5334f17f310eef": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "dfa4c88cb7a90a71fa4dbd79dcd401a7710cdc8f8514b7135f6ff1b6c4d5221c",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)(N)C(=O)O",
+            "N#Cc1ccc(N=C=S)cc1C(F)(F)F"
+          ],
+          "product_smiles": "CC1(C)C(=O)NC(=S)N1c1ccc(C#N)c(C(F)(F)F)c1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "forbidden_return_smiles": [],
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 13,
+          "F": 3,
+          "N": 3,
+          "O": 2,
+          "S": 1
+        },
+        "precursor_heavy_atom_count": 22,
+        "precursor_smiles": [
+          "CC(C)(N)C(=O)O",
+          "N#Cc1ccc(N=C=S)cc1C(F)(F)F"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)(N)C(=O)O",
+          "N#Cc1ccc(N=C=S)cc1C(F)(F)F"
+        ],
+        "product_element_counts": {
+          "C": 13,
+          "F": 3,
+          "N": 3,
+          "O": 1,
+          "S": 1
+        },
+        "product_heavy_atom_count": 21,
+        "product_smiles": "CC1(C)C(=O)NC(=S)N1c1ccc(C#N)c(C(F)(F)F)c1",
+        "reasons": [],
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "68360b57fbbb54f1fe7d39cb96f52583839aef74528657d94012d131b2d4048f",
+      "input_state_ids": [
+        "candidate-state:8748a92352f1fe112718bbce",
+        "candidate-state:28918fbdba0bfb67b759eb19"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:12ff71ea2b5334f17f310eef"
+      ],
+      "output_state_ids": [
+        "candidate-state:71eb73c258c7363d98e6167a"
+      ],
+      "program_id": "candidate-program:12ff71ea2b5334f17f310eef",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:dfa4c88cb7a90a71fa4dbd79dcd401a7710cdc8f8514b7135f6ff1b6c4d5221c",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "reaction_validation_missing"
+      ]
+    },
+    "candidate-program:531c7355a5f55d3fa847c639": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "f6983436ff2859acf54c15fa99db253588331242dff7b2269da3801e19fef821",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "N#Cc1ccc(N=C=S)cc1C(F)(F)F",
+            "Nc1ccc(C(=O)O)cc1F"
+          ],
+          "product_smiles": "N#Cc1ccc(NC(=S)Nc2ccc(C(=O)O)c(F)c2)cc1C(F)(F)F",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "forbidden_return_smiles": [],
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 16,
+          "F": 4,
+          "N": 3,
+          "O": 2,
+          "S": 1
+        },
+        "precursor_heavy_atom_count": 26,
+        "precursor_smiles": [
+          "N#Cc1ccc(N=C=S)cc1C(F)(F)F",
+          "Nc1ccc(C(=O)O)cc1F"
+        ],
+        "precursor_smiles_multiset": [
+          "N#Cc1ccc(N=C=S)cc1C(F)(F)F",
+          "Nc1ccc(C(=O)O)cc1F"
+        ],
+        "product_element_counts": {
+          "C": 16,
+          "F": 4,
+          "N": 3,
+          "O": 2,
+          "S": 1
+        },
+        "product_heavy_atom_count": 26,
+        "product_smiles": "N#Cc1ccc(NC(=S)Nc2ccc(C(=O)O)c(F)c2)cc1C(F)(F)F",
+        "reasons": [],
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "7cba3e4d3f67db2bf202d42d769208b367cdb6cbee85d1235c970fcec8b3c430",
+      "input_state_ids": [
+        "candidate-state:28918fbdba0bfb67b759eb19",
+        "candidate-state:e3c507af20c3b8377dae74d5"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:531c7355a5f55d3fa847c639"
+      ],
+      "output_state_ids": [
+        "candidate-state:a5a8be35a851aa98f6e48a92"
+      ],
+      "program_id": "candidate-program:531c7355a5f55d3fa847c639",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:f6983436ff2859acf54c15fa99db253588331242dff7b2269da3801e19fef821",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:566362110e9210401e29fd3c": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "17d55e1e31c0a03e2b09fd94d0b6761fbddb62be23414d7c1c0714407ff436e3",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC1(C)C(=O)NC(=S)N1c1ccc(C#N)c(C(F)(F)F)c1",
+            "CNC(=O)c1ccc(Br)cc1F"
+          ],
+          "product_smiles": "CNC(=O)c1ccc(N2C(=S)N(c3ccc(C#N)c(C(F)(F)F)c3)C(=O)C2(C)C)cc1F",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "forbidden_return_smiles": [],
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "Br": 1,
+          "C": 21,
+          "F": 4,
+          "N": 4,
+          "O": 2,
+          "S": 1
+        },
+        "precursor_heavy_atom_count": 33,
+        "precursor_smiles": [
+          "CC1(C)C(=O)NC(=S)N1c1ccc(C#N)c(C(F)(F)F)c1",
+          "CNC(=O)c1ccc(Br)cc1F"
+        ],
+        "precursor_smiles_multiset": [
+          "CC1(C)C(=O)NC(=S)N1c1ccc(C#N)c(C(F)(F)F)c1",
+          "CNC(=O)c1ccc(Br)cc1F"
+        ],
+        "product_element_counts": {
+          "C": 21,
+          "F": 4,
+          "N": 4,
+          "O": 2,
+          "S": 1
+        },
+        "product_heavy_atom_count": 32,
+        "product_smiles": "CNC(=O)c1ccc(N2C(=S)N(c3ccc(C#N)c(C(F)(F)F)c3)C(=O)C2(C)C)cc1F",
+        "reasons": [],
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "0d07fc072f8692c1b34130861fbfc1d262e734c98e4e8abcbd47e15517ac740a",
+      "input_state_ids": [
+        "candidate-state:71eb73c258c7363d98e6167a",
+        "candidate-state:cfa5659a4177d6873698d880"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:566362110e9210401e29fd3c"
+      ],
+      "output_state_ids": [
+        "candidate-state:458fad8bfedc2422f18d7647"
+      ],
+      "program_id": "candidate-program:566362110e9210401e29fd3c",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:17d55e1e31c0a03e2b09fd94d0b6761fbddb62be23414d7c1c0714407ff436e3",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": [
+        "reaction_validation_missing"
+      ]
+    },
+    "candidate-program:5ce6c0c0e550d7ecc6426851": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "7da3ab807238220463a5ff3a02e5d9193e53f95e34011e61f9ea7aea6e61b48f",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CN",
+            "COC(=O)c1ccc(N)cc1F"
+          ],
+          "product_smiles": "CNC(=O)c1ccc(N)cc1F",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "forbidden_return_smiles": [],
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 9,
+          "F": 1,
+          "N": 2,
+          "O": 2
+        },
+        "precursor_heavy_atom_count": 14,
+        "precursor_smiles": [
+          "CN",
+          "COC(=O)c1ccc(N)cc1F"
+        ],
+        "precursor_smiles_multiset": [
+          "CN",
+          "COC(=O)c1ccc(N)cc1F"
+        ],
+        "product_element_counts": {
+          "C": 8,
+          "F": 1,
+          "N": 2,
+          "O": 1
+        },
+        "product_heavy_atom_count": 12,
+        "product_smiles": "CNC(=O)c1ccc(N)cc1F",
+        "reasons": [],
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "61d77e98a193c11f83a8df7a02c0d08f2b31f766ccaca720eff5f28bebf240ab",
+      "input_state_ids": [
+        "candidate-state:b16d88788f06aba147bd9c21",
+        "candidate-state:38866886177bcc432135ae47"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:5ce6c0c0e550d7ecc6426851"
+      ],
+      "output_state_ids": [
+        "candidate-state:11b8656af6907be158c93c79"
+      ],
+      "program_id": "candidate-program:5ce6c0c0e550d7ecc6426851",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:7da3ab807238220463a5ff3a02e5d9193e53f95e34011e61f9ea7aea6e61b48f",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:6a933e22b5eaad88d4f5ed96": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "9728e4c9d291e112f36a09b18b46b55027fb65b08e9c0d90786be27bd3581f3e",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CN",
+            "COC(=O)c1ccc(Br)cc1F"
+          ],
+          "product_smiles": "CNC(=O)c1ccc(Br)cc1F",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "forbidden_return_smiles": [],
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "Br": 1,
+          "C": 9,
+          "F": 1,
+          "N": 1,
+          "O": 2
+        },
+        "precursor_heavy_atom_count": 14,
+        "precursor_smiles": [
+          "CN",
+          "COC(=O)c1ccc(Br)cc1F"
+        ],
+        "precursor_smiles_multiset": [
+          "CN",
+          "COC(=O)c1ccc(Br)cc1F"
+        ],
+        "product_element_counts": {
+          "Br": 1,
+          "C": 8,
+          "F": 1,
+          "N": 1,
+          "O": 1
+        },
+        "product_heavy_atom_count": 12,
+        "product_smiles": "CNC(=O)c1ccc(Br)cc1F",
+        "reasons": [],
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "2d81521ce6544866836fe3e019a8e65fa8f32f5d1741fc426b02f0549659da89",
+      "input_state_ids": [
+        "candidate-state:b16d88788f06aba147bd9c21",
+        "candidate-state:5cbaea30a7b12c8665f9bf39"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:6a933e22b5eaad88d4f5ed96"
+      ],
+      "output_state_ids": [
+        "candidate-state:cfa5659a4177d6873698d880"
+      ],
+      "program_id": "candidate-program:6a933e22b5eaad88d4f5ed96",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:9728e4c9d291e112f36a09b18b46b55027fb65b08e9c0d90786be27bd3581f3e",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:8a3ac2e778a4d57a997f1be9": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "34cd5c7ef8b1d0eeb0b94b57a22c36d213f96b0c82e23e5f02a55d66175c61ba",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC1(C)C(=O)N(c2ccc(C#N)c(C(F)(F)F)c2)C(=S)N1c1ccc(C(=O)O)c(F)c1",
+            "CN"
+          ],
+          "product_smiles": "CNC(=O)c1ccc(N2C(=S)N(c3ccc(C#N)c(C(F)(F)F)c3)C(=O)C2(C)C)cc1F",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "forbidden_return_smiles": [],
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 21,
+          "F": 4,
+          "N": 4,
+          "O": 3,
+          "S": 1
+        },
+        "precursor_heavy_atom_count": 33,
+        "precursor_smiles": [
+          "CC1(C)C(=O)N(c2ccc(C#N)c(C(F)(F)F)c2)C(=S)N1c1ccc(C(=O)O)c(F)c1",
+          "CN"
+        ],
+        "precursor_smiles_multiset": [
+          "CC1(C)C(=O)N(c2ccc(C#N)c(C(F)(F)F)c2)C(=S)N1c1ccc(C(=O)O)c(F)c1",
+          "CN"
+        ],
+        "product_element_counts": {
+          "C": 21,
+          "F": 4,
+          "N": 4,
+          "O": 2,
+          "S": 1
+        },
+        "product_heavy_atom_count": 32,
+        "product_smiles": "CNC(=O)c1ccc(N2C(=S)N(c3ccc(C#N)c(C(F)(F)F)c3)C(=O)C2(C)C)cc1F",
+        "reasons": [],
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "518b7a1e3d3b97e23920436545733891593067dd64358dc556ff01104f9a8879",
+      "input_state_ids": [
+        "candidate-state:388920752be1529c3d72b23c",
+        "candidate-state:b16d88788f06aba147bd9c21"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:8a3ac2e778a4d57a997f1be9"
+      ],
+      "output_state_ids": [
+        "candidate-state:458fad8bfedc2422f18d7647"
+      ],
+      "program_id": "candidate-program:8a3ac2e778a4d57a997f1be9",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:34cd5c7ef8b1d0eeb0b94b57a22c36d213f96b0c82e23e5f02a55d66175c61ba",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:96f38becde5db0e26f7d4db7": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "dd7d02270b4cf853565f0a0d6e24cf53db0a187533467b2da57e1f99e9e50813",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CNC(=O)c1ccc(N)cc1F",
+            "N#Cc1ccc(N=C=S)cc1C(F)(F)F"
+          ],
+          "product_smiles": "CNC(=O)c1ccc(NC(=S)Nc2ccc(C#N)c(C(F)(F)F)c2)cc1F",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "forbidden_return_smiles": [],
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 17,
+          "F": 4,
+          "N": 4,
+          "O": 1,
+          "S": 1
+        },
+        "precursor_heavy_atom_count": 27,
+        "precursor_smiles": [
+          "CNC(=O)c1ccc(N)cc1F",
+          "N#Cc1ccc(N=C=S)cc1C(F)(F)F"
+        ],
+        "precursor_smiles_multiset": [
+          "CNC(=O)c1ccc(N)cc1F",
+          "N#Cc1ccc(N=C=S)cc1C(F)(F)F"
+        ],
+        "product_element_counts": {
+          "C": 17,
+          "F": 4,
+          "N": 4,
+          "O": 1,
+          "S": 1
+        },
+        "product_heavy_atom_count": 27,
+        "product_smiles": "CNC(=O)c1ccc(NC(=S)Nc2ccc(C#N)c(C(F)(F)F)c2)cc1F",
+        "reasons": [],
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "3e8eed3bba9c9d8c56d66347516cb4a20235f624ce4c07f17bb9516c499d9f43",
+      "input_state_ids": [
+        "candidate-state:11b8656af6907be158c93c79",
+        "candidate-state:28918fbdba0bfb67b759eb19"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:96f38becde5db0e26f7d4db7"
+      ],
+      "output_state_ids": [
+        "candidate-state:569f5a63b818bfa333ddc164"
+      ],
+      "program_id": "candidate-program:96f38becde5db0e26f7d4db7",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:dd7d02270b4cf853565f0a0d6e24cf53db0a187533467b2da57e1f99e9e50813",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:a9f616c1a3c7e756c763836a": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "3836aa3a40695a47de3de38565e223ab6f8d930eea4464f27eb63d90d96a5a86",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "N#Cc1ccc(N)cc1C(F)(F)F",
+            "S=C(Cl)Cl"
+          ],
+          "product_smiles": "N#Cc1ccc(N=C=S)cc1C(F)(F)F",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "forbidden_return_smiles": [],
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 9,
+          "Cl": 2,
+          "F": 3,
+          "N": 2,
+          "S": 1
+        },
+        "precursor_heavy_atom_count": 17,
+        "precursor_smiles": [
+          "N#Cc1ccc(N)cc1C(F)(F)F",
+          "S=C(Cl)Cl"
+        ],
+        "precursor_smiles_multiset": [
+          "N#Cc1ccc(N)cc1C(F)(F)F",
+          "S=C(Cl)Cl"
+        ],
+        "product_element_counts": {
+          "C": 9,
+          "F": 3,
+          "N": 2,
+          "S": 1
+        },
+        "product_heavy_atom_count": 15,
+        "product_smiles": "N#Cc1ccc(N=C=S)cc1C(F)(F)F",
+        "reasons": [],
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "4fa79f969e9eb0b1b03519eb8412db20b3886b37e73eca6b63f0d426f9cf31c4",
+      "input_state_ids": [
+        "candidate-state:c290d9fbce0ef13823aaebc1",
+        "candidate-state:70d3279b29e66543cdd7b8fe"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:a9f616c1a3c7e756c763836a"
+      ],
+      "output_state_ids": [
+        "candidate-state:28918fbdba0bfb67b759eb19"
+      ],
+      "program_id": "candidate-program:a9f616c1a3c7e756c763836a",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:3836aa3a40695a47de3de38565e223ab6f8d930eea4464f27eb63d90d96a5a86",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    },
+    "candidate-program:f42409e1dd1b3a72d8706b20": {
+      "canonical_admission": {
+        "accepted": true,
+        "ancestor_return_smiles": [],
+        "edge_digest": "581e50e593fb24d7072c0648266015fc83ad6ab994ded22ed6d1c00d851ece5b",
+        "edge_identity": {
+          "precursor_smiles_multiset": [
+            "CC(C)(Cl)C(=O)Cl",
+            "N#Cc1ccc(NC(=S)Nc2ccc(C(=O)O)c(F)c2)cc1C(F)(F)F"
+          ],
+          "product_smiles": "CC1(C)C(=O)N(c2ccc(C#N)c(C(F)(F)F)c2)C(=S)N1c1ccc(C(=O)O)c(F)c1",
+          "schema_version": "retrosynthetic_edge_identity.v1"
+        },
+        "element_deficits": {},
+        "forbidden_return_smiles": [],
+        "missing_product_heavy_atom_count": 0,
+        "precursor_element_counts": {
+          "C": 20,
+          "Cl": 2,
+          "F": 4,
+          "N": 3,
+          "O": 3,
+          "S": 1
+        },
+        "precursor_heavy_atom_count": 33,
+        "precursor_smiles": [
+          "CC(C)(Cl)C(=O)Cl",
+          "N#Cc1ccc(NC(=S)Nc2ccc(C(=O)O)c(F)c2)cc1C(F)(F)F"
+        ],
+        "precursor_smiles_multiset": [
+          "CC(C)(Cl)C(=O)Cl",
+          "N#Cc1ccc(NC(=S)Nc2ccc(C(=O)O)c(F)c2)cc1C(F)(F)F"
+        ],
+        "product_element_counts": {
+          "C": 20,
+          "F": 4,
+          "N": 3,
+          "O": 3,
+          "S": 1
+        },
+        "product_heavy_atom_count": 31,
+        "product_smiles": "CC1(C)C(=O)N(c2ccc(C#N)c(C(F)(F)F)c2)C(=S)N1c1ccc(C(=O)O)c(F)c1",
+        "reasons": [],
+        "schema_version": "retrosynthetic_candidate_admission.v1",
+        "semantics": {
+          "large_inventory_redundancy_is_not_joint_participation": true,
+          "not_reaction_proof": true,
+          "precursor_multiplicity_preserved": true,
+          "search_admission_only": true,
+          "small_salts_and_leaving_groups_are_exempt": true
+        },
+        "surplus_advanced_precursor_fragments": []
+      },
+      "content_sha256": "84f26cb453fdbfbaa0fcc977b84e3908e4d6ba8f41ee06a1f83545feb391a253",
+      "input_state_ids": [
+        "candidate-state:cf8fd26934a809702822733e",
+        "candidate-state:a5a8be35a851aa98f6e48a92"
+      ],
+      "operation_node_ids": [
+        "candidate-operation:f42409e1dd1b3a72d8706b20"
+      ],
+      "output_state_ids": [
+        "candidate-state:388920752be1529c3d72b23c"
+      ],
+      "program_id": "candidate-program:f42409e1dd1b3a72d8706b20",
+      "promotion_state": "canonical_admissible",
+      "schema_version": "candidate_transformation_program.v1",
+      "semantics": {
+        "cannot_enter_canonical_graph_without_host_admission": true,
+        "cannot_grant_route_closure_or_acceptance": true,
+        "inventory_gap_is_visible_not_silently_discarded": true
+      },
+      "source_refs": [],
+      "source_transformation_id": "edge:581e50e593fb24d7072c0648266015fc83ad6ab994ded22ed6d1c00d851ece5b",
+      "status": "candidate_only",
+      "validation_vector": {
+        "authoritative": false,
+        "canonical_search_admission": "passed",
+        "conditions": "missing",
+        "element_inventory": "passed",
+        "reaction": "unvalidated",
+        "source": "none",
+        "structure": "workbench_snapshot_materialized"
+      },
+      "warning_codes": []
+    }
+  },
+  "routes": {
+    "route:0364b9680a7ec18f9422d3be5a2dead31af5ff567f9d0a7fb6bf13fe8d7841cb": {
+      "accepted": false,
+      "blocked_program_ids": [],
+      "canonical_admissible_program_ids": [
+        "candidate-program:a9f616c1a3c7e756c763836a",
+        "candidate-program:5ce6c0c0e550d7ecc6426851",
+        "candidate-program:96f38becde5db0e26f7d4db7",
+        "candidate-program:11480e629ca4ccd99398a908"
+      ],
+      "content_sha256": "e31c524a758881abbee787f4fff1dd65d6c41964df0eee1d946623fb811a3f03",
+      "inventory_gap_program_ids": [],
+      "production_closed": false,
+      "program_ids": [
+        "candidate-program:a9f616c1a3c7e756c763836a",
+        "candidate-program:5ce6c0c0e550d7ecc6426851",
+        "candidate-program:96f38becde5db0e26f7d4db7",
+        "candidate-program:11480e629ca4ccd99398a908"
+      ],
+      "route_id": "route:0364b9680a7ec18f9422d3be5a2dead31af5ff567f9d0a7fb6bf13fe8d7841cb",
+      "source_edge_ids": [
+        "edge:3836aa3a40695a47de3de38565e223ab6f8d930eea4464f27eb63d90d96a5a86",
+        "edge:7da3ab807238220463a5ff3a02e5d9193e53f95e34011e61f9ea7aea6e61b48f",
+        "edge:dd7d02270b4cf853565f0a0d6e24cf53db0a187533467b2da57e1f99e9e50813",
+        "edge:eeb672f17da0df4fe7996549b99d14e42c5b80df51a548d2daf46502a9eb0f7a"
+      ],
+      "source_exploration_closed": true,
+      "status": "candidate_route_only",
+      "warning_codes": []
+    },
+    "route:69a0dc3f3c689776956616e86fcb54a3687646b4b360527de90085e3dab4d316": {
+      "accepted": false,
+      "blocked_program_ids": [],
+      "canonical_admissible_program_ids": [
+        "candidate-program:8a3ac2e778a4d57a997f1be9",
+        "candidate-program:a9f616c1a3c7e756c763836a",
+        "candidate-program:f42409e1dd1b3a72d8706b20",
+        "candidate-program:531c7355a5f55d3fa847c639"
+      ],
+      "content_sha256": "33d06951b9c3a7f82549234638f4cc5cc14eb72be842666c435be5d65215e302",
+      "inventory_gap_program_ids": [],
+      "production_closed": false,
+      "program_ids": [
+        "candidate-program:8a3ac2e778a4d57a997f1be9",
+        "candidate-program:a9f616c1a3c7e756c763836a",
+        "candidate-program:f42409e1dd1b3a72d8706b20",
+        "candidate-program:531c7355a5f55d3fa847c639"
+      ],
+      "route_id": "route:69a0dc3f3c689776956616e86fcb54a3687646b4b360527de90085e3dab4d316",
+      "source_edge_ids": [
+        "edge:34cd5c7ef8b1d0eeb0b94b57a22c36d213f96b0c82e23e5f02a55d66175c61ba",
+        "edge:3836aa3a40695a47de3de38565e223ab6f8d930eea4464f27eb63d90d96a5a86",
+        "edge:581e50e593fb24d7072c0648266015fc83ad6ab994ded22ed6d1c00d851ece5b",
+        "edge:f6983436ff2859acf54c15fa99db253588331242dff7b2269da3801e19fef821"
+      ],
+      "source_exploration_closed": true,
+      "status": "candidate_route_only",
+      "warning_codes": []
+    },
+    "route:aefa3586f8a05164f45a9c00f0af4b6b6db954203ab20dc776394db3ff072eec": {
+      "accepted": false,
+      "blocked_program_ids": [],
+      "canonical_admissible_program_ids": [
+        "candidate-program:566362110e9210401e29fd3c",
+        "candidate-program:a9f616c1a3c7e756c763836a",
+        "candidate-program:6a933e22b5eaad88d4f5ed96",
+        "candidate-program:12ff71ea2b5334f17f310eef"
+      ],
+      "content_sha256": "bac0b8c568e478e82c820baae0df25792cb812a54244cae1edec04b13e0e7ea8",
+      "inventory_gap_program_ids": [],
+      "production_closed": false,
+      "program_ids": [
+        "candidate-program:566362110e9210401e29fd3c",
+        "candidate-program:a9f616c1a3c7e756c763836a",
+        "candidate-program:6a933e22b5eaad88d4f5ed96",
+        "candidate-program:12ff71ea2b5334f17f310eef"
+      ],
+      "route_id": "route:aefa3586f8a05164f45a9c00f0af4b6b6db954203ab20dc776394db3ff072eec",
+      "source_edge_ids": [
+        "edge:17d55e1e31c0a03e2b09fd94d0b6761fbddb62be23414d7c1c0714407ff436e3",
+        "edge:3836aa3a40695a47de3de38565e223ab6f8d930eea4464f27eb63d90d96a5a86",
+        "edge:9728e4c9d291e112f36a09b18b46b55027fb65b08e9c0d90786be27bd3581f3e",
+        "edge:dfa4c88cb7a90a71fa4dbd79dcd401a7710cdc8f8514b7135f6ff1b6c4d5221c"
+      ],
+      "source_exploration_closed": false,
+      "status": "candidate_route_only",
+      "warning_codes": []
+    }
+  },
+  "schema_version": "candidate_program_projection.v1",
+  "semantics": {
+    "all_programs_are_non_authoritative": true,
+    "canonical_v4_rejections_remain_in_force": true,
+    "complete_display_route_does_not_mean_scientific_closure": true,
+    "no_program_store_admission_performed": true,
+    "read_only_candidate_projection": true
+  },
+  "source_observation_sha256": "5b7a241682999a8cd6c2e5fb61ea65d1ec50b4ddd21b8a4fc7047531a77038c7",
+  "target_state_id": "candidate-state:458fad8bfedc2422f18d7647"
+}

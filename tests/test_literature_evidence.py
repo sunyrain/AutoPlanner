@@ -207,6 +207,28 @@ def test_verified_literature_refs_become_direct_candidates() -> None:
     ]
 
 
+def test_director_literature_hints_become_candidates_without_search() -> None:
+    request = _request()
+    request["source_hints"] = [
+        {
+            "source_kind": "paper_si",
+            "source_ref": "doi:10.1039/c5ob01148e",
+            "title": "Pitavastatin synthesis",
+        },
+        {
+            "source_kind": "patent",
+            "source_ref": "patent:WO2021250648A1",
+        },
+    ]
+
+    assert _request_source_candidates(request) == [
+        {
+            "doi": "10.1039/c5ob01148e",
+            "title": "Pitavastatin synthesis",
+            "source_ref": "doi:10.1039/c5ob01148e",
+        }
+    ]
+
 def test_europe_pmc_open_access_resolver_reads_nested_si_pdf() -> None:
     nested_buffer = BytesIO()
     with zipfile.ZipFile(nested_buffer, "w") as nested:
@@ -717,6 +739,16 @@ def test_literature_connector_discovers_freezes_and_focuses_pdf(
     page_sha = hashlib.sha256(page.read_bytes()).hexdigest()
 
     def fake_materialize(**_kwargs: Any) -> dict[str, Any]:
+        fulltext = tmp_path / "fulltext.txt"
+        fulltext.write_text(
+            "Compound 24. To a stirred solution of substrate 11 "
+            "(286 mg, 1.0 mmol) was added reagent A. The reaction mixture "
+            "was stirred and purified to afford compound 24. "
+            "Bufotalin(1). To a stirred solution of compound 24 "
+            "(15 mg, 0.02 mmol) was added reagent B. The reaction mixture "
+            "was stirred and purified to afford bufotalin.",
+            encoding="utf-8",
+        )
         return {
             "accepted": True,
             "rendered_pages": [
@@ -727,6 +759,8 @@ def test_literature_connector_discovers_freezes_and_focuses_pdf(
                 }
             ],
             "focus_page_numbers": [7],
+            "fulltext_path": str(fulltext),
+            "fulltext_sha256": hashlib.sha256(fulltext.read_bytes()).hexdigest(),
         }
 
     monkeypatch.setattr(
@@ -759,6 +793,12 @@ def test_literature_connector_discovers_freezes_and_focuses_pdf(
     assert source["source_kind"] == "paper_si"
     assert source["source_ref"] == "doi:10.1000/bufotalin"
     assert source["visual_candidate_pages"][0]["page_number"] == 7
+    assert [(row["label"], row["name"]) for row in source["procedure_inventory"]] == [
+        ("24", "Compound 24"),
+        ("1", "Bufotalin (1)"),
+    ]
+    assert Path(source["fulltext_text_path"]).is_file()
+    assert source["fulltext_text_sha256"]
     assert source["exact_row_count"] == 0
     assert result["receipt"]["model_invocations"] == 0
 
@@ -846,3 +886,194 @@ def test_restricted_paper_is_queued_then_consumed_on_resume(
 
     assert resumed["receipt"]["accepted_source_count"] == 1
     assert resumed["discovery"]["sources"][0]["acquisition_status"] == "materialized"
+
+
+def test_authorized_publisher_html_is_consumed_before_pdf(
+    tmp_path: Path,
+) -> None:
+    proxy_root = tmp_path / "authorized-proxy"
+    html = b"""<!doctype html><html><head>
+    <meta name="citation_doi" content="10.1000/restricted-html"></head><body>
+    <h2>Experimental</h2><h3>Preparation of bufotalin</h3>
+    <p>Bufotalin precursor was added to the reaction mixture and was stirred
+    for two hours, purified by chromatography, and isolated in 81 percent
+    yield.</p></body></html>""" + b" " * 2_000
+    html_path = proxy_root / "source.html"
+    html_path.parent.mkdir(parents=True, exist_ok=True)
+    html_path.write_bytes(html)
+    manifest = local_pdf_proxy_download_manifest_path(proxy_root)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "accepted": True,
+                "status": "downloaded",
+                "doi": "10.1000/restricted-html",
+                "html_path": str(html_path),
+                "html_sha256": hashlib.sha256(html).hexdigest(),
+                "artifact_kind": "publisher_fulltext_html",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    connector = build_builtin_literature_evidence_connector(
+        BuiltinLiteratureEvidenceConfig(
+            cache_dir=tmp_path / "cache",
+            authorized_proxy_output_dir=proxy_root,
+            max_sources=1,
+        ),
+        searcher=lambda _query, _limit: [
+            {
+                "doi": "10.1000/restricted-html",
+                "title": "Restricted synthesis route for bufotalin",
+                "pdf_url": "https://publisher.test/restricted.pdf",
+            }
+        ],
+        fetcher=lambda _url, _timeout, _maximum: b"<html>institution login</html>",
+    )
+
+    result = connector(_request())
+
+    source = result["discovery"]["sources"][0]
+    assert source["acquisition_method"] == "authorized_publisher_fulltext_html"
+    assert source["procedure_inventory"][0]["source_artifact_kind"] == (
+        "publisher_fulltext_html"
+    )
+    assert Path(source["fulltext_html_path"]).is_file()
+    assert source["pdf_sha256"] == ""
+
+
+def test_legacy_publisher_structured_json_is_consumed_before_html_or_pdf(
+    tmp_path: Path,
+) -> None:
+    proxy_root = tmp_path / "authorized-proxy"
+    structured = {
+        "metadata": {"doi": "10.1000/restricted-json"},
+        "full_text": [
+            {
+                "title": "Experimental synthesis",
+                "text": (
+                    "Bufotalin precursor was added to the reaction mixture, was "
+                    "stirred for two hours, purified by chromatography, and "
+                    "isolated in 79 percent yield."
+                ),
+            }
+        ],
+    }
+    structured_path = proxy_root / "article-data.json"
+    structured_path.parent.mkdir(parents=True, exist_ok=True)
+    structured_path.write_text(json.dumps(structured), encoding="utf-8")
+    content = structured_path.read_bytes()
+    manifest = local_pdf_proxy_download_manifest_path(proxy_root)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "accepted": True,
+                "status": "downloaded",
+                "doi": "10.1000/restricted-json",
+                "structured_path": str(structured_path),
+                "structured_sha256": hashlib.sha256(content).hexdigest(),
+                "artifact_kind": "publisher_source_bundle",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    connector = build_builtin_literature_evidence_connector(
+        BuiltinLiteratureEvidenceConfig(
+            cache_dir=tmp_path / "cache",
+            authorized_proxy_output_dir=proxy_root,
+            max_sources=1,
+        ),
+        searcher=lambda _query, _limit: [
+            {
+                "doi": "10.1000/restricted-json",
+                "title": "Structured synthesis route for bufotalin",
+                "pdf_url": "https://publisher.test/restricted.pdf",
+            }
+        ],
+        fetcher=lambda _url, _timeout, _maximum: b"<html>institution login</html>",
+    )
+
+    result = connector(_request())
+
+    source = result["discovery"]["sources"][0]
+    assert source["acquisition_method"] == "authorized_publisher_structured_json"
+    assert source["procedure_inventory"][0]["source_artifact_kind"] == (
+        "publisher_structured_json"
+    )
+    assert Path(source["fulltext_json_path"]).is_file()
+
+
+def test_publisher_experimental_section_splits_explicit_compound_procedures(
+    tmp_path: Path,
+) -> None:
+    proxy_root = tmp_path / "authorized-proxy"
+    structured = {
+        "metadata": {"doi": "10.1000/compound-blocks"},
+        "full_text": [
+            {
+                "title": "Experimental section",
+                "text": (
+                    "General information about compound 24 was reported. "
+                    "Compound 24. To a stirred solution of substrate 11 "
+                    "(286 mg, 1.0 mmol) was added reagent A. The reaction "
+                    "mixture was stirred and purified to give 24 in 90% yield. "
+                    "Compound 25. To a stirred solution of compound 24 "
+                    "(330 mg, 1.0 mmol) was added reagent B. The reaction "
+                    "mixture was stirred and purified to give 25 in 85% yield. "
+                    "Bufotalin(1). To a stirred solution of compound 25 "
+                    "(15 mg, 0.02 mmol) was added reagent C. The reaction "
+                    "mixture was stirred and purified to give 1 in 80% yield."
+                ),
+            }
+        ],
+    }
+    structured_path = proxy_root / "article-data.json"
+    structured_path.parent.mkdir(parents=True, exist_ok=True)
+    structured_path.write_text(json.dumps(structured), encoding="utf-8")
+    content = structured_path.read_bytes()
+    manifest = local_pdf_proxy_download_manifest_path(proxy_root)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "accepted": True,
+                "status": "downloaded",
+                "doi": "10.1000/compound-blocks",
+                "structured_path": str(structured_path),
+                "structured_sha256": hashlib.sha256(content).hexdigest(),
+                "artifact_kind": "publisher_source_bundle",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    connector = build_builtin_literature_evidence_connector(
+        BuiltinLiteratureEvidenceConfig(
+            cache_dir=tmp_path / "cache",
+            authorized_proxy_output_dir=proxy_root,
+            max_sources=1,
+        ),
+        searcher=lambda _query, _limit: [
+            {
+                "doi": "10.1000/compound-blocks",
+                "title": "Structured synthesis route for bufotalin",
+                "pdf_url": "https://publisher.test/restricted.pdf",
+            }
+        ],
+        fetcher=lambda _url, _timeout, _maximum: b"<html>institution login</html>",
+    )
+
+    source = connector(_request())["discovery"]["sources"][0]
+
+    procedures = source["procedure_inventory"]
+    assert [(row["label"], row["name"]) for row in procedures] == [
+        ("24", "Compound 24"),
+        ("25", "Compound 25"),
+        ("1", "Bufotalin (1)"),
+    ]
+    assert "reagent B" not in procedures[0]["procedure_excerpt"]
+    assert "reagent C" not in procedures[1]["procedure_excerpt"]

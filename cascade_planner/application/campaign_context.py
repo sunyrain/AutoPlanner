@@ -343,9 +343,7 @@ def _compact_canonical_hypergraph(graph: Mapping[str, Any]) -> dict[str, Any]:
                 value,
                 (
                     "canonical_smiles",
-                    "incoming_edge_ids",
                     "is_leaf",
-                    "outgoing_edge_ids",
                     "stock_closed",
                     "active_stock_observation_id",
                 ),
@@ -361,9 +359,7 @@ def _compact_canonical_hypergraph(graph: Mapping[str, Any]) -> dict[str, Any]:
                         "exact_record_ids",
                         "independent_source_groups",
                         "precursor_molecule_ids",
-                        "precursor_smiles",
                         "product_molecule_id",
-                        "product_smiles",
                         "route_family_ids",
                         "source_binding_ids",
                         "status",
@@ -499,6 +495,8 @@ def _compact_canonical_hypergraph(graph: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "semantics": {
             "complete_entity_identity_and_connectivity_preserved": True,
+            "materialized_edge_smiles_resolve_through_molecule_table": True,
+            "molecule_adjacency_resolves_through_materialized_edge_table": True,
             "verbose_proof_and_provider_payloads_omitted": True,
         },
     }

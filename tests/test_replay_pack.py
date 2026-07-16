@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from pathlib import Path
 
 import pytest
 
+from cascade_planner.application.fact_lifecycle import build_fact_lifecycle_event
+from cascade_planner.application.proof_portfolio import compile_proof_portfolio
 from cascade_planner.interfaces.replay_pack import (
     ReplayPackError,
     load_replay_pack,
@@ -18,10 +21,10 @@ from cascade_planner.runtime.paths import RuntimePaths
 
 
 _PACK = (
-    Path(__file__).resolve().parents[1]
-    / "config"
-    / "examples"
-    / "nirmatrelvir_v4_replay_pack.json"
+    Path(__file__).resolve().parents[1] / "config" / "examples" / "nirmatrelvir_v4_replay_pack.json"
+)
+_ARTEMISININ_PACK = (
+    Path(__file__).resolve().parents[1] / "config" / "examples" / "artemisinin_v4_replay_pack.json"
 )
 
 
@@ -61,11 +64,23 @@ def test_nirmatrelvir_pack_replays_two_complete_routes_without_models(
         "hyperedge_count": 12,
         "validated_edge_count": 12,
         "exact_record_count": 15,
+        "active_exact_record_count": 15,
+        "procedure_record_count": 15,
+        "active_procedure_record_count": 15,
+        "condition_complete_procedure_count": 0,
+        "condition_partial_procedure_count": 7,
+        "condition_unparsed_procedure_count": 8,
+        "condition_complete_route_count": 0,
+        "process_ready_route_count": 0,
         "stock_terminal_count": 7,
         "independent_source_groups": [
             "doi:10.1126/science.abl4784",
             "patent:WO2021250648A1",
         ],
+        "fact_lifecycle_event_count": 0,
+        "inactive_fact_count": 0,
+        "revoked_fact_count": 0,
+        "expired_fact_count": 0,
         "accepted_expansion_count": 12,
         "attempt_count": 12,
         "settled_task_count": 29,
@@ -84,6 +99,25 @@ def test_nirmatrelvir_pack_replays_two_complete_routes_without_models(
         for origin in hypothesis["origin_records"]
     }
     assert proposal_origins == {"literature_replay"}
+    kernel_sha256_before = replay_service.kernel.state.to_dict()["content_sha256"]
+    graph_sha256_before = replay_service.graph_store.load()["scientific_sha256"]
+    empty_program_store = replay_service.program_store()
+    admitted_programs = replay_service.admit_programs(enable_program_admission=True)
+    durable_program_store = replay_service.program_store()
+
+    assert empty_program_store["status"]["event_count"] == 0
+    assert admitted_programs["created"] is True
+    assert admitted_programs["store"]["event_count"] == 1
+    assert admitted_programs["store"]["oracle"]["accepted"] is True
+    assert admitted_programs["event"]["counts"] == {
+        "chemical_states": 18,
+        "operation_nodes": 12,
+        "programs": 12,
+        "routes": 2,
+    }
+    assert durable_program_store["replay"]["event_count"] == 1
+    assert replay_service.kernel.state.to_dict()["content_sha256"] == kernel_sha256_before
+    assert replay_service.graph_store.load()["scientific_sha256"] == graph_sha256_before
     repeated = run_replay_pack(
         _PACK,
         paths=paths,
@@ -93,6 +127,40 @@ def test_nirmatrelvir_pack_replays_two_complete_routes_without_models(
     assert repeated["stages"] == []
     assert repeated["observed"] == result["observed"]
     assert repeated["workbench_sha256"] == result["workbench_sha256"]
+
+
+def test_artemisinin_pack_replays_into_shadow_program_store_without_mutation(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    result = run_replay_pack(
+        _ARTEMISININ_PACK,
+        paths=paths,
+        run_id="artemisinin-program-migration",
+    )
+    service = RetrosynthesisCampaignService.open(
+        paths.runtime_root,
+        result["run_dir"],
+        artifact_store_root=paths.artifact_store_root,
+        run_index_path=paths.run_index_path,
+    )
+    kernel_sha256 = service.kernel.state.to_dict()["content_sha256"]
+    graph_sha256 = service.graph_store.load()["scientific_sha256"]
+
+    admitted = service.admit_programs(enable_program_admission=True)
+    replay = service.program_store()["replay"]
+
+    assert result["accepted"] is True
+    assert admitted["event"]["counts"] == {
+        "chemical_states": 5,
+        "operation_nodes": 2,
+        "programs": 2,
+        "routes": 2,
+    }
+    assert admitted["store"]["oracle"]["accepted"] is True
+    assert replay["event_count"] == 1
+    assert service.kernel.state.to_dict()["content_sha256"] == kernel_sha256
+    assert service.graph_store.load()["scientific_sha256"] == graph_sha256
 
 
 @pytest.mark.parametrize(
@@ -115,9 +183,7 @@ def test_replay_resumes_and_reconstructs_same_science(
     assert interrupted["interrupted"] is True
     assert interrupted["status"] == "paused"
     assert interrupted["observed"]["attempt_count"] == 12
-    assert (
-        interrupted["observed"]["settled_task_count"] == expected_tasks
-    )
+    assert interrupted["observed"]["settled_task_count"] == expected_tasks
 
     resumed = run_replay_pack(_PACK, paths=paths, run_id="resumable")
     fresh = run_replay_pack(
@@ -139,6 +205,83 @@ def test_replay_pack_rejects_content_tampering() -> None:
 
     with pytest.raises(ReplayPackError, match="replay_pack_digest_invalid"):
         load_replay_pack(tampered)
+
+
+def test_replay_pack_applies_lifecycle_stage_idempotently(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    seed = run_replay_pack(
+        _PACK,
+        paths=paths,
+        run_id="lifecycle-seed",
+        stop_after="evidence",
+    )
+    seed_service = RetrosynthesisCampaignService.open(
+        paths.runtime_root,
+        seed["run_dir"],
+        artifact_store_root=paths.artifact_store_root,
+        run_index_path=paths.run_index_path,
+    )
+    seed_graph = seed_service.graph_store.load()
+    source_id, source = next(
+        (source_id, source)
+        for source_id, source in seed_graph["source_bindings"].items()
+        if source.get("source_kind") == "patent"
+    )
+    event = build_fact_lifecycle_event(
+        subject_kind="source_binding",
+        subject_id=source_id,
+        subject_content_sha256=source["content_sha256"],
+        action="revoke",
+        effective_at="2026-07-15T12:00:00Z",
+        reason_codes=["showcase_source_retraction"],
+    )
+    lifecycle_pack = deepcopy(load_replay_pack(_PACK))
+    lifecycle_pack["fact_lifecycle_events"] = [event]
+    lifecycle_pack = with_replay_pack_digest(lifecycle_pack)
+
+    first = run_replay_pack(
+        lifecycle_pack,
+        paths=paths,
+        run_id="lifecycle-replay",
+        stop_after="lifecycle",
+    )
+    service = RetrosynthesisCampaignService.open(
+        paths.runtime_root,
+        first["run_dir"],
+        artifact_store_root=paths.artifact_store_root,
+        run_index_path=paths.run_index_path,
+    )
+    graph = service.graph_store.load()
+    portfolio = compile_proof_portfolio(graph, acceptance_spec=service.kernel.spec.acceptance)
+
+    assert first["interrupted"] is True
+    assert first["stages"][-1] == {
+        "stage": "lifecycle",
+        "status": "executed",
+        "work_count": 1,
+    }
+    assert event["event_id"] in graph["fact_lifecycle_events"]
+    assert first["observed"]["inactive_fact_count"] == 1
+    assert first["observed"]["revoked_fact_count"] == 1
+    assert any(
+        fact.get("subject_id") == source_id
+        for proof in portfolio["edge_proofs"].values()
+        for fact in proof.get("inactive_facts") or []
+    )
+    assert any(
+        proof.get("exact_source_bound") is False and proof.get("reaction_validated") is True
+        for proof in portfolio["edge_proofs"].values()
+    )
+
+    replayed = run_replay_pack(
+        lifecycle_pack,
+        paths=paths,
+        run_id="lifecycle-replay",
+        stop_after="lifecycle",
+    )
+    assert replayed["graph_scientific_sha256"] == first["graph_scientific_sha256"]
+    assert replayed["observed"]["fact_lifecycle_event_count"] == 1
+    assert replayed["stages"][-1]["status"] == "reused"
 
 
 def test_replay_pack_rejects_duplicate_edges_and_unbound_source_artifacts() -> None:

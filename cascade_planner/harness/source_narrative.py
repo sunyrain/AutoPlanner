@@ -89,8 +89,16 @@ def _systematic_alias_candidates(alias: str, expanded: str) -> list[str]:
     name_key = re.sub(r"\s+", " ", expanded.casefold()).strip()
     if (
         alias_key.endswith("s-mmp")
-        and "dimethylbutyryl" in name_key
-        and "mercaptopropionate" in name_key.replace(" ", "")
+        and (
+            (
+                "dimethylbutyryl" in name_key
+                and "mercaptopropionate" in name_key.replace(" ", "")
+            )
+            or (
+                "dimethylbutanoylthio" in name_key
+                and "propionate" in name_key
+            )
+        )
     ):
         return ["methyl 3-(2,2-dimethylbutanoylthio)propanoate"]
     return []

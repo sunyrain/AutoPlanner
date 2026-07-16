@@ -39,6 +39,63 @@ camera state when surviving entities are updated.
   overviews are capped at five until the operator explicitly requests more
   historical exploration content.
 
+## Product profiles and proof vector
+
+Workbench routes now compile six named product profiles from one read-only,
+six-axis proof vector:
+
+```text
+identity / reaction / conditions / sources / stock / process
+  -> exploration_closed
+  -> reaction_validated
+  -> literature_grounded
+  -> condition_complete
+  -> procurement_closed
+  -> process_ready
+```
+
+The profiles are not inferred from L0-L4 color. `benchmark_hit` and
+`offer_verified` are separate stock states; exact structure observations and
+exact, complete procedures are separate condition records. A stronger profile
+requires its named axes and fails closed when an older projection lacks the
+versioned proof vector.
+
+The route navigator exposes overlapping, authority-bound views for hypotheses,
+fully expanded routes, host-validated reactions, literature-grounded routes,
+condition-complete routes, configured-boundary closure, real procurement
+closure, and process-ready candidates. The reaction and route inspectors show
+all six axes independently; the older numeric trust vector remains a display
+aid rather than product-completion authority.
+
+## Source procedures and condition gaps
+
+Exact structure observations and exact reaction procedures are separate
+canonical entities. A `source_reaction_procedure_record.v1` must bind an edge,
+an exact structure record, a source, a location, and a SHA-256 digest of the
+source-authored procedure fragment. Conditions without that binding remain an
+unverified compatibility projection and cannot satisfy `condition_complete`.
+
+The reaction inspector lists every bound procedure with its status, location,
+fragment digest, normalized condition fields, and missing operational groups.
+When several procedures cover one edge, the UI shows the smallest current gap
+as a work hint while preserving every record; it does not select a scientific
+winner or hide conflicting conditions.
+
+## Fact lifecycle and route degradation
+
+Canonical facts are append-only even when their authority changes. A
+`canonical_fact_lifecycle_event.v1` binds the subject kind, canonical ID,
+original digest, host authority scope, effective time, and reason codes.
+`revoke` and `expire` remove authority without deleting the original record;
+`restore` is a later causal event that names the inactive predecessor.
+
+Reaction validation, exact sources, procedures, and stock proofs filter these
+events before stitching. The dependency index recomputes only affected edges,
+leaves, routes, and deficits, while the full-recompute oracle remains the
+correctness gate. The inspector displays every active lifecycle impact under
+“失效事实”; the old record remains visible for audit but cannot satisfy a
+proof-vector axis or product profile.
+
 ## Camera and rendering
 
 The SVG element is a fixed viewport. One `.graph-world` transform owns both pan

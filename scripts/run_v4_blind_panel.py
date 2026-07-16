@@ -133,7 +133,7 @@ def _run_case(
     resume: bool,
     visual: bool,
 ) -> dict[str, Any]:
-    run_id = f"statin-{case.target_name}-v4-blind-20260715"
+    run_id = _run_id_for_case(case)
     run_dir = output_root / "runs" / case.target_name
     report_path = run_dir / "target-only-solve-report.json"
     can_resume = resume and (run_dir / ".autoplanner" / "kernel" / "run_spec.json").is_file()
@@ -141,6 +141,33 @@ def _run_case(
         if report_path.is_file():
             return _summarize_report(report_path, elapsed_s=0.0, reused=True)
         raise RuntimeError("non_fresh_run_dir_requires_resume")
+    budget = dict(case.budget)
+    proof_profile = execution_profile == "proof"
+    max_model_invocations = max(
+        3 if visual or proof_profile else 2,
+        int(budget.get("max_model_invocations") or 0),
+    )
+    max_input_tokens = max(
+        140000 if proof_profile else 90000,
+        int(budget.get("max_total_input_tokens") or 0),
+    )
+    # A proof run can spend up to 18k output tokens on the initial long
+    # skeleton.  Keep a second equally bounded envelope available when host
+    # topology or new evidence requests one event replan.
+    max_output_tokens = max(
+        45000 if proof_profile else 22000,
+        int(budget.get("max_total_output_tokens") or 0),
+    )
+    max_wall_time_s = max(
+        1500 if proof_profile else 900,
+        int(budget.get("max_total_wall_time_s") or 0),
+    )
+    max_accepted_expansions = max(
+        64,
+        int(budget.get("max_accepted_expansions") or 0),
+    )
+    max_attempt_runs = max(128, int(budget.get("max_attempt_runs") or 0))
+    generous_search = max_accepted_expansions >= 96 or max_model_invocations >= 5
     command = [
         sys.executable,
         "-m",
@@ -165,24 +192,21 @@ def _run_case(
         "--execution-profile",
         execution_profile,
         "--initial-director-web-search",
-        "--minimum-complete-routes",
-        "2",
-        "--minimum-edge-proof-level",
-        "2",
-        "--minimum-source-groups",
-        "2",
+        *_acceptance_cli_args(case),
         "--max-model-invocations",
-        "3" if visual else "2",
+        str(max_model_invocations),
         "--max-input-tokens",
-        "90000",
+        str(max_input_tokens),
         "--max-output-tokens",
-        "22000",
+        str(max_output_tokens),
         "--max-model-wall-time-s",
-        "900",
+        str(max_wall_time_s),
+        "--max-prompt-context-bytes",
+        str(int(budget.get("max_prompt_context_bytes") or 96_000)),
         "--max-accepted-expansions",
-        "64",
+        str(max_accepted_expansions),
         "--max-attempt-runs",
-        "128",
+        str(max_attempt_runs),
         "--max-map-reactions",
         "64",
         "--max-stock-molecules",
@@ -192,15 +216,15 @@ def _run_case(
         "--max-literature-sources",
         "4",
         "--guided-chemenzy-frontiers",
-        "3",
+        "5" if generous_search else "3",
         "--guided-chemenzy-iterations",
-        "6",
+        "8" if generous_search else "6",
         "--guided-chemenzy-timeout-s",
-        "60",
+        "90" if generous_search else "60",
         "--max-visual-invocations",
         "1" if visual else "0",
         "--max-visual-pages",
-        "6",
+        "10" if visual and generous_search else "6",
     ]
     if can_resume:
         command.append("--resume")
@@ -239,6 +263,30 @@ def _run_case(
             "finished_at": _utc_now(),
         }
     return _summarize_report(report_path, elapsed_s=elapsed_s, reused=False)
+
+
+def _run_id_for_case(case: BlindCase) -> str:
+    """Use the validated manifest identity without target-family/date leakage."""
+
+    return case.case_id
+
+
+def _acceptance_cli_args(case: BlindCase) -> list[str]:
+    """Translate the target-neutral manifest contract without hidden defaults."""
+
+    acceptance = dict(case.acceptance)
+    return [
+        "--minimum-complete-routes",
+        str(int(acceptance.get("minimum_complete_routes", 2))),
+        "--minimum-edge-proof-level",
+        str(int(acceptance.get("minimum_edge_proof_level", 2))),
+        "--minimum-source-groups",
+        str(int(acceptance.get("minimum_independent_source_groups", 2))),
+        "--minimum-planning-route-steps",
+        str(int(acceptance.get("minimum_planning_route_steps", 0))),
+        "--stock-boundary",
+        str(acceptance.get("stock_boundary") or "benchmark_search"),
+    ]
 
 
 def _summarize_report(
@@ -298,6 +346,7 @@ def _summarize_report(
             if key[:2] in {"B0", "B1", "B2", "B3", "B4", "B5"}
         },
         "route_counts": counts,
+        "planning_depth": dict(report.get("planning_depth") or {}),
         "chemenzy": {
             "status": (
                 "completed"

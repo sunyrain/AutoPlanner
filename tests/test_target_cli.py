@@ -68,6 +68,27 @@ def test_target_cli_visual_evidence_is_explicitly_opt_in_and_bounded() -> None:
     assert opted_in.max_visual_pages == 2
 
 
+def test_target_cli_exposes_planning_depth_and_prompt_budget() -> None:
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command")
+    add_target_commands(commands)
+
+    args = parser.parse_args(
+        [
+            "solve-target",
+            "--target-smiles",
+            "CCO",
+            "--minimum-planning-route-steps",
+            "20",
+            "--max-prompt-context-bytes",
+            "256000",
+        ]
+    )
+
+    assert args.minimum_planning_route_steps == 20
+    assert args.max_prompt_context_bytes == 256000
+
+
 def test_target_cli_exposes_bounded_chemenzy_runtime_controls() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command")

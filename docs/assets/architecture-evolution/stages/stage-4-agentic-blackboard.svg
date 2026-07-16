@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="700" viewBox="0 0 1400 700" role="img" aria-label="阶段 IV｜Agentic Blackboard">
+<defs>
+  <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#6b8798"/></marker>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#17384d" flood-opacity=".12"/></filter>
+</defs>
+<rect width="1400" height="700" rx="28" fill="#f4f8fa"/>
+<text x="55" y="64" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="30" font-weight="700" fill="#0b2438">阶段 IV｜Agentic Blackboard</text>
+<text x="55" y="99" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="16" fill="#617b8c">直觉：让多个能力围绕一块持久共享状态协作，并把每个动作变成可审计事件</text>
+<rect x="500" y="210" width="400" height="210" rx="18" fill="#fbfaff" stroke="#7a78d9" stroke-width="2" filter="url(#shadow)"/>
+<rect x="500" y="210" width="9" height="210" rx="4" fill="#7a78d9"/>
+<text x="704.0" y="248" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="704.0" dy="0">Agentic Blackboard</tspan></text>
+<text x="704.0" y="282" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="704.0" dy="0">typed summaries</tspan><tspan x="704.0" dy="23">artifact refs / deficits</tspan><tspan x="704.0" dy="23">round budget / action history</tspan></text>
+<rect x="70" y="155" width="300" height="105" rx="18" fill="#ffffff" stroke="#22a9c1" stroke-width="2" filter="url(#shadow)"/>
+<rect x="70" y="155" width="9" height="105" rx="4" fill="#22a9c1"/>
+<text x="224.0" y="193" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="224.0" dy="0">Codex Action Planner</tspan></text>
+<rect x="70" y="420" width="300" height="105" rx="18" fill="#ffffff" stroke="#e87468" stroke-width="2" filter="url(#shadow)"/>
+<rect x="70" y="420" width="9" height="105" rx="4" fill="#e87468"/>
+<text x="224.0" y="458" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="224.0" dy="0">Failure Critic</tspan></text>
+<rect x="1030" y="155" width="300" height="105" rx="18" fill="#ffffff" stroke="#2bb89b" stroke-width="2" filter="url(#shadow)"/>
+<rect x="1030" y="155" width="9" height="105" rx="4" fill="#2bb89b"/>
+<text x="1184.0" y="193" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="1184.0" dy="0">Literature / Vision</tspan></text>
+<rect x="1030" y="420" width="300" height="105" rx="18" fill="#ffffff" stroke="#e7a83d" stroke-width="2" filter="url(#shadow)"/>
+<rect x="1030" y="420" width="9" height="105" rx="4" fill="#e7a83d"/>
+<text x="1184.0" y="458" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="1184.0" dy="0">ChemEnzy / Tools</tspan></text>
+<line x1="370" y1="205" x2="500" y2="260" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="370" y1="470" x2="500" y2="375" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="1030" y1="205" x2="900" y2="260" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="1030" y1="470" x2="900" y2="375" stroke="#6b8798" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="700" y1="420" x2="700" y2="540" stroke="#35a873" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="520" y="540" width="360" height="85" rx="18" fill="#ffffff" stroke="#35a873" stroke-width="2" filter="url(#shadow)"/>
+<rect x="520" y="540" width="9" height="85" rx="4" fill="#35a873"/>
+<text x="704.0" y="578" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="704.0" dy="0">Deterministic Parent Proof</tspan></text>
+<text x="704.0" y="612" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#617b8c"><tspan x="704.0" dy="0">唯一 final verdict 路径</tspan></text>
+<rect x="85" y="570" width="350" height="72" rx="18" fill="#f5f9ff" stroke="#5a8dee" stroke-width="2" filter="url(#shadow)"/>
+<rect x="85" y="570" width="9" height="72" rx="4" fill="#5a8dee"/>
+<text x="264.0" y="608" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="264.0" dy="0">贡献：开放研究可持续、可预算、可审计</tspan></text>
+<rect x="965" y="570" width="350" height="72" rx="18" fill="#fff8f7" stroke="#d85d6b" stroke-width="2" filter="url(#shadow)"/>
+<rect x="965" y="570" width="9" height="72" rx="4" fill="#d85d6b"/>
+<text x="1144.0" y="608" text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif" font-size="21" font-weight="700" fill="#0b2438"><tspan x="1144.0" dy="0">缺陷：协作状态与化学真相可能漂移</tspan></text>
+</svg>

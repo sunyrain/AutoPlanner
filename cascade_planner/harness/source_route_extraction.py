@@ -290,6 +290,12 @@ def compile_deterministic_source_route_observation(
                     if page_evidence.get("image_sha256")
                     else ""
                 ),
+                (
+                    "procedure-text-sha256:"
+                    + hashlib.sha256(procedure_text.encode("utf-8")).hexdigest()
+                    if procedure_text
+                    else ""
+                ),
             )
             if value
         ]

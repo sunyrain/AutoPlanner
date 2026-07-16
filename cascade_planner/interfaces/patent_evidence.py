@@ -234,6 +234,7 @@ def build_builtin_patent_evidence_connector(
                     config=config,
                     fetch=cached_fetch("pdf", fetch),
                     fetch_html=cached_fetch("html", fetch_html),
+                    fetch_xml=cached_fetch("xml", fetch_html),
                     compile_registry=compile_registry,
                     resolve_structure=resolve_structure,
                     resolve_names=resolve_names,
@@ -265,6 +266,10 @@ def build_builtin_patent_evidence_connector(
                 "family_id": str(row.get("family_id") or ""),
                 "title": str(row.get("title") or "")[:1000],
                 "html_sha256": str(row.get("html_sha256") or ""),
+                "xml_sha256": str(row.get("xml_sha256") or ""),
+                "structured_text_sha256": str(
+                    row.get("structured_text_sha256") or ""
+                ),
                 "html_audit": dict(row.get("html_audit") or {}),
                 "pdf_sha256": str(row.get("pdf_sha256") or ""),
                 "source_byte_cache": dict(row.get("source_byte_cache") or {}),
@@ -294,7 +299,13 @@ def build_builtin_patent_evidence_connector(
                 "unresolved_edge_count": int(row.get("rejected_edge_count") or 0),
             }
             for row in audits
-            if str(row.get("html_sha256") or row.get("pdf_sha256") or "")
+            if str(
+                row.get("structured_text_sha256")
+                or row.get("html_sha256")
+                or row.get("xml_sha256")
+                or row.get("pdf_sha256")
+                or ""
+            )
         ]
         if not discovery_sources:
             detail = _digest({"audits": audits})[:16]
@@ -327,8 +338,8 @@ def build_builtin_patent_evidence_connector(
             "resolver_cache": resolver_cache_audit,
             "semantics": {
                 "search_metadata_is_not_evidence": True,
-                "primary_html_is_attempted_before_pdf": True,
-                "html_or_pdf_source_bytes_are_frozen": True,
+                "official_epo_xml_then_html_is_attempted_before_pdf": True,
+                "xml_html_or_pdf_source_bytes_are_frozen": True,
                 "pdf_ocr_and_vision_are_unresolved_only_fallbacks": True,
                 "exact_rows_are_deterministically_reconstructed": True,
                 "target_only_prefetch_grants_no_evidence_authority": True,
@@ -426,7 +437,7 @@ def _publication_source_bytes(
     normalized_publication = "".join(re.findall(r"[A-Za-z0-9]+", publication)).upper()
     if not normalized_publication:
         raise ValueError("patent_source_cache_publication_invalid")
-    if source_kind not in {"html", "pdf"}:
+    if source_kind not in {"html", "pdf", "xml"}:
         raise ValueError("patent_source_cache_kind_invalid")
     publication_key = hashlib.sha256(
         normalized_publication.encode("utf-8")
@@ -596,6 +607,7 @@ def _extract_candidate(
     config: BuiltinPatentEvidenceConfig,
     fetch: BytesFetcher,
     fetch_html: BytesFetcher,
+    fetch_xml: BytesFetcher,
     compile_registry: RegistryCompiler,
     resolve_structure: StructureResolver,
     resolve_names: CandidateNameResolver,
@@ -616,6 +628,7 @@ def _extract_candidate(
             max_html_sections=config.max_html_sections,
             max_html_paragraphs=config.max_html_paragraphs,
             fetch=fetch_html,
+            fetch_xml=fetch_xml,
             compile_registry=compile_registry,
             resolve_structure=resolve_structure,
             resolve_names=resolve_names,
@@ -864,11 +877,15 @@ def _extract_candidate(
         - {""}
     )
     accepted_edges = sorted(accepted_ids)
+    structured_artifact_kind = str(
+        html_attempt.get("source_artifact_kind") or ""
+    )
     source = _structured_patent_source(
         candidate,
         source_ref=source_ref,
         rows=rows,
-        used_html=html_row_count > 0,
+        used_structured_text=html_row_count > 0,
+        structured_artifact_kind=structured_artifact_kind,
         used_pdf=len(rows) > html_row_count,
     )
     procedure_inventory = _procedure_inventory(html_registry, pdf_registry)
@@ -876,7 +893,19 @@ def _extract_candidate(
         "publication_number": publication,
         "family_id": str(candidate.get("family_id") or ""),
         "title": str(candidate.get("title") or publication),
-        "html_sha256": str(html_materialization.get("artifact_sha256") or ""),
+        "html_sha256": (
+            str(html_materialization.get("artifact_sha256") or "")
+            if structured_artifact_kind == "html"
+            else ""
+        ),
+        "xml_sha256": (
+            str(html_materialization.get("artifact_sha256") or "")
+            if structured_artifact_kind == "xml"
+            else ""
+        ),
+        "structured_text_sha256": str(
+            html_materialization.get("artifact_sha256") or ""
+        ),
         "html_audit": _bounded_html_audit(html_attempt),
         "pdf_sha256": pdf_sha256,
         "pdf_cache_hit": pdf_cache_hit,
@@ -971,17 +1000,20 @@ def _exact_rows_from_registry(
             continue
         artifact_kind = str(binding.get("source_artifact_kind") or "pdf")
         source_location = dict(binding.get("source_location") or {})
+        parser_audit = dict(binding.get("parser_audit") or {})
         evidence_refs: list[str] = []
-        if artifact_kind == "html":
+        if artifact_kind in {"html", "xml"}:
             start = str(source_location.get("start_element_id") or "")
             end = str(source_location.get("end_element_id") or "")
-            location_ref = f"{publication}:html:{start}-{end}"
+            location_ref = f"{publication}:{artifact_kind}:{start}-{end}"
             artifact_sha256 = str(
                 binding.get("source_artifact_sha256") or ""
             )
             text_sha256 = str(source_location.get("text_sha256") or "")
             if artifact_sha256:
-                evidence_refs.append(f"html_sha256:{artifact_sha256}")
+                evidence_refs.append(
+                    f"{artifact_kind}_sha256:{artifact_sha256}"
+                )
             if text_sha256:
                 evidence_refs.append(f"text_sha256:{text_sha256}")
         else:
@@ -997,6 +1029,13 @@ def _exact_rows_from_registry(
                 evidence_refs.append(f"pdf_sha256:{pdf_sha256}")
             if image_sha256:
                 evidence_refs.append(f"image_sha256:{image_sha256}")
+        procedure_text_sha256 = str(
+            parser_audit.get("procedure_text_sha256") or ""
+        )
+        if procedure_text_sha256:
+            evidence_refs.append(
+                f"procedure-text-sha256:{procedure_text_sha256}"
+            )
         rows.append(
             {
                 "step_id": edge_id,
@@ -1017,15 +1056,24 @@ def _structured_patent_source(
     *,
     source_ref: str,
     rows: list[dict[str, Any]],
-    used_html: bool,
+    used_structured_text: bool,
+    structured_artifact_kind: str,
     used_pdf: bool,
 ) -> dict[str, Any]:
     if not rows:
         return {}
-    if used_html and used_pdf:
-        provenance = "builtin_patent_html_first_with_pdf_fallback"
-    elif used_html:
-        provenance = "builtin_deterministic_primary_patent_html"
+    if used_structured_text and used_pdf:
+        provenance = (
+            "builtin_patent_xml_first_with_pdf_fallback"
+            if structured_artifact_kind == "xml"
+            else "builtin_patent_html_first_with_pdf_fallback"
+        )
+    elif used_structured_text:
+        provenance = (
+            "builtin_deterministic_primary_patent_xml"
+            if structured_artifact_kind == "xml"
+            else "builtin_deterministic_primary_patent_html"
+        )
     else:
         provenance = "builtin_deterministic_patent_pdf_extraction"
     publication = str(candidate.get("publication_number") or "")
@@ -1117,6 +1165,8 @@ def _bounded_html_audit(value: Mapping[str, Any]) -> dict[str, Any]:
                 "artifact_sha256",
                 "paragraph_count",
                 "selected_paragraph_count",
+                "element_count",
+                "selected_element_count",
                 "section_count",
                 "content_sha256",
             )

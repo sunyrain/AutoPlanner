@@ -39,6 +39,7 @@ _ACCEPTANCE_FIELDS = frozenset(
         "minimum_complete_routes",
         "minimum_edge_proof_level",
         "minimum_independent_source_groups",
+        "minimum_planning_route_steps",
         "stock_boundary",
     }
 )
@@ -124,6 +125,13 @@ class BlindCase:
         boundary = str(self.acceptance.get("stock_boundary") or "")
         if boundary and boundary not in _BOUNDARIES:
             raise BlindBenchmarkError("blind_stock_boundary_invalid")
+        planning_depth = self.acceptance.get("minimum_planning_route_steps", 0)
+        if (
+            isinstance(planning_depth, bool)
+            or not isinstance(planning_depth, int)
+            or not 0 <= planning_depth <= 24
+        ):
+            raise BlindBenchmarkError("blind_minimum_planning_route_steps_invalid")
         if _forbidden_paths(self.to_dict()):
             raise BlindBenchmarkError("blind_case_contains_forbidden_route_material")
 

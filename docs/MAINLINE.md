@@ -1,6 +1,11 @@
-# V4 主线架构
+# Canonical V4 当前运行主线
 
-更新：2026-07-13
+更新：2026-07-16
+
+状态：这是当前已经实现的运行主干，不是下一代 GRIA 已完成声明。实现边界与迁移状态以
+[CURRENT_ARCHITECTURE_STATUS.md](architecture/CURRENT_ARCHITECTURE_STATUS.md) 为准；
+目标 program 级架构见
+[GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md](architecture/GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md)。
 
 ## 理想状态
 
@@ -46,6 +51,11 @@ V4 只保留：
 - 下一项工作：`deficit_frontier.v1`
 - 证明与选择：`proof_stitched_route_portfolio.v1`
 - 展示：由上述状态派生的 `retrosynthesis_route_workbench.v1`
+
+GRIA Phase-1 迁移另有一条默认关闭的 shadow path：canonical edge 可投影为
+`ChemicalState` / `TransformationProgram` / `OperationNode`，并在显式启用时追加到可重放
+Program store。它只验证新旧表示等价，不属于上述生产权威，也不能改变 proof、ranking、
+route completion 或 acceptance。
 
 ## 全局 Director 的硬边界
 

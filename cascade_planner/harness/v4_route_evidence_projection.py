@@ -127,7 +127,7 @@ def trust_vector(
 def conditions(records: list[Mapping[str, Any]]) -> list[dict[str, str]]:
     for record in records:
         raw = record.get("conditions")
-        if not isinstance(raw, Mapping):
+        if not isinstance(raw, Mapping) or not raw:
             continue
         return [
             {"label": str(key).replace("_", " "), "value": str(value)}
@@ -146,11 +146,50 @@ def condition_summary(status: str) -> str:
     }.get(status, "反应条件状态未知")
 
 
+def literature_counts(
+    routes: Mapping[str, Any], edge_inspectors: Mapping[str, Any]
+) -> dict[str, int]:
+    return {
+        "independent_source_group_count": len(
+            {
+                str(group)
+                for route in routes.values()
+                for group in dict(route).get("independent_source_groups") or []
+            }
+        ),
+        "document_count": len(
+            {
+                str(source.get("source_ref") or "")
+                for inspector in edge_inspectors.values()
+                for source in dict(inspector).get("sources") or []
+                if isinstance(source, Mapping)
+            }
+        ),
+        "representation_count": sum(
+            len(dict(inspector).get("exact_records") or [])
+            for inspector in edge_inspectors.values()
+        ),
+        "real_source_candidate_records": sum(
+            len(dict(inspector).get("exact_records") or [])
+            for inspector in edge_inspectors.values()
+        ),
+        "source_procedure_records": sum(
+            len(dict(inspector).get("procedure_records") or [])
+            for inspector in edge_inspectors.values()
+        ),
+        "source_observation_records": sum(
+            len(dict(inspector).get("source_observation_records") or [])
+            for inspector in edge_inspectors.values()
+        ),
+    }
+
+
 __all__ = [
     "PROOF_TIER",
     "closure_label",
     "condition_summary",
     "conditions",
+    "literature_counts",
     "replacement_validation_projection",
     "trust_vector",
 ]
