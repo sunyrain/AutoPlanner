@@ -113,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve = sub.add_parser("serve", help="serve the Web UI and V4 API")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=7860)
-    serve.add_argument("--server", choices=("waitress", "flask"), default="waitress")
+    serve.add_argument("--server", choices=("auto", "waitress", "flask"), default="auto")
     serve.add_argument(
         "--surface",
         choices=("v4", "combined"),

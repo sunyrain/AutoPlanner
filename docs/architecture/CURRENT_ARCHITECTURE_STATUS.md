@@ -270,7 +270,8 @@ Blackboard 都不能自行把 proposal 提升为事实。
     campaign；`/v4/showcase` 负责全屏展示。`/api/v4/workspace` 汇总入口、后端状态、run 与展示目录，
     `/api/v4/showcase` 有界发现生成的 `showcase/summary.json`，同一目标优先采用最新 fresh 工件。旧版没有
     `route_closure` 时显示“闭合待 current 投影”，不误报失败；旧蟾毒灵 20 步展示会被 fresh V3 的 12 步
-    闭合事实替代。启动脚本现调用默认 Canonical V4 server，不再把 combined 兼容应用作为新入口。
+    闭合事实替代。启动脚本现调用默认 Canonical V4 server，不再把 combined 兼容应用作为新入口；
+    `--server auto` 在 Waitress 缺失时自动回退 Flask，默认命令不会在端口绑定前失败。
 
 ### 7.1 闭合优先核算（Bufotalin V3 当前样例）
 
@@ -304,6 +305,6 @@ Blackboard 都不能自行把 proposal 提升为事实。
 库存/采购和 process-ready 则由各自 proof 与 acceptance 分轴判定。任一轴不能替代另一轴，架构完成度也
 不能替代单次 run 的事实。
 
-当前稳定性门禁：完整离线集 `1909 passed, 3 skipped, 11 warnings, 2 subtests passed`；跨运行审计、Candidate
+当前稳定性门禁：完整离线集 `1910 passed, 3 skipped, 11 warnings, 2 subtests passed`；跨运行审计、Candidate
 Program 投影均为只读，
 `edge_ids[]`、proof、completion 与 acceptance 均未切换。

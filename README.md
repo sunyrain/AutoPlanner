@@ -118,6 +118,9 @@ provider 时伪装成任意未见分子的自动发现器。
 python -m cascade_planner serve
 ```
 
+默认 `--server auto` 会优先使用 Waitress；当前环境未安装 Waitress 时自动回退到 Flask，不会因可选
+服务器缺失而使页面无法启动。
+
 打开 `http://127.0.0.1:7860/v4` 进入统一工作区：展示案例、后端运行索引和路线 Workbench
 共用一个查看器；`/v4/console` 从任意 SMILES 发起独立 campaign，`/v4/showcase` 提供全屏
 演示。CLI、V4 API 和 Web workbench 共用 `CampaignGateway` 与

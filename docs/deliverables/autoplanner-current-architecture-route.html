@@ -514,7 +514,8 @@ Blackboard 都不能自行把 proposal 提升为事实。</p>
     campaign；<code>/v4/showcase</code> 负责全屏展示。<code>/api/v4/workspace</code> 汇总入口、后端状态、run 与展示目录，
     <code>/api/v4/showcase</code> 有界发现生成的 <code>showcase/summary.json</code>，同一目标优先采用最新 fresh 工件。旧版没有
     <code>route_closure</code> 时显示“闭合待 current 投影”，不误报失败；旧蟾毒灵 20 步展示会被 fresh V3 的 12 步
-    闭合事实替代。启动脚本现调用默认 Canonical V4 server，不再把 combined 兼容应用作为新入口。</li>
+    闭合事实替代。启动脚本现调用默认 Canonical V4 server，不再把 combined 兼容应用作为新入口；
+    <code>--server auto</code> 在 Waitress 缺失时自动回退 Flask，默认命令不会在端口绑定前失败。</li>
 </ol>
 <h3 id="71-bufotalin-v3">7.1 闭合优先核算（Bufotalin V3 当前样例）</h3>
 <p>路线长度只描述已闭合程序的规模，不参与“越长越好”的目标函数。当前样例必须按下列互不替代的轴展示：</p>
@@ -570,6 +571,6 @@ Blackboard 都不能自行把 proposal 提升为事实。</p>
 <p>单个复杂分子的“路线闭合”仍是独立问题：结构闭合由 <code>route_closure</code> 判定；反应、文献/条件、
 库存/采购和 process-ready 则由各自 proof 与 acceptance 分轴判定。任一轴不能替代另一轴，架构完成度也
 不能替代单次 run 的事实。</p>
-<p>当前稳定性门禁：完整离线集 <code>1909 passed, 3 skipped, 11 warnings, 2 subtests passed</code>；跨运行审计、Candidate
+<p>当前稳定性门禁：完整离线集 <code>1910 passed, 3 skipped, 11 warnings, 2 subtests passed</code>；跨运行审计、Candidate
 Program 投影均为只读，
 <code>edge_ids[]</code>、proof、completion 与 acceptance 均未切换。</p><div class="report-note">本报告以仓库当前工作区为状态基线。设计文档中的实体名不代表生产实现；声明路线结构闭合由 route_closure 判定，反应、文献/条件、库存/采购与 process-ready 由各自 proof 和 acceptance 分轴判定。</div></main></body></html>

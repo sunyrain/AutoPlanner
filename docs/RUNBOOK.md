@@ -456,7 +456,7 @@ Program 迁移盘点为
 `127.0.0.1`。CLI 不提供隐式删除模式；
 GC 只生成 dry-run 计划。
 
-本地开发环境没有安装 Waitress 时使用：
+默认 `--server auto`：优先使用 Waitress；未安装时自动回退到 Flask。需要显式指定开发服务器时使用：
 
 ```bash
 python -m cascade_planner serve --server flask --host 127.0.0.1 --port 8878

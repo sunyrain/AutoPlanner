@@ -6,8 +6,8 @@ param(
     [string]$ArtifactStoreRoot = "",
     [string]$RunIndexPath = "",
     [string]$ExternalDataRoot = "",
-    [ValidateSet("waitress", "flask")]
-    [string]$Server = "waitress",
+    [ValidateSet("auto", "waitress", "flask")]
+    [string]$Server = "auto",
     [int]$Threads = 4,
     [switch]$OpenBrowser
 )

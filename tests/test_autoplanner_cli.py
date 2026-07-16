@@ -3,6 +3,8 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
+import sys
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -14,6 +16,7 @@ from cascade_planner.application.experiment_execution_results import (
     build_experiment_execution_result,
 )
 from cascade_planner.cli import _emit, build_parser, main
+from cascade_planner.web.server import serve_web
 
 
 def _storage_args(tmp_path: Path) -> list[str]:
@@ -165,7 +168,28 @@ def test_cli_serves_isolated_v4_by_default_with_explicit_compatibility_fallback(
     compatibility = build_parser().parse_args(["serve", "--surface", "combined"])
 
     assert mainline.surface == "v4"
+    assert mainline.server == "auto"
     assert compatibility.surface == "combined"
+
+
+def test_auto_web_server_falls_back_to_flask_when_waitress_is_unavailable() -> None:
+    app = Mock()
+    with (
+        patch("cascade_planner.web.v4_app.create_v4_app", return_value=app),
+        patch.dict(sys.modules, {"waitress": None}),
+    ):
+        serve_web(
+            surface="v4",
+            host="127.0.0.1",
+            port=8899,
+            server="auto",
+            threads=2,
+            debug=False,
+        )
+
+    app.run.assert_called_once_with(
+        host="127.0.0.1", port=8899, debug=False, threaded=True
+    )
 
 
 def test_cli_program_admission_command_requires_explicit_enable_switch() -> None:

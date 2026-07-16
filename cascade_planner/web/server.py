@@ -20,21 +20,23 @@ def serve_web(
         app = create_app()
     else:
         raise ValueError(f"unsupported_web_surface:{surface}")
-    if server == "waitress":
+    if server in {"auto", "waitress"}:
         try:
             from waitress import serve
         except ImportError as exc:
-            raise ValueError(
-                "waitress_not_installed; install requirements or use --server flask"
-            ) from exc
-        serve(
-            app,
-            host=host,
-            port=port,
-            threads=max(1, min(32, int(threads))),
-            channel_timeout=30,
-        )
-        return
+            if server == "waitress":
+                raise ValueError(
+                    "waitress_not_installed; install requirements or use --server auto/flask"
+                ) from exc
+        else:
+            serve(
+                app,
+                host=host,
+                port=port,
+                threads=max(1, min(32, int(threads))),
+                channel_timeout=30,
+            )
+            return
     app.run(host=host, port=port, debug=debug, threaded=True)
 
 
