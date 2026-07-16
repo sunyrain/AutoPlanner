@@ -44,6 +44,14 @@ _NOISE_TERMS = (
     "triglyceride",
     "toxicity",
 )
+_DERIVATIVE_TERMS = (
+    "analog",
+    "analogue",
+    "conjugate",
+    "derivative",
+    "derivatives",
+    "prodrug",
+)
 
 
 def target_relevant_candidates(
@@ -59,13 +67,14 @@ def target_relevant_candidates(
         re.fullmatch(r"target-[0-9a-f]{8}", target)
     )
     pinned = {str(value).strip().casefold() for value in pinned_source_refs}
-    ranked: list[tuple[tuple[int, int, int, str], dict[str, Any]]] = []
+    ranked: list[tuple[tuple[int, int, int, int, str], dict[str, Any]]] = []
     for raw in rows:
         row = dict(raw)
         is_pinned = candidate_source_ref(row).casefold() in pinned
         title = html.unescape(" ".join(str(row.get("title") or "").split())).casefold()
         route_terms = sum(term in title for term in _ROUTE_TERMS)
         noise_terms = sum(term in title for term in _NOISE_TERMS)
+        derivative_terms = sum(term in title for term in _DERIVATIVE_TERMS)
         exact_route_phrase = any(
             phrase in title
             for phrase in (
@@ -86,7 +95,8 @@ def target_relevant_candidates(
                 (
                     -int(is_pinned),
                     -int(exact_route_phrase),
-                    -(route_terms - noise_terms),
+                    -(route_terms - noise_terms - derivative_terms),
+                    derivative_terms,
                     title,
                 ),
                 row,

@@ -26,6 +26,7 @@ from cascade_planner.interfaces.target_job_projection import (
     new_run_id,
     utc_now,
 )
+from cascade_planner.interfaces.target_runtime_dependencies import CHEMENZY_PROFILE_DEFAULTS, inventory_snapshot_builder
 
 
 GatewayFactory = Callable[[], CampaignGateway]
@@ -34,10 +35,12 @@ GatewayFactory = Callable[[], CampaignGateway]
 def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any]:
     max_visual_invocations = _int(payload, "max_visual_invocations", 0)
     execution_profile = str(payload.get("execution_profile") or "standard")
+    chemenzy_defaults = CHEMENZY_PROFILE_DEFAULTS.get(execution_profile, CHEMENZY_PROFILE_DEFAULTS["standard"])
     evidence_connector = _web_evidence_connector(gateway, payload)
     visual_provider = _web_visual_provider(
         gateway, payload, enabled=max_visual_invocations > 0
     )
+    inventory_builder = inventory_snapshot_builder(payload)
     return gateway.solve_target(
         target_name=str(payload.get("target_name") or "blind target"),
         target_smiles=str(payload.get("target_smiles") or ""),
@@ -45,6 +48,7 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
         resume=_bool(payload, "resume", False),
         evidence_connector=evidence_connector,
         visual_evidence_provider=visual_provider,
+        inventory_snapshot_builder=inventory_builder,
         acceptance=RetrosynthesisAcceptanceSpec(
             minimum_complete_routes=_int(payload, "minimum_complete_routes", 2),
             minimum_edge_proof_level=_int(payload, "minimum_edge_proof_level", 2),
@@ -65,7 +69,9 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             max_visual_invocations=max_visual_invocations,
             max_accepted_expansions=_int(payload, "max_accepted_expansions", 64),
             max_attempt_runs=_int(payload, "max_attempt_runs", 128),
-            max_prompt_context_bytes=96_000,
+            max_prompt_context_bytes=_int(
+                payload, "max_prompt_context_bytes", 160_000
+            ),
         ),
         config=TargetSolveConfig(
             model=str(payload.get("model") or DEFAULT_TARGET_DIRECTOR_MODEL),
@@ -96,9 +102,18 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
             ),
             enable_chemenzy=_bool(payload, "enable_chemenzy", True),
             enable_target_chemenzy_baseline=_bool(
-                payload, "enable_target_chemenzy_baseline", False
+                payload, "enable_target_chemenzy_baseline", True
             ),
             enable_guided_chemenzy=_bool(payload, "enable_guided_chemenzy", True),
+            enable_chemenzy_condition_prediction=_bool(
+                payload, "enable_chemenzy_condition_prediction", True
+            ),
+            enable_chemenzy_enzyme_assignment=_bool(
+                payload, "enable_chemenzy_enzyme_assignment", True
+            ),
+            enable_enzyme_coverage_sidecar=_bool(
+                payload, "enable_enzyme_coverage_sidecar", True
+            ),
             chemenzy_env_prefix=str(payload.get("chemenzy_env_prefix") or ""),
             self_evo_library_path=str(payload.get("self_evo_library_path") or ""),
             max_atom_mapping_reactions=_int(payload, "max_atom_mapping_reactions", 48),
@@ -108,10 +123,17 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
                 payload, "max_self_evo_template_candidates", 12
             ),
             max_chemenzy_routes=_int(payload, "max_chemenzy_routes", 2),
-            max_chemenzy_steps=_int(payload, "max_chemenzy_steps", 6),
-            max_chemenzy_iterations=_int(payload, "max_chemenzy_iterations", 10),
-            chemenzy_expansion_topk=_int(payload, "chemenzy_expansion_topk", 20),
-            chemenzy_timeout_s=float(payload.get("chemenzy_timeout_s", 90.0)),
+            max_chemenzy_steps=_int(payload, "max_chemenzy_steps", chemenzy_defaults["steps"]),
+            max_chemenzy_iterations=_int(payload, "max_chemenzy_iterations", chemenzy_defaults["iterations"]),
+            chemenzy_expansion_topk=_int(payload, "chemenzy_expansion_topk", chemenzy_defaults["topk"]),
+            chemenzy_timeout_s=float(payload.get("chemenzy_timeout_s", chemenzy_defaults["timeout"])),
+            chemenzy_search_preset=str(
+                payload.get("chemenzy_search_preset")
+                or ("thorough" if execution_profile == "proof" else "standard")
+            ),
+            chemenzy_pandarallel_workers=_int(
+                payload, "chemenzy_pandarallel_workers", 2
+            ),
             max_guided_chemenzy_frontiers=_int(
                 payload, "max_guided_chemenzy_frontiers", 3
             ),
@@ -122,6 +144,20 @@ def solve_target_request(gateway: Any, payload: dict[str, Any]) -> dict[str, Any
                 payload.get("guided_chemenzy_timeout_s", 60.0)
             ),
             max_visual_evidence_pages=_int(payload, "max_visual_evidence_pages", 6),
+            minimum_planning_route_steps=_int(
+                payload, "minimum_planning_route_steps", 0
+            ),
+            max_director_output_tokens=_int(
+                payload,
+                "max_director_output_tokens",
+                18_000 if execution_profile == "proof" else 7_000,
+            ),
+            max_director_wall_time_s=float(
+                payload.get(
+                    "max_director_wall_time_s",
+                    1200.0 if execution_profile == "proof" else 600.0,
+                )
+            ),
         ),
     )
 
@@ -161,6 +197,9 @@ def _web_evidence_connector(gateway: Any, payload: Mapping[str, Any]) -> Any:
             build_builtin_literature_evidence_connector(
                 BuiltinLiteratureEvidenceConfig(
                     cache_dir=paths.external_data_root / "literature-evidence",
+                    authorized_proxy_output_dir=str(
+                        payload.get("authorized_proxy_output_dir") or ""
+                    ),
                     seed_dois=tuple(_string_list(payload.get("literature_dois"))),
                     max_sources=_int(dict(payload), "max_literature_sources", 4),
                     max_visual_pages=_int(
@@ -218,14 +257,15 @@ def run_target_job(
         result = solve_target_request(factory(), payload)
         compact = _compact_solve_result(result)
         status, error = "complete", ""
+        phase = "complete" if compact.get("accepted") is True else "unresolved"
     except Exception as exc:  # pragma: no cover - integration failure boundary
-        compact, status = {}, "failed"
+        compact, status, phase = {}, "failed", "failed"
         error = f"{type(exc).__name__}: {exc}"[:4_000]
     elapsed = round(time.monotonic() - started, 3)
     with lock:
         jobs[job_id].update(
             status=status,
-            phase=status,
+            phase=phase,
             finished_at=utc_now(),
             updated_at=utc_now(),
             elapsed_s=elapsed,

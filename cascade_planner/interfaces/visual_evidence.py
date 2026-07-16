@@ -550,6 +550,21 @@ def materialize_visual_evidence_candidates(
     ]
     if not steps:
         return _materialization_stage("not_needed", reason="visual_candidate_steps_missing")
+    if not (
+        int(observation.get("matched_current_edge_count") or 0)
+        or int(observation.get("frontier_anchored_step_count") or 0)
+    ):
+        return _materialization_stage(
+            "not_needed",
+            reason="visual_chain_not_connected_to_canonical_target_or_frontier",
+            proposal_count=len(steps),
+            observation_ref=str(observation.get("content_sha256") or ""),
+            semantics={
+                "disconnected_visual_chain_retained_as_source_observation": True,
+                "disconnected_visual_chain_not_added_to_target_graph": True,
+                "visual_chain_grants_exact_evidence": False,
+            },
+        )
     graph = service.graph_store.load()
     existing = [
         str(row.get("edge_digest") or "")

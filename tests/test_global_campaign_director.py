@@ -641,7 +641,7 @@ def test_director_does_not_repair_family_without_exact_target_root(tmp_path: Pat
     assert unrepaired.route_families[0]["target_smiles"] == "CCOC(=O)O"
 
 
-def test_director_removes_route_family_without_any_skeleton(tmp_path: Path) -> None:
+def test_director_retains_route_family_without_skeleton_as_advisory(tmp_path: Path) -> None:
     context = _context(_kernel(tmp_path))
     raw = _plan(context)
     raw["route_families"].append(
@@ -657,11 +657,12 @@ def test_director_removes_route_family_without_any_skeleton(tmp_path: Path) -> N
         context,
     )
 
-    assert "family:orphan-metadata" not in {
+    assert "family:orphan-metadata" in {
         row["route_family_id"] for row in repaired.route_families
     }
     assert any(
-        row["reason"] == "route_family_without_skeleton_removed"
+        row["reason"] == "route_family_without_skeleton_retained_as_advisory"
+        and row["semantics"]["retained_as_advisory_only"] is True
         for row in repairs
     )
     assert validate_global_campaign_plan(repaired, context)

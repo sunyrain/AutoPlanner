@@ -6,6 +6,7 @@ from cascade_planner.application.canonical_hypergraph import (
     CanonicalHypergraphStore,
     CanonicalIngestionBatch,
     canonical_scientific_projection,
+    compile_canonical_hypergraph_revision,
     full_recompute_canonical_hypergraph,
     hypothesis_identity,
     molecule_identity,
@@ -57,6 +58,44 @@ def _kernel(tmp_path: Path) -> RunKernel:
     )
     kernel.start()
     return kernel
+
+
+def test_empty_graph_includes_global_route_deficit_and_matches_oracle(
+    tmp_path: Path,
+) -> None:
+    store = CanonicalHypergraphStore(_kernel(tmp_path))
+    graph = store.load()
+
+    assert graph["scientific_sha256"] == store.full_recompute_oracle()[
+        "scientific_sha256"
+    ]
+    assert graph["deficit_frontier"]["summary"]["by_kind"]["diversity"] == 1
+
+
+def test_explicit_derived_projection_repair_restores_legacy_frontier(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    graph = CanonicalHypergraphStore(kernel).load()
+    legacy_frontier = {**graph["deficit_frontier"], "items": []}
+    legacy = {
+        **graph,
+        "deficit_frontier": legacy_frontier,
+        "scientific_sha256": "legacy",
+    }
+
+    repaired, report = compile_canonical_hypergraph_revision(
+        legacy,
+        batch=CanonicalIngestionBatch(recompute_derived=True),
+        acceptance_spec=kernel.spec.acceptance,
+    )
+
+    assert report["changed"] is True
+    assert repaired["deficit_frontier"]["summary"]["by_kind"]["diversity"] == 1
+    assert repaired["scientific_sha256"] == full_recompute_canonical_hypergraph(
+        repaired,
+        acceptance_spec=kernel.spec.acceptance,
+    )["scientific_sha256"]
 
 
 def test_rejected_stock_leaf_becomes_provider_expansion_deficit() -> None:

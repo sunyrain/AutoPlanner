@@ -23,7 +23,10 @@ from cascade_planner.application.blind_benchmark_contract import (
     canonical_smiles,
 )
 from cascade_planner.application.campaign_context import CampaignContextTooLargeError
-from cascade_planner.application.canonical_hypergraph import molecule_identity
+from cascade_planner.application.canonical_hypergraph import (
+    CanonicalIngestionBatch,
+    molecule_identity,
+)
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisAcceptanceSpec,
     RetrosynthesisRunBudget,
@@ -108,6 +111,9 @@ class TargetSolveConfig:
     enable_chemenzy: bool = True
     enable_target_chemenzy_baseline: bool = False
     enable_guided_chemenzy: bool = True
+    enable_chemenzy_condition_prediction: bool = True
+    enable_chemenzy_enzyme_assignment: bool = True
+    enable_enzyme_coverage_sidecar: bool = True
     enable_target_identity: bool = True
     resolve_named_target_identity: bool = False
     blind_audit_root: str = ""
@@ -122,6 +128,8 @@ class TargetSolveConfig:
     max_chemenzy_iterations: int = 10
     chemenzy_expansion_topk: int = 20
     chemenzy_timeout_s: float = 90.0
+    chemenzy_search_preset: str = "standard"
+    chemenzy_pandarallel_workers: int = 2
     max_guided_chemenzy_frontiers: int = 3
     max_guided_chemenzy_iterations: int = 6
     guided_chemenzy_timeout_s: float = 60.0
@@ -153,6 +161,15 @@ class TargetSolveConfig:
             self.chemenzy_expansion_topk,
         ) < 1 or self.chemenzy_timeout_s <= 0:
             raise ValueError("target solver ChemEnzy budget is invalid")
+        if self.chemenzy_search_preset not in {
+            "quick",
+            "standard",
+            "thorough",
+            "enzyme_coverage",
+        }:
+            raise ValueError("target solver ChemEnzy search preset is invalid")
+        if not 1 <= self.chemenzy_pandarallel_workers <= 8:
+            raise ValueError("target solver ChemEnzy worker count is invalid")
         if not 1 <= self.max_guided_chemenzy_frontiers <= 6:
             raise ValueError("target solver guided ChemEnzy frontier limit is invalid")
         if (
@@ -348,6 +365,14 @@ def solve_target(
         director_runner=director_runner,
         director_config=director_config,
     )
+    if resume and service.kernel.state.status == "paused":
+        service.kernel.resume(
+            idempotency_key=f"solve-target:resume:{service.kernel.state.revision}"
+        )
+    service.apply_batch(
+        CanonicalIngestionBatch(recompute_derived=True),
+        idempotency_key=f"solve-target:derived-projection:{service.kernel.state.graph_revision}",
+    )
     self_evo = PatentSelfEvolutionSession.create(
         enabled=active.enable_patent_self_evolution,
         configured_path=active.self_evo_library_path,
@@ -483,6 +508,11 @@ def solve_target(
             max_iterations=active.max_chemenzy_iterations,
             expansion_topk=active.chemenzy_expansion_topk,
             timeout_s=active.chemenzy_timeout_s,
+            search_preset=active.chemenzy_search_preset,
+            enable_condition_prediction=active.enable_chemenzy_condition_prediction,
+            enable_enzyme_assignment=active.enable_chemenzy_enzyme_assignment,
+            enable_enzyme_coverage_sidecar=active.enable_enzyme_coverage_sidecar,
+            pandarallel_workers=active.chemenzy_pandarallel_workers,
         )
         stages.append(_stage("chemenzy_baseline", chemenzy_stage["status"], chemenzy_stage))
         _checkpoint(checkpoint_path, identity, stages, outcomes)
@@ -652,9 +682,14 @@ def solve_target(
             max_routes=1,
             max_steps=active.max_chemenzy_steps,
             max_iterations=active.max_guided_chemenzy_iterations,
-            expansion_topk=min(10, active.chemenzy_expansion_topk),
+            expansion_topk=active.chemenzy_expansion_topk,
             timeout_s=active.guided_chemenzy_timeout_s,
             exclude_frontier_smiles=tuple(sorted(prior_attempted_frontiers)),
+            search_preset="thorough",
+            enable_condition_prediction=active.enable_chemenzy_condition_prediction,
+            enable_enzyme_assignment=active.enable_chemenzy_enzyme_assignment,
+            enable_enzyme_coverage_sidecar=active.enable_enzyme_coverage_sidecar,
+            pandarallel_workers=active.chemenzy_pandarallel_workers,
         )
         guided_stage["new_proposal_count"] = int(
             guided_stage.get("proposal_count") or 0
@@ -804,11 +839,16 @@ def solve_target(
             max_routes=1,
             max_steps=active.max_chemenzy_steps,
             max_iterations=active.max_guided_chemenzy_iterations,
-            expansion_topk=min(10, active.chemenzy_expansion_topk),
+            expansion_topk=active.chemenzy_expansion_topk,
             timeout_s=active.guided_chemenzy_timeout_s,
             exclude_frontier_smiles=tuple(
                 sorted(attempted_guided_frontiers)
             ),
+            search_preset="thorough",
+            enable_condition_prediction=active.enable_chemenzy_condition_prediction,
+            enable_enzyme_assignment=active.enable_chemenzy_enzyme_assignment,
+            enable_enzyme_coverage_sidecar=active.enable_enzyme_coverage_sidecar,
+            pandarallel_workers=active.chemenzy_pandarallel_workers,
         )
         stages.append(
             _stage("chemenzy_stock_recovery", recovery_stage["status"], recovery_stage)
@@ -1107,6 +1147,15 @@ def solve_target(
         budget=resolved_budget,
     )
     stop_preview = service.kernel.decide_stop().to_dict()
+    if stop_preview.get("decision") == "continue":
+        service.kernel.transition(
+            "paused",
+            idempotency_key=f"solve-target:bounded-pass:{service.kernel.state.revision}",
+            reasons=("bounded_pass_complete_requires_resume",),
+        )
+    stop = service.kernel.apply_stop_decision(
+        idempotency_key=f"solve-target:stop:{service.kernel.state.revision}"
+    ).to_dict()
     profile_projection = service.workbench()["snapshot"]
     claim = _claim(
         gates,
@@ -1120,7 +1169,7 @@ def solve_target(
     )
     current_disposition = _current_disposition(
         kernel_status=service.kernel.state.status,
-        stop_decision=stop_preview,
+        stop_decision=stop,
         claim=claim,
         gates=gates,
     )
@@ -1129,15 +1178,12 @@ def solve_target(
             gates=gates,
             resource_envelope=resource_envelope,
             model_cost=service.kernel.state.model_totals,
-            stop_decision=stop_preview,
+            stop_decision=stop,
             claim=claim,
             current_disposition=current_disposition,
             planning_depth=planning_depth,
         )
     )
-    stop = service.kernel.apply_stop_decision(
-        idempotency_key=f"solve-target:stop:{service.kernel.state.revision}"
-    ).to_dict()
     report = {
         "schema_version": TARGET_SOLVE_REPORT_SCHEMA,
         "run_id": identity,

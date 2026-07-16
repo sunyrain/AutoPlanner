@@ -752,8 +752,9 @@ def validate_global_campaign_plan(
         reasons.append("plan_context_sha256_mismatch")
     if plan.graph_revision != context.revision.graph_revision:
         reasons.append("plan_graph_revision_mismatch")
-    if not limits.minimum_route_families <= len(plan.route_families) <= limits.max_route_families:
-        reasons.append("route_family_count_out_of_bounds")
+    # Portfolio cardinality is an acceptance measurement, not a structural
+    # parsing boundary.  A useful family must survive even when sibling
+    # families are missing; B1 remains false until the configured count is met.
     if len(plan.multi_step_skeletons) > limits.max_skeletons:
         reasons.append("skeleton_count_out_of_bounds")
     if not plan.portfolio_rationale.strip():
@@ -846,11 +847,8 @@ def validate_global_campaign_plan(
                     target_smiles=target,
                 )
             )
-    missing_skeleton_families = sorted(family_ids - skeleton_family_ids)
-    if missing_skeleton_families:
-        reasons.append(
-            "route_families_without_skeletons:" + ",".join(missing_skeleton_families)
-        )
+    # Family metadata without chemistry is retained as an advisory search
+    # direction.  It grants no skeleton, edge, proof, or B1 authority.
     duplicate_root_families: dict[tuple[str, ...], list[str]] = {}
     for family_id, root_precursors in root_edge_by_family.items():
         duplicate_root_families.setdefault(root_precursors, []).append(family_id)
@@ -1012,14 +1010,16 @@ def repair_global_campaign_plan_contract(
                     "schema_version": "global_campaign_contract_repair.v1",
                     "field": "route_families",
                     "route_family_id": family_id,
-                    "reason": "route_family_without_skeleton_removed",
+                    "reason": "route_family_without_skeleton_retained_as_advisory",
                     "semantics": {
                         "chemistry_unchanged": True,
                         "orphan_metadata_only": True,
+                        "retained_as_advisory_only": True,
                         "normal_validation_still_required": True,
                     },
                 }
             )
+            repaired_families.append(row)
             continue
         observed = _canonical_smiles(row.get("target_smiles"))
         if observed != target and family_id in rooted_families:
@@ -1425,6 +1425,7 @@ def director_prompt(
                 else ""
             ),
             "Each skeleton step requires step_id, product_smiles, precursor_smiles, transformation_hypothesis, required_validation, and hypothesis_only=true.",
+            "A step may optionally carry route_innovation. For a genuine enzyme replacement use kind=biocatalytic_step or biocatalytic_superstep plus chemical_step_equivalent_count, replaced_step_ids, enzyme_classes or ec_numbers, selectivity_objective, substrate_scope_basis, precedent_refs, and validation_status=proposed. For a literature-anchored inference use kind=mechanism_extrapolation, hypothesis_depth=1, anchor_edge_ids or anchor_source_refs, mechanistic_rationale, and falsifiable_checks. These are low-confidence execution proposals only; never compress ordinary chemistry or claim that an enzyme/program is validated.",
             "Use frontier_priorities for both host step ordering and local-provider delegation. Select 1-3 nontrivial intermediates or leaves from a fully connected target-rooted skeleton for ChemEnzy by adding its exact step_id as proposal_id, target_smiles, provider_preferences=['chemenzy'], retron_hints, priority, and rationale. Never invent a provider-only proposal_id, never delegate a disconnected sketch or the campaign target itself; Codex owns target-level global strategy.",
             "CampaignContext:",
             json.dumps(context_payload, ensure_ascii=False, sort_keys=True),

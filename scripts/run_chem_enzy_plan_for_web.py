@@ -293,7 +293,10 @@ def _web_payload_from_result(
         if ((route.get("metrics") or {}).get("learned_cascade_verifier") or {}).get("available")
     )
     verifier_gate = _cascade_verifier_gate_enabled(request_payload)
-    routes, verifier_gate_report = _apply_cascade_verifier_gate(raw_routes, enabled=verifier_gate)
+    routes, quarantined_routes, verifier_gate_report = _apply_cascade_verifier_gate(
+        raw_routes,
+        enabled=verifier_gate,
+    )
     strict_solved = any(bool((route.get("metrics") or {}).get("route_solved")) for route in routes)
     raw_solved = any(
         bool((route.get("raw_backend_metadata") or {}).get("raw_solved"))
@@ -338,6 +341,7 @@ def _web_payload_from_result(
         "n_results": len(routes),
         "time_s": round(elapsed_s, 3),
         "routes": routes,
+        "quarantined_routes": quarantined_routes,
         "route_set_metrics": {
             "diversity": {
                 "n_routes": len(routes),
@@ -536,9 +540,9 @@ def _apply_cascade_verifier_gate(
     routes: list[dict[str, Any]],
     *,
     enabled: bool,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     if not enabled:
-        return routes, {
+        return routes, [], {
             "enabled": False,
             "input_routes": len(routes),
             "kept_routes": len(routes),
@@ -553,6 +557,14 @@ def _apply_cascade_verifier_gate(
         metrics = route.get("metrics") or {}
         report = metrics.get("cascade_verifier") or {}
         if report.get("feasible") is False:
+            route["advisory_only"] = True
+            route["confidence"] = 0.0
+            route["warning_codes"] = sorted(
+                {
+                    "cascade_verifier_rejected",
+                    *(str(value) for value in (report.get("reason_counts") or {})),
+                }
+            )
             dropped.append(
                 {
                     "route_rank": route.get("route_rank"),
@@ -567,7 +579,11 @@ def _apply_cascade_verifier_gate(
     for index, route in enumerate(kept):
         route["route_rank"] = index
 
-    return kept, {
+    return kept, [
+        route
+        for route in routes
+        if route.get("advisory_only") is True
+    ], {
         "enabled": True,
         "input_routes": len(routes),
         "kept_routes": len(kept),
@@ -610,6 +626,17 @@ def _web_step(step: RouteStepCandidate, index: int) -> dict[str, Any]:
         "solvent": str(solvent or ""),
         "condition_predictions": list(step.condition_predictions or []),
         "enzyme_ec_annotations": list(step.enzyme_ec_annotations or []),
+        "catalyst_annotations": list(step.catalyst_annotations or []),
+        "raw_backend_metadata": dict(step.raw_backend_metadata or {}),
+        "chemical_step_equivalent_count": (step.raw_backend_metadata or {}).get(
+            "chemical_step_equivalent_count"
+        ),
+        "replaced_step_ids": list(
+            (step.raw_backend_metadata or {}).get("replaced_step_ids") or []
+        ),
+        "selectivity_objective": str(
+            (step.raw_backend_metadata or {}).get("selectivity_objective") or ""
+        ),
         "enzyme_quality": quality,
         "evidence": {
             "backend": "CascadePlanner",

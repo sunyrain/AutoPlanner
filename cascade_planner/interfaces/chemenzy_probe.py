@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 import hashlib
 from pathlib import Path
 import subprocess
+import threading
+import time
 from typing import Any, Callable, Mapping
 
 from cascade_planner.application.canonical_hypergraph import CanonicalIngestionBatch
@@ -18,6 +21,9 @@ from cascade_planner.baselines.chem_enzy_adapter import (
 )
 from cascade_planner.interfaces.chemenzy_guidance import (
     guided_native_search_policy as _guided_native_search_policy,
+)
+from cascade_planner.interfaces.chemenzy_advisory import (
+    normalized_quarantined_routes,
 )
 from cascade_planner.interfaces.chemenzy_runtime_selection import (
     select_chemenzy_runtime as _select_runtime,
@@ -35,6 +41,7 @@ from cascade_planner.routes.admission import audit_retrosynthetic_candidate
 
 ChemenzyProposalProvider = Callable[..., Mapping[str, Any]]
 CHEMENZY_PROVIDER_CAPABILITY_SCHEMA = "provider_capability_snapshot.v1"
+_CHEMENZY_SUBPROCESS_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +106,11 @@ def run_chemenzy_proposal_stage(
     parent_route_family_ids: tuple[str, ...] = (),
     retron_hints: tuple[str, ...] = (),
     forbidden_smiles: tuple[str, ...] = (),
+    search_preset: str = "standard",
+    enable_condition_prediction: bool = True,
+    enable_enzyme_assignment: bool = True,
+    enable_enzyme_coverage_sidecar: bool = True,
+    pandarallel_workers: int = 2,
 ) -> dict[str, Any]:
     """Acquire a small proposal pool and admit it through the canonical graph."""
 
@@ -108,6 +120,11 @@ def run_chemenzy_proposal_stage(
         "max_iterations": max(1, int(max_iterations)),
         "expansion_topk": max(1, int(expansion_topk)),
         "timeout_s": max(1.0, float(timeout_s)),
+        "search_preset": str(search_preset or "standard"),
+        "enable_condition_prediction": bool(enable_condition_prediction),
+        "enable_enzyme_assignment": bool(enable_enzyme_assignment),
+        "enable_enzyme_coverage_sidecar": bool(enable_enzyme_coverage_sidecar),
+        "pandarallel_workers": max(1, min(8, int(pandarallel_workers))),
     }
     if not enabled:
         return _result(
@@ -151,6 +168,11 @@ def run_chemenzy_proposal_stage(
         )
     )
     routes = _normalized_routes(raw, target_smiles=target_smiles)
+    quarantined_routes = normalized_quarantined_routes(
+        raw,
+        start_index=len(routes) + 1,
+        normalizer=_normalize_proposal_route,
+    )
     # A backend-level ``solved`` flag is neither required nor trusted here.
     # ChemEnzy's current launcher returns proposal routes without that field;
     # older adapters sometimes emitted it.  Candidate admission is owned by
@@ -159,6 +181,7 @@ def run_chemenzy_proposal_stage(
         route for route in routes if route.get("proposal_eligible") is True
     ]
     accepted = eligible[: limits["max_routes"]]
+    advisory = quarantined_routes[: limits["max_routes"]]
     provider_envelope, provider_registration = _provider_admission(
         service,
         target_name=target_name,
@@ -171,13 +194,21 @@ def run_chemenzy_proposal_stage(
         accepted = []
     route_families: list[dict[str, Any]] = []
     hypotheses: list[dict[str, Any]] = []
-    for route_index, route in enumerate(accepted, start=1):
+    selected_routes = [
+        *((route, False) for route in accepted),
+        *((route, True) for route in advisory),
+    ]
+    for route_index, (route, advisory_only) in enumerate(selected_routes, start=1):
         alias = f"chemenzy:{scope}:route:{route_index}"
         if not parent_route_family_ids:
             route_families.append(
                 {
                     "route_family_id": alias,
-                    "strategy": "bounded ChemEnzy multi-step proposal",
+                    "strategy": (
+                        "quarantined ChemEnzy route retained for review"
+                        if advisory_only
+                        else "bounded ChemEnzy multi-step proposal"
+                    ),
                 }
             )
         for step_index, step in enumerate(route.get("steps") or [], start=1):
@@ -201,6 +232,10 @@ def run_chemenzy_proposal_stage(
                     "origin_kind": "chemenzy",
                     "origin_ref": f"{alias}:{step.get('source_model') or 'native'}",
                     "transformation_hypothesis": "ChemEnzy one-step expansion",
+                    "advisory_only": advisory_only,
+                    "provider_admission_reasons": list(
+                        route.get("admission_reasons") or []
+                    ),
                     "condition_predictions": list(
                         step.get("condition_predictions") or []
                     ),
@@ -231,7 +266,8 @@ def run_chemenzy_proposal_stage(
         host_admitted_route_count=len(eligible),
         selected_proposal_route_count=len(accepted),
         accepted_route_count=len(accepted),
-        rejected_route_count=len(routes) - len(eligible),
+        preserved_advisory_route_count=len(advisory),
+        rejected_route_count=len(routes) - len(eligible) + len(quarantined_routes),
         budget_truncated_route_count=max(0, len(eligible) - len(accepted)),
         route_admission=[
             {
@@ -240,6 +276,15 @@ def run_chemenzy_proposal_stage(
                 "reasons": list(route.get("admission_reasons") or []),
             }
             for route in routes
+        ]
+        + [
+            {
+                "route_index": route.get("route_index"),
+                "proposal_eligible": False,
+                "preserved_as_advisory": True,
+                "reasons": list(route.get("admission_reasons") or []),
+            }
+            for route in quarantined_routes
         ],
         proposal_count=len(hypotheses),
         changed=applied.get("changed") is True,
@@ -249,6 +294,10 @@ def run_chemenzy_proposal_stage(
         runtime_discovery=raw.get("runtime_discovery") or {},
         provider_capability=_provider_capability_snapshot(raw),
         reason=str(raw.get("reason") or ""),
+        semantics={
+            "provider_rejected_routes_are_retained_as_l0_advisory": True,
+            "advisory_routes_never_grant_reaction_proof": True,
+        },
     )
 
 
@@ -268,6 +317,11 @@ def run_chemenzy_guided_frontier_stage(
     expansion_topk: int = 10,
     timeout_s: float = 60.0,
     exclude_frontier_smiles: tuple[str, ...] = (),
+    search_preset: str = "thorough",
+    enable_condition_prediction: bool = True,
+    enable_enzyme_assignment: bool = True,
+    enable_enzyme_coverage_sidecar: bool = True,
+    pandarallel_workers: int = 2,
 ) -> dict[str, Any]:
     """Expand only canonical Codex-selected or stock-rejected subtargets."""
 
@@ -343,6 +397,11 @@ def run_chemenzy_guided_frontier_stage(
                 parent_route_family_ids=route_ids,
                 retron_hints=retrons,
                 forbidden_smiles=(root_target_smiles,),
+                search_preset=search_preset,
+                enable_condition_prediction=enable_condition_prediction,
+                enable_enzyme_assignment=enable_enzyme_assignment,
+                enable_enzyme_coverage_sidecar=enable_enzyme_coverage_sidecar,
+                pandarallel_workers=pandarallel_workers,
             )
         )
     proposal_count = sum(int(result.get("proposal_count") or 0) for result in results)
@@ -466,14 +525,20 @@ def _run_builtin_probe(
         "target_name": target_name,
         "target_smiles": target_smiles,
         "planner_backend": "chem_enzy_native",
-        "search_preset": "bounded_probe",
+        "search_preset": str(limits.get("search_preset") or "standard"),
         "max_steps": limits["max_steps"],
         "chem_enzy_iterations": limits["max_iterations"],
         "chem_enzy_expansion_topk": limits["expansion_topk"],
         "stock_mode": "building-block",
         "device": "cpu",
         "enable_rule_verifier_gate": True,
-        "enable_condition_prediction": False,
+        "enable_condition_prediction": bool(
+            limits.get("enable_condition_prediction", True)
+        ),
+        "enable_enzyme_assignment": bool(limits.get("enable_enzyme_assignment", True)),
+        "enable_enzyme_coverage_sidecar": bool(
+            limits.get("enable_enzyme_coverage_sidecar", True)
+        ),
     }
     if proposal_request.mode == "guided_frontier":
         request["chem_enzy_search_policy"] = _guided_native_search_policy(
@@ -501,15 +566,25 @@ def _run_builtin_probe(
     ]
     stdout_path = run_dir / f"chemenzy-v4-{artifact_stem}-stdout.log"
     stderr_path = run_dir / f"chemenzy-v4-{artifact_stem}-stderr.log"
+    environment = os.environ.copy()
+    environment["CHEMENZY_PANDARALLEL_WORKERS"] = str(
+        max(1, min(8, int(limits.get("pandarallel_workers") or 2)))
+    )
+    environment.setdefault("OMP_NUM_THREADS", "2")
+    environment.setdefault("MKL_NUM_THREADS", "2")
+    queued_at = time.monotonic()
     try:
-        completed = subprocess.run(
-            command,
-            cwd=str(Path(preflight["launcher_path"]).resolve().parents[1]),
-            capture_output=True,
-            text=True,
-            timeout=float(limits["timeout_s"]),
-            check=False,
-        )
+        with _CHEMENZY_SUBPROCESS_LOCK:
+            queue_wait_s = max(0.0, time.monotonic() - queued_at)
+            completed = subprocess.run(
+                command,
+                cwd=str(Path(preflight["launcher_path"]).resolve().parents[1]),
+                capture_output=True,
+                text=True,
+                timeout=float(limits["timeout_s"]),
+                check=False,
+                env=environment,
+            )
     except subprocess.TimeoutExpired:
         return {
             "status": "timeout",
@@ -551,6 +626,8 @@ def _run_builtin_probe(
         "search_executed": True,
         "request_path": str(request_path),
         "output_path": str(output_path),
+        "queue_wait_s": round(queue_wait_s, 3),
+        "pandarallel_workers": int(environment["CHEMENZY_PANDARALLEL_WORKERS"]),
     }
 
 
@@ -711,6 +788,7 @@ def _proposal_reactants(step: Mapping[str, Any]) -> list[str]:
 
 
 def _result(status: str, **values: Any) -> dict[str, Any]:
+    extra_semantics = dict(values.pop("semantics", {}) or {})
     return {
         "schema_version": "v4_chemenzy_proposal_stage.v1",
         "stage": "chemenzy_baseline",
@@ -721,6 +799,7 @@ def _result(status: str, **values: Any) -> dict[str, Any]:
             "canonical_host_admission_required": True,
             "raw_backend_solved_is_not_route_proof": True,
             "codex_receives_proposals_through_shared_hypergraph": True,
+            **extra_semantics,
         },
     }
 

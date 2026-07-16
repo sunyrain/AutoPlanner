@@ -150,7 +150,13 @@ def test_v4_service_publishes_incremental_workbench_without_mutating_science(
     service.execute_frontier_materialization(idempotency_key="materialize")
     before = service.kernel.revision
 
-    first = service.publish_workbench()
+    first = service.publish_workbench(
+        campaign_summary={
+            "gates": {"B0_blind_input": True},
+            "highest_contiguous_gate": "B0",
+            "current_disposition": {"state": "unresolved"},
+        }
+    )
     second = service.workbench(previous=first["snapshot"])
 
     assert first["snapshot"]["schema_version"] == "retrosynthesis_route_workbench.v1"
@@ -158,6 +164,8 @@ def test_v4_service_publishes_incremental_workbench_without_mutating_science(
     assert first["delta"]["from_graph_revision"] == 0
     assert first["snapshot_ref"]["sha256"]
     assert second["delta"]["empty"] is True
+    assert second["snapshot"]["campaign_summary"]["available"] is True
+    assert second["snapshot"]["campaign_summary"]["gates"]["B0_blind_input"] is True
     assert second["delta"]["base_sha256"] == first["snapshot"]["content_sha256"]
     assert service.kernel.revision == before
     indexed = service.kernel.index.artifacts_for_run(service.kernel.spec.run_id)

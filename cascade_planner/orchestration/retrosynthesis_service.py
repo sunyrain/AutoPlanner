@@ -41,9 +41,7 @@ from cascade_planner.orchestration.program_admission_runtime import (
     program_projection_read,
     program_store_read,
 )
-from cascade_planner.orchestration.workbench_publication import (
-    publish_workbench_snapshot,
-)
+from cascade_planner.orchestration.workbench_publication import publish_workbench_snapshot, published_workbench_campaign_summary
 
 
 CAMPAIGN_SERVICE_STATUS_SCHEMA = "retrosynthesis_campaign_service_status.v1"
@@ -370,6 +368,8 @@ class RetrosynthesisCampaignService:
         campaign_summary: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         graph = self.graph_store.load()
+        if campaign_summary is None:
+            campaign_summary = published_workbench_campaign_summary(self.kernel, graph)
         portfolio = compile_proof_portfolio(
             graph,
             acceptance_spec=self.kernel.spec.acceptance,

@@ -83,6 +83,7 @@ class CanonicalIngestionBatch:
     route_families: tuple[Mapping[str, Any], ...] = ()
     fact_lifecycle_events: tuple[Mapping[str, Any], ...] = ()
     prior_attempts: Mapping[str, int] = field(default_factory=dict)
+    recompute_derived: bool = False
 
 
 class CanonicalHypergraphStore:
@@ -262,6 +263,7 @@ def compile_canonical_hypergraph_revision(
     dirty: set[str] = set()
     rejected: list[dict[str, Any]] = []
     evidence_changed = False
+    force_full_derived_recompute = False
 
     target_id = str(graph["target_molecule_id"])
     route_aliases = _route_aliases(graph)
@@ -326,6 +328,15 @@ def compile_canonical_hypergraph_revision(
             or evidence_changed
         )
 
+    if not dirty and batch.recompute_derived:
+        oracle = full_recompute_canonical_hypergraph(
+            graph,
+            acceptance_spec=acceptance_spec,
+        )
+        if oracle["scientific_sha256"] != previous.get("scientific_sha256"):
+            graph = oracle
+            dirty.update(_all_entity_ids(graph) or {str(graph["target_molecule_id"])})
+            force_full_derived_recompute = True
     if not dirty:
         return dict(previous), _report(
             previous,
@@ -351,8 +362,10 @@ def compile_canonical_hypergraph_revision(
         {**graph, "scientific_sha256": topology_sha256},
         acceptance_spec=acceptance_spec,
         prior_attempts=batch.prior_attempts,
-        previous_frontier=dict(previous.get("deficit_frontier") or {}),
-        dirty_entity_ids=dirty,
+        previous_frontier=(
+            {} if force_full_derived_recompute else dict(previous.get("deficit_frontier") or {})
+        ),
+        dirty_entity_ids=None if force_full_derived_recompute else dirty,
     )
     graph["deficit_frontier"] = frontier
     graph["portfolio_ranking"] = _portfolio_ranking(graph)
@@ -480,6 +493,10 @@ def _empty_graph(kernel: RunKernel) -> dict[str, Any]:
     }
     graph["topology_sha256"] = _topology_digest(graph)
     graph["scientific_sha256"] = _scientific_digest(graph)
+    graph = full_recompute_canonical_hypergraph(
+        graph,
+        acceptance_spec=kernel.spec.acceptance,
+    )
     graph["content_sha256"] = _graph_content_digest(graph)
     return graph
 

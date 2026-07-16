@@ -782,7 +782,7 @@ class RunKernel:
             return StopDecision(
                 decision="paused",
                 terminal=False,
-                reasons=("operator_paused",),
+                reasons=tuple(state.failure_reasons) or ("operator_paused",),
             )
         if state.in_flight_tasks:
             return StopDecision(decision="continue", terminal=False)

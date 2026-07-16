@@ -445,7 +445,7 @@ def compile_deficit_frontier(
             )
         )
 
-    route_dirty = dirty is None or bool(
+    route_dirty = dirty is None or not previous_frontier or bool(
         dirty
         and (
             set(graph.get("edges") or {})
@@ -526,6 +526,11 @@ def compile_deficit_frontier(
             if not isinstance(raw, Mapping):
                 continue
             row = dict(raw)
+            # Portfolio diversity is a graph-global deficit.  It deliberately
+            # has no entity ids, so the ordinary dirty-entity intersection
+            # cannot invalidate a stale copy after a route opens or closes.
+            if route_dirty and str(row.get("kind") or "") == DeficitKind.DIVERSITY.value:
+                continue
             entity_ids = {str(value) for value in row.get("entity_ids") or []}
             if entity_ids & dirty:
                 continue

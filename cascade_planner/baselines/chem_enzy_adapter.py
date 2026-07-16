@@ -81,7 +81,6 @@ DEFAULT_CONFIG_RELATIVE = Path("retro_planner/config/config.yaml")
 DEFAULT_STOCKS = ["Zinc_Fix-stock"]
 DEFAULT_ONE_STEP_MODELS = [
     "graphfp_models.USPTO-full_remapped",
-    "onmt_models.bionav_one_step",
     "onmt_models.bionav_native_one_step",
 ]
 DEFAULT_ONMT_MODEL_NAME = "onmt_models.bionav_one_step"

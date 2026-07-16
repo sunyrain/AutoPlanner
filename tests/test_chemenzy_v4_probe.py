@@ -10,6 +10,10 @@ from cascade_planner.interfaces.chemenzy_probe import (
     _provider_capability_snapshot,
     _select_runtime,
 )
+from cascade_planner.interfaces.chemenzy_advisory import (
+    normalized_quarantined_routes,
+)
+from cascade_planner.interfaces.chemenzy_probe import _normalize_proposal_route
 
 
 def _preflight(prefix: Path, *, ready: bool, source: str) -> dict:
@@ -196,6 +200,33 @@ def test_structurally_invalid_launcher_route_is_rejected_by_host_not_solved_flag
 
     assert routes[0]["proposal_eligible"] is False
     assert "target_or_current_node_self_loop" in routes[0]["admission_reasons"]
+
+
+def test_verifier_dropped_route_is_preserved_as_explicit_advisory() -> None:
+    routes = normalized_quarantined_routes(
+        {
+            "quarantined_routes": [
+                {
+                    "warning_codes": ["atom_balance_violation"],
+                    "steps": [
+                        {
+                            "product": "CC(=O)OCC",
+                            "main_reactant": "CCO",
+                            "aux_reactants": ["CC(=O)Cl"],
+                        }
+                    ],
+                }
+            ]
+        },
+        start_index=3,
+        normalizer=_normalize_proposal_route,
+    )
+
+    assert len(routes) == 1
+    assert routes[0]["route_index"] == 3
+    assert routes[0]["proposal_eligible"] is False
+    assert "provider_route_quarantined" in routes[0]["admission_reasons"]
+    assert "atom_balance_violation" in routes[0]["admission_reasons"]
 
 
 def test_guided_chemenzy_request_binds_canonical_frontier_and_stop_contract() -> None:

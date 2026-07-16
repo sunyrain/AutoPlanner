@@ -136,7 +136,12 @@ def normalize_visual_observation(
             row["admission_eligible"] is True for row in steps
         ),
         "chain_admission_accepted": bool(steps)
-        and all(row["admission_eligible"] is True for row in steps),
+        and all(row["admission_eligible"] is True for row in steps)
+        and any(
+            row["matched_current_edge_id"]
+            or row["root_anchor"] == "canonical_frontier_identity"
+            for row in steps
+        ),
         "chain_admission_reasons": sorted(set(chain_reasons)),
         "matched_current_edge_count": sum(
             bool(row["matched_current_edge_id"]) for row in steps
