@@ -1715,6 +1715,12 @@
   }
 
   function preferReadableFocus() {
+    // The unified workspace gives an embedded workbench a narrower viewport.
+    // Showing only the target at a readable zoom makes a short route look
+    // broken even though the rest of the graph is merely off-canvas.  In an
+    // embed, the complete selected route is the primary object, so always fit
+    // it on first render; the user can still zoom after orientation is clear.
+    if (embeddedRoute) return false;
     if (state.mode !== 'current') return false;
     const lane = laneByBranch.get(state.selectedBranchId) || {};
     // Short routes benefit from a readable close view.  Longer routes must

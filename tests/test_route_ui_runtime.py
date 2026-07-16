@@ -102,6 +102,7 @@ def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
 
     assert "function preferReadableFocus()" in script
+    assert "if (embeddedRoute) return false" in script
     assert "return (lane.step_ids || []).length <= 4" in script
     assert "fitGraph({ readable: preferReadableFocus() })" in script
     assert "serpentine_long_route.v1" in script
