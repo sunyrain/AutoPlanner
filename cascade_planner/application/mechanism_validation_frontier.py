@@ -62,7 +62,8 @@ def compile_mechanism_validation_frontier(
         if gate.get("accepted") is True:
             continue
         candidate_id = str(proposal.get("source_candidate_id") or "")
-        if candidate_id not in candidates:
+        candidate = candidates.get(candidate_id)
+        if candidate is None:
             raise MechanismProgramError("validation_frontier_candidate_missing")
         required_checks = list(gate.get("required_checks") or [])
         plan_id = (
@@ -77,6 +78,8 @@ def compile_mechanism_validation_frontier(
             "program_id": str(program_id),
             "innovation_id": str(proposal.get("source_innovation_id") or ""),
             "candidate_id": candidate_id,
+            "priority_score": float(candidate.get("priority_score") or 0.0),
+            "experience_memory": dict(candidate.get("experience_memory") or {}),
             "canonical_context": {
                 "replaced_edge_ids": list(
                     proposal.get("equivalent_reference_span") or []

@@ -20,6 +20,7 @@ def admit_route_experimental_claims(
     mechanism_proposals: Iterable[Mapping[str, Any]] = (),
     validations: Iterable[Mapping[str, Any]] = (),
     enable_experimental_claim_admission: bool = False,
+    experience_library: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     materials = compile_route_program_innovation_materials(
         graph_store.load(),
@@ -28,6 +29,7 @@ def admit_route_experimental_claims(
         capabilities=capabilities,
         mechanism_proposals=mechanism_proposals,
         validations=validations,
+        experience_library=experience_library,
     )
     return _store(kernel).admit(
         graph=materials["graph"],

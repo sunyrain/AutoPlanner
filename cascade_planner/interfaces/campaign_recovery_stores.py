@@ -10,6 +10,9 @@ from cascade_planner.application.biocatalytic_program_store import (
 from cascade_planner.application.experimental_claim_store import (
     ExperimentalClaimStoreError,
 )
+from cascade_planner.application.mechanism_program_store import (
+    MechanismProgramStoreError,
+)
 from cascade_planner.application.transformation_program_store import (
     TransformationProgramStoreError,
 )
@@ -20,6 +23,9 @@ from cascade_planner.orchestration.biocatalytic_program_admission_runtime import
 from cascade_planner.orchestration.experimental_claim_admission_runtime import (
     experimental_claim_store_read,
 )
+from cascade_planner.orchestration.mechanism_program_admission_runtime import (
+    mechanism_program_store_read,
+)
 
 
 def recovery_program_stores(service: Any) -> dict[str, Any]:
@@ -27,11 +33,13 @@ def recovery_program_stores(service: Any) -> dict[str, Any]:
         return {
             "baseline": service.program_store(),
             "biocatalytic": biocatalytic_program_store_read(service.kernel),
+            "mechanism": mechanism_program_store_read(service.kernel),
             "experimental_claims": experimental_claim_store_read(service.kernel),
         }
     except (
         BiocatalyticProgramStoreError,
         ExperimentalClaimStoreError,
+        MechanismProgramStoreError,
         TransformationProgramStoreError,
     ) as exc:
         raise CampaignGatewayError(str(exc)) from exc

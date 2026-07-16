@@ -80,6 +80,8 @@ def compile_biocatalysis_validation_frontier(
             "innovation_id": str(proposal.get("source_innovation_id") or ""),
             "candidate_id": candidate_id,
             "capability_id": str(candidate.get("capability_id") or ""),
+            "priority_score": float(candidate.get("priority_score") or 0.0),
+            "experience_memory": dict(candidate.get("experience_memory") or {}),
             "canonical_context": {
                 "replaced_edge_ids": list(
                     proposal.get("equivalent_reference_span") or []
@@ -147,6 +149,7 @@ def compile_biocatalysis_validation_frontier(
                 "plans_are_read_only": True,
                 "literature_analogy_does_not_satisfy_exact_substrate_validation": True,
                 "plans_do_not_grant_admission_or_route_completion": True,
+                "experience_memory_changes_validation_priority_only": True,
                 "target_names_are_not_plan_inputs": True,
             },
         }

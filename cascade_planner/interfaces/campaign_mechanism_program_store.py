@@ -1,35 +1,33 @@
-"""Gateway responses for durable biocatalytic Program shadow admissions."""
+"""Gateway responses for durable mechanism Program shadow admissions."""
 
 from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
-from cascade_planner.application.biocatalytic_program_store import (
-    BiocatalyticProgramStoreError,
-)
-from cascade_planner.application.biocatalytic_programs import BiocatalyticProgramError
+from cascade_planner.application.mechanism_program_store import MechanismProgramStoreError
+from cascade_planner.application.mechanism_programs import MechanismProgramError
 from cascade_planner.interfaces.campaign_gateway_contract import (
     CAMPAIGN_GATEWAY_RESULT_SCHEMA,
     CampaignGatewayError,
 )
-from cascade_planner.orchestration.biocatalytic_program_admission_runtime import (
-    admit_route_biocatalytic_programs,
-    biocatalytic_program_store_read,
+from cascade_planner.orchestration.mechanism_program_admission_runtime import (
+    admit_route_mechanism_programs,
+    mechanism_program_store_read,
 )
 
 
-def admit_route_program_innovations_result(
+def admit_route_mechanism_programs_result(
     service: Any,
     *,
     route_id: str,
     capabilities: Mapping[str, Any] | Iterable[Mapping[str, Any]],
     mechanism_proposals: Iterable[Mapping[str, Any]] = (),
     validations: Iterable[Mapping[str, Any]] = (),
-    enable_biocatalytic_program_admission: bool = False,
     experience_library: Mapping[str, Any] | None = None,
+    enable_mechanism_program_admission: bool = False,
 ) -> dict[str, Any]:
     try:
-        value = admit_route_biocatalytic_programs(
+        value = admit_route_mechanism_programs(
             service.kernel,
             service.graph_store,
             acceptance_spec=service.kernel.spec.acceptance,
@@ -37,22 +35,20 @@ def admit_route_program_innovations_result(
             capabilities=capabilities,
             mechanism_proposals=mechanism_proposals,
             validations=validations,
-            enable_biocatalytic_program_admission=(
-                enable_biocatalytic_program_admission
-            ),
             experience_library=experience_library,
+            enable_mechanism_program_admission=enable_mechanism_program_admission,
         )
-    except (BiocatalyticProgramError, BiocatalyticProgramStoreError, ValueError) as exc:
+    except (MechanismProgramError, MechanismProgramStoreError, ValueError) as exc:
         raise CampaignGatewayError(str(exc)) from exc
-    return _result(service, "admit-route-program-innovations", value)
+    return _result(service, "admit-route-mechanism-programs", value)
 
 
-def biocatalytic_program_store_result(service: Any) -> dict[str, Any]:
+def mechanism_program_store_result(service: Any) -> dict[str, Any]:
     try:
-        value = biocatalytic_program_store_read(service.kernel)
-    except BiocatalyticProgramStoreError as exc:
+        value = mechanism_program_store_read(service.kernel)
+    except MechanismProgramStoreError as exc:
         raise CampaignGatewayError(str(exc)) from exc
-    return _result(service, "biocatalytic-program-store", value)
+    return _result(service, "mechanism-program-store", value)
 
 
 def _result(service: Any, operation: str, value: dict[str, Any]) -> dict[str, Any]:
@@ -64,7 +60,4 @@ def _result(service: Any, operation: str, value: dict[str, Any]) -> dict[str, An
     }
 
 
-__all__ = [
-    "admit_route_program_innovations_result",
-    "biocatalytic_program_store_result",
-]
+__all__ = ["admit_route_mechanism_programs_result", "mechanism_program_store_result"]

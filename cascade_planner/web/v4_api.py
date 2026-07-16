@@ -25,10 +25,10 @@ from cascade_planner.web.v4_target_runtime import (
     solve_target_request as _solve_target_request,
     utc_now as _utc_now,
 )
-from cascade_planner.web.v4_program_payload import (
-    program_innovation_payload as _program_innovation_payload,
-)
 from cascade_planner.web.v4_experiment_api import register_experiment_routes
+from cascade_planner.web.v4_program_innovation_api import (
+    register_program_innovation_routes,
+)
 from cascade_planner.web.workspace_surface import register_workspace_routes
 
 
@@ -43,6 +43,7 @@ def create_v4_blueprint(
     jobs: dict[str, dict[str, Any]] = {}
     jobs_lock = RLock()
     register_experiment_routes(blueprint, factory)
+    register_program_innovation_routes(blueprint, factory)
     register_workspace_routes(blueprint, factory)
 
     @blueprint.errorhandler(CampaignGatewayError)
@@ -56,9 +57,13 @@ def create_v4_blueprint(
                 "biocatalytic_program_event_",
                 "biocatalytic_program_artifact_",
                 "biocatalytic_program_store_",
+                "mechanism_program_event_",
+                "mechanism_program_artifact_",
+                "mechanism_program_store_",
                 "experimental_claim_event_",
                 "experimental_claim_artifact_",
                 "experimental_claim_store_",
+                "program_experience_library_",
             )
         ):
             code = 500
@@ -67,6 +72,8 @@ def create_v4_blueprint(
                 "program_admission_disabled:",
                 "biocatalytic_program_admission_disabled:",
                 "experimental_claim_admission_disabled:",
+                "mechanism_program_admission_disabled:",
+                "program_experience_learning_disabled:",
             )
         ):
             code = 409
@@ -249,49 +256,6 @@ def create_v4_blueprint(
     @blueprint.get("/api/v4/runs/<run_id>/programs/routes")
     def route_program_dual_read(run_id: str):
         return jsonify(factory().route_program_dual_read(run_id))
-
-    @blueprint.post("/api/v4/runs/<run_id>/programs/innovations")
-    def route_program_innovations(run_id: str):
-        return jsonify(
-            factory().route_program_innovations(
-                run_id,
-                **_program_innovation_payload(
-                    _payload(), allow_reported_candidates=True
-                ),
-            )
-        )
-
-    @blueprint.get("/api/v4/runs/<run_id>/programs/innovations/store")
-    def biocatalytic_program_store(run_id: str):
-        return jsonify(factory().biocatalytic_program_store(run_id))
-
-    @blueprint.post("/api/v4/runs/<run_id>/programs/innovations/admit")
-    def admit_route_program_innovations(run_id: str):
-        payload = _payload()
-        result = factory().admit_route_program_innovations(
-            run_id,
-            **_program_innovation_payload(payload),
-            enable_biocatalytic_program_admission=(
-                payload.get("enable_biocatalytic_program_admission") is True
-            ),
-        )
-        return jsonify(result), 201 if result.get("created") is True else 200
-
-    @blueprint.get("/api/v4/runs/<run_id>/programs/innovations/claims/store")
-    def experimental_claim_store(run_id: str):
-        return jsonify(factory().experimental_claim_store(run_id))
-
-    @blueprint.post("/api/v4/runs/<run_id>/programs/innovations/claims/admit")
-    def admit_route_experimental_claims(run_id: str):
-        payload = _payload()
-        result = factory().admit_route_experimental_claims(
-            run_id,
-            **_program_innovation_payload(payload),
-            enable_experimental_claim_admission=(
-                payload.get("enable_experimental_claim_admission") is True
-            ),
-        )
-        return jsonify(result), 201 if result.get("created") is True else 200
 
     @blueprint.post("/api/v4/runs/<run_id>/programs/admit")
     def admit_programs(run_id: str):

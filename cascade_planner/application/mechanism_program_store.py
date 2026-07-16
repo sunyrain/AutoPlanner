@@ -1,4 +1,4 @@
-"""Append-only store for exact-boundary experimental observation Claims."""
+"""Append-only shadow store for validated one-hop mechanism Programs."""
 
 from __future__ import annotations
 
@@ -6,63 +6,63 @@ import os
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from cascade_planner.application.experimental_claim_store_contracts import (
-    EXPERIMENTAL_CLAIM_ADMISSION_RESULT_SCHEMA,
-    EXPERIMENTAL_CLAIM_STORE_ORACLE_SCHEMA,
-    EXPERIMENTAL_CLAIM_STORE_REPLAY_SCHEMA,
-    EXPERIMENTAL_CLAIM_STORE_STATUS_SCHEMA,
-    ExperimentalClaimAdmissionDisabled,
-    ExperimentalClaimStoreCorruption,
-    ExperimentalClaimStoreError,
+from cascade_planner.application.mechanism_program_store_contracts import (
+    MECHANISM_PROGRAM_ADMISSION_RESULT_SCHEMA,
+    MECHANISM_PROGRAM_STORE_ORACLE_SCHEMA,
+    MECHANISM_PROGRAM_STORE_REPLAY_SCHEMA,
+    MECHANISM_PROGRAM_STORE_STATUS_SCHEMA,
+    MechanismProgramAdmissionDisabled,
+    MechanismProgramStoreCorruption,
+    MechanismProgramStoreError,
     admission_event,
+    admitted_entities,
     validation_pack,
     with_digest,
 )
-from cascade_planner.application.experimental_claim_store_replay import (
-    ExperimentalClaimAdmissionRecord,
-    load_experimental_claim_admission_record,
+from cascade_planner.application.mechanism_program_store_replay import (
+    MechanismAdmissionRecord,
+    load_mechanism_admission_record,
 )
+from cascade_planner.application.mechanism_programs import mechanism_program_bundle_oracle
 from cascade_planner.runtime.artifact_store import ArtifactRef, ArtifactStore
+from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 from cascade_planner.runtime.immutable_event_store import (
     load_replayable_event_records,
     publish_replayable_event,
 )
 from cascade_planner.runtime.run_index import RunIndex
-from cascade_planner.application.experimental_claim_store_projection import (
-    reproject_experimental_claim_materials,
-)
 
 
 _ARTIFACTS = {
     "graph": (
-        "canonical_hypergraph.experimental_claim_admission.json",
-        "experimental_claim_source_graph",
+        "canonical_hypergraph.mechanism_program_admission.json",
+        "shadow_mechanism_program_source_graph",
     ),
     "route": (
-        "source_route.experimental_claim_admission.json",
-        "experimental_claim_source_route",
+        "source_route.mechanism_program_admission.json",
+        "shadow_mechanism_program_source_route",
     ),
     "projection": (
-        "program_projection.experimental_claim_admission.json",
-        "experimental_claim_source_projection",
+        "baseline_program_projection.mechanism_admission.json",
+        "shadow_mechanism_program_baseline_projection",
     ),
     "discovery": (
-        "route_innovation_discovery.experimental_claim_admission.json",
-        "experimental_claim_source_discovery",
+        "route_innovation_discovery.mechanism_admission.json",
+        "shadow_mechanism_program_discovery",
+    ),
+    "bundle": (
+        "mechanism_program_bundle.admission.json",
+        "shadow_mechanism_program_bundle",
     ),
     "validation_pack": (
-        "experimental_claim_validation_pack.json",
-        "experimental_claim_source_validations",
-    ),
-    "claim_set": (
-        "experimental_observation_claim_set.admission.json",
-        "experimental_claim_exact_boundary_observations",
+        "mechanism_program_validation_pack.json",
+        "shadow_mechanism_program_validations",
     ),
 }
 
 
-class ExperimentalClaimStore:
-    """Persist observations without promoting reaction or route authority."""
+class MechanismProgramStore:
+    """Persist validated restitched mechanism alternatives without route takeover."""
 
     def __init__(
         self,
@@ -74,16 +74,16 @@ class ExperimentalClaimStore:
     ) -> None:
         identity = str(run_id or "").strip()
         if not identity:
-            raise ValueError("experimental_claim_store_run_id_required")
+            raise ValueError("mechanism_program_store_run_id_required")
         directory = Path(run_dir).expanduser().resolve()
         self.run_id = identity
         self.run_dir = directory
-        self.root = (directory / ".autoplanner" / "experimental_claims").resolve()
+        self.root = (directory / ".autoplanner" / "mechanism_programs").resolve()
         self.event_root = self.root / "events" / "sha256"
         try:
             self.root.relative_to(directory)
         except ValueError as exc:
-            raise ValueError("experimental_claim_store_path_escape") from exc
+            raise ValueError("mechanism_program_store_path_escape") from exc
         self.artifacts = artifacts
         self.index = index
 
@@ -94,43 +94,42 @@ class ExperimentalClaimStore:
         route: Mapping[str, Any],
         projection: Mapping[str, Any],
         discovery: Mapping[str, Any],
+        bundle: Mapping[str, Any],
         validations: Sequence[Mapping[str, Any]],
-        enable_experimental_claim_admission: bool = False,
+        enable_mechanism_program_admission: bool = False,
     ) -> dict[str, Any]:
-        if enable_experimental_claim_admission is not True:
-            raise ExperimentalClaimAdmissionDisabled(
-                "experimental_claim_admission_disabled:explicit_enable_required"
+        if enable_mechanism_program_admission is not True:
+            raise MechanismProgramAdmissionDisabled(
+                "mechanism_program_admission_disabled:explicit_enable_required"
             )
         rows = [dict(value) for value in validations]
+        oracle = mechanism_program_bundle_oracle(
+            graph,
+            route,
+            projection,
+            discovery,
+            bundle,
+            validations=rows,
+        )
+        program_ids, route_ids = admitted_entities(bundle)
+        if oracle.get("accepted") is not True:
+            raise MechanismProgramStoreError("mechanism_program_bundle_oracle_failed")
+        if not program_ids or not route_ids:
+            raise MechanismProgramStoreError(
+                "mechanism_program_admission_requires_validated_restitched_candidate"
+            )
         pack = validation_pack(
             run_id=self.run_id,
             route_id=str(route.get("route_id") or ""),
             validations=rows,
         )
-        canonical_rows = list(pack["validations"])
-        projected = reproject_experimental_claim_materials(
-            graph, route, projection, discovery, canonical_rows
-        )
-        claim_set = projected["experimental_claims"]
-        oracle = projected["experimental_claims_oracle"]
-        if oracle.get("accepted") is not True:
-            raise ExperimentalClaimStoreError("experimental_claim_set_oracle_failed")
-        if (
-            claim_set.get("run_id") != self.run_id
-            or claim_set.get("route_id") != route.get("route_id")
-        ):
-            raise ExperimentalClaimStoreError("experimental_claim_store_identity_mismatch")
-        if not claim_set.get("claims"):
-            raise ExperimentalClaimStoreError(
-                "experimental_claim_admission_requires_observation"
-            )
         values = {
             "graph": dict(graph),
             "route": dict(route),
             "projection": dict(projection),
             "discovery": dict(discovery),
+            "bundle": dict(bundle),
             "validation_pack": pack,
-            "claim_set": claim_set,
         }
         refs = self._put_artifacts(values)
         event = admission_event(
@@ -139,17 +138,19 @@ class ExperimentalClaimStore:
             route=route,
             projection=projection,
             discovery=discovery,
+            bundle=bundle,
             pack=pack,
-            claim_set=claim_set,
-            refs={key: ref.to_dict() for key, ref in refs.items()},
+            refs={key: value.to_dict() for key, value in refs.items()},
             oracle=oracle,
         )
-        path, created = self._publish(event)
+        path, created = publish_replayable_event(
+            self.event_root, event, load=self._load
+        )
         self._pin_artifacts(event, refs)
         record = self._load(path)
         return with_digest(
             {
-                "schema_version": EXPERIMENTAL_CLAIM_ADMISSION_RESULT_SCHEMA,
+                "schema_version": MECHANISM_PROGRAM_ADMISSION_RESULT_SCHEMA,
                 "run_id": self.run_id,
                 "admitted": True,
                 "created": created,
@@ -159,13 +160,16 @@ class ExperimentalClaimStore:
                     route=route,
                     projection=projection,
                     discovery=discovery,
+                    bundle=bundle,
                     validations=rows,
                 ),
                 "semantics": {
                     "explicit_enablement_observed": True,
                     "admission_is_idempotent": True,
-                    "positive_negative_and_inconclusive_claims_are_equal_store_inputs": True,
-                    "production_route_and_canonical_fact_authority_unchanged": True,
+                    "full_route_was_restitched": True,
+                    "baseline_fallback_retained": True,
+                    "anchor_evidence_not_promoted": True,
+                    "production_route_authority_unchanged": True,
                 },
             }
         )
@@ -174,36 +178,24 @@ class ExperimentalClaimStore:
         records = self._records()
         return with_digest(
             {
-                "schema_version": EXPERIMENTAL_CLAIM_STORE_REPLAY_SCHEMA,
+                "schema_version": MECHANISM_PROGRAM_STORE_REPLAY_SCHEMA,
                 "run_id": self.run_id,
                 "event_count": len(records),
                 "events": [record.event for record in records],
-                "claim_ids": sorted(
+                "admitted_program_ids": sorted(
                     {
-                        claim_id
+                        value
                         for record in records
-                        for claim_id in record.event["claim_ids"]
+                        for value in record.event["admitted_program_ids"]
                     }
                 ),
                 "semantics": {
                     "all_events_and_cas_objects_replayed": True,
-                    "all_claim_sets_reprojected_from_source_inputs": True,
-                    "replay_grants_no_proof_completion_acceptance_or_catalog_authority": True,
+                    "anchor_authority_isolated": True,
+                    "replay_grants_no_production_authority": True,
                 },
             }
         )
-
-    def experience_sources(self) -> list[dict[str, Any]]:
-        """Expose only fully replayed source triples for external memory learning."""
-
-        return [
-            {
-                "graph": record.graph,
-                "discovery": record.discovery,
-                "claim_set": record.claim_set,
-            }
-            for record in self._records()
-        ]
 
     def status(
         self,
@@ -212,60 +204,64 @@ class ExperimentalClaimStore:
         route: Mapping[str, Any],
         projection: Mapping[str, Any],
         discovery: Mapping[str, Any],
+        bundle: Mapping[str, Any],
         validations: Sequence[Mapping[str, Any]],
     ) -> dict[str, Any]:
         records = self._records()
-        rows = [dict(value) for value in validations]
         pack = validation_pack(
             run_id=self.run_id,
             route_id=str(route.get("route_id") or ""),
-            validations=rows,
+            validations=validations,
         )
-        projected = reproject_experimental_claim_materials(
-            graph, route, projection, discovery, list(pack["validations"])
-        )
-        claim_set = projected["experimental_claims"]
+        route_sha256 = strict_canonical_json_sha256(route)
         matching = [
             record
             for record in records
             if record.event.get("source_graph_revision") == graph.get("revision")
             and record.event.get("source_graph_scientific_sha256")
             == graph.get("scientific_sha256")
-            and record.event.get("source_route_id") == route.get("route_id")
-            and record.event.get("source_projection_sha256")
+            and record.event.get("source_route_sha256") == route_sha256
+            and record.event.get("baseline_projection_sha256")
             == projection.get("content_sha256")
-            and record.event.get("source_discovery_sha256")
-            == discovery.get("content_sha256")
-            and record.event.get("claim_set_sha256")
-            == claim_set.get("content_sha256")
+            and record.event.get("discovery_sha256") == discovery.get("content_sha256")
+            and record.event.get("bundle_sha256") == bundle.get("content_sha256")
+            and record.event.get("validation_pack_sha256") == pack.get("content_sha256")
         ]
         current = max(
             matching,
             key=lambda row: str(row.event.get("content_sha256") or ""),
             default=None,
         )
+        current_oracle = mechanism_program_bundle_oracle(
+            graph,
+            route,
+            projection,
+            discovery,
+            bundle,
+            validations=validations,
+        )
         checks = {
             "event_replay_valid": True,
-            "current_claim_set_event_present": current is not None,
-            "current_claim_set_oracle_equal": (
+            "current_bundle_event_present": current is not None,
+            "current_bundle_oracle_equal": (
                 current is not None
-                and projected["experimental_claims_oracle"].get("accepted") is True
-                and current.claim_set == claim_set
+                and current_oracle.get("accepted") is True
+                and current.bundle == bundle
             ),
         }
         oracle = with_digest(
             {
-                "schema_version": EXPERIMENTAL_CLAIM_STORE_ORACLE_SCHEMA,
+                "schema_version": MECHANISM_PROGRAM_STORE_ORACLE_SCHEMA,
                 "accepted": all(checks.values()),
                 "checks": checks,
                 "reasons": sorted(key for key, value in checks.items() if not value),
-                "expected_claim_set_sha256": str(claim_set.get("content_sha256") or ""),
-                "observed_claim_set_sha256": (
-                    str(current.event.get("claim_set_sha256") or "") if current else ""
+                "expected_bundle_sha256": str(bundle.get("content_sha256") or ""),
+                "observed_bundle_sha256": (
+                    str(current.event.get("bundle_sha256") or "") if current else ""
                 ),
                 "semantics": {
                     "dual_read_only": True,
-                    "cannot_switch_route_or_fact_authority": True,
+                    "cannot_switch_route_or_reaction_authority": True,
                 },
             }
         )
@@ -279,11 +275,11 @@ class ExperimentalClaimStore:
         )
         return with_digest(
             {
-                "schema_version": EXPERIMENTAL_CLAIM_STORE_STATUS_SCHEMA,
+                "schema_version": MECHANISM_PROGRAM_STORE_STATUS_SCHEMA,
                 "run_id": self.run_id,
                 "initialized": bool(records),
                 "event_count": len(records),
-                "current_claim_set_admitted": current is not None,
+                "current_bundle_admitted": current is not None,
                 "latest_event": _event_summary(latest.event) if latest else {},
                 "oracle": oracle,
                 "semantics": {
@@ -302,7 +298,7 @@ class ExperimentalClaimStore:
             key: self.artifacts.put_json(
                 values[key],
                 logical_name=logical_name,
-                producer="autoplanner.experimental_claim_store",
+                producer="autoplanner.mechanism_program_store",
             )
             for key, (logical_name, _scope) in _ARTIFACTS.items()
         }
@@ -317,27 +313,24 @@ class ExperimentalClaimStore:
         for key, (_logical_name, scope) in _ARTIFACTS.items():
             self.index.index_artifact(
                 run_id=self.run_id,
-                artifact_id=f"experimental_claim_admission_{key}:{identity}",
+                artifact_id=f"mechanism_program_admission_{key}:{identity}",
                 ref=refs[key],
                 revision=revision,
                 authority_scope=scope,
             )
 
-    def _records(self) -> list[ExperimentalClaimAdmissionRecord]:
+    def _records(self) -> list[MechanismAdmissionRecord]:
         return load_replayable_event_records(
             self.event_root,
             load=self._load,
             event_id=lambda record: str(record.event.get("event_id") or ""),
-            corruption=ExperimentalClaimStoreCorruption,
-            root_not_directory="experimental_claim_event_root_not_directory",
-            duplicate_identity="experimental_claim_store_duplicate_event_identity",
+            corruption=MechanismProgramStoreCorruption,
+            root_not_directory="mechanism_program_event_root_not_directory",
+            duplicate_identity="mechanism_program_store_duplicate_event_identity",
         )
 
-    def _publish(self, event: Mapping[str, Any]) -> tuple[Path, bool]:
-        return publish_replayable_event(self.event_root, event, load=self._load)
-
-    def _load(self, path: Path) -> ExperimentalClaimAdmissionRecord:
-        return load_experimental_claim_admission_record(
+    def _load(self, path: Path) -> MechanismAdmissionRecord:
+        return load_mechanism_admission_record(
             path, run_id=self.run_id, artifacts=self.artifacts
         )
 
@@ -348,15 +341,15 @@ def _event_summary(event: Mapping[str, Any]) -> dict[str, Any]:
         "content_sha256": str(event.get("content_sha256") or ""),
         "source_graph_revision": int(event.get("source_graph_revision") or 0),
         "source_route_id": str(event.get("source_route_id") or ""),
-        "claim_set_sha256": str(event.get("claim_set_sha256") or ""),
-        "claim_ids": list(event.get("claim_ids") or []),
+        "bundle_sha256": str(event.get("bundle_sha256") or ""),
+        "admitted_program_ids": list(event.get("admitted_program_ids") or []),
         "counts": dict(event.get("counts") or {}),
     }
 
 
 __all__ = [
-    "ExperimentalClaimAdmissionDisabled",
-    "ExperimentalClaimStore",
-    "ExperimentalClaimStoreCorruption",
-    "ExperimentalClaimStoreError",
+    "MechanismProgramAdmissionDisabled",
+    "MechanismProgramStore",
+    "MechanismProgramStoreCorruption",
+    "MechanismProgramStoreError",
 ]

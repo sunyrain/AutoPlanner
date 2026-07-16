@@ -21,6 +21,11 @@ from cascade_planner.application.mechanism_programs import (
     compile_mechanism_program_bundle,
     mechanism_program_bundle_oracle,
 )
+from cascade_planner.application.mechanism_program_store import (
+    MechanismProgramAdmissionDisabled,
+    MechanismProgramStore,
+    MechanismProgramStoreError,
+)
 from cascade_planner.application.mechanism_experiment_feedback import (
     compile_mechanism_experiment_feedback,
     mechanism_experiment_feedback_oracle,
@@ -53,6 +58,7 @@ from cascade_planner.orchestration.program_candidate_review_materials import (
     compile_program_candidate_review_materials,
 )
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
+from cascade_planner.runtime.artifact_store import ArtifactStore
 
 
 def _fixture() -> tuple[dict, dict]:
@@ -168,6 +174,69 @@ def _mechanism_validation(proposal: dict, outcome: str) -> dict:
             "outcome_metrics": {"conversion_fraction": 0.8 if outcome == "success" else 0.0},
         }
     )
+
+
+def test_validated_mechanism_program_has_explicit_durable_shadow_admission(tmp_path) -> None:
+    graph, route, projection, discovery, unvalidated = _materials()
+    proposal = next(iter(unvalidated["program_proposals"].values()))
+    validation = _mechanism_validation(proposal, "success")
+    bundle = compile_mechanism_program_bundle(
+        graph, route, projection, discovery, validations=[validation]
+    )
+    store = MechanismProgramStore(
+        run_id=graph["run_id"],
+        run_dir=tmp_path / "run",
+        artifacts=ArtifactStore(tmp_path / "artifacts"),
+    )
+
+    with pytest.raises(MechanismProgramAdmissionDisabled):
+        store.admit(
+            graph=graph,
+            route=route,
+            projection=projection,
+            discovery=discovery,
+            bundle=bundle,
+            validations=[validation],
+        )
+    with pytest.raises(MechanismProgramStoreError):
+        store.admit(
+            graph=graph,
+            route=route,
+            projection=projection,
+            discovery=discovery,
+            bundle=unvalidated,
+            validations=[],
+            enable_mechanism_program_admission=True,
+        )
+
+    first = store.admit(
+        graph=graph,
+        route=route,
+        projection=projection,
+        discovery=discovery,
+        bundle=bundle,
+        validations=[validation],
+        enable_mechanism_program_admission=True,
+    )
+    second = store.admit(
+        graph=graph,
+        route=route,
+        projection=projection,
+        discovery=discovery,
+        bundle=bundle,
+        validations=[validation],
+        enable_mechanism_program_admission=True,
+    )
+
+    assert first["created"] is True
+    assert second["created"] is False
+    assert first["event"]["counts"]["admitted_programs"] == 1
+    admitted_route_id = first["event"]["admitted_route_candidate_ids"][0]
+    admitted_route = bundle["route_candidates"][admitted_route_id]
+    assert admitted_route["fallback_program_ids"]
+    assert admitted_route["eligible_for_route_completion"] is False
+    assert first["semantics"]["anchor_evidence_not_promoted"] is True
+    assert store.replay()["event_count"] == 1
 
 
 def test_one_hop_rejoins_route_and_compiles_full_exploration_candidate() -> None:

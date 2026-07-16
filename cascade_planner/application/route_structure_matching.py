@@ -177,6 +177,16 @@ def structure_transition(precursor_smiles: str, product_smiles: str) -> dict[str
     }
 
 
+def molecule_similarity(left_smiles: str, right_smiles: str) -> float:
+    """Return a deterministic Morgan similarity for two valid structures."""
+
+    left = Chem.MolFromSmiles(str(left_smiles or ""))
+    right = Chem.MolFromSmiles(str(right_smiles or ""))
+    if left is None or right is None:
+        return 0.0
+    return round(_similarity(left, right), 6)
+
+
 def _motif_counts(molecule: Any) -> dict[str, int]:
     return {
         key: len(molecule.GetSubstructMatches(Chem.MolFromSmarts(smarts)))
@@ -258,6 +268,7 @@ def _float(value: Any, default: float) -> float:
 
 __all__ = [
     "match_structure_capability",
+    "molecule_similarity",
     "normalize_structure_match",
     "structure_match_input_valid",
     "structure_transition",

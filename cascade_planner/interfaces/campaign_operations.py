@@ -21,6 +21,9 @@ from cascade_planner.interfaces.biocatalytic_program_gc import (
 from cascade_planner.interfaces.experimental_claim_gc import (
     experimental_claim_pinned_digests,
 )
+from cascade_planner.interfaces.mechanism_program_gc import (
+    mechanism_program_pinned_digests,
+)
 from cascade_planner.interfaces.program_gc import program_store_pinned_digests
 from cascade_planner.orchestration.retrosynthesis_service import (
     RetrosynthesisCampaignService,
@@ -112,6 +115,7 @@ def plan_artifact_gc(
                 indexed_pins.add(digest)
     program_pins = program_store_pinned_digests(paths, index)
     program_pins |= biocatalytic_program_pinned_digests(paths, index)
+    program_pins |= mechanism_program_pinned_digests(paths, index)
     program_pins |= experimental_claim_pinned_digests(paths, index)
     pinned = indexed_pins | program_pins
     plan = ArtifactStore(paths.artifact_store_root).garbage_collection_plan(

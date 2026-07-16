@@ -19,6 +19,7 @@ def review_route_program_innovations(
     mechanism_proposals: Iterable[Mapping[str, Any]] = (),
     validations: Iterable[Mapping[str, Any]] = (),
     reported_candidate_packs: Iterable[Mapping[str, Any]] = (),
+    experience_library: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile discoveries into Program drafts without canonical graph writes."""
 
@@ -30,12 +31,14 @@ def review_route_program_innovations(
         mechanism_proposals=mechanism_proposals,
         validations=validations,
         reported_candidate_packs=reported_candidate_packs,
+        experience_library=experience_library,
     )
     result = {
         "schema_version": "route_program_innovation_review.v1",
         "run_id": str(graph.get("run_id") or ""),
         "route_id": str(materials["route"].get("route_id") or ""),
         "discovery": materials["discovery"],
+        "program_experience": dict(materials["discovery"].get("program_experience") or {}),
         "program_bundle": materials["bundle"],
         "mechanism_program_bundle": materials["mechanism_bundle"],
         "mechanism_validation_frontier": materials["mechanism_validation_frontier"],
@@ -80,6 +83,7 @@ def review_route_program_innovations(
             "experimental_work_is_bound_to_the_single_canonical_frontier": True,
             "experiment_results_require_explicit_domain_gate_release": True,
             "execution_programs_have_no_store_admission_path": True,
+            "self_evolution_memory_is_proposal_ranking_only": True,
         },
     }
     result["content_sha256"] = strict_canonical_json_sha256(result)

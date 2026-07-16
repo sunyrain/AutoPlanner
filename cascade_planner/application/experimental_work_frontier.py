@@ -40,6 +40,7 @@ WORK_FRONTIER_SEMANTICS = {
     "dirty_hints_schedule_recomputation_only": True,
     "work_items_grant_no_validation_claim_proof_or_completion": True,
     "executor_results_require_separate_domain_gate": True,
+    "experience_memory_changes_priority_only": True,
 }
 
 
@@ -129,6 +130,8 @@ def compile_experimental_work_frontier(
                     "linked_canonical_deficit" if linked_deficits else "route_scoped_shadow_work"
                 ),
                 "dirty_hint_ids": dirty_ids,
+                "priority_score": float(plan.get("priority_score") or 0.0),
+                "experience_memory": dict(plan.get("experience_memory") or {}),
                 "execution_request": request,
                 "status": "executor_candidate",
                 "grants_validation": False,

@@ -20,6 +20,7 @@ def validate_campaign(service: Any) -> dict[str, Any]:
     stores = recovery_program_stores(service)
     program_store = stores["baseline"]
     biocatalytic_store = stores["biocatalytic"]["replay"]
+    mechanism_store = stores["mechanism"]["replay"]
     experimental_claim_store = stores["experimental_claims"]["replay"]
     program_status = program_store["status"]
     checks = {
@@ -42,6 +43,9 @@ def validate_campaign(service: Any) -> dict[str, Any]:
         "biocatalytic_program_store_replay_valid": (
             biocatalytic_store["event_count"] == len(biocatalytic_store["events"])
         ),
+        "mechanism_program_store_replay_valid": (
+            mechanism_store["event_count"] == len(mechanism_store["events"])
+        ),
         "experimental_claim_store_replay_valid": (
             experimental_claim_store["event_count"]
             == len(experimental_claim_store["events"])
@@ -59,6 +63,7 @@ def validate_campaign(service: Any) -> dict[str, Any]:
         "workbench_sha256": workbench["content_sha256"],
         "program_store": program_status,
         "biocatalytic_program_store": biocatalytic_store,
+        "mechanism_program_store": mechanism_store,
         "experimental_claim_store": experimental_claim_store,
     }
 
@@ -72,6 +77,7 @@ def replay_campaign(service: Any) -> dict[str, Any]:
     stores = recovery_program_stores(service)
     program_store = stores["baseline"]
     biocatalytic_store = stores["biocatalytic"]["replay"]
+    mechanism_store = stores["mechanism"]["replay"]
     experimental_claim_store = stores["experimental_claims"]["replay"]
     program_status = program_store["status"]
     checks = {
@@ -87,6 +93,9 @@ def replay_campaign(service: Any) -> dict[str, Any]:
         "biocatalytic_program_store_replay_valid": (
             biocatalytic_store["event_count"] == len(biocatalytic_store["events"])
         ),
+        "mechanism_program_store_replay_valid": (
+            mechanism_store["event_count"] == len(mechanism_store["events"])
+        ),
         "experimental_claim_store_replay_valid": (
             experimental_claim_store["event_count"]
             == len(experimental_claim_store["events"])
@@ -101,6 +110,7 @@ def replay_campaign(service: Any) -> dict[str, Any]:
         "recovery": recovery,
         "program_store": program_status,
         "biocatalytic_program_store": biocatalytic_store,
+        "mechanism_program_store": mechanism_store,
         "experimental_claim_store": experimental_claim_store,
     }
 

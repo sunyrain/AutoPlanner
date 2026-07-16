@@ -38,6 +38,7 @@ def compile_route_program_innovation_materials(
     mechanism_proposals: Iterable[Mapping[str, Any]] = (),
     validations: Iterable[Mapping[str, Any]] = (),
     reported_candidate_packs: Iterable[Mapping[str, Any]] = (),
+    experience_library: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     validation_rows = [dict(value) for value in validations]
     (
@@ -55,6 +56,7 @@ def compile_route_program_innovation_materials(
         route,
         capabilities=capabilities,
         mechanism_proposals=mechanism_proposals,
+        experience_library=experience_library,
     )
     projection = project_canonical_graph_to_programs(graph)
     bundle = compile_biocatalytic_program_bundle(

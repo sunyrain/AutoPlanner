@@ -85,6 +85,8 @@ def compile_execution_validation_frontier(
             "program_id": str(program_id),
             "candidate_id": candidate_id,
             "capability_id": str(proposal.get("source_capability_id") or ""),
+            "priority_score": float(candidate.get("priority_score") or 0.0),
+            "experience_memory": dict(candidate.get("experience_memory") or {}),
             "source_capability_sha256": str(
                 proposal.get("source_capability_sha256") or ""
             ),

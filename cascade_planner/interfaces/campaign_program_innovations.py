@@ -25,6 +25,7 @@ def route_program_innovations_result(
     mechanism_proposals: Iterable[Mapping[str, Any]] = (),
     validations: Iterable[Mapping[str, Any]] = (),
     reported_candidate_packs: Iterable[Mapping[str, Any]] = (),
+    experience_library: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         value = review_route_program_innovations(
@@ -35,6 +36,7 @@ def route_program_innovations_result(
             mechanism_proposals=mechanism_proposals,
             validations=validations,
             reported_candidate_packs=reported_candidate_packs,
+            experience_library=experience_library,
         )
     except (BiocatalyticProgramError, ValueError) as exc:
         raise CampaignGatewayError(str(exc)) from exc

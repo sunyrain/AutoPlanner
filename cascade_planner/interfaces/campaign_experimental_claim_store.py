@@ -25,6 +25,7 @@ def admit_route_experimental_claims_result(
     mechanism_proposals: Iterable[Mapping[str, Any]] = (),
     validations: Iterable[Mapping[str, Any]] = (),
     enable_experimental_claim_admission: bool = False,
+    experience_library: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         value = admit_route_experimental_claims(
@@ -36,6 +37,7 @@ def admit_route_experimental_claims_result(
             mechanism_proposals=mechanism_proposals,
             validations=validations,
             enable_experimental_claim_admission=enable_experimental_claim_admission,
+            experience_library=experience_library,
         )
     except (ExperimentalClaimStoreError, ValueError) as exc:
         raise CampaignGatewayError(str(exc)) from exc

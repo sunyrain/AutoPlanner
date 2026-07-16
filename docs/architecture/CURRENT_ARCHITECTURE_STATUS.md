@@ -1,5 +1,9 @@
 # AutoPlanner 当前架构状态与迁移路线
 
+> 2026-07-16 增量：一跳机理 Program 的独立耐久影子准入，以及基于可重放实验 Claim 的跨任务自进化记忆已经实现。详见
+> [Program 创新与自进化完成切片](PROGRAM_INNOVATION_SELF_EVOLUTION_STATUS_20260716.md)。这里的“完成”指代码架构与耐久边界完成，
+> 不代表尚未执行的真实底物实验已经成功，也不改变生产路线的 `edge_ids[]` 权威。
+
 状态基线：2026-07-16
 适用范围：仓库当前工作区；用于回答“现在已经完成到哪里”和“一个 SMILES 当前如何被处理”。
 下一代目标：[通用逆合成创新架构（GRIA）](GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md)

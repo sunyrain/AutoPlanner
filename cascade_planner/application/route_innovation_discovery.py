@@ -26,6 +26,7 @@ from cascade_planner.application.route_innovation_windows import (
     molecule_smiles,
     route_window_boundary,
 )
+from cascade_planner.application.program_experience import apply_program_experience
 
 
 ROUTE_INNOVATION_DISCOVERY_SCHEMA = "route_innovation_discovery.v1"
@@ -37,6 +38,7 @@ def discover_route_innovations(
     *,
     capabilities: Mapping[str, Any] | Iterable[Mapping[str, Any]],
     mechanism_proposals: Iterable[Mapping[str, Any]] = (),
+    experience_library: Mapping[str, Any] | None = None,
     max_window_steps: int = 8,
     max_candidates: int = 24,
 ) -> dict[str, Any]:
@@ -99,6 +101,11 @@ def discover_route_innovations(
             )
         elif candidate:
             candidates.append(candidate)
+    experience_projection: dict[str, Any] = {}
+    if experience_library is not None:
+        candidates, experience_projection = apply_program_experience(
+            candidates, experience_library
+        )
     candidates = _rank_and_dedupe(candidates)[: max(1, int(max_candidates))]
     hypotheses = [
         _ingestion_hypothesis(route, value)
@@ -136,6 +143,14 @@ def discover_route_innovations(
             "canonical_ingestion_remains_the_only_scientific_write_path": True,
         },
     }
+    if experience_library is not None:
+        result["program_experience"] = experience_projection
+        result["semantics"].update(
+            {
+                "self_evolution_memory_changes_ranking_only": True,
+                "self_evolution_memory_cannot_skip_exact_validation": True,
+            }
+        )
     result["content_sha256"] = _digest(result)
     return result
 

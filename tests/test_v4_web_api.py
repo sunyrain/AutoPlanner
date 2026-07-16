@@ -393,6 +393,28 @@ def test_v4_http_exposes_read_only_route_program_innovation_review(
     durable_claims = client.get(
         "/api/v4/runs/web-program-innovation/programs/innovations/claims/store"
     )
+    empty_experience = client.get(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experience"
+    )
+    experience_disabled = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experience/learn",
+        json={},
+    )
+    experience_learned = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experience/learn",
+        json={"enable_program_experience_learning": True},
+    )
+    experience_repeated = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experience/learn",
+        json={"enable_program_experience_learning": True},
+    )
+    durable_experience = client.get(
+        "/api/v4/runs/web-program-innovation/programs/innovations/experience"
+    )
+    memory_review = client.post(
+        "/api/v4/runs/web-program-innovation/programs/innovations",
+        json=admission_payload,
+    ).get_json()
 
     assert disabled.status_code == 409
     assert empty_store.get_json()["replay"]["event_count"] == 0
@@ -407,6 +429,16 @@ def test_v4_http_exposes_read_only_route_program_innovation_review(
     assert claim_admitted.get_json()["event"]["counts"]["claims"] == 1
     assert claim_repeated.status_code == 200
     assert durable_claims.get_json()["replay"]["event_count"] == 1
+    assert empty_experience.get_json()["library"]["experiences"] == {}
+    assert experience_disabled.status_code == 409
+    assert experience_learned.get_json()["new_claim_count"] == 1
+    assert experience_repeated.get_json()["new_claim_count"] == 0
+    assert len(durable_experience.get_json()["library"]["experiences"]) == 1
+    assert memory_review["program_experience"]["matched_candidate_count"] == 1
+    memory_candidate = next(
+        iter(memory_review["program_bundle"]["program_proposals"].values())
+    )
+    assert "EXACT_SUBSTRATE_UNVALIDATED" in memory_candidate["warning_codes"]
     assert (
         client.get("/api/v4/runs/web-program-innovation/status").get_json()["status"][
             "graph_revision"
