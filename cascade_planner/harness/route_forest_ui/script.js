@@ -1361,12 +1361,15 @@
     const width = contrast ? Math.max(2.4, Number(visual.width || 1.5)) : (simple ? 1.25 : Number(visual.width || 1.5));
     const opacity = contrast ? .92 : (simple ? .48 : Number(visual.opacity || .62));
     const dash = simple ? '' : String(visual.dash_pattern || '');
-    const path = edgePath(source, target, state.edgeStyle !== 'trust');
+    const packing = renderModel?.packing?.algorithm || 'logical_layers.v1';
+    const forceOrthogonal = state.mode === 'current' || state.edgeStyle !== 'trust';
+    const path = edgePath(source, target, { orthogonal: forceOrthogonal, packing });
     const markerId = simple ? 'arrow-neutral' : `arrow-${tierClass(tier)}`;
-    return `<path class="graph-edge dependency-edge trust-edge ${tierClass(tier)}${edge.visual_role === 'auxiliary' ? ' is-auxiliary' : ''}" data-edge-id="${esc(edge.edge_id)}" data-branch-id="${esc(edge.branch_id)}" data-reaction-step-id="${esc(edge.reaction_step_id)}" data-source-instance-id="${esc(edge.sourceInstanceId)}" data-target-instance-id="${esc(edge.targetInstanceId)}" d="${path}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" stroke-dasharray="${esc(dash)}" marker-end="url(#${markerId})"><title>${esc(`${tierLabel(tier)} · ${edge.visual_role === 'auxiliary' ? '辅助投入' : edge.edge_type || '显式依赖'} · ${edge.branch_id || ''}`)}</title></path>`;
+    const routing = forceOrthogonal ? 'fixed-port-channels.v2' : 'trust-curves.v1';
+    return `<path class="graph-edge dependency-edge trust-edge ${tierClass(tier)}${edge.visual_role === 'auxiliary' ? ' is-auxiliary' : ''}" data-edge-id="${esc(edge.edge_id)}" data-edge-routing="${routing}" data-branch-id="${esc(edge.branch_id)}" data-reaction-step-id="${esc(edge.reaction_step_id)}" data-source-instance-id="${esc(edge.sourceInstanceId)}" data-target-instance-id="${esc(edge.targetInstanceId)}" d="${path}" stroke="${esc(color)}" stroke-width="${width}" stroke-opacity="${opacity}" stroke-dasharray="${esc(dash)}" marker-end="url(#${markerId})"><title>${esc(`${tierLabel(tier)} · ${edge.visual_role === 'auxiliary' ? '辅助投入' : edge.edge_type || '显式依赖'} · ${edge.branch_id || ''}`)}</title></path>`;
   }
 
-  function edgePath(source, target, orthogonal) {
+  function edgePath(source, target, { orthogonal = false, packing = '' } = {}) {
     if (effectiveOrientation() === 'vertical') {
       const x1 = source.x + source.w / 2, y1 = source.y + source.h;
       const x2 = target.x + target.w / 2, y2 = target.y;
@@ -1378,16 +1381,15 @@
     const targetCenterX = target.x + target.w / 2;
     const sourceCenterY = source.y + source.h / 2;
     const targetCenterY = target.y + target.h / 2;
-    const verticalTransition = Math.abs(sourceCenterX - targetCenterX)
-      < Math.max(source.w, target.w) * .35
-      && Math.abs(sourceCenterY - targetCenterY) > Math.max(source.h, target.h);
-    if (verticalTransition) {
+    const rowSeparated = Math.abs(sourceCenterY - targetCenterY)
+      > Math.max(source.h, target.h) * .62;
+    const serpentineRowTurn = packing === 'serpentine_long_route.v1' && rowSeparated;
+    if (serpentineRowTurn) {
       const descending = targetCenterY > sourceCenterY;
       const x1 = sourceCenterX, y1 = descending ? source.y + source.h : source.y;
       const x2 = targetCenterX, y2 = descending ? target.y : target.y + target.h;
-      const middle = (y1 + y2) / 2;
-      return orthogonal ? `M ${x1} ${y1} V ${middle} H ${x2} V ${y2}`
-        : `M ${x1} ${y1} C ${x1} ${middle}, ${x2} ${middle}, ${x2} ${y2}`;
+      const channelY = (y1 + y2) / 2;
+      return `M ${x1} ${y1} V ${channelY} H ${x2} V ${y2}`;
     }
     const reverse = targetCenterX < sourceCenterX;
     const x1 = reverse ? source.x : source.x + source.w;
@@ -1395,7 +1397,9 @@
     const x2 = reverse ? target.x + target.w : target.x;
     const y2 = targetCenterY;
     const middle = (x1 + x2) / 2;
-    return orthogonal ? `M ${x1} ${y1} H ${middle} V ${y2} H ${x2}`
+    return orthogonal ? (Math.abs(y1 - y2) < 1
+      ? `M ${x1} ${y1} H ${x2}`
+      : `M ${x1} ${y1} H ${middle} V ${y2} H ${x2}`)
       : `M ${x1} ${y1} C ${middle} ${y1}, ${middle} ${y2}, ${x2} ${y2}`;
   }
 

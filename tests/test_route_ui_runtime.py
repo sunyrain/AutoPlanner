@@ -93,7 +93,19 @@ def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
     assert "serpentine_long_route.v1" in script
     assert "maximumLayer >= 16" in script
     assert "Math.min(9, maximumLayer + 1)" in script
-    assert "verticalTransition" in script
+    assert "serpentineRowTurn" in script
+
+
+def test_current_route_edges_use_fixed_ports_and_layer_channels() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+
+    assert "state.mode === 'current' || state.edgeStyle !== 'trust'" in script
+    assert "fixed-port-channels.v2" in script
+    assert "data-edge-routing=" in script
+    assert "const rowSeparated =" in script
+    assert "packing === 'serpentine_long_route.v1' && rowSeparated" in script
+    assert "`M ${x1} ${y1} V ${channelY} H ${x2} V ${y2}`" in script
+    assert "`M ${x1} ${y1} H ${middle} V ${y2} H ${x2}`" in script
 
 
 def test_route_arrows_and_responsive_camera_do_not_scale_with_edge_emphasis() -> None:
