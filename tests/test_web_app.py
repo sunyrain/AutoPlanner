@@ -729,6 +729,8 @@ class WebAppTest(unittest.TestCase):
         self.assertIn("sidebar-collapsed", workspace)
         self.assertIn("catalog-collapsed", workspace)
         self.assertIn("queue-collapsed", workspace)
+        self.assertIn("grid-template-columns:minmax(0,1fr)", workspace)
+        self.assertIn("overflow-x:hidden;overflow-y:auto", workspace)
         self.assertIn('@media(max-width:900px)', workspace)
         self.assertIn("localStorage.setItem(shellKey", workspace)
         self.assertIn("embed=1", workspace)
