@@ -61,7 +61,10 @@ class EnzymeSPVerifierV1Scorer:
         model_threshold = _artifact_threshold(artifact)
         self.threshold = float(threshold if threshold is not None else model_threshold)
 
-        from scripts.train_enzyme_sp_verifier_v1 import SideFeatureCache, build_matrix
+        from cascade_planner.cascade_search.enzyme_sp_features import (
+            SideFeatureCache,
+            build_matrix,
+        )
 
         self._cache = SideFeatureCache()
         self._build_matrix = build_matrix
