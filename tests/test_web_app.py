@@ -667,9 +667,9 @@ class WebAppTest(unittest.TestCase):
         self.assertIn('id="solveForm"', workspace)
         self.assertIn("fetch(url", workspace)
         self.assertIn("'/api/v4/jobs'", workspace)
-        self.assertIn('data-tab="routes"', workspace)
-        self.assertIn('data-tab="runs"', workspace)
-        self.assertIn('data-tab="audits"', workspace)
+        self.assertIn('data-view="routes"', workspace)
+        self.assertIn('data-view="runs"', workspace)
+        self.assertIn('data-view="audits"', workspace)
 
     def test_legacy_agent_workbench_redirects_to_unified_routes(self):
         response = self.app.get("/agent")
@@ -710,19 +710,25 @@ class WebAppTest(unittest.TestCase):
         for control_id in (
             "collapseLibrary",
             "restoreLibrary",
-            "collapseRail",
-            "restoreRail",
+            "collapseCatalog",
+            "restoreCatalog",
             "launchFocus",
+            "launchDialog",
             "submitButton",
         ):
             self.assertIn(f'id="{control_id}"', workspace)
-        self.assertIn('role="tablist"', workspace)
+        self.assertIn('aria-label="一级功能"', workspace)
         self.assertIn('aria-live="polite"', workspace)
         self.assertIn('sandbox="allow-scripts allow-same-origin"', workspace)
-        self.assertIn("library-collapsed", workspace)
-        self.assertIn("rail-collapsed", workspace)
-        self.assertIn('@media(max-width:820px)', workspace)
-        self.assertIn("localStorage.setItem(shellStorageKey", workspace)
+        self.assertIn('data-view-panel="overview"', workspace)
+        self.assertIn('data-view-panel="routes"', workspace)
+        self.assertIn('data-view-panel="runs"', workspace)
+        self.assertIn('data-view-panel="audits"', workspace)
+        self.assertIn("sidebar-collapsed", workspace)
+        self.assertIn("catalog-collapsed", workspace)
+        self.assertIn('@media(max-width:900px)', workspace)
+        self.assertIn("localStorage.setItem(shellKey", workspace)
+        self.assertIn("embed=1", workspace)
         self.assertIn("max_visual_evidence_pages", workspace)
         self.assertIn("enable_patent_self_evolution", workspace)
         self.assertIn("max_guided_chemenzy_frontiers", workspace)
