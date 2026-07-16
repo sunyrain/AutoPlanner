@@ -220,6 +220,7 @@ def _fulltext_path(source: Mapping[str, Any]) -> Path:
     value = str(
         source.get("fulltext_html_path")
         or source.get("fulltext_xml_path")
+        or source.get("fulltext_text_path")
         or ""
     )
     return Path(value).expanduser().resolve() if value else Path("__missing__")
