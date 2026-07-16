@@ -2562,6 +2562,7 @@ body.is-resizing * {
 }
 
 .condition-group,
+.model-condition-prediction,
 .source-procedure-observation {
   overflow: hidden;
   border: 1px solid var(--border);
@@ -2570,6 +2571,7 @@ body.is-resizing * {
 }
 
 .condition-group > summary,
+.model-condition-prediction > summary,
 .source-procedure-observation > summary {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -2585,11 +2587,13 @@ body.is-resizing * {
 }
 
 .condition-group > summary::-webkit-details-marker,
+.model-condition-prediction > summary::-webkit-details-marker,
 .source-procedure-observation > summary::-webkit-details-marker {
   display: none;
 }
 
 .condition-group > summary::before,
+.model-condition-prediction > summary::before,
 .source-procedure-observation > summary::before {
   content: "›";
   grid-column: 2;
@@ -2600,6 +2604,7 @@ body.is-resizing * {
 }
 
 .condition-group > summary strong,
+.model-condition-prediction > summary strong,
 .source-procedure-observation > summary strong {
   grid-column: 2;
   grid-row: 1;
@@ -2611,11 +2616,13 @@ body.is-resizing * {
 }
 
 .condition-group[open] > summary::before,
+.model-condition-prediction[open] > summary::before,
 .source-procedure-observation[open] > summary::before {
   transform: rotate(90deg);
 }
 
 .condition-group[open] > summary,
+.model-condition-prediction[open] > summary,
 .source-procedure-observation[open] > summary {
   border-bottom: 1px solid var(--divider);
   background: var(--surface-subtle);

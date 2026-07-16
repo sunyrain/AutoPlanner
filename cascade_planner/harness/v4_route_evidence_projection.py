@@ -137,6 +137,54 @@ def conditions(records: list[Mapping[str, Any]]) -> list[dict[str, str]]:
     return []
 
 
+def predicted_conditions(records: list[Mapping[str, Any]]) -> list[dict[str, str]]:
+    """Project the highest-ranked model proposal without merging alternatives.
+
+    A backend condition table contains mutually exclusive ranked rows.  The
+    compact ``conditions`` field is used for the route-card summary, so only
+    the first non-empty row belongs there.  The complete ranked table remains
+    available on ``condition_predictions`` for the reaction inspector.
+    """
+
+    aliases = (
+        ("reagents", ("Reagent", "reagent", "reagents", "reagent_smiles")),
+        ("catalyst", ("Catalyst", "catalyst", "catalysts")),
+        ("solvent", ("Solvent", "solvent", "solvents", "solvent_smiles")),
+        (
+            "temperature",
+            ("Temperature", "temperature", "temperature_c", "temp_c"),
+        ),
+        ("time", ("Time", "time", "duration")),
+        ("pH", ("pH", "ph", "PH")),
+    )
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        rows: list[dict[str, str]] = []
+        for label, keys in aliases:
+            value = next(
+                (
+                    record.get(key)
+                    for key in keys
+                    if record.get(key) not in (None, "", [], {})
+                ),
+                None,
+            )
+            if value is None:
+                continue
+            if label == "temperature":
+                try:
+                    value = f"{float(value):.1f} °C"
+                except (TypeError, ValueError):
+                    value = str(value)
+            elif isinstance(value, (list, tuple)):
+                value = ", ".join(str(item) for item in value if str(item))
+            rows.append({"label": label, "value": str(value)})
+        if rows:
+            return rows
+    return []
+
+
 def condition_summary(status: str) -> str:
     return {
         "source_exact": "已绑定可重放的来源实验条件",
@@ -189,6 +237,7 @@ __all__ = [
     "closure_label",
     "condition_summary",
     "conditions",
+    "predicted_conditions",
     "literature_counts",
     "replacement_validation_projection",
     "trust_vector",

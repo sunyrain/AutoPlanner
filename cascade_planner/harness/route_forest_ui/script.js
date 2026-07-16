@@ -412,6 +412,35 @@
     if (!rows.length) return '';
     return `<details class="condition-group" ${open ? 'open' : ''}><summary><span>${esc(label)}</span><strong>${rows.length} 项</strong></summary><div class="condition-group-body">${conditionLinesHtml(rows)}</div></details>`;
   }
+  function modelConditionPredictionsHtml(step) {
+    const predictions = Array.isArray(step?.condition_predictions) ? step.condition_predictions : [];
+    if (!predictions.length) return '';
+    const ignored = new Set(['authority scope', 'not reaction proof', 'null1', 'null2']);
+    const aliases = {
+      reagent: 'reagents', reagents: 'reagents', 'reagent smiles': 'reagents',
+      catalyst: 'catalyst', catalysts: 'catalyst',
+      solvent: 'solvent', solvents: 'solvent', 'solvent smiles': 'solvent',
+      temperature: 'temperature', 'temperature c': 'temperature', 'temp c': 'temperature',
+      time: 'time', duration: 'time', score: 'prediction score'
+    };
+    const cards = predictions.map((prediction, index) => {
+      if (!prediction || typeof prediction !== 'object') return '';
+      const rows = Object.entries(prediction).flatMap(([label, rawValue]) => {
+        const rawKey = String(label).trim().toLowerCase().replaceAll('_', ' ');
+        if (ignored.has(rawKey) || rawValue == null || rawValue === '') return [];
+        const key = aliases[rawKey] || rawKey;
+        let value = conditionValueText(rawValue);
+        if (key === 'temperature' && Number.isFinite(Number(rawValue))) value = `${Number(rawValue).toFixed(1)} °C`;
+        if (!value) return [];
+        return [{ key, label, displayLabel: CONDITION_LABEL[key] || (key === 'prediction score' ? '预测分数' : label), value }];
+      });
+      if (!rows.length) return '';
+      const score = prediction.Score ?? prediction.score;
+      return `<details class="model-condition-prediction" ${index === 0 ? 'open' : ''}><summary><span>候选 ${index + 1}</span><strong>${score == null || score === '' ? `${rows.length} 项` : `分数 ${esc(score)}`}</strong></summary><div class="condition-group-body">${conditionLinesHtml(rows)}</div></details>`;
+    }).join('');
+    if (!cards) return '';
+    return `<section class="detail-section model-condition-predictions"><h3>模型条件候选 <span class="section-count">${predictions.length} 组</span></h3><div class="notice"><strong>非文献事实</strong><span>各候选相互独立，未合并为单一实验配方；需经实验或来源过程验证。</span></div><div class="condition-list">${cards}</div></section>`;
+  }
   function producerClass(step) {
     return PRODUCER_CLASS[(step?.producer_kinds || [])[0]] || 'producer-unknown';
   }
@@ -2065,6 +2094,7 @@
       ${innovationSectionHtml(step)}
       <section class="detail-section"><h3>反应连接</h3><p class="v">${esc(nodeNames(step.main_from_node_ids || step.from_node_ids))} → ${esc(nodeNames(step.to_node_ids))}</p>${(step.auxiliary_from_node_ids || []).length ? `<div class="kv"><span class="k">辅助试剂/小分子</span><span class="v">${esc(nodeNames(step.auxiliary_from_node_ids))}</span></div>` : ''}</section>
       <section class="detail-section condition-section"><h3>反应条件 <span class="section-count">${conditionRows.length} 项</span></h3><div class="condition-list">${conditions || `<div class="empty">${esc(step.condition_summary || '条件未记录')}</div>`}</div></section>
+      ${modelConditionPredictionsHtml(step)}
       <section class="detail-section"><h3>来源过程 <span class="section-count">${sourceObservations.length + procedures.length} 条</span></h3><div class="kv"><span class="k">哈希绑定过程</span><span class="v">${procedures.length}</span></div><div class="kv"><span class="k">来源观察</span><span class="v">${sourceObservations.length}</span></div><div class="kv"><span class="k">条件缺失组</span><span class="v">${esc(missingGroups.join('、') || '无')}</span></div><div class="source-observation-list">${observationRows}</div><div class="trace-list">${procedureRows || (!observationRows ? `<div class="empty">${esc(step.condition_gap || '尚无可重放的来源过程')}</div>` : '')}</div></section>
       ${(validationRows || reasonRows) ? `<section class="detail-section evidence-gap-section"><h3>证据缺口与补证动作</h3><div class="trace-list">${validationRows || '<div class="empty">尚无结构化验证发现</div>'}</div>${reasonRows ? `<div class="reason-code-list">${reasonRows}</div>` : ''}</section>` : ''}
       ${lifecycleSection}

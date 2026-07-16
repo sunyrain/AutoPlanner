@@ -173,6 +173,7 @@ def test_reaction_nodes_expose_condition_source_without_opening_inspector() -> N
     assert "预测条件 · 非文献事实" in script
     assert "条件待取证" in script
     assert "normalizedConditionRows(step)" in script
+    assert "modelConditionPredictionsHtml(step)" in script
     assert "source_observation_records" in script
     assert 'class="reaction-hit-target"' in script
     hit_target_index = script.index('class="reaction-hit-target"')

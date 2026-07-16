@@ -694,6 +694,52 @@ def test_workbench_inspectors_expose_proof_sources_stock_rejections_and_conflict
     assert "conflict:resolved" in projection["inspectors"]["conflicts"]
 
 
+def test_model_condition_predictions_reach_the_reaction_inspector() -> None:
+    graph = _graph()
+    graph["edges"]["edge:ester"]["condition_predictions"] = [
+        {
+            "Reagent": "O=S(=O)(O)O",
+            "Solvent": "CCO",
+            "Temperature": 52.7239,
+            "Score": "0.3832",
+            "authority_scope": "model_predicted_condition",
+            "not_reaction_proof": True,
+        },
+        {
+            "Reagent": "O=S(Cl)Cl",
+            "Temperature": 30.2,
+            "Score": "0.2631",
+            "authority_scope": "model_predicted_condition",
+            "not_reaction_proof": True,
+        },
+    ]
+    portfolio = _portfolio(route_count=1)
+    portfolio["edge_proofs"]["edge:ester"].update(
+        {
+            "exact_source_bound": False,
+            "source_binding_ids": [],
+            "exact_record_ids": [],
+        }
+    )
+
+    projection = compile_route_workbench(graph, portfolio)
+    inspector = projection["inspectors"]["edges"]["edge:ester"]
+    forest = compile_v4_route_forest(projection)
+    step = forest["steps"][0]
+
+    assert inspector["condition_status"] == "model_predicted"
+    assert inspector["condition_predictions"] == graph["edges"]["edge:ester"][
+        "condition_predictions"
+    ]
+    assert step["condition_status"] == "model_predicted"
+    assert step["condition_predictions"] == inspector["condition_predictions"]
+    assert step["conditions"] == [
+        {"label": "reagents", "value": "O=S(=O)(O)O"},
+        {"label": "solvent", "value": "CCO"},
+        {"label": "temperature", "value": "52.7 °C"},
+    ]
+
+
 def test_lifecycle_invalidations_are_visible_and_remove_source_authority() -> None:
     portfolio = _portfolio(route_count=1)
     proof = portfolio["edge_proofs"]["edge:ester"]

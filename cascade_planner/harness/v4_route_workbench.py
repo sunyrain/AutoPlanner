@@ -28,6 +28,7 @@ from cascade_planner.harness.v4_route_evidence_projection import (
     PROOF_TIER as _PROOF_TIER,
     condition_summary as _condition_summary,
     conditions as _conditions,
+    predicted_conditions as _predicted_conditions,
     literature_counts as _literature_counts,
     replacement_validation_projection as _replacement_validation_projection,
     trust_vector as _trust_vector,
@@ -145,6 +146,13 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                 tier = "L0_rejected"
             condition_records = [*procedure_records, *source_observation_records]
             conditions = _conditions(condition_records or exact_records)
+            condition_predictions = [
+                dict(value)
+                for value in inspector.get("condition_predictions") or []
+                if isinstance(value, Mapping)
+            ]
+            if not conditions:
+                conditions = _predicted_conditions(condition_predictions)
             proof_vector = dict(
                 inspector.get("proof_vector") or edge.get("proof_vector") or {}
             )
@@ -214,6 +222,7 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
                 "evidence_kinds": list(display["evidence_kinds"]),
                 "evidence_label": str(display["evidence_label"]),
                 "conditions": conditions,
+                "condition_predictions": condition_predictions,
                 "condition_status": condition_status,
                 "condition_completeness": condition_completeness,
                 "condition_gap": str(inspector.get("condition_gap") or ""),

@@ -92,6 +92,11 @@ def edge_inspector(
         "condition_missing_required_groups": list(
             vector.get("condition_missing_required_groups") or []
         ),
+        "condition_predictions": _copy_json(
+            edge.get("condition_predictions")
+            or dict(edge.get("metadata") or {}).get("condition_predictions")
+            or []
+        ),
         "reaction_proofs": _copy_json(edge.get("reaction_proofs") or []),
         "sources": [
             _copy_json(dict(graph.get("source_bindings") or {}).get(value) or {})
