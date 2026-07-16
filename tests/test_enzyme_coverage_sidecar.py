@@ -12,6 +12,8 @@ class _EmptyBridgeRetriever:
 
 
 def test_missing_sp_model_keeps_advisory_enzyme_precedents(monkeypatch) -> None:
+    retrieval_limits = []
+
     def missing_scorer():
         raise FileNotFoundError("missing verifier fixture")
 
@@ -20,21 +22,26 @@ def test_missing_sp_model_keeps_advisory_enzyme_precedents(monkeypatch) -> None:
     monkeypatch.setattr(
         sidecar_module,
         "retrieve_enzyme_precedents",
-        lambda *_args, **_kwargs: [
-            {
-                "main_reactant": "CC",
-                "reaction_smiles": "CC>>CCO",
-                "source": "enzyme_precedent_fixture",
-                "score": 0.73,
-                "ec": "1.1.1.1",
-            }
-        ],
+        lambda *_args, **kwargs: (
+            retrieval_limits.append(kwargs.get("max_rows"))
+            or [
+                {
+                    "main_reactant": "CC",
+                    "reaction_smiles": "CC>>CCO",
+                    "source": "enzyme_precedent_fixture",
+                    "score": 0.73,
+                    "ec": "1.1.1.1",
+                }
+            ]
+        ),
     )
 
     report = sidecar_module.build_enzyme_coverage_sidecar("CCO")
 
     assert report["error"] == ""
     assert report["candidate_count"] == 1
+    assert report["max_precedent_rows"] == 12_000
+    assert retrieval_limits == [12_000]
     assert report["sp_v1_requested"] is True
     assert report["sp_v1_available"] is False
     assert report["sp_v1_error"] == "FileNotFoundError: missing verifier fixture"

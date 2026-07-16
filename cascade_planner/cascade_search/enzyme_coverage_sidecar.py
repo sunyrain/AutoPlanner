@@ -17,6 +17,7 @@ class EnzymeCoverageSidecarConfig:
     top_k: int = 8
     bridge_top_k: int = 8
     max_ec_contexts: int = 2
+    max_precedent_rows: int = 12_000
     enable_sp_v1: bool = True
 
 
@@ -36,6 +37,7 @@ def build_enzyme_coverage_sidecar(
         "top_k": int(cfg.top_k),
         "bridge_top_k": int(cfg.bridge_top_k),
         "max_ec_contexts": int(cfg.max_ec_contexts),
+        "max_precedent_rows": int(cfg.max_precedent_rows),
         "error": "",
     }
     try:
@@ -63,6 +65,7 @@ def build_enzyme_coverage_sidecar(
                 target,
                 ec_class=str(ec1) if ec1 else "",
                 top_k=cfg.top_k,
+                max_rows=max(0, int(cfg.max_precedent_rows)) or None,
             )
             scored = [
                 _candidate_payload(target, row, scorer=scorer, context_id=str(context["context_id"]), ec1=ec1)
