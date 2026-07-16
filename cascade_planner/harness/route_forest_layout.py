@@ -26,6 +26,7 @@ _PROOF_RANK = {
     "L0_rejected": 0,
     "L0_advisory": 1,
     "L0_materialized": 2,
+    "L1_structural_materialized": 2,
     "L1_source_reported": 3,
     "L1_graph_stock_closed": 3,
     "L1_graph_and_stock_closed": 3,

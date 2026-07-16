@@ -21,6 +21,11 @@ from cascade_planner.harness.v4_route_workbench import (
     render_v4_route_workbench_html,
 )
 from cascade_planner.harness.v4_route_display import compile_route_display_rows
+from cascade_planner.harness.v4_route_evidence_projection import PROOF_TIER
+
+
+def test_v4_level_one_uses_the_canonical_structural_materialization_label() -> None:
+    assert PROOF_TIER[1] == "L1_structural_materialized"
 
 
 def _graph() -> dict:

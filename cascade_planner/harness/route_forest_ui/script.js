@@ -24,7 +24,7 @@
   });
   const PROOF_ORDER = [
     'L4_procurement_ready', 'L3_precedent_supported', 'L2_reaction_validated',
-    'L2_mapping_consistent', 'L1_source_reported', 'L1_graph_stock_closed', 'L1_graph_and_stock_closed',
+    'L2_mapping_consistent', 'L1_source_reported', 'L1_graph_stock_closed', 'L1_graph_and_stock_closed', 'L1_structural_materialized',
     'L0_materialized', 'L0_advisory', 'L0_rejected'
   ];
   const PROOF_LABEL = {
@@ -35,6 +35,7 @@
     L1_source_reported: 'L1 文献报道',
     L1_graph_stock_closed: 'L1 图与库存闭合',
     L1_graph_and_stock_closed: 'L1 图与库存闭合',
+    L1_structural_materialized: 'L1 结构物化',
     L0_materialized: 'L0 结构已具象',
     L0_advisory: 'L0 探索建议',
     L0_rejected: 'L0 已拒绝'
@@ -76,6 +77,7 @@
     L1_source_reported: 'tier-l1-reported',
     L1_graph_stock_closed: 'tier-l1',
     L1_graph_and_stock_closed: 'tier-l1',
+    L1_structural_materialized: 'tier-l0-materialized',
     L0_materialized: 'tier-l0-materialized',
     L0_advisory: 'tier-l0-advisory',
     L0_rejected: 'tier-l0-rejected'
@@ -85,6 +87,7 @@
     L2_reaction_validated: '#2563eb', L2_mapping_consistent: '#64748b',
     L1_source_reported: '#4f46e5',
     L1_graph_stock_closed: '#a16207', L1_graph_and_stock_closed: '#a16207',
+    L1_structural_materialized: '#7c3aed',
     L0_materialized: '#7c3aed', L0_advisory: '#ea580c', L0_rejected: '#be123c'
   };
   const PRODUCER_CLASS = {

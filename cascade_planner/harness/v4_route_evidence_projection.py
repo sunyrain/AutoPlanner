@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 PROOF_TIER = {
     0: "L0_advisory",
-    1: "L0_materialized",
+    1: "L1_structural_materialized",
     2: "L2_reaction_validated",
     3: "L3_precedent_supported",
     4: "L4_procurement_ready",
