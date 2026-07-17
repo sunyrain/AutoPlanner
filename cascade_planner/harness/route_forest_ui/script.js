@@ -1361,9 +1361,10 @@
       return marker(`arrow-${cssClass}`, TIER_COLOR[tier] || '#64748b');
     }).join('')
       + marker('arrow-neutral', '#94a3b8');
-    const decorations = renderModel.decorations.map(row => `<g class="graph-lane-decoration${row.branchId === state.selectedBranchId ? ' is-selected' : ''}" data-lane-branch-id="${esc(row.branchId)}">
+    const decorations = renderModel.decorations.map(row => `<g class="graph-lane-decoration${row.branchId === state.selectedBranchId ? ' is-selected' : ''}" data-lane-branch-id="${esc(row.branchId)}" role="button" tabindex="0" aria-label="在重点分支中查看 ${esc(row.label)}">
       <rect x="${row.x}" y="${row.y}" width="${row.w}" height="${row.h}" rx="16"></rect>
-      <text x="${row.x + 16}" y="${row.y + 24}">${esc(middleEllipsis(row.label, 54))}</text></g>`).join('');
+      <text x="${row.x + 16}" y="${row.y + 24}">${esc(middleEllipsis(row.label, 46))}</text>
+      <text class="graph-lane-open-label" x="${row.x + row.w - 14}" y="${row.y + 24}" text-anchor="end">查看重点分支</text></g>`).join('');
     const edgeRoutingPlan = buildEdgeRoutingPlan(
       renderModel.edges,
       renderModel.positions,
@@ -1963,6 +1964,22 @@
     announce(`已选择路线 ${branches.get(branchId)?.title || branchId}`);
     if (focusGraph) document.querySelector('.graph-node:not(.is-dimmed)')?.focus();
   }
+
+  function openBranchInFocus(branchId, { focusGraph = false } = {}) {
+    if (!branches.has(branchId)) return;
+    state.activeReplacement = null;
+    state.mode = 'current';
+    state.showAllOverview = false;
+    state.selectedBranchId = branchId;
+    state.selectedGraphNodeId = '';
+    state.selectedInstanceId = '';
+    state.selectedStepId = '';
+    rerenderForControls();
+    announce(`已在重点分支中打开路线 ${branches.get(branchId)?.title || branchId}`);
+    if (focusGraph) requestAnimationFrame(() => {
+      document.querySelector('.graph-node:not(.is-dimmed)')?.focus();
+    });
+  }
   function selectGraphNode(graphNodeId, { focus = false, branchId = '', instanceId = '' } = {}) {
     const node = graphNodes.get(graphNodeId);
     if (!node) return;
@@ -2356,11 +2373,12 @@
 
   function bindEvents() {
     document.addEventListener('click', event => {
-      const target = event.target.closest('button, [data-graph-node-id], .graph-minimap');
+      const target = event.target.closest('button, [data-graph-node-id], [data-lane-branch-id], .graph-minimap');
       if (!target) return;
       if (target.dataset.replacementPreview !== undefined) { previewReplacement(target); return; }
       if (target.dataset.replacementReset !== undefined) { restoreReplacementPreview(); return; }
       if (target.dataset.graphNodeId) { selectGraphNode(target.dataset.graphNodeId, { branchId: target.dataset.branchId || '', instanceId: target.dataset.instanceId || '' }); return; }
+      if (target.dataset.laneBranchId) { openBranchInFocus(target.dataset.laneBranchId, { focusGraph: true }); return; }
       if (target.dataset.branchId) { selectBranch(target.dataset.branchId); return; }
       if (target.dataset.graphMode) {
         const nextMode = target.dataset.graphMode;
@@ -2578,6 +2596,12 @@
     const branchButton = event.target.closest?.('[data-branch-id]');
     if (branchButton && ['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {
       event.preventDefault(); moveBranchFocus(branchButton, event.key); return;
+    }
+    const overviewLane = event.target.closest?.('[data-lane-branch-id]');
+    if (overviewLane && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      openBranchInFocus(overviewLane.dataset.laneBranchId, { focusGraph: true });
+      return;
     }
     const graphNode = event.target.closest?.('[data-graph-node-id]');
     if (graphNode && (event.key === 'Enter' || event.key === ' ')) {
@@ -2803,10 +2827,25 @@
           const sourceObservationCount = (selectedStep?.source_observation_records || []).length;
           checks.fullConditionGroups = conditionRowCount === 0
             || Boolean(element('detail').querySelector('.condition-group'));
-          checks.sourceProcedure = sourceObservationCount === 0
-            || (Boolean(element('detail').querySelector('.source-procedure-observation'))
-              && Boolean(element('detail').querySelector('.procedure-excerpt')));
-          const minimap = element('graphMinimap');
+      checks.sourceProcedure = sourceObservationCount === 0
+        || (Boolean(element('detail').querySelector('.source-procedure-observation'))
+          && Boolean(element('detail').querySelector('.procedure-excerpt')));
+      state.mode = 'clusters';
+      renderGraph();
+      const overviewLane = document.querySelector('[data-lane-branch-id]');
+      const overviewBranchId = overviewLane?.dataset.laneBranchId || '';
+      overviewLane?.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        view: window
+      }));
+      checks.overviewOpensFocusedBranch = !overviewBranchId
+        || (state.mode === 'current' && state.selectedBranchId === overviewBranchId);
+      // Return to the intentionally large overview before exercising the
+      // culling assertion below; focused-branch mode is intentionally small.
+      state.mode = 'clusters';
+      renderGraph();
+      const minimap = element('graphMinimap');
           minimap.hidden = false;
           const minimapRect = minimap.getBoundingClientRect();
           if (minimapRect.width && minimapRect.height) {

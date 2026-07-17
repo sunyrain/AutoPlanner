@@ -113,6 +113,9 @@ def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
     assert "maximumLayer >= 16" in script
     assert "Math.min(9, maximumLayer + 1)" in script
     assert "serpentineRowTurn" in script
+    assert "function openBranchInFocus(branchId" in script
+    assert "data-lane-branch-id" in script
+    assert "overviewOpensFocusedBranch" in script
 
 
 def test_current_route_edges_use_curves_with_physical_side_ports() -> None:
@@ -279,6 +282,7 @@ def test_headless_browser_drag_zoom_fit_selection_minimap_and_large_graph(
         "reactionInspector": True,
         "fullConditionGroups": True,
         "sourceProcedure": True,
+        "overviewOpensFocusedBranch": True,
         "minimap": True,
         "largeGraphCulling": True,
     }

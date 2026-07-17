@@ -2075,6 +2075,19 @@ body.is-resizing * {
   vector-effect: non-scaling-stroke;
 }
 
+.graph-lane-decoration {
+  cursor: pointer;
+  outline: none;
+}
+
+.graph-lane-decoration:hover rect,
+.graph-lane-decoration:focus-visible rect {
+  fill: color-mix(in srgb, var(--accent-soft) 56%, var(--surface-raised));
+  stroke: var(--accent);
+  stroke-dasharray: none;
+  stroke-width: 2px;
+}
+
 .graph-viewport[data-graph-mode="current"] .graph-lane-decoration rect {
   fill: color-mix(in srgb, var(--surface-raised) 82%, transparent);
   stroke: color-mix(in srgb, var(--accent) 20%, var(--border));
@@ -2094,6 +2107,13 @@ body.is-resizing * {
   font-weight: 650;
   letter-spacing: 0.02em;
   pointer-events: none;
+}
+
+.graph-lane-decoration .graph-lane-open-label {
+  fill: var(--accent);
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: 0;
 }
 
 .minimap-svg {
