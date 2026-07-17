@@ -16,6 +16,7 @@ from cascade_planner.application.reaction_template_store import (
 )
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 from cascade_planner.web.workspace_surface import (
+    compiled_mechanism_hypothesis_attachments,
     compiled_program_benchmark_catalog,
     compiled_program_overlay_attachments,
     inject_workspace_return,
@@ -153,6 +154,7 @@ def test_compiled_program_benchmark_catalog_exposes_bufotalin_six_to_one_fallbac
     assert record["host_route"]["baseline_step_count"] == 20
     assert record["host_route"]["hypothetical_operation_count"] == 15
     assert len(record["host_route"]["steps"]) == 20
+    assert record["mechanism_hypothesis_count"] == 1
     attachment = compiled_program_overlay_attachments(record["benchmark_run_id"])[0]
     assert attachment["schema_version"] == "route_program_attachment.v1"
     assert attachment["host_route_id"] == record["host_route"]["route_id"]
@@ -161,3 +163,11 @@ def test_compiled_program_benchmark_catalog_exposes_bufotalin_six_to_one_fallbac
     assert attachment["replaced_edge_ids"] == record["host_route"]["replaced_edge_ids"]
     assert attachment["semantics"]["route_attachment_not_standalone_route"] is True
     assert compiled_program_overlay_attachments("unrelated-run") == ()
+    mechanism = compiled_mechanism_hypothesis_attachments(record["benchmark_run_id"])[0]
+    assert mechanism["schema_version"] == "route_mechanism_hypothesis_attachment.v1"
+    assert mechanism["host_route_id"] == record["host_route"]["route_id"]
+    assert mechanism["proposal_depth"] == 1
+    assert mechanism["anchor_edge_ids"] == ["edge:paper:31"]
+    assert mechanism["anchor_source_refs"] == ["doi:10.1016/j.tet.2025.134610"]
+    assert mechanism["semantics"]["anchor_evidence_not_promoted"] is True
+    assert compiled_mechanism_hypothesis_attachments("unrelated-run") == ()

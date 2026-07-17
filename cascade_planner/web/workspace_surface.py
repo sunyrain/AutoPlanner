@@ -56,6 +56,8 @@ def compiled_program_benchmark_catalog() -> dict[str, Any]:
     benchmark_root = ROOT / "benchmarks"
     observations: dict[str, dict[str, Any]] = {}
     errors: list[str] = []
+    mechanism_packs, mechanism_errors = _compiled_mechanism_proposal_packs()
+    errors.extend(mechanism_errors)
     for path in sorted(benchmark_root.glob("*_candidate_route_observation.v1.json")):
         value, error = _read_digest_bound_json(path)
         if error:
@@ -226,6 +228,13 @@ def compiled_program_benchmark_catalog() -> dict[str, Any]:
                             "replaced_edge_ids": replaced_edge_ids,
                             "steps": host_steps,
                         },
+                        "mechanism_hypothesis_count": len(
+                            _matching_mechanism_proposals(
+                                mechanism_packs,
+                                target_name=str(target.get("name") or "unnamed target"),
+                                host_route_id=str(route_id),
+                            )
+                        ),
                         "semantics": {
                             "benchmark_replay_only": True,
                             "must_compile_to_a_program_before_admission": True,
@@ -245,6 +254,7 @@ def compiled_program_benchmark_catalog() -> dict[str, Any]:
             "records_are_digest_bound_benchmark_candidates": True,
             "screening_is_not_program_admission": True,
             "candidate_requires_experiment_before_l2_or_route_acceptance": True,
+            "mechanism_hypothesis_counts_are_digest_bound_host_annotations": True,
         },
     }
 
@@ -336,6 +346,98 @@ def compiled_program_overlay_attachments(run_id: str) -> tuple[dict[str, Any], .
             }
         )
     return tuple(attachments)
+
+
+def compiled_mechanism_hypothesis_attachments(
+    run_id: str,
+) -> tuple[dict[str, Any], ...]:
+    """Return digest-bound one-hop proposals attached to a materialized host route."""
+
+    packs, _errors = _compiled_mechanism_proposal_packs()
+    attachments: list[dict[str, Any]] = []
+    for raw_record in compiled_program_benchmark_catalog().get("records") or []:
+        record = dict(raw_record)
+        if str(record.get("benchmark_run_id") or "") != str(run_id):
+            continue
+        host_route = dict(record.get("host_route") or {})
+        matches = _matching_mechanism_proposals(
+            packs,
+            target_name=str(record.get("target_name") or ""),
+            host_route_id=str(host_route.get("route_id") or ""),
+        )
+        for pack, proposal in matches:
+            anchor_edge_ids = [
+                str(value) for value in proposal.get("anchor_edge_ids") or [] if str(value)
+            ]
+            anchor_source_refs = [
+                str(value)
+                for value in proposal.get("anchor_source_refs") or []
+                if str(value)
+            ]
+            checks = [
+                str(value) for value in proposal.get("falsifiable_checks") or [] if str(value)
+            ]
+            proposal_id = str(proposal.get("proposal_id") or "")
+            precursor_smiles = str(proposal.get("precursor_smiles") or "")
+            product_smiles = str(proposal.get("product_smiles") or "")
+            rationale = str(proposal.get("mechanistic_rationale") or "")
+            if (
+                not proposal_id
+                or int(proposal.get("proposal_depth") or 0) != 1
+                or not anchor_edge_ids
+                or not anchor_source_refs
+                or not precursor_smiles
+                or not product_smiles
+                or product_smiles == precursor_smiles
+                or not rationale
+                or not checks
+            ):
+                continue
+            attachments.append(
+                {
+                    "schema_version": "route_mechanism_hypothesis_attachment.v1",
+                    "hypothesis_id": proposal_id,
+                    "host_route_id": str(host_route.get("route_id") or ""),
+                    "anchor_edge_ids": anchor_edge_ids,
+                    "precursor_smiles": precursor_smiles,
+                    "proposed_product": {
+                        "label": str(
+                            proposal.get("product_label") or "proposed one-hop product"
+                        ),
+                        "smiles": product_smiles,
+                    },
+                    "proposal_depth": 1,
+                    "mechanistic_rationale": rationale,
+                    "elementary_steps": [
+                        str(value)
+                        for value in proposal.get("elementary_steps") or []
+                        if str(value)
+                    ],
+                    "falsifiable_checks": checks,
+                    "anchor_source_refs": anchor_source_refs,
+                    "priority_score": float(proposal.get("priority_score") or 0.0),
+                    "authority_scope": "proposal_only",
+                    "validation_status": "host_materialization_required",
+                    "warning_codes": [
+                        "MECHANISM_HYPOTHESIS_UNVALIDATED",
+                        "PRODUCT_NOT_ROUTE_REJOINED",
+                    ],
+                    "source": {
+                        "file": str(pack.get("_source_file") or ""),
+                        "content_sha256": str(pack.get("content_sha256") or ""),
+                    },
+                    "semantics": {
+                        "display_only_shadow_layer": True,
+                        "anchor_evidence_not_promoted": True,
+                        "not_a_canonical_reaction_edge": True,
+                        "cannot_grant_route_completion": True,
+                        "one_hop_only": True,
+                    },
+                }
+            )
+    return tuple(
+        sorted(attachments, key=lambda value: str(value.get("hypothesis_id") or ""))
+    )
 
 
 def materialize_compiled_program_benchmark(
@@ -495,6 +597,43 @@ def _read_digest_bound_json(path: Path) -> tuple[dict[str, Any], str]:
     if not observed or observed != strict_canonical_json_sha256(material):
         return {}, "content_digest_invalid"
     return value, ""
+
+
+def _compiled_mechanism_proposal_packs() -> tuple[list[dict[str, Any]], list[str]]:
+    packs: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for path in sorted((ROOT / "benchmarks").glob("*_route_innovation_proposals.v1.json")):
+        value, error = _read_digest_bound_json(path)
+        if error:
+            errors.append(f"{path.name}:{error}")
+            continue
+        if value.get("schema_version") != "route_mechanism_proposal_replay.v1":
+            errors.append(f"{path.name}:schema_invalid")
+            continue
+        packs.append({**value, "_source_file": path.name})
+    return packs, errors
+
+
+def _matching_mechanism_proposals(
+    packs: list[dict[str, Any]],
+    *,
+    target_name: str,
+    host_route_id: str,
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    target_key = str(target_name or "").casefold()
+    for pack in packs:
+        if (
+            str(pack.get("target_name") or "").casefold() != target_key
+            or str(pack.get("host_route_id") or "") != str(host_route_id or "")
+        ):
+            continue
+        matches.extend(
+            (pack, dict(value))
+            for value in pack.get("proposals") or []
+            if isinstance(value, dict)
+        )
+    return matches
 
 
 def _molecule_snapshot(
@@ -714,6 +853,8 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
                 "run_outputs_are_reviewed_here_not_in_task_center": True,
                 "program_benchmarks_are_route_level_proposals": True,
                 "program_benchmarks_are_not_self_evolution_memory": True,
+                "mechanism_hypotheses_are_host_route_callouts": True,
+                "mechanism_hypotheses_do_not_create_route_edges": True,
             },
         },
         "showcase": catalog,
@@ -829,6 +970,7 @@ def inject_workspace_return(value: str) -> str:
 
 
 __all__ = [
+    "compiled_mechanism_hypothesis_attachments",
     "compiled_program_benchmark_catalog",
     "compiled_program_overlay_attachments",
     "inject_workspace_return",

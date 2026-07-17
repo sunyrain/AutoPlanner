@@ -34,6 +34,7 @@ from cascade_planner.web.v4_program_overlay_reviews import (
     collect_program_overlay_reviews,
 )
 from cascade_planner.web.workspace_surface import (
+    compiled_mechanism_hypothesis_attachments,
     compiled_program_overlay_attachments,
     register_workspace_routes,
 )
@@ -281,11 +282,13 @@ def create_v4_blueprint(
             snapshot = gateway.workbench(run_id)["snapshot"]
             reviews = collect_program_overlay_reviews(gateway, run_id, snapshot)
             attachments = compiled_program_overlay_attachments(run_id)
+            mechanism_attachments = compiled_mechanism_hypothesis_attachments(run_id)
             return Response(
                 render_v4_route_workbench_html(
                     snapshot,
                     program_innovation_reviews=reviews,
                     program_overlay_attachments=attachments,
+                    mechanism_hypothesis_attachments=mechanism_attachments,
                 ),
                 mimetype="text/html",
             )

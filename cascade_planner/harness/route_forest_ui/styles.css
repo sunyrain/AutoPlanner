@@ -2272,6 +2272,72 @@ body.is-resizing * {
   stroke-width: 3.2px;
 }
 
+.mechanism-hypothesis-callout {
+  cursor: pointer;
+  outline: none;
+}
+
+.mechanism-hypothesis-tether {
+  fill: none;
+  stroke: #d97706;
+  stroke-width: 1.5px;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.mechanism-hypothesis-pin {
+  fill: #fff7ed;
+  stroke: #d97706;
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.mechanism-hypothesis-card {
+  fill: color-mix(in srgb, #fffbeb 84%, var(--surface-raised));
+  stroke: #d97706;
+  stroke-width: 1.3px;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 4px 8px rgba(146, 64, 14, 0.1));
+}
+
+.mechanism-hypothesis-stripe {
+  fill: #dc2626;
+  pointer-events: none;
+}
+
+.mechanism-hypothesis-callout text {
+  pointer-events: none;
+  font-family: var(--font-sans);
+}
+
+.mechanism-hypothesis-kicker {
+  fill: #b45309 !important;
+  font-size: 7.8px;
+  font-weight: 780;
+  letter-spacing: 0.055em;
+}
+
+.mechanism-hypothesis-title {
+  fill: var(--text) !important;
+  font-size: 9.2px;
+  font-weight: 670;
+}
+
+.mechanism-hypothesis-callout:hover .mechanism-hypothesis-card,
+.mechanism-hypothesis-callout:focus-visible .mechanism-hypothesis-card,
+.mechanism-hypothesis-callout.is-selected .mechanism-hypothesis-card {
+  stroke: #b45309;
+  stroke-width: 2.8px;
+  filter: drop-shadow(0 0 6px rgba(217, 119, 6, 0.3));
+}
+
+.mechanism-hypothesis-callout.is-selected .mechanism-hypothesis-tether {
+  stroke-width: 2.4px;
+  stroke-dasharray: none;
+}
+
 .graph-viewport[data-graph-mode="shared"][data-zoom-band="overview"] .graph-edge:not(.is-selected) {
   opacity: 0.34;
 }
@@ -2323,6 +2389,12 @@ body.is-resizing * {
 .graph-node--reaction.is-program-active .node-surface {
   stroke: #8b5cf6;
   stroke-width: 2.6px;
+}
+
+.graph-node--molecule.is-mechanism-anchor .node-surface {
+  stroke: #d97706;
+  stroke-width: 2.6px;
+  filter: drop-shadow(0 0 5px rgba(217, 119, 6, 0.22));
 }
 
 .graph-edge.is-program-active {
@@ -2984,6 +3056,13 @@ body.is-resizing * {
 
 .program-warning-notice strong { color: #b91c1c; }
 
+.mechanism-warning-notice {
+  border-color: color-mix(in srgb, #d97706 38%, var(--border));
+  background: color-mix(in srgb, #fffbeb 72%, var(--surface-raised));
+}
+
+.mechanism-warning-notice strong { color: #b45309; }
+
 .program-stat-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3008,6 +3087,13 @@ body.is-resizing * {
 }
 
 .program-stat-grid span { color: var(--text-muted); font-size: 10px; }
+
+.mechanism-stat-grid > div {
+  border-color: color-mix(in srgb, #d97706 28%, var(--border));
+  background: color-mix(in srgb, #fffbeb 52%, var(--surface-subtle));
+}
+
+.mechanism-stat-grid strong { color: #b45309; }
 
 .program-boundary-grid {
   display: grid;
@@ -3039,6 +3125,55 @@ body.is-resizing * {
   overflow-wrap: anywhere;
   color: var(--text-muted);
   font-size: 9px;
+}
+
+.mechanism-boundary-card > span { color: #b45309; }
+
+.mechanism-rationale {
+  margin: 0 0 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.mechanism-task-list {
+  display: grid;
+  gap: 7px;
+}
+
+.mechanism-task-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, #d97706 24%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, #fffbeb 45%, var(--surface-raised));
+}
+
+.mechanism-task-row > span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  color: #92400e;
+  background: #fef3c7;
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.mechanism-task-row p {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.mechanism-check-row {
+  border-color: color-mix(in srgb, #dc2626 20%, var(--border));
+  background: color-mix(in srgb, #fff1f2 38%, var(--surface-raised));
 }
 
 .program-fallback-list { display: grid; gap: 7px; margin-top: 10px; }

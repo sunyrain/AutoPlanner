@@ -162,6 +162,7 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert "多步 Program 作为宿主路线内的可验证替代层展示" in index.get_data(as_text=True)
     assert "Program 在所属路线的准确区间内显示" in index.get_data(as_text=True)
     assert "programHostRoutes" in index.get_data(as_text=True)
+    assert "路线锚定机理假设" in index.get_data(as_text=True)
     assert 'class="targetGroup"' in index.get_data(as_text=True)
     assert 'id="runFrame"' not in index.get_data(as_text=True)
     assert 'id="runDetail"' in index.get_data(as_text=True)
@@ -176,6 +177,7 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
         if row["target_name"] == "bufotalin"
         and row["chemical_step_equivalent_count"] == 6
     )
+    assert benchmark["mechanism_hypothesis_count"] == 1
     materialized = client.post(benchmark["materialize_url"])
     assert materialized.status_code == 201
     assert materialized.get_json()["chemical_baseline_step_count"] == 20
@@ -191,6 +193,10 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     program_workbench = client.get(materialized.get_json()["workbench_url"])
     assert program_workbench.status_code == 200
     assert "program-overlay-card" in program_workbench.get_data(as_text=True)
+    assert "mechanism-hypothesis-callout" in program_workbench.get_data(as_text=True)
+    assert "proposed unprotected C16-ketone" in program_workbench.get_data(as_text=True)
+    assert "anchor_evidence_not_promoted" in program_workbench.get_data(as_text=True)
+    assert "PRODUCT_NOT_ROUTE_REJOINED" in program_workbench.get_data(as_text=True)
     assert "Ct3alpha-HSDH" in program_workbench.get_data(as_text=True)
     assert '"chemical_step_equivalent_count":6' in program_workbench.get_data(as_text=True)
     assert '"primary_branch_id":"planned-route:' in program_workbench.get_data(as_text=True)

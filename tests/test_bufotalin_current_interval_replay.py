@@ -17,6 +17,7 @@ from cascade_planner.interfaces.campaign_gateway import CampaignGateway, Campaig
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 from cascade_planner.runtime.paths import RuntimePaths
 from cascade_planner.web.workspace_surface import (
+    compiled_mechanism_hypothesis_attachments,
     compiled_program_benchmark_catalog,
     compiled_program_overlay_attachments,
     materialize_compiled_program_benchmark,
@@ -221,10 +222,14 @@ def test_bufotalin_program_attaches_to_the_full_twenty_step_host_route(
     materialized = materialize_compiled_program_benchmark(gateway, record["benchmark_id"])
     workbench = gateway.workbench(materialized["run_id"])["snapshot"]
     attachments = compiled_program_overlay_attachments(materialized["run_id"])
+    mechanism_attachments = compiled_mechanism_hypothesis_attachments(
+        materialized["run_id"]
+    )
 
     forest = compile_v4_route_forest(
         workbench,
         program_overlay_attachments=attachments,
+        mechanism_hypothesis_attachments=mechanism_attachments,
     )
 
     planned = next(iter(workbench["planned_routes"].values()))
@@ -238,6 +243,26 @@ def test_bufotalin_program_attaches_to_the_full_twenty_step_host_route(
     assert len(overlay["replaced_step_ids"]) == 6
     assert overlay["fallback_retained"] is True
     assert overlay["eligible_for_route_completion"] is False
+    assert len(forest["mechanism_hypotheses"]) == 1
+    mechanism = forest["mechanism_hypotheses"][0]
+    assert mechanism["branch_id"] == overlay["branch_id"]
+    assert mechanism["anchor_edge_ids"] == ["edge:paper:31"]
+    assert mechanism["proposal_depth"] == 1
+    assert mechanism["eligible_for_route_completion"] is False
+    assert mechanism["proposed_product"]["formula"]
+    assert mechanism["proposed_product"]["structure_svg"].startswith("<svg")
+    anchor_step = next(
+        value for value in forest["steps"] if value["step_id"] == mechanism["anchor_step_ids"][0]
+    )
+    assert mechanism["anchor_molecule_node_id"] in anchor_step["to_node_ids"]
+    assert mechanism["precursor_state"]["canonical_smiles"] == next(
+        value["smiles"]
+        for value in forest["nodes"]
+        if value["node_id"] == mechanism["anchor_molecule_node_id"]
+    )
+    assert mechanism["proposed_product"]["canonical_smiles"] not in {
+        value["smiles"] for value in forest["nodes"]
+    }
     branch = next(
         value for value in forest["branches"] if value["branch_id"] == overlay["branch_id"]
     )
@@ -270,3 +295,13 @@ def test_bufotalin_program_attaches_to_the_full_twenty_step_host_route(
         program_overlay_attachments=[invalid_attachment],
     )
     assert invalid_forest["program_overlays"] == []
+
+    invalid_mechanism = {
+        **dict(mechanism_attachments[0]),
+        "precursor_smiles": "C",
+    }
+    invalid_mechanism_forest = compile_v4_route_forest(
+        workbench,
+        mechanism_hypothesis_attachments=[invalid_mechanism],
+    )
+    assert invalid_mechanism_forest["mechanism_hypotheses"] == []

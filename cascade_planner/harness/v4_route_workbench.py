@@ -15,32 +15,17 @@ from cascade_planner.harness.route_forest_delivery import (
     render_route_forest_html,
     sanitize_structure_svg,
 )
-from cascade_planner.harness.v4_workbench_authority import (
-    frontier_ledger,
-    retrosynthesis_control,
-    selected_route_proof,
-)
+from cascade_planner.harness import v4_workbench_authority as _authority
 from cascade_planner.harness.v4_route_display import compile_route_display_rows
 from cascade_planner.harness.v4_route_branch import route_branch as _route_branch
-from cascade_planner.harness.v4_planned_route_branches import (
-    append_planned_route_branches as _append_planned_route_branches,
-)
-from cascade_planner.harness.v4_route_evidence_projection import (
-    PROOF_TIER as _PROOF_TIER,
-    condition_summary as _condition_summary,
-    literature_counts as _literature_counts,
-    replacement_validation_projection as _replacement_validation_projection,
-    trust_vector as _trust_vector,
-)
+from cascade_planner.harness import v4_planned_route_branches as _planned_routes
+from cascade_planner.harness import v4_route_evidence_projection as _evidence
 from cascade_planner.harness import v4_route_condition_projection as _condition_projection
-from cascade_planner.harness.v4_route_graph_projection import (
-    graph_edge as _graph_edge,
-    molecule_graph_id as _molecule_graph_id,
-    molecule_graph_node as _molecule_graph_node,
-    reaction_graph_id as _reaction_graph_id,
-    stable_id as _stable_id,
-)
+from cascade_planner.harness import v4_route_graph_projection as _graph
 from cascade_planner.harness.v4_program_overlay import compile_program_overlay_layer
+from cascade_planner.harness.v4_mechanism_hypothesis_overlay import (
+    project_mechanism_hypothesis_overlays,
+)
 
 
 V4_WORKBENCH_ADAPTER_SCHEMA = "v4_route_workbench_adapter.v1"
@@ -50,6 +35,7 @@ def compile_v4_route_forest(
     *,
     program_innovation_reviews: Iterable[Mapping[str, Any]] = (),
     program_overlay_attachments: Iterable[Mapping[str, Any]] = (),
+    mechanism_hypothesis_attachments: Iterable[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Adapt one bounded V4 read model to the offline route-workbench shell."""
 
@@ -63,7 +49,7 @@ def compile_v4_route_forest(
     steps: list[dict[str, Any]] = []
     branches: list[dict[str, Any]] = []
     graph_nodes: dict[str, dict[str, Any]] = {
-        _molecule_graph_id(node_id): _molecule_graph_node(node)
+        _graph.molecule_graph_id(node_id): _graph.molecule_graph_node(node)
         for node_id, node in nodes_by_id.items()
     }
     graph_edges: list[dict[str, Any]] = []
@@ -94,9 +80,9 @@ def compile_v4_route_forest(
             edge = dict(edge_rows.get(str(canonical_edge_id)) or {})
             if not edge:
                 continue
-            step_id = _stable_id("step", branch_id, str(canonical_edge_id))
+            step_id = _graph.stable_id("step", branch_id, str(canonical_edge_id))
             step_id_by_branch_edge[(branch_id, str(canonical_edge_id))] = step_id
-            reaction_graph_id = _reaction_graph_id(step_id)
+            reaction_graph_id = _graph.reaction_graph_id(step_id)
             product_id = str(edge.get("product_molecule_id") or "")
             raw_precursor_ids = [str(value) for value in edge.get("precursor_molecule_ids") or []]
             precursor_ids, precursor_multiplicity = _project_stoichiometric_inputs(
@@ -113,7 +99,7 @@ def compile_v4_route_forest(
             ):
                 continue
             proof_level = int(edge.get("proof_level") or 0)
-            tier = _PROOF_TIER[max(0, min(4, proof_level))]
+            tier = _evidence.PROOF_TIER[max(0, min(4, proof_level))]
             inspector = dict(edge_inspectors.get(str(canonical_edge_id)) or {})
             source_bindings = [
                 dict(value)
@@ -174,7 +160,7 @@ def compile_v4_route_forest(
                         ),
                     }
                 )
-            trust_vector = _trust_vector(edge, source_bindings)
+            trust_vector = _evidence.trust_vector(edge, source_bindings)
             trust_vector["proof_tier"] = tier
             step = {
                 "step_id": step_id,
@@ -208,7 +194,7 @@ def compile_v4_route_forest(
                 "condition_missing_required_groups": list(
                     inspector.get("condition_missing_required_groups") or []
                 ),
-                "condition_summary": _condition_summary(condition_status),
+                "condition_summary": _evidence.condition_summary(condition_status),
                 "procedure_records": procedure_records,
                 "source_observation_records": source_observation_records,
                 "inactive_fact_count": int(inspector.get("inactive_fact_count") or 0),
@@ -273,11 +259,11 @@ def compile_v4_route_forest(
             }
             for precursor_id in precursor_ids:
                 graph_edges.append(
-                    _graph_edge(
+                    _graph.graph_edge(
                         branch_id,
                         step_id,
                         molecule_id=precursor_id,
-                        source_id=_molecule_graph_id(precursor_id),
+                        source_id=_graph.molecule_graph_id(precursor_id),
                         target_id=reaction_graph_id,
                         direction="input",
                         visual_role=(
@@ -286,12 +272,12 @@ def compile_v4_route_forest(
                     )
                 )
             graph_edges.append(
-                _graph_edge(
+                _graph.graph_edge(
                     branch_id,
                     step_id,
                     molecule_id=product_id,
                     source_id=reaction_graph_id,
-                    target_id=_molecule_graph_id(product_id),
+                    target_id=_graph.molecule_graph_id(product_id),
                     direction="output",
                 )
             )
@@ -344,7 +330,7 @@ def compile_v4_route_forest(
             }
         )
 
-    planned_hypothesis_ids = _append_planned_route_branches(
+    planned_hypothesis_ids = _planned_routes.append_planned_route_branches(
         source,
         nodes_by_id=nodes_by_id,
         steps=steps,
@@ -366,12 +352,12 @@ def compile_v4_route_forest(
     )
     primary_id = str(dict(source.get("portfolio") or {}).get("default_route_id") or "")
     portfolio_accepted = dict(source.get("portfolio") or {}).get("accepted") is True
-    frontier_ledger_value = frontier_ledger(
+    frontier_ledger_value = _authority.frontier_ledger(
         source,
         nodes_by_id=nodes_by_id,
         authority_edges=authority_edges,
     )
-    selected_route_proof_value = selected_route_proof(source)
+    selected_route_proof_value = _authority.selected_route_proof(source)
     route_count = len(routes)
     complete_count = sum(dict(value).get("complete") is True for value in routes.values())
     search_closed_count = sum(
@@ -387,7 +373,7 @@ def compile_v4_route_forest(
         dict(value).get("condition_complete") is True for value in routes.values()
     )
     process_ready_count = sum(dict(value).get("process_ready") is True for value in routes.values())
-    replacement_validation = _replacement_validation_projection(
+    replacement_validation = _evidence.replacement_validation_projection(
         source,
         step_id_by_branch_edge=step_id_by_branch_edge,
     )
@@ -399,6 +385,13 @@ def compile_v4_route_forest(
     )
     if attachment_program_overlays:
         primary_id = str(attachment_program_overlays[0].get("branch_id") or primary_id)
+    mechanism_hypotheses = project_mechanism_hypothesis_overlays(
+        mechanism_hypothesis_attachments, steps=steps, nodes=nodes_by_id,
+    )
+    for hypothesis in mechanism_hypotheses:
+        product = dict(hypothesis.get("proposed_product") or {})
+        product.update(_depiction(str(product.get("canonical_smiles") or "")))
+        hypothesis["proposed_product"] = product
     forest = {
         "schema_version": "explored_route_forest.v1",
         "case_id": str(source.get("run_id") or ""),
@@ -439,6 +432,7 @@ def compile_v4_route_forest(
         "modules": list(dict(source.get("modules") or {}).values()),
         "relationships": [],
         "program_overlays": program_overlays,
+        "mechanism_hypotheses": mechanism_hypotheses,
         "dependency_graph": {
             "schema_version": "molecule_reaction_dependency_graph.v1",
             "graph_kind": "canonical_v4_portfolio_projection",
@@ -452,7 +446,7 @@ def compile_v4_route_forest(
         },
         "frontier_ledger": frontier_ledger_value,
         "selected_route_parent_proof": selected_route_proof_value,
-        "retrosynthesis_control": retrosynthesis_control(
+        "retrosynthesis_control": _authority.retrosynthesis_control(
             source,
             selected_route_proof=selected_route_proof_value,
         ),
@@ -495,7 +489,7 @@ def compile_v4_route_forest(
             "rejections": list(dict(source.get("inspectors") or {}).get("rejections") or []),
             "conflicts": dict(dict(source.get("inspectors") or {}).get("conflicts") or {}),
         },
-        "run_trace": {"literature_counts": _literature_counts(routes, edge_inspectors)},
+        "run_trace": {"literature_counts": _evidence.literature_counts(routes, edge_inspectors)},
         "design_notes": [
             "V4 read model only; canonical graph and proof portfolio remain authoritative.",
             "Default route display is bounded to two to five portfolio routes.",
@@ -516,12 +510,14 @@ def render_v4_route_workbench_html(
     *,
     program_innovation_reviews: Iterable[Mapping[str, Any]] = (),
     program_overlay_attachments: Iterable[Mapping[str, Any]] = (),
+    mechanism_hypothesis_attachments: Iterable[Mapping[str, Any]] = (),
 ) -> str:
     return render_route_forest_html(
         compile_v4_route_forest(
             workbench,
             program_innovation_reviews=program_innovation_reviews,
             program_overlay_attachments=program_overlay_attachments,
+            mechanism_hypothesis_attachments=mechanism_hypothesis_attachments,
         )
     )
 
@@ -649,14 +645,14 @@ def _append_hypothesis_branches(
         )
         raw_precursor_ids: list[str] = []
         for smiles in hypothesis.get("precursor_smiles") or []:
-            molecule_id = _stable_id("molecule", str(smiles))
+            molecule_id = _graph.stable_id("molecule", str(smiles))
             raw_precursor_ids.append(molecule_id)
             if molecule_id not in nodes_by_id:
                 nodes_by_id[molecule_id] = _node(
                     molecule_id,
                     {"canonical_smiles": str(smiles), "role": "hypothesis_precursor"},
                 )
-                graph_nodes[_molecule_graph_id(molecule_id)] = _molecule_graph_node(
+                graph_nodes[_graph.molecule_graph_id(molecule_id)] = _graph.molecule_graph_node(
                     nodes_by_id[molecule_id]
                 )
         precursor_ids, precursor_multiplicity = _project_stoichiometric_inputs(
@@ -664,8 +660,8 @@ def _append_hypothesis_branches(
         )
         if product_id not in nodes_by_id or not precursor_ids:
             continue
-        step_id = _stable_id("step", branch_id)
-        reaction_id = _reaction_graph_id(step_id)
+        step_id = _graph.stable_id("step", branch_id)
+        reaction_id = _graph.reaction_graph_id(step_id)
         conditions: list[dict[str, str]] = []
         repeated_inputs = [
             value for value in precursor_multiplicity if int(value["count"]) > 1
@@ -704,7 +700,7 @@ def _append_hypothesis_branches(
                 "route_innovations": route_innovations,
                 "innovation_kinds": innovation_kinds,
                 "rejection_reasons": list(hypothesis.get("admission_reasons") or []),
-                "trust_vector": _trust_vector({"proof_level": 0}, []),
+                "trust_vector": _evidence.trust_vector({"proof_level": 0}, []),
                 "visual_encoding": {
                     "color": "#be123c" if admission_rejected else "#e76f51",
                     "width": 2.0 if admission_rejected else 1.5,
@@ -724,22 +720,22 @@ def _append_hypothesis_branches(
         }
         for precursor_id in precursor_ids:
             graph_edges.append(
-                _graph_edge(
+                _graph.graph_edge(
                     branch_id,
                     step_id,
                     molecule_id=precursor_id,
-                    source_id=_molecule_graph_id(precursor_id),
+                    source_id=_graph.molecule_graph_id(precursor_id),
                     target_id=reaction_id,
                     direction="input",
                 )
             )
         graph_edges.append(
-            _graph_edge(
+            _graph.graph_edge(
                 branch_id,
                 step_id,
                 molecule_id=product_id,
                 source_id=reaction_id,
-                target_id=_molecule_graph_id(product_id),
+                target_id=_graph.molecule_graph_id(product_id),
                 direction="output",
             )
         )

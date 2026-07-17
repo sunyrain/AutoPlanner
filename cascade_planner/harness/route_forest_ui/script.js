@@ -114,6 +114,13 @@
     if (!programOverlaysByBranch.has(overlay.branch_id)) programOverlaysByBranch.set(overlay.branch_id, []);
     programOverlaysByBranch.get(overlay.branch_id).push(overlay);
   }
+  const mechanismHypotheses = new Map((forest.mechanism_hypotheses || [])
+    .map(row => [row.hypothesis_id, row]));
+  const mechanismHypothesesByBranch = new Map();
+  for (const hypothesis of mechanismHypotheses.values()) {
+    if (!mechanismHypothesesByBranch.has(hypothesis.branch_id)) mechanismHypothesesByBranch.set(hypothesis.branch_id, []);
+    mechanismHypothesesByBranch.get(hypothesis.branch_id).push(hypothesis);
+  }
   const graphNodeIdByMolecule = new Map((graph.nodes || [])
     .filter(row => row.node_type === 'molecule' && row.molecule_node_id)
     .map(row => [row.molecule_node_id, row.graph_node_id]));
@@ -142,6 +149,7 @@
     selectedInstanceId: '',
     selectedStepId: '',
     selectedProgramId: '',
+    selectedMechanismId: '',
     detailTab: oneOf(persisted.detailTab, ['step', 'evidence', 'alternatives'], 'step'),
     query: '',
     stageFilter: oneOf(persisted.stageFilter, [
@@ -1191,7 +1199,11 @@
     const tiles = lanes.map(lane => {
       const hasProgramOverlay = state.mode === 'current'
         && (programOverlaysByBranch.get(lane.branch_id) || []).length > 0;
-      const programInset = hasProgramOverlay ? 112 : 0;
+      const mechanismCount = state.mode === 'current'
+        ? Math.min(3, (mechanismHypothesesByBranch.get(lane.branch_id) || []).length)
+        : 0;
+      const programInset = (hasProgramOverlay ? 112 : mechanismCount ? 14 : 0)
+        + mechanismCount * 46;
       const localEdges = visibleEdges((lane.edge_ids || []).map(edgeId => edgeById.get(edgeId)).filter(Boolean));
       const visibleNodeIds = new Set(localEdges.flatMap(edge => [edge.source_graph_node_id, edge.target_graph_node_id]));
       const localRows = (lane.node_layout || []).filter(row => visibleNodeIds.has(row.graph_node_id)).slice().sort((a, b) => Number(a.layer) - Number(b.layer)
@@ -1321,6 +1333,7 @@
       targetRatio
     };
     model.programOverlays = layoutProgramOverlays(model);
+    model.mechanismHypotheses = layoutMechanismHypotheses(model);
     return model;
   }
 
@@ -1379,6 +1392,41 @@
     }
     const middle = (from.x + to.x) / 2;
     return `M ${from.x} ${from.y} C ${middle} ${from.y}, ${middle} ${to.y}, ${to.x} ${to.y}`;
+  }
+
+  function layoutMechanismHypotheses(model) {
+    if (state.mode !== 'current') return [];
+    const rows = mechanismHypothesesByBranch.get(state.selectedBranchId) || [];
+    const anchorSlots = new Map();
+    return rows.map(hypothesis => {
+      const graphNodeId = graphNodeIdByMolecule.get(hypothesis.anchor_molecule_node_id);
+      const anchor = model.positions.get(`${hypothesis.branch_id}::${graphNodeId}`);
+      if (!anchor) return null;
+      const slot = Number(anchorSlots.get(graphNodeId) || 0);
+      anchorSlots.set(graphNodeId, slot + 1);
+      const card = {
+        x: anchor.x + Math.max(8, (anchor.w - Math.min(188, anchor.w - 16)) / 2),
+        y: anchor.y - 46 * (slot + 1),
+        w: Math.min(188, anchor.w - 16),
+        h: 40
+      };
+      return { hypothesis, anchor, card };
+    }).filter(Boolean);
+  }
+
+  function mechanismHypothesisSvg(row) {
+    const { hypothesis, anchor, card } = row;
+    const selected = state.selectedMechanismId === hypothesis.hypothesis_id;
+    const anchorX = clamp(anchor.x + anchor.w * .72, card.x + 12, card.x + card.w - 12);
+    const label = middleEllipsis(hypothesis.proposed_product?.label || 'proposed one-hop product', 27);
+    return `<g class="mechanism-hypothesis-callout${selected ? ' is-selected' : ''}" data-mechanism-id="${esc(hypothesis.hypothesis_id)}" data-branch-id="${esc(hypothesis.branch_id)}" tabindex="${selected ? '0' : '-1'}" role="button" aria-label="机理假设：文献锚点后的一跳提案，尚未验证">
+      <path class="mechanism-hypothesis-tether" d="M ${anchorX} ${card.y + card.h} L ${anchorX} ${anchor.y}"></path>
+      <circle class="mechanism-hypothesis-pin" cx="${anchorX}" cy="${anchor.y}" r="4"></circle>
+      <rect class="mechanism-hypothesis-card" x="${card.x}" y="${card.y}" width="${card.w}" height="${card.h}" rx="10"></rect>
+      <rect class="mechanism-hypothesis-stripe" x="${card.x}" y="${card.y + 5}" width="4" height="${card.h - 10}" rx="2"></rect>
+      <text class="mechanism-hypothesis-kicker" x="${card.x + 12}" y="${card.y + 15}">H1 · MECHANISM · ONE HOP</text>
+      <text class="mechanism-hypothesis-title" x="${card.x + 12}" y="${card.y + 31}">${esc(label)} · 待验证</text>
+    </g>`;
   }
 
   function programOverlaySvg(row) {
@@ -1502,12 +1550,14 @@
       edgeRoutingPlan.portsByInstance.get(instance.instanceId) || []
     )).join('');
     const programOverlayRows = (renderModel.programOverlays || []).map(programOverlaySvg).join('');
+    const mechanismRows = (renderModel.mechanismHypotheses || []).map(mechanismHypothesisSvg).join('');
     element('mainRoute').innerHTML = `<svg class="graph-svg dependency-svg" data-layout-packing="${esc(renderModel.packing?.algorithm || 'shared_component_layers.v1')}" data-maximum-edge-tracks="${edgeRoutingPlan.maximumTrackCount}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="graphTitle graphSubtitle">
-      <defs>${markers}</defs><g class="graph-world">${decorations}${edges}${programOverlayRows}${nodes}</g></svg>`;
+      <defs>${markers}</defs><g class="graph-world">${decorations}${edges}${programOverlayRows}${nodes}${mechanismRows}</g></svg>`;
     indexRenderedObjects();
     renderPerformance.lastGraphUpdateMs = performance.now() - updateStartedAt;
     const visibleBranches = new Set(renderModel.instances.map(row => row.branchId).filter(Boolean));
     element('graphVisibleCount').textContent = `${visibleBranches.size || (state.mode === 'shared' ? Math.min(filteredLanes().length, portfolioDisplayLimit()) : 0)}/${filteredLanes().length} 探索视图 · ${renderModel.instances.length} 节点 · ${renderModel.edges.length} 边${renderModel.programOverlays?.length ? ` · ${renderModel.programOverlays.length} 个影子 Program` : ''}`;
+    if (renderModel.mechanismHypotheses?.length) element('graphVisibleCount').textContent += ` · ${renderModel.mechanismHypotheses.length} 个机理假设`;
     const replacementPreview = state.activeReplacement && state.mode === 'current';
     const overviewToggle = element('overviewToggle');
     const filteredCount = filteredLanes().length;
@@ -1816,18 +1866,22 @@
     const selectedNode = state.selectedGraphNodeId;
     const selectedStep = state.selectedStepId;
     const selectedProgram = programOverlays.get(state.selectedProgramId);
+    const selectedMechanism = mechanismHypotheses.get(state.selectedMechanismId);
+    const mechanismAnchorGraphId = graphNodeIdByMolecule.get(selectedMechanism?.anchor_molecule_node_id);
     const programFallbackSteps = new Set(selectedProgram?.replaced_step_ids || []);
-    const hasSelection = Boolean(selectedNode || selectedStep || selectedBranch || selectedProgram);
+    const hasSelection = Boolean(selectedNode || selectedStep || selectedBranch || selectedProgram || selectedMechanism);
     let focusAssigned = false;
     document.querySelectorAll('.graph-node').forEach(row => {
       const selected = row.dataset.graphNodeId === selectedNode || row.dataset.routeStep === selectedStep;
-      const related = selected || (selectedBranch && row.dataset.branchId === selectedBranch);
+      const mechanismAnchor = row.dataset.graphNodeId === mechanismAnchorGraphId;
+      const related = selected || mechanismAnchor || (selectedBranch && row.dataset.branchId === selectedBranch);
       const focusable = selected && (state.selectedInstanceId
         ? row.dataset.instanceId === state.selectedInstanceId
         : !focusAssigned);
       if (focusable) focusAssigned = true;
       row.classList.toggle('is-selected', selected);
       row.classList.toggle('is-program-active', programFallbackSteps.has(row.dataset.routeStep));
+      row.classList.toggle('is-mechanism-anchor', mechanismAnchor);
       row.classList.toggle('is-dimmed', hasSelection && !related && state.edgeFilter === 'selected');
       row.tabIndex = focusable ? 0 : -1;
     });
@@ -1841,6 +1895,11 @@
     });
     document.querySelectorAll('[data-program-id]').forEach(row => {
       const selected = row.dataset.programId === state.selectedProgramId;
+      row.classList.toggle('is-selected', selected);
+      row.tabIndex = selected ? 0 : -1;
+    });
+    document.querySelectorAll('[data-mechanism-id]').forEach(row => {
+      const selected = row.dataset.mechanismId === state.selectedMechanismId;
       row.classList.toggle('is-selected', selected);
       row.tabIndex = selected ? 0 : -1;
     });
@@ -2092,6 +2151,7 @@
     state.selectedInstanceId = '';
     state.selectedStepId = '';
     state.selectedProgramId = '';
+    state.selectedMechanismId = '';
     persistState();
     if (state.mode === 'current' || state.edgeFilter === 'selected') renderGraph();
     else applyGraphSelection();
@@ -2110,6 +2170,7 @@
     state.selectedInstanceId = '';
     state.selectedStepId = '';
     state.selectedProgramId = '';
+    state.selectedMechanismId = '';
     rerenderForControls();
     announce(`已在重点分支中打开路线 ${branches.get(branchId)?.title || branchId}`);
     if (focusGraph) requestAnimationFrame(() => {
@@ -2123,6 +2184,7 @@
     state.selectedInstanceId = instanceId;
     state.selectedStepId = node.node_type === 'reaction' ? node.reaction_step_id : '';
     state.selectedProgramId = '';
+    state.selectedMechanismId = '';
     if (node.node_type === 'reaction') {
       state.detailTab = 'step';
       if (state.layoutPreset === 'focus') state.layoutPreset = 'review';
@@ -2149,6 +2211,7 @@
     const program = programOverlays.get(programId);
     if (!program) return;
     state.selectedProgramId = programId;
+    state.selectedMechanismId = '';
     state.selectedBranchId = program.branch_id;
     state.selectedGraphNodeId = '';
     state.selectedInstanceId = '';
@@ -2167,7 +2230,33 @@
     }
   }
 
+  function selectMechanism(hypothesisId, { focus = false } = {}) {
+    const hypothesis = mechanismHypotheses.get(hypothesisId);
+    if (!hypothesis) return;
+    state.selectedMechanismId = hypothesisId;
+    state.selectedProgramId = '';
+    state.selectedBranchId = hypothesis.branch_id;
+    state.selectedGraphNodeId = '';
+    state.selectedInstanceId = '';
+    state.selectedStepId = '';
+    state.detailTab = 'step';
+    state.inspectorOpen = true;
+    if (isMobileDrawerLayout()) state.navOpen = false;
+    applyPersistentChromeState();
+    updateMobileNavigation('inspector');
+    applyGraphSelection();
+    renderDetail();
+    persistState();
+    announce('已选择文献锚点后的一跳机理假设；该提案尚未验证。');
+    if (focus && !isInspectorOverlayLayout()) {
+      document.querySelector(`[data-mechanism-id="${CSS.escape(hypothesisId)}"]`)?.focus();
+    }
+  }
+
   function selectedEntity() {
+    if (state.selectedMechanismId && mechanismHypotheses.has(state.selectedMechanismId)) {
+      return { type: 'mechanism', value: mechanismHypotheses.get(state.selectedMechanismId) };
+    }
     if (state.selectedProgramId && programOverlays.has(state.selectedProgramId)) {
       return { type: 'program', value: programOverlays.get(state.selectedProgramId) };
     }
@@ -2195,19 +2284,46 @@
     const host = element('detail');
     if (!entity) { host.innerHTML = '<div class="empty-state"><strong>选择一个反应或分子</strong><span>检查结构、条件、证明层级与来源。</span></div>'; return; }
     document.querySelectorAll('[data-detail-tab]').forEach(button => {
-      button.hidden = entity.type === 'program' && button.dataset.detailTab !== 'step';
+      button.hidden = ['program', 'mechanism'].includes(entity.type) && button.dataset.detailTab !== 'step';
     });
     element('inspectorTitle').textContent = entity.type === 'reaction' ? '反应检查器'
       : entity.type === 'molecule' ? '分子检查器'
         : entity.type === 'program' ? '酶 Program 检查器' : '路线检查器';
+    if (entity.type === 'mechanism') element('inspectorTitle').textContent = '机理假设检查器';
     if (entity.type === 'program') {
       host.innerHTML = programOverview(entity.value);
+      return;
+    }
+    if (entity.type === 'mechanism') {
+      host.innerHTML = mechanismOverview(entity.value);
       return;
     }
     if (state.detailTab === 'alternatives') { renderAlternatives(entity, host); return; }
     if (state.detailTab === 'evidence') { renderEvidence(entity, host); return; }
     host.innerHTML = entity.type === 'reaction' ? reactionOverview(entity.value)
       : entity.type === 'molecule' ? moleculeOverview(entity.value) : branchOverview(entity.value);
+  }
+
+  function mechanismOverview(hypothesis) {
+    const anchor = moleculeNodes.get(hypothesis.anchor_molecule_node_id) || {};
+    const product = hypothesis.proposed_product || {};
+    const structureCard = (row, label, smiles) => `<div class="program-boundary-card mechanism-boundary-card"><span>${esc(label)}</span>${row.structure_svg ? `<div class="mol-structure">${safeStructureSvg(row.structure_svg)}</div>` : ''}<strong>${esc(row.formula || row.label || '未命名结构')}</strong><code>${esc(smiles || '未记录')}</code></div>`;
+    const elementarySteps = (hypothesis.elementary_steps || [])
+      .map((value, index) => `<div class="mechanism-task-row"><span>${index + 1}</span><p>${esc(value)}</p></div>`).join('');
+    const checks = (hypothesis.falsifiable_checks || [])
+      .map((value, index) => `<div class="mechanism-task-row mechanism-check-row"><span>${index + 1}</span><p>${esc(value)}</p></div>`).join('');
+    const refs = (hypothesis.anchor_source_refs || [])
+      .map(value => `<div class="trace-row"><code>${esc(value)}</code></div>`).join('');
+    const warnings = (hypothesis.warning_codes || [])
+      .map(value => `<code class="reason-code">${esc(value)}</code>`).join('');
+    return `<article class="program-detail mechanism-detail"><header><p class="detail-kind">文献外机理假设 · 一跳边界</p><h3 class="detail-title">${esc(product.label || '提案产物')}</h3></header>
+      <div class="notice mechanism-warning-notice"><strong>锚点论文不证明这条新边</strong><span>论文只证明下方锚点结构与原路线步骤；本提案不会继承其证据等级，也不会改变路线闭合或 canonical 边数。</span>${warnings ? `<div class="reason-code-list">${warnings}</div>` : ''}</div>
+      <section class="program-stat-grid mechanism-stat-grid"><div><strong>H${Number(hypothesis.proposal_depth || 1)}</strong><span>只允许一跳</span></div><div><strong>${Math.round(Number(hypothesis.priority_score || 0) * 100)}%</strong><span>探索优先级</span></div><div><strong>未物化</strong><span>验证状态</span></div></section>
+      <section class="detail-section"><h3>结构重接提案</h3><div class="program-boundary-grid">${structureCard(anchor, '文献锚点产物', anchor.canonical_isomeric_smiles || anchor.smiles)}${structureCard(product, '假设的一跳产物', product.canonical_smiles)}</div><p class="v">提案产物只显示在影子层中，不是路线节点；完成物化、结构重接与实验验证后才可进入候选边审查。</p></section>
+      <section class="detail-section"><h3>机理依据</h3><p class="mechanism-rationale">${esc(hypothesis.mechanistic_rationale || '尚未记录')}</p><div class="mechanism-task-list">${elementarySteps || '<div class="empty">尚未拆解基本步骤</div>'}</div></section>
+      <section class="detail-section"><h3>可证伪验证任务</h3><div class="mechanism-task-list">${checks}</div></section>
+      <section class="detail-section"><h3>锚点证据隔离</h3><div class="trace-list">${refs}</div><div class="kv"><span class="k">锚点步骤</span><span class="v"><code>${esc((hypothesis.anchor_edge_ids || []).join(' · '))}</code></span></div><div class="kv"><span class="k">权限</span><span class="v">${esc(hypothesis.authority_scope || 'proposal_only')} · 不授予路线闭合</span></div></section>
+    </article>`;
   }
 
   function programOverview(program) {
@@ -2448,6 +2564,7 @@
     state.selectedBranchId = replacementBranchId;
     state.selectedStepId = replacementStepId;
     state.selectedProgramId = '';
+    state.selectedMechanismId = '';
     state.selectedGraphNodeId = reactionNode?.graph_node_id || '';
     state.selectedInstanceId = reactionNode ? `${replacementBranchId}::${reactionNode.graph_node_id}` : '';
     state.mode = 'current';
@@ -2466,9 +2583,11 @@
     state.selectedStepId = steps.has(preview.baseStepId)
       ? preview.baseStepId : laneByBranch.get(state.selectedBranchId)?.step_ids?.[0] || '';
     state.selectedProgramId = '';
+    state.selectedMechanismId = '';
     state.selectedGraphNodeId = '';
     state.selectedInstanceId = '';
     state.selectedProgramId = '';
+    state.selectedMechanismId = '';
     state.mode = oneOf(preview.previousMode, ['clusters', 'shared', 'current'], 'current');
     state.detailTab = 'alternatives';
     if (render) rerenderForControls();
@@ -2568,6 +2687,7 @@
     state.selectedGraphNodeId = '';
     state.selectedInstanceId = '';
     state.selectedProgramId = '';
+    state.selectedMechanismId = '';
   }
 
   function clearReplacementPreviewForFilterChange() {
@@ -2580,7 +2700,7 @@
 
   function bindEvents() {
     document.addEventListener('click', event => {
-      const target = event.target.closest('button, [data-program-id], [data-graph-node-id], [data-lane-branch-id], .graph-minimap');
+      const target = event.target.closest('button, [data-program-id], [data-mechanism-id], [data-graph-node-id], [data-lane-branch-id], .graph-minimap');
       if (!target) return;
       if (target.dataset.replacementPreview !== undefined) { previewReplacement(target); return; }
       if (target.dataset.replacementReset !== undefined) { restoreReplacementPreview(); return; }
@@ -2594,6 +2714,7 @@
         return;
       }
       if (target.dataset.programId) { selectProgram(target.dataset.programId); return; }
+      if (target.dataset.mechanismId) { selectMechanism(target.dataset.mechanismId); return; }
       if (target.dataset.graphNodeId) { selectGraphNode(target.dataset.graphNodeId, { branchId: target.dataset.branchId || '', instanceId: target.dataset.instanceId || '' }); return; }
       if (target.dataset.laneBranchId) { openBranchInFocus(target.dataset.laneBranchId, { focusGraph: true }); return; }
       if (target.dataset.branchId) { selectBranch(target.dataset.branchId); return; }
@@ -2827,6 +2948,10 @@
     const programNode = event.target.closest?.('[data-program-id]');
     if (programNode && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault(); selectProgram(programNode.dataset.programId, { focus: true }); return;
+    }
+    const mechanismNode = event.target.closest?.('[data-mechanism-id]');
+    if (mechanismNode && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault(); selectMechanism(mechanismNode.dataset.mechanismId, { focus: true }); return;
     }
     if (graphNode && event.key.startsWith('Arrow')) {
       event.preventDefault(); moveGraphFocus(graphNode, event.key); return;
