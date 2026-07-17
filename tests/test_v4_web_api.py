@@ -123,6 +123,9 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert workspace.get_json()["self_evolution"]["schema_version"] == (
         "autoplanner.self_evolution_catalog.v1"
     )
+    assert (
+        workspace.get_json()["self_evolution"]["compiled_program_benchmarks"]["record_count"] >= 1
+    )
     assert workspace.get_json()["entrypoints"]["self_evolution"] == "/v4#evolution"
     assert workbench.get_json()["snapshot"]["run_id"] == "web-example"
     assert programs.status_code == 200
@@ -152,6 +155,7 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert 'id="solveForm"' in index.get_data(as_text=True)
     assert "启动逆合成" in index.get_data(as_text=True)
     assert "自进化库" in index.get_data(as_text=True)
+    assert "多步酶 Program 候选" in index.get_data(as_text=True)
     assert "'/api/v4/jobs'" in index.get_data(as_text=True)
     assert b"<!doctype html>" in rendered.data.lower()
 
@@ -263,9 +267,9 @@ def test_v4_http_exposes_read_only_route_program_innovation_review(
     ).get_json()
     proposal = next(iter(positive["program_bundle"]["program_proposals"].values()))
     assert positive["experimental_work_frontier_oracle"]["accepted"] is True
-    request = next(
-        iter(positive["experimental_work_frontier"]["work_items"].values())
-    )["execution_request"]
+    request = next(iter(positive["experimental_work_frontier"]["work_items"].values()))[
+        "execution_request"
+    ]
     executor_result = build_experiment_execution_result(
         request,
         result_id="experiment-result:web-reduction",
@@ -473,9 +477,7 @@ def test_v4_http_exposes_read_only_route_program_innovation_review(
     assert experience_repeated.get_json()["new_claim_count"] == 0
     assert len(durable_experience.get_json()["library"]["experiences"]) == 1
     assert memory_review["program_experience"]["matched_candidate_count"] == 1
-    memory_candidate = next(
-        iter(memory_review["program_bundle"]["program_proposals"].values())
-    )
+    memory_candidate = next(iter(memory_review["program_bundle"]["program_proposals"].values()))
     assert "EXACT_SUBSTRATE_UNVALIDATED" in memory_candidate["warning_codes"]
     assert (
         client.get("/api/v4/runs/web-program-innovation/status").get_json()["status"][
@@ -691,13 +693,7 @@ def test_v4_job_list_projects_the_live_checkpoint_stage(tmp_path: Path) -> None:
         def solve_target(self, **kwargs):
             checkpoint.parent.mkdir(parents=True, exist_ok=True)
             checkpoint.write_text(
-                json.dumps(
-                    {
-                        "stages": [
-                            {"stage": "chemenzy_baseline", "status": "running"}
-                        ]
-                    }
-                ),
+                json.dumps({"stages": [{"stage": "chemenzy_baseline", "status": "running"}]}),
                 encoding="utf-8",
             )
             release.wait(2)

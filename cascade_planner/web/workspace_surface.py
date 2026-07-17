@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from cascade_planner.application.reaction_template_store import (
     DEFAULT_TEMPLATE_LIBRARY_NAME,
     read_template_library,
 )
+from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 from cascade_planner.web.workspace_catalog import compile_showcase_catalog
 
 
@@ -40,6 +42,186 @@ def showcase_catalog() -> dict[str, Any]:
         shared_root=SHARED_RESULTS_DIR,
         manifest_path=PRESENTATION_MANIFEST,
     )
+
+
+def compiled_program_benchmark_catalog() -> dict[str, Any]:
+    """Expose digest-bound, replayable multi-step Program candidates for review.
+
+    These records are deliberately distinct from self-evolution memory: they show
+    a compiler-screened replacement and its chemical fallback, not validated
+    reaction evidence or an admitted executable Program.
+    """
+
+    benchmark_root = ROOT / "benchmarks"
+    observations: dict[str, dict[str, Any]] = {}
+    errors: list[str] = []
+    for path in sorted(benchmark_root.glob("*_candidate_route_observation.v1.json")):
+        value, error = _read_digest_bound_json(path)
+        if error:
+            errors.append(f"{path.name}:{error}")
+            continue
+        digest = str(value.get("content_sha256") or "")
+        if digest:
+            observations[digest] = value
+
+    records: list[dict[str, Any]] = []
+    for path in sorted(benchmark_root.glob("*_candidate_innovation_screen.v1.json")):
+        screen, error = _read_digest_bound_json(path)
+        if error:
+            errors.append(f"{path.name}:{error}")
+            continue
+        observation = observations.get(str(screen.get("observation_sha256") or ""), {})
+        for route_id, route_screen in sorted(dict(screen.get("route_screens") or {}).items()):
+            discovery = dict(dict(route_screen).get("discovery") or {})
+            for raw_candidate in discovery.get("candidates") or []:
+                candidate = dict(raw_candidate)
+                innovation = dict(candidate.get("route_innovation") or {})
+                chemical_steps = int(innovation.get("chemical_step_equivalent_count") or 0)
+                if innovation.get("kind") != "biocatalytic_superstep" or chemical_steps < 2:
+                    continue
+                boundary = dict(candidate.get("boundary") or {})
+                replaced_edge_ids = [
+                    str(value) for value in boundary.get("replaced_edge_ids") or [] if str(value)
+                ]
+                molecules = dict(observation.get("molecules") or {})
+                transformations = dict(observation.get("transformations") or {})
+                fallback_steps = [
+                    _fallback_step_snapshot(
+                        edge_id,
+                        transformations=transformations,
+                        molecules=molecules,
+                    )
+                    for edge_id in replaced_edge_ids
+                ]
+                target = dict(observation.get("target") or {})
+                precursor_id = str(boundary.get("precursor_molecule_id") or "")
+                product_id = str(boundary.get("product_molecule_id") or "")
+                records.append(
+                    {
+                        "benchmark_id": "program-benchmark:"
+                        + str(
+                            innovation.get("innovation_id") or candidate.get("candidate_id") or ""
+                        ),
+                        "source_file": path.name,
+                        "target_name": str(target.get("name") or "unnamed target"),
+                        "route_id": str(route_id),
+                        "candidate_id": str(candidate.get("candidate_id") or ""),
+                        "innovation_id": str(innovation.get("innovation_id") or ""),
+                        "capability_id": str(candidate.get("capability_id") or ""),
+                        "chemical_step_equivalent_count": chemical_steps,
+                        "physical_step_count": 1,
+                        "net_step_savings": int(
+                            innovation.get("step_savings") or chemical_steps - 1
+                        ),
+                        "review_status": str(candidate.get("review_status") or "screen_required"),
+                        "validation_status": str(innovation.get("validation_status") or "proposed"),
+                        "authority_scope": str(
+                            innovation.get("authority_scope") or "proposal_only"
+                        ),
+                        "evidence_grade": str(innovation.get("evidence_grade") or "low"),
+                        "warning_codes": [
+                            str(value)
+                            for value in candidate.get("warning_codes") or []
+                            if str(value)
+                        ],
+                        "selectivity_objective": str(innovation.get("selectivity_objective") or ""),
+                        "substrate_scope_basis": str(innovation.get("substrate_scope_basis") or ""),
+                        "precedent_refs": [
+                            str(value)
+                            for value in innovation.get("precedent_refs") or []
+                            if str(value)
+                        ],
+                        "enzyme": dict(innovation.get("enzyme") or {}),
+                        "cofactor_requirements": dict(
+                            innovation.get("cofactor_requirements") or {}
+                        ),
+                        "cofactor_regenerations": dict(
+                            innovation.get("cofactor_regenerations") or {}
+                        ),
+                        "boundary": {
+                            "minimum_boundary_proof_level": int(
+                                boundary.get("minimum_boundary_proof_level") or 0
+                            ),
+                            "precursor": _molecule_snapshot(
+                                precursor_id,
+                                molecules=molecules,
+                                fallback_smiles=str(boundary.get("precursor_smiles") or ""),
+                            ),
+                            "product": _molecule_snapshot(
+                                product_id,
+                                molecules=molecules,
+                                fallback_smiles=str(boundary.get("product_smiles") or ""),
+                            ),
+                        },
+                        "fallback_steps": fallback_steps,
+                        "semantics": {
+                            "benchmark_replay_only": True,
+                            "must_compile_to_a_program_before_admission": True,
+                            "requires_exact_substrate_biocatalysis_validation": True,
+                            "chemical_fallback_is_preserved": True,
+                            "does_not_grant_route_closure_or_reaction_proof": True,
+                        },
+                    }
+                )
+    return {
+        "schema_version": "autoplanner.compiled_program_benchmark_catalog.v1",
+        "ok": not errors,
+        "record_count": len(records),
+        "records": sorted(records, key=lambda value: value["benchmark_id"]),
+        "errors": errors,
+        "semantics": {
+            "records_are_digest_bound_benchmark_candidates": True,
+            "screening_is_not_program_admission": True,
+            "candidate_requires_experiment_before_l2_or_route_acceptance": True,
+        },
+    }
+
+
+def _read_digest_bound_json(path: Path) -> tuple[dict[str, Any], str]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}, "unreadable"
+    if not isinstance(value, dict):
+        return {}, "not_object"
+    material = dict(value)
+    observed = str(material.pop("content_sha256", ""))
+    if not observed or observed != strict_canonical_json_sha256(material):
+        return {}, "content_digest_invalid"
+    return value, ""
+
+
+def _molecule_snapshot(
+    molecule_id: str,
+    *,
+    molecules: dict[str, Any],
+    fallback_smiles: str = "",
+) -> dict[str, str]:
+    molecule = dict(molecules.get(molecule_id) or {})
+    smiles = str(molecule.get("canonical_smiles") or fallback_smiles)
+    label = str(molecule.get("label") or molecule_id or "unresolved boundary")
+    return {"molecule_id": molecule_id, "label": label, "smiles": smiles}
+
+
+def _fallback_step_snapshot(
+    edge_id: str,
+    *,
+    transformations: dict[str, Any],
+    molecules: dict[str, Any],
+) -> dict[str, Any]:
+    transformation = dict(transformations.get(edge_id) or {})
+    precursor_ids = [
+        str(value) for value in transformation.get("precursor_molecule_ids") or [] if str(value)
+    ]
+    product_id = str(transformation.get("product_molecule_id") or "")
+    return {
+        "edge_id": edge_id,
+        "precursors": [_molecule_snapshot(value, molecules=molecules) for value in precursor_ids],
+        "product": _molecule_snapshot(product_id, molecules=molecules),
+        "source_refs": [
+            str(value) for value in transformation.get("source_refs") or [] if str(value)
+        ],
+    }
 
 
 def self_evolution_catalog(gateway: Any) -> dict[str, Any]:
@@ -139,6 +321,7 @@ def self_evolution_catalog(gateway: Any) -> dict[str, Any]:
             "domain_counts": dict(sorted(domain_counts.items())),
             "records": experience_rows,
         },
+        "compiled_program_benchmarks": compiled_program_benchmark_catalog(),
         "semantics": {
             "reaction_templates_are_replay_proposals_not_evidence": True,
             "replay_validated_means_a_later_host_edge_succeeded": True,
@@ -288,6 +471,7 @@ def inject_workspace_return(value: str) -> str:
 
 
 __all__ = [
+    "compiled_program_benchmark_catalog",
     "inject_workspace_return",
     "register_workspace_routes",
     "result_file_response",

@@ -16,6 +16,7 @@ from cascade_planner.application.reaction_template_store import (
 )
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 from cascade_planner.web.workspace_surface import (
+    compiled_program_benchmark_catalog,
     inject_workspace_return,
     self_evolution_catalog,
 )
@@ -115,3 +116,30 @@ def test_non_workbench_html_is_not_modified() -> None:
     source = '<html><div class="header-actions">report</div></html>'
 
     assert inject_workspace_return(source) == source
+
+
+def test_compiled_program_benchmark_catalog_exposes_bufotalin_six_to_one_fallback() -> None:
+    catalog = compiled_program_benchmark_catalog()
+
+    assert catalog["ok"] is True
+    assert catalog["record_count"] >= 1
+    record = next(
+        value
+        for value in catalog["records"]
+        if value["target_name"] == "bufotalin" and value["chemical_step_equivalent_count"] == 6
+    )
+    assert record["physical_step_count"] == 1
+    assert record["net_step_savings"] == 5
+    assert record["authority_scope"] == "proposal_only"
+    assert record["validation_status"] == "proposed_screen_required"
+    assert record["warning_codes"] == ["EXACT_SUBSTRATE_UNVALIDATED"]
+    assert record["boundary"]["precursor"]["label"] == "Compound 11"
+    assert record["boundary"]["product"]["label"] == "Compound 28"
+    assert [row["product"]["label"] for row in record["fallback_steps"]] == [
+        "Compound 24",
+        "Compound 25",
+        "Compound 23",
+        "Compound 26",
+        "Compound 27",
+        "Compound 28",
+    ]
