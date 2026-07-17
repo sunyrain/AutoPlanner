@@ -1,4 +1,5 @@
 """Read-only catalog joining generated showcases with the canonical Web surface."""
+
 from __future__ import annotations
 
 import copy
@@ -125,6 +126,52 @@ def _fresh_benchmark_audits(
     *, root: Path, shared_root: Path, artifact_endpoint: str
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    release_summaries = sorted(
+        shared_root.glob("*/blind-release-gate/summary.json"),
+        key=lambda path: path.stat().st_mtime if path.is_file() else 0,
+        reverse=True,
+    )[:16]
+    for summary_path in release_summaries:
+        summary = _read_json(summary_path)
+        if summary.get("schema_version") != "v4_blind_release_gate.v1":
+            continue
+        gates = dict(summary.get("gates") or {})
+        coverage = dict(summary.get("coverage") or {})
+        cost = dict(summary.get("cost") or {})
+        rows.append(
+            _published_row(
+                {
+                    "audit_id": "blind-release:" + summary_path.parents[1].name,
+                    "label": "V4 fresh blind 发布门",
+                    "category": "v4 fresh blind release gate",
+                    "artifact_path": str(summary_path.parent / "index.html"),
+                    "accepted": summary.get("accepted") is True,
+                    "target_count": int(summary.get("target_count") or 0),
+                    "gate_count": len(gates),
+                    "passed_gate_count": sum(
+                        dict(value).get("passed") is True for value in gates.values()
+                    ),
+                    "validated_case_count": int(
+                        coverage.get("two_distinct_validated_case_count") or 0
+                    ),
+                    "condition_complete_case_count": int(
+                        coverage.get("condition_complete_case_count") or 0
+                    ),
+                    "procurement_closed_case_count": int(
+                        coverage.get("procurement_closed_case_count") or 0
+                    ),
+                    "median_model_invocations": float(cost.get("median_model_invocations") or 0.0),
+                    "note": (
+                        "发布门通过；打开查看逐目标、消融、成本与失败分布。"
+                        if summary.get("accepted") is True
+                        else "发布门尚未通过；失败项与低可信/未闭合路线均保留。"
+                    ),
+                },
+                root=root,
+                shared_root=shared_root,
+                artifact_endpoint=artifact_endpoint,
+            )
+        )
     summaries = sorted(
         shared_root.glob("*/benchmark/summary.json"),
         key=lambda path: path.stat().st_mtime if path.is_file() else 0,
@@ -134,9 +181,7 @@ def _fresh_benchmark_audits(
         summary = _read_json(summary_path)
         if summary.get("schema_version") != "classic_multistep_benchmark_summary.v1":
             continue
-        overall = dict(
-            dict(summary.get("aggregates") or {}).get("overall") or {}
-        )
+        overall = dict(dict(summary.get("aggregates") or {}).get("overall") or {})
         rows.append(
             _published_row(
                 {
@@ -145,18 +190,10 @@ def _fresh_benchmark_audits(
                     "category": "classic multistep benchmark",
                     "artifact_path": str(summary_path.parent / "index.html"),
                     "target_count": int(overall.get("target_count") or 0),
-                    "route_found_rate": float(
-                        overall.get("chem_enzy_route_found_rate") or 0.0
-                    ),
-                    "route_retained_rate": float(
-                        overall.get("cascade_route_retained_rate") or 0.0
-                    ),
-                    "accepted_rate": float(
-                        overall.get("cascade_accepted_rate") or 0.0
-                    ),
-                    "stock_closed_rate": float(
-                        overall.get("benchmark_stock_closed_rate") or 0.0
-                    ),
+                    "route_found_rate": float(overall.get("chem_enzy_route_found_rate") or 0.0),
+                    "route_retained_rate": float(overall.get("cascade_route_retained_rate") or 0.0),
+                    "accepted_rate": float(overall.get("cascade_accepted_rate") or 0.0),
+                    "stock_closed_rate": float(overall.get("benchmark_stock_closed_rate") or 0.0),
                 },
                 root=root,
                 shared_root=shared_root,
@@ -175,18 +212,14 @@ def _fresh_benchmark_audits(
         rows.append(
             _published_row(
                 {
-                    "audit_id": str(
-                        summary.get("suite_id") or summary_path.parents[1].name
-                    ),
+                    "audit_id": str(summary.get("suite_id") or summary_path.parents[1].name),
                     "label": "官方结构化专利 procedure · 3-case gate",
                     "category": "official patent procedure gate",
                     "artifact_path": str(summary_path.parent / "index.html"),
                     "accepted": summary.get("accepted") is True,
                     "case_count": int(summary.get("case_count") or 0),
                     "accepted_count": int(summary.get("accepted_count") or 0),
-                    "unique_publication_count": int(
-                        summary.get("unique_publication_count") or 0
-                    ),
+                    "unique_publication_count": int(summary.get("unique_publication_count") or 0),
                     "unique_reaction_class_count": int(
                         summary.get("unique_reaction_class_count") or 0
                     ),
@@ -197,15 +230,11 @@ def _fresh_benchmark_audits(
                         or 0
                     ),
                     "pdf_fallback_count": int(
-                        dict(summary.get("acquisition_cascade") or {}).get(
-                            "pdf_fallback_count"
-                        )
+                        dict(summary.get("acquisition_cascade") or {}).get("pdf_fallback_count")
                         or 0
                     ),
                     "vision_fallback_count": int(
-                        dict(summary.get("acquisition_cascade") or {}).get(
-                            "vision_fallback_count"
-                        )
+                        dict(summary.get("acquisition_cascade") or {}).get("vision_fallback_count")
                         or 0
                     ),
                 },
@@ -230,7 +259,9 @@ def _fresh_case(
     closed = int(workbench.get("graph_closed_program_count") or 0)
     declared = int(workbench.get("declared_program_count") or 0)
     row = {
-        "case_id": str(target.get("run_id") or target.get("target_name") or summary_path.parents[1].name),
+        "case_id": str(
+            target.get("run_id") or target.get("target_name") or summary_path.parents[1].name
+        ),
         "run_id": str(target.get("run_id") or ""),
         "target_name": str(target.get("target_name") or "target"),
         "display_name": str(target.get("target_name") or "target"),
@@ -267,7 +298,9 @@ def _published_row(
 ) -> dict[str, Any]:
     row = copy.deepcopy(dict(raw))
     raw_path = str(row.get("artifact_path") or "").strip()
-    candidate = Path(raw_path).resolve() if Path(raw_path).is_absolute() else (root / raw_path).resolve()
+    candidate = (
+        Path(raw_path).resolve() if Path(raw_path).is_absolute() else (root / raw_path).resolve()
+    )
     available = (
         bool(raw_path)
         and candidate.is_relative_to(shared_root)

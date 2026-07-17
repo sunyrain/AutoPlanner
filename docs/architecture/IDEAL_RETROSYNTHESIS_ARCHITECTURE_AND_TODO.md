@@ -389,8 +389,8 @@ ChemEnzy 扩展不会触发逐边 Codex；相同上下文不会重复付费。
 - [ ] 增加骨架、展开、反应验证、条件覆盖、采购闭合、process-ready 六视图。
 - [ ] 颜色只投影可信档位；producer 使用 badge/纹理；提供色盲可读方案。
 - [ ] 主图只显示小型 portfolio；替代模块按需展开，共享中间体只渲染一次。
-- [ ] 保持单一 world transform、帧合并、结构缓存、culling 和拖拽性能门槛。
-- [ ] Inspector 可直接定位来源段落、条件原文、验证详情、库存 offer 和拒绝原因。
+- [x] 保持单一 world transform、帧合并、结构缓存、culling 和拖拽性能门槛。Chromium 回归用 70-edge 图验证 culling、拖拽、缩放、fit 与 minimap。
+- [x] Inspector 可直接定位来源段落、条件原文、验证详情、库存 offer 和拒绝原因；反应卡条件截断不再是唯一信息入口。
 
 验收：70 步压力图拖拽无明显闪烁；Vismodegib 默认图不会把一步晚期组装伪装成全工艺；
 任一反应的提出者、可信度、条件和中间结构在两次点击内可见。
@@ -398,11 +398,11 @@ ChemEnzy 扩展不会触发逐边 Codex；相同上下文不会重复付费。
 ### P9 — Fresh blind benchmark 与发布门
 
 - [ ] 建立至少 8 个仓库历史中没有路线案卷的结构多样复杂目标。
-- [ ] preflight 扫描目标、同义名、SMILES、InChIKey、关键中间体和答案泄漏。
+- [x] preflight 扫描目标、同义名、SMILES、InChIKey、关键中间体和答案泄漏；额外针值来自 evaluator-only 摘要绑定 pack，运行报告不回显原值。
 - [ ] 每个 case 从新运行目录、冻结 provider/模板/库存 snapshot 和陌生 SMILES 开始。
-- [ ] 同时报出 `fast_explore`、`validated_plan` 与可选 `process_dossier` 结果。
-- [ ] 记录每轴覆盖率、虚假闭合率、路线多样性、条件覆盖、真实采购覆盖和全部成本。
-- [ ] 失败案例必须保留并分类，不允许通过换目标只展示成功。
+- [x] 同时报出 `fast_explore`、`validated_plan` 与可选 `process_dossier` 结果。
+- [x] 记录每轴覆盖率、虚假闭合率、路线多样性、条件覆盖、真实采购覆盖和全部成本。
+- [x] 失败案例必须保留并分类，不允许通过换目标只展示成功。
 - [ ] 进行关闭 ChemEnzy、关闭 self-evo、关闭 replan 的消融实验。
 
 发布门：
@@ -697,3 +697,46 @@ hypotheses；`RetrosynthesisCampaignService.review_route_innovations` 暴露统�
 `CanonicalIngestionBatch` 写图。`scripts/build_bufotalin_innovation_review.py` 现在只是冻结案卷、
 能力目录和 benchmark proposal 的回放适配器；目标专属结构只存在于 benchmark 输入，不拥有生产
 匹配权威。
+
+## 16. 2026-07-17～18 P9 冻结协议、真实预检与发布门基线
+
+P9 不再用“子进程正常退出”代替发布验收。`scripts/run_v4_blind_panel.py` 现在在首个目标启动前
+冻结 manifest、case 集合、Codex/host/ChemEnzy 可执行文件、模型配置、自进化模板种子、库存快照
+和 evaluator-only 泄漏审计包的摘要；每个目标得到同一模板种子的独立副本，不能在 panel 内把前一
+目标学到的答案写进后一目标。`baseline`、`no-chemenzy`、`no-self-evo`、`no-replan` 四个 arm 只
+改变一个声明子系统，并用相同 case IDs 与 base-environment digest 比较。
+
+旧 runner 把 `blind-audit-root` 指向新建的空结果目录，因此 2026-07-16 的 20-target 完成状态不能
+证明仓库无泄漏。新 supervisor 在任何 provider/model 工作前扫描真实 Git 跟踪树，并加入 target
+同义名、SMILES、InChIKey 和关键中间体。针值仅存在于 evaluator-only digest-bound pack，报告只
+保留匹配类型、针值摘要、文件摘要和路径。新协议对原 20 个目标做零模型预检后，17 个可进入 fresh
+run；target 07、10、19 的关键中间体已出现在跟踪文件 `data/stock/paroutes_n1.csv`，故在规划开始前
+以 `preflight_failed` 排除。排除事实保留在 panel status，不能通过删去失败案例提高分数。
+
+`v4_blind_release_gate.v1` 只读摘要绑定的报告和 Workbench，不修路线，也不提升科学权威。两条“战略
+不同”路线必须同时具有不同 family 和不同反应边集合；benchmark stock 永不算真实采购，预测条件
+永不算来源精确，ChemEnzy 贡献只有在 baseline 相对 `no-chemenzy` 的验证路线数为正增益时成立。
+发布门 JSON/HTML 已进入统一工作台审计入口，失败卡使用红色状态，不显示成发布通过。
+
+把旧 20-target 结果送入新门后的当前失败基线是：20 个结构、20 个 Murcko scaffold，全部在旧预算内
+给出可审计终态，虚假闭合/benchmark 采购洗白/预测条件洗白均为 0；共有 24 条
+`reaction_validated` 路线，但只有 5/20 case 具有两条 family 与边集合均不同的验证路线，低可信或
+开放路线 73 条，真实采购闭合 0，条件完整 0，process dossier 0。Codex 中位 2 次调用、59,875.5
+输入 token、10,665 输出 token；ChemEnzy 中位 52.874 s，但没有对应消融，不能声称独立增益。
+因此新门结论明确为 `accepted=false`。
+
+最新协议的单目标四臂 smoke 已完整结束。baseline 的真实仓库扩展预检、provider/template 快照和
+case receipt 摘要绑定均通过；730.781 s 内运行 2 次模型、4 个 ChemEnzy 前沿，ChemEnzy 给出 13 个
+proposal，但没有一个进入 reaction validation，最终保留 4 条 target-rooted skeleton 并明确
+`unresolved`，虚假闭合为 0。输入 78,366 token 超过 60k 门，ChemEnzy 147.434 s 也超过 120 s 门。
+
+三个相同 case/base-environment 的单变量 arm 均为可审计终态，因此“完成三组消融”工程门已通过，
+但结果未支持当前增益假设：`no-chemenzy` 与 `no-self-evo` 都仍为 0 条验证路线；`no-replan` 只调用
+模型 1 次、282.562 s 内反而得到 1 条 reaction-validated skeleton。发布门将 baseline 相对
+`no-chemenzy` 的增益记为 0，将 baseline 相对 `no-replan` 的差值记为 -1，并把重规划多出的模型
+调用记为 +1。远程模型权重/采样并非 bitwise frozen，四个 arm 的首次计划也不相同，因此单次差值
+只是观测信号而不是因果估计；它要求在多目标/重复实验中校准 replan 触发与保留策略，不能被解释为
+“replan 必然有害”，也不能被解释为 ChemEnzy 或 self-evo 已证明有效。
+库存 snapshot 仍未提供，因此冻结 provider/template/inventory 总门继续正确失败。下一次正式 P9
+run 必须先取得可信且可冻结的供应商 offer snapshot，再在预声明的 17 个合格目标或新的命名目标
+panel 上运行四个 arm；在这之前不得勾选 P9 完成。

@@ -80,9 +80,7 @@ def test_blind_case_bounds_generic_minimum_planning_depth(value: object) -> None
         **dict(accepted["acceptance"]),
         "minimum_planning_route_steps": 20,
     }
-    assert (
-        BlindCase.from_dict(accepted).acceptance["minimum_planning_route_steps"] == 20
-    )
+    assert BlindCase.from_dict(accepted).acceptance["minimum_planning_route_steps"] == 20
 
 
 def test_manifest_loads_target_only_cases_and_rejects_duplicate_targets(
@@ -97,9 +95,7 @@ def test_manifest_loads_target_only_cases_and_rejects_duplicate_targets(
 
     duplicate = _case(case_id="blind-02")
     path.write_text(
-        json.dumps(
-            {"schema_version": BLIND_MANIFEST_SCHEMA, "cases": [_case(), duplicate]}
-        ),
+        json.dumps({"schema_version": BLIND_MANIFEST_SCHEMA, "cases": [_case(), duplicate]}),
         encoding="utf-8",
     )
     with pytest.raises(BlindBenchmarkError, match="target_duplicate"):
@@ -177,27 +173,88 @@ def test_manifest_is_the_only_allowed_target_occurrence(tmp_path: Path) -> None:
     assert report["repository_matches"] == []
 
 
+def test_preflight_scans_evaluator_only_synonyms_and_intermediates_without_emitting_values(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "unrelated.txt").write_text("unrelated chemistry", encoding="utf-8")
+    case = BlindCase.from_dict(_case())
+    report = audit_blind_preflight(
+        case,
+        repository_root=repository,
+        run_dir=tmp_path / "run",
+        additional_leakage_needles={
+            "target_synonym": ["private target alias"],
+            "key_intermediate_smiles": ["c1ccccc1"],
+            "key_intermediate_inchikey": ["UHOVQNZJYSORNB-UHFFFAOYSA-N"],
+        },
+    )
+
+    assert report["accepted"] is True
+    assert report["additional_leakage_needle_counts"] == {
+        "key_intermediate_inchikey": 1,
+        "key_intermediate_smiles": 1,
+        "target_synonym": 1,
+    }
+    assert report["semantics"]["target_name_smiles_and_inchikey_checked"] is True
+    assert report["semantics"]["target_synonym_needles_checked"] is True
+    assert report["semantics"]["key_intermediate_needles_checked"] is True
+    rendered = json.dumps(report)
+    assert "private target alias" not in rendered
+    assert "c1ccccc1" not in rendered
+    assert "UHOVQNZJYSORNB-UHFFFAOYSA-N" not in rendered
+
+
+def test_preflight_rejects_evaluator_only_intermediate_leakage(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "hidden-answer.txt").write_text("c1ccccc1", encoding="utf-8")
+    report = audit_blind_preflight(
+        BlindCase.from_dict(_case()),
+        repository_root=repository,
+        run_dir=tmp_path / "run",
+        additional_leakage_needles={"key_intermediate_smiles": ["c1ccccc1"]},
+    )
+
+    assert report["accepted"] is False
+    assert report["reasons"] == ["evaluator_answer_material_already_present_in_repository"]
+    assert (
+        report["repository_matches"][0]["needle_sha256"] == hashlib.sha256(b"c1ccccc1").hexdigest()
+    )
+
+
+def test_preflight_does_not_allow_synonym_na_for_a_named_target(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    raw = _case()
+    raw["target_name"] = "Example Drug"
+
+    report = audit_blind_preflight(
+        BlindCase.from_dict(raw),
+        repository_root=repository,
+        run_dir=tmp_path / "run",
+        target_synonym_not_applicable_reason="this target has no aliases",
+    )
+
+    assert report["accepted"] is False
+    assert "target_synonym_audit_not_applicable_for_named_target" in report["reasons"]
+
+
 def test_checked_in_benchmark_summary_is_compact_bound_and_keeps_failures() -> None:
     root = Path(__file__).resolve().parents[1]
     manifest_path = root / "benchmarks" / "blind_targets.v1.json"
-    summary_path = (
-        root / "benchmarks" / "results" / "blind_benchmark_summary.v1.json"
-    )
+    summary_path = root / "benchmarks" / "results" / "blind_benchmark_summary.v1.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
 
     assert summary["schema_version"] == "blind_retrosynthesis_benchmark_summary.v1"
-    assert summary["manifest_file_sha256"] == hashlib.sha256(
-        manifest_path.read_bytes()
-    ).hexdigest()
+    assert summary["manifest_file_sha256"] == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     assert {row["case_id"] for row in summary["results"]} == {
         row["case_id"] for row in manifest["cases"]
     }
     assert summary["aggregate"]["case_count"] == len(manifest["cases"])
-    assert any(
-        row["qualified_policy_acceptance"] is False
-        for row in summary["results"]
-    )
+    assert any(row["qualified_policy_acceptance"] is False for row in summary["results"])
     forbidden = {
         "target_smiles",
         "routes",

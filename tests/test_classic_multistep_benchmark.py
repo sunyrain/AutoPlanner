@@ -64,12 +64,8 @@ def _write_source(root: Path, split: str) -> None:
             target = prefix + "C" * (offset + 1)
             targets.append(target)
             references.append(_route(target, depth, branch=offset == 0))
-    (root / f"targets_{split}.txt").write_text(
-        "\n".join(targets) + "\n", encoding="utf-8"
-    )
-    (root / f"ref_routes_{split}.json").write_text(
-        json.dumps(references), encoding="utf-8"
-    )
+    (root / f"targets_{split}.txt").write_text("\n".join(targets) + "\n", encoding="utf-8")
+    (root / f"ref_routes_{split}.json").write_text(json.dumps(references), encoding="utf-8")
 
 
 def test_reference_route_metrics_tracks_llr_stock_and_convergence() -> None:
@@ -95,6 +91,7 @@ def test_builder_keeps_reference_answers_out_of_blind_manifest(tmp_path: Path) -
     references = tmp_path / "references.json"
     protocol = tmp_path / "protocol.json"
     search_benchmarks = tmp_path / "search"
+    leakage = tmp_path / "evaluator-only" / "leakage.json"
 
     result = build_classic_multistep_benchmark(
         paroutes_root=source,
@@ -102,6 +99,7 @@ def test_builder_keeps_reference_answers_out_of_blind_manifest(tmp_path: Path) -
         reference_output=references,
         protocol_output=protocol,
         search_benchmark_output_dir=search_benchmarks,
+        leakage_audit_output=leakage,
         seed="fixed-test-seed",
         strata=(
             DepthStratum("llr_3", 3, 3, 1),
@@ -118,15 +116,22 @@ def test_builder_keeps_reference_answers_out_of_blind_manifest(tmp_path: Path) -
     assert "source_index" not in manifest_text
     assert all(row["gt_route"] for row in reference_pack["cases"])
     n1_search = json.loads(
-        (search_benchmarks / "paroutes_n1_multistep.json").read_text(
-            encoding="utf-8"
-        )
+        (search_benchmarks / "paroutes_n1_multistep.json").read_text(encoding="utf-8")
     )
     assert len(n1_search["targets"]) == 2
     assert all(row["split"] == "n1" for row in n1_search["targets"])
-    assert json.loads(protocol.read_text(encoding="utf-8"))["blindness"][
-        "planner_receives_reference_routes"
-    ] is False
+    assert (
+        json.loads(protocol.read_text(encoding="utf-8"))["blindness"][
+            "planner_receives_reference_routes"
+        ]
+        is False
+    )
+    leakage_pack = json.loads(leakage.read_text(encoding="utf-8"))
+    assert leakage_pack["schema_version"] == "blind_leakage_audit_pack.v1"
+    assert leakage_pack["manifest_sha256"] == result["manifest_sha256"]
+    assert set(leakage_pack["cases"]) == {case.case_id for case in cases}
+    assert all(row["key_intermediate_smiles"] for row in leakage_pack["cases"].values())
+    assert "key_intermediate_smiles" not in manifest_text
 
 
 def test_builder_selection_is_reproducible_and_cross_split_unique(

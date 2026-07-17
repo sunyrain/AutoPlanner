@@ -156,3 +156,44 @@ def test_real_patent_procedure_gate_is_published_as_distinct_audit(
     assert audit["unique_reaction_class_count"] == 3
     assert audit["structured_source_closed_count"] == 3
     assert audit["pdf_fallback_count"] == 0
+
+
+def test_blind_release_gate_is_published_with_truthful_failed_status(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path
+    shared = root / "results" / "shared"
+    panel = shared / "blind-panel" / "blind-release-gate"
+    panel.mkdir(parents=True)
+    (panel / "index.html").write_text("<html>release</html>", encoding="utf-8")
+    (panel / "summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "v4_blind_release_gate.v1",
+                "accepted": False,
+                "target_count": 20,
+                "gates": {
+                    "preflight": {"passed": True},
+                    "conditions": {"passed": False},
+                },
+                "coverage": {
+                    "two_distinct_validated_case_count": 5,
+                    "condition_complete_case_count": 0,
+                    "procurement_closed_case_count": 0,
+                },
+                "cost": {"median_model_invocations": 2},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    catalog = compile_showcase_catalog(root=root, shared_root=shared)
+
+    assert len(catalog["audits"]) == 1
+    audit = catalog["audits"][0]
+    assert audit["available"] is True
+    assert audit["accepted"] is False
+    assert audit["target_count"] == 20
+    assert audit["passed_gate_count"] == 1
+    assert audit["gate_count"] == 2
+    assert audit["validated_case_count"] == 5

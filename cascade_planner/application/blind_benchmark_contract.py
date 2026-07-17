@@ -5,6 +5,7 @@ This module validates a deliberately tiny manifest and audits the tracked
 repository before a benchmark starts.  It has no route-generation behavior and
 therefore cannot grant chemistry or acceptance authority.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -197,6 +198,8 @@ def audit_blind_preflight(
     run_dir: str | Path,
     manifest_path: str | Path | None = None,
     additional_allowed_paths: Iterable[str | Path] = (),
+    additional_leakage_needles: Mapping[str, Iterable[str]] | None = None,
+    target_synonym_not_applicable_reason: str = "",
 ) -> dict[str, Any]:
     """Prove target absence in the tracked tree and require a fresh run path."""
 
@@ -207,13 +210,15 @@ def audit_blind_preflight(
         reasons.append("repository_root_missing")
     if destination.exists() and any(destination.iterdir()):
         reasons.append("blind_run_directory_not_fresh")
-    allowed = {
-        Path(value).resolve()
-        for value in additional_allowed_paths
-    }
+    allowed = {Path(value).resolve() for value in additional_allowed_paths}
     if manifest_path is not None:
         allowed.add(Path(manifest_path).resolve())
-    needles = {"target_smiles": case.target_smiles}
+    target_molecule = Chem.MolFromSmiles(case.target_smiles)
+    target_inchikey = Chem.MolToInchiKey(target_molecule) if target_molecule else ""
+    needles = {
+        "target_smiles": case.target_smiles,
+        "target_inchikey": target_inchikey,
+    }
     target_name = case.target_name.strip()
     if target_name.casefold() not in {
         "blind target",
@@ -223,6 +228,29 @@ def audit_blind_preflight(
         "unknown target",
     }:
         needles["target_name"] = target_name
+    extra_needles: dict[str, list[str]] = {}
+    for kind, values in dict(additional_leakage_needles or {}).items():
+        if kind not in {
+            "target_synonym",
+            "key_intermediate_smiles",
+            "key_intermediate_inchikey",
+        }:
+            raise BlindBenchmarkError(f"blind_leakage_needle_kind_invalid:{kind}")
+        extra_needles[kind] = sorted(
+            {str(value).strip() for value in values if len(str(value).strip()) >= 5}
+        )
+    synonym_not_applicable = str(target_synonym_not_applicable_reason or "").strip()
+    if synonym_not_applicable and len(synonym_not_applicable) < 8:
+        raise BlindBenchmarkError("blind_synonym_not_applicable_reason_invalid")
+    opaque_identity = target_name.casefold() in {
+        "blind target",
+        "blind molecule",
+        "opaque target",
+        "target",
+        "unknown target",
+    } or target_name.casefold().startswith("opaque benchmark target ")
+    if synonym_not_applicable and not opaque_identity:
+        reasons.append("target_synonym_audit_not_applicable_for_named_target")
     matches: list[dict[str, Any]] = []
     if root.is_dir():
         for path in _tracked_files(root):
@@ -236,21 +264,30 @@ def audit_blind_preflight(
             except (OSError, UnicodeDecodeError):
                 continue
             lowered = text.casefold()
-            for kind, needle in needles.items():
+            scan_values = [
+                *needles.items(),
+                *((kind, needle) for kind, values in extra_needles.items() for needle in values),
+            ]
+            for kind, needle in scan_values:
                 if len(needle) < 5:
                     continue
-                haystack = text if kind == "target_smiles" else lowered
-                query = needle if kind == "target_smiles" else needle.casefold()
+                exact_text = kind in {"target_smiles", "key_intermediate_smiles"}
+                haystack = text if exact_text else lowered
+                query = needle if exact_text else needle.casefold()
                 if query in haystack:
                     matches.append(
                         {
                             "kind": kind,
+                            "needle_sha256": hashlib.sha256(needle.encode("utf-8")).hexdigest(),
                             "path": path.relative_to(root).as_posix(),
                             "content_sha256": _file_digest(path),
                         }
                     )
     if matches:
-        reasons.append("target_material_already_present_in_repository")
+        if any(str(row.get("kind") or "").startswith("key_intermediate") for row in matches):
+            reasons.append("evaluator_answer_material_already_present_in_repository")
+        if any(not str(row.get("kind") or "").startswith("key_intermediate") for row in matches):
+            reasons.append("target_material_already_present_in_repository")
     payload = {
         "schema_version": BLIND_PREFLIGHT_SCHEMA,
         "case": case.to_dict(),
@@ -259,6 +296,10 @@ def audit_blind_preflight(
         "fresh_run_directory": "blind_run_directory_not_fresh" not in reasons,
         "repository_absence_attested": not matches and root.is_dir(),
         "repository_matches": sorted(matches, key=lambda row: (row["path"], row["kind"])),
+        "additional_leakage_needle_counts": {
+            kind: len(values) for kind, values in sorted(extra_needles.items())
+        },
+        "target_synonym_not_applicable_reason": synonym_not_applicable,
         "forbidden_input_fields": _forbidden_paths(case.to_dict()),
         "accepted": not reasons,
         "reasons": sorted(set(reasons)),
@@ -266,6 +307,16 @@ def audit_blind_preflight(
             "target_only_input": True,
             "old_run_cache_forbidden": True,
             "absence_is_checked_before_model_work": True,
+            "target_name_smiles_and_inchikey_checked": True,
+            "synonym_and_intermediate_needles_require_an_evaluator_only_pack": True,
+            "target_synonym_needles_checked": bool(extra_needles.get("target_synonym"))
+            or bool(synonym_not_applicable),
+            "target_synonym_audit_not_applicable": bool(synonym_not_applicable),
+            "key_intermediate_needles_checked": bool(
+                extra_needles.get("key_intermediate_smiles")
+                or extra_needles.get("key_intermediate_inchikey")
+            ),
+            "additional_needle_values_are_not_emitted": True,
             "preflight_grants_no_chemistry_authority": True,
         },
     }

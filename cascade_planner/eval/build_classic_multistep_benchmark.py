@@ -4,6 +4,7 @@ The checked-in manifest contains only opaque target labels and canonical
 SMILES.  Reference reactions, source indices, and route-depth strata are
 written to a separate evaluator pack and must never be passed to a planner.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -12,6 +13,8 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+
+from rdkit import Chem
 
 from cascade_planner.application.blind_benchmark_contract import (
     BLIND_CASE_SCHEMA,
@@ -62,6 +65,7 @@ def build_classic_multistep_benchmark(
     reference_output: Path,
     protocol_output: Path | None = None,
     search_benchmark_output_dir: Path | None = None,
+    leakage_audit_output: Path | None = None,
     seed: str = DEFAULT_SEED,
     splits: Iterable[str] = DEFAULT_SPLITS,
     strata: Iterable[DepthStratum] = DEFAULT_STRATA,
@@ -90,9 +94,7 @@ def build_classic_multistep_benchmark(
                 target=target,
                 reference=reference,
             )
-            for index, (target, reference) in enumerate(
-                zip(targets, references, strict=True)
-            )
+            for index, (target, reference) in enumerate(zip(targets, references, strict=True))
         ]
         source_files[split] = {
             "targets_path": str(targets_path),
@@ -123,8 +125,7 @@ def build_classic_multistep_benchmark(
             )
             if len(ranked) < stratum.quota_per_split:
                 raise ValueError(
-                    "paroutes_stratum_quota_unavailable:"
-                    f"{split}:{stratum.name}:{len(ranked)}"
+                    f"paroutes_stratum_quota_unavailable:{split}:{stratum.name}:{len(ranked)}"
                 )
             for row in ranked[: stratum.quota_per_split]:
                 selected.append({**row, "depth_stratum": stratum.name})
@@ -134,8 +135,7 @@ def build_classic_multistep_benchmark(
     references: list[dict[str, Any]] = []
     for ordinal, row in enumerate(selected, start=1):
         identity = hashlib.sha256(
-            f"{seed}\0{row['split']}\0{row['source_index']}\0"
-            f"{row['target_smiles']}".encode("utf-8")
+            f"{seed}\0{row['split']}\0{row['source_index']}\0{row['target_smiles']}".encode("utf-8")
         ).hexdigest()
         case_id = f"classic-ms-{ordinal:02d}-{identity[:10]}"
         target_name = f"opaque benchmark target {ordinal:02d}"
@@ -221,12 +221,8 @@ def build_classic_multistep_benchmark(
                             "cascade_id": row["case_id"],
                             "split": row["split"],
                             "route_domain": "all_chemical",
-                            "depth": row["reference_metrics"][
-                                "longest_linear_depth"
-                            ],
-                            "reference_depth": row["reference_metrics"][
-                                "reaction_count"
-                            ],
+                            "depth": row["reference_metrics"]["longest_linear_depth"],
+                            "reference_depth": row["reference_metrics"]["reaction_count"],
                             "gt_route": row["gt_route"],
                         }
                         for row in references
@@ -242,8 +238,7 @@ def build_classic_multistep_benchmark(
         "seed": seed,
         "target_count": len(cases),
         "split_target_counts": {
-            split: sum(row["split"] == split for row in references)
-            for split in resolved_splits
+            split: sum(row["split"] == split for row in references) for split in resolved_splits
         },
         "depth_strata": [row.to_dict() for row in resolved_strata],
         "manifest_sha256": manifest_sha256,
@@ -280,22 +275,47 @@ def build_classic_multistep_benchmark(
     }
     if protocol_output is not None:
         _write_json(protocol_output, protocol)
+    leakage_audit_pack = ""
+    if leakage_audit_output is not None:
+        leakage = {
+            "schema_version": "blind_leakage_audit_pack.v1",
+            "manifest_sha256": manifest_sha256,
+            "cases": {
+                str(row["case_id"]): {
+                    "target_synonyms": [],
+                    "target_synonym_not_applicable_reason": (
+                        "opaque PaRoutes dataset identity has no public target name"
+                    ),
+                    "key_intermediate_smiles": _key_intermediate_smiles(
+                        row.get("gt_route") or [],
+                        target_smiles=str(row.get("target_smiles") or ""),
+                    ),
+                }
+                for row in references
+            },
+            "semantics": {
+                "evaluator_only": True,
+                "never_passed_to_planner_subprocess": True,
+                "contains_reference_route_derived_intermediates": True,
+                "must_remain_outside_the_tracked_repository": True,
+            },
+        }
+        leakage["content_sha256"] = _json_digest(leakage)
+        _write_json(leakage_audit_output, leakage)
+        leakage_audit_pack = str(Path(leakage_audit_output).resolve())
 
     return {
         "schema_version": SCHEMA_VERSION,
         "manifest": str(Path(manifest_output).resolve()),
         "reference_pack": str(Path(reference_output).resolve()),
         "search_benchmarks": search_benchmarks,
-        "protocol": (
-            str(Path(protocol_output).resolve()) if protocol_output is not None else ""
-        ),
+        "protocol": (str(Path(protocol_output).resolve()) if protocol_output is not None else ""),
         "manifest_sha256": manifest_sha256,
+        "leakage_audit_pack": leakage_audit_pack,
         "target_count": len(cases),
         "split_target_counts": protocol["split_target_counts"],
         "stratum_counts": {
-            stratum.name: sum(
-                row["depth_stratum"] == stratum.name for row in references
-            )
+            stratum.name: sum(row["depth_stratum"] == stratum.name for row in references)
             for stratum in resolved_strata
         },
     }
@@ -329,17 +349,14 @@ def reference_route_metrics(route: Mapping[str, Any]) -> dict[str, Any]:
                 child
                 for child in molecule_children
                 if any(
-                    isinstance(grandchild, Mapping)
-                    and grandchild.get("type") == "reaction"
+                    isinstance(grandchild, Mapping) and grandchild.get("type") == "reaction"
                     for grandchild in child.get("children") or []
                 )
             ]
             if len(synthesized_children) > 1:
                 convergent_reaction_count += 1
         longest_linear_depth = max(longest_linear_depth, next_depth)
-        children = [
-            child for child in value.get("children") or [] if isinstance(child, Mapping)
-        ]
+        children = [child for child in value.get("children") or [] if isinstance(child, Mapping)]
         if node_type == "mol" and not children:
             leaf_count += 1
             stock_leaf_count += value.get("in_stock") is True
@@ -391,9 +408,7 @@ def _reference_reactions(route: Mapping[str, Any]) -> list[dict[str, Any]]:
             return
         if value.get("type") == "reaction":
             metadata = dict(value.get("metadata") or {})
-            reaction = _clean_reaction(
-                metadata.get("smiles") or metadata.get("rsmi")
-            )
+            reaction = _clean_reaction(metadata.get("smiles") or metadata.get("rsmi"))
             if reaction:
                 rows.append(
                     {
@@ -422,9 +437,33 @@ def _clean_reaction(value: Any) -> str:
     return f"{reactants.strip()}>>{product.strip()}"
 
 
-def _selection_key(
-    *, seed: str, split: str, source_index: int, target_smiles: str
-) -> str:
+def _key_intermediate_smiles(
+    reactions: Iterable[Mapping[str, Any]], *, target_smiles: str
+) -> list[str]:
+    target = _unmapped_smiles(target_smiles)
+    values: set[str] = set()
+    for row in reactions:
+        reaction = str(dict(row).get("rxn_smiles") or "")
+        if ">>" not in reaction:
+            continue
+        _reactants, products = reaction.split(">>", 1)
+        for component in products.split("."):
+            canonical = _unmapped_smiles(component)
+            if canonical and canonical != target:
+                values.add(canonical)
+    return sorted(values)
+
+
+def _unmapped_smiles(value: Any) -> str:
+    molecule = Chem.MolFromSmiles(str(value or "").strip())
+    if molecule is None:
+        return ""
+    for atom in molecule.GetAtoms():
+        atom.SetAtomMapNum(0)
+    return Chem.MolToSmiles(molecule, canonical=True, isomericSmiles=True)
+
+
+def _selection_key(*, seed: str, split: str, source_index: int, target_smiles: str) -> str:
     return hashlib.sha256(
         f"{seed}\0{split}\0{source_index}\0{target_smiles}".encode("utf-8")
     ).hexdigest()
@@ -456,6 +495,18 @@ def _file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _json_digest(value: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _write_json(path: Path, value: Mapping[str, Any]) -> None:
     resolved = Path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
@@ -467,13 +518,12 @@ def _write_json(path: Path, value: Mapping[str, Any]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--paroutes-root", default="data/benchmarks/paroutes", type=Path
-    )
+    parser.add_argument("--paroutes-root", default="data/benchmarks/paroutes", type=Path)
     parser.add_argument("--manifest-output", required=True, type=Path)
     parser.add_argument("--reference-output", required=True, type=Path)
     parser.add_argument("--protocol-output", type=Path)
     parser.add_argument("--search-benchmark-output-dir", type=Path)
+    parser.add_argument("--leakage-audit-output", type=Path)
     parser.add_argument("--seed", default=DEFAULT_SEED)
     args = parser.parse_args(argv)
     result = build_classic_multistep_benchmark(
@@ -482,6 +532,7 @@ def main(argv: list[str] | None = None) -> int:
         reference_output=args.reference_output,
         protocol_output=args.protocol_output,
         search_benchmark_output_dir=args.search_benchmark_output_dir,
+        leakage_audit_output=args.leakage_audit_output,
         seed=args.seed,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))

@@ -4,7 +4,7 @@
 > [Program 创新与自进化完成切片](PROGRAM_INNOVATION_SELF_EVOLUTION_STATUS_20260716.md)。这里的“完成”指代码架构与耐久边界完成，
 > 不代表尚未执行的真实底物实验已经成功，也不改变生产路线的 `edge_ids[]` 权威。
 
-状态基线：2026-07-16
+状态基线：2026-07-17
 适用范围：仓库当前工作区；用于回答“现在已经完成到哪里”和“一个 SMILES 当前如何被处理”。
 下一代目标：[通用逆合成创新架构（GRIA）](GENERAL_RETROSYNTHESIS_INNOVATION_ARCHITECTURE.md)
 
@@ -72,7 +72,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 | Canonical AND/OR 反应图 | 已实现 | `application/canonical_hypergraph.py`，schema `canonical_retrosynthesis_hypergraph.v1` | 路线仍以 `edge_ids[]` 表示 |
 | 单一 deficit frontier | 已实现 | `application/deficit_frontier.py` 与 campaign service；Program 实验工作仅以摘要绑定的只读 subtask overlay 展开，禁止发布为第二 frontier；派发只复用 RunKernel validation task | 尚无程序级信息增益评分与真实设备执行 |
 | 多轴 proof / 产品档位 | 已实现但保留兼容等级 | `route_workbench_proof_vectors.py`、proof policy 与 portfolio | L0–L4 仍未完全降为纯 UI 派生色 |
-| HTML/XML → PDF → OCR/视觉降级 | 已实现主链，真实案例仍不足 | literature/source harness、Vismodegib XML replay | 三类真实专利/反应的发布门未完成；视觉只能保留 L0 |
+| HTML/XML → PDF → OCR/视觉降级 | 已实现，三案例门已闭合 | Vismodegib / EP3381900A1、DMB-S-MMP / EP2483292B1、Nirmatrelvir C4 / EP3953330B1 均由官方 XML 精确范围完成条件编译和两次离线同摘要 replay | 视觉降级仍只能保留 L0；更多出版商 HTML/PDF 版式覆盖继续扩展 |
 | 条件与 procedure 独立实体 | 已实现 | condition/procedure records、来源片段与 Workbench inspector | 单位/同义词/完整工艺解析覆盖仍不充分 |
 | 事实撤销、过期与恢复 | 已实现 | `application/fact_lifecycle.py`，增量降级 + full recompute oracle | 下一代应收敛为统一 `Claim` event log |
 | 酶催化 step / superstep | 过渡实现（影子准入） | 边界 Program、专项验证、独立 append-only store/replay/GC pin；保留逐边 fallback，不能闭合路线 | 已有 current canonical 6→1 阳性 proposal；仍缺精确底物验证与生产路线接管 |
@@ -87,6 +87,7 @@ Blackboard 都不能自行把 proposal 提升为事实。
 | Candidate 酶机会/负对照扫描 | 过渡实现（只读） | Bufotalin 产生 5 个 Program draft，其中一个 6→1；Ibrutinib 3 条路线零匹配 | 正例仍来自 Candidate Projection，且没有精确底物实验校准 |
 | Program Graph + Pareto optimizer | 过渡实现（只读） | `program_route_candidate*` + reported/mechanism/execution adapters + optimizer；baseline、酶、whole-cell、hybrid、摘要绑定 reported 完整路线和已重拼机理路线进入同一多轴空间，execution/mechanism 严格成功可进只读 shadow，来源类型不评分，oracle 精确复算 | 尚无生产 `program_ids[]` 路线主语义；execution/mechanism Program 准入及成功率/纯化/成本/PMI 数据未接入 |
 | 实验 Claim、反馈与能力校准 | 过渡实现（影子持久） | 三域 validation frontier/feedback；统一 Claim store；`experimental_work_frontier.v1` 绑定唯一 canonical frontier；host-trusted provider policy、manual handoff、RunKernel dispatch/recovery/settlement 只释放领域验证候选 | 缺真实设备/网络 provider、信息增益 scheduler 与跨相似边界 applicability model |
+| P9 fresh-blind 发布门 | 协议与编译器已实现，科学门未通过 | 真实 Git 跟踪树预检、同义名/SMILES/InChIKey/关键中间体 evaluator-only 扫描、运行前冻结摘要、case-local 记忆副本、三种单变量消融、失败保留和三档产品读出已接入；单目标四臂 smoke 已证明摘要/环境绑定并测得 ChemEnzy 增益 0、replan 验证路线差值 -1；工作台只把 `accepted=false` 显示为红色审计项 | 旧 20-target 结果不能通过新门；当前缺真实库存冻结、足量策略不同路线、条件/采购覆盖和完整 panel 级消融 |
 
 ## 4. 当前创新兼容层怎样工作
 
@@ -309,6 +310,6 @@ Blackboard 都不能自行把 proposal 提升为事实。
 库存/采购和 process-ready 则由各自 proof 与 acceptance 分轴判定。任一轴不能替代另一轴，架构完成度也
 不能替代单次 run 的事实。
 
-当前稳定性门禁：完整离线集 `1910 passed, 3 skipped, 11 warnings, 2 subtests passed`；跨运行审计、Candidate
+当前稳定性门禁：完整离线集 `1968 passed, 3 skipped, 11 warnings, 2 subtests passed`；跨运行审计、Candidate
 Program 投影均为只读，
 `edge_ids[]`、proof、completion 与 acceptance 均未切换。
