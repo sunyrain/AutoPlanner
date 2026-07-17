@@ -126,10 +126,7 @@ class RetrosynthesisCampaignService:
             director_config=director_config,
         )
 
-    def register_artifact_authorities(
-        self,
-        values: Mapping[str, str],
-    ) -> None:
+    def register_artifact_authorities(self, values: Mapping[str, str]) -> None:
         self.workers.artifact_authorities.update(
             {
                 str(digest).lower(): str(scope)
@@ -209,10 +206,8 @@ class RetrosynthesisCampaignService:
             evidence_ledger=evidence_observations,
             material_events=material_events,
             previous=self._previous_context,
-            # The compiler projection is a host-side, digest-bound audit view.
-            # The model budget applies to the actual director prompt, which can
-            # be a smaller replan view.  GlobalCampaignDirector reserves that
-            # prompt against RunKernel immediately before invocation.
+            # The audit view does not spend the director's separately
+            # reserved prompt budget.
             enforce_limit=False,
         )
 

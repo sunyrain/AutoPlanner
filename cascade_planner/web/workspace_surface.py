@@ -16,6 +16,7 @@ from cascade_planner.application.reaction_template_store import (
     DEFAULT_TEMPLATE_LIBRARY_NAME,
     read_template_library,
 )
+from cascade_planner.application.retrosynthesis_run_contract import RetrosynthesisRunBudget
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 from cascade_planner.web.workspace_catalog import compile_showcase_catalog
 
@@ -93,16 +94,43 @@ def compiled_program_benchmark_catalog() -> dict[str, Any]:
                     )
                     for edge_id in replaced_edge_ids
                 ]
+                observed_route = dict(
+                    dict(observation.get("routes") or {}).get(str(route_id)) or {}
+                )
+                host_edge_ids = [
+                    str(value) for value in observed_route.get("edge_ids") or [] if str(value)
+                ]
+                host_steps = [
+                    _fallback_step_snapshot(
+                        edge_id,
+                        transformations=transformations,
+                        molecules=molecules,
+                    )
+                    for edge_id in host_edge_ids
+                ]
                 target = dict(observation.get("target") or {})
                 precursor_id = str(boundary.get("precursor_molecule_id") or "")
                 product_id = str(boundary.get("product_molecule_id") or "")
                 benchmark_id = "program-benchmark:" + str(
                     innovation.get("innovation_id") or candidate.get("candidate_id") or ""
                 )
-                benchmark_run_id = _program_benchmark_run_id(
+                legacy_benchmark_run_id = _program_benchmark_run_id(
                     benchmark_id,
                     target_name=str(target.get("name") or "target"),
                     chemical_steps=chemical_steps,
+                )
+                benchmark_run_id = _program_host_run_id(
+                    benchmark_id,
+                    target_name=str(target.get("name") or "target"),
+                    route_id=str(route_id),
+                    host_steps=len(host_steps),
+                )
+                legacy_host_run_id = _program_host_run_id(
+                    benchmark_id,
+                    target_name=str(target.get("name") or "target"),
+                    route_id=str(route_id),
+                    host_steps=len(host_steps),
+                    materialization_contract=1,
                 )
                 records.append(
                     {
@@ -114,8 +142,15 @@ def compiled_program_benchmark_catalog() -> dict[str, Any]:
                             + "/materialize"
                         ),
                         "workbench_url": f"/api/v4/runs/{benchmark_run_id}/workbench.html",
+                        "legacy_run_ids": [legacy_benchmark_run_id, legacy_host_run_id],
                         "source_file": path.name,
                         "target_name": str(target.get("name") or "unnamed target"),
+                        "target_key": str(target.get("name") or "unnamed target").casefold(),
+                        "target": _molecule_snapshot(
+                            str(target.get("molecule_id") or ""),
+                            molecules=molecules,
+                            fallback_smiles=str(target.get("canonical_smiles") or ""),
+                        ),
                         "route_id": str(route_id),
                         "candidate_id": str(candidate.get("candidate_id") or ""),
                         "innovation_id": str(innovation.get("innovation_id") or ""),
@@ -166,6 +201,31 @@ def compiled_program_benchmark_catalog() -> dict[str, Any]:
                             ),
                         },
                         "fallback_steps": fallback_steps,
+                        "host_route": {
+                            "route_id": str(route_id),
+                            "baseline_step_count": len(host_steps),
+                            "hypothetical_operation_count": max(
+                                1,
+                                len(host_steps)
+                                - int(innovation.get("step_savings") or chemical_steps - 1),
+                            ),
+                            "source_complete": observed_route.get("source_complete") is True,
+                            "source_closure_profile": str(
+                                observed_route.get("source_closure_profile") or "unknown"
+                            ),
+                            "source_refs": [
+                                str(value)
+                                for value in observed_route.get("source_refs") or []
+                                if str(value)
+                            ],
+                            "warning_codes": [
+                                str(value)
+                                for value in observed_route.get("warning_codes") or []
+                                if str(value)
+                            ],
+                            "replaced_edge_ids": replaced_edge_ids,
+                            "steps": host_steps,
+                        },
                         "semantics": {
                             "benchmark_replay_only": True,
                             "must_compile_to_a_program_before_admission": True,
@@ -189,6 +249,95 @@ def compiled_program_benchmark_catalog() -> dict[str, Any]:
     }
 
 
+def compiled_program_overlay_attachments(run_id: str) -> tuple[dict[str, Any], ...]:
+    """Return exact host-route bindings for one materialized benchmark run.
+
+    The attachment is intentionally a read-only route annotation.  It can only
+    be projected when all source edges and both molecular boundaries match one
+    displayed branch, and it never replaces the retained chemical fallback.
+    """
+
+    attachments: list[dict[str, Any]] = []
+    for raw_record in compiled_program_benchmark_catalog().get("records") or []:
+        record = dict(raw_record)
+        if str(record.get("benchmark_run_id") or "") != str(run_id):
+            continue
+        host_route = dict(record.get("host_route") or {})
+        attachments.append(
+            {
+                "schema_version": "route_program_attachment.v1",
+                "program_id": str(
+                    record.get("innovation_id") or record.get("candidate_id") or ""
+                ),
+                "program_kind": "biocatalytic_superstep",
+                "host_route_id": str(host_route.get("route_id") or ""),
+                "host_step_evidence": [
+                    {
+                        "edge_id": str(value.get("edge_id") or ""),
+                        "proof_level": int(value.get("proof_level") or 0),
+                        "source_refs": [
+                            str(ref) for ref in value.get("source_refs") or [] if str(ref)
+                        ],
+                        "warning_codes": [
+                            str(code)
+                            for code in value.get("warning_codes") or []
+                            if str(code)
+                        ],
+                    }
+                    for value in host_route.get("steps") or []
+                    if isinstance(value, dict) and str(value.get("edge_id") or "")
+                ],
+                "replaced_edge_ids": [
+                    str(value)
+                    for value in host_route.get("replaced_edge_ids") or []
+                    if str(value)
+                ],
+                "boundary": dict(record.get("boundary") or {}),
+                "chemical_step_equivalent_count": int(
+                    record.get("chemical_step_equivalent_count") or 0
+                ),
+                "physical_step_count": int(record.get("physical_step_count") or 1),
+                "net_step_savings": int(record.get("net_step_savings") or 0),
+                "capability_id": str(record.get("capability_id") or ""),
+                "authority_scope": str(record.get("authority_scope") or "proposal_only"),
+                "validation_status": str(
+                    record.get("validation_status") or "experiment_required"
+                ),
+                "warning_codes": [
+                    str(value) for value in record.get("warning_codes") or [] if str(value)
+                ],
+                "enzyme": dict(record.get("enzyme") or {}),
+                "cofactor_requirements": dict(record.get("cofactor_requirements") or {}),
+                "cofactor_regenerations": dict(record.get("cofactor_regenerations") or {}),
+                "selectivity_objective": str(record.get("selectivity_objective") or ""),
+                "precedent_refs": [
+                    str(value) for value in record.get("precedent_refs") or [] if str(value)
+                ],
+                "required_assays": [
+                    {
+                        "assay_id": "exact-host-substrate-conversion",
+                        "purpose": "verify exact boundary conversion and product identity",
+                    },
+                    {
+                        "assay_id": "stereo-and-side-product-panel",
+                        "purpose": "measure selectivity, competing products, and mass balance",
+                    },
+                    {
+                        "assay_id": "fallback-comparison",
+                        "purpose": "compare isolated yield and operation count with the six-step fallback",
+                    },
+                ],
+                "semantics": {
+                    "route_attachment_not_standalone_route": True,
+                    "exact_host_binding_required": True,
+                    "chemical_fallback_retained": True,
+                    "cannot_grant_route_completion": True,
+                },
+            }
+        )
+    return tuple(attachments)
+
+
 def materialize_compiled_program_benchmark(
     gateway: Any,
     benchmark_id: str,
@@ -209,8 +358,15 @@ def materialize_compiled_program_benchmark(
     fallback = [dict(value) for value in record.get("fallback_steps") or []]
     if len(fallback) < 2:
         raise ValueError("compiled_program_benchmark_fallback_invalid")
+    host_route = dict(record.get("host_route") or {})
+    host_steps = [dict(value) for value in host_route.get("steps") or []]
+    if len(host_steps) < len(fallback):
+        raise ValueError("compiled_program_benchmark_host_route_invalid")
+    replaced_edge_ids = {
+        str(value) for value in host_route.get("replaced_edge_ids") or [] if str(value)
+    }
     steps = []
-    for row in fallback:
+    for row in host_steps:
         product = dict(row.get("product") or {})
         precursors = [
             str(value.get("smiles") or "")
@@ -226,14 +382,16 @@ def materialize_compiled_program_benchmark(
                 "product_smiles": product_smiles,
                 "precursor_smiles": precursors,
                 "transformation_hypothesis": (
-                    "digest-bound reported chemical fallback for Program review"
+                    "digest-bound reported chemical fallback within Program span"
+                    if str(row.get("edge_id") or "") in replaced_edge_ids
+                    else "digest-bound host-route step; evidence level remains independent"
                 ),
             }
         )
     run_id = str(record["benchmark_run_id"])
     target_name = (
         f"{record.get('target_name') or 'target'} reported "
-        f"{record.get('chemical_step_equivalent_count')} step Program interval"
+        f"{host_route.get('baseline_step_count')} step host route"
     )
     try:
         created = gateway.status(run_id)
@@ -241,14 +399,20 @@ def materialize_compiled_program_benchmark(
         created = gateway.create_run(
             run_id=run_id,
             target_name=target_name,
-            target_smiles=str(dict(fallback[-1].get("product") or {}).get("smiles") or ""),
+            target_smiles=str(dict(record.get("target") or {}).get("smiles") or ""),
+            budget=RetrosynthesisRunBudget(
+                max_model_invocations=0,
+                max_visual_invocations=0,
+                max_accepted_expansions=max(32, len(steps)),
+                max_attempt_runs=max(32, len(steps)),
+            ),
             global_plan={
                 "schema_version": "global_campaign_plan.v1",
                 "route_families": [
                     {
                         "route_family_id": f"family:{run_id}",
                         "strategic_disconnection": (
-                            "reported multi-step chemical fallback with enzyme Program shadow"
+                            "complete reported host route with one enzyme Program shadow"
                         ),
                     }
                 ],
@@ -267,8 +431,14 @@ def materialize_compiled_program_benchmark(
         "benchmark_id": str(record["benchmark_id"]),
         "run_id": run_id,
         "workbench_url": str(record["workbench_url"]),
+        "host_route_id": str(record.get("route_id") or ""),
+        "chemical_baseline_step_count": int(host_route.get("baseline_step_count") or 0),
+        "hypothetical_operation_count": int(
+            host_route.get("hypothetical_operation_count") or 0
+        ),
         "status": dict(created.get("status") or {}),
         "semantics": {
+            "complete_canonical_host_route_materialized": True,
             "canonical_chemical_fallback_materialized": True,
             "program_review_remains_read_only": True,
             "materialization_does_not_admit_the_program": True,
@@ -288,6 +458,29 @@ def _program_benchmark_run_id(
     ).strip("-") or "target"
     digest = strict_canonical_json_sha256({"benchmark_id": benchmark_id})[:10]
     return f"program-benchmark-{slug[:24]}-{chemical_steps}to1-{digest}"
+
+
+def _program_host_run_id(
+    benchmark_id: str,
+    *,
+    target_name: str,
+    route_id: str,
+    host_steps: int,
+    materialization_contract: int = 2,
+) -> str:
+    slug = "".join(
+        value if value.isascii() and value.isalnum() else "-"
+        for value in target_name.casefold()
+    ).strip("-") or "target"
+    digest = strict_canonical_json_sha256(
+        {
+            "benchmark_id": benchmark_id,
+            "route_id": route_id,
+            "host_steps": host_steps,
+            "materialization_contract": materialization_contract,
+        }
+    )[:10]
+    return f"program-host-{slug[:24]}-{host_steps}step-{digest}"
 
 
 def _read_digest_bound_json(path: Path) -> tuple[dict[str, Any], str]:
@@ -333,6 +526,10 @@ def _fallback_step_snapshot(
         "product": _molecule_snapshot(product_id, molecules=molecules),
         "source_refs": [
             str(value) for value in transformation.get("source_refs") or [] if str(value)
+        ],
+        "proof_level": int(transformation.get("proof_level") or 0),
+        "warning_codes": [
+            str(value) for value in transformation.get("warning_codes") or [] if str(value)
         ],
     }
 
@@ -448,9 +645,13 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
     program_benchmarks = compiled_program_benchmark_catalog()
     system_run_ids = sorted(
         {
-            str(row.get("benchmark_run_id") or "")
+            run_id
             for row in program_benchmarks.get("records") or []
-            if str(row.get("benchmark_run_id") or "")
+            for run_id in (
+                [str(row.get("benchmark_run_id") or "")]
+                + [str(value) for value in row.get("legacy_run_ids") or []]
+            )
+            if run_id
         }
     )
     system_run_id_set = set(system_run_ids)
@@ -467,6 +668,17 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
         runs = []
         backend = {"available": False, "state": "unavailable", "run_count": 0}
         error = f"{type(exc).__name__}:{exc}"
+    # Retired materialization-contract revisions are route examples as well.
+    # Prefix classification keeps them out of the task queue without requiring
+    # target-specific run ids in source code.
+    system_run_id_set.update(
+        str(row.get("run_id") or "")
+        for row in runs
+        if str(row.get("run_id") or "").startswith(
+            ("program-host-", "program-benchmark-")
+        )
+    )
+    system_run_ids = sorted(value for value in system_run_id_set if value)
     for row in runs:
         run_id = str(row.get("run_id") or "")
         row["workbench_url"] = f"/api/v4/runs/{run_id}/workbench.html" if run_id else ""
@@ -618,6 +830,7 @@ def inject_workspace_return(value: str) -> str:
 
 __all__ = [
     "compiled_program_benchmark_catalog",
+    "compiled_program_overlay_attachments",
     "inject_workspace_return",
     "materialize_compiled_program_benchmark",
     "register_workspace_routes",

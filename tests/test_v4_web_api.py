@@ -159,8 +159,10 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert 'id="solveForm"' in index.get_data(as_text=True)
     assert "启动逆合成" in index.get_data(as_text=True)
     assert "自进化库" in index.get_data(as_text=True)
-    assert "关键 Program 示例" in index.get_data(as_text=True)
-    assert "Program 替代提案和策展路线均在目录中选择" in index.get_data(as_text=True)
+    assert "多步 Program 作为宿主路线内的可验证替代层展示" in index.get_data(as_text=True)
+    assert "Program 在所属路线的准确区间内显示" in index.get_data(as_text=True)
+    assert "programHostRoutes" in index.get_data(as_text=True)
+    assert 'class="targetGroup"' in index.get_data(as_text=True)
     assert 'id="runFrame"' not in index.get_data(as_text=True)
     assert 'id="runDetail"' in index.get_data(as_text=True)
     assert "'/api/v4/jobs'" in index.get_data(as_text=True)
@@ -176,11 +178,22 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     )
     materialized = client.post(benchmark["materialize_url"])
     assert materialized.status_code == 201
+    assert materialized.get_json()["chemical_baseline_step_count"] == 20
+    assert materialized.get_json()["hypothetical_operation_count"] == 15
     assert materialized.get_json()["semantics"]["materialization_does_not_admit_the_program"]
+    host_snapshot = client.get(
+        f"/api/v4/runs/{materialized.get_json()['run_id']}/workbench"
+    ).get_json()["snapshot"]
+    planned = next(iter(host_snapshot["planned_routes"].values()))
+    assert planned["declared_step_count"] == 20
+    assert planned["materialized_step_count"] == 15
+    assert planned["admission_rejected_step_count"] == 5
     program_workbench = client.get(materialized.get_json()["workbench_url"])
     assert program_workbench.status_code == 200
     assert "program-overlay-card" in program_workbench.get_data(as_text=True)
     assert "Ct3alpha-HSDH" in program_workbench.get_data(as_text=True)
+    assert '"chemical_step_equivalent_count":6' in program_workbench.get_data(as_text=True)
+    assert '"primary_branch_id":"planned-route:' in program_workbench.get_data(as_text=True)
     refreshed_workspace = client.get("/api/v4/workspace").get_json()
     benchmark_run = next(
         row

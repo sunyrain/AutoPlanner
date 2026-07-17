@@ -40,16 +40,16 @@ from cascade_planner.harness.v4_route_graph_projection import (
     reaction_graph_id as _reaction_graph_id,
     stable_id as _stable_id,
 )
-from cascade_planner.harness.v4_program_overlay import project_program_overlays
+from cascade_planner.harness.v4_program_overlay import compile_program_overlay_layer
 
 
 V4_WORKBENCH_ADAPTER_SCHEMA = "v4_route_workbench_adapter.v1"
-
 
 def compile_v4_route_forest(
     workbench: Mapping[str, Any],
     *,
     program_innovation_reviews: Iterable[Mapping[str, Any]] = (),
+    program_overlay_attachments: Iterable[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Adapt one bounded V4 read model to the offline route-workbench shell."""
 
@@ -391,6 +391,14 @@ def compile_v4_route_forest(
         source,
         step_id_by_branch_edge=step_id_by_branch_edge,
     )
+    program_overlays, attachment_program_overlays = compile_program_overlay_layer(
+        program_innovation_reviews, program_overlay_attachments,
+        step_id_by_branch_edge=step_id_by_branch_edge,
+        steps=steps,
+        nodes=nodes_by_id, branches=branches, graph_nodes=graph_nodes,
+    )
+    if attachment_program_overlays:
+        primary_id = str(attachment_program_overlays[0].get("branch_id") or primary_id)
     forest = {
         "schema_version": "explored_route_forest.v1",
         "case_id": str(source.get("run_id") or ""),
@@ -430,10 +438,7 @@ def compile_v4_route_forest(
         "branches": branches,
         "modules": list(dict(source.get("modules") or {}).values()),
         "relationships": [],
-        "program_overlays": project_program_overlays(
-            program_innovation_reviews,
-            step_id_by_branch_edge=step_id_by_branch_edge,
-        ),
+        "program_overlays": program_overlays,
         "dependency_graph": {
             "schema_version": "molecule_reaction_dependency_graph.v1",
             "graph_kind": "canonical_v4_portfolio_projection",
@@ -510,11 +515,13 @@ def render_v4_route_workbench_html(
     workbench: Mapping[str, Any],
     *,
     program_innovation_reviews: Iterable[Mapping[str, Any]] = (),
+    program_overlay_attachments: Iterable[Mapping[str, Any]] = (),
 ) -> str:
     return render_route_forest_html(
         compile_v4_route_forest(
             workbench,
             program_innovation_reviews=program_innovation_reviews,
+            program_overlay_attachments=program_overlay_attachments,
         )
     )
 

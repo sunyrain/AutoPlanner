@@ -17,6 +17,7 @@ from cascade_planner.application.reaction_template_store import (
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 from cascade_planner.web.workspace_surface import (
     compiled_program_benchmark_catalog,
+    compiled_program_overlay_attachments,
     inject_workspace_return,
     self_evolution_catalog,
 )
@@ -134,7 +135,8 @@ def test_compiled_program_benchmark_catalog_exposes_bufotalin_six_to_one_fallbac
     assert record["authority_scope"] == "proposal_only"
     assert record["validation_status"] == "proposed_screen_required"
     assert record["warning_codes"] == ["EXACT_SUBSTRATE_UNVALIDATED"]
-    assert record["benchmark_run_id"].startswith("program-benchmark-bufotalin-6to1-")
+    assert record["benchmark_run_id"].startswith("program-host-bufotalin-20step-")
+    assert len(record["legacy_run_ids"]) == 2
     assert record["materialize_url"].endswith("/materialize")
     assert record["workbench_url"].endswith("/workbench.html")
     assert record["boundary"]["precursor"]["label"] == "Compound 11"
@@ -147,3 +149,15 @@ def test_compiled_program_benchmark_catalog_exposes_bufotalin_six_to_one_fallbac
         "Compound 27",
         "Compound 28",
     ]
+    assert record["host_route"]["route_id"] == "route:bufotalin-20-step-reported-candidate"
+    assert record["host_route"]["baseline_step_count"] == 20
+    assert record["host_route"]["hypothetical_operation_count"] == 15
+    assert len(record["host_route"]["steps"]) == 20
+    attachment = compiled_program_overlay_attachments(record["benchmark_run_id"])[0]
+    assert attachment["schema_version"] == "route_program_attachment.v1"
+    assert attachment["host_route_id"] == record["host_route"]["route_id"]
+    assert len(attachment["host_step_evidence"]) == 20
+    assert sum(row["proof_level"] == 1 for row in attachment["host_step_evidence"]) == 15
+    assert attachment["replaced_edge_ids"] == record["host_route"]["replaced_edge_ids"]
+    assert attachment["semantics"]["route_attachment_not_standalone_route"] is True
+    assert compiled_program_overlay_attachments("unrelated-run") == ()

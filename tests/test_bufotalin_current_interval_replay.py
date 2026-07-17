@@ -16,6 +16,11 @@ from cascade_planner.harness.v4_route_workbench import (
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway, CampaignGatewayError
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 from cascade_planner.runtime.paths import RuntimePaths
+from cascade_planner.web.workspace_surface import (
+    compiled_program_benchmark_catalog,
+    compiled_program_overlay_attachments,
+    materialize_compiled_program_benchmark,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -201,3 +206,67 @@ def test_reported_bufotalin_interval_replays_as_current_canonical_enzyme_positiv
     assert gateway.status("bufotalin-current-enzyme-interval")["status"][
         "graph_revision"
     ] == graph_revision
+
+
+def test_bufotalin_program_attaches_to_the_full_twenty_step_host_route(
+    tmp_path: Path,
+) -> None:
+    gateway = CampaignGateway(_paths(tmp_path))
+    record = next(
+        value
+        for value in compiled_program_benchmark_catalog()["records"]
+        if value["target_name"] == "bufotalin"
+        and value["chemical_step_equivalent_count"] == 6
+    )
+    materialized = materialize_compiled_program_benchmark(gateway, record["benchmark_id"])
+    workbench = gateway.workbench(materialized["run_id"])["snapshot"]
+    attachments = compiled_program_overlay_attachments(materialized["run_id"])
+
+    forest = compile_v4_route_forest(
+        workbench,
+        program_overlay_attachments=attachments,
+    )
+
+    planned = next(iter(workbench["planned_routes"].values()))
+    assert planned["declared_step_count"] == 20
+    assert planned["materialized_step_count"] == 15
+    assert planned["admission_rejected_step_count"] == 5
+    assert len(forest["program_overlays"]) == 1
+    overlay = forest["program_overlays"][0]
+    assert overlay["branch_id"] == forest["primary_branch_id"]
+    assert len(overlay["replaced_edge_ids"]) == 6
+    assert len(overlay["replaced_step_ids"]) == 6
+    assert overlay["fallback_retained"] is True
+    assert overlay["eligible_for_route_completion"] is False
+    branch = next(
+        value for value in forest["branches"] if value["branch_id"] == overlay["branch_id"]
+    )
+    assert len(branch["step_ids"]) == 20
+    assert branch["advisory_only"] is True
+    assert branch["source_refs"] == ["doi:10.1016/j.tet.2025.134610"]
+    host_steps = [
+        value for value in forest["steps"] if value["branch_id"] == overlay["branch_id"]
+    ]
+    assert sum(value["proof_tier"] == "L1_source_reported" for value in host_steps) == 12
+    assert sum(value["proof_tier"] == "L0_rejected" for value in host_steps) == 5
+    assert sum(bool(value["source_refs"]) for value in host_steps) == 15
+    assert sum(
+        value["proof_tier"] == "L0_rejected" and bool(value["source_refs"])
+        for value in host_steps
+    ) == 3
+    payload = build_route_forest_delivery_payload(forest)
+    assert route_forest_delivery_integrity_reasons(payload, source_forest=forest) == []
+
+    invalid_attachment = dict(attachments[0])
+    invalid_attachment["boundary"] = {
+        **dict(invalid_attachment["boundary"]),
+        "precursor": {
+            **dict(invalid_attachment["boundary"]["precursor"]),
+            "smiles": "C",
+        },
+    }
+    invalid_forest = compile_v4_route_forest(
+        workbench,
+        program_overlay_attachments=[invalid_attachment],
+    )
+    assert invalid_forest["program_overlays"] == []
