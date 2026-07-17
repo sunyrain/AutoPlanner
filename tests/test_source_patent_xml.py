@@ -246,3 +246,79 @@ def test_epo_example_heading_resolves_source_alias_and_exact_thioester_procedure
     assert conditions["yield_percent"] == 80.0
     assert "TLC" not in conditions["purification"]
     assert "99% yield" not in json.dumps(conditions)
+
+def test_epo_step_heading_binds_exact_hydrolysis_procedure(tmp_path: Path) -> None:
+    publication = "EP3953330B1"
+    source_ref = f"patent:{publication}"
+    source_url = (
+        "https://data.epo.org/publication-server/rest/v1.2/patents/EP3953330NWB1/document.xml"
+    )
+    product_name = (
+        "(1R,2S,5S)-6,6-dimethyl-3-[N-(trifluoroacetyl)-L-valyl]-"
+        "3-azabicyclo[3.1.0]hexane-2-carboxylic acid"
+    )
+    reactant_name = (
+        "methyl (1R,2S,5S)-6,6-dimethyl-3-[N-(trifluoroacetyl)-L-valyl]-"
+        "3-azabicyclo[3.1.0]hexane-2-carboxylate"
+    )
+    product_smiles = "CC1([C@H]2CN([C@@H]([C@@H]12)C(=O)O)C([C@@H](NC(C(F)(F)F)=O)C(C)C)=O)C"
+    reactant_smiles = "CC1([C@H]2CN([C@@H]([C@@H]12)C(=O)OC)C([C@@H](NC(C(F)(F)F)=O)C(C)C)=O)C"
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+    <ep-patent-document id="EP3953330B1" lang="en" country="EP"
+      doc-number="3953330" kind="B1" date-publ="20260114">
+      <description id="desc" lang="en">
+        <heading id="h0012"><b>Step 4. Synthesis of {product_name} (C4).</b></heading>
+        <p id="p0199" num="0199">Concentrated hydrochloric acid (20 mL)
+          was added to a solution of {reactant_name} (10.0 g, 26 mmol) in
+          acetic acid (40 mL) and water (10 mL). The mixture was heated at
+          55 degrees C for 3 days, extracted with ethyl acetate, washed,
+          dried, filtered and concentrated to afford the title compound
+          (8.1 g, 83%).</p>
+        <heading id="h0013"><b>Step 5. Synthesis of unrelated material</b></heading>
+        <p id="p0200" num="0200">Water (2 mL) was added and the mixture
+          stirred at room temperature for 1 h.</p>
+      </description>
+    </ep-patent-document>
+    """.encode()
+    materialization = materialize_primary_patent_xml(
+        content=xml,
+        publication=publication,
+        source_ref=source_ref,
+        source_url=source_url,
+        output_dir=tmp_path / "source",
+        target_terms=[product_name, reactant_name],
+    )
+    structures = {
+        product_name.casefold(): product_smiles,
+        reactant_name.casefold(): reactant_smiles,
+    }
+    audit = compile_deterministic_literature_step_registry(
+        [
+            {
+                "step_id": "nirmatrelvir-c3-to-c4-hydrolysis",
+                "product_smiles": product_smiles,
+                "reactant_smiles": [reactant_smiles],
+                "source_ref": source_ref,
+                "source_text_companions": [materialization["companion"]],
+            }
+        ],
+        registry_path=tmp_path / "registry.json",
+        structure_resolver=lambda value: structures.get(str(value).casefold(), ""),
+        candidate_name_resolver=lambda _value: [],
+    )
+
+    assert audit["approved_binding_count"] == 1, audit
+    binding = audit["records"][0]["binding"]
+    assert binding["source_location"]["start_element_id"] == "h0012"
+    assert binding["source_location"]["end_element_id"] == "p0199"
+    assert binding["parser_audit"]["product_label"] == "C4"
+    assert binding["parser_audit"]["reactant_match_modes"] == [
+        "source_amount_name_opsin_exact_structure"
+    ]
+    conditions = binding["source_conditions"]
+    assert "Concentrated hydrochloric acid" in conditions["reagents"]
+    assert conditions["solvent"] == ["acetic acid", "water"]
+    assert conditions["temperature"] == "55 degrees C"
+    assert conditions["time"] == "3 days"
+    assert conditions["yield_percent"] == 83.0
+    assert "room temperature" not in json.dumps(conditions)

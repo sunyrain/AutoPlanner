@@ -606,11 +606,11 @@ exact record 移除 L3/source/condition 权威；失效 procedure 不能满足 c
 L3 精确先例从 12 降为 8、文献落地路线从 2 降为 1，反应/路线检查器以“失效事实”展示撤销状态、
 生效时间、原因和 event ID。
 
-因此 P2 的生命周期验收、P5 dirty-subgraph/oracle 条目和 P6 库存失效重算条目已闭合。仍未完成的
-主线门是旧 L0–L4 科学权威彻底取消、P3 三个真实专利条件端到端案例，以及 P8/P9 fresh blind
+因此 P2 的生命周期验收、P3 三个真实专利条件端到端案例、P5 dirty-subgraph/oracle 条目和 P6
+库存失效重算条目已闭合。仍未完成的主线门是旧 L0–L4 科学权威彻底取消，以及 P8/P9 fresh blind
 发布验收。
 
-## 14. 2026-07-15 首个真实专利 XML procedure 门禁
+## 14. 2026-07-17 三个真实专利 XML procedure 门禁
 
 P3 的首个真实案例使用 Vismodegib / EP3381900A1。证据连接器现在优先请求 EPO Publication
 Server 的 ST.36 XML，校验 publication 身份后冻结完整字节与 SHA-256，再把 description 的 heading
@@ -627,8 +627,13 @@ procedure 文本摘要与反应摘要；条件编译得到 THF、三乙胺、4°
 校验后的输入。生成的 Workbench 只展示这一条真实 procedure 边，两个起始原料的库存未审计，
 因此 portfolio 保持 `accepted=false`，不会把“来源与条件完整”误报为“完整路线闭合”。
 
-这闭合了官方 HTML/XML 优先路径和 Vismodegib 回归条目，但 P3 的三案例门目前仅完成 1/3；
-仍需两个不同专利/反应类型的真实案例，并继续验证 native PDF、OCR 和显式 vision 只对未闭合边回退。
+`scripts/replay_patent_xml_gate_suite.py` 进一步用同一通用 harness 完成三个独立 publication 与反应类型：
+Vismodegib / EP3381900A1 酰胺化、DMB-S-MMP / EP2483292B1 硫酯化，以及 Nirmatrelvir C4 /
+EP3953330B1 酸性甲酯水解。三例均绑定官方 XML 的精确 heading/paragraph 范围，条件完整，每例两次
+纯离线 registry digest 与 binding ID 相同，模型、视觉、PDF 和 OCR 调用均为 0。Nirmatrelvir 案例还
+补齐了 `Step 4. Synthesis of ... (C4).` 标题识别，并阻止 NMR `1H/6H` 污染反应时间；真实条件保持为
+55°C、3 days 与 83% 收率。P3 的三案例门现为 3/3；既有回归继续强制 PDF/OCR/vision 只接收
+structured source 后仍 unresolved 的边。
 
 ## 15. 2026-07-15 酶催化超级步骤与文献外一跳机理外推
 

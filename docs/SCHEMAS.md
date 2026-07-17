@@ -95,6 +95,7 @@
 | `primary_patent_html_materialization.v1` | 官方专利 HTML、段落窗口与零模型审计 | patent HTML adapter |
 | `primary_patent_xml_materialization.v1` | EPO ST.36 XML、元素窗口、全文摘要与 publication 身份绑定 | patent XML adapter |
 | `real_patent_procedure_gate.v1` | 单个真实专利目标边的来源、procedure、条件完整度与离线复现门禁 | real-case replay script |
+| `real_patent_procedure_gate_suite.v1` | 三个独立官方专利与反应类型的结构化来源发布门禁、离线一致性和 fallback 计数 | real-case gate suite |
 | `patent_reaction_template_library.v1` | 仓库外、跨 campaign、摘要绑定的专利模板记忆 | patent self-evolution |
 | `patent_reaction_template_record.v1` | 原例重放、来源支持和复用成败统计 | deterministic template learner |
 | `patent_template_retrieval.v1` | 交给全局 Director/统一准入链的 L0 模板候选 | deterministic template retriever |

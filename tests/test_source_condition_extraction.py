@@ -105,3 +105,27 @@ def test_workup_and_nmr_do_not_pollute_reaction_time_or_temperature() -> None:
     assert conditions["yield_percent"] == 93.0
     assert "13C" not in conditions["temperature"]
     assert conditions["reagents"] == ["compound 33", "HF"]
+
+
+def test_partition_workup_and_characterization_do_not_override_multiday_reaction() -> None:
+    text = (
+        "Concentrated hydrochloric acid (0.57 mL, 6.6 mmol) was added to "
+        "C3 (1.25 g, 3.43 mmol) in acetic acid (40.8 mL) and water "
+        "(8.2 mL). The reaction mixture was heated at 55 degrees C for "
+        "3 days, whereupon it was partitioned between water and ethyl "
+        "acetate. The aqueous layer was extracted with ethyl acetate, "
+        "dried, filtered, and concentrated to afford C4 in 83% yield. "
+        "1H NMR (400 MHz) characteristic peaks: 2.24 (m, 1H), "
+        "1.10 (m, 6H). LCMS m/z 351.2 [M+H]+."
+    )
+
+    conditions = extract_source_conditions(
+        text,
+        source_amount_names=("Concentrated hydrochloric acid", "C3"),
+    )
+
+    assert conditions["solvent"] == ["acetic acid", "water"]
+    assert conditions["temperature"] == "55 degrees C"
+    assert conditions["time_program"] == ["3 days"]
+    assert conditions["time"] == "3 days"
+    assert conditions["yield_percent"] == 83.0

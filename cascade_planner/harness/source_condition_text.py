@@ -12,6 +12,7 @@ SOLVENTS = {
     "ethyl acetate": ("ethyl acetate", "AcOEt", "EtOAc"),
     "isopropanol": ("isopropanol", "i-PrOH"),
     "isopropyl acetate": ("isopropyl acetate", "i-PrOAc"),
+    "acetic acid": ("acetic acid", "AcOH"),
     "acetonitrile": ("acetonitrile", "MeCN"),
     "methanol": ("methanol", "MeOH"),
     "ethanol": ("ethanol", "EtOH"),
@@ -46,7 +47,10 @@ TEMPERATURE_PATTERN = (
     r"(?:°|degrees?\s*)?\s*C\b|"
     r"\broom temperature\b|\breflux\b"
 )
-DURATION_PATTERN = r"overnight|\d+(?:\.\d+)?\s*(?:h|hr|hrs|hours?|min|minutes?)"
+DURATION_PATTERN = (
+    r"overnight|\d+(?:\.\d+)?\s*"
+    r"(?:d|day|days|h|hr|hrs|hours?|min|minutes?)"
+)
 
 
 def contains_term(value: str, term: str) -> bool:
@@ -93,7 +97,8 @@ def without_analytical_sentences(value: str) -> str:
         sentence
         for sentence in re.split(r"(?<=[.!?])\s+", value)
         if not re.search(
-            r"\b(?:HPLC|TLC|chromatograph|eluent|retention time|Rf)\b",
+            r"\b(?:HPLC|TLC|LCMS|HRMS|NMR|chromatograph|eluent|"
+            r"retention time|Rf)\b|\b(?:1H|13C|19F|31P)\s+NMR\b",
             sentence,
             flags=re.IGNORECASE,
         )

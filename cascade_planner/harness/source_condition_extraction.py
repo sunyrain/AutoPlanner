@@ -32,6 +32,10 @@ def extract_source_conditions(
     reaction_phase = re.split(
         r"\b(?:after (?:completion|completeness) of the reaction|"
         r"(?:the reaction(?: mixture)?|the mixture|it) was quenched|"
+        r"(?:whereupon\s+)?(?:it|the (?:reaction )?mixture) was partitioned|"
+        r"the (?:aqueous|organic) layer was extracted|"
+        r",\s*(?:whereupon\s+)?(?:the mixture was\s+)?"
+        r"(?:extracted|partitioned|washed|filtered)\b|"
         r"the mixture was concentrated|the reaction mixture was concentrated|"
         r"the crude product|the resulting residue)\b",
         text,

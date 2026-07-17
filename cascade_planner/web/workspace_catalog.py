@@ -163,6 +163,57 @@ def _fresh_benchmark_audits(
                 artifact_endpoint=artifact_endpoint,
             )
         )
+    patent_summaries = sorted(
+        shared_root.glob("*/patent-procedure-gate/summary.json"),
+        key=lambda path: path.stat().st_mtime if path.is_file() else 0,
+        reverse=True,
+    )[:16]
+    for summary_path in patent_summaries:
+        summary = _read_json(summary_path)
+        if summary.get("schema_version") != "real_patent_procedure_gate_suite.v1":
+            continue
+        rows.append(
+            _published_row(
+                {
+                    "audit_id": str(
+                        summary.get("suite_id") or summary_path.parents[1].name
+                    ),
+                    "label": "官方结构化专利 procedure · 3-case gate",
+                    "category": "official patent procedure gate",
+                    "artifact_path": str(summary_path.parent / "index.html"),
+                    "accepted": summary.get("accepted") is True,
+                    "case_count": int(summary.get("case_count") or 0),
+                    "accepted_count": int(summary.get("accepted_count") or 0),
+                    "unique_publication_count": int(
+                        summary.get("unique_publication_count") or 0
+                    ),
+                    "unique_reaction_class_count": int(
+                        summary.get("unique_reaction_class_count") or 0
+                    ),
+                    "structured_source_closed_count": int(
+                        dict(summary.get("acquisition_cascade") or {}).get(
+                            "structured_source_closed_count"
+                        )
+                        or 0
+                    ),
+                    "pdf_fallback_count": int(
+                        dict(summary.get("acquisition_cascade") or {}).get(
+                            "pdf_fallback_count"
+                        )
+                        or 0
+                    ),
+                    "vision_fallback_count": int(
+                        dict(summary.get("acquisition_cascade") or {}).get(
+                            "vision_fallback_count"
+                        )
+                        or 0
+                    ),
+                },
+                root=root,
+                shared_root=shared_root,
+                artifact_endpoint=artifact_endpoint,
+            )
+        )
     return rows
 
 

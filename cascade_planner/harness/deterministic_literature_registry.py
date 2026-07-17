@@ -1028,9 +1028,10 @@ def _extract_epo_xml_procedures(
             )
     rows: list[dict[str, Any]] = []
     heading_pattern = re.compile(
-        r"^(?:Example\s*:?[ \t]*(?P<example>\d+[A-Za-z]?)[ \t]*:?[ \t]+)?"
+        r"^(?:(?:Example|Step)\s*:?[ \t]*(?P<sequence>\d+[A-Za-z]?)"
+        r"[ \t]*[.:]?[ \t]+)?"
         r"(?:Preparation|Synthesis)[ \t]+of[ \t]+"
-        r"(?P<name>.+?)(?:[ \t]*\((?P<label>[TC]?\d+)\))?$",
+        r"(?P<name>.+?)(?:[ \t]*\((?P<label>[TC]?\d+)\))?[ \t]*[.]?$",
         flags=re.IGNORECASE,
     )
     for index, element in enumerate(elements):
@@ -1042,7 +1043,7 @@ def _extract_epo_xml_procedures(
         if match is None:
             continue
         name = _clean_source_name(str(match.group("name") or ""))
-        label = str(match.group("label") or match.group("example") or "").upper()
+        label = str(match.group("label") or match.group("sequence") or "").upper()
         if (
             len(name) < 3
             or len(name) > 1000
