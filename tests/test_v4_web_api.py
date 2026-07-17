@@ -156,8 +156,25 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert "启动逆合成" in index.get_data(as_text=True)
     assert "自进化库" in index.get_data(as_text=True)
     assert "多步酶 Program 候选" in index.get_data(as_text=True)
+    assert "decorateCompiledProgramBenchmarks" in index.get_data(as_text=True)
     assert "'/api/v4/jobs'" in index.get_data(as_text=True)
     assert b"<!doctype html>" in rendered.data.lower()
+
+    benchmark = next(
+        row
+        for row in workspace.get_json()["self_evolution"]["compiled_program_benchmarks"][
+            "records"
+        ]
+        if row["target_name"] == "bufotalin"
+        and row["chemical_step_equivalent_count"] == 6
+    )
+    materialized = client.post(benchmark["materialize_url"])
+    assert materialized.status_code == 201
+    assert materialized.get_json()["semantics"]["materialization_does_not_admit_the_program"]
+    program_workbench = client.get(materialized.get_json()["workbench_url"])
+    assert program_workbench.status_code == 200
+    assert "program-overlay-card" in program_workbench.get_data(as_text=True)
+    assert "Ct3alpha-HSDH" in program_workbench.get_data(as_text=True)
 
 
 def test_v4_workbench_html_uses_a_human_readable_integrity_fallback() -> None:

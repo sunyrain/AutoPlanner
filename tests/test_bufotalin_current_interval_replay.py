@@ -5,6 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from cascade_planner.harness.route_forest_delivery import (
+    build_route_forest_delivery_payload,
+    route_forest_delivery_integrity_reasons,
+)
+from cascade_planner.harness.v4_route_workbench import (
+    compile_v4_route_forest,
+    render_v4_route_workbench_html,
+)
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway, CampaignGatewayError
 from cascade_planner.runtime.canonical_json import strict_canonical_json_sha256
 from cascade_planner.runtime.paths import RuntimePaths
@@ -157,6 +165,29 @@ def test_reported_bufotalin_interval_replays_as_current_canonical_enzyme_positiv
     assert result["program_route_candidates"]["candidates"][optimizer_candidate_id][
         "eligibility"
     ]["shadow_optimizer"] is False
+    forest = compile_v4_route_forest(
+        workbench,
+        program_innovation_reviews=[result],
+    )
+    assert len(forest["program_overlays"]) == 1
+    overlay = forest["program_overlays"][0]
+    assert overlay["program_id"] == proposal["program_id"]
+    assert overlay["chemical_step_equivalent_count"] == 6
+    assert overlay["isolated_operation_count"] == 1
+    assert overlay["net_step_savings"] == 5
+    assert overlay["candidate_enzyme_ids"] == ["Ct3alpha-HSDH", "Ss3beta-HSDH"]
+    assert len(overlay["replaced_step_ids"]) == 6
+    assert overlay["fallback_retained"] is True
+    assert overlay["eligible_for_route_completion"] is False
+    payload = build_route_forest_delivery_payload(forest)
+    assert route_forest_delivery_integrity_reasons(payload, source_forest=forest) == []
+    html = render_v4_route_workbench_html(
+        workbench,
+        program_innovation_reviews=[result],
+    )
+    assert "个化学步骤 → 1 个酶操作" in html
+    assert "program-overlay-card" in html
+    assert "原 ${equivalent} 步化学 fallback" in html
     with pytest.raises(CampaignGatewayError, match="requires_validated_candidate"):
         gateway.admit_route_program_innovations(
             "bufotalin-current-enzyme-interval",

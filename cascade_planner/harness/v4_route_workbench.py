@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 import hashlib
 import json
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from rdkit import Chem
 from rdkit.Chem import rdDepictor, rdMolDescriptors
@@ -40,12 +40,17 @@ from cascade_planner.harness.v4_route_graph_projection import (
     reaction_graph_id as _reaction_graph_id,
     stable_id as _stable_id,
 )
+from cascade_planner.harness.v4_program_overlay import project_program_overlays
 
 
 V4_WORKBENCH_ADAPTER_SCHEMA = "v4_route_workbench_adapter.v1"
 
 
-def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
+def compile_v4_route_forest(
+    workbench: Mapping[str, Any],
+    *,
+    program_innovation_reviews: Iterable[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
     """Adapt one bounded V4 read model to the offline route-workbench shell."""
 
     _validate_workbench(workbench)
@@ -425,6 +430,10 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
         "branches": branches,
         "modules": list(dict(source.get("modules") or {}).values()),
         "relationships": [],
+        "program_overlays": project_program_overlays(
+            program_innovation_reviews,
+            step_id_by_branch_edge=step_id_by_branch_edge,
+        ),
         "dependency_graph": {
             "schema_version": "molecule_reaction_dependency_graph.v1",
             "graph_kind": "canonical_v4_portfolio_projection",
@@ -497,8 +506,17 @@ def compile_v4_route_forest(workbench: Mapping[str, Any]) -> dict[str, Any]:
     return forest
 
 
-def render_v4_route_workbench_html(workbench: Mapping[str, Any]) -> str:
-    return render_route_forest_html(compile_v4_route_forest(workbench))
+def render_v4_route_workbench_html(
+    workbench: Mapping[str, Any],
+    *,
+    program_innovation_reviews: Iterable[Mapping[str, Any]] = (),
+) -> str:
+    return render_route_forest_html(
+        compile_v4_route_forest(
+            workbench,
+            program_innovation_reviews=program_innovation_reviews,
+        )
+    )
 
 
 def _validate_workbench(value: Mapping[str, Any]) -> None:

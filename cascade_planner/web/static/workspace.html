@@ -20,6 +20,7 @@
     @media(max-width:1150px){.hero,.dashboard,.evolutionGrid,.programDetailGrid{grid-template-columns:1fr}.routeWorkspace{grid-template-columns:250px minmax(0,1fr)}.runWorkspace{grid-template-columns:300px minmax(0,1fr)}}
     @media(max-width:900px){html,body{height:auto;min-height:100%;overflow:auto}.app{height:auto;min-height:100%;display:block}.sidebar{position:fixed;inset:auto 0 0;z-index:50;height:62px;display:block;border-top:1px solid var(--line);border-right:0}.brand,.sideStatus,.sideCollapse{display:none!important}.sideNav{height:100%;grid-template-columns:repeat(5,1fr);gap:2px;padding:6px}.navItem,.sidebar-collapsed .navItem{justify-content:center;gap:4px;padding:5px}.navItem .navLabel{display:block;font-size:8px}.navBadge{display:none}.navIcon{height:18px}.body{display:block;min-height:100vh;padding-bottom:62px}.content{overflow:visible}.topbar{height:auto;min-height:64px;padding:10px 13px}.context p,.topActions a{display:none}.view{min-height:0;padding:14px}.view.workspaceView.active{height:auto;padding:12px;overflow:visible}.metricStrip,.evolutionSummary{grid-template-columns:1fr 1fr}.metric:nth-child(2){border-right:0}.metric:nth-child(-n+2){border-bottom:1px solid var(--line)}.routeWorkspace,.runWorkspace{display:block}.catalog,.queue{height:260px;margin-bottom:10px}.stage{height:70vh}.routeWorkspace.catalog-collapsed .catalog,.runWorkspace.queue-collapsed .queue{display:none}.search{width:180px}.checks,.advancedGrid{grid-template-columns:1fr 1fr}}
     @media(max-width:580px){.topActions .button:not(.primary){display:none}.hero h2{font-size:21px}.heroMain{padding:21px}.metricStrip,.evolutionSummary,.memoryFacts,.formGrid,.checks,.advancedGrid{grid-template-columns:1fr}.metric{border-right:0;border-bottom:1px solid var(--line)!important}.metric:last-child{border-bottom:0!important}.formSection{grid-template-columns:1fr}.stepNo{width:30px;height:30px}.viewHeader{align-items:flex-start;flex-direction:column}.viewTools{width:100%}.viewTools .search{flex:1;width:auto}.programRecordTop{display:block}.programBadges{justify-content:flex-start;margin-top:8px}.programMetrics{display:grid;grid-template-columns:repeat(3,1fr)}.programMetric{min-width:0}.programFlow{grid-template-columns:1fr;gap:10px}.flowArrow{width:2px;height:18px;justify-self:center;background:linear-gradient(#92a1dc,#576ce7)}.flowArrow:after{right:-3px;top:auto;bottom:-1px;transform:rotate(135deg)}}
+    .programActions{display:flex;align-items:center;gap:9px;margin-top:11px}.programActions span{color:var(--muted);font-size:8px}.programOpen{border:1px solid #7568dc;border-radius:8px;padding:7px 10px;color:#fff;background:linear-gradient(135deg,#5f6de5,#7250d2);font-size:9px;font-weight:850;cursor:pointer}.programOpen:disabled{opacity:.55;cursor:wait}
   </style>
   <style>
     .pill.neutral{color:#5d687a;background:#eef1f6}
@@ -135,6 +136,37 @@
     async function pollJobs(){try{state.jobs=await jobsWithProgress();renderMetrics();renderOverview();renderRuns();if(state.view==='runs')activateSelectedRun();}catch(_){}}
     document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.view)));document.querySelectorAll('[data-go-view]').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.goView)));document.querySelectorAll('[data-open-launch]').forEach(button=>button.addEventListener('click',openLaunch));$('launchFocus').addEventListener('click',openLaunch);$('closeLaunch').addEventListener('click',closeLaunch);$('cancelLaunch').addEventListener('click',closeLaunch);$('solveForm').addEventListener('submit',launch);$('launchDialog').addEventListener('click',event=>{if(event.target===$('launchDialog'))closeLaunch();});$('refresh').addEventListener('click',loadAll);$('routeSearch').addEventListener('input',event=>{state.routeQuery=event.target.value;renderRoutes();});$('runSearch').addEventListener('input',event=>{state.runQuery=event.target.value;renderRuns();});$('collapseLibrary').addEventListener('click',()=>{state.sidebarCollapsed=true;applyShell();persist();});$('restoreLibrary').addEventListener('click',()=>{state.sidebarCollapsed=false;applyShell();persist();});$('collapseCatalog').addEventListener('click',()=>{state.catalogCollapsed=!state.catalogCollapsed;applyShell();persist();});$('restoreCatalog').addEventListener('click',()=>{state.catalogCollapsed=false;applyShell();persist();});$('collapseQueue').addEventListener('click',()=>{state.queueCollapsed=!state.queueCollapsed;applyShell();persist();});$('restoreQueue').addEventListener('click',()=>{state.queueCollapsed=false;applyShell();persist();});$('reloadRoute').addEventListener('click',()=>{if($('routeFrame').dataset.url)$('routeFrame').src=$('routeFrame').dataset.url;});$('reloadRun').addEventListener('click',()=>{const frame=$('runFrame');frame.dataset.url='';frame.dataset.failedUrl='';activateSelectedRun();});$('closeAudit').addEventListener('click',()=>{$('auditStage').hidden=true;$('auditFrame').src='about:blank';});window.addEventListener('hashchange',()=>{const value=location.hash.replace('#','');if(value==='new-task')openLaunch();else if(allowedViews.has(value))navigate(value,{hash:false});});
     document.querySelector('#view-runs .viewHeader p').textContent='活动任务与每个目标最新的历史快照分开显示；历史快照不会被误认为仍在运行。';$('runStageNote').textContent='活动任务显示阶段；历史快照进入只读工作台。';applyShell();loadAll();if(initialHash==='new-task')openLaunch();else navigate(state.view,{hash:false});setInterval(pollJobs,2500);
+    function decorateCompiledProgramBenchmarks(){
+      const rows=state.payload?.self_evolution?.compiled_program_benchmarks?.records||[];
+      document.querySelectorAll('#compiledProgramRecords .programRecord').forEach((card,index)=>{
+        const row=rows[index];
+        if(!row||card.querySelector('[data-program-materialize]'))return;
+        const actions=document.createElement('div');
+        actions.className='programActions';
+        actions.innerHTML=`<button class="programOpen" type="button" data-program-materialize>在路线图中查看 ${number(row.chemical_step_equivalent_count)}→1</button><span>会创建 canonical fallback campaign；Program 仍保持未准入。</span>`;
+        card.querySelector('.programMetrics')?.insertAdjacentElement('afterend',actions);
+        actions.querySelector('button').addEventListener('click',async event=>{
+          const button=event.currentTarget;
+          button.disabled=true;
+          button.textContent='正在编译路线图…';
+          try{
+            const result=await json(row.materialize_url,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+            state.selectedRunId=result.run_id;
+            await loadAll();
+            state.selectedRunId=result.run_id;
+            navigate('runs');
+            renderRuns();
+            activateSelectedRun();
+            toast('已打开 6→1 影子 Program；下方化学 fallback 完整保留。');
+          }catch(error){
+            button.disabled=false;
+            button.textContent=`在路线图中查看 ${number(row.chemical_step_equivalent_count)}→1`;
+            toast(`Program 工作台创建失败：${error.message}`);
+          }
+        });
+      });
+    }
+    new MutationObserver(decorateCompiledProgramBenchmarks).observe($('compiledProgramRecords'),{childList:true,subtree:true});
   </script>
 </body>
 </html>

@@ -30,6 +30,9 @@ from cascade_planner.web.v4_experiment_api import register_experiment_routes
 from cascade_planner.web.v4_program_innovation_api import (
     register_program_innovation_routes,
 )
+from cascade_planner.web.v4_program_overlay_reviews import (
+    collect_program_overlay_reviews,
+)
 from cascade_planner.web.workspace_surface import register_workspace_routes
 
 
@@ -271,8 +274,16 @@ def create_v4_blueprint(
     @blueprint.get("/api/v4/runs/<run_id>/workbench.html")
     def workbench_html(run_id: str) -> Response:
         try:
-            snapshot = factory().workbench(run_id)["snapshot"]
-            return Response(render_v4_route_workbench_html(snapshot), mimetype="text/html")
+            gateway = factory()
+            snapshot = gateway.workbench(run_id)["snapshot"]
+            reviews = collect_program_overlay_reviews(gateway, run_id, snapshot)
+            return Response(
+                render_v4_route_workbench_html(
+                    snapshot,
+                    program_innovation_reviews=reviews,
+                ),
+                mimetype="text/html",
+            )
         except ValueError as exc:
             # An archived display projection can fail its strict integrity check
             # while the immutable campaign snapshot remains available.  Browsers

@@ -133,6 +133,9 @@ def test_compiled_program_benchmark_catalog_exposes_bufotalin_six_to_one_fallbac
     assert record["authority_scope"] == "proposal_only"
     assert record["validation_status"] == "proposed_screen_required"
     assert record["warning_codes"] == ["EXACT_SUBSTRATE_UNVALIDATED"]
+    assert record["benchmark_run_id"].startswith("program-benchmark-bufotalin-6to1-")
+    assert record["materialize_url"].endswith("/materialize")
+    assert record["workbench_url"].endswith("/workbench.html")
     assert record["boundary"]["precursor"]["label"] == "Compound 11"
     assert record["boundary"]["product"]["label"] == "Compound 28"
     assert [row["product"]["label"] for row in record["fallback_steps"]] == [

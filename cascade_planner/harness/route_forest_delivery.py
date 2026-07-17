@@ -17,6 +17,9 @@ from cascade_planner.harness.route_forest_layout import (
     build_dependency_layout_projection,
     canonical_sha256,
 )
+from cascade_planner.harness.v4_program_overlay import (
+    program_overlay_integrity_reasons,
+)
 
 
 DELIVERY_SCHEMA_VERSION = "route_forest_delivery.v1"
@@ -201,6 +204,7 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
         "branches": branches,
         "modules": _copy_list(source.get("modules")),
         "relationships": _copy_list(source.get("relationships")),
+        "program_overlays": _copy_list(source.get("program_overlays")),
         "dependency_graph": graph,
         "dependency_layout": layout,
         "branch_lanes": lanes,
@@ -228,6 +232,9 @@ def build_route_forest_delivery_payload(forest: Mapping[str, Any]) -> dict[str, 
             "dependency_edges": "explicit_source_and_target_ids_only",
             "dependency_trust": (
                 "reaction_step_id_joins_top_level_steps_for_trust_and_visual_encoding"
+            ),
+            "program_overlays": (
+                "display_only_multi_edge_shadow_layer_with_canonical_fallback_retained"
             ),
             "array_adjacency": "never_creates_an_edge",
             "frontier_ledger": (
@@ -286,6 +293,15 @@ def route_forest_delivery_integrity_reasons(
     reasons.extend(
         _replacement_validation_integrity_reasons(
             payload.get("replacement_validation"),
+            steps=payload.get("steps"),
+            branches=payload.get("branches"),
+            scope="route_forest_delivery",
+        )
+    )
+    reasons.extend(
+        program_overlay_integrity_reasons(
+            payload.get("program_overlays"),
+            nodes=payload.get("nodes"),
             steps=payload.get("steps"),
             branches=payload.get("branches"),
             scope="route_forest_delivery",
@@ -443,6 +459,7 @@ def _route_forest_source_integrity_reasons(
                 "modules",
                 "nodes",
                 "relationships",
+                "program_overlays",
                 "steps",
             ),
             string_fields=(
@@ -472,6 +489,15 @@ def _route_forest_source_integrity_reasons(
     reasons.extend(
         _replacement_validation_integrity_reasons(
             source.get("replacement_validation"),
+            steps=source.get("steps"),
+            branches=source.get("branches"),
+            scope="route_forest_source",
+        )
+    )
+    reasons.extend(
+        program_overlay_integrity_reasons(
+            source.get("program_overlays"),
+            nodes=source.get("nodes"),
             steps=source.get("steps"),
             branches=source.get("branches"),
             scope="route_forest_source",
@@ -523,6 +549,7 @@ def _route_forest_delivery_shape_reasons(
             "modules",
             "nodes",
             "relationships",
+            "program_overlays",
             "steps",
         ),
         string_fields=(

@@ -96,12 +96,24 @@ def compiled_program_benchmark_catalog() -> dict[str, Any]:
                 target = dict(observation.get("target") or {})
                 precursor_id = str(boundary.get("precursor_molecule_id") or "")
                 product_id = str(boundary.get("product_molecule_id") or "")
+                benchmark_id = "program-benchmark:" + str(
+                    innovation.get("innovation_id") or candidate.get("candidate_id") or ""
+                )
+                benchmark_run_id = _program_benchmark_run_id(
+                    benchmark_id,
+                    target_name=str(target.get("name") or "target"),
+                    chemical_steps=chemical_steps,
+                )
                 records.append(
                     {
-                        "benchmark_id": "program-benchmark:"
-                        + str(
-                            innovation.get("innovation_id") or candidate.get("candidate_id") or ""
+                        "benchmark_id": benchmark_id,
+                        "benchmark_run_id": benchmark_run_id,
+                        "materialize_url": (
+                            "/api/v4/program-benchmarks/"
+                            + benchmark_id
+                            + "/materialize"
                         ),
+                        "workbench_url": f"/api/v4/runs/{benchmark_run_id}/workbench.html",
                         "source_file": path.name,
                         "target_name": str(target.get("name") or "unnamed target"),
                         "route_id": str(route_id),
@@ -175,6 +187,107 @@ def compiled_program_benchmark_catalog() -> dict[str, Any]:
             "candidate_requires_experiment_before_l2_or_route_acceptance": True,
         },
     }
+
+
+def materialize_compiled_program_benchmark(
+    gateway: Any,
+    benchmark_id: str,
+) -> dict[str, Any]:
+    """Create one canonical campaign from a digest-bound Program benchmark."""
+
+    catalog = compiled_program_benchmark_catalog()
+    record = next(
+        (
+            dict(value)
+            for value in catalog.get("records") or []
+            if str(value.get("benchmark_id") or "") == str(benchmark_id)
+        ),
+        None,
+    )
+    if record is None:
+        raise ValueError("compiled_program_benchmark_not_found")
+    fallback = [dict(value) for value in record.get("fallback_steps") or []]
+    if len(fallback) < 2:
+        raise ValueError("compiled_program_benchmark_fallback_invalid")
+    steps = []
+    for row in fallback:
+        product = dict(row.get("product") or {})
+        precursors = [
+            str(value.get("smiles") or "")
+            for value in row.get("precursors") or []
+            if isinstance(value, dict) and str(value.get("smiles") or "")
+        ]
+        product_smiles = str(product.get("smiles") or "")
+        if not product_smiles or not precursors:
+            raise ValueError("compiled_program_benchmark_boundary_smiles_missing")
+        steps.append(
+            {
+                "step_id": str(row.get("edge_id") or ""),
+                "product_smiles": product_smiles,
+                "precursor_smiles": precursors,
+                "transformation_hypothesis": (
+                    "digest-bound reported chemical fallback for Program review"
+                ),
+            }
+        )
+    run_id = str(record["benchmark_run_id"])
+    target_name = (
+        f"{record.get('target_name') or 'target'} reported "
+        f"{record.get('chemical_step_equivalent_count')} step Program interval"
+    )
+    try:
+        created = gateway.status(run_id)
+    except Exception:
+        created = gateway.create_run(
+            run_id=run_id,
+            target_name=target_name,
+            target_smiles=str(dict(fallback[-1].get("product") or {}).get("smiles") or ""),
+            global_plan={
+                "schema_version": "global_campaign_plan.v1",
+                "route_families": [
+                    {
+                        "route_family_id": f"family:{run_id}",
+                        "strategic_disconnection": (
+                            "reported multi-step chemical fallback with enzyme Program shadow"
+                        ),
+                    }
+                ],
+                "multi_step_skeletons": [
+                    {
+                        "skeleton_id": f"skeleton:{run_id}",
+                        "route_family_id": f"family:{run_id}",
+                        "steps": steps,
+                    }
+                ],
+            },
+            materialize=True,
+        )
+    return {
+        "schema_version": "autoplanner.compiled_program_benchmark_materialization.v1",
+        "benchmark_id": str(record["benchmark_id"]),
+        "run_id": run_id,
+        "workbench_url": str(record["workbench_url"]),
+        "status": dict(created.get("status") or {}),
+        "semantics": {
+            "canonical_chemical_fallback_materialized": True,
+            "program_review_remains_read_only": True,
+            "materialization_does_not_admit_the_program": True,
+        },
+    }
+
+
+def _program_benchmark_run_id(
+    benchmark_id: str,
+    *,
+    target_name: str,
+    chemical_steps: int,
+) -> str:
+    slug = "".join(
+        value if value.isascii() and value.isalnum() else "-"
+        for value in target_name.casefold()
+    ).strip("-") or "target"
+    digest = strict_canonical_json_sha256({"benchmark_id": benchmark_id})[:10]
+    return f"program-benchmark-{slug[:24]}-{chemical_steps}to1-{digest}"
 
 
 def _read_digest_bound_json(path: Path) -> tuple[dict[str, Any], str]:
@@ -411,6 +524,15 @@ def register_workspace_routes(blueprint: Blueprint, gateway_factory: Any) -> Non
     def v4_showcase_catalog():
         return jsonify(showcase_catalog())
 
+    @blueprint.post("/api/v4/program-benchmarks/<path:benchmark_id>/materialize")
+    def v4_materialize_program_benchmark(benchmark_id: str):
+        return jsonify(
+            materialize_compiled_program_benchmark(
+                gateway_factory(),
+                benchmark_id,
+            )
+        ), 201
+
     @blueprint.route("/api/v4/result-file", methods=["GET", "HEAD"])
     def v4_result_file():
         response = result_file_response(
@@ -473,6 +595,7 @@ def inject_workspace_return(value: str) -> str:
 __all__ = [
     "compiled_program_benchmark_catalog",
     "inject_workspace_return",
+    "materialize_compiled_program_benchmark",
     "register_workspace_routes",
     "result_file_response",
     "self_evolution_catalog",

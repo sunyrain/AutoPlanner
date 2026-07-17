@@ -110,8 +110,8 @@ def test_long_current_routes_open_fully_fitted_instead_of_clipped() -> None:
     assert "return (lane.step_ids || []).length <= 4" in script
     assert "fitGraph({ readable: preferReadableFocus() })" in script
     assert "serpentine_long_route.v1" in script
-    assert "maximumLayer >= 16" in script
-    assert "Math.min(9, maximumLayer + 1)" in script
+    assert "maximumLayer >= 12" in script
+    assert "Math.min(7, maximumLayer + 1)" in script
     assert "serpentineRowTurn" in script
     assert "function openBranchInFocus(branchId" in script
     assert "data-lane-branch-id" in script
