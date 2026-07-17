@@ -120,6 +120,10 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert workspace.status_code == 200
     assert workspace.get_json()["backend"]["available"] is True
     assert workspace.get_json()["runs"][0]["run_id"] == "web-example"
+    assert workspace.get_json()["self_evolution"]["schema_version"] == (
+        "autoplanner.self_evolution_catalog.v1"
+    )
+    assert workspace.get_json()["entrypoints"]["self_evolution"] == "/v4#evolution"
     assert workbench.get_json()["snapshot"]["run_id"] == "web-example"
     assert programs.status_code == 200
     assert programs.get_json()["oracle"]["accepted"] is True
@@ -140,12 +144,14 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert 'data-view-panel="overview"' in index.get_data(as_text=True)
     assert 'data-view-panel="routes"' in index.get_data(as_text=True)
     assert 'data-view-panel="runs"' in index.get_data(as_text=True)
+    assert 'data-view-panel="evolution"' in index.get_data(as_text=True)
     assert 'data-view-panel="audits"' in index.get_data(as_text=True)
     assert "sidebar-collapsed" in index.get_data(as_text=True)
     assert "catalog-collapsed" in index.get_data(as_text=True)
     assert "embed=1" in index.get_data(as_text=True)
     assert 'id="solveForm"' in index.get_data(as_text=True)
     assert "启动逆合成" in index.get_data(as_text=True)
+    assert "自进化库" in index.get_data(as_text=True)
     assert "'/api/v4/jobs'" in index.get_data(as_text=True)
     assert b"<!doctype html>" in rendered.data.lower()
 

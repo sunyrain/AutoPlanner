@@ -503,6 +503,7 @@ svg {
 
 .icon-button {
   padding: 0 10px;
+  text-decoration: none;
 }
 
 .icon-button svg,

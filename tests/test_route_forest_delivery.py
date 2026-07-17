@@ -1061,6 +1061,7 @@ def test_repository_delivery_assets_expose_required_dom_and_read_only_semantics(
         "overviewMetrics",
         "integrityStatus",
         "layoutPreset",
+        "dashboardReturn",
         "themeToggle",
         "navToggle",
         "inspectorToggle",
