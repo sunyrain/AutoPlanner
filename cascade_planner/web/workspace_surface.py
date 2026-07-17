@@ -434,7 +434,6 @@ def self_evolution_catalog(gateway: Any) -> dict[str, Any]:
             "domain_counts": dict(sorted(domain_counts.items())),
             "records": experience_rows,
         },
-        "compiled_program_benchmarks": compiled_program_benchmark_catalog(),
         "semantics": {
             "reaction_templates_are_replay_proposals_not_evidence": True,
             "replay_validated_means_a_later_host_edge_succeeded": True,
@@ -446,6 +445,15 @@ def self_evolution_catalog(gateway: Any) -> dict[str, Any]:
 
 
 def workspace_payload(gateway: Any) -> dict[str, Any]:
+    program_benchmarks = compiled_program_benchmark_catalog()
+    system_run_ids = sorted(
+        {
+            str(row.get("benchmark_run_id") or "")
+            for row in program_benchmarks.get("records") or []
+            if str(row.get("benchmark_run_id") or "")
+        }
+    )
+    system_run_id_set = set(system_run_ids)
     try:
         listed = gateway.list_runs(limit=40)
         runs = [dict(row) for row in listed.get("runs") or [] if isinstance(row, dict)]
@@ -463,9 +471,14 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
         run_id = str(row.get("run_id") or "")
         row["workbench_url"] = f"/api/v4/runs/{run_id}/workbench.html" if run_id else ""
         row["status_url"] = f"/api/v4/runs/{run_id}/status" if run_id else ""
+        row["surface_role"] = "route_example" if run_id in system_run_id_set else "task"
+        row["show_in_task_queue"] = run_id not in system_run_id_set
+    backend["task_run_count"] = sum(
+        bool(row.get("show_in_task_queue")) for row in runs
+    )
     catalog = showcase_catalog()
     return {
-        "schema_version": "autoplanner.workspace.v2",
+        "schema_version": "autoplanner.workspace.v3",
         "ok": backend["available"] or catalog["ok"],
         "backend": backend,
         "backend_error": error,
@@ -480,6 +493,17 @@ def workspace_payload(gateway: Any) -> dict[str, Any]:
             "jobs_api": "/api/v4/jobs",
         },
         "runs": runs,
+        "route_workbench": {
+            "schema_version": "autoplanner.route_workbench_catalog.v1",
+            "program_benchmarks": program_benchmarks,
+            "system_run_ids": system_run_ids,
+            "semantics": {
+                "owns_all_route_graph_review": True,
+                "run_outputs_are_reviewed_here_not_in_task_center": True,
+                "program_benchmarks_are_route_level_proposals": True,
+                "program_benchmarks_are_not_self_evolution_memory": True,
+            },
+        },
         "showcase": catalog,
         "self_evolution": self_evolution_catalog(gateway),
         "semantics": {

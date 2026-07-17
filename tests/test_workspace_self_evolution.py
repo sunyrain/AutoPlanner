@@ -88,6 +88,7 @@ def test_self_evolution_catalog_distinguishes_retrieval_attempt_and_validation(
     }
     assert result["reaction_templates"]["integrity"] == "valid"
     assert result["program_experience"]["domain_counts"] == {"mechanism": 1}
+    assert "compiled_program_benchmarks" not in result
 
 
 def test_self_evolution_catalog_keeps_absent_libraries_visible(tmp_path: Path) -> None:

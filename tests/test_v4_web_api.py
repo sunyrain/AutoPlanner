@@ -123,9 +123,13 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert workspace.get_json()["self_evolution"]["schema_version"] == (
         "autoplanner.self_evolution_catalog.v1"
     )
+    assert "compiled_program_benchmarks" not in workspace.get_json()["self_evolution"]
     assert (
-        workspace.get_json()["self_evolution"]["compiled_program_benchmarks"]["record_count"] >= 1
+        workspace.get_json()["route_workbench"]["program_benchmarks"]["record_count"] >= 1
     )
+    assert workspace.get_json()["route_workbench"]["semantics"][
+        "program_benchmarks_are_not_self_evolution_memory"
+    ]
     assert workspace.get_json()["entrypoints"]["self_evolution"] == "/v4#evolution"
     assert workbench.get_json()["snapshot"]["run_id"] == "web-example"
     assert programs.status_code == 200
@@ -155,14 +159,16 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert 'id="solveForm"' in index.get_data(as_text=True)
     assert "启动逆合成" in index.get_data(as_text=True)
     assert "自进化库" in index.get_data(as_text=True)
-    assert "多步酶 Program 候选" in index.get_data(as_text=True)
-    assert "decorateCompiledProgramBenchmarks" in index.get_data(as_text=True)
+    assert "关键 Program 示例" in index.get_data(as_text=True)
+    assert "Program 替代提案和策展路线均在目录中选择" in index.get_data(as_text=True)
+    assert 'id="runFrame"' not in index.get_data(as_text=True)
+    assert 'id="runDetail"' in index.get_data(as_text=True)
     assert "'/api/v4/jobs'" in index.get_data(as_text=True)
     assert b"<!doctype html>" in rendered.data.lower()
 
     benchmark = next(
         row
-        for row in workspace.get_json()["self_evolution"]["compiled_program_benchmarks"][
+        for row in workspace.get_json()["route_workbench"]["program_benchmarks"][
             "records"
         ]
         if row["target_name"] == "bufotalin"
@@ -175,6 +181,14 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert program_workbench.status_code == 200
     assert "program-overlay-card" in program_workbench.get_data(as_text=True)
     assert "Ct3alpha-HSDH" in program_workbench.get_data(as_text=True)
+    refreshed_workspace = client.get("/api/v4/workspace").get_json()
+    benchmark_run = next(
+        row
+        for row in refreshed_workspace["runs"]
+        if row["run_id"] == materialized.get_json()["run_id"]
+    )
+    assert benchmark_run["surface_role"] == "route_example"
+    assert benchmark_run["show_in_task_queue"] is False
 
 
 def test_v4_workbench_html_uses_a_human_readable_integrity_fallback() -> None:
