@@ -20,6 +20,9 @@ from cascade_planner.harness.v4_route_workbench import (
     compile_v4_route_forest,
     render_v4_route_workbench_html,
 )
+from cascade_planner.harness.v4_planned_route_branches import (
+    append_planned_route_branches,
+)
 from cascade_planner.harness.v4_route_display import compile_route_display_rows
 from cascade_planner.harness.v4_route_evidence_projection import PROOF_TIER
 
@@ -1033,6 +1036,93 @@ def test_v4_workbench_preserves_repeated_reagent_stoichiometry_without_duplicate
     assert {"label": "input multiplicity", "value": "C2H6O ×2"} in step[
         "conditions"
     ]
+
+
+def test_v4_workbench_deduplicates_planner_input_endpoints_but_preserves_equivalents() -> None:
+    graph = _graph()
+    graph["route_families"] = {
+        "family:plan": {"aliases": ["RF-plan"], "strategy": "planner route"}
+    }
+    graph["hypotheses"] = {
+        "hypothesis:repeated": {
+            "hypothesis_id": "hypothesis:repeated",
+            "status": "frontier_candidate",
+            "product_smiles": "CCOC(C)=O",
+            "precursor_smiles": ["CCO", "CCO"],
+            "route_family_ids": ["family:plan"],
+            "origin_records": [
+                {
+                    "origin_kind": "codex_global_director",
+                    "proposal_id": "SK1-S01",
+                    "route_family_id": "RF-plan",
+                    "skeleton_id": "SK1",
+                    "transformation_hypothesis": "duplicate equivalent input",
+                }
+            ],
+        }
+    }
+
+    forest = compile_v4_route_forest(compile_route_workbench(graph, _portfolio()))
+    payload = build_route_forest_delivery_payload(forest)
+
+    assert route_forest_delivery_integrity_reasons(payload, source_forest=forest) == []
+    step = next(
+        value
+        for value in forest["steps"]
+        if value.get("stoichiometric_input_count") == 2
+        and value.get("reaction_class") == "Disconnection hypothesis"
+    )
+    assert len(step["from_node_ids"]) == 1
+    assert step["stoichiometric_input_count"] == 2
+    assert step["precursor_multiplicity"] == [
+        {"molecule_node_id": step["from_node_ids"][0], "count": 2}
+    ]
+
+
+def test_planned_branch_projection_deduplicates_graph_endpoints_and_keeps_equivalents() -> None:
+    nodes: dict[str, dict] = {}
+    steps: list[dict] = []
+    branches: list[dict] = []
+    graph_nodes: dict[str, dict] = {}
+    graph_edges: list[dict] = []
+    branch_views: list[dict] = []
+
+    append_planned_route_branches(
+        {
+            "planned_routes": {
+                "planned:fixture": {
+                    "strategy": "fixture planner route",
+                    "steps": [
+                        {
+                            "step_id": "SK1-S01",
+                            "product_smiles": "CCOC(C)=O",
+                            "precursor_smiles": ["CCO", "CCO"],
+                            "transformation_hypothesis": "duplicate equivalent input",
+                        }
+                    ],
+                }
+            }
+        },
+        nodes_by_id=nodes,
+        steps=steps,
+        branches=branches,
+        graph_nodes=graph_nodes,
+        graph_edges=graph_edges,
+        branch_views=branch_views,
+        node_factory=lambda molecule_id, row: {
+            "node_id": molecule_id,
+            "label": str(row.get("canonical_smiles") or molecule_id),
+            "canonical_isomeric_smiles": str(row.get("canonical_smiles") or ""),
+            "role": str(row.get("role") or "intermediate"),
+        },
+    )
+
+    assert steps[0]["from_node_ids"] == [steps[0]["from_node_ids"][0]]
+    assert steps[0]["precursor_multiplicity"] == [
+        {"molecule_node_id": steps[0]["from_node_ids"][0], "count": 2}
+    ]
+    assert steps[0]["stoichiometric_input_count"] == 2
+    assert len({edge["edge_id"] for edge in graph_edges}) == len(graph_edges)
 
 
 def test_v4_workbench_projects_only_full_restitched_replacement_routes() -> None:

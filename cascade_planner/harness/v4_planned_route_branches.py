@@ -64,7 +64,7 @@ def append_planned_route_branches(
                 role="planner_product",
                 node_factory=node_factory,
             )
-            precursor_ids = [
+            raw_precursor_ids = [
                 _planned_molecule_node_id(
                     str(smiles),
                     nodes_by_id=nodes_by_id,
@@ -75,6 +75,9 @@ def append_planned_route_branches(
                 for smiles in planned.get("precursor_smiles") or []
                 if str(smiles)
             ]
+            precursor_ids, precursor_multiplicity = _project_stoichiometric_inputs(
+                raw_precursor_ids
+            )
             if not product_id or not precursor_ids:
                 continue
             canonical_edge_id = str(planned.get("edge_id") or "")
@@ -111,6 +114,19 @@ def append_planned_route_branches(
                 if isinstance(value, Mapping)
             ]
             rendered_conditions = conditions(procedure_records or exact_records)
+            repeated_inputs = [
+                value for value in precursor_multiplicity if int(value["count"]) > 1
+            ]
+            if repeated_inputs:
+                rendered_conditions.append(
+                    {
+                        "label": "input multiplicity",
+                        "value": ", ".join(
+                            f"{nodes_by_id[value['molecule_node_id']]['label']} ×{value['count']}"
+                            for value in repeated_inputs
+                        ),
+                    }
+                )
             rejection_reasons = sorted(
                 {
                     *(str(value) for value in planned.get("admission_reasons") or []),
@@ -139,6 +155,8 @@ def append_planned_route_branches(
                     hypothesis_id=hypothesis_id,
                     product_id=product_id,
                     precursor_ids=precursor_ids,
+                    precursor_multiplicity=precursor_multiplicity,
+                    stoichiometric_input_count=len(raw_precursor_ids),
                     transformation=transformation,
                     tier=tier,
                     edge=edge,
@@ -214,6 +232,8 @@ def _planned_step(
     hypothesis_id: str,
     product_id: str,
     precursor_ids: list[str],
+    precursor_multiplicity: list[dict[str, Any]],
+    stoichiometric_input_count: int,
     transformation: str,
     tier: str,
     edge: Mapping[str, Any],
@@ -237,6 +257,8 @@ def _planned_step(
         "from_node_ids": precursor_ids,
         "main_from_node_ids": precursor_ids,
         "auxiliary_from_node_ids": [],
+        "precursor_multiplicity": precursor_multiplicity,
+        "stoichiometric_input_count": stoichiometric_input_count,
         "to_node_ids": [product_id],
         "reaction_class": transformation,
         "display_label": transformation,
@@ -354,6 +376,24 @@ def _planned_molecule_node_id(
             nodes_by_id[molecule_id]
         )
     return molecule_id
+
+
+def _project_stoichiometric_inputs(
+    values: list[str],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Keep one graph endpoint per molecule while retaining equivalents."""
+
+    counts: dict[str, int] = {}
+    unique: list[str] = []
+    for molecule_id in values:
+        if molecule_id not in counts:
+            unique.append(molecule_id)
+            counts[molecule_id] = 0
+        counts[molecule_id] += 1
+    return unique, [
+        {"molecule_node_id": molecule_id, "count": counts[molecule_id]}
+        for molecule_id in unique
+    ]
 
 
 __all__ = ["append_planned_route_branches"]

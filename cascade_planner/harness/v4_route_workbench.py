@@ -622,10 +622,10 @@ def _append_hypothesis_branches(
             ),
             target_id,
         )
-        precursor_ids: list[str] = []
+        raw_precursor_ids: list[str] = []
         for smiles in hypothesis.get("precursor_smiles") or []:
             molecule_id = _stable_id("molecule", str(smiles))
-            precursor_ids.append(molecule_id)
+            raw_precursor_ids.append(molecule_id)
             if molecule_id not in nodes_by_id:
                 nodes_by_id[molecule_id] = _node(
                     molecule_id,
@@ -634,16 +634,35 @@ def _append_hypothesis_branches(
                 graph_nodes[_molecule_graph_id(molecule_id)] = _molecule_graph_node(
                     nodes_by_id[molecule_id]
                 )
+        precursor_ids, precursor_multiplicity = _project_stoichiometric_inputs(
+            raw_precursor_ids
+        )
         if product_id not in nodes_by_id or not precursor_ids:
             continue
         step_id = _stable_id("step", branch_id)
         reaction_id = _reaction_graph_id(step_id)
+        conditions: list[dict[str, str]] = []
+        repeated_inputs = [
+            value for value in precursor_multiplicity if int(value["count"]) > 1
+        ]
+        if repeated_inputs:
+            conditions.append(
+                {
+                    "label": "input multiplicity",
+                    "value": ", ".join(
+                        f"{nodes_by_id[value['molecule_node_id']]['label']} ×{value['count']}"
+                        for value in repeated_inputs
+                    ),
+                }
+            )
         steps.append(
             {
                 "step_id": step_id,
                 "branch_id": branch_id,
                 "from_node_ids": precursor_ids,
                 "to_node_ids": [product_id],
+                "precursor_multiplicity": precursor_multiplicity,
+                "stoichiometric_input_count": len(raw_precursor_ids),
                 "proof_tier": hypothesis_tier,
                 "proof_level": hypothesis_tier,
                 "reaction_class": hypothesis_label,
@@ -654,7 +673,7 @@ def _append_hypothesis_branches(
                     if admission_rejected
                     else "Proposal only; validation pending"
                 ),
-                "conditions": [],
+                "conditions": conditions,
                 "source_refs": [],
                 "evidence_refs": [],
                 "route_innovations": route_innovations,

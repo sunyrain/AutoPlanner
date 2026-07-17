@@ -150,6 +150,22 @@ def test_v4_http_and_html_use_the_same_gateway_read_model(tmp_path: Path) -> Non
     assert b"<!doctype html>" in rendered.data.lower()
 
 
+def test_v4_workbench_html_uses_a_human_readable_integrity_fallback() -> None:
+    class BrokenGateway:
+        def workbench(self, _run_id):
+            return {"snapshot": {"schema_version": "retrosynthesis_route_workbench.v1"}}
+
+    app = Flask(__name__)
+    app.register_blueprint(create_v4_blueprint(BrokenGateway))
+    response = app.test_client().get("/api/v4/runs/broken/workbench.html")
+
+    assert response.status_code == 422
+    assert response.mimetype == "text/html"
+    assert "工作台暂不可用" in response.get_data(as_text=True)
+    assert "原始运行快照没有被修改" in response.get_data(as_text=True)
+    assert "invalid_request" not in response.get_data(as_text=True)
+
+
 def test_v4_http_exposes_read_only_route_program_innovation_review(
     tmp_path: Path,
     reported_ethanol_program_pack: dict,

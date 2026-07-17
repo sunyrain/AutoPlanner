@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 from threading import RLock, Thread
 from typing import Any, Callable, Mapping
 
@@ -269,10 +270,34 @@ def create_v4_blueprint(
 
     @blueprint.get("/api/v4/runs/<run_id>/workbench.html")
     def workbench_html(run_id: str) -> Response:
-        snapshot = factory().workbench(run_id)["snapshot"]
-        return Response(render_v4_route_workbench_html(snapshot), mimetype="text/html")
+        try:
+            snapshot = factory().workbench(run_id)["snapshot"]
+            return Response(render_v4_route_workbench_html(snapshot), mimetype="text/html")
+        except ValueError as exc:
+            # An archived display projection can fail its strict integrity check
+            # while the immutable campaign snapshot remains available.  Browsers
+            # must receive an explainable HTML page, never a raw API JSON body.
+            return Response(
+                _workbench_error_html(run_id, str(exc)),
+                status=422,
+                mimetype="text/html",
+            )
 
     return blueprint
+
+
+def _workbench_error_html(run_id: str, reason: str) -> str:
+    """Render a bounded fallback for a rejected display projection."""
+
+    return f"""<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>工作台暂不可用</title><style>
+body{{margin:0;display:grid;min-height:100vh;place-items:center;background:#f4f6fa;color:#172236;font:14px/1.55 system-ui,sans-serif}}
+main{{max-width:620px;margin:24px;padding:28px;border:1px solid #dce2ec;border-radius:16px;background:#fff;box-shadow:0 12px 34px rgba(28,39,75,.07)}}
+h1{{margin:0 0 8px;font-size:20px}}p{{color:#59657b}}code{{display:block;overflow:auto;padding:12px;border-radius:9px;background:#f7f8fb;color:#6d7890;font-size:11px;white-space:pre-wrap}}
+</style></head><body><main><h1>该运行的工作台暂不可用</h1>
+<p>路线投影未通过显示完整性检查；原始运行快照没有被修改。请回到运行中心重载，或选择其他运行。</p>
+<p>运行：<strong>{escape(run_id)}</strong></p><code>{escape(reason)}</code></main></body></html>"""
 
 
 def _job_with_live_progress(
