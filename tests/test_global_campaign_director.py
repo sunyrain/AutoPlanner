@@ -326,6 +326,12 @@ def test_context_delta_and_byte_budget_are_host_enforced(tmp_path: Path) -> None
             kernel=kernel,
             hypergraph={"nodes": [{"id": "n:1"}]},
         )
+    audit_view = CampaignContextCompiler(max_context_bytes=100).compile(
+        kernel=kernel,
+        hypergraph={"nodes": [{"id": "n:1"}]},
+        enforce_limit=False,
+    )
+    assert audit_view.byte_count > 100
 
 
 def test_director_coordinates_global_families_through_one_kernel_call_and_cache(

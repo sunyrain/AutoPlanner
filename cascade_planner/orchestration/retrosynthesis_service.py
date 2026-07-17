@@ -209,6 +209,11 @@ class RetrosynthesisCampaignService:
             evidence_ledger=evidence_observations,
             material_events=material_events,
             previous=self._previous_context,
+            # The compiler projection is a host-side, digest-bound audit view.
+            # The model budget applies to the actual director prompt, which can
+            # be a smaller replan view.  GlobalCampaignDirector reserves that
+            # prompt against RunKernel immediately before invocation.
+            enforce_limit=False,
         )
 
     def review_route_innovations(

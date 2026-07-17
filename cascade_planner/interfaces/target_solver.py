@@ -373,6 +373,8 @@ def solve_target(
         CanonicalIngestionBatch(recompute_derived=True),
         idempotency_key=f"solve-target:derived-projection:{service.kernel.state.graph_revision}",
     )
+    resumed_completed_checkpoint = bool(resume and checkpoint.get("complete") is True)
+    continuation_baseline = _automatic_continuation_baseline(service)
     self_evo = PatentSelfEvolutionSession.create(
         enabled=active.enable_patent_self_evolution,
         configured_path=active.self_evo_library_path,
@@ -1147,7 +1149,40 @@ def solve_target(
         budget=resolved_budget,
     )
     stop_preview = service.kernel.decide_stop().to_dict()
-    if stop_preview.get("decision") == "continue":
+    continuation_exhausted = _automatic_continuation_exhausted(
+        resumed_completed_checkpoint=resumed_completed_checkpoint,
+        baseline=continuation_baseline,
+        current=_automatic_continuation_baseline(service),
+        portfolio_accepted=closeout["portfolio"].get("accepted") is True,
+    )
+    if continuation_exhausted:
+        stages.append(
+            _stage(
+                "automatic_continuation",
+                "exhausted",
+                {
+                    "reason": "no_scientific_progress_after_completed_automatic_pass",
+                    "baseline": continuation_baseline,
+                    "current": _automatic_continuation_baseline(service),
+                    "semantics": {
+                        "terminal_unresolved_is_not_scientific_acceptance": True,
+                        "new_evidence_or_a_new_campaign_can_be_run_separately": True,
+                    },
+                },
+            )
+        )
+        service.kernel.transition(
+            "unresolved",
+            idempotency_key=(
+                "solve-target:automatic-continuation-exhausted:"
+                f"{service.kernel.state.revision}"
+            ),
+            reasons=(
+                "automatic_continuation_exhausted_no_scientific_progress",
+                "new_evidence_or_new_campaign_required",
+            ),
+        )
+    elif stop_preview.get("decision") == "continue":
         service.kernel.transition(
             "paused",
             idempotency_key=f"solve-target:bounded-pass:{service.kernel.state.revision}",
@@ -1235,6 +1270,35 @@ def _acceptance_input(value: RetrosynthesisAcceptanceSpec) -> dict[str, Any]:
         "minimum_independent_source_groups": value.minimum_independent_source_groups,
         "stock_boundary": value.stock_boundary,
     }
+
+
+def _automatic_continuation_baseline(service: Any) -> dict[str, Any]:
+    """Return the durable state that proves a resumed pass made progress."""
+
+    graph = service.graph_store.load()
+    state = service.kernel.state
+    return {
+        "scientific_sha256": str(graph.get("scientific_sha256") or ""),
+        "attempt_count": int(state.attempt_count),
+        "accepted_expansion_count": int(state.accepted_expansion_count),
+        "model_totals": dict(state.model_totals),
+    }
+
+
+def _automatic_continuation_exhausted(
+    *,
+    resumed_completed_checkpoint: bool,
+    baseline: Mapping[str, Any],
+    current: Mapping[str, Any],
+    portfolio_accepted: bool,
+) -> bool:
+    """End a no-op resume instead of leaving an infinite paused queue entry."""
+
+    return bool(
+        resumed_completed_checkpoint
+        and not portfolio_accepted
+        and dict(baseline) == dict(current)
+    )
 
 
 def _refresh_terminal_report(

@@ -159,6 +159,7 @@ class CampaignContextCompiler:
         failure_history: Iterable[Mapping[str, Any]] = (),
         material_events: Iterable[str] = (),
         previous: CampaignContext | Mapping[str, Any] | None = None,
+        enforce_limit: bool = True,
     ) -> CampaignContext:
         state = kernel.state
         graph_input = dict(hypergraph or {})
@@ -227,14 +228,15 @@ class CampaignContextCompiler:
             acceptance_state=_compact(state.acceptance_report),
             delta=delta,
         )
-        limit = self.max_context_bytes
-        if limit is None:
-            limit = kernel.spec.limits.model.max_prompt_context_bytes
-        if context.byte_count > limit:
-            raise CampaignContextTooLargeError(
-                "campaign_context_byte_budget_exceeded:"
-                f"{context.byte_count}>{limit}"
-            )
+        if enforce_limit:
+            limit = self.max_context_bytes
+            if limit is None:
+                limit = kernel.spec.limits.model.max_prompt_context_bytes
+            if context.byte_count > limit:
+                raise CampaignContextTooLargeError(
+                    "campaign_context_byte_budget_exceeded:"
+                    f"{context.byte_count}>{limit}"
+                )
         return context
 
 

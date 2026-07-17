@@ -17,6 +17,7 @@ from cascade_planner.application.retrosynthesis_run_contract import (
 from cascade_planner.interfaces.campaign_gateway import CampaignGateway
 from cascade_planner.interfaces.target_solver import (
     TargetSolveConfig,
+    _automatic_continuation_exhausted,
     _chemenzy_delegation_audit,
     _current_disposition,
     _director_outcome_allows_replan,
@@ -729,6 +730,34 @@ def test_current_disposition_does_not_treat_stale_terminal_as_scientific_success
     assert disposition["state"] == "terminal_snapshot_requires_revalidation"
     assert disposition["scientifically_accepted"] is False
     assert disposition["requires_revalidation"] is True
+
+
+def test_completed_checkpoint_noop_resume_is_terminal_unresolved() -> None:
+    baseline = {
+        "scientific_sha256": "graph-sha",
+        "attempt_count": 12,
+        "accepted_expansion_count": 8,
+        "model_totals": {"model_invocations": 2},
+    }
+
+    assert _automatic_continuation_exhausted(
+        resumed_completed_checkpoint=True,
+        baseline=baseline,
+        current=dict(baseline),
+        portfolio_accepted=False,
+    )
+    assert not _automatic_continuation_exhausted(
+        resumed_completed_checkpoint=False,
+        baseline=baseline,
+        current=dict(baseline),
+        portfolio_accepted=False,
+    )
+    assert not _automatic_continuation_exhausted(
+        resumed_completed_checkpoint=True,
+        baseline=baseline,
+        current={**baseline, "attempt_count": 13},
+        portfolio_accepted=False,
+    )
 
 
 def test_current_disposition_separates_hypotheses_from_validated_routes() -> None:
