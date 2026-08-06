@@ -1,7 +1,9 @@
 # Unified Anytime RetroStar-190 Protocol
 
 日期：2026-08-06  
-状态：W8 冻结协议；正式结果尚未生成。
+状态：W8 四臂冻结协议与 760/760 fresh preflight 已完成；正式结果尚未生成。
+
+机器可读冻结清单：`benchmarks/retrostar190_w8_freeze_20260806.json`。
 
 ## 1. 研究问题
 
@@ -84,3 +86,5 @@ Host chemistry rejection 作为独立科学诊断报告，但不能把 B2=false 
 ## 7. 完成门
 
 W8 只有在四臂均覆盖 190 个目标、所有失败保留、paired metrics 与 failure taxonomy 生成、配置/输入/环境哈希一致、且审稿检查表通过后才完成。在此之前不得宣称 benchmark-wide improvement。
+
+运行前证据：`results/.autoplanner/retrostar190-w8-preflight-20260806-a` 中四个 arm 各通过 190/190，合计 760 passed、0 failed、0 provider calls；四臂的 manifest、stock 与 base environment hashes 一致。

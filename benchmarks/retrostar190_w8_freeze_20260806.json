@@ -1,0 +1,119 @@
+{
+  "schema_version": "autoplanner_retrostar190_w8_freeze.v1",
+  "freeze_id": "retrostar190-w8-four-arm-20260806",
+  "created_on": "2026-08-06",
+  "status": "four_arm_preflight_passed_formal_runs_not_started",
+  "runtime_source": {
+    "branch": "agent/unify-workspace-entrypoints",
+    "commit": "c608f6f8cb06d5225c3358b2da9b6c5edf51cca3",
+    "tree": "dbc2029bd60568becc7cd1dd9c7d39014c9df882",
+    "critical_file_sha256": {
+      "cascade_planner/application/action_scheduler.py": "27fd1bd0fe471bc8fda11497c9b589a6d02923d4cfee38cb3be763a6d95d0c2f",
+      "cascade_planner/application/campaign_actions.py": "ebe967064b9c2efa2e88e1fbc9b582382d0a263f99b4e3f17742f9e25e58e5b2",
+      "cascade_planner/interfaces/target_cli.py": "e1bccada2953ef6024f5ec04d9a27208d020200b6f6258a21d58903f581678c2",
+      "cascade_planner/interfaces/target_solver.py": "af1b0aefe461a083feeb311f311e5acf8ebb38f301474ce75873b2d85340852c",
+      "cascade_planner/orchestration/unified_campaign_runtime.py": "79c0f3b684bc108bd3e63c0bce8719b113e23666e6cd819d150056a66cd8f76b",
+      "scripts/run_retrostar190_w8.py": "7f1089fc8305de74cbb6e7cacd4b7eef62a2f46909d38f4f24276cc5bfaa996f",
+      "scripts/run_v4_blind_panel.py": "c6825649a3fb44959150830cb022eb874906ba46325bd7fe184b5c50619eec00",
+      "scripts/summarize_retrostar190_w8.py": "9eee878a19f65f4bc1c11400ced4f75ce788a132e748c5d633de7c586fb484f5"
+    }
+  },
+  "shared_inputs": {
+    "target_manifest_path": "benchmarks/retrostar190_v4.json",
+    "target_manifest_sha256": "2d31de46f20cac4dec3c89f822d9059c4fa6ee68f43261929ba5c6b06a4f7623",
+    "target_count": 190,
+    "protocol_path": "benchmarks/retrostar190_v4.protocol.json",
+    "protocol_sha256": "5b18d6f96cac04d15e86612f44cb73e0f32d6f588eb82b0e063b71d9e7982fd4",
+    "stock_path": "data_external/retrostar190/retrostar_emolecules_stock.sqlite3",
+    "stock_sha256": "30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c",
+    "stock_member_count": 23081629,
+    "base_environment_sha256": "0d5204f3178b5d292c19d51b0114e117774795ab454c25ae1f492abb38e6622f"
+  },
+  "shared_configuration": {
+    "model": "gpt-5.5",
+    "reasoning_effort": "low",
+    "execution_profile": "standard",
+    "objective_mode": "benchmark_search",
+    "panel_workers": 1,
+    "visual_enabled": false,
+    "provider_route_reserve": 16,
+    "host_route_portfolio": 8,
+    "max_live_stock_molecules_per_action": 32,
+    "uniform_case_budget_is_manifest_bound": true,
+    "uniform_host_gates": true
+  },
+  "arms": {
+    "chemenzy-only": {
+      "cli_args": ["--no-codex"],
+      "chem_enzy_actions_registered": true,
+      "codex_actions_registered": false,
+      "scheduler_policy": "adaptive"
+    },
+    "codex-only": {
+      "cli_args": ["--no-chemenzy", "--no-guided-chemenzy"],
+      "chem_enzy_actions_registered": false,
+      "codex_actions_registered": true,
+      "scheduler_policy": "adaptive"
+    },
+    "unified-round-robin": {
+      "cli_args": ["--action-scheduler", "round_robin"],
+      "chem_enzy_actions_registered": true,
+      "codex_actions_registered": true,
+      "scheduler_policy": "round_robin",
+      "adaptive_value_score_used_for_ordering": false,
+      "initial_concurrent_cohort_enabled": false
+    },
+    "unified-adaptive": {
+      "cli_args": ["--action-scheduler", "adaptive"],
+      "chem_enzy_actions_registered": true,
+      "codex_actions_registered": true,
+      "scheduler_policy": "adaptive",
+      "initial_concurrent_cohort_enabled": true
+    }
+  },
+  "preflight": {
+    "root": "results/.autoplanner/retrostar190-w8-preflight-20260806-a",
+    "total_case_arm_checks": 760,
+    "passed": 760,
+    "failed": 0,
+    "provider_calls": 0,
+    "parallel_arms": 4,
+    "evidence": {
+      "chemenzy-only": {
+        "snapshot_content_sha256": "404b2b9a10ba7b5b61085836a1a024175b73de772c1377a419a55526f7813321",
+        "snapshot_file_sha256": "5f8641e146328d0c411d2b4ebd489cb943e6198a4c5914fbbef23c7af479fc65",
+        "panel_status_file_sha256": "2b6306c90465c5662ed69dc406e860031720e15a9a7164ee3db64c3b9f1845ea"
+      },
+      "codex-only": {
+        "snapshot_content_sha256": "cde4d7fc6544dfbdf4914b24fc3375903b37d3df6409994334ece330ac6107a4",
+        "snapshot_file_sha256": "a9b8fcbcf0266aa760ef312e3c02ad4629f89227f7549d8bb66e5511adab4282",
+        "panel_status_file_sha256": "50c7a7bc8e3c1e8fc3ebf2c0f2d1a9f05e9c220d046b8926357d0c286e1d8040"
+      },
+      "unified-round-robin": {
+        "snapshot_content_sha256": "c7ac3e6d5c594ffd9aed9c7c3165c7451057a17ee1eae8a31cc876a1c7a9e051",
+        "snapshot_file_sha256": "a4202e77431670d341ed87baaac1848b0d17e74976e38f3eecd30060e6c16dfe",
+        "panel_status_file_sha256": "b0387a74dee5fb31c23ace1b244663fb5f5459e7bc18bb63214e40389e86eb80"
+      },
+      "unified-adaptive": {
+        "snapshot_content_sha256": "d320078e26ee7add349f1a9c954e71bdff11863f176639d888e9723a8adc88c0",
+        "snapshot_file_sha256": "de6bf099dc95e86e0b096720e4605f7e9beaa46f26f64d7285220bce5a2fe7d4",
+        "panel_status_file_sha256": "91e1819635b5c507d518f268606004a4869e47788166e754459441b0ed0d4e3e"
+      }
+    }
+  },
+  "paired_evaluation": {
+    "reference_arm": "unified-adaptive",
+    "bootstrap_seed": 20260806,
+    "bootstrap_replicates": 5000,
+    "complete_case_pairing_only": true,
+    "failed_and_incomplete_cases_remain_in_full_panel_denominator": true
+  },
+  "constraints": {
+    "target_grouping": false,
+    "target_specific_tuning": false,
+    "reference_routes_visible_to_planner": false,
+    "B2_B3_B5_redefine_B4": false,
+    "remote_model_weights_bitwise_frozen": false,
+    "formal_benchmark_wide_improvement_claim_allowed": false
+  }
+}
