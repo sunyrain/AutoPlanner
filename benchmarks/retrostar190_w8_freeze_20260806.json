@@ -2,7 +2,7 @@
   "schema_version": "autoplanner_retrostar190_w8_freeze.v1",
   "freeze_id": "retrostar190-w8-four-arm-20260806",
   "created_on": "2026-08-06",
-  "status": "four_arm_preflight_passed_formal_adaptive_second_task_budget_failure_recorded",
+  "status": "formal_b_aborted_graceful_budget_terminal_fix_implemented",
   "runtime_source": {
     "branch": "agent/unify-workspace-entrypoints",
     "commit": "f607b75b6b59a7ba172a637559da61e0448ac18a",
@@ -122,8 +122,9 @@
   },
   "formal_run": {
     "root": "results/.autoplanner/retrostar190-w8-formal-20260806-b",
-    "status": "unified_adaptive_running",
-    "active_arm": "unified-adaptive",
+    "status": "aborted_ineligible_unhandled_global_task_budget_terminal",
+    "result_eligible": false,
+    "stopped_arm": "unified-adaptive",
     "snapshot_content_sha256": "1fcc776c58219cd33f13fccf6e9729314cff46db8e64fa24838126e537b89309",
     "snapshot_file_sha256": "2b0d08d67a9c69cb3495b51c1ffd728f8e09c1333e74a9d179f1ca75f0c03fea",
     "first_case_run_spec_file_sha256": "da570b1ac3541d6e381db96098a938f61b0e25687cc2f89635c3a0136884a649",
@@ -138,10 +139,10 @@
       "codex-only",
       "unified-round-robin"
     ],
-    "remaining_arms_are_automatically_sequenced": true,
-    "processed_case_count_at_checkpoint": 18,
+    "remaining_arms_are_automatically_sequenced": false,
+    "processed_case_count_at_checkpoint": 19,
     "completed_case_count_at_checkpoint": 16,
-    "failed_case_count_at_checkpoint": 2,
+    "failed_case_count_at_checkpoint": 3,
     "first_completed_case": {
       "case_id": "retrostar190-001-ddec287bee",
       "report_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/runs/opaque benchmark target 001/target-only-solve-report.json",
@@ -361,12 +362,68 @@
         "result_is_ineligible_for_b4_scoring": true,
         "no_rerun_or_budget_extension_applied": true
       }
+    },
+    "third_budget_failure": {
+      "case_id": "retrostar190-019-d3d229a647",
+      "status": "failed",
+      "error_class": "run_total_task_budget_exhausted",
+      "elapsed_s": 929.593,
+      "error_log_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/logs/opaque benchmark target 019.log",
+      "native_search": {
+        "target_settled": 1,
+        "frontier_settled": 5,
+        "hard_total": 6,
+        "hard_remaining": 0
+      },
+      "run_task_budget": {
+        "max_total_tasks": 256,
+        "settled_task_count": 256,
+        "accepted_expansion_count": 66,
+        "attempt_count": 66
+      },
+      "settled_task_counts": {
+        "model": 1,
+        "other": 137,
+        "proposal": 66,
+        "stock": 3,
+        "validation": 49
+      },
+      "recurrence_checkpoint": {
+        "processed": 19,
+        "completed": 16,
+        "failed": 3,
+        "B4_true": 12,
+        "B4_false": 4,
+        "run_total_task_budget_exhausted_count": 3,
+        "run_total_task_budget_exhausted_rate": 0.157895
+      }
+    },
+    "formal_restart": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260806-c",
+      "status": "graceful_budget_terminal_fix_implemented_commit_pending",
+      "resume_from_b": false,
+      "fresh_preflight_required": true,
+      "runtime_change_scope": "global_budget_exhaustion_terminal_semantics_only",
+      "task_budget_limits_changed": false,
+      "scheduler_weights_changed": false,
+      "scientific_gates_changed": false,
+      "focused_verification": {
+        "test": "tests/test_unified_campaign_runtime.py::test_anytime_loop_treats_total_task_budget_as_normal_terminal",
+        "passed": true
+      },
+      "semantics": {
+        "run_total_task_budget_exhausted_closes_normally": true,
+        "run_wall_time_budget_exhausted_closes_normally": true,
+        "non_global_budget_errors_still_raise": true,
+        "no_task_reserved_after_global_budget_exhaustion": true
+      }
     }
   },
   "constraints": {
     "target_grouping": false,
     "target_specific_tuning": false,
     "aborted_budget_audit_run_included_in_results": false,
+    "aborted_formal_b_included_in_results": false,
     "reference_routes_visible_to_planner": false,
     "B2_B3_B5_redefine_B4": false,
     "remote_model_weights_bitwise_frozen": false,

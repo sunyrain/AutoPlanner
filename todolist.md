@@ -1,7 +1,7 @@
 # AutoPlanner V4 统一 Anytime 架构优化 TODO
 
 更新日期：2026-08-06
-状态：实施中；W1–W7 已完成，W8 四臂实现与 760/760 preflight 已完成；`-b` 正式 adaptive 已处理 18/190（12 个 B4 成功、4 个 B4 失败、2 个总任务预算失败），target 019 正在运行
+状态：实施中；W1–W7 已完成，W8 四臂实现与 760/760 preflight 已完成；`-b` 在 19 个已处理目标中出现 3 次未捕获总任务预算异常，已停止且不进入结果；正常预算终止修复已通过聚焦回归，准备从 `-c` fresh preflight/restart
 适用范围：Canonical V4 主线、目标求解入口、ChemEnzy/Codex/文献/验证/Program 协同、RetroStar-190 评测
 
 计划口径：
@@ -91,7 +91,7 @@
 
 剩余工程净工时粗估为 **2–4 人日 + 外部运行时间**，全部集中在 W8 全量 190、全目标组件消融、paired metrics、失败分析与审稿材料。日历时间仍主要受 ChemEnzy/模型运行吞吐影响。
 
-当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 已实现 ChemEnzy-only、Codex-only、统一 round-robin 和统一 adaptive 四臂，并完成 760/760 fresh preflight。RetroStar-190 正式 `unified-adaptive` 已处理 18/190：16 completed、2 failed；12 个 B4=true、4 个 B4=false，另有 2 个 `run_total_task_budget_exhausted` 不计入 B4。第二次预算失败在不同任务混合下仍精确耗尽 256 个 settled tasks，证明总任务上限是可复现的紧边界；冻结配置保持不变，失败不重跑。四臂尚未完成，本文件不得把当前早期结果表述为全系统 benchmark 提升。
+当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 已实现四臂并完成 760/760 fresh preflight。`-b` 在 case 005、018、019 三次达到 settled tasks 256/256 后由 `RunKernelBudgetError` 异常退出，证明是可复现的全局终止语义缺陷；`-b` 已停止且不进入结果。修复保持 `max_total_tasks=256`、native 1+5、scheduler 和科学门不变，只把全局预算耗尽转换为正常 closeout，聚焦回归 1 passed。下一步是提交冻结修复、对新根 `-c` 执行 fresh preflight 并从头重启四臂。
 
 ## 1. 不可破坏的架构约束
 

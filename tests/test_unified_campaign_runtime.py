@@ -11,14 +11,14 @@ from cascade_planner.application.campaign_actions import (
     bind_scheduled_action,
     compile_action_opportunities,
 )
-from cascade_planner.application.run_kernel import RunKernel, RunSpec
+from cascade_planner.application.run_kernel import RunKernel, RunLimits, RunSpec
 from cascade_planner.orchestration.unified_campaign_runtime import (
     CampaignActionRuntime,
     CampaignActionRuntimeError,
 )
 
 
-def _kernel(tmp_path: Path) -> RunKernel:
+def _kernel(tmp_path: Path, *, max_total_tasks: int = 256) -> RunKernel:
     kernel = RunKernel(
         tmp_path / "runtime",
         tmp_path / "run",
@@ -27,6 +27,7 @@ def _kernel(tmp_path: Path) -> RunKernel:
             target_name="target",
             target_smiles="CCO",
             created_at="2026-08-06T00:00:00Z",
+            limits=RunLimits(max_total_tasks=max_total_tasks),
         ),
     )
     kernel.start()
@@ -265,6 +266,48 @@ def test_anytime_loop_converges_after_bounded_no_gain_actions(
     assert result["termination"] == "converged_low_marginal_gain"
     assert result["execution_count"] == 2
     assert result["semantics"]["single_scheduler_loop"] is True
+
+
+def test_anytime_loop_treats_total_task_budget_as_normal_terminal(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path, max_total_tasks=1)
+    kernel.reserve_task(
+        task_id="prefill",
+        kind="other",
+        idempotency_key="prefill:reserve",
+        input_revision=0,
+    )
+    kernel.settle_task(
+        task_id="prefill",
+        idempotency_key="prefill:settle",
+        status="completed",
+    )
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.MATERIALIZE: lambda _action: {
+                "status": "completed",
+                "changed": True,
+            }
+        },
+    )
+
+    result = runtime.run_anytime(
+        opportunity_provider=_opportunity_set,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=3,
+    )
+
+    assert result["termination"] == "budget_exhausted"
+    assert result["termination_reasons"] == [
+        "run_total_task_budget_exhausted"
+    ]
+    assert result["execution_count"] == 0
+    assert result["semantics"]["global_budget_exhaustion_is_a_normal_terminal"]
+    assert kernel.state.settled_task_count == 1
+    assert kernel.state.in_flight_tasks == {}
 
 
 def test_same_revision_start_cohort_runs_peers_without_failure_cancellation(

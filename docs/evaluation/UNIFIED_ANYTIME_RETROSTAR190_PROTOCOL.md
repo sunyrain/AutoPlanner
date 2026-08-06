@@ -1,7 +1,7 @@
 # Unified Anytime RetroStar-190 Protocol
 
 日期：2026-08-06  
-状态：W8 四臂冻结协议与 760/760 fresh preflight 已完成；run-wide guided budget 已修复为 target 1 + guided 5 的硬上限，`-b` 根目录的 `unified-adaptive` 正式全 190 正在运行。
+状态：W8 四臂冻结协议与 760/760 fresh preflight 已完成；`-b` 在 3/19 个目标复现未捕获的全局总任务预算异常后停止并判为结果不可用；预算上限不变，正常预算终止语义已修复，准备从新根 `-c` fresh preflight/restart。
 
 机器可读冻结清单：`benchmarks/retrostar190_w8_freeze_20260806.json`。
 
@@ -104,3 +104,5 @@ Case 005 随后以独立的运行预算失败结束，不能作为 B4 失败计�
 首个按 manifest 顺序的 10-target 检查点已形成：9 个 completed、1 个 failed；6 个 B4=true、3 个 B4=false，另 1 个总任务预算失败不计作 B4=false。完成目标共得到 12 条 stock-closed skeleton；10 个处理目标共使用 12 次模型调用，总 elapsed 5591.327 s。三个 B4=false 均属于 `stock_miss_after_host_validated_route`，唯一运行失败为 `run_total_task_budget_exhausted`。所有 10 个目标的 native search 均为 target 1 + frontier 5，预算违规数为 0。该早期检查点只用于运行健康与失败模式审计，不构成 benchmark-wide improvement 声明；当前 target 011 已自动接棒。
 
 Case 018 再次复现 `run_total_task_budget_exhausted`：elapsed 489.375 s，native search 仍严格为 target 1 + frontier 5，但 settled tasks 达到 256/256；任务分解为 model 1、other 137、proposal 57、stock 7、validation 54。至前 18 个处理目标，16 个 completed、2 个 failed，B4=true 12 个、B4=false 4 个；同类总任务预算失败为 2/18。两次失败的任务混合不同，说明问题是复杂目标在统一 action loop 中共同挤占通用总任务上限，而非某个固定 action 的单一死循环。正式冻结配置不变，失败均保留且不重跑；当前 target 019 已自动接棒。
+
+Case 019 第三次复现同一异常：elapsed 929.593 s，settled tasks 256/256，任务分解为 model 1、other 137、proposal 66、stock 3、validation 49；至 19 个处理目标共有 3 个相同运行失败。该频率证明问题不是科学失败，而是全局预算耗尽未被 anytime 终止器吸收。`-b` 因而停止并永久排除出结果，所有目录保留作审计；target 020 的在途运行被中止，不恢复、不计分。修复不提高 `max_total_tasks=256`，不改变 native 1+5、scheduler、模型或 B2/B3/B5 门，只把 `run_total_task_budget_exhausted` 与 `run_wall_time_budget_exhausted` 转换为正常 `budget_exhausted` 终态，使 closeout 和 B0–B5 投影仍可生成。聚焦回归 1 passed；新正式根固定为 `results/.autoplanner/retrostar190-w8-formal-20260806-c`，必须 fresh preflight 后从头运行。

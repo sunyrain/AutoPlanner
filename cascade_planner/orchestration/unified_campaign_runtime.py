@@ -13,7 +13,7 @@ from cascade_planner.application.campaign_actions import (
     CampaignActionKind,
     bind_scheduled_action,
 )
-from cascade_planner.application.run_kernel import RunKernel
+from cascade_planner.application.run_kernel import RunKernel, RunKernelBudgetError
 from cascade_planner.runtime.artifact_store import ArtifactReferenceError
 
 
@@ -89,7 +89,24 @@ class CampaignActionRuntime:
             decision,
             input_revision=self.kernel.state.graph_revision,
         )
-        return self.execute(action, decision=decision)
+        try:
+            return self.execute(action, decision=decision)
+        except RunKernelBudgetError as exc:
+            reasons = _terminal_budget_reasons(exc)
+            if not reasons:
+                raise
+            return {
+                "schema_version": CAMPAIGN_ACTION_EXECUTION_SCHEMA,
+                "status": "budget_exhausted",
+                "decision": decision,
+                "cache_hit": False,
+                "reasons": list(reasons),
+                "semantics": {
+                    "operator_budget_terminal": True,
+                    "no_action_reserved_after_budget_exhaustion": True,
+                    "no_second_queue_created": True,
+                },
+            }
 
     def execute_slice(
         self,
@@ -136,6 +153,7 @@ class CampaignActionRuntime:
         no_gain_bindings: dict[str, str] = {}
         consecutive_no_gain = 0
         termination = "action_limit"
+        termination_reasons: list[str] = []
         action_limit = max(1, int(max_actions))
         no_gain_limit = max(1, int(max_consecutive_no_gain))
         normalized_start_kinds = tuple(
@@ -149,13 +167,21 @@ class CampaignActionRuntime:
         start_cohort: dict[str, Any] = {}
         if len(normalized_start_kinds) >= 2 and action_limit >= 2:
             initial_revision = self.kernel.state.graph_revision
-            start_cohort = self.execute_concurrent_cohort(
-                opportunity_provider(),
-                action_kinds=normalized_start_kinds,
-                milestones=milestones_provider(),
-                resource_availability=resource_availability_provider(),
-                excluded_action_ids=tuple(sorted(globally_excluded)),
-            )
+            try:
+                start_cohort = self.execute_concurrent_cohort(
+                    opportunity_provider(),
+                    action_kinds=normalized_start_kinds,
+                    milestones=milestones_provider(),
+                    resource_availability=resource_availability_provider(),
+                    excluded_action_ids=tuple(sorted(globally_excluded)),
+                )
+            except RunKernelBudgetError as exc:
+                reasons = _terminal_budget_reasons(exc)
+                if not reasons:
+                    raise
+                termination = "budget_exhausted"
+                termination_reasons = list(reasons)
+                action_limit = 0
             cohort_executions = [
                 dict(value) for value in start_cohort.get("executions") or []
             ][:action_limit]
@@ -209,6 +235,14 @@ class CampaignActionRuntime:
             if execution.get("status") == "no_action":
                 termination = "no_action"
                 break
+            if execution.get("status") == "budget_exhausted":
+                termination = "budget_exhausted"
+                termination_reasons = [
+                    str(value)
+                    for value in execution.get("reasons") or []
+                    if str(value)
+                ]
+                break
             executions.append(execution)
             action_id = str(
                 dict(execution.get("action") or {}).get("action_id") or ""
@@ -232,6 +266,7 @@ class CampaignActionRuntime:
         result = {
             "schema_version": CAMPAIGN_ANYTIME_LOOP_SCHEMA,
             "termination": termination,
+            "termination_reasons": termination_reasons,
             "execution_count": len(executions),
             "consecutive_no_gain": consecutive_no_gain,
             "no_gain_binding_count": len(no_gain_bindings),
@@ -249,6 +284,9 @@ class CampaignActionRuntime:
                 "cohort_observation_order_is_stable": True,
                 "B4_and_B5_do_not_stop_the_loop": True,
                 "no_action_and_low_gain_converge_finitely": True,
+                "global_budget_exhaustion_is_a_normal_terminal": (
+                    termination == "budget_exhausted"
+                ),
             },
         }
         result["content_sha256"] = _digest(result)
@@ -622,6 +660,24 @@ def _execution_gained(execution: Mapping[str, Any]) -> bool:
     return int(outcome.get("output_revision") or 0) != int(
         outcome.get("input_revision") or 0
     )
+
+
+def _terminal_budget_reasons(exc: RunKernelBudgetError) -> tuple[str, ...]:
+    reasons = tuple(
+        sorted(
+            {
+                value.strip()
+                for value in str(exc).split(";")
+                if value.strip()
+            }
+        )
+    )
+    if not {
+        "run_total_task_budget_exhausted",
+        "run_wall_time_budget_exhausted",
+    }.intersection(reasons):
+        return ()
+    return reasons
 
 
 def _digest(value: Any) -> str:
