@@ -70,9 +70,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--ablation",
-        choices=("baseline", "no-chemenzy", "no-self-evo", "no-replan"),
+        choices=(
+            "baseline",
+            "no-chemenzy",
+            "no-self-evo",
+            "no-replan",
+            "chemenzy-only",
+            "codex-only",
+            "unified-round-robin",
+            "unified-adaptive",
+        ),
         default="baseline",
-        help="Run one release-gate arm without changing any other panel setting.",
+        help="Run one frozen evaluation arm without target-specific changes.",
     )
     parser.add_argument(
         "--self-evo-library-seed",
@@ -598,6 +607,10 @@ def _ablation_cli_args(ablation: str) -> list[str]:
         "no-chemenzy": ["--no-chemenzy", "--no-guided-chemenzy"],
         "no-self-evo": ["--no-patent-self-evo"],
         "no-replan": ["--no-replan"],
+        "chemenzy-only": ["--no-codex"],
+        "codex-only": ["--no-chemenzy", "--no-guided-chemenzy"],
+        "unified-round-robin": ["--action-scheduler", "round_robin"],
+        "unified-adaptive": ["--action-scheduler", "adaptive"],
     }[ablation]
 
 

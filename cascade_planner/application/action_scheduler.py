@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 
 ACTION_SCHEDULE_DECISION_SCHEMA = "campaign_action_schedule_decision.v1"
+ACTION_SCHEDULER_POLICIES = frozenset({"adaptive", "round_robin"})
 
 _ROUTE_ACTIONS = frozenset(
     {
@@ -61,8 +62,15 @@ def schedule_next_action(
     resource_availability: Mapping[str, Any] | None = None,
     in_flight_action_ids: tuple[str, ...] = (),
     available_action_kinds: tuple[str, ...] | None = None,
+    policy: str = "adaptive",
+    round_robin_cursor: int = 0,
 ) -> dict[str, Any]:
     """Rank one shared action set using only current state and resources."""
+
+    scheduler_policy = str(policy or "adaptive")
+    if scheduler_policy not in ACTION_SCHEDULER_POLICIES:
+        raise ValueError(f"unsupported campaign action scheduler policy: {policy}")
+    cursor = max(0, int(round_robin_cursor))
 
     gates = {str(key): value is True for key, value in dict(milestones or {}).items()}
     resources = {
@@ -155,15 +163,30 @@ def schedule_next_action(
                 },
             }
         )
-    ranked = sorted(
-        candidates,
-        key=lambda row: (
-            row.get("eligible") is not True,
-            -float(row.get("schedule_score") or 0.0),
-            _KIND_ORDER.get(str(row.get("kind") or ""), 99),
-            str(row.get("action_id") or ""),
-        ),
-    )
+    if scheduler_policy == "round_robin":
+        kind_count = max(1, len(_KIND_ORDER))
+        offset = cursor % kind_count
+
+        def round_robin_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
+            kind_rank = _KIND_ORDER.get(str(row.get("kind") or ""), kind_count)
+            cyclic_rank = (kind_rank - offset) % kind_count
+            return (
+                row.get("eligible") is not True,
+                cyclic_rank,
+                str(row.get("action_id") or ""),
+            )
+
+        ranked = sorted(candidates, key=round_robin_key)
+    else:
+        ranked = sorted(
+            candidates,
+            key=lambda row: (
+                row.get("eligible") is not True,
+                -float(row.get("schedule_score") or 0.0),
+                _KIND_ORDER.get(str(row.get("kind") or ""), 99),
+                str(row.get("action_id") or ""),
+            ),
+        )
     selected = next((dict(row) for row in ranked if row.get("eligible") is True), {})
     result = {
         "schema_version": ACTION_SCHEDULE_DECISION_SCHEMA,
@@ -179,6 +202,8 @@ def schedule_next_action(
         "resource_availability": resources,
         "available_action_kinds": sorted(available_kinds),
         "handler_filter_applied": handler_filter_applied,
+        "scheduler_policy": scheduler_policy,
+        "round_robin_cursor": cursor,
         "semantics": {
             "task_labels_are_not_inputs": True,
             "same_state_and_resources_produce_same_order": True,
@@ -186,6 +211,9 @@ def schedule_next_action(
             "B5_is_milestone_not_scheduler_stop": True,
             "route_dependencies_precede_validation_and_stock": True,
             "selection_grants_no_scientific_authority": True,
+            "round_robin_ignores_adaptive_value_score_for_ordering": (
+                scheduler_policy == "round_robin"
+            ),
         },
     }
     result["content_sha256"] = _digest(result)
@@ -228,4 +256,4 @@ def _digest(value: Any) -> str:
     ).hexdigest()
 
 
-__all__ = ["schedule_next_action"]
+__all__ = ["ACTION_SCHEDULER_POLICIES", "schedule_next_action"]

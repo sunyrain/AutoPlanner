@@ -38,8 +38,11 @@ class CampaignActionRuntime:
         self,
         kernel: RunKernel,
         handlers: Mapping[CampaignActionKind | str, CampaignActionHandler],
+        *,
+        scheduler_policy: str = "adaptive",
     ) -> None:
         self.kernel = kernel
+        self.scheduler_policy = str(scheduler_policy or "adaptive")
         self.handlers = {
             (
                 kind
@@ -58,6 +61,7 @@ class CampaignActionRuntime:
         milestones: Mapping[str, Any],
         resource_availability: Mapping[str, Any],
         excluded_action_ids: tuple[str, ...] = (),
+        round_robin_cursor: int = 0,
     ) -> dict[str, Any]:
         decision = schedule_next_action(
             opportunity_set,
@@ -67,6 +71,8 @@ class CampaignActionRuntime:
             available_action_kinds=tuple(
                 sorted(kind.value for kind in self.handlers)
             ),
+            policy=self.scheduler_policy,
+            round_robin_cursor=round_robin_cursor,
         )
         if not decision.get("selected_action_id"):
             return {
@@ -198,6 +204,7 @@ class CampaignActionRuntime:
                 excluded_action_ids=tuple(
                     sorted(globally_excluded | attempted | no_gain_excluded)
                 ),
+                round_robin_cursor=index - 1,
             )
             if execution.get("status") == "no_action":
                 termination = "no_action"
@@ -233,6 +240,7 @@ class CampaignActionRuntime:
             "final_graph_revision": self.kernel.state.graph_revision,
             "semantics": {
                 "single_scheduler_loop": True,
+                "scheduler_policy": self.scheduler_policy,
                 "latest_revision_recompiled_each_iteration": True,
                 "same_revision_start_cohort_is_non_blocking": (
                     start_cohort.get("status") == "completed"
@@ -278,6 +286,7 @@ class CampaignActionRuntime:
                 resource_availability=resource_availability,
                 in_flight_action_ids=tuple(sorted(selected_action_ids)),
                 available_action_kinds=(kind.value,),
+                policy=self.scheduler_policy,
             )
             if not decision.get("selected_action_id"):
                 continue

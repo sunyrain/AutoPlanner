@@ -63,6 +63,19 @@ def test_blind_panel_ablation_changes_only_the_declared_subsystem() -> None:
     ]
     assert _ablation_cli_args("no-self-evo") == ["--no-patent-self-evo"]
     assert _ablation_cli_args("no-replan") == ["--no-replan"]
+    assert _ablation_cli_args("chemenzy-only") == ["--no-codex"]
+    assert _ablation_cli_args("codex-only") == [
+        "--no-chemenzy",
+        "--no-guided-chemenzy",
+    ]
+    assert _ablation_cli_args("unified-round-robin") == [
+        "--action-scheduler",
+        "round_robin",
+    ]
+    assert _ablation_cli_args("unified-adaptive") == [
+        "--action-scheduler",
+        "adaptive",
+    ]
 
 
 def test_blind_panel_freezes_a_manifest_ordered_target_pilot() -> None:

@@ -15,7 +15,10 @@ from typing import Any, Callable, Iterable, Mapping, TYPE_CHECKING
 from cascade_planner.application.blind_acceptance import (
     compile_blind_acceptance_report,
 )
-from cascade_planner.application.action_scheduler import schedule_next_action
+from cascade_planner.application.action_scheduler import (
+    ACTION_SCHEDULER_POLICIES,
+    schedule_next_action,
+)
 from cascade_planner.application.blind_benchmark_contract import (
     BLIND_CASE_SCHEMA,
     BlindBenchmarkError,
@@ -155,7 +158,9 @@ class TargetSolveConfig:
     use_coordinator: bool = False
     enable_web_search: bool = True
     enable_initial_director_web_search: bool = False
+    enable_codex: bool = True
     enable_replan: bool = True
+    action_scheduler_policy: str = "adaptive"
     enable_live_benchmark_stock: bool = True
     enable_builtin_patent_evidence: bool = False
     enable_patent_self_evolution: bool = True
@@ -211,6 +216,8 @@ class TargetSolveConfig:
             raise ValueError("target solver reasoning effort is invalid")
         if self.execution_profile not in {"fast", "standard", "proof"}:
             raise ValueError("target solver execution profile is invalid")
+        if self.action_scheduler_policy not in ACTION_SCHEDULER_POLICIES:
+            raise ValueError("target solver action scheduler policy is invalid")
         validate_target_objective_mode(self.objective_mode)
         if self.max_atom_mapping_reactions < 1 or self.max_live_stock_molecules < 1:
             raise ValueError("target solver deterministic limits must be positive")
@@ -615,6 +622,15 @@ def solve_target(
                 )
             ),
         }
+
+    def campaign_action_runtime(
+        handlers: Mapping[Any, Any],
+    ) -> CampaignActionRuntime:
+        return CampaignActionRuntime(
+            service.kernel,
+            handlers,
+            scheduler_policy=active.action_scheduler_policy,
+        )
 
     def current_campaign_gates() -> dict[str, Any]:
         graph = service.graph_store.load()
@@ -1084,43 +1100,41 @@ def solve_target(
             return [dict(execution) for execution in preexecuted]
         return []
 
-    seed_action_runtime = CampaignActionRuntime(
-        service.kernel,
+    seed_action_runtime = campaign_action_runtime(
         {
             CampaignActionKind.MATERIALIZE: handle_materialize,
             CampaignActionKind.STOCK_AUDIT: handle_stock,
         },
     )
-    condition_action_runtime = CampaignActionRuntime(
-        service.kernel,
+    condition_action_runtime = campaign_action_runtime(
         (
             {CampaignActionKind.CONDITION_ENRICH: handle_condition}
             if resolved_condition_predictor is not None
             else {}
         ),
     )
-    target_chemenzy_action_runtime = CampaignActionRuntime(
-        service.kernel,
+    target_chemenzy_action_runtime = campaign_action_runtime(
         (
             {CampaignActionKind.CHEMENZY_TARGET_EXPAND: handle_target_chemenzy}
             if active.enable_chemenzy and active.enable_target_chemenzy_baseline
             else {}
         ),
     )
-    guided_chemenzy_action_runtime = CampaignActionRuntime(
-        service.kernel,
+    guided_chemenzy_action_runtime = campaign_action_runtime(
         (
             {CampaignActionKind.CHEMENZY_FRONTIER_EXPAND: handle_guided_chemenzy}
             if active.enable_chemenzy and active.enable_guided_chemenzy
             else {}
         ),
     )
-    global_architecture_action_runtime = CampaignActionRuntime(
-        service.kernel,
-        {CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_global_architecture},
+    global_architecture_action_runtime = campaign_action_runtime(
+        (
+            {CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_global_architecture}
+            if active.enable_codex
+            else {}
+        ),
     )
-    program_action_runtime = CampaignActionRuntime(
-        service.kernel,
+    program_action_runtime = campaign_action_runtime(
         {
             **(
                 {CampaignActionKind.PROGRAM_DISCOVER: handle_program_discovery}
@@ -1686,10 +1700,14 @@ def solve_target(
         CampaignActionKind.MATERIALIZE: handle_materialize,
         CampaignActionKind.REACTION_VALIDATE: handle_validation,
         CampaignActionKind.STOCK_AUDIT: handle_stock,
-        CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_global_architecture,
+        **(
+            {CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE: handle_global_architecture}
+            if active.enable_codex
+            else {}
+        ),
         **(
             {CampaignActionKind.CODEX_REPLAN: handle_unified_replan}
-            if active.enable_replan
+            if active.enable_codex and active.enable_replan
             else {}
         ),
         **(
@@ -1717,10 +1735,7 @@ def solve_target(
         ),
         **program_action_runtime.handlers,
     }
-    unified_core_runtime = CampaignActionRuntime(
-        service.kernel,
-        unified_core_handlers,
-    )
+    unified_core_runtime = campaign_action_runtime(unified_core_handlers)
 
     def observe_unified_core_execution(
         index: int,
@@ -1966,8 +1981,23 @@ def solve_target(
         max_actions=unified_core_action_limit,
         max_consecutive_no_gain=unified_core_action_limit + 1,
         concurrent_start_kinds=(
-            CampaignActionKind.CHEMENZY_TARGET_EXPAND,
-            CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE,
+            tuple(
+                kind
+                for kind, enabled in (
+                    (
+                        CampaignActionKind.CHEMENZY_TARGET_EXPAND,
+                        active.enable_chemenzy
+                        and active.enable_target_chemenzy_baseline,
+                    ),
+                    (
+                        CampaignActionKind.CODEX_GLOBAL_ARCHITECTURE,
+                        active.enable_codex,
+                    ),
+                )
+                if enabled
+            )
+            if active.action_scheduler_policy == "adaptive"
+            else ()
         ),
         on_execution=observe_unified_core_execution,
     )
@@ -2119,6 +2149,7 @@ def solve_target(
             seed_opportunities,
             milestones=seed_milestones,
             resource_availability=scheduler_resources(),
+            policy=active.action_scheduler_policy,
         )
         stages.append(
             _stage(
@@ -2175,8 +2206,7 @@ def solve_target(
         stages.append(_stage("global_campaign", initial["status"], initial))
         _checkpoint(checkpoint_path, identity, stages, outcomes)
 
-    post_director_materialization_runtime = CampaignActionRuntime(
-        service.kernel,
+    post_director_materialization_runtime = campaign_action_runtime(
         {CampaignActionKind.MATERIALIZE: handle_materialize},
     )
     post_director_materialization_executions = project_action_results(
@@ -2196,8 +2226,7 @@ def solve_target(
     )
     template_reuse = self_evo.materialize(service)
     stages.append(_stage("patent_template_reuse", template_reuse["status"], template_reuse))
-    post_director_validation_runtime = CampaignActionRuntime(
-        service.kernel,
+    post_director_validation_runtime = campaign_action_runtime(
         {CampaignActionKind.REACTION_VALIDATE: handle_validation},
     )
 
@@ -2230,8 +2259,7 @@ def solve_target(
                 validation_runner=run_validation_action_stage,
             )
 
-        runtime = CampaignActionRuntime(
-            service.kernel,
+        runtime = campaign_action_runtime(
             (
                 {
                     CampaignActionKind.ACQUIRE_EVIDENCE: handle_evidence,
@@ -2530,8 +2558,7 @@ def solve_target(
         "stock",
         boundary=resolved_acceptance.stock_boundary,
     )
-    stock_action_runtime = CampaignActionRuntime(
-        service.kernel,
+    stock_action_runtime = campaign_action_runtime(
         {CampaignActionKind.STOCK_AUDIT: handle_stock},
     )
     stock_executions = project_action_results(
@@ -2681,7 +2708,8 @@ def solve_target(
         material_events=material_events,
     )
     replan_candidate = bool(
-        active.enable_replan
+        active.enable_codex
+        and active.enable_replan
         and replan_reasons
         and _director_outcome_allows_replan(outcomes)
         and len(outcomes) < _MAX_DIRECTOR_OUTCOMES
@@ -2841,8 +2869,7 @@ def solve_target(
                 idempotency_key=f"solve-target:director:replan:{len(outcomes)}",
             )
 
-        replan_runtime = CampaignActionRuntime(
-            service.kernel,
+        replan_runtime = campaign_action_runtime(
             {CampaignActionKind.CODEX_REPLAN: handle_global_replan},
         )
         replan_executions = project_action_results(
@@ -3356,6 +3383,7 @@ def solve_target(
         final_opportunities,
         milestones=_campaign_milestones(gates),
         resource_availability=scheduler_resources(),
+        policy=active.action_scheduler_policy,
     )
     stages.append(
         _stage(

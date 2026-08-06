@@ -104,6 +104,27 @@ def test_action_scheduler_expands_one_deficit_into_provider_choices() -> None:
     assert resources["chemenzy_frontier_expand"] == "native_search_frontier"
 
 
+def test_round_robin_scheduler_uses_frozen_kind_cursor_not_adaptive_score() -> None:
+    opportunities = compile_action_opportunities(_frontier())
+
+    decision = schedule_next_action(
+        opportunities,
+        policy="round_robin",
+        round_robin_cursor=9,
+        resource_availability={
+            "validation": True,
+            "native_search_frontier": True,
+            "model": True,
+        },
+    )
+
+    assert decision["scheduler_policy"] == "round_robin"
+    assert decision["selected_action"]["kind"] == "chemenzy_frontier_expand"
+    assert decision["semantics"][
+        "round_robin_ignores_adaptive_value_score_for_ordering"
+    ] is True
+
+
 def test_target_native_search_has_a_distinct_protected_resource_class() -> None:
     frontier = _frontier()
     frontier["items"] = [

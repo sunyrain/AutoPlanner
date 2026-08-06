@@ -167,6 +167,12 @@ def bind_scheduled_action(
             "schedule_components": dict(
                 selected.get("schedule_components") or {}
             ),
+            "scheduler_policy": str(
+                decision.get("scheduler_policy") or "adaptive"
+            ),
+            "round_robin_cursor": int(
+                decision.get("round_robin_cursor") or 0
+            ),
         },
     )
 

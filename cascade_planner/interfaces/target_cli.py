@@ -108,7 +108,18 @@ def add_target_commands(sub: argparse._SubParsersAction) -> None:
         ),
     )
     solve.add_argument("--no-target-identity", action="store_true")
+    solve.add_argument(
+        "--no-codex",
+        action="store_true",
+        help="do not register Codex architecture or replan actions",
+    )
     solve.add_argument("--no-replan", action="store_true")
+    solve.add_argument(
+        "--action-scheduler",
+        choices=("adaptive", "round_robin"),
+        default="adaptive",
+        help="shared target-blind action ordering policy",
+    )
     solve.add_argument("--no-live-benchmark-stock", action="store_true")
     solve.add_argument(
         "--benchmark-stock-index",
@@ -566,10 +577,12 @@ def dispatch_target_command(gateway: Any, args: argparse.Namespace) -> dict[str,
             enable_initial_director_web_search=(
                 args.initial_director_web_search and not args.no_web_search
             ),
+            enable_codex=not args.no_codex,
             enable_target_identity=not args.no_target_identity,
             resolve_named_target_identity=not args.no_target_identity,
             blind_audit_root=args.blind_audit_root,
             enable_replan=not args.no_replan,
+            action_scheduler_policy=args.action_scheduler,
             enable_live_benchmark_stock=not args.no_live_benchmark_stock,
             enable_chemenzy=not args.no_chemenzy,
             enable_target_chemenzy_baseline=args.target_chemenzy_baseline,
