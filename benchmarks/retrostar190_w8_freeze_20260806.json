@@ -2,7 +2,7 @@
   "schema_version": "autoplanner_retrostar190_w8_freeze.v1",
   "freeze_id": "retrostar190-w8-four-arm-20260806",
   "created_on": "2026-08-06",
-  "status": "four_arm_preflight_passed_formal_adaptive_active_four_completed_one_budget_failure",
+  "status": "four_arm_preflight_passed_formal_adaptive_first_ten_processed",
   "runtime_source": {
     "branch": "agent/unify-workspace-entrypoints",
     "commit": "f607b75b6b59a7ba172a637559da61e0448ac18a",
@@ -139,7 +139,8 @@
       "unified-round-robin"
     ],
     "remaining_arms_are_automatically_sequenced": true,
-    "completed_case_count_at_checkpoint": 4,
+    "processed_case_count_at_checkpoint": 10,
+    "completed_case_count_at_checkpoint": 9,
     "failed_case_count_at_checkpoint": 1,
     "first_completed_case": {
       "case_id": "retrostar190-001-ddec287bee",
@@ -285,6 +286,36 @@
         "failed_before_closeout_gate_projection": true,
         "native_search_budget_was_not_exceeded": true,
         "result_is_ineligible_for_b4_scoring": true
+      }
+    },
+    "first_ten_target_checkpoint": {
+      "manifest_order_range": [
+        1,
+        10
+      ],
+      "processed": 10,
+      "completed": 9,
+      "failed": 1,
+      "B4_true": 6,
+      "B4_false": 3,
+      "B4_rate_all_processed": 0.6,
+      "B4_rate_completed_only": 0.666667,
+      "B2_true": 6,
+      "stock_closed_skeletons_total": 12,
+      "model_invocations_total": 12,
+      "completed_elapsed_s_total": 4754.124,
+      "all_processed_elapsed_s_total": 5591.327,
+      "failure_counts": {
+        "stock_miss_after_host_validated_route": 3,
+        "run_total_task_budget_exhausted": 1
+      },
+      "native_search_budget_violations": 0,
+      "target_010_report_sha256": "a358573128914b8a87a2a00c362eaa585b73e616ada2d1bc4d0f63d18815a9ed",
+      "semantics": {
+        "failed_case_remains_in_full_panel_denominator": true,
+        "failed_case_is_not_counted_as_B4_false": true,
+        "checkpoint_is_not_a_benchmark_wide_improvement_claim": true,
+        "no_target_specific_tuning_after_observation": true
       }
     }
   },
