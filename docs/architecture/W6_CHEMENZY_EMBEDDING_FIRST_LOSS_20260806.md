@@ -108,21 +108,25 @@
 
 结论：当前架构已经恢复 RetroStar 可比的库存闭合能力，同时保留严格 reaction/evidence acceptance，不再通过 benchmark 专用 solver、目标分组或 validator 放宽制造虚假提升。
 
-## 7. 验证与已知红灯
+## 7. 验证与 W7 后续状态
 
 - 新增回归覆盖：Director accepted、所有 proposal rejected 后 initial architecture 不再生成；后续 graph revision 不会恢复该 deficit；event replan 仍可进入 frontier。
 - Ruff：通过。
 - 聚焦回归：44 passed。
-- 扩展回归：67 passed、7 failed；同一 7 项在未修改的 `d581f66` 基线逐项复现，属于进入 W7 前必须清理的既有红灯，不是 `3dfcd75` 引入。
-- 尚未运行完整离线套件，也未运行 RetroStar-190。
+- 当时的扩展回归为 67 passed、7 failed；同一 7 项曾在未修改的 `d581f66` 基线逐项复现，因此不是 `3dfcd75` 引入。
+- W7 已清除上述 7 项，扩展 W7 集合达到 74 passed。
+- 除已批准延期的超行数预算测试外，完整离线套件达到 2632 passed、3 skipped、1 deselected、2 subtests passed。
+- RetroStar-190 fresh blind preflight 已达到 190/190；正式全量运行仍未开始。
 
 ## 8. W7 进入条件
 
-W7 必须先完成：
+W7 收束状态：
 
-1. 清理现有 7 个基线失败；
-2. 生成 commit/config/stock/provider/scheduler 冻结 manifest；
-3. 运行除已批准延期的超行数预算模块外的完整离线门；
-4. 复跑当前成功 smoke 与 Nirmatrelvir zero-model replay；
-5. 冻结后才允许启动统一配置的 RetroStar-190 与全目标消融。
+1. 已清理现有 7 个基线失败；
+2. 已生成 `benchmarks/retrostar190_w7_freeze_20260806.json`；
+3. 已通过除批准延期项外的完整离线门；
+4. 已保存 RetroStar-001/002/003 既有阳性 smoke，避免无必要重跑 001 parity；
+5. 尚待一次最终 Nirmatrelvir zero-model replay；
+6. 该 replay 通过后才允许启动统一配置的 RetroStar-190 与全目标消融。
 
+完整 W7 证据见 `docs/architecture/W7_FREEZE_AND_PREFLIGHT_20260806.md`。
