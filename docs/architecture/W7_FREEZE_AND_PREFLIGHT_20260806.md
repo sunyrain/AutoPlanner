@@ -2,7 +2,7 @@
 
 日期：2026-08-06  
 冻结 runtime commit：`1bff6a3`  
-状态：冻结清单、完整离线门与 190/190 blind preflight 已完成；等待最终 Nirmatrelvir 零模型回放后关闭 W7。
+状态：W7 完成；冻结清单、完整离线门、190/190 blind preflight 与最终 Nirmatrelvir 零模型回放均已通过。W8 尚未开始。
 
 ## 1. 本阶段完成了什么
 
@@ -109,13 +109,27 @@ W7 不重复消耗 RetroStar-001 parity：
 
 三个 artifact 的 B4 均为 true。它们是已有阳性 smoke，不应被表述为 W8 全量结果，也不证明 190-target 整体提升。
 
-## 7. 剩余关闭项
+## 7. 最终零模型回放与 W7 关闭
 
-W7 只剩一项：在后续 W7 修复后的 runtime 上复跑 Nirmatrelvir cached-provider zero-model replay，确认：
+在后续 W7 修复后的 runtime 上完成了 Nirmatrelvir cached-provider zero-model replay：
 
-- 新模型调用为 0；
-- standalone/embedded raw 与 normalized 仍为 39/39 parity；
-- B4 仍为 true；
-- 严格 B2/B3/B5 不被放宽。
+- Root：`results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f`
+- Report：`results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f/runs/w6-nirmatrelvir-current-replay-20260806-f--a71e797af896/target-only-solve-report.json`
+- Comparison：`results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f/chemenzy-embedding-comparison.json`
 
-该证据通过后才能将 W7 标为完成并启动 W8。W8 的 RetroStar-190 正式运行与全目标消融尚未开始，当前不得宣称 benchmark-wide improvement。
+结果：
+
+| 项目 | 结果 |
+| --- | ---: |
+| 新模型调用 | 0 |
+| Standalone / embedded routes | 39 / 39 |
+| Raw provider digest parity | true |
+| Normalized route multiset parity | true |
+| Host selected / fully materialized | 2 / 2 |
+| Host validated | 0 |
+| Stock closed | 1 |
+| B4 | true |
+
+Action 计数保持为 64：`chemenzy_target_expand=1`、`codex_global_architecture=1`、`host_materialize=30`、`reaction_validate=30`、`stock_audit=2`。严格 B2/B3/B5 仍为 false，没有为了 benchmark 指标放宽 validator 或 evidence policy。
+
+至此 W7 已关闭，可以进入 W8。RetroStar-190 正式运行与全目标消融尚未开始，当前仍不得宣称 benchmark-wide improvement。

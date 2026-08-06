@@ -17,9 +17,9 @@
 ## 2. 冻结输入
 
 - Standalone 成功运行：`results/.autoplanner/runs/v4-proof-nirmatrelvir-20260717-repair1--8ca91baaa17f`
-- Current replay：`results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-e`
-- Current report：`results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-e/runs/w6-nirmatrelvir-current-replay-20260806-e--9efddbe08f8f/target-only-solve-report.json`
-- 逐路线比较：`results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-e/chemenzy-embedding-comparison.json`
+- Current replay：`results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f`
+- Current report：`results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f/runs/w6-nirmatrelvir-current-replay-20260806-f--a71e797af896/target-only-solve-report.json`
+- 逐路线比较：`results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f/chemenzy-embedding-comparison.json`
 - Frozen stock：RetroStar-190 eMolecules，约 2308 万条
 - Stock index SHA-256：`30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c`
 - Provider route reserve：2
@@ -126,7 +126,7 @@ W7 收束状态：
 2. 已生成 `benchmarks/retrostar190_w7_freeze_20260806.json`；
 3. 已通过除批准延期项外的完整离线门；
 4. 已保存 RetroStar-001/002/003 既有阳性 smoke，避免无必要重跑 001 parity；
-5. 尚待一次最终 Nirmatrelvir zero-model replay；
-6. 该 replay 通过后才允许启动统一配置的 RetroStar-190 与全目标消融。
+5. 最终 Nirmatrelvir zero-model replay 已保持 0 新模型调用、39/39 parity、B4=true 和严格 B2/B3/B5 边界；
+6. W7 已关闭，可以启动统一配置的 RetroStar-190 与全目标消融。
 
 完整 W7 证据见 `docs/architecture/W7_FREEZE_AND_PREFLIGHT_20260806.md`。

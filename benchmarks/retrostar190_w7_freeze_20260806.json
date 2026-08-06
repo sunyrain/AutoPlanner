@@ -2,7 +2,7 @@
   "schema_version": "autoplanner_retrostar190_w7_freeze.v1",
   "freeze_id": "retrostar190-w7-20260806",
   "created_on": "2026-08-06",
-  "status": "preflight_passed_full_panel_not_started",
+  "status": "w7_complete_ready_for_w8_full_panel_not_started",
   "runtime_source": {
     "branch": "agent/unify-workspace-entrypoints",
     "commit": "1bff6a3a6b494f832f50e6ad00fdd57616384957",
@@ -162,6 +162,40 @@
       "command": "python -m pytest -q -k \"not test_new_focused_modules_stay_within_practical_line_budgets\"",
       "outcome": "2632 passed, 3 skipped, 1 deselected, 2 subtests passed, 11 warnings",
       "deferred_test": "tests/test_v4_architecture.py::test_new_focused_modules_stay_within_practical_line_budgets"
+    },
+    "final_nirmatrelvir_zero_model_replay": {
+      "executed_at_repository_head": "44b9e27213d94e90c70168bf845333134cac0586",
+      "runtime_critical_files_match_frozen_source": true,
+      "root": "results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f",
+      "report_path": "results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f/runs/w6-nirmatrelvir-current-replay-20260806-f--a71e797af896/target-only-solve-report.json",
+      "report_sha256": "23ce80351c5d9f60134272c153566bf87d2238b7926e1814aa4e59b9c2eb7263",
+      "comparison_path": "results/.autoplanner/w6-nirmatrelvir-current-replay-20260806-f/chemenzy-embedding-comparison.json",
+      "comparison_sha256": "87d5d51adf9d69228ea215c1e33b283a82a12b30a6eeb88035f1fe470c90811d",
+      "new_model_invocations": 0,
+      "raw_provider_digest_parity": true,
+      "normalized_route_multiset_parity": true,
+      "standalone_routes": 39,
+      "embedded_routes": 39,
+      "host_selected_routes": 2,
+      "fully_materialized_routes": 2,
+      "host_validated_routes": 0,
+      "stock_closed_routes": 1,
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": false,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": true,
+        "B5_configured_portfolio_acceptance": false
+      },
+      "action_counts": {
+        "chemenzy_target_expand": 1,
+        "codex_global_architecture": 1,
+        "host_materialize": 30,
+        "reaction_validate": 30,
+        "stock_audit": 2,
+        "total": 64
+      }
     },
     "historical_positive_smokes": [
       {
