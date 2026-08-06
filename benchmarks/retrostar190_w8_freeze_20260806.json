@@ -2,7 +2,7 @@
   "schema_version": "autoplanner_retrostar190_w8_freeze.v1",
   "freeze_id": "retrostar190-w8-four-arm-20260806",
   "created_on": "2026-08-06",
-  "status": "four_arm_preflight_passed_budget_capped_formal_adaptive_active",
+  "status": "four_arm_preflight_passed_formal_adaptive_active_first_case_complete",
   "runtime_source": {
     "branch": "agent/unify-workspace-entrypoints",
     "commit": "f607b75b6b59a7ba172a637559da61e0448ac18a",
@@ -138,7 +138,39 @@
       "codex-only",
       "unified-round-robin"
     ],
-    "remaining_arms_are_automatically_sequenced": true
+    "remaining_arms_are_automatically_sequenced": true,
+    "first_completed_case": {
+      "case_id": "retrostar190-001-ddec287bee",
+      "report_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/runs/opaque benchmark target 001/target-only-solve-report.json",
+      "report_sha256": "ff758091db6907f5b5191632b3dc4e04bc0c67e28b9be22d47673600a2831197",
+      "elapsed_s": 499.391,
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": true,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": true,
+        "B5_configured_portfolio_acceptance": false
+      },
+      "route_counts": {
+        "target_rooted_distinct_skeletons": 5,
+        "materialized_skeletons": 5,
+        "reaction_validated_skeletons": 1,
+        "stock_closed_skeletons": 1
+      },
+      "native_search": {
+        "target_settled": 1,
+        "frontier_settled": 5,
+        "hard_total": 6,
+        "hard_remaining": 0
+      },
+      "model_cost": {
+        "model_invocations": 1,
+        "input_tokens": 25654,
+        "output_tokens": 6545,
+        "wall_time_s": 132.688
+      }
+    }
   },
   "constraints": {
     "target_grouping": false,
