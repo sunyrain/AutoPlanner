@@ -12,6 +12,13 @@ from cascade_planner.application.campaign_actions import (
     compile_action_opportunities,
 )
 from cascade_planner.application.run_kernel import RunKernel, RunLimits, RunSpec
+from cascade_planner.application.worker_runtime import WorkerBudget, WorkerCommand
+from cascade_planner.interfaces.target_solver_stages import (
+    discover_director_source_hints,
+)
+from cascade_planner.orchestration.retrosynthesis_service import (
+    RetrosynthesisCampaignService,
+)
 from cascade_planner.orchestration.unified_campaign_runtime import (
     CampaignActionRuntime,
     CampaignActionRuntimeError,
@@ -306,8 +313,105 @@ def test_anytime_loop_treats_total_task_budget_as_normal_terminal(
     ]
     assert result["execution_count"] == 0
     assert result["semantics"]["global_budget_exhaustion_is_a_normal_terminal"]
+    assert result["semantics"][
+        "global_budget_terminal_is_persisted_before_return"
+    ]
+    assert result["kernel_stop_decision"]["decision"] == "budget_exhausted"
+    assert kernel.state.status == "budget_exhausted"
+    assert kernel.state.failure_reasons == ("run_total_task_budget_exhausted",)
     assert kernel.state.settled_task_count == 1
     assert kernel.state.in_flight_tasks == {}
+
+
+def test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kernel = _kernel(tmp_path, max_total_tasks=1)
+    kernel.reserve_task(
+        task_id="prefill",
+        kind="other",
+        idempotency_key="prefill:reserve",
+        input_revision=0,
+    )
+    kernel.settle_task(
+        task_id="prefill",
+        idempotency_key="prefill:settle",
+        status="completed",
+    )
+    runtime = CampaignActionRuntime(
+        kernel,
+        {
+            CampaignActionKind.MATERIALIZE: lambda _action: {
+                "status": "completed",
+                "changed": True,
+            }
+        },
+    )
+    terminal = runtime.run_anytime(
+        opportunity_provider=_opportunity_set,
+        milestones_provider=lambda: {},
+        resource_availability_provider=lambda: {"deterministic": True},
+        max_actions=1,
+    )
+    assert terminal["termination"] == "budget_exhausted"
+
+    service = RetrosynthesisCampaignService(kernel)
+
+    def fail_if_executed(_command: WorkerCommand):
+        raise AssertionError("post-loop worker command must not execute")
+
+    monkeypatch.setattr(service.workers, "execute", fail_if_executed)
+    command = WorkerCommand(
+        command_id="post-loop-source",
+        run_id=kernel.spec.run_id,
+        worker_type="discover_sources",
+        input_revision=kernel.state.graph_revision,
+        idempotency_key="post-loop-source",
+        payload={"sources": []},
+        budget=WorkerBudget(task_kind="evidence"),
+    )
+    blocked = service.execute_commands(
+        (command,),
+        idempotency_key="post-loop-source-batch",
+        include_scheduled=False,
+    )
+    assert blocked["status"] == "budget_exhausted"
+    assert blocked["executed_command_count"] == 0
+    assert blocked["skipped_command_count"] == 1
+    assert kernel.count_task_reservations(kind="evidence") == 0
+
+    source_stage = discover_director_source_hints(
+        service,
+        (
+            {
+                "plan": {
+                    "multi_step_skeletons": [
+                        {
+                            "skeleton_id": "skeleton:1",
+                            "steps": [
+                                {
+                                    "step_id": "step:1",
+                                    "product_smiles": kernel.spec.target_smiles,
+                                    "source_hints": ["doi:10.1000/post-loop"],
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+        ),
+    )
+    assert source_stage["status"] == "budget_exhausted"
+    assert source_stage["execution"]["executed_command_count"] == 0
+    assert kernel.count_task_reservations(kind="evidence") == 0
+
+    closeout = service.closeout(
+        idempotency_key="post-loop-budget-closeout",
+        budget_exhausted=True,
+    )
+    assert closeout["portfolio"]["closeout"]["decision"] == "budget_exhausted"
+    assert kernel.state.status == "budget_exhausted"
 
 
 def test_same_revision_start_cohort_runs_peers_without_failure_cancellation(

@@ -571,9 +571,14 @@ def discover_director_source_hints(
             ),
             include_scheduled=False,
         )
+    stage_status = (
+        "budget_exhausted"
+        if execution.get("status") == "budget_exhausted"
+        else "completed" if sources else "unresolved"
+    )
     return {
         "stage": "source_acquisition_frontier",
-        "status": "completed" if sources else "unresolved",
+        "status": stage_status,
         "source_plan": frontier,
         "traceable_source_hint_count": len(sources),
         "sources": sources,

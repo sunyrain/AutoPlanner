@@ -2005,6 +2005,10 @@ def solve_target(
         ),
         on_execution=observe_unified_core_execution,
     )
+    anytime_budget_exhausted = bool(
+        unified_core_loop.get("termination") == "budget_exhausted"
+        or service.kernel.state.status == "budget_exhausted"
+    )
     stages.append(
         _stage(
             "campaign_anytime_core",
@@ -2671,6 +2675,7 @@ def solve_target(
     provisional = service.closeout(
         idempotency_key=f"solve-target:provisional:{service.kernel.state.graph_revision}",
         config=_portfolio_config(active, resolved_acceptance),
+        budget_exhausted=anytime_budget_exhausted,
     )["portfolio"]
     provisional_gates = compile_blind_acceptance_report(
         preflight=preflight,
@@ -3340,6 +3345,7 @@ def solve_target(
     closeout = service.closeout(
         idempotency_key=f"solve-target:closeout:{service.kernel.state.graph_revision}",
         config=_portfolio_config(active, resolved_acceptance),
+        budget_exhausted=anytime_budget_exhausted,
     )
     stages.append(
         _stage(

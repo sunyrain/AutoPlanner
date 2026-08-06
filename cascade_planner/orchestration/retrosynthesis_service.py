@@ -392,9 +392,29 @@ class RetrosynthesisCampaignService:
         idempotency_key: str,
         include_scheduled: bool = True,
     ) -> dict[str, Any]:
+        command_rows = tuple(commands)
+        state = self.kernel.state
+        if state.status == "budget_exhausted":
+            return {
+                "status": "budget_exhausted",
+                "changed": False,
+                "reused": False,
+                "graph": self.graph_store.load(),
+                "graph_ref": {},
+                "rejected": [],
+                "executed_command_count": 0,
+                "skipped_command_count": len(command_rows),
+                "stopped_reasons": list(state.failure_reasons),
+                "material_events": [],
+                "semantics": {
+                    "terminal_kernel_reserves_no_new_tasks": True,
+                    "closeout_projection_remains_available": True,
+                    "command_idempotency_keys_are_not_consumed": True,
+                },
+            }
         results: list[WorkerResult] = []
         material_events: set[str] = set()
-        for command in commands:
+        for command in command_rows:
             if include_scheduled:
                 batch = self.workers.execute_pipeline(command)
                 results.extend(batch.results)
@@ -410,6 +430,8 @@ class RetrosynthesisCampaignService:
         return {
             **applied,
             "executed_command_count": len(results),
+            "skipped_command_count": 0,
+            "stopped_reasons": [],
             "material_events": sorted(material_events),
         }
 

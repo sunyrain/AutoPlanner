@@ -263,6 +263,24 @@ class CampaignActionRuntime:
             if consecutive_no_gain >= no_gain_limit:
                 termination = "converged_low_marginal_gain"
                 break
+        kernel_stop_decision: dict[str, Any] = {}
+        if termination == "budget_exhausted":
+            terminal_revision = self.kernel.state.revision
+            if not self.kernel.state.terminal:
+                self.kernel.transition(
+                    "budget_exhausted",
+                    idempotency_key=(
+                        "campaign:anytime:global-budget-terminal:"
+                        f"{terminal_revision}"
+                    ),
+                    reasons=termination_reasons,
+                )
+            stop_decision = self.kernel.decide_stop()
+            if stop_decision.decision != "budget_exhausted":
+                raise CampaignActionRuntimeError(
+                    "campaign_anytime_budget_terminal_state_mismatch"
+                )
+            kernel_stop_decision = stop_decision.to_dict()
         result = {
             "schema_version": CAMPAIGN_ANYTIME_LOOP_SCHEMA,
             "termination": termination,
@@ -272,6 +290,7 @@ class CampaignActionRuntime:
             "no_gain_binding_count": len(no_gain_bindings),
             "start_cohort": start_cohort,
             "executions": executions,
+            "kernel_stop_decision": kernel_stop_decision,
             "final_graph_revision": self.kernel.state.graph_revision,
             "semantics": {
                 "single_scheduler_loop": True,
@@ -286,6 +305,10 @@ class CampaignActionRuntime:
                 "no_action_and_low_gain_converge_finitely": True,
                 "global_budget_exhaustion_is_a_normal_terminal": (
                     termination == "budget_exhausted"
+                ),
+                "global_budget_terminal_is_persisted_before_return": (
+                    termination != "budget_exhausted"
+                    or self.kernel.state.status == "budget_exhausted"
                 ),
             },
         }
