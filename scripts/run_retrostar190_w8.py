@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
 
     output_root = args.output_root.expanduser().resolve()
     stock_index = args.stock_index.expanduser().resolve()
-    actual_stock_sha256 = hashlib.sha256(stock_index.read_bytes()).hexdigest()
+    actual_stock_sha256 = _file_sha256(stock_index)
     if actual_stock_sha256 != args.stock_sha256:
         raise SystemExit("frozen W8 stock SHA-256 mismatch")
     output_root.mkdir(parents=True, exist_ok=True)
@@ -176,6 +176,14 @@ def _write_json(path: Path, value: Any) -> None:
         encoding="utf-8",
     )
     temporary.replace(path)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _utc_now() -> str:
