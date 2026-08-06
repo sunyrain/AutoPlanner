@@ -145,7 +145,6 @@
     "failed_case_count_at_checkpoint": 3,
     "first_completed_case": {
       "case_id": "retrostar190-001-ddec287bee",
-      "report_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/runs/opaque benchmark target 001/target-only-solve-report.json",
       "report_sha256": "ff758091db6907f5b5191632b3dc4e04bc0c67e28b9be22d47673600a2831197",
       "elapsed_s": 499.391,
       "gates": {
@@ -177,7 +176,6 @@
     },
     "second_completed_case": {
       "case_id": "retrostar190-002-5e5138eaad",
-      "report_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/runs/opaque benchmark target 002/target-only-solve-report.json",
       "report_sha256": "6174538f19de97f0f422ac8d2eea34d992d7fa87868c7a74f707a22f57565fb3",
       "elapsed_s": 508.562,
       "gates": {
@@ -209,7 +207,6 @@
     },
     "first_b4_failure": {
       "case_id": "retrostar190-004-2922a9a16f",
-      "report_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/runs/opaque benchmark target 004/target-only-solve-report.json",
       "report_sha256": "901eff96fdeb31fe88c976c8ea3759732a50959b763d22924ff5839208951763",
       "elapsed_s": 629.593,
       "failure_class": "stock_miss_after_host_validated_route",
@@ -258,7 +255,6 @@
       "status": "failed",
       "error_class": "run_total_task_budget_exhausted",
       "elapsed_s": 837.203,
-      "error_log_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/logs/opaque benchmark target 005.log",
       "native_search": {
         "target_settled": 1,
         "frontier_settled": 5,
@@ -324,7 +320,6 @@
       "status": "failed",
       "error_class": "run_total_task_budget_exhausted",
       "elapsed_s": 489.375,
-      "error_log_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/logs/opaque benchmark target 018.log",
       "native_search": {
         "target_settled": 1,
         "frontier_settled": 5,
@@ -368,7 +363,6 @@
       "status": "failed",
       "error_class": "run_total_task_budget_exhausted",
       "elapsed_s": 929.593,
-      "error_log_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/logs/opaque benchmark target 019.log",
       "native_search": {
         "target_settled": 1,
         "frontier_settled": 5,
@@ -400,7 +394,7 @@
     },
     "formal_restart": {
       "root": "results/.autoplanner/retrostar190-w8-formal-20260806-c",
-      "status": "implementation_frozen_fresh_preflight_pending",
+      "status": "failed_blind_preflight_tracked_audit_receipt_contamination",
       "implementation_commit": "68cd15627e78e704129ad41a095b946abca91029",
       "critical_file_sha256": {
         "cascade_planner/orchestration/unified_campaign_runtime.py": "46625bf43cb126158362e32d63189efc85ba464c046f68b46791e7c9d49c7038",
@@ -421,7 +415,26 @@
         "run_wall_time_budget_exhausted_closes_normally": true,
         "non_global_budget_errors_still_raise": true,
         "no_task_reserved_after_global_budget_exhaustion": true
+      },
+      "preflight_result": {
+        "passed_per_arm": 184,
+        "failed_per_arm": 6,
+        "passed_total": 736,
+        "failed_total": 24,
+        "provider_or_model_calls": 0,
+        "unique_failed_case_count": 6,
+        "failure_reason": "target_material_already_present_in_repository",
+        "contaminating_tracked_path": "benchmarks/retrostar190_w8_freeze_20260806.json",
+        "contamination_kind": "target_name_in_human_readable_artifact_path"
       }
+    },
+    "next_formal_restart": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260806-d",
+      "status": "fresh_preflight_pending",
+      "resume_from_c": false,
+      "target_named_tracked_artifact_paths_removed": true,
+      "blind_scan_allowlist_changed": false,
+      "implementation_commit": "68cd15627e78e704129ad41a095b946abca91029"
     }
   },
   "constraints": {

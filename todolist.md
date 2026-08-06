@@ -1,7 +1,7 @@
 # AutoPlanner V4 统一 Anytime 架构优化 TODO
 
 更新日期：2026-08-06
-状态：实施中；W1–W7 已完成，W8 四臂实现与 760/760 preflight 已完成；`-b` 在 19 个已处理目标中出现 3 次未捕获总任务预算异常，已停止且不进入结果；正常预算终止修复已通过聚焦回归，准备从 `-c` fresh preflight/restart
+状态：实施中；W1–W7 已完成；`-b` 因 3 次未捕获总任务预算异常停止并排除；预算终止修复已通过聚焦回归；`-c` fresh preflight 因 tracked 审计路径自污染为 736/760，零 provider/model 调用，已修正并准备从 `-d` 再次 fresh preflight
 适用范围：Canonical V4 主线、目标求解入口、ChemEnzy/Codex/文献/验证/Program 协同、RetroStar-190 评测
 
 计划口径：
@@ -91,7 +91,7 @@
 
 剩余工程净工时粗估为 **2–4 人日 + 外部运行时间**，全部集中在 W8 全量 190、全目标组件消融、paired metrics、失败分析与审稿材料。日历时间仍主要受 ChemEnzy/模型运行吞吐影响。
 
-当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 已实现四臂并完成 760/760 fresh preflight。`-b` 在 case 005、018、019 三次达到 settled tasks 256/256 后由 `RunKernelBudgetError` 异常退出，证明是可复现的全局终止语义缺陷；`-b` 已停止且不进入结果。修复保持 `max_total_tasks=256`、native 1+5、scheduler 和科学门不变，只把全局预算耗尽转换为正常 closeout，聚焦回归 1 passed。下一步是提交冻结修复、对新根 `-c` 执行 fresh preflight 并从头重启四臂。
+当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 已实现四臂。`-b` 的三次 settled tasks 256/256 异常已修复为正常 closeout，保持全部预算、scheduler 与科学门不变，聚焦回归 1 passed。`-c` 四臂 fresh preflight 为 736/760，六个唯一失败均来自 freeze manifest 中含 target name 的旧审计路径；零 provider/model 调用。路径已删除、case ID 与 SHA 仍保留、blind allowlist 不变。下一步只对新根 `-d` 再做一次 fresh preflight。
 
 ## 1. 不可破坏的架构约束
 

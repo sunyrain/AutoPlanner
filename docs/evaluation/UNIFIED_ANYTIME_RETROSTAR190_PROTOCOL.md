@@ -1,7 +1,7 @@
 # Unified Anytime RetroStar-190 Protocol
 
 日期：2026-08-06  
-状态：W8 四臂冻结协议与 760/760 fresh preflight 已完成；`-b` 在 3/19 个目标复现未捕获的全局总任务预算异常后停止并判为结果不可用；预算上限不变，正常预算终止语义已修复，准备从新根 `-c` fresh preflight/restart。
+状态：W8 四臂冻结协议已完成；`-b` 因未捕获全局预算终态而停止并排除，预算终止语义已修复；`-c` fresh preflight 因 tracked 审计收据中的 6 个 target-name 路径自污染而得到 736/760，零 provider/model 调用，已修正并准备从新根 `-d` 再次 fresh preflight。
 
 机器可读冻结清单：`benchmarks/retrostar190_w8_freeze_20260806.json`。
 
@@ -108,3 +108,5 @@ Case 018 再次复现 `run_total_task_budget_exhausted`：elapsed 489.375 s，na
 Case 019 第三次复现同一异常：elapsed 929.593 s，settled tasks 256/256，任务分解为 model 1、other 137、proposal 66、stock 3、validation 49；至 19 个处理目标共有 3 个相同运行失败。该频率证明问题不是科学失败，而是全局预算耗尽未被 anytime 终止器吸收。`-b` 因而停止并永久排除出结果，所有目录保留作审计；target 020 的在途运行被中止，不恢复、不计分。修复不提高 `max_total_tasks=256`，不改变 native 1+5、scheduler、模型或 B2/B3/B5 门，只把 `run_total_task_budget_exhausted` 与 `run_wall_time_budget_exhausted` 转换为正常 `budget_exhausted` 终态，使 closeout 和 B0–B5 投影仍可生成。聚焦回归 1 passed；新正式根固定为 `results/.autoplanner/retrostar190-w8-formal-20260806-c`，必须 fresh preflight 后从头运行。
 
 预算终止修复已冻结在实现提交 `68cd156`；核心 runtime SHA-256 为 `46625bf43cb126158362e32d63189efc85ba464c046f68b46791e7c9d49c7038`。新根 `-c` 不从 `-b` resume，下一步只执行四臂 fresh preflight。
+
+`-c` 四臂 fresh preflight 每臂均为 184 passed、6 failed，共 736/760；六个唯一失败 case 在四臂完全一致，且 planner/provider/model 均未启动。失败原因不是实现回归，而是 tracked freeze manifest 为审计方便写入了六条含目标名的旧运行目录路径，触发 `target_material_already_present_in_repository`。修复删除这些路径，仅保留 case ID、报告 SHA 与结构化指标；blind scan 白名单不变。`-c` 永久保留为失败预检审计，新根改为 `results/.autoplanner/retrostar190-w8-formal-20260806-d`。
