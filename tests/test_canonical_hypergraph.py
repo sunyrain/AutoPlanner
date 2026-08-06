@@ -1036,7 +1036,15 @@ def test_worker_facts_merge_order_independently_without_false_route_closure(
     assert route["independent_source_requirement_met"] is False
     assert route["stock_closure_rate"] == 1.0
     assert route["closed"] is False
-    assert graph["deficit_frontier"]["summary"]["by_kind"]["validation"] == 0
+    assert graph["deficit_frontier"]["summary"]["by_kind"]["validation"] == 1
+    revalidation = next(
+        row
+        for row in graph["deficit_frontier"]["items"]
+        if row["kind"] == "validation"
+    )
+    assert revalidation["reason"] == "exact_evidence_requires_reaction_revalidation"
+    assert revalidation["metadata"]["force_revalidation"] is True
+    assert revalidation["metadata"]["exact_record_ids"] == edge["exact_record_ids"]
     assert graph["deficit_frontier"]["summary"]["by_kind"]["stock"] == 0
     assert graph["deficit_frontier"]["summary"]["by_kind"]["evidence"] == 1
     oracle = store.full_recompute_oracle()

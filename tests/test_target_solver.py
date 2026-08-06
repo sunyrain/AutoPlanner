@@ -1702,11 +1702,11 @@ def test_target_solver_replans_globally_from_unbound_source_discovery(
     assert discovery_stage["detail"]["exact_record_count"] == 0
 
 
-def test_completed_checkpoint_resume_can_run_a_third_director_outcome(
+def test_completed_checkpoint_resume_does_not_repeat_replan_without_new_event(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
-    monkeypatch.setattr(target_solver_module, "_MAX_DIRECTOR_OUTCOMES", 3)
+    monkeypatch.setattr(target_solver_module, "_MAX_DIRECTOR_OUTCOMES", 2)
     observed_modes: list[str] = []
 
     def runner(
@@ -1759,6 +1759,7 @@ def test_completed_checkpoint_resume_can_run_a_third_director_outcome(
         stock_catalog_builder=_catalog,
         evidence_connector=_discovery_only_connector,
     )
+    monkeypatch.setattr(target_solver_module, "_MAX_DIRECTOR_OUTCOMES", 3)
     resumed = gateway.solve_target(
         target_name="blind repeated replan target",
         target_smiles=TARGET,
@@ -1773,22 +1774,11 @@ def test_completed_checkpoint_resume_can_run_a_third_director_outcome(
         evidence_connector=_discovery_only_connector,
     )
 
-    assert first["stop_decision"]["decision"] == "paused"
-    assert observed_modes == [
-        "initial_architecture",
-        "event_replan",
-        "event_replan",
-    ]
-    assert resumed["model_cost"]["model_invocations"] == 3
-    assert len(resumed["director_outcomes"]) == 3
+    assert first["stop_decision"]["decision"] == "unresolved"
+    assert observed_modes == ["initial_architecture", "event_replan"]
+    assert resumed["model_cost"]["model_invocations"] == 2
+    assert len(resumed["director_outcomes"]) == 2
     assert resumed["stop_decision"]["decision"] == "unresolved"
-    outcome_limit = next(
-        stage
-        for stage in resumed["stages"]
-        if stage["stage"] == "director_outcome_limit"
-    )
-    assert outcome_limit["status"] == "exhausted"
-    assert outcome_limit["detail"]["observed_outcomes"] == 3
     extension = next(
         stage
         for stage in resumed["stages"]
@@ -2511,7 +2501,7 @@ def test_scanned_patent_ocr_closes_blind_route_and_zero_model_validation_fork(
         for stage in source["stages"]
         if stage["stage"] == "evidence_acquisition"
     )
-    assert evidence["detail"]["exact_record_count"] == 6
+    assert evidence["detail"]["exact_record_count"] == 4
     assert all(
         row["ocr_audit"]["status"] == "completed"
         for row in evidence["detail"]["discovery"]["sources"]
@@ -2620,7 +2610,7 @@ def test_primary_patent_html_closes_blind_portfolio_without_pdf_or_visual_model(
         for stage in source["stages"]
         if stage["stage"] == "evidence_acquisition"
     )
-    assert evidence["detail"]["exact_record_count"] == 6
+    assert evidence["detail"]["exact_record_count"] == 4
     assert all(
         row["html_sha256"] and not row["pdf_sha256"]
         for row in evidence["detail"]["discovery"]["sources"]
