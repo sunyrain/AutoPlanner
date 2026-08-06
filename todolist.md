@@ -1,7 +1,7 @@
 # AutoPlanner V4 统一 Anytime 架构优化 TODO
 
 更新日期：2026-08-06
-状态：实施中；W1–W5 已完成，当前进入 W6 embedded 首损边界定因
+状态：实施中；W1–W6 已完成，当前进入 W7 冻结与预评测门
 适用范围：Canonical V4 主线、目标求解入口、ChemEnzy/Codex/文献/验证/Program 协同、RetroStar-190 评测
 
 计划口径：
@@ -69,7 +69,7 @@
 
 ### P3：完成失败边界与全量评测
 
-- [ ] 选择一个“standalone ChemEnzy 成功、embedded V4 失败”的真实目标，生成 raw → normalized → admitted → materialized → validated → B4 首损边界报告。
+- [x] 已以 Nirmatrelvir 完成 raw → normalized → selected → materialized → validated → B4 成对首损报告；确认 ChemEnzy 39/39 parity，B4 下降来自 stock/materialization 边界错位而非 provider 退化。
 - [ ] 不重复运行已完成 parity 的 RetroStar-001；其证据只作为 ChemEnzy 未被 V4 改坏的阳性基线。
 - [ ] 在 P0–P2 门全部通过后冻结 commit/config/stock/scheduler 权重，再运行 RetroStar-190；此前只允许小型开发样本和合成测试。
 - [ ] 对全部 190 目标运行统一组件消融，不做目标分组、不挑样、不逐目标调参。
@@ -89,9 +89,9 @@
 | W7 | 冻结与预评测门 | commit/config/stock/provider/scheduler manifest、全量离线门 | W6 | 除已批准延期的超行数预算项外全部通过 | 1–2 天 |
 | W8 | RetroStar-190 与论文防御包 | 四个全目标消融、paired metrics、失败分类、审稿材料 | W7 | 190 目标无挑样、无逐目标调参、结果可复现 | 2–4 天分析 + 机器运行 |
 
-剩余工程净工时粗估为 **4–9 人日 + 外部运行时间**；W2/W3 的控制权收束、W4 的 Program/实验权限边界和 W5 的终态恢复/兼容投影已解除，当前主要风险转移到 W6 的真实 embedded 首损定位、W7 冻结门和 W8 全量 190 运行及分析。W6 与 W8 的日历时间仍主要受 ChemEnzy/模型运行吞吐影响。
+剩余工程净工时粗估为 **3–7 人日 + 外部运行时间**；W6 已确认 ChemEnzy raw/normalized parity、修复 stock/materialization 首损并将 initial Director 空转从 32 次降至 1 次。当前风险集中在 W7 的既有测试红灯清理与冻结门，以及 W8 全量 190 运行和分析；W8 日历时间仍主要受 ChemEnzy/模型运行吞吐影响。
 
-当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本，默认不授予 Claim、不写 shadow，显式反馈重新经过现有 domain gate。W5 已验证 completed checkpoint 新反馈重开、有效/无效反馈、科学图 digest 不变、Claim store 默认零写入、route-family rebound 和 Program ID 对 operational revision 稳定；最近聚焦组为 24、3、36、2 tests 全部通过，相关文件通过 `py_compile`、Ruff 与 `git diff --check`。尚未运行完整离线测试或 RetroStar-190，本文件不得把 focused pass 表述为全系统完成。
+当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6 Nirmatrelvir current replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。最新 Ruff 与 44 项聚焦测试通过；扩展组 67 passed/7 failed，7 项均在 `d581f66` 基线复现，必须在 W7 清理。尚未运行完整离线测试或 RetroStar-190，本文件不得把 focused pass 表述为全系统完成。
 
 ## 1. 不可破坏的架构约束
 
@@ -115,7 +115,7 @@
 - [x] ChemEnzy 拆为 `CHEMENZY_TARGET_EXPAND` 与 `CHEMENZY_FRONTIER_EXPAND`，避免原生目标搜索和 guided subtarget 互相误选。
 - [x] canonical frontier 新增 target native-search 与 global-architecture deficits；target-level ChemEnzy、guided ChemEnzy、stock recovery 和 Codex initial architecture 均经过 Action runtime。
 - [x] Action outcome 改为持久化完整 canonical handler result，cache replay 不再截断 Director plan。
-- [ ] 仍需选择一个 standalone 成功而 embedded 失败的真实目标，完成 Checkpoint A 的失败边界报告；目标 001 的 parity 现场证据已完成。
+- [x] Nirmatrelvir 已完成 standalone/embedded 成对首损报告：39/39 route parity，首损为 host portfolio 截断；B4 失败根因是 stock action 与 materialization 边界错位，修复后 B4=true。
 
 ### 1.1 单一事实所有者
 
@@ -426,8 +426,8 @@ W2 验收门：
 ### 12.4 回归集
 
 - [ ] 当前成功的 3 个 RetroStar smoke 目标继续成功。
-- [ ] standalone 成功而 embedded 失败的代表目标完成定因和修复。
-- [ ] Nirmatrelvir zero-model replay 保持不变。
+- [x] standalone 成功而 embedded 失败的 Nirmatrelvir 代表目标已完成定因和通用修复。
+- [x] Nirmatrelvir current-V4 zero-model replay 保持 raw/normalized parity，B4=true。
 - [ ] 至少一个文献驱动真实目标保留 exact-source 路径。
 - [ ] 至少一个 enzyme superstep 阳性候选和一个无适用酶负对照保持严格语义。
 - [ ] Program shadow store、实验 Claim 和 canonical graph digest 不受统一 scheduler 重构污染。
@@ -507,8 +507,9 @@ W2 验收门：
 ### Checkpoint A：先证明没有改坏 ChemEnzy
 
 - [x] 目标 001 已完成成对复现与 raw/normalized route parity，比较工具和 route lineage 已具备。
-- [ ] 在不改 scheduler 前定位 standalone/embedded 首个差异边界。
-- [ ] 门：能回答每条丢失路线在哪一层、因为什么消失。
+- [x] 已定位 standalone/embedded 首个差异边界：39 条 provider route 无损进入 normalization，37 条在统一 host portfolio budget 截断；旧 B4 损失另由 stock/materialization 边界错位造成。
+- [x] `docs/architecture/W6_CHEMENZY_EMBEDDING_FIRST_LOSS_20260806.md` 固化逐层证据、Action 减负和严格 validator 边界。
+- [x] 门：逐路线 comparison 已记录 normalization、host selection、materialization、validation 与 stock 首损原因。
 
 ### Checkpoint B：切断模式分支
 
@@ -572,4 +573,4 @@ W2 验收门：
 - [x] 第七刀（W3）：Codex initial architecture 与 target ChemEnzy 已通过同一 runtime 的同 revision cohort 非阻塞启动；RunKernel 持有 durable in-flight reservation，稳定观察与 cache replay 已验证。
 - [x] 第八刀（W4）：已注册 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`；前者只形成待外部执行请求，后者复用现有 host gate/Claim store，默认不写 shadow 且不创建 canonical edge。
 - [x] 第九刀（W5）：抽离 `target_solver_compat`，统一旧 objective 展示、checkpoint cursor、外部反馈信号和 resume/trajectory 投影；新增 route-family rebound 与 scientific-content-bound Program ID，避免 operational revision 污染 Program 身份。
-- [ ] 第十刀（W6–W8）：定位真实 embedded failure，冻结协议后执行全量 190、全目标组件消融与审稿防御包。
+- [ ] 第十刀（W6–W8）：W6 真实 embedded failure 已定位并修复；继续完成 W7 冻结协议，再执行 W8 全量 190、全目标组件消融与审稿防御包。

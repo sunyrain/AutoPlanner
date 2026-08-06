@@ -102,9 +102,10 @@ dependency revisions，避免同一逻辑动作在不同 canonical revision 上�
 模型调用预算为 0 时，Global Director reservation 原先会抛出未捕获的 `RunKernelBudgetError`。现在该情况
 转为具名 `skipped` DirectorOutcome，后续 deterministic ChemEnzy、stock 和验证工作可以继续。
 
-## 7. 下一门
+## 7. 后续关闭记录
 
-Checkpoint A 尚未完全关闭。下一项必须选择一个“standalone 成功、embedded 失败”的真实目标，使用相同工具输出：
+Checkpoint A 已由 Nirmatrelvir W6 成对回放关闭，详见
+`docs/architecture/W6_CHEMENZY_EMBEDDING_FIRST_LOSS_20260806.md`。该回放使用相同工具输出：
 
 - normalized proposal parity；
 - host selection loss；
@@ -112,4 +113,6 @@ Checkpoint A 尚未完全关闭。下一项必须选择一个“standalone 成�
 - stock closure loss；
 - 首个确定性拒绝理由。
 
-在找到该失败目标的首个损失边界前，不依据 RetroStar-190 测试目标调整 scheduler 权重。
+结果确认 ChemEnzy raw/normalized 39/39 parity；37 条路线在统一 host portfolio budget 截断，旧 B4
+损失由 stock action 与 materialization 边界错位造成。修复采用通用 canonical 状态规则，未依据目标名称、
+SMILES 或 benchmark 标签调整 scheduler 权重。
