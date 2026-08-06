@@ -115,7 +115,7 @@ def replay_cached_embedding(
         plan["run_id"] = spec.run_id
         plan["mode"] = mode
         plan["context_sha256"] = context.content_sha256
-        plan["graph_revision"] = context.revision.revision
+        plan["graph_revision"] = context.revision.graph_revision
         return AgentResult(
             run_id=spec.run_id,
             agent_id=spec.agent_id,

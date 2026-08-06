@@ -83,6 +83,13 @@ def schedule_next_action(
         str(row.get("kind") or "") == "host_materialize"
         for row in raw_actions
     )
+    pending_materialization_routes = {
+        str(route_id)
+        for row in raw_actions
+        if str(row.get("kind") or "") == "host_materialize"
+        for route_id in row.get("route_family_ids") or []
+        if str(route_id)
+    }
     candidates = []
     for row in raw_actions:
         action_id = str(row.get("action_id") or "")
@@ -102,6 +109,18 @@ def schedule_next_action(
             "bind_exact_evidence",
         }:
             blocked_reasons.append("pending_materialization_precedes_evidence")
+        candidate_routes = {
+            str(route_id)
+            for route_id in row.get("route_family_ids") or []
+            if str(route_id)
+        }
+        if candidate_routes & pending_materialization_routes:
+            if kind == "reaction_validate":
+                blocked_reasons.append(
+                    "route_materialization_precedes_reaction_validation"
+                )
+            if kind == "stock_audit":
+                blocked_reasons.append("route_materialization_precedes_stock_audit")
         base = float(row.get("base_priority") or 0.0)
         state_bonus = _state_bonus(kind, gates)
         deterministic_bonus = 30.0 if row.get("deterministic") is True else 0.0
@@ -165,6 +184,7 @@ def schedule_next_action(
             "same_state_and_resources_produce_same_order": True,
             "B4_is_state_not_task_membership": True,
             "B5_is_milestone_not_scheduler_stop": True,
+            "route_dependencies_precede_validation_and_stock": True,
             "selection_grants_no_scientific_authority": True,
         },
     }

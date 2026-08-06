@@ -24,6 +24,9 @@ from cascade_planner.application.proof_policy import ProofPolicy, stitch_edge_pr
 from cascade_planner.application.retrosynthesis_run_contract import (
     RetrosynthesisRunBudget,
 )
+from cascade_planner.application.reaction_proof_versions import (
+    CURRENT_REACTION_VALIDATOR_VERSION,
+)
 from cascade_planner.application.retrosynthesis_workers import (
     build_retrosynthesis_worker_handlers,
     materialization_commands_for_global_plan,
@@ -316,6 +319,69 @@ def test_stock_deficit_requires_current_selected_materialized_leaf_boundary() ->
     )
     assert stock["object_id"] == "molecule:leaf"
     assert stock["reason"] == "selected_leaf_requires_trusted_stock_audit"
+
+
+def test_current_negative_reaction_proof_is_not_revalidated_without_new_input() -> None:
+    frontier = compile_deficit_frontier(
+        {
+            "scientific_sha256": "fixture",
+            "target_molecule_id": "molecule:target",
+            "molecules": {
+                "molecule:target": {
+                    "canonical_smiles": "CCO",
+                    "is_leaf": False,
+                    "stock_closed": False,
+                },
+                "molecule:leaf": {
+                    "canonical_smiles": "CC",
+                    "is_leaf": True,
+                    "stock_closed": False,
+                },
+            },
+            "stock_observations": {},
+            "route_families": {
+                "route:selected": {
+                    "selected": True,
+                    "closed": False,
+                    "edge_ids": ["edge:one"],
+                    "leaf_molecule_ids": ["molecule:leaf"],
+                }
+            },
+            "dependency_index": {
+                "routes_by_entity": {
+                    "edge:one": ["route:selected"],
+                    "molecule:leaf": ["route:selected"],
+                }
+            },
+            "edges": {
+                "edge:one": {
+                    "edge_id": "edge:one",
+                    "status": "materialized",
+                    "product_smiles": "CCO",
+                    "precursor_smiles": ["CC"],
+                    "reaction_proofs": [
+                        {
+                            "accepted": False,
+                            "validator_version": CURRENT_REACTION_VALIDATOR_VERSION,
+                            "reasons": ["reaction_edit_budget_exceeded"],
+                        }
+                    ],
+                    "condition_predictions": [
+                        {
+                            "reagents": ["fixture"],
+                            "solvent": "water",
+                            "temperature_c": 25,
+                            "authority_scope": "model_predicted_condition",
+                        }
+                    ],
+                }
+            },
+            "hypotheses": {},
+            "conflicts": {},
+        }
+    )
+
+    assert not any(row["kind"] == "validation" for row in frontier["items"])
 
 
 def test_discovered_source_lifecycle_becomes_evidence_deficit() -> None:

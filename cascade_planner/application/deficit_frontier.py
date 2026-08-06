@@ -369,6 +369,9 @@ def compile_deficit_frontier(
         exact_record_ids = tuple(
             sorted(str(value) for value in proof.get("exact_record_ids") or [] if str(value))
         )
+        active_validation_proofs = active_reaction_proofs(
+            dict(raw).get("reaction_proofs") or []
+        )
         validation_record_sets = {
             tuple(
                 sorted(
@@ -377,9 +380,7 @@ def compile_deficit_frontier(
                     if str(value)
                 )
             )
-            for active_proof in active_reaction_proofs(
-                dict(raw).get("reaction_proofs") or []
-            )
+            for active_proof in active_validation_proofs
             if "exact_record_ids" in active_proof
         }
         evidence_revalidation_required = bool(
@@ -391,7 +392,10 @@ def compile_deficit_frontier(
             if str(value)
         }
         if (
-            proof.get("reaction_validated") is not True
+            (
+                proof.get("reaction_validated") is not True
+                and not active_validation_proofs
+            )
             or evidence_revalidation_required
         ):
             items.append(
