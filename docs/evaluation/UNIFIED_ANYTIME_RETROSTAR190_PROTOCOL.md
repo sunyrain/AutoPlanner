@@ -1,7 +1,7 @@
 # Unified Anytime RetroStar-190 Protocol
 
 日期：2026-08-06  
-状态：W8 四臂冻结协议已完成；`-b` 因未捕获全局预算终态而停止并排除，预算终止语义已修复；`-c` 的 tracked 审计路径自污染已清除；`-d` fresh preflight 已通过 760/760，正式四臂运行将从全新根 `-e` 启动。
+状态：W8 四臂冻结协议已完成；`-d` fresh preflight 已通过 760/760；`-e` 首例暴露预算终态后的遗留 loop 外任务预留并已停止排除；边界修复已冻结，下一次正式运行从全新根 `-f` 启动。
 
 机器可读冻结清单：`benchmarks/retrostar190_w8_freeze_20260806.json`。
 
@@ -114,3 +114,7 @@ Case 019 第三次复现同一异常：elapsed 929.593 s，settled tasks 256/256
 `-d` fresh preflight 已在 2026-08-06 完成：四臂各 190 passed、0 failed，共 760/760；所有 760 份 case receipt 均绑定到各自 arm 的 panel snapshot。四臂 manifest SHA-256 均为 `2d31de46f20cac4dec3c89f822d9059c4fa6ee68f43261929ba5c6b06a4f7623`，stock SHA-256 均为 `30c828d6780e534d8368f4eb74f844c889683453080d44053ba298a7bebdd79c`，base environment SHA-256 均为 `0d5204f3178b5d292c19d51b0114e117774795ab454c25ae1f492abb38e6622f`。该目录为 preflight-only，completed count 为 0，且不存在 solve report、provider payload 或 RunKernel spec，因此 provider/model 调用为 0。
 
 `-d` 不直接转为正式运行：preflight-only 已为每个 case 建立预检目录，复用会破坏 fresh-run 证明。正式四臂根固定为 `results/.autoplanner/retrostar190-w8-formal-20260806-e`，不从 `-d` resume；按 `unified-adaptive`、`chemenzy-only`、`codex-only`、`unified-round-robin` 顺序串行执行，`parallel-arms=1`。正式根自身仍会在任何 provider 工作前重新执行同一 blind preflight。
+
+`-e` 在首个 adaptive case 运行 493.109 s 后停止并永久排除：settled tasks 达到 256/256，任务分解为 model 1、other 140、proposal 62、stock 4、validation 49；native search 仍严格为 target 1 + frontier 5。问题不是 ChemEnzy、模型或科学门，而是上一版修复只让 `run_anytime()` 返回正常 `budget_exhausted`，没有在返回前把 RunKernel 持久化为终态；随后遗留的 loop 外 `discover_director_source_hints()` 尝试预留 evidence task，再次抛出 `run_total_task_budget_exhausted`，因此没有生成 solve report。第二个在途 case 随 orchestrator 一并停止，不恢复、不计分，全部目录保留审计。
+
+提交 `13ec14e` 封住该边界：全局总任务或 wall-time 预算耗尽时，anytime runtime 在返回前持久化 RunKernel `budget_exhausted`；service 在该终态下不执行、不预留任何新 worker command，也不消耗 command idempotency key；已有 canonical state、B0–B5 投影和 `budget_exhausted` closeout 仍可生成。非全局预算错误继续抛出，`max_total_tasks=256`、native 1+5、scheduler、模型和 B2/B3/B5 门均未改变。真实 source-hints 复现栈与 closeout 聚焦回归共 2 passed。新正式根为 `results/.autoplanner/retrostar190-w8-formal-20260806-f`，不从 `-e` resume，仍按四臂固定顺序串行执行。

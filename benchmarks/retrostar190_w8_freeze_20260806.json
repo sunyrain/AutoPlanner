@@ -462,16 +462,83 @@
     },
     "formal_run": {
       "root": "results/.autoplanner/retrostar190-w8-formal-20260806-e",
-      "status": "pending_fresh_start",
+      "status": "aborted_ineligible_post_loop_task_reservation_after_budget_terminal",
+      "result_eligible": false,
       "resume_from_d": false,
       "fresh_root_required": true,
+      "parallel_arms": 1,
+      "launch_commit": "5b1fad346f442a834664552b26164c7ab23319fc",
+      "arm_order": [
+        "unified-adaptive",
+        "chemenzy-only",
+        "codex-only",
+        "unified-round-robin"
+      ],
+      "processed_case_count": 1,
+      "completed_case_count": 0,
+      "failed_case_count": 1,
+      "in_flight_case_aborted_count": 1,
+      "failure": {
+        "case_id": "retrostar190-001-ddec287bee",
+        "elapsed_s": 493.109,
+        "error_class": "run_total_task_budget_exhausted",
+        "failure_boundary": "post_anytime_director_source_hint_execution",
+        "report_generated": false,
+        "settled_tasks": 256,
+        "max_total_tasks": 256,
+        "task_counts": {
+          "model": 1,
+          "other": 140,
+          "proposal": 62,
+          "stock": 4,
+          "validation": 49
+        },
+        "native_search": {
+          "target_settled": 1,
+          "frontier_settled": 5,
+          "frontier_borrowed_settled": 0,
+          "target_reserve_released": 0
+        },
+        "model_invocations": 1
+      },
+      "root_cause": "anytime_runtime_returned_a_normal_budget_terminal_but_the_kernel_was_still_running_and_a_legacy_post_loop_source_stage_attempted_a_new_task_reservation"
+    },
+    "next_formal_run": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260806-f",
+      "status": "pending_fresh_start",
+      "resume_from_e": false,
+      "fresh_root_required": true,
+      "implementation_commit": "13ec14ec07926ed8ef5bdc098f14ae6bedbd5236",
       "parallel_arms": 1,
       "arm_order": [
         "unified-adaptive",
         "chemenzy-only",
         "codex-only",
         "unified-round-robin"
-      ]
+      ],
+      "fix_scope": "persist_global_budget_terminal_before_any_post_loop_projection_and_block_new_worker_commands_while_preserving_closeout",
+      "focused_verification": {
+        "passed": 2,
+        "tests": [
+          "test_anytime_loop_treats_total_task_budget_as_normal_terminal",
+          "test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection"
+        ]
+      },
+      "critical_file_sha256": {
+        "cascade_planner/orchestration/unified_campaign_runtime.py": "c3d1c703141b72b9852eeb8c4531dd2b50d859c1ae0e23e3e6a327f7b54ca42a",
+        "cascade_planner/orchestration/retrosynthesis_service.py": "b71a1a5ac530c9672ee011bad187cde1a8dfec2fccb22fb706f3e127c99269ac",
+        "cascade_planner/interfaces/target_solver.py": "d3a9575a07e2b70738c86ccc4a2ac203544670e1fee4a612505d8205c001d3ec",
+        "cascade_planner/interfaces/target_solver_stages.py": "6cba1fb5d4b677200e510ca7a16b9f83118d17ea88de200b81ba01631af68804",
+        "tests/test_unified_campaign_runtime.py": "2e7446e06db9872a7749b499d154c41b62e761f9270651b5eb61ab0739875318"
+      },
+      "semantics": {
+        "kernel_budget_terminal_persisted_before_runtime_return": true,
+        "post_loop_worker_reservations_blocked": true,
+        "closeout_projection_preserved": true,
+        "non_global_budget_errors_still_raise": true,
+        "task_budget_limits_changed": false,
+        "scheduler_or_scientific_gates_changed": false
+      }
     }
   },
   "constraints": {
@@ -479,6 +546,7 @@
     "target_specific_tuning": false,
     "aborted_budget_audit_run_included_in_results": false,
     "aborted_formal_b_included_in_results": false,
+    "aborted_formal_e_included_in_results": false,
     "reference_routes_visible_to_planner": false,
     "B2_B3_B5_redefine_B4": false,
     "remote_model_weights_bitwise_frozen": false,
