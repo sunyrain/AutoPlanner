@@ -98,3 +98,5 @@ W8 只有在四臂均覆盖 190 个目标、所有失败保留、paired metrics 
 第二个正式 adaptive case 已完成：508.562 s，B1=true、B4=true，5 条 target-rooted/materialized skeleton、3 条 stock-closed skeleton；native-search 同样精确结算为 target 1 + frontier 5，模型调用为 1。B2/B3/B5 均为 false，结果按冻结门原样保留；报告 SHA-256 为 `6174538f19de97f0f422ac8d2eea34d992d7fa87868c7a74f707a22f57565fb3`。当前 target 003 已自动接棒。
 
 前四个正式 adaptive case 已完成，其中前三个 B4=true，第四个是首个 B4=false。Case 004 并非 provider 无候选或 embedded host 丢失：ChemEnzy seed 产出并被 host 接纳 1 条 route，最终保留 4 条 target-rooted/materialized skeleton，且 1 条达到 reaction-validated，但 0 条在冻结 eMolecules stock 中闭合。因此首损分类为 `stock_miss_after_host_validated_route`。其五次 guided frontier settlement 中 2 次 completed、3 次 unresolved，其中 2 次接近 90 s timeout；这些结果原样保留，不据此逐目标调参。报告 SHA-256 为 `901eff96fdeb31fe88c976c8ea3759732a50959b763d22924ff5839208951763`。当前 target 005 已自动接棒。
+
+Case 005 随后以独立的运行预算失败结束，不能作为 B4 失败计分：`RunKernelBudgetError: run_total_task_budget_exhausted`。它严格完成 native target 1 + frontier 5，但在 closeout 前达到 `max_total_tasks=256`；settled task 分解为 model 1、other 138、proposal 64、stock 6、validation 47，accepted expansion/attempt 均为 64。该 case 保留在完整 panel 分母和 failure taxonomy 中，结果不进入 B4 分数。当前 target 006 已自动接棒。

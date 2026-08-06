@@ -1,7 +1,7 @@
 # AutoPlanner V4 统一 Anytime 架构优化 TODO
 
 更新日期：2026-08-06
-状态：实施中；W1–W7 已完成，W8 四臂实现与 760/760 preflight 已完成；`-b` 正式 adaptive 已完成 4/190（3 个 B4 成功、1 个 stock miss），target 005 正在运行
+状态：实施中；W1–W7 已完成，W8 四臂实现与 760/760 preflight 已完成；`-b` 正式 adaptive 已完成 4/190，另有 1 个独立总任务预算失败（3 个 B4 成功、1 个 stock miss），target 006 正在运行
 适用范围：Canonical V4 主线、目标求解入口、ChemEnzy/Codex/文献/验证/Program 协同、RetroStar-190 评测
 
 计划口径：
@@ -91,7 +91,7 @@
 
 剩余工程净工时粗估为 **2–4 人日 + 外部运行时间**，全部集中在 W8 全量 190、全目标组件消融、paired metrics、失败分析与审稿材料。日历时间仍主要受 ChemEnzy/模型运行吞吐影响。
 
-当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 已实现 ChemEnzy-only、Codex-only、统一 round-robin 和统一 adaptive 四臂，并完成 760/760 fresh preflight。RetroStar-190 正式 `unified-adaptive` 已完成 4/190：前三例 B4=true；case 004 为首个 B4=false，但已有 host-admitted、materialized 和 reaction-validated 路线，失败边界是冻结 stock 未闭合，而非 provider/embedding 首损。所有四例的 native-search 都严格为 target 1 + frontier 5。四臂尚未完成，本文件不得把当前早期结果表述为全系统 benchmark 提升。
+当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 已实现 ChemEnzy-only、Codex-only、统一 round-robin 和统一 adaptive 四臂，并完成 760/760 fresh preflight。RetroStar-190 正式 `unified-adaptive` 已完成 4/190，另有 1 个独立总任务预算失败：前三例 B4=true；case 004 为首个 B4=false，首损在冻结 stock 边界；case 005 则在 closeout 前耗尽 `max_total_tasks=256`，不进入 B4 分数。已完成的四例及失败例 native-search 均严格遵守 target 1 + frontier 5。四臂尚未完成，本文件不得把当前早期结果表述为全系统 benchmark 提升。
 
 ## 1. 不可破坏的架构约束
 

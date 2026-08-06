@@ -2,7 +2,7 @@
   "schema_version": "autoplanner_retrostar190_w8_freeze.v1",
   "freeze_id": "retrostar190-w8-four-arm-20260806",
   "created_on": "2026-08-06",
-  "status": "four_arm_preflight_passed_formal_adaptive_active_four_cases_first_b4_failure_recorded",
+  "status": "four_arm_preflight_passed_formal_adaptive_active_four_completed_one_budget_failure",
   "runtime_source": {
     "branch": "agent/unify-workspace-entrypoints",
     "commit": "f607b75b6b59a7ba172a637559da61e0448ac18a",
@@ -140,6 +140,7 @@
     ],
     "remaining_arms_are_automatically_sequenced": true,
     "completed_case_count_at_checkpoint": 4,
+    "failed_case_count_at_checkpoint": 1,
     "first_completed_case": {
       "case_id": "retrostar190-001-ddec287bee",
       "report_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/runs/opaque benchmark target 001/target-only-solve-report.json",
@@ -248,6 +249,42 @@
         "input_tokens": 32224,
         "output_tokens": 6835,
         "wall_time_s": 142.313
+      }
+    },
+    "first_budget_failure": {
+      "case_id": "retrostar190-005-354afd9b42",
+      "status": "failed",
+      "error_class": "run_total_task_budget_exhausted",
+      "elapsed_s": 837.203,
+      "error_log_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/logs/opaque benchmark target 005.log",
+      "native_search": {
+        "target_settled": 1,
+        "frontier_settled": 5,
+        "hard_total": 6,
+        "hard_remaining": 0
+      },
+      "run_task_budget": {
+        "max_total_tasks": 256,
+        "settled_task_count": 256,
+        "max_accepted_expansions": 96,
+        "accepted_expansion_count": 64,
+        "max_attempt_runs": 192,
+        "attempt_count": 64,
+        "max_evidence_tasks": 64,
+        "max_stock_tasks": 128,
+        "max_validation_tasks": 128
+      },
+      "settled_task_counts": {
+        "model": 1,
+        "other": 138,
+        "proposal": 64,
+        "stock": 6,
+        "validation": 47
+      },
+      "semantics": {
+        "failed_before_closeout_gate_projection": true,
+        "native_search_budget_was_not_exceeded": true,
+        "result_is_ineligible_for_b4_scoring": true
       }
     }
   },
