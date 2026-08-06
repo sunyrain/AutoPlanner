@@ -106,3 +106,5 @@ Case 005 随后以独立的运行预算失败结束，不能作为 B4 失败计�
 Case 018 再次复现 `run_total_task_budget_exhausted`：elapsed 489.375 s，native search 仍严格为 target 1 + frontier 5，但 settled tasks 达到 256/256；任务分解为 model 1、other 137、proposal 57、stock 7、validation 54。至前 18 个处理目标，16 个 completed、2 个 failed，B4=true 12 个、B4=false 4 个；同类总任务预算失败为 2/18。两次失败的任务混合不同，说明问题是复杂目标在统一 action loop 中共同挤占通用总任务上限，而非某个固定 action 的单一死循环。正式冻结配置不变，失败均保留且不重跑；当前 target 019 已自动接棒。
 
 Case 019 第三次复现同一异常：elapsed 929.593 s，settled tasks 256/256，任务分解为 model 1、other 137、proposal 66、stock 3、validation 49；至 19 个处理目标共有 3 个相同运行失败。该频率证明问题不是科学失败，而是全局预算耗尽未被 anytime 终止器吸收。`-b` 因而停止并永久排除出结果，所有目录保留作审计；target 020 的在途运行被中止，不恢复、不计分。修复不提高 `max_total_tasks=256`，不改变 native 1+5、scheduler、模型或 B2/B3/B5 门，只把 `run_total_task_budget_exhausted` 与 `run_wall_time_budget_exhausted` 转换为正常 `budget_exhausted` 终态，使 closeout 和 B0–B5 投影仍可生成。聚焦回归 1 passed；新正式根固定为 `results/.autoplanner/retrostar190-w8-formal-20260806-c`，必须 fresh preflight 后从头运行。
+
+预算终止修复已冻结在实现提交 `68cd156`；核心 runtime SHA-256 为 `46625bf43cb126158362e32d63189efc85ba464c046f68b46791e7c9d49c7038`。新根 `-c` 不从 `-b` resume，下一步只执行四臂 fresh preflight。

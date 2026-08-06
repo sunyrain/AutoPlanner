@@ -400,7 +400,12 @@
     },
     "formal_restart": {
       "root": "results/.autoplanner/retrostar190-w8-formal-20260806-c",
-      "status": "graceful_budget_terminal_fix_implemented_commit_pending",
+      "status": "implementation_frozen_fresh_preflight_pending",
+      "implementation_commit": "68cd15627e78e704129ad41a095b946abca91029",
+      "critical_file_sha256": {
+        "cascade_planner/orchestration/unified_campaign_runtime.py": "46625bf43cb126158362e32d63189efc85ba464c046f68b46791e7c9d49c7038",
+        "tests/test_unified_campaign_runtime.py": "6ecdbf346e518096f6be63c74b5bc02647c86121e3f10c16210f569e82c9f5bc"
+      },
       "resume_from_b": false,
       "fresh_preflight_required": true,
       "runtime_change_scope": "global_budget_exhaustion_terminal_semantics_only",
