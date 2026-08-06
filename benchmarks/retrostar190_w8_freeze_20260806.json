@@ -2,7 +2,7 @@
   "schema_version": "autoplanner_retrostar190_w8_freeze.v1",
   "freeze_id": "retrostar190-w8-four-arm-20260806",
   "created_on": "2026-08-06",
-  "status": "four_arm_preflight_passed_formal_runs_not_started",
+  "status": "four_arm_preflight_passed_unified_adaptive_formal_run_active",
   "runtime_source": {
     "branch": "agent/unify-workspace-entrypoints",
     "commit": "c608f6f8cb06d5225c3358b2da9b6c5edf51cca3",
@@ -107,6 +107,20 @@
     "bootstrap_replicates": 5000,
     "complete_case_pairing_only": true,
     "failed_and_incomplete_cases_remain_in_full_panel_denominator": true
+  },
+  "formal_run": {
+    "root": "results/.autoplanner/retrostar190-w8-formal-20260806-a",
+    "active_arm": "unified-adaptive",
+    "status": "running",
+    "target_count": 190,
+    "panel_workers": 1,
+    "snapshot_content_sha256": "4599590aabda600a1bda948d1cc2ae1aa13ef1eea3fd45c8d3fb86de23f329de",
+    "snapshot_file_sha256": "9f6a61a88121dc5265d9fd45e30c2d5afb6694910c42370f7034c17e5ee5a80a",
+    "remaining_arms_start_after_active_arm": [
+      "chemenzy-only",
+      "codex-only",
+      "unified-round-robin"
+    ]
   },
   "constraints": {
     "target_grouping": false,

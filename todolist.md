@@ -1,7 +1,7 @@
 # AutoPlanner V4 统一 Anytime 架构优化 TODO
 
 更新日期：2026-08-06
-状态：实施中；W1–W7 已完成，W8 四臂实现与 760/760 preflight 已完成，等待正式全量运行
+状态：实施中；W1–W7 已完成，W8 四臂实现与 760/760 preflight 已完成，`unified-adaptive` 正式全 190 正在运行
 适用范围：Canonical V4 主线、目标求解入口、ChemEnzy/Codex/文献/验证/Program 协同、RetroStar-190 评测
 
 计划口径：
