@@ -1,7 +1,7 @@
 # Unified Anytime RetroStar-190 Protocol
 
 日期：2026-08-06  
-状态：W8 四臂冻结协议已完成；`-d` fresh preflight 已通过 760/760；`-e` 首例暴露预算终态后的遗留 loop 外任务预留并已停止排除；边界修复已冻结，下一次正式运行从全新根 `-f` 启动。
+状态：W8 四臂冻结协议已完成；`-d` fresh preflight 已通过 760/760；`-e` 的 post-loop 任务预留崩溃已修复；`-f` 真实验证正常生成两份 256-task 报告，但发现 late-cap closeout 分类不一致并已停止排除；下一次正式运行从全新根 `-g` 启动。
 
 机器可读冻结清单：`benchmarks/retrostar190_w8_freeze_20260806.json`。
 
@@ -118,3 +118,7 @@ Case 019 第三次复现同一异常：elapsed 929.593 s，settled tasks 256/256
 `-e` 在首个 adaptive case 运行 493.109 s 后停止并永久排除：settled tasks 达到 256/256，任务分解为 model 1、other 140、proposal 62、stock 4、validation 49；native search 仍严格为 target 1 + frontier 5。问题不是 ChemEnzy、模型或科学门，而是上一版修复只让 `run_anytime()` 返回正常 `budget_exhausted`，没有在返回前把 RunKernel 持久化为终态；随后遗留的 loop 外 `discover_director_source_hints()` 尝试预留 evidence task，再次抛出 `run_total_task_budget_exhausted`，因此没有生成 solve report。第二个在途 case 随 orchestrator 一并停止，不恢复、不计分，全部目录保留审计。
 
 提交 `13ec14e` 封住该边界：全局总任务或 wall-time 预算耗尽时，anytime runtime 在返回前持久化 RunKernel `budget_exhausted`；service 在该终态下不执行、不预留任何新 worker command，也不消耗 command idempotency key；已有 canonical state、B0–B5 投影和 `budget_exhausted` closeout 仍可生成。非全局预算错误继续抛出，`max_total_tasks=256`、native 1+5、scheduler、模型和 B2/B3/B5 门均未改变。真实 source-hints 复现栈与 closeout 聚焦回归共 2 passed。新正式根为 `results/.autoplanner/retrostar190-w8-formal-20260806-f`，不从 `-e` resume，仍按四臂固定顺序串行执行。
+
+`-f` 前 5 个 adaptive case 均正常 completed、0 CLI failed，证明 post-loop 崩溃已消除；Cases 004 与 005 都精确达到 256/256 tasks、kernel/stop decision 均为 `budget_exhausted`、native search 均为 target 1 + frontier 5，并都生成完整 B0–B5 报告。Case 004 为 B1/B2/B4=true，Case 005 为 B1/B4=true、B2=false；未放宽任何科学门。
+
+但 Case 004 同时暴露更窄的报告一致性问题：它在 anytime 返回后的投影阶段才达到 256 tasks，最终 stop decision 为 `budget_exhausted`，而 canonical closeout 仍写成 `unresolved`；Case 005 在 anytime 内达到上限，closeout 正确写成 `budget_exhausted`。该差异会污染 failure taxonomy，故 `-f` 在 5 completed、0 failed 后停止并永久排除；第六个在途 case 不恢复、不计分。提交 `896ab1b` 让 service 在 post-loop 派发 worker 前根据当前总任务/wall-time 计数终态化，并让 provisional/final closeout 都读取调用时的真实全局计数。聚焦回归仍为 2 passed；新正式根固定为 `results/.autoplanner/retrostar190-w8-formal-20260806-g`。

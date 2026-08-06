@@ -505,10 +505,12 @@
     },
     "next_formal_run": {
       "root": "results/.autoplanner/retrostar190-w8-formal-20260806-f",
-      "status": "pending_fresh_start",
+      "status": "aborted_ineligible_late_budget_closeout_misclassified",
+      "result_eligible": false,
       "resume_from_e": false,
       "fresh_root_required": true,
       "implementation_commit": "13ec14ec07926ed8ef5bdc098f14ae6bedbd5236",
+      "launch_commit": "156ac787ba37075fdaf6bca053fa4eb55c54f00c",
       "parallel_arms": 1,
       "arm_order": [
         "unified-adaptive",
@@ -538,6 +540,73 @@
         "non_global_budget_errors_still_raise": true,
         "task_budget_limits_changed": false,
         "scheduler_or_scientific_gates_changed": false
+      },
+      "observed_result": {
+        "processed_case_count": 5,
+        "completed_case_count": 5,
+        "failed_case_count": 0,
+        "in_flight_case_aborted_count": 1,
+        "budget_terminal_report_count": 2,
+        "native_search_budget_violation_count": 0,
+        "cases": {
+          "retrostar190-004-2922a9a16f": {
+            "elapsed_s": 917.359,
+            "report_sha256": "d8118e472083578f357238904c6975bdef4523e46292d0c63f67abaa28de49e7",
+            "settled_tasks": 256,
+            "kernel_status": "budget_exhausted",
+            "stop_decision": "budget_exhausted",
+            "canonical_closeout_decision": "unresolved",
+            "B1": true,
+            "B2": true,
+            "B4": true
+          },
+          "retrostar190-005-354afd9b42": {
+            "elapsed_s": 831.266,
+            "report_sha256": "e650dee64770982c67021cd9f1c0739c135fd8f55df281d8284d9effe46100d0",
+            "settled_tasks": 256,
+            "kernel_status": "budget_exhausted",
+            "stop_decision": "budget_exhausted",
+            "canonical_closeout_decision": "budget_exhausted",
+            "B1": true,
+            "B2": false,
+            "B4": true
+          }
+        },
+        "root_cause": "closeout_used_the_anytime_return_flag_only_and_missed_a_global_cap_reached_during_later_projection_work"
+      }
+    },
+    "next_formal_run_after_late_closeout_fix": {
+      "root": "results/.autoplanner/retrostar190-w8-formal-20260806-g",
+      "status": "pending_fresh_start",
+      "resume_from_f": false,
+      "fresh_root_required": true,
+      "implementation_commit": "896ab1b0efd43fe1aca6a8aea5e846063cf7f5b3",
+      "parallel_arms": 1,
+      "arm_order": [
+        "unified-adaptive",
+        "chemenzy-only",
+        "codex-only",
+        "unified-round-robin"
+      ],
+      "fix_scope": "terminalize_a_global_cap_before_post_loop_worker_dispatch_and_classify_each_closeout_from_current_kernel_counters",
+      "focused_verification": {
+        "passed": 2,
+        "tests": [
+          "test_anytime_loop_treats_total_task_budget_as_normal_terminal",
+          "test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection"
+        ]
+      },
+      "critical_file_sha256": {
+        "cascade_planner/orchestration/retrosynthesis_service.py": "f2444ba972d05e5e103fb9ba5f7f2562c6316e452992796bd807f8ef3c3022f1",
+        "cascade_planner/interfaces/target_solver.py": "c0b26ae4713e3ca940b8aec8db96ea2fdb3cf9ddd3eb2b9c211c438fbb0dd4a6",
+        "tests/test_unified_campaign_runtime.py": "48a5bdaf02c0b3e3842dfb48b6bc0bb679c42ee47fd970dcf89a6cd5faa8279c"
+      },
+      "semantics": {
+        "late_global_cap_terminalized_before_worker_dispatch": true,
+        "provisional_and_final_closeout_read_current_global_counters": true,
+        "B0_through_B5_preserved": true,
+        "task_budget_limits_changed": false,
+        "scheduler_or_scientific_gates_changed": false
       }
     }
   },
@@ -547,6 +616,7 @@
     "aborted_budget_audit_run_included_in_results": false,
     "aborted_formal_b_included_in_results": false,
     "aborted_formal_e_included_in_results": false,
+    "aborted_formal_f_included_in_results": false,
     "reference_routes_visible_to_planner": false,
     "B2_B3_B5_redefine_B4": false,
     "remote_model_weights_bitwise_frozen": false,

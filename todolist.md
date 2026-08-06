@@ -1,7 +1,7 @@
 # AutoPlanner V4 统一 Anytime 架构优化 TODO
 
 更新日期：2026-08-06
-状态：实施中；W1–W7 已完成；`-d` fresh preflight 已通过 760/760；`-e` 首例暴露预算终态后的 loop 外任务预留并已停止排除；边界修复已通过聚焦回归，准备从全新根 `-f` 重启正式四臂运行
+状态：实施中；W1–W7 已完成；`-d` fresh preflight 已通过 760/760；`-e` 的 post-loop 崩溃已修复；`-f` 已正常生成两份 256-task 报告，但 late-cap closeout 分类不一致，已修复并准备从全新根 `-g` 重启
 适用范围：Canonical V4 主线、目标求解入口、ChemEnzy/Codex/文献/验证/Program 协同、RetroStar-190 评测
 
 计划口径：
@@ -91,7 +91,7 @@
 
 剩余工程净工时粗估为 **2–4 人日 + 外部运行时间**，全部集中在 W8 全量 190、全目标组件消融、paired metrics、失败分析与审稿材料。日历时间仍主要受 ChemEnzy/模型运行吞吐影响。
 
-当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 已实现四臂。`-d` 四臂 fresh preflight 已通过 760/760；manifest、stock 与 base environment hashes 跨臂一致，760 份 case receipt 全部绑定各自 panel snapshot，且无 provider/model 调用。`-e` 首例在 256/256 tasks 后由 loop 外 source-hints 任务预留再次抛出全局预算异常，证明上一修复尚未持久化 RunKernel 终态；该根已停止并排除。提交 `13ec14e` 现于 runtime 返回前持久化 `budget_exhausted`，service 终态拒绝新 worker command，同时保留 B0–B5/closeout；真实复现栈聚焦回归 2 passed。下一步从全新 `-f` 根串行重启四臂。
+当前验证证据：W1 合并验证 32 passed；W2 生产路径只剩一个 `run_anytime()` 调用；W3 以同 revision cohort 同时 reserve ChemEnzy 与 Codex，peer failure/replay 已验证；W4 新增 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`，统一走 validation resource/RunKernel 账本；W5 已验证 completed checkpoint 新反馈重开、route-family rebound 和 Program ID 对 operational revision 稳定。W6/W7 最终 Nirmatrelvir replay 为 0 新模型调用、ChemEnzy raw/normalized 39/39 parity、2 条 selected/materialized、1 条 stock closed，B4=true；Action 总量 95→64，其中 initial Director 32→1。W7 完整离线门已通过。W8 已实现四臂。`-d` 四臂 fresh preflight 已通过 760/760。`-e` 的 post-loop source-hints 崩溃已由 `13ec14e` 修复。`-f` 前 5 例为 5 completed、0 failed；Cases 004/005 均在 256/256 tasks 正常生成 B0–B5 报告，native 严格 1+5，证明崩溃已消除。但 Case 004 在 post-loop 才达到上限，stop decision 为 `budget_exhausted` 而 canonical closeout 为 `unresolved`，故 `-f` 停止排除。提交 `896ab1b` 现按 closeout 时真实总任务/wall-time 计数分类，并在晚达上限时先终态化再派发；聚焦回归 2 passed。下一步从全新 `-g` 根串行重启四臂。
 
 ## 1. 不可破坏的架构约束
 
@@ -573,4 +573,4 @@ W2 验收门：
 - [x] 第七刀（W3）：Codex initial architecture 与 target ChemEnzy 已通过同一 runtime 的同 revision cohort 非阻塞启动；RunKernel 持有 durable in-flight reservation，稳定观察与 cache replay 已验证。
 - [x] 第八刀（W4）：已注册 `PROGRAM_VALIDATE` 与 `EXPERIMENT_FEEDBACK_INGEST`；前者只形成待外部执行请求，后者复用现有 host gate/Claim store，默认不写 shadow 且不创建 canonical edge。
 - [x] 第九刀（W5）：抽离 `target_solver_compat`，统一旧 objective 展示、checkpoint cursor、外部反馈信号和 resume/trajectory 投影；新增 route-family rebound 与 scientific-content-bound Program ID，避免 operational revision 污染 Program 身份。
-- [ ] 第十刀（W6–W8）：W6 真实 embedded failure 已定位并修复；W7 冻结清单、完整离线门、190/190 preflight 与最终零模型回放均已完成；W8 的 `-d` 四臂 fresh preflight 已通过 760/760，`-e` 的 post-loop 预算终态逃逸已修复并排除，当前准备从全新 `-f` 根执行全量 190、全目标组件消融与审稿防御包。
+- [ ] 第十刀（W6–W8）：W6 真实 embedded failure 已定位并修复；W7 冻结清单、完整离线门、190/190 preflight 与最终零模型回放均已完成；W8 的 `-d` 四臂 fresh preflight 已通过 760/760，`-e` post-loop 崩溃与 `-f` late-cap closeout 分类均已修复并排除，当前准备从全新 `-g` 根执行全量 190、全目标组件消融与审稿防御包。
