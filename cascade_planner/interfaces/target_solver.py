@@ -78,6 +78,7 @@ from cascade_planner.interfaces.target_solver_stages import (
     enrich_materialized_edge_conditions,
     ingest_source_discovery_observation,
     materialize_discovered_source_routes,
+    project_existing_stock_audit,
     repair_rejected_precursor_typos,
     validate_materialized_edges,
 )
@@ -2489,7 +2490,10 @@ def solve_target(
         max_actions=4,
     )
     stock_stage = _aggregate_stock_action_results(
-        stock_executions
+        stock_executions,
+        graph=service.graph_store.load(),
+        required_boundary=resolved_acceptance.stock_boundary,
+        max_molecules=active.max_live_stock_molecules,
     )
     stages.append(_stage("stock", stock_stage["status"], stock_stage))
 
@@ -2575,7 +2579,10 @@ def solve_target(
             max_actions=4,
         )
         recovery_stock = _aggregate_stock_action_results(
-            recovery_stock_executions
+            recovery_stock_executions,
+            graph=service.graph_store.load(),
+            required_boundary=resolved_acceptance.stock_boundary,
+            max_molecules=active.max_live_stock_molecules,
         )
         stages.append(_stage("recovery_stock", recovery_stock["status"], recovery_stock))
         stock_stage = recovery_stock
@@ -2910,7 +2917,10 @@ def solve_target(
                 max_actions=4,
             )
             stock_stage = _aggregate_stock_action_results(
-                replan_stock_executions
+                replan_stock_executions,
+                graph=service.graph_store.load(),
+                required_boundary=resolved_acceptance.stock_boundary,
+                max_molecules=active.max_live_stock_molecules,
             )
             stages.append(_stage("replan_stock", stock_stage["status"], stock_stage))
         retention_audit = _replan_retention_audit(
@@ -3102,7 +3112,10 @@ def solve_target(
                 "program_stock",
                 stock_action_runtime,
                 max_actions=4,
-            )
+            ),
+            graph=service.graph_store.load(),
+            required_boundary=resolved_acceptance.stock_boundary,
+            max_molecules=active.max_live_stock_molecules,
         )
         stages.append(
             _stage("program_stock", program_stock["status"], program_stock)
@@ -3779,11 +3792,58 @@ def _scope_validation_summary(
 
 def _aggregate_stock_action_results(
     executions: Iterable[Mapping[str, Any]],
+    *,
+    graph: Mapping[str, Any] | None = None,
+    required_boundary: str = "",
+    max_molecules: int = 24,
 ) -> dict[str, Any]:
     results = _campaign_action_handler_results(
         executions,
         kind=CampaignActionKind.STOCK_AUDIT,
     )
+    projection = (
+        project_existing_stock_audit(
+            graph,
+            required_boundary=required_boundary,
+            max_molecules=max_molecules,
+        )
+        if graph is not None and required_boundary
+        else {}
+    )
+    if projection.get("status") == "reused":
+        executed_command_count = sum(
+            int(dict(result.get("execution") or {}).get("executed_command_count") or 0)
+            for result in results
+        )
+        best_result = max(
+            results,
+            key=lambda result: (
+                int(result.get("selected_leaf_count") or 0),
+                int(result.get("selected_stock_candidate_count") or 0),
+                int(result.get("stock_closed_leaf_count") or 0),
+            ),
+            default={},
+        )
+        status = "reused"
+        if executed_command_count:
+            status = (
+                "completed"
+                if int(projection.get("stock_closed_candidate_count") or 0)
+                == int(projection.get("selected_stock_candidate_count") or 0)
+                else "partial"
+            )
+        return {
+            **best_result,
+            **projection,
+            "status": status,
+            "action_execution_count": len(results),
+            "execution": {"executed_command_count": executed_command_count},
+            "semantics": {
+                **dict(best_result.get("semantics") or {}),
+                **dict(projection.get("semantics") or {}),
+                "scheduler_owned_execution": True,
+            },
+        }
     if not results:
         return {
             "stage": "stock",

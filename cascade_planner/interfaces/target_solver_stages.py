@@ -953,17 +953,6 @@ def audit_live_benchmark_stock(
             "reason": "selected_route_leaves_missing",
             "execution": {"executed_command_count": 0},
         }
-    if selection["limit_exceeded"]:
-        return {
-            "stage": "benchmark_stock",
-            "status": "unresolved",
-            "selected_leaf_count": len(leaf_ids),
-            "selected_stock_candidate_count": 0,
-            "internal_stock_candidate_count": 0,
-            "reason": "selected_leaf_count_exceeds_stock_audit_limit",
-            "max_molecules": max_molecules,
-            "execution": {"executed_command_count": 0},
-        }
     pending_candidate_ids = [
         molecule_id
         for molecule_id in candidate_ids
@@ -974,38 +963,18 @@ def audit_live_benchmark_stock(
         )
     ]
     if candidate_ids and not pending_candidate_ids:
-        closed_leaf_count = sum(
-            _has_boundary_observation(
-                graph,
-                molecule_id,
-                required="benchmark_search",
-            )
-            for molecule_id in leaf_ids
+        return project_existing_stock_audit(
+            graph,
+            required_boundary="benchmark_search",
+            max_molecules=max_molecules,
         )
-        closed_candidate_count = sum(
-            _has_boundary_observation(
-                graph,
-                molecule_id,
-                required="benchmark_search",
-            )
-            for molecule_id in candidate_ids
-        )
-        return {
-            "stage": "benchmark_stock",
-            "status": "reused",
-            "selected_leaf_count": len(leaf_ids),
-            "selected_stock_candidate_count": len(candidate_ids),
-            "internal_stock_candidate_count": selection[
-                "internal_stock_candidate_count"
-            ],
-            "stock_closed_leaf_count": closed_leaf_count,
-            "stock_closed_candidate_count": closed_candidate_count,
-            "miss_count": len(candidate_ids) - closed_candidate_count,
-            "execution": {"executed_command_count": 0},
-        }
+    query_candidate_ids = pending_candidate_ids[:max_molecules]
+    remaining_pending_count = max(
+        0, len(pending_candidate_ids) - len(query_candidate_ids)
+    )
     candidate_smiles = [
         graph["molecules"][molecule_id]["canonical_smiles"]
-        for molecule_id in pending_candidate_ids
+        for molecule_id in query_candidate_ids
     ]
     builder = catalog_builder or build_pubchem_vendor_catalog
     catalog = dict(builder(candidate_smiles, max_molecules=max_molecules))
@@ -1030,14 +999,17 @@ def audit_live_benchmark_stock(
                             "leaf_id": molecule_id,
                             "smiles": graph["molecules"][molecule_id]["canonical_smiles"],
                         }
-                        for molecule_id in pending_candidate_ids
+                        for molecule_id in query_candidate_ids
                     ],
                     "catalog_artifact_sha256": ref["sha256"],
                     "as_of": timestamp,
                     "max_age_days": 30,
                 },
                 task_kind="stock",
-                suffix="live-benchmark-leaves",
+                suffix=(
+                    "live-benchmark-leaves-"
+                    + _stable_digest(query_candidate_ids)[:20]
+                ),
                 artifact_refs=(ref,),
             ),
         ),
@@ -1064,12 +1036,15 @@ def audit_live_benchmark_stock(
         "stage": "benchmark_stock",
         "status": (
             "completed"
-            if closed_candidate_count == len(candidate_ids)
+            if not remaining_pending_count
+            and closed_candidate_count == len(candidate_ids)
             else "partial"
         ),
         "selected_leaf_count": len(leaf_ids),
         "selected_stock_candidate_count": len(candidate_ids),
-        "newly_queried_candidate_count": len(pending_candidate_ids),
+        "newly_queried_candidate_count": len(query_candidate_ids),
+        "remaining_pending_candidate_count": remaining_pending_count,
+        "audit_batch_limit": max_molecules,
         "internal_stock_candidate_count": selection[
             "internal_stock_candidate_count"
         ],
@@ -1089,6 +1064,11 @@ def audit_live_benchmark_stock(
         "stock_closed_candidate_count": closed_candidate_count,
         "miss_count": len(candidate_ids) - closed_candidate_count,
         "execution": execution,
+        "semantics": {
+            "stock_limit_is_per_action_batch_not_global_route_rejection": True,
+            "mandatory_leaves_are_audited_incrementally": True,
+            "missing_membership_fails_closed": True,
+        },
     }
 
 
@@ -1117,58 +1097,30 @@ def audit_authoritative_inventory_stock(
             "selected_leaf_count": 0,
             "execution": {"executed_command_count": 0},
         }
-    if selection["limit_exceeded"]:
-        return {
-            "stage": "authoritative_inventory_stock",
-            "status": "unresolved",
-            "reason": "selected_leaf_count_exceeds_inventory_audit_limit",
-            "selected_leaf_count": len(leaf_ids),
-            "selected_stock_candidate_count": 0,
-            "internal_stock_candidate_count": 0,
-            "max_molecules": max_molecules,
-            "execution": {"executed_command_count": 0},
-        }
-    if all(
-        _has_recent_boundary_audit(
+    pending_candidate_ids = [
+        molecule_id
+        for molecule_id in candidate_ids
+        if not _has_recent_boundary_audit(
             graph,
             molecule_id,
             required=required_boundary,
             max_age_days=max_age_days,
         )
-        for molecule_id in candidate_ids
-    ):
-        closed_leaf_count = sum(
-            _has_boundary_observation(
-                graph,
-                molecule_id,
-                required=required_boundary,
-            )
-            for molecule_id in leaf_ids
+    ]
+    if candidate_ids and not pending_candidate_ids:
+        return project_existing_stock_audit(
+            graph,
+            required_boundary=required_boundary,
+            max_molecules=max_molecules,
+            max_age_days=max_age_days,
         )
-        closed_candidate_count = sum(
-            _has_boundary_observation(
-                graph,
-                molecule_id,
-                required=required_boundary,
-            )
-            for molecule_id in candidate_ids
-        )
-        return {
-            "stage": "authoritative_inventory_stock",
-            "status": "reused",
-            "selected_leaf_count": len(leaf_ids),
-            "selected_stock_candidate_count": len(candidate_ids),
-            "internal_stock_candidate_count": selection[
-                "internal_stock_candidate_count"
-            ],
-            "stock_closed_leaf_count": closed_leaf_count,
-            "stock_closed_candidate_count": closed_candidate_count,
-            "miss_count": len(candidate_ids) - closed_candidate_count,
-            "execution": {"executed_command_count": 0},
-        }
+    query_candidate_ids = pending_candidate_ids[:max_molecules]
+    remaining_pending_count = max(
+        0, len(pending_candidate_ids) - len(query_candidate_ids)
+    )
     candidate_smiles = [
         graph["molecules"][molecule_id]["canonical_smiles"]
-        for molecule_id in candidate_ids
+        for molecule_id in query_candidate_ids
     ]
     inventory = dict(
         inventory_builder(
@@ -1196,7 +1148,7 @@ def audit_authoritative_inventory_stock(
                             "leaf_id": molecule_id,
                             "smiles": graph["molecules"][molecule_id]["canonical_smiles"],
                         }
-                        for molecule_id in candidate_ids
+                        for molecule_id in query_candidate_ids
                     ],
                     "inventory_artifact_sha256": ref["sha256"],
                     "as_of": timestamp,
@@ -1225,7 +1177,8 @@ def audit_authoritative_inventory_stock(
         "stage": "authoritative_inventory_stock",
         "status": (
             "completed"
-            if closed_leaf_count == len(leaf_ids)
+            if not remaining_pending_count
+            and closed_leaf_count == len(leaf_ids)
             else "partial"
         ),
         "selected_leaf_count": len(leaf_ids),
@@ -1233,6 +1186,9 @@ def audit_authoritative_inventory_stock(
         "internal_stock_candidate_count": selection[
             "internal_stock_candidate_count"
         ],
+        "newly_queried_candidate_count": len(query_candidate_ids),
+        "remaining_pending_candidate_count": remaining_pending_count,
+        "audit_batch_limit": max_molecules,
         "stock_closed_leaf_count": closed_leaf_count,
         "stock_closed_candidate_count": closed_candidate_count,
         "inventory_ref": ref,
@@ -1248,6 +1204,7 @@ def audit_authoritative_inventory_stock(
             "every_selected_leaf_is_audited": True,
             "internal_procurement_cut_points_are_audited": True,
             "missing_offer_fails_closed": True,
+            "inventory_limit_is_per_action_batch_not_global_route_rejection": True,
         },
     }
 
@@ -1278,13 +1235,6 @@ def _selected_stock_audit_molecules(
             if str(molecule_id)
         }
     )
-    if len(leaf_ids) > max_molecules:
-        return {
-            "leaf_molecule_ids": leaf_ids,
-            "stock_candidate_molecule_ids": [],
-            "internal_stock_candidate_count": 0,
-            "limit_exceeded": True,
-        }
     edge_ids = {
         str(edge_id)
         for route in selected_routes
@@ -1318,6 +1268,95 @@ def _selected_stock_audit_molecules(
         "stock_candidate_molecule_ids": leaf_ids + internal_ids,
         "internal_stock_candidate_count": len(internal_ids),
         "limit_exceeded": False,
+        "batching_required": len(leaf_ids) > max_molecules,
+        "audit_batch_limit": max_molecules,
+    }
+
+
+def project_existing_stock_audit(
+    graph: Mapping[str, Any],
+    *,
+    required_boundary: str,
+    max_molecules: int = 24,
+    max_age_days: float = 30.0,
+) -> dict[str, Any]:
+    """Project the authoritative stock state without invoking an adapter.
+
+    The anytime scheduler may have completed stock work before the named
+    ``stock`` reporting stage, or a resumed terminal run may have no executable
+    stock deficit at all.  In both cases the canonical graph, rather than the
+    last scheduled action result, is the reporting authority.
+    """
+
+    stage = (
+        "benchmark_stock"
+        if required_boundary == "benchmark_search"
+        else "authoritative_inventory_stock"
+    )
+    selection = _selected_stock_audit_molecules(
+        graph,
+        max_molecules=max_molecules,
+    )
+    leaf_ids = selection["leaf_molecule_ids"]
+    candidate_ids = selection["stock_candidate_molecule_ids"]
+    if not leaf_ids:
+        return {
+            "stage": stage,
+            "status": "unresolved",
+            "reason": "selected_route_leaves_missing",
+            "selected_leaf_count": 0,
+            "execution": {"executed_command_count": 0},
+        }
+    pending_candidate_ids = [
+        molecule_id
+        for molecule_id in candidate_ids
+        if not _has_recent_boundary_audit(
+            graph,
+            molecule_id,
+            required=required_boundary,
+            max_age_days=max_age_days,
+        )
+    ]
+    closed_leaf_count = sum(
+        _has_boundary_observation(
+            graph,
+            molecule_id,
+            required=required_boundary,
+        )
+        for molecule_id in leaf_ids
+    )
+    closed_candidate_count = sum(
+        _has_boundary_observation(
+            graph,
+            molecule_id,
+            required=required_boundary,
+        )
+        for molecule_id in candidate_ids
+    )
+    return {
+        "stage": stage,
+        "status": (
+            "reused"
+            if not pending_candidate_ids
+            else "partial"
+            if len(pending_candidate_ids) < len(candidate_ids)
+            else "unresolved"
+        ),
+        "selected_leaf_count": len(leaf_ids),
+        "selected_stock_candidate_count": len(candidate_ids),
+        "internal_stock_candidate_count": selection[
+            "internal_stock_candidate_count"
+        ],
+        "stock_closed_leaf_count": closed_leaf_count,
+        "stock_closed_candidate_count": closed_candidate_count,
+        "miss_count": len(candidate_ids) - closed_candidate_count,
+        "remaining_pending_candidate_count": len(pending_candidate_ids),
+        "audit_batch_limit": max_molecules,
+        "execution": {"executed_command_count": 0},
+        "semantics": {
+            "canonical_graph_is_stock_reporting_authority": True,
+            "stock_limit_is_per_action_batch_not_global_route_rejection": True,
+        },
     }
 
 
@@ -1422,6 +1461,7 @@ __all__ = [
     "discover_director_source_hints",
     "enrich_materialized_edge_conditions",
     "ingest_source_discovery_observation",
+    "project_existing_stock_audit",
     "repair_rejected_precursor_typos",
     "validate_materialized_edges",
 ]

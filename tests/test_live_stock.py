@@ -11,6 +11,9 @@ from cascade_planner.interfaces.live_stock import (
     build_pubchem_vendor_catalog,
     load_versioned_inventory_snapshot,
 )
+from cascade_planner.interfaces.target_solver_stages import (
+    _selected_stock_audit_molecules,
+)
 
 
 def _requester(
@@ -131,3 +134,30 @@ def test_frozen_benchmark_stock_index_is_hashed_read_only_membership(
     assert len(catalog["members"][0]["membership_proof_sha256"]) == 64
     assert [row["canonical_smiles"] for row in catalog["misses"]] == ["CCN"]
     assert catalog["semantics"]["not_a_reaction_or_route_provider"] is True
+
+
+def test_selected_stock_leaves_above_one_batch_are_not_globally_rejected() -> None:
+    leaf_ids = [f"molecule:{index:02d}" for index in range(25)]
+    graph = {
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            molecule_id: {"canonical_smiles": f"C{'C' * index}"}
+            for index, molecule_id in enumerate(leaf_ids, start=1)
+        },
+        "edges": {},
+        "route_families": {
+            "route-family:test": {
+                "selected": True,
+                "leaf_molecule_ids": leaf_ids,
+                "edge_ids": [],
+            }
+        },
+    }
+
+    selection = _selected_stock_audit_molecules(graph, max_molecules=24)
+
+    assert selection["limit_exceeded"] is False
+    assert selection["batching_required"] is True
+    assert selection["audit_batch_limit"] == 24
+    assert selection["leaf_molecule_ids"] == leaf_ids
+    assert selection["stock_candidate_molecule_ids"] == leaf_ids

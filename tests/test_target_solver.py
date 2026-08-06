@@ -1517,11 +1517,16 @@ def test_resume_reuses_fresh_negative_stock_audits_without_spending_attempts(
 
     assert first["gates"]["gates"]["B4_stock_boundary"] is False
     assert resumed["attempt_count"] == first["attempt_count"]
-    assert any(
-        stage["stage"] == "stock"
-        and stage["detail"].get("status") == "reused"
-        and stage["detail"].get("miss_count") == 1
-        for stage in resumed["stages"]
+    stock_stage = next(
+        stage for stage in resumed["stages"] if stage["stage"] == "stock"
+    )
+    stock_detail = stock_stage["detail"]
+    assert stock_detail["status"] == "reused"
+    assert stock_detail["remaining_pending_candidate_count"] == 0
+    assert stock_detail["miss_count"] > 0
+    assert stock_detail["miss_count"] == (
+        stock_detail["selected_stock_candidate_count"]
+        - stock_detail["stock_closed_candidate_count"]
     )
 def test_target_solver_ingests_connector_rows_before_stock_and_closeout(
     tmp_path: Path,
@@ -2257,6 +2262,7 @@ def test_target_solver_can_close_procurement_from_frozen_supplier_snapshot(
             use_coordinator=False,
             enable_web_search=False,
             enable_replan=False,
+            max_live_stock_molecules=2,
         ),
         director_runner=_runner,
         atom_mapper=_mapper,
@@ -2267,6 +2273,7 @@ def test_target_solver_can_close_procurement_from_frozen_supplier_snapshot(
     assert result["gates"]["gates"]["B5_configured_portfolio_acceptance"] is True
     assert result["claim"]["procurement_ready"] is True
     stock_stage = next(stage for stage in result["stages"] if stage["stage"] == "stock")
+    assert stock_stage["detail"]["audit_batch_limit"] == 2
     assert stock_stage["detail"]["stock_closed_leaf_count"] == 4
 
 
