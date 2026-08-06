@@ -10,6 +10,7 @@ from typing import Any, Callable, Iterable, Mapping
 from cascade_planner.application.canonical_hypergraph import (
     CanonicalIngestionBatch,
 )
+from cascade_planner.application.canonical_identity import hypothesis_identity
 from cascade_planner.application.condition_predictions import (
     edge_has_complete_source_procedure,
     edge_has_usable_condition_prediction,
@@ -850,12 +851,47 @@ def materialize_discovered_source_routes(
     observation_identity = _stable_digest(
         sorted(str(row.get("content_sha256") or "") for row in observations)
     )
-    family_ingestion = service.apply_batch(
-        CanonicalIngestionBatch(
-            route_families=tuple(route_families.values()),
-            hypotheses=tuple(hypotheses),
-        ),
-        idempotency_key=f"source-route-families:{observation_identity}",
+    graph_before_ingestion = service.graph_store.load()
+    expected_hypothesis_ids = {
+        hypothesis_id
+        for row in hypotheses
+        if (
+            hypothesis_id := hypothesis_identity(
+                row.get("product_smiles"),
+                row.get("precursor_smiles") or [],
+            )[0]
+        )
+    }
+    existing_route_aliases = {
+        str(alias)
+        for route in dict(graph_before_ingestion.get("route_families") or {}).values()
+        if isinstance(route, Mapping)
+        for alias in route.get("aliases") or []
+        if str(alias)
+    }
+    source_route_already_ingested = bool(
+        expected_hypothesis_ids
+        and expected_hypothesis_ids.issubset(
+            dict(graph_before_ingestion.get("hypotheses") or {})
+        )
+        and set(route_families).issubset(existing_route_aliases)
+    )
+    family_ingestion = (
+        {
+            "changed": False,
+            "reused": True,
+            "graph": graph_before_ingestion,
+            "graph_ref": {},
+            "rejected": [],
+        }
+        if source_route_already_ingested
+        else service.apply_batch(
+            CanonicalIngestionBatch(
+                route_families=tuple(route_families.values()),
+                hypotheses=tuple(hypotheses),
+            ),
+            idempotency_key=f"source-route-families:{observation_identity}",
+        )
     )
     graph = service.graph_store.load()
     commands = materialization_commands_for_proposals(
