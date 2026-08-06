@@ -394,6 +394,25 @@ class RetrosynthesisCampaignService:
     ) -> dict[str, Any]:
         command_rows = tuple(commands)
         state = self.kernel.state
+        limits = self.kernel.spec.limits
+        global_budget_reasons = []
+        if state.settled_task_count >= limits.max_total_tasks:
+            global_budget_reasons.append("run_total_task_budget_exhausted")
+        if state.task_wall_time_s >= limits.max_run_wall_time_s:
+            global_budget_reasons.append("run_wall_time_budget_exhausted")
+        if (
+            state.status == "running"
+            and global_budget_reasons
+        ):
+            self.kernel.transition(
+                "budget_exhausted",
+                idempotency_key=(
+                    "campaign-service:global-budget-terminal:"
+                    f"{state.revision}"
+                ),
+                reasons=global_budget_reasons,
+            )
+            state = self.kernel.state
         if state.status == "budget_exhausted":
             return {
                 "status": "budget_exhausted",
@@ -408,6 +427,7 @@ class RetrosynthesisCampaignService:
                 "material_events": [],
                 "semantics": {
                     "terminal_kernel_reserves_no_new_tasks": True,
+                    "reached_global_cap_is_terminalized_before_worker_dispatch": True,
                     "closeout_projection_remains_available": True,
                     "command_idempotency_keys_are_not_consumed": True,
                 },

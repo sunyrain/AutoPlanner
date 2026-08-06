@@ -413,6 +413,33 @@ def test_budget_terminal_blocks_post_loop_source_task_and_keeps_projection(
     assert closeout["portfolio"]["closeout"]["decision"] == "budget_exhausted"
     assert kernel.state.status == "budget_exhausted"
 
+    late_kernel = _kernel(tmp_path / "late", max_total_tasks=1)
+    late_kernel.reserve_task(
+        task_id="late-prefill",
+        kind="other",
+        idempotency_key="late-prefill:reserve",
+        input_revision=0,
+    )
+    late_kernel.settle_task(
+        task_id="late-prefill",
+        idempotency_key="late-prefill:settle",
+        status="completed",
+    )
+    late_service = RetrosynthesisCampaignService(late_kernel)
+    monkeypatch.setattr(late_service.workers, "execute", fail_if_executed)
+    late_blocked = late_service.execute_commands(
+        (command,),
+        idempotency_key="late-post-loop-source-batch",
+        include_scheduled=False,
+    )
+    assert late_blocked["status"] == "budget_exhausted"
+    assert late_blocked["executed_command_count"] == 0
+    assert late_kernel.state.status == "budget_exhausted"
+    assert late_kernel.state.failure_reasons == (
+        "run_total_task_budget_exhausted",
+    )
+    assert late_kernel.count_task_reservations(kind="evidence") == 0
+
 
 def test_same_revision_start_cohort_runs_peers_without_failure_cancellation(
     tmp_path: Path,
