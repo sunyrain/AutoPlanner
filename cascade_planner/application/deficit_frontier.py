@@ -167,12 +167,20 @@ def compile_deficit_frontier(
         else {str(value) for value in dirty_entity_ids if str(value)}
     )
     route_index = dict(dict(graph.get("dependency_index") or {}).get("routes_by_entity") or {})
+    route_families = dict(graph.get("route_families") or {})
     selected_routes = {
         route_id
-        for route_id, route in dict(graph.get("route_families") or {}).items()
+        for route_id, route in route_families.items()
         if isinstance(route, Mapping)
         and route.get("selected") is not False
         and route.get("status") != "dominated"
+    }
+    selected_leaf_ids = {
+        str(molecule_id)
+        for route_id, route in route_families.items()
+        if route_id in selected_routes and isinstance(route, Mapping)
+        for molecule_id in route.get("leaf_molecule_ids") or []
+        if str(molecule_id)
     }
 
     items: list[DeficitItem] = []
@@ -607,6 +615,13 @@ def compile_deficit_frontier(
         # of leaf status.  Stock closure, by contrast, remains leaf-only.
         if molecule.get("is_leaf") is not True:
             continue
+        # ``is_leaf`` also describes proposal-only and budget-truncated route
+        # topology.  The stock worker deliberately audits only the currently
+        # selected, materialized route boundary, so emitting actions for any
+        # other molecule creates deterministic no-op work that can starve
+        # materialization.  Keep the frontier and worker authority aligned.
+        if not selected or molecule_id not in selected_leaf_ids:
+            continue
         if active_stock_id and active_stock.get("accepted") is not True:
             items.append(
                 _item(
@@ -640,11 +655,7 @@ def compile_deficit_frontier(
                 route_family_ids=routes,
                 deterministic=True,
                 model_allowed=False,
-                reason=(
-                    "selected_leaf_requires_trusted_stock_audit"
-                    if selected
-                    else "reachable_leaf_requires_trusted_stock_audit"
-                ),
+                reason="selected_leaf_requires_trusted_stock_audit",
                 score=_score(
                     DeficitKind.STOCK,
                     selected=selected,

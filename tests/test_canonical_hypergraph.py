@@ -234,7 +234,12 @@ def test_rejected_stock_leaf_becomes_provider_expansion_deficit() -> None:
                 "stock:miss": {"accepted": False, "reasons": ["catalog_miss"]}
             },
             "route_families": {
-                "route:acyl": {"selected": True, "closed": False, "edge_ids": []}
+                "route:acyl": {
+                    "selected": True,
+                    "closed": False,
+                    "edge_ids": [],
+                    "leaf_molecule_ids": ["molecule:leaf"],
+                }
             },
             "dependency_index": {
                 "routes_by_entity": {"molecule:leaf": ["route:acyl"]}
@@ -246,13 +251,71 @@ def test_rejected_stock_leaf_becomes_provider_expansion_deficit() -> None:
     )
 
     expansion = next(
-        row for row in frontier["items"] if row["kind"] == "expansion"
+        row
+        for row in frontier["items"]
+        if row["kind"] == "expansion"
+        and row["metadata"].get("stock_observation_id") == "stock:miss"
     )
     assert expansion["model_allowed"] is True
     assert expansion["deterministic"] is False
     assert expansion["metadata"]["frontier_smiles"] == "CC(=O)Cl"
     assert expansion["metadata"]["provider_preferences"][0] == "chemenzy"
     assert frontier["summary"]["by_kind"]["stock"] == 0
+
+
+def test_stock_deficit_requires_current_selected_materialized_leaf_boundary() -> None:
+    graph = {
+        "scientific_sha256": "fixture",
+        "target_molecule_id": "molecule:target",
+        "molecules": {
+            "molecule:target": {
+                "canonical_smiles": "CCO",
+                "is_leaf": False,
+                "stock_closed": False,
+            },
+            "molecule:leaf": {
+                "canonical_smiles": "CC",
+                "is_leaf": True,
+                "stock_closed": False,
+            },
+        },
+        "stock_observations": {},
+        "route_families": {
+            "route:selected": {
+                "selected": True,
+                "closed": False,
+                "edge_ids": [],
+                "leaf_molecule_ids": [],
+            }
+        },
+        "dependency_index": {
+            "routes_by_entity": {
+                "molecule:leaf": ["route:selected"],
+                "hypothesis:one": ["route:selected"],
+            }
+        },
+        "edges": {},
+        "hypotheses": {
+            "hypothesis:one": {
+                "status": "frontier_candidate",
+            }
+        },
+        "conflicts": {},
+    }
+
+    proposal_only = compile_deficit_frontier(graph)
+    assert proposal_only["summary"]["by_kind"]["materialization"] == 1
+    assert proposal_only["summary"]["by_kind"]["stock"] == 0
+
+    graph["route_families"]["route:selected"]["leaf_molecule_ids"] = [
+        "molecule:leaf"
+    ]
+    materialized_boundary = compile_deficit_frontier(graph)
+    stock = next(
+        row for row in materialized_boundary["items"] if row["kind"] == "stock"
+    )
+    assert stock["object_id"] == "molecule:leaf"
+    assert stock["reason"] == "selected_leaf_requires_trusted_stock_audit"
 
 
 def test_discovered_source_lifecycle_becomes_evidence_deficit() -> None:

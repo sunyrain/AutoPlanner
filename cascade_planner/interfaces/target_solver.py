@@ -3832,7 +3832,7 @@ def _aggregate_stock_action_results(
                 == int(projection.get("selected_stock_candidate_count") or 0)
                 else "partial"
             )
-        return {
+        merged = {
             **best_result,
             **projection,
             "status": status,
@@ -3844,6 +3844,9 @@ def _aggregate_stock_action_results(
                 "scheduler_owned_execution": True,
             },
         }
+        if "reason" not in projection:
+            merged.pop("reason", None)
+        return merged
     if not results:
         return {
             "stage": "stock",

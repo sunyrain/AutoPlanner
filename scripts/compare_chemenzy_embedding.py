@@ -98,11 +98,25 @@ def compare_embedding(
         if row.get("host_portfolio_selected") is True
         and str(row.get("canonical_route_family_id") or "")
     } - {""}
-    materialized = {
+    partially_materialized = {
         str(row.get("normalized_route_sha256") or "")
         for row in final_rows
         if row.get("host_portfolio_selected") is True
         and row.get("canonical_edge_ids")
+    } - {""}
+    fully_materialized = {
+        str(row.get("normalized_route_sha256") or "")
+        for row in final_rows
+        if row.get("host_portfolio_selected") is True
+        and len(row.get("step_proposal_ids") or []) > 0
+        and len(row.get("canonical_edge_ids") or [])
+        >= len(row.get("step_proposal_ids") or [])
+    } - {""}
+    host_validated = {
+        str(row.get("normalized_route_sha256") or "")
+        for row in final_rows
+        if str(row.get("normalized_route_sha256") or "") in fully_materialized
+        and int(row.get("canonical_minimum_proof_level") or 0) >= 2
     } - {""}
     stock_closed = {
         str(row.get("normalized_route_sha256") or "")
@@ -131,10 +145,14 @@ def compare_embedding(
             first_loss = str(embedded.get("disposition") or "not_host_selected")
         elif digest not in canonical:
             first_loss = "canonical_route_family_missing"
-        elif digest not in materialized:
+        elif digest not in partially_materialized:
             first_loss = "canonical_hypothesis_not_materialized"
+        elif digest not in fully_materialized:
+            first_loss = "canonical_hypotheses_not_fully_materialized"
+        elif digest not in host_validated:
+            first_loss = "materialized_not_host_validated"
         elif digest not in stock_closed:
-            first_loss = "materialized_not_stock_closed"
+            first_loss = "host_validated_not_stock_closed"
         else:
             first_loss = "stock_closed"
         first_loss_counts[first_loss] += 1
@@ -148,6 +166,15 @@ def compare_embedding(
                 "canonical_edge_count": len(
                     projected.get("canonical_edge_ids") or []
                 ),
+                "expected_step_count": len(
+                    projected.get("step_proposal_ids") or []
+                ),
+                "canonical_hypothesis_count": len(
+                    projected.get("canonical_hypothesis_ids") or []
+                ),
+                "canonical_minimum_proof_level": int(
+                    projected.get("canonical_minimum_proof_level") or 0
+                ),
                 "canonical_stock_closure_rate": float(
                     projected.get("canonical_stock_closure_rate") or 0.0
                 ),
@@ -160,7 +187,7 @@ def compare_embedding(
     )
     normalized_multiset_equal = standalone_counter == embedded_counter
     return {
-        "schema_version": "chemenzy_embedding_comparison.v1",
+        "schema_version": "chemenzy_embedding_comparison.v2",
         "target_smiles": target_smiles,
         "standalone_raw_result_sha256": standalone_set["raw_result_sha256"],
         "embedded_raw_result_sha256": str(seed.get("raw_result_sha256") or ""),
@@ -171,7 +198,9 @@ def compare_embedding(
             "embedded_routes": sum(embedded_counter.values()),
             "host_selected_routes": len(selected),
             "canonical_route_families": len(canonical),
-            "materialized_routes": len(materialized),
+            "partially_materialized_routes": len(partially_materialized),
+            "fully_materialized_routes": len(fully_materialized),
+            "host_validated_routes": len(host_validated),
             "stock_closed_routes": len(stock_closed),
         },
         "standalone_only_normalized_route_sha256": _expanded_delta(
@@ -189,7 +218,7 @@ def compare_embedding(
         "semantics": {
             "comparison_is_route_digest_bound": True,
             "raw_parity_requires_identical_provider_payload": True,
-            "proof_and_stock_are_reported_after_proposal_parity": True,
+            "normalization_selection_materialization_validation_and_stock_are_separate": True,
         },
     }
 
