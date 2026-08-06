@@ -31,6 +31,9 @@ from cascade_planner.orchestration.global_campaign_director import (
     run_api_json_director_child,
     validate_global_campaign_plan,
 )
+from cascade_planner.orchestration.retrosynthesis_service import (
+    RetrosynthesisCampaignService,
+)
 from cascade_planner.runtime import AgentResult, AgentSpec, AgentState
 
 
@@ -405,6 +408,94 @@ def test_director_rejects_an_operationally_empty_reaction_step(
 
     assert step["accepted"] is False
     assert "condition_predictions_missing" in step["reasons"]
+
+
+def test_settled_initial_architecture_is_not_rescheduled_when_all_proposals_reject(
+    tmp_path: Path,
+) -> None:
+    kernel = _kernel(tmp_path)
+    calls: list[str] = []
+
+    def rejected_plan_runner(
+        spec: AgentSpec,
+        context: CampaignContext,
+        mode: str,
+        _config: DirectorConfig,
+    ) -> AgentResult:
+        raw = _plan(context)
+        for skeleton in raw["multi_step_skeletons"]:
+            for step in skeleton["steps"]:
+                step.pop("condition_predictions", None)
+        calls.append(mode)
+        return AgentResult(
+            run_id=spec.run_id,
+            agent_id=spec.agent_id,
+            parent_agent_id=spec.parent_agent_id,
+            attempt=spec.attempt,
+            idempotency_key=f"{spec.idempotency_key}:result",
+            context_hash=spec.context_hash,
+            capabilities=spec.capabilities,
+            write_scope=spec.write_scope,
+            budget=spec.budget,
+            state=AgentState.SUCCEEDED,
+            output=raw,
+            usage={"model_invocations": 1, "wall_time_s": 0.1},
+        )
+
+    service = RetrosynthesisCampaignService(
+        kernel,
+        director_runner=rejected_plan_runner,
+    )
+    outcome = service.run_global_director(
+        mode="initial_architecture",
+        idempotency_key="initial-all-rejected",
+    )
+    graph = service.graph_store.load()
+    target_id = str(graph["target_molecule_id"])
+
+    assert outcome.status == "accepted"
+    assert calls == ["initial_architecture"]
+    assert outcome.proposal_audits
+    assert all(row["accepted"] is False for row in outcome.proposal_audits)
+    assert graph["hypotheses"] == {}
+    settled = graph["action_signals"][
+        f"director-attempt:initial_architecture:{target_id}"
+    ]
+    assert settled["status"] == "resolved"
+    assert settled["metadata"]["host_admitted_proposal_count"] == 0
+    assert settled["metadata"]["host_rejected_proposal_count"] == len(
+        outcome.proposal_audits
+    )
+    assert all(
+        row["kind"] != "architecture"
+        for row in graph["deficit_frontier"]["items"]
+    )
+
+    service.publish_action_signals(
+        (
+            {
+                "signal_id": "event-deficit:replan:new-evidence",
+                "kind": "replan",
+                "status": "open",
+                "object_id": target_id,
+                "entity_ids": [target_id],
+                "route_family_ids": [],
+                "dependency_ids": [],
+                "deterministic": False,
+                "model_allowed": True,
+                "reason": "new_canonical_event_requires_replan",
+                "metadata": {"material_events": ["new_evidence"]},
+            },
+        ),
+        idempotency_key="publish-event-replan-after-settled-architecture",
+    )
+    revised = service.graph_store.load()
+    frontier_kinds = [
+        str(row.get("kind") or "")
+        for row in revised["deficit_frontier"]["items"]
+    ]
+    assert "architecture" not in frontier_kinds
+    assert "replan" in frontier_kinds
 
 
 def test_event_replan_without_material_change_is_ignored_without_model(

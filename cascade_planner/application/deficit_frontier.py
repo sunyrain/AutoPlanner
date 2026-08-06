@@ -208,6 +208,15 @@ def compile_deficit_frontier(
         for origin in hypothesis.get("origin_records") or []
         if isinstance(origin, Mapping)
     )
+    target_global_architecture_settled = any(
+        str(signal.get("kind") or "") == DeficitKind.ARCHITECTURE.value
+        and str(signal.get("status") or "") == "resolved"
+        and str(signal.get("object_id") or "") == target_molecule_id
+        and str(dict(signal.get("metadata") or {}).get("director_mode") or "")
+        == "initial_architecture"
+        for signal in dict(graph.get("action_signals") or {}).values()
+        if isinstance(signal, Mapping)
+    )
     if (
         target_molecule_id
         and target_molecule
@@ -243,7 +252,10 @@ def compile_deficit_frontier(
         target_molecule_id
         and target_molecule
         and affected(target_molecule_id)
-        and not target_global_architecture_observed
+        and not (
+            target_global_architecture_observed
+            or target_global_architecture_settled
+        )
     ):
         recomputed_entities.add(target_molecule_id)
         items.append(

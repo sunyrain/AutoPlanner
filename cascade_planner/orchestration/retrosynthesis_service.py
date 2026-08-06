@@ -207,7 +207,69 @@ class RetrosynthesisCampaignService:
                     else f"director_context:{outcome.context_sha256}"
                 ),
             )
+        if mode == "initial_architecture" and outcome.status in {
+            "accepted",
+            "budget_exhausted",
+        }:
+            self._record_settled_initial_architecture(
+                outcome,
+                idempotency_key=f"{idempotency_key}:settled",
+            )
         return outcome
+
+    def _record_settled_initial_architecture(
+        self,
+        outcome: DirectorOutcome,
+        *,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Persist a terminal initial-architecture attempt as operational state.
+
+        The record is deliberately separate from accepted chemistry hypotheses:
+        an accepted Director response may still have every proposal rejected by
+        host admission.  That is a settled attempt, not a reason to schedule the
+        same initial pass after every unrelated graph revision.
+        """
+
+        graph = self.graph_store.load()
+        target_id = str(graph.get("target_molecule_id") or "")
+        audits = [dict(row) for row in outcome.proposal_audits]
+        accepted_count = sum(row.get("accepted") is True for row in audits)
+        signal_id = f"director-attempt:initial_architecture:{target_id}"
+        return self.publish_action_signals(
+            (
+                {
+                    "signal_id": signal_id,
+                    "deficit_id": signal_id,
+                    "kind": "architecture",
+                    "status": "resolved",
+                    "object_id": target_id,
+                    "entity_ids": [target_id],
+                    "route_family_ids": [],
+                    "dependency_ids": [],
+                    "deterministic": False,
+                    "model_allowed": True,
+                    "reason": "initial_global_architecture_attempt_settled",
+                    "metadata": {
+                        "director_mode": "initial_architecture",
+                        "director_status": outcome.status,
+                        "context_sha256": outcome.context_sha256,
+                        "task_id": outcome.task_id,
+                        "invoked": outcome.invoked,
+                        "cache_hit": outcome.cache_hit,
+                        "proposal_audit_count": len(audits),
+                        "host_admitted_proposal_count": accepted_count,
+                        "host_rejected_proposal_count": len(audits) - accepted_count,
+                    },
+                    "resolution": {
+                        "status": outcome.status,
+                        "artifact_sha256": outcome.artifact_sha256,
+                        "reasons": list(outcome.reasons),
+                    },
+                },
+            ),
+            idempotency_key=idempotency_key,
+        )
 
     def compile_global_context(
         self,
