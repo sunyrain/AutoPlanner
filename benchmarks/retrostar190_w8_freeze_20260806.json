@@ -2,7 +2,7 @@
   "schema_version": "autoplanner_retrostar190_w8_freeze.v1",
   "freeze_id": "retrostar190-w8-four-arm-20260806",
   "created_on": "2026-08-06",
-  "status": "four_arm_preflight_passed_formal_adaptive_active_two_cases_complete",
+  "status": "four_arm_preflight_passed_formal_adaptive_active_four_cases_first_b4_failure_recorded",
   "runtime_source": {
     "branch": "agent/unify-workspace-entrypoints",
     "commit": "f607b75b6b59a7ba172a637559da61e0448ac18a",
@@ -139,7 +139,7 @@
       "unified-round-robin"
     ],
     "remaining_arms_are_automatically_sequenced": true,
-    "completed_case_count_at_checkpoint": 2,
+    "completed_case_count_at_checkpoint": 4,
     "first_completed_case": {
       "case_id": "retrostar190-001-ddec287bee",
       "report_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/runs/opaque benchmark target 001/target-only-solve-report.json",
@@ -202,6 +202,52 @@
         "input_tokens": 26079,
         "output_tokens": 6480,
         "wall_time_s": 133.391
+      }
+    },
+    "first_b4_failure": {
+      "case_id": "retrostar190-004-2922a9a16f",
+      "report_path": "results/.autoplanner/retrostar190-w8-formal-20260806-b/unified-adaptive/runs/opaque benchmark target 004/target-only-solve-report.json",
+      "report_sha256": "901eff96fdeb31fe88c976c8ea3759732a50959b763d22924ff5839208951763",
+      "elapsed_s": 629.593,
+      "failure_class": "stock_miss_after_host_validated_route",
+      "gates": {
+        "B0_blind_input": true,
+        "B1_global_multi_route": true,
+        "B2_host_validated_routes": true,
+        "B3_exact_multi_source": false,
+        "B4_stock_boundary": false,
+        "B5_configured_portfolio_acceptance": false
+      },
+      "route_counts": {
+        "target_rooted_distinct_skeletons": 4,
+        "materialized_skeletons": 4,
+        "reaction_validated_skeletons": 1,
+        "stock_closed_skeletons": 0
+      },
+      "provider_boundary": {
+        "seed_route_count": 1,
+        "seed_host_admitted_route_count": 1,
+        "total_proposal_count": 30,
+        "provider_invocation_count": 6,
+        "embedding_or_host_admission_loss": false
+      },
+      "guided_frontier_settlements": {
+        "total": 5,
+        "completed": 2,
+        "unresolved": 3,
+        "near_90_second_timeout": 2
+      },
+      "native_search": {
+        "target_settled": 1,
+        "frontier_settled": 5,
+        "hard_total": 6,
+        "hard_remaining": 0
+      },
+      "model_cost": {
+        "model_invocations": 1,
+        "input_tokens": 32224,
+        "output_tokens": 6835,
+        "wall_time_s": 142.313
       }
     }
   },

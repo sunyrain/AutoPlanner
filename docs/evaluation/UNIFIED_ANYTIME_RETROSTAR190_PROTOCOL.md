@@ -96,3 +96,5 @@ W8 只有在四臂均覆盖 190 个目标、所有失败保留、paired metrics 
 首个正式 adaptive case 已完成：499.391 s，B1=true、B2=true、B4=true，5 条 target-rooted/materialized skeleton、1 条 reaction-validated skeleton、1 条 stock-closed skeleton；native-search 精确结算为 target 1 + frontier 5，未越界。B3/B5 仍为 false，未放宽科学门。
 
 第二个正式 adaptive case 已完成：508.562 s，B1=true、B4=true，5 条 target-rooted/materialized skeleton、3 条 stock-closed skeleton；native-search 同样精确结算为 target 1 + frontier 5，模型调用为 1。B2/B3/B5 均为 false，结果按冻结门原样保留；报告 SHA-256 为 `6174538f19de97f0f422ac8d2eea34d992d7fa87868c7a74f707a22f57565fb3`。当前 target 003 已自动接棒。
+
+前四个正式 adaptive case 已完成，其中前三个 B4=true，第四个是首个 B4=false。Case 004 并非 provider 无候选或 embedded host 丢失：ChemEnzy seed 产出并被 host 接纳 1 条 route，最终保留 4 条 target-rooted/materialized skeleton，且 1 条达到 reaction-validated，但 0 条在冻结 eMolecules stock 中闭合。因此首损分类为 `stock_miss_after_host_validated_route`。其五次 guided frontier settlement 中 2 次 completed、3 次 unresolved，其中 2 次接近 90 s timeout；这些结果原样保留，不据此逐目标调参。报告 SHA-256 为 `901eff96fdeb31fe88c976c8ea3759732a50959b763d22924ff5839208951763`。当前 target 005 已自动接棒。
